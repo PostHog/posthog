@@ -7,11 +7,13 @@ use common_database::get_pool;
 use common_geoip::GeoIpClient;
 use common_redis::RedisClient;
 use health::{HealthHandle, HealthRegistry};
-use limiters::redis::{QuotaResource, RedisLimiter, ServiceName, QUOTA_LIMITER_CACHE_KEY};
+use limiters::redis::QUOTA_LIMITER_CACHE_KEY;
 use tokio::net::TcpListener;
 
+use crate::billing_limiters::{FeatureFlagsLimiter, SessionReplayLimiter};
 use crate::cohorts::cohort_cache_manager::CohortCacheManager;
 use crate::config::Config;
+use crate::db_monitor::DatabasePoolMonitor;
 use crate::router;
 use common_cookieless::CookielessManager;
 
@@ -19,20 +21,34 @@ pub async fn serve<F>(config: Config, listener: TcpListener, shutdown: F)
 where
     F: Future<Output = ()> + Send + 'static,
 {
-    let redis_client = match RedisClient::new(config.redis_url.clone()) {
-        Ok(client) => Arc::new(client),
-        Err(e) => {
-            tracing::error!(
-                "Failed to create Redis client for URL {}: {}",
-                config.redis_url,
-                e
-            );
-            return;
-        }
-    };
+    // Create separate Redis clients for reading and writing
+    // NB: if either of these URLs don't exist in the config, we default to the writer
+    let redis_reader_client =
+        match RedisClient::new(config.get_redis_reader_url().to_string()).await {
+            Ok(client) => Arc::new(client),
+            Err(e) => {
+                tracing::error!(
+                    "Failed to create Redis reader client for URL {}: {}",
+                    config.get_redis_reader_url(),
+                    e
+                );
+                return;
+            }
+        };
 
-    // TODO - we should have a dedicated URL for both this and the writer – the reader will read
-    // from the replica, and the writer will write to the main database.
+    let redis_writer_client =
+        match RedisClient::new(config.get_redis_writer_url().to_string()).await {
+            Ok(client) => Arc::new(client),
+            Err(e) => {
+                tracing::error!(
+                    "Failed to create Redis writer client for URL {}: {}",
+                    config.get_redis_writer_url(),
+                    e
+                );
+                return;
+            }
+        };
+
     let reader = match get_pool(&config.read_database_url, config.max_pg_connections).await {
         Ok(client) => {
             tracing::info!("Successfully created read Postgres client");
@@ -94,35 +110,53 @@ where
         .await;
     tokio::spawn(liveness_loop(simple_loop));
 
-    let billing_limiter = match RedisLimiter::new(
+    // Start database pool monitoring
+    let db_monitor = DatabasePoolMonitor::new(reader.clone(), writer.clone());
+    tokio::spawn(async move {
+        db_monitor.start_monitoring().await;
+    });
+
+    let feature_flags_billing_limiter = match FeatureFlagsLimiter::new(
         Duration::from_secs(5),
-        redis_client.clone(),
+        redis_reader_client.clone(), // NB: the limiter only reads from redis, so it's safe to just use the reader client
         QUOTA_LIMITER_CACHE_KEY.to_string(),
         None,
-        QuotaResource::FeatureFlags,
-        ServiceName::FeatureFlags,
     ) {
         Ok(limiter) => limiter,
         Err(e) => {
-            tracing::error!("Failed to create billing limiter: {}", e);
+            tracing::error!("Failed to create feature flags billing limiter: {}", e);
             return;
         }
     };
 
-    // You can decide which client to pass to the router, or pass both if needed
+    let session_replay_billing_limiter = match SessionReplayLimiter::new(
+        Duration::from_secs(5),
+        redis_reader_client.clone(), // NB: the limiter only reads from redis, so it's safe to just use the reader client
+        QUOTA_LIMITER_CACHE_KEY.to_string(),
+        None,
+    ) {
+        Ok(limiter) => limiter,
+        Err(e) => {
+            tracing::error!("Failed to create session replay billing limiter: {}", e);
+            return;
+        }
+    };
+
     let cookieless_manager = Arc::new(CookielessManager::new(
         config.get_cookieless_config(),
-        redis_client.clone(),
+        redis_reader_client.clone(), // NB: the cookieless manager only reads from redis, so it's safe to just use the reader client
     ));
 
     let app = router::router(
-        redis_client,
+        redis_reader_client,
+        redis_writer_client,
         reader,
         writer,
         cohort_cache,
         geoip_service,
         health,
-        billing_limiter,
+        feature_flags_billing_limiter,
+        session_replay_billing_limiter,
         cookieless_manager,
         config,
     );

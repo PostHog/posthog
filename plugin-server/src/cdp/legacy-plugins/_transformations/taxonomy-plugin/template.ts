@@ -12,7 +12,8 @@ export const taxonomyPlugin: LegacyTransformationPlugin = {
         description: 'Standardize your event names into a single pattern.',
         icon_url: 'https://raw.githubusercontent.com/posthog/taxonomy-plugin/main/logo.png',
         category: ['Transformation'],
-        hog: `return event`,
+        code_language: 'javascript',
+        code: `return event`,
         inputs_schema: [
             {
                 key: 'defaultNamingConvention',

@@ -31,6 +31,7 @@ pub async fn evaluate_feature_flags(
             context.group_property_overrides,
             context.hash_key_override,
             request_id,
+            context.flag_keys,
         )
         .await
 }

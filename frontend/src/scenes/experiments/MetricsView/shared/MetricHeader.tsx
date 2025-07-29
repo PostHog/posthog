@@ -3,9 +3,9 @@ import { LemonButton, LemonDialog, LemonTag } from '@posthog/lemon-ui'
 import { useActions } from 'kea'
 import { urls } from 'scenes/urls'
 
+import { EXPERIMENT_MAX_PRIMARY_METRICS, EXPERIMENT_MAX_SECONDARY_METRICS } from 'scenes/experiments/constants'
+import { modalsLogic } from 'scenes/experiments/modalsLogic'
 import type { ExperimentMetric } from '~/queries/schema/schema-general'
-
-import { experimentLogic } from '../../experimentLogic'
 import { MetricTitle } from './MetricTitle'
 import { getMetricTag } from './utils'
 
@@ -14,12 +14,14 @@ export const MetricHeader = ({
     metric,
     metricType,
     isPrimaryMetric,
+    canDuplicateMetric = true,
     onDuplicateMetricClick,
 }: {
     metricIndex: number
     metric: any
     metricType: any
     isPrimaryMetric: boolean
+    canDuplicateMetric?: boolean
     onDuplicateMetricClick: (metric: ExperimentMetric) => void
 }): JSX.Element => {
     /**
@@ -36,14 +38,14 @@ export const MetricHeader = ({
         openSecondaryMetricModal,
         openPrimarySharedMetricModal,
         openSecondarySharedMetricModal,
-    } = useActions(experimentLogic)
+    } = useActions(modalsLogic)
 
     return (
-        <div className="text-xs font-semibold whitespace-nowrap overflow-hidden">
+        <div className="text-xs font-semibold">
             <div className="deprecated-space-y-1">
                 <div className="flex items-center gap-2">
-                    <div className="@container cursor-default text-xs font-semibold whitespace-nowrap overflow-hidden text-ellipsis flex-grow flex items-start">
-                        <span className="mr-1">{metricIndex + 1}.</span>
+                    <div className="text-xs font-semibold flex-grow flex items-start min-w-0">
+                        <span className="mr-1 flex-shrink-0">{metricIndex + 1}.</span>
                         <MetricTitle metric={metric} metricType={metricType} />
                     </div>
                     <div className="flex gap-1">
@@ -71,6 +73,15 @@ export const MetricHeader = ({
                             size="xsmall"
                             icon={<IconCopy fontSize="12" />}
                             tooltip="Duplicate"
+                            disabledReason={
+                                canDuplicateMetric
+                                    ? undefined
+                                    : `You can only have up to ${
+                                          isPrimaryMetric
+                                              ? EXPERIMENT_MAX_PRIMARY_METRICS
+                                              : EXPERIMENT_MAX_SECONDARY_METRICS
+                                      } ${isPrimaryMetric ? 'primary' : 'secondary'} metrics.`
+                            }
                             onClick={() => {
                                 /**
                                  * For shared metrics we open the duplicate form

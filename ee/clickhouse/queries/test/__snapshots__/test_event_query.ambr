@@ -46,43 +46,6 @@
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-01-21 23:59:59', 'UTC')
   '''
 # ---
-# name: TestEventQuery.test_account_filters.2
-  '''
-  SELECT e.timestamp as timestamp,
-         if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id
-  FROM events e
-  LEFT OUTER JOIN
-    (SELECT distinct_id,
-            argMax(person_id, version) as person_id
-     FROM person_distinct_id2
-     WHERE team_id = 99999
-       AND distinct_id IN
-         (SELECT distinct_id
-          FROM events
-          WHERE team_id = 99999
-            AND event = 'event_name'
-            AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2021-01-14 00:00:00', 'UTC')), 'UTC')
-            AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-01-21 23:59:59', 'UTC'))
-     GROUP BY distinct_id
-     HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-  INNER JOIN
-    (SELECT id
-     FROM person
-     WHERE team_id = 99999
-       AND id IN
-         (SELECT id
-          FROM person
-          WHERE team_id = 99999
-            AND (has(['Jane'], replaceRegexpAll(JSONExtractRaw(properties, 'name'), '^"|"$', ''))) )
-     GROUP BY id
-     HAVING max(is_deleted) = 0
-     AND (has(['Jane'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'name'), '^"|"$', ''))) SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
-  WHERE team_id = 99999
-    AND event = 'event_name'
-    AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2021-01-14 00:00:00', 'UTC')), 'UTC')
-    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-01-21 23:59:59', 'UTC')
-  '''
-# ---
 # name: TestEventQuery.test_basic_event_filter
   '''
   SELECT e.timestamp as timestamp

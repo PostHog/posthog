@@ -85,6 +85,8 @@ class HogQLFunctionMeta:
     """Additional arguments that are added to the end of the arguments provided by the caller"""
     using_placeholder_arguments: bool = False
     using_positional_arguments: bool = False
+    parametric_first_arg: bool = False
+    """Some ClickHouse functions take a constant string function name as the first argument. Check that it's one of our allowed function names."""
 
 
 def compare_types(arg_types: list[ConstantType], sig_arg_types: tuple[ConstantType, ...]):
@@ -337,7 +339,7 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "arrayDistinct": HogQLFunctionMeta("arrayDistinct", 1, 1),
     "arrayEnumerateDense": HogQLFunctionMeta("arrayEnumerateDense", 1, 1),
     "arrayIntersect": HogQLFunctionMeta("arrayIntersect", 1, None),
-    # "arrayReduce": HogQLFunctionMeta("arrayReduce", 2,None),  # takes a "parametric function" as first arg, is that safe?
+    "arrayReduce": HogQLFunctionMeta("arrayReduce", 2, None, parametric_first_arg=True),
     # "arrayReduceInRanges": HogQLFunctionMeta("arrayReduceInRanges", 3,None),  # takes a "parametric function" as first arg, is that safe?
     "arrayReverse": HogQLFunctionMeta("arrayReverse", 1, 1),
     "arrayFilter": HogQLFunctionMeta("arrayFilter", 2, None),
@@ -400,10 +402,25 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "reinterpretAsFloat64": HogQLFunctionMeta("reinterpretAsFloat64", 1, 1),
     "reinterpretAsUUID": HogQLFunctionMeta("reinterpretAsUUID", 1, 1),
     "toInt": HogQLFunctionMeta("accurateCastOrNull", 1, 1, suffix_args=[ast.Constant(value="Int64")]),
+    "_toInt8": HogQLFunctionMeta("toInt8", 1, 1),
+    "_toInt16": HogQLFunctionMeta("toInt16", 1, 1),
+    "_toInt32": HogQLFunctionMeta("toInt32", 1, 1),
     "_toInt64": HogQLFunctionMeta("toInt64", 1, 1),
     "_toUInt64": HogQLFunctionMeta("toUInt64", 1, 1, signatures=[((UnknownType(),), IntegerType())]),
     "_toUInt128": HogQLFunctionMeta("toUInt128", 1, 1),
     "toFloat": HogQLFunctionMeta("accurateCastOrNull", 1, 1, suffix_args=[ast.Constant(value="Float64")]),
+    "toFloatOrZero": HogQLFunctionMeta("toFloat64OrZero", 1, 1, signatures=[((StringType(),), FloatType())]),
+    "toFloatOrDefault": HogQLFunctionMeta(
+        "toFloat64OrDefault",
+        1,
+        2,
+        signatures=[
+            ((DecimalType(), FloatType()), FloatType()),
+            ((IntegerType(), FloatType()), FloatType()),
+            ((FloatType(), FloatType()), FloatType()),
+            ((StringType(), FloatType()), FloatType()),
+        ],
+    ),
     "toDecimal": HogQLFunctionMeta(
         "accurateCastOrNull",
         2,
@@ -428,7 +445,7 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
         tz_aware=True,
         overloads=[
             ((ast.DateTimeType, ast.DateType, ast.IntegerType), "toDateTime"),
-            # ((ast.StringType,), "parseDateTime64"), # missing in version: 24.8.7.41
+            # ((ast.StringType,), "parseDateTime64"),
         ],
         signatures=[
             ((StringType(),), DateTimeType()),
@@ -788,7 +805,7 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "roundAge": HogQLFunctionMeta("roundAge", 1, 1),
     "roundDown": HogQLFunctionMeta("roundDown", 2, 2),
     # maps
-    "map": HogQLFunctionMeta("map", 2, None),
+    "map": HogQLFunctionMeta("map", 0, None),
     "mapFromArrays": HogQLFunctionMeta("mapFromArrays", 2, 2),
     "mapAdd": HogQLFunctionMeta("mapAdd", 2, None),
     "mapSubtract": HogQLFunctionMeta("mapSubtract", 2, None),
@@ -1614,6 +1631,7 @@ HOGQL_AGGREGATIONS: dict[str, HogQLFunctionMeta] = {
     "countMerge": HogQLFunctionMeta("countMerge", 1, 1, aggregate=True),
     "countStateIf": HogQLFunctionMeta("countStateIf", 1, 2, aggregate=True),
     "countDistinctIf": HogQLFunctionMeta("countDistinctIf", 1, 2, aggregate=True),
+    "countMapIf": HogQLFunctionMeta("countMapIf", 2, 3, aggregate=True),
     "min": HogQLFunctionMeta("min", 1, 1, aggregate=True, case_sensitive=False),
     "minIf": HogQLFunctionMeta("minIf", 2, 2, aggregate=True),
     "max": HogQLFunctionMeta("max", 1, 1, aggregate=True, case_sensitive=False),
@@ -1623,6 +1641,11 @@ HOGQL_AGGREGATIONS: dict[str, HogQLFunctionMeta] = {
     "sumIf": HogQLFunctionMeta("sumIf", 2, 2, aggregate=True),
     "avg": HogQLFunctionMeta("avg", 1, 1, aggregate=True, case_sensitive=False),
     "avgIf": HogQLFunctionMeta("avgIf", 2, 2, aggregate=True),
+    "avgMap": HogQLFunctionMeta("avgMap", 1, 1, aggregate=True),
+    "avgMapIf": HogQLFunctionMeta("avgMapIf", 2, 3, aggregate=True),
+    "avgMapState": HogQLFunctionMeta("avgMapState", 2, 3, aggregate=True),
+    "avgMapMerge": HogQLFunctionMeta("avgMapMerge", 1, 1, aggregate=True),
+    "avgMapMergeIf": HogQLFunctionMeta("avgMapMergeIf", 2, 2, aggregate=True),
     "any": HogQLFunctionMeta("any", 1, 1, aggregate=True),
     "anyIf": HogQLFunctionMeta("anyIf", 2, 2, aggregate=True),
     "stddevPop": HogQLFunctionMeta("stddevPop", 1, 1, aggregate=True),
@@ -1729,6 +1752,7 @@ HOGQL_AGGREGATIONS: dict[str, HogQLFunctionMeta] = {
     "sumMap": HogQLFunctionMeta("sumMap", 1, 2, aggregate=True),
     "sumMapIf": HogQLFunctionMeta("sumMapIf", 2, 3, aggregate=True),
     "sumMapMerge": HogQLFunctionMeta("sumMapMerge", 1, 1, aggregate=True),
+    "sumMapMergeIf": HogQLFunctionMeta("sumMapMergeIf", 2, 2, aggregate=True),
     "minMap": HogQLFunctionMeta("minMap", 1, 2, aggregate=True),
     "minMapIf": HogQLFunctionMeta("minMapIf", 2, 3, aggregate=True),
     "maxMap": HogQLFunctionMeta("maxMap", 1, 2, aggregate=True),
@@ -1761,6 +1785,8 @@ HOGQL_AGGREGATIONS: dict[str, HogQLFunctionMeta] = {
     "uniqMerge": HogQLFunctionMeta("uniqMerge", 1, 1, aggregate=True),
     "uniqMergeIf": HogQLFunctionMeta("uniqMergeIf", 2, 2, aggregate=True),
     "uniqMap": HogQLFunctionMeta("uniqMap", 1, 1, aggregate=True),
+    "uniqMapMerge": HogQLFunctionMeta("uniqMapMerge", 1, 1, aggregate=True),
+    "uniqMapMergeIf": HogQLFunctionMeta("uniqMapMergeIf", 2, 2, aggregate=True),
     "uniqState": HogQLFunctionMeta("uniqState", 1, 1, aggregate=True),
     "uniqStateIf": HogQLFunctionMeta("uniqStateIf", 2, 2, aggregate=True),
     "uniqUpToMerge": HogQLFunctionMeta("uniqUpToMerge", 1, 1, 1, 1, aggregate=True),
@@ -1883,6 +1909,30 @@ HOGQL_POSTHOG_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     ),
 }
 
+# The list of functions allowed in parametric functions, e.g. sum in "arrayReduce('sum', [1, 2, 3])"
+HOGQL_PERMITTED_PARAMETRIC_FUNCTIONS: set[str] = {
+    "count",
+    "countMap",
+    "countMapState",
+    "sum",
+    "sumMap",
+    "sumMapState",
+    "min",
+    "minMap",
+    "minMapState",
+    "max",
+    "maxMap",
+    "maxMapState",
+    "avg",
+    "avgState",
+    "avgMap",
+    "avgMapState",
+    "uniq",
+    "uniqState",
+    "uniqMap",
+    "uniqMapState",
+}
+
 
 UDFS: dict[str, HogQLFunctionMeta] = {
     "aggregate_funnel": HogQLFunctionMeta("aggregate_funnel", 6, 6, aggregate=False),
@@ -1953,3 +2003,8 @@ def find_hogql_function(name: str) -> Optional[HogQLFunctionMeta]:
 
 def find_hogql_posthog_function(name: str) -> Optional[HogQLFunctionMeta]:
     return _find_function(name, HOGQL_POSTHOG_FUNCTIONS)
+
+
+def is_allowed_parametric_function(name: str) -> bool:
+    # No case-insensitivity for parametric functions
+    return name in HOGQL_PERMITTED_PARAMETRIC_FUNCTIONS

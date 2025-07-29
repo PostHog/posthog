@@ -1,5 +1,7 @@
 import os
 from typing import TYPE_CHECKING, Any, Optional
+from datetime import timedelta
+from django.utils import timezone
 
 from django.conf import settings
 from django.db.utils import ProgrammingError
@@ -15,6 +17,10 @@ instance_license_cached: Optional["License"] = None
 
 def is_cloud() -> bool:
     return bool(settings.CLOUD_DEPLOYMENT)
+
+
+def is_dev_mode() -> bool:
+    return bool(settings.DEBUG)
 
 
 def is_ci() -> bool:
@@ -46,11 +52,22 @@ def get_cached_instance_license() -> Optional["License"]:
 
     # TRICKY - The license table may not exist if a migration is running
     license = License.objects.first_valid()
+
+    # No license found locally, create one for dev mode
+    if not license and is_dev_mode():
+        dev_uuid = "69004a5f-a7da-499a-a63a-338f996b6f7a"
+        license = License.objects.create(
+            key=f"{dev_uuid}::{settings.LICENSE_SECRET_KEY}",
+            plan="enterprise",
+            valid_until=timezone.now() + timedelta(weeks=52),
+        )
+
     if license:
         instance_license_cached = license
         is_instance_licensed_cached = True
     else:
         is_instance_licensed_cached = False
+
     return instance_license_cached
 
 

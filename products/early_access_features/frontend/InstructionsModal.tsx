@@ -27,13 +27,8 @@ export function InstructionsModal({ onClose, visible, flag }: InstructionsModalP
                     content: (
                         <div>
                             Give your users a{' '}
-                            <Link
-                                // TODO: Ben double check this is correct
-                                to={urls.hogFunctionNew('template-early-access-features')}
-                            >
-                                prebuilt widget
-                            </Link>{' '}
-                            to opt-in to features
+                            <Link to={urls.hogFunctionNew('template-early-access-features')}>prebuilt widget</Link> to
+                            opt-in to features
                             <img className="max-h-full max-w-full mt-2.5" src={EarlyAccessFeatureImage} />
                         </div>
                     ),

@@ -1,7 +1,18 @@
 .rdg-cell {
     font-size: 0.75rem;
     border-block-end: 1px solid var(--border);
-    border-right: 0;
+}
+
+.rdg-header-row .rdg-cell:focus,
+.rdg-header-row .rdg-cell:focus-visible {
+    outline: none !important;
+    box-shadow: none !important;
+}
+
+.rdg-cell:focus,
+.rdg-cell:focus-visible {
+    outline: none !important;
+    box-shadow: none !important;
 }
 
 .rdg-row {

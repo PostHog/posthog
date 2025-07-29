@@ -267,7 +267,7 @@ mod test {
             storage_ptr: Some(chunk_id.clone()),
             failure_reason: None,
             created_at: Utc::now(),
-            content_hash: None,
+            content_hash: Some("fake-hash".to_string()),
             last_used: Some(Utc::now()),
         };
 

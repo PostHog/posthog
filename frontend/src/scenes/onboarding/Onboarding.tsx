@@ -15,14 +15,14 @@ import { getMaskingConfigFromLevel, getMaskingLevelFromConfig } from 'scenes/ses
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { AvailableFeature, ProductKey, type SessionRecordingMaskingLevel } from '~/types'
+import { AvailableFeature, ProductKey, OnboardingStepKey, type SessionRecordingMaskingLevel } from '~/types'
 
 import { OnboardingUpgradeStep } from './billing/OnboardingUpgradeStep'
 import { OnboardingDataWarehouseSourcesStep } from './data-warehouse/OnboardingDataWarehouseSourcesStep'
 import { OnboardingErrorTrackingAlertsStep } from './error-tracking/OnboardingErrorTrackingAlertsStep'
 import { OnboardingErrorTrackingSourceMapsStep } from './error-tracking/OnboardingErrorTrackingSourceMapsStep'
 import { OnboardingInviteTeammates } from './OnboardingInviteTeammates'
-import { onboardingLogic, OnboardingLogicProps, OnboardingStepKey } from './onboardingLogic'
+import { onboardingLogic, OnboardingLogicProps } from './onboardingLogic'
 import { OnboardingProductConfiguration } from './OnboardingProductConfiguration'
 import { ProductConfigOption } from './onboardingProductConfigurationLogic'
 import { OnboardingReverseProxy } from './OnboardingReverseProxy'
@@ -215,6 +215,7 @@ const ProductAnalyticsOnboarding = (): JSX.Element => {
         <OnboardingWrapper>
             <OnboardingInstallStep
                 sdkInstructionMap={ProductAnalyticsSDKInstructions}
+                productKey={ProductKey.PRODUCT_ANALYTICS}
                 stepKey={OnboardingStepKey.INSTALL}
             />
             <OnboardingProductConfiguration
@@ -292,6 +293,7 @@ const WebAnalyticsOnboarding = (): JSX.Element => {
         <OnboardingWrapper>
             <OnboardingInstallStep
                 sdkInstructionMap={WebAnalyticsSDKInstructions}
+                productKey={ProductKey.WEB_ANALYTICS}
                 stepKey={OnboardingStepKey.INSTALL}
             />
             <OnboardingWebAnalyticsAuthorizedDomainsStep stepKey={OnboardingStepKey.AUTHORIZED_DOMAINS} />
@@ -368,6 +370,7 @@ const SessionReplayOnboarding = (): JSX.Element => {
         <OnboardingWrapper>
             <OnboardingInstallStep
                 sdkInstructionMap={SessionReplaySDKInstructions}
+                productKey={ProductKey.SESSION_REPLAY}
                 stepKey={OnboardingStepKey.INSTALL}
             />
             <OnboardingProductConfiguration
@@ -384,6 +387,7 @@ const FeatureFlagsOnboarding = (): JSX.Element => {
         <OnboardingWrapper>
             <OnboardingInstallStep
                 sdkInstructionMap={FeatureFlagsSDKInstructions}
+                productKey={ProductKey.FEATURE_FLAGS}
                 stepKey={OnboardingStepKey.INSTALL}
             />
         </OnboardingWrapper>
@@ -393,7 +397,11 @@ const FeatureFlagsOnboarding = (): JSX.Element => {
 const ExperimentsOnboarding = (): JSX.Element => {
     return (
         <OnboardingWrapper>
-            <OnboardingInstallStep sdkInstructionMap={ExperimentsSDKInstructions} stepKey={OnboardingStepKey.INSTALL} />
+            <OnboardingInstallStep
+                sdkInstructionMap={ExperimentsSDKInstructions}
+                productKey={ProductKey.EXPERIMENTS}
+                stepKey={OnboardingStepKey.INSTALL}
+            />
         </OnboardingWrapper>
     )
 }
@@ -401,7 +409,11 @@ const ExperimentsOnboarding = (): JSX.Element => {
 const SurveysOnboarding = (): JSX.Element => {
     return (
         <OnboardingWrapper>
-            <OnboardingInstallStep sdkInstructionMap={SurveysSDKInstructions} stepKey={OnboardingStepKey.INSTALL} />
+            <OnboardingInstallStep
+                sdkInstructionMap={SurveysSDKInstructions}
+                productKey={ProductKey.SURVEYS}
+                stepKey={OnboardingStepKey.INSTALL}
+            />
         </OnboardingWrapper>
     )
 }
@@ -427,6 +439,7 @@ const ErrorTrackingOnboarding = (): JSX.Element => {
         >
             <OnboardingInstallStep
                 sdkInstructionMap={ErrorTrackingSDKInstructions}
+                productKey={ProductKey.ERROR_TRACKING}
                 stepKey={OnboardingStepKey.INSTALL}
             />
             <OnboardingErrorTrackingSourceMapsStep stepKey={OnboardingStepKey.SOURCE_MAPS} />

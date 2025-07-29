@@ -52,4 +52,6 @@ pub struct FeatureFlagEvaluationContext {
     pub group_property_overrides: Option<HashMap<String, HashMap<String, Value>>>,
     pub groups: Option<HashMap<String, Value>>,
     pub hash_key_override: Option<String>,
+    /// Contains explicitly requested flag keys and their dependencies. If empty, all flags will be evaluated.
+    pub flag_keys: Option<Vec<String>>,
 }

@@ -1,12 +1,14 @@
 import './SessionRecordingPreview.scss'
 
-import { IconBug, IconCursorClick, IconKeyboard, IconLive, IconPinFilled } from '@posthog/icons'
+import { IconBug, IconCursorClick, IconKeyboard, IconLive } from '@posthog/icons'
 import clsx from 'clsx'
-import { useValues } from 'kea'
+import { useValues, useActions } from 'kea'
 import { PropertyIcon } from 'lib/components/PropertyIcon/PropertyIcon'
 import { TZLabel } from 'lib/components/TZLabel'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { colonDelimitedDuration } from 'lib/utils'
 import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 import { asDisplay } from 'scenes/persons/person-utils'
@@ -19,13 +21,17 @@ import { RecordingsQuery } from '~/queries/schema/schema-general'
 import { SessionRecordingType } from '~/types'
 
 import { sessionRecordingsListPropertiesLogic } from './sessionRecordingsListPropertiesLogic'
-import { DEFAULT_RECORDING_FILTERS_ORDER_BY, sessionRecordingsPlaylistLogic } from './sessionRecordingsPlaylistLogic'
+import {
+    DEFAULT_RECORDING_FILTERS_ORDER_BY,
+    MAX_SELECTED_RECORDINGS,
+    sessionRecordingsPlaylistLogic,
+} from './sessionRecordingsPlaylistLogic'
+import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 
 export interface SessionRecordingPreviewProps {
     recording: SessionRecordingType
     isActive?: boolean
     onClick?: () => void
-    pinned?: boolean
 }
 
 function RecordingDuration({ recordingDuration }: { recordingDuration: number | undefined }): JSX.Element {
@@ -131,14 +137,6 @@ function FirstURL(props: { startUrl: string | undefined }): JSX.Element {
     )
 }
 
-function PinnedIndicator(): JSX.Element | null {
-    return (
-        <Tooltip placement="top-end" title={<>This recording is pinned to this list.</>}>
-            <IconPinFilled className="text-sm text-orange shrink-0" />
-        </Tooltip>
-    )
-}
-
 function RecordingOngoingIndicator(): JSX.Element {
     return (
         <Tooltip title="This recording is still ongoing - we received data within the last 5 minutes.">
@@ -148,7 +146,14 @@ function RecordingOngoingIndicator(): JSX.Element {
 }
 
 export function UnwatchedIndicator({ otherViewersCount }: { otherViewersCount: number }): JSX.Element {
-    const tooltip = otherViewersCount ? (
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    const isExcludedFromHideRecordingsMenu = featureFlags[FEATURE_FLAGS.REPLAY_EXCLUDE_FROM_HIDE_RECORDINGS_MENU]
+
+    // If person wished to be excluded from the hide recordings menu, we don't show the tooltip
+    const tooltip = isExcludedFromHideRecordingsMenu ? (
+        <span>You have not watched this recording yet.</span>
+    ) : otherViewersCount ? (
         <span>
             You have not watched this recording yet. {otherViewersCount} other{' '}
             {otherViewersCount === 1 ? 'person has' : 'people have'}.
@@ -162,10 +167,18 @@ export function UnwatchedIndicator({ otherViewersCount }: { otherViewersCount: n
             <div
                 className={clsx(
                     'UnwatchedIndicator w-2 h-2 rounded-full',
-                    otherViewersCount ? 'UnwatchedIndicator--secondary' : 'UnwatchedIndicator--primary'
+                    isExcludedFromHideRecordingsMenu
+                        ? 'UnwatchedIndicator--primary'
+                        : otherViewersCount
+                        ? 'UnwatchedIndicator--secondary'
+                        : 'UnwatchedIndicator--primary'
                 )}
                 aria-label={
-                    otherViewersCount ? 'unwatched-recording-by-you-label' : 'unwatched-recording-by-everyone-label'
+                    isExcludedFromHideRecordingsMenu
+                        ? 'unwatched-recording-by-you-label'
+                        : otherViewersCount
+                        ? 'unwatched-recording-by-you-label'
+                        : 'unwatched-recording-by-everyone-label'
                 }
             />
         </Tooltip>
@@ -180,12 +193,33 @@ function durationToShow(recording: SessionRecordingType, order: RecordingsQuery[
         : recording.recording_duration
 }
 
-export function SessionRecordingPreview({
-    recording,
-    isActive,
-    onClick,
-    pinned,
-}: SessionRecordingPreviewProps): JSX.Element {
+function ItemCheckbox({ recording }: { recording: SessionRecordingType }): JSX.Element {
+    const { selectedRecordingsIds } = useValues(sessionRecordingsPlaylistLogic)
+    const { setSelectedRecordingsIds } = useActions(sessionRecordingsPlaylistLogic)
+
+    return (
+        <LemonCheckbox
+            checked={selectedRecordingsIds.some((s) => s === recording.id)}
+            dataAttr="select-recording"
+            aria-label="Select recording"
+            disabledReason={
+                selectedRecordingsIds.length >= MAX_SELECTED_RECORDINGS
+                    ? `Cannot select more than ${MAX_SELECTED_RECORDINGS} recordings at once`
+                    : undefined
+            }
+            onChange={() => {
+                if (selectedRecordingsIds.some((r) => r === recording.id)) {
+                    setSelectedRecordingsIds(selectedRecordingsIds.filter((r) => r !== recording.id))
+                } else {
+                    setSelectedRecordingsIds([...selectedRecordingsIds, recording.id])
+                }
+            }}
+            stopPropagation
+        />
+    )
+}
+
+export function SessionRecordingPreview({ recording, isActive, onClick }: SessionRecordingPreviewProps): JSX.Element {
     const { playlistTimestampFormat } = useValues(playerSettingsLogic)
 
     const { filters } = useValues(sessionRecordingsPlaylistLogic)
@@ -207,7 +241,8 @@ export function SessionRecordingPreview({
                 )}
                 onClick={() => onClick?.()}
             >
-                <div className="grow overflow-hidden deprecated-space-y-1">
+                <ItemCheckbox recording={recording} />
+                <div className="grow overflow-hidden deprecated-space-y-1 ml-1">
                     <div className="flex items-center justify-between gap-x-0.5">
                         <div className="flex overflow-hidden font-medium ph-no-capture">
                             <span className="truncate">{asDisplay(recording.person)}</span>
@@ -270,11 +305,10 @@ export function SessionRecordingPreview({
                     className={clsx(
                         'min-w-6 flex flex-col gap-x-0.5 items-center',
                         // need different margin if the first item is an icon
-                        recording.ongoing || pinned ? 'mt-1' : 'mt-2'
+                        recording.ongoing ? 'mt-1' : 'mt-2'
                     )}
                 >
                     {recording.ongoing ? <RecordingOngoingIndicator /> : null}
-                    {pinned ? <PinnedIndicator /> : null}
                     {!recording.viewed ? (
                         <UnwatchedIndicator otherViewersCount={recording.viewers?.length || 0} />
                     ) : null}

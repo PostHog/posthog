@@ -18,6 +18,15 @@ class TokenCounterMixin:
 class FakeChatOpenAI(TokenCounterMixin, FakeMessagesListChatModel):
     openai_model: str = Field(default="gpt-4o")
 
+    def invoke(self, input, config=None, **kwargs):
+        result = super().invoke(input, config, **kwargs)
+        # Add response metadata with an ID to match behavior of ChatOpenAI with the Responses API
+        if not hasattr(result, "response_metadata") or result.response_metadata is None:
+            result.response_metadata = {"id": "fake_response_id"}
+        elif "id" not in result.response_metadata:
+            result.response_metadata["id"] = "fake_response_id"
+        return result
+
 
 class FakeRunnableLambdaWithTokenCounter(TokenCounterMixin, RunnableLambda):
     def __init__(self, *args, **kwargs):

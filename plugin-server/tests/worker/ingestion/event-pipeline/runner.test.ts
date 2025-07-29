@@ -2,10 +2,11 @@ import { PluginEvent } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 import { v4 } from 'uuid'
 
-import { BatchWritingGroupStoreForBatch } from '~/src/worker/ingestion/groups/batch-writing-group-store'
-import { MeasuringPersonsStoreForBatch } from '~/src/worker/ingestion/persons/measuring-person-store'
 import { forSnapshot } from '~/tests/helpers/snapshots'
+import { BatchWritingGroupStoreForBatch } from '~/worker/ingestion/groups/batch-writing-group-store'
+import { MeasuringPersonsStoreForBatch } from '~/worker/ingestion/persons/measuring-person-store'
 
+import { KAFKA_INGESTION_WARNINGS } from '../../../../src/config/kafka-topics'
 import { KafkaProducerWrapper, TopicMessage } from '../../../../src/kafka/producer'
 import {
     ClickHouseTimestamp,
@@ -22,12 +23,10 @@ import { parseJSON } from '../../../../src/utils/json-parse'
 import { createEventStep } from '../../../../src/worker/ingestion/event-pipeline/createEventStep'
 import { emitEventStep } from '../../../../src/worker/ingestion/event-pipeline/emitEventStep'
 import * as metrics from '../../../../src/worker/ingestion/event-pipeline/metrics'
-import { pluginsProcessEventStep } from '../../../../src/worker/ingestion/event-pipeline/pluginsProcessEventStep'
 import { prepareEventStep } from '../../../../src/worker/ingestion/event-pipeline/prepareEventStep'
 import { processPersonsStep } from '../../../../src/worker/ingestion/event-pipeline/processPersonsStep'
 import { EventPipelineRunner } from '../../../../src/worker/ingestion/event-pipeline/runner'
 
-jest.mock('../../../../src/worker/ingestion/event-pipeline/pluginsProcessEventStep')
 jest.mock('../../../../src/worker/ingestion/event-pipeline/processPersonsStep')
 jest.mock('../../../../src/worker/ingestion/event-pipeline/prepareEventStep')
 jest.mock('../../../../src/worker/ingestion/event-pipeline/createEventStep')
@@ -69,6 +68,7 @@ const team = {
     cookieless_server_hash_mode: null,
     timezone: 'UTC',
     available_features: [],
+    drop_events_older_than_seconds: null,
 } as Team
 
 const pipelineEvent: PipelineEvent = {
@@ -173,8 +173,6 @@ describe('EventPipelineRunner', () => {
             groupStoreForBatch
         )
 
-        jest.mocked(pluginsProcessEventStep).mockResolvedValue(pluginEvent)
-
         // @ts-expect-error this is just a mock
         jest.mocked(processPersonsStep).mockResolvedValue([
             pluginEvent,
@@ -190,11 +188,11 @@ describe('EventPipelineRunner', () => {
     })
 
     describe('runEventPipeline()', () => {
-        it('runs steps starting from pluginsProcessEventStep', async () => {
+        it('runs steps', async () => {
             await runner.runEventPipeline(pluginEvent, team)
 
             expect(runner.steps).toEqual([
-                'pluginsProcessEventStep',
+                'dropOldEventsStep',
                 'transformEventStep',
                 'normalizeEventStep',
                 'processPersonsStep',
@@ -223,7 +221,7 @@ describe('EventPipelineRunner', () => {
             }
             await runner.runEventPipeline(event, team)
             expect(runner.steps).toEqual([
-                'pluginsProcessEventStep',
+                'dropOldEventsStep',
                 'transformEventStep',
                 'normalizeEventStep',
                 'processPersonsStep',
@@ -260,30 +258,6 @@ describe('EventPipelineRunner', () => {
             expect(pipelineStepErrorCounterSpy).not.toHaveBeenCalled()
         })
 
-        describe('early exits from pipeline', () => {
-            beforeEach(() => {
-                jest.mocked(pluginsProcessEventStep).mockResolvedValue(null)
-            })
-
-            it('stops processing after step', async () => {
-                await runner.runEventPipeline(pluginEvent, team)
-
-                expect(runner.steps).toEqual(['pluginsProcessEventStep'])
-            })
-
-            it('reports metrics and last step correctly', async () => {
-                const pipelineLastStepCounterSpy = jest.spyOn(metrics.pipelineLastStepCounter, 'labels')
-                const pipelineStepMsSummarySpy = jest.spyOn(metrics.pipelineStepMsSummary, 'labels')
-                const pipelineStepErrorCounterSpy = jest.spyOn(metrics.pipelineStepErrorCounter, 'labels')
-
-                await runner.runEventPipeline(pluginEvent, team)
-
-                expect(pipelineStepMsSummarySpy).toHaveBeenCalledTimes(1)
-                expect(pipelineLastStepCounterSpy).toHaveBeenCalledWith('pluginsProcessEventStep')
-                expect(pipelineStepErrorCounterSpy).not.toHaveBeenCalled()
-            })
-        })
-
         describe('errors during processing', () => {
             const error = new Error('testError')
 
@@ -296,7 +270,6 @@ describe('EventPipelineRunner', () => {
 
                 await runner.runEventPipeline(pluginEvent, team)
 
-                expect(pipelineStepMsSummarySpy).toHaveBeenCalledWith('pluginsProcessEventStep')
                 expect(pipelineStepMsSummarySpy).not.toHaveBeenCalledWith('prepareEventStep')
                 expect(pipelineLastStepCounterSpy).not.toHaveBeenCalled()
                 expect(pipelineStepErrorCounterSpy).toHaveBeenCalledWith('prepareEventStep')
@@ -446,7 +419,7 @@ describe('EventPipelineRunner', () => {
                 await runner.runEventPipeline(exceptionEvent, team)
 
                 expect(runner.steps).toEqual([
-                    'pluginsProcessEventStep',
+                    'dropOldEventsStep',
                     'transformEventStep',
                     'normalizeEventStep',
                     'processPersonsStep',
@@ -456,6 +429,76 @@ describe('EventPipelineRunner', () => {
                     'produceExceptionSymbolificationEventStep',
                 ])
             })
+        })
+
+        it('captures ingestion warning for $groupidentify with too long $group_key', async () => {
+            const longKey = 'x'.repeat(401)
+            const event = {
+                ...pluginEvent,
+                event: '$groupidentify',
+                properties: { $group_key: longKey },
+            }
+            await runner.runEventPipeline(event, team)
+            expect(runner.steps).toEqual([])
+            expect(mockProducer.queueMessages).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    topic: KAFKA_INGESTION_WARNINGS,
+                    messages: [
+                        expect.objectContaining({
+                            value: expect.stringContaining('group_key_too_long'),
+                        }),
+                    ],
+                })
+            )
+        })
+
+        it('does not capture warning for $groupidentify with short $group_key', async () => {
+            const event = {
+                ...pluginEvent,
+                event: '$groupidentify',
+                properties: { $group_key: 'x'.repeat(400) },
+            }
+            await runner.runEventPipeline(event, team)
+            expect(runner.steps).toEqual([
+                'dropOldEventsStep',
+                'transformEventStep',
+                'normalizeEventStep',
+                'processPersonsStep',
+                'prepareEventStep',
+                'extractHeatmapDataStep',
+                'createEventStep',
+                'emitEventStep',
+            ])
+            // Should not call queueMessages with group_key_too_long
+            expect(
+                mockProducer.queueMessages.mock.calls.some(([arg]) =>
+                    JSON.stringify(arg).includes('group_key_too_long')
+                )
+            ).toBe(false)
+        })
+
+        it('does not capture warning for non-$groupidentify events with long $group_key', async () => {
+            const event = {
+                ...pluginEvent,
+                event: 'not_groupidentify',
+                properties: { $group_key: 'x'.repeat(1000) },
+            }
+            await runner.runEventPipeline(event, team)
+            expect(runner.steps).toEqual([
+                'dropOldEventsStep',
+                'transformEventStep',
+                'normalizeEventStep',
+                'processPersonsStep',
+                'prepareEventStep',
+                'extractHeatmapDataStep',
+                'createEventStep',
+                'emitEventStep',
+            ])
+            expect(
+                mockProducer.queueMessages.mock.calls.some(([arg]) =>
+                    JSON.stringify(arg).includes('group_key_too_long')
+                )
+            ).toBe(false)
         })
     })
 

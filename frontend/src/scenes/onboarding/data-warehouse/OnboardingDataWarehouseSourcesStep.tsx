@@ -1,9 +1,12 @@
-import { useActions, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 import { NewSourcesWizard } from 'scenes/data-warehouse/new/NewSourceWizard'
 import { sourceWizardLogic } from 'scenes/data-warehouse/new/sourceWizardLogic'
 
-import { onboardingLogic, OnboardingStepKey } from '../onboardingLogic'
+import { onboardingLogic } from '../onboardingLogic'
 import { OnboardingStep } from '../OnboardingStep'
+import { OnboardingStepKey } from '~/types'
+import { availableSourcesDataLogic } from 'scenes/data-warehouse/new/availableSourcesDataLogic'
+import { LemonSkeleton } from '@posthog/lemon-ui'
 
 export function OnboardingDataWarehouseSourcesStep({
     stepKey = OnboardingStepKey.INSTALL,
@@ -12,6 +15,7 @@ export function OnboardingDataWarehouseSourcesStep({
 }): JSX.Element {
     const { goToNextStep } = useActions(onboardingLogic)
     const { currentStep } = useValues(sourceWizardLogic)
+    const { availableSources, availableSourcesLoading } = useValues(availableSourcesDataLogic)
 
     return (
         <OnboardingStep
@@ -26,7 +30,13 @@ export function OnboardingDataWarehouseSourcesStep({
                     : undefined
             }
         >
-            <NewSourcesWizard disableConnectedSources onComplete={() => goToNextStep()} />
+            {availableSourcesLoading || availableSources === null ? (
+                <LemonSkeleton />
+            ) : (
+                <BindLogic logic={sourceWizardLogic} props={{ availableSources }}>
+                    <NewSourcesWizard disableConnectedSources onComplete={() => goToNextStep()} />
+                </BindLogic>
+            )}
         </OnboardingStep>
     )
 }

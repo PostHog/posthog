@@ -1,5 +1,6 @@
 import { IconGear } from '@posthog/icons'
 import { LemonTag } from '@posthog/lemon-ui'
+import { errorTrackingQuery } from '@posthog/products-error-tracking/frontend/queries'
 import { actions, afterMount, BreakPointFunction, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
@@ -8,18 +9,23 @@ import api from 'lib/api'
 import { authorizedUrlListLogic, AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { FEATURE_FLAGS, RETENTION_FIRST_TIME } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Link, PostHogComDocsURL } from 'lib/lemon-ui/Link/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { getDefaultInterval, isNotNil, objectsEqual, UnexpectedNeverError, updateDatesWithInterval } from 'lib/utils'
+import {
+    getDefaultInterval,
+    isNotNil,
+    isValidRelativeOrAbsoluteDate,
+    objectsEqual,
+    UnexpectedNeverError,
+    updateDatesWithInterval,
+} from 'lib/utils'
 import { isDefinitionStale } from 'lib/utils/definitions'
-import { errorTrackingQuery } from 'products/error_tracking/frontend/queries'
-import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
-import { marketingAnalyticsSettingsLogic } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsSettingsLogic'
 
 import { WEB_VITALS_COLORS, WEB_VITALS_THRESHOLDS } from '~/queries/nodes/WebVitals/definitions'
 import { hogqlQuery } from '~/queries/query'
@@ -29,16 +35,16 @@ import {
     AnyEntityNode,
     BreakdownFilter,
     CompareFilter,
-    CurrencyCode,
+    ConversionGoalFilter,
     CustomEventConversionGoal,
-    DatabaseSchemaDataWarehouseTable,
     DataTableNode,
-    DataWarehouseNode,
     EventsNode,
     InsightVizNode,
+    MarketingAnalyticsHelperForColumnNames,
+    MarketingAnalyticsTableQuery,
     NodeKind,
+    QueryLogTags,
     QuerySchema,
-    SourceMap,
     TrendsFilter,
     TrendsQuery,
     WebAnalyticsConversionGoal,
@@ -51,7 +57,7 @@ import {
     WebStatsTableQuery,
     WebVitalsMetric,
 } from '~/queries/schema/schema-general'
-import { isWebAnalyticsPropertyFilters } from '~/queries/schema-guards'
+import { isCompareFilter, isWebAnalyticsPropertyFilters } from '~/queries/schema-guards'
 import { hogql } from '~/queries/utils'
 import {
     AvailableFeature,
@@ -63,6 +69,7 @@ import {
     InsightLogicProps,
     InsightType,
     IntervalType,
+    ProductKey,
     PropertyFilterBaseValue,
     PropertyFilterType,
     PropertyMathType,
@@ -75,11 +82,16 @@ import {
 } from '~/types'
 
 import { getDashboardItemId, getNewInsightUrlFactory } from './insightsUtils'
-import {
-    ExternalTable,
-    marketingAnalyticsLogic,
-} from './tabs/marketing-analytics/frontend/logic/marketingAnalyticsLogic'
+import { marketingAnalyticsLogic } from './tabs/marketing-analytics/frontend/logic/marketingAnalyticsLogic'
 import type { webAnalyticsLogicType } from './webAnalyticsLogicType'
+import posthog from 'posthog-js'
+import { marketingAnalyticsTableLogic } from './tabs/marketing-analytics/frontend/logic/marketingAnalyticsTableLogic'
+import {
+    getOrderBy,
+    orderArrayByPreference,
+    getSortedColumnsByArray,
+    isDraftConversionGoalColumn,
+} from './tabs/marketing-analytics/frontend/logic/utils'
 
 export interface WebTileLayout {
     /** The class has to be spelled out without interpolation, as otherwise Tailwind can't pick it up. */
@@ -185,10 +197,10 @@ const loadPriorityMap: Record<TileId, number> = {
     [TileId.PAGE_REPORTS_TIMEZONES]: 13,
     [TileId.PAGE_REPORTS_LANGUAGES]: 14,
     [TileId.PAGE_REPORTS_TOP_EVENTS]: 15,
-    [TileId.MARKETING]: 16,
 
     // Marketing Tiles
-    [TileId.MARKETING_CAMPAIGN_BREAKDOWN]: 1,
+    [TileId.MARKETING]: 1,
+    [TileId.MARKETING_CAMPAIGN_BREAKDOWN]: 2,
 }
 
 // To enable a tile here, you must update the QueryRunner to support it
@@ -412,6 +424,14 @@ const INITIAL_DATE_FROM = '-7d' as string | null
 const INITIAL_DATE_TO = null as string | null
 const INITIAL_INTERVAL = getDefaultInterval(INITIAL_DATE_FROM, INITIAL_DATE_TO)
 
+export const WEB_ANALYTICS_DEFAULT_QUERY_TAGS: QueryLogTags = {
+    productKey: ProductKey.WEB_ANALYTICS,
+}
+
+export const MARKETING_ANALYTICS_DEFAULT_QUERY_TAGS: QueryLogTags = {
+    productKey: ProductKey.MARKETING_ANALYTICS,
+}
+
 const teamId = window.POSTHOG_APP_CONTEXT?.current_team?.id
 const persistConfig = { persist: true, prefix: `${teamId}__` }
 export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
@@ -428,12 +448,16 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             ['isDev'],
             authorizedUrlListLogic({ type: AuthorizedUrlListType.WEB_ANALYTICS, actionId: null, experimentId: null }),
             ['authorizedUrls'],
-            marketingAnalyticsSettingsLogic,
-            ['sources_map'],
-            dataWarehouseSettingsLogic,
-            ['dataWarehouseTables', 'selfManagedTables'],
             marketingAnalyticsLogic,
-            ['validExternalTables'],
+            [
+                'loading',
+                'createMarketingDataWarehouseNodes',
+                'draftConversionGoal',
+                'compareFilter as marketingCompareFilter',
+                'dateFilter as marketingDateFilter',
+            ],
+            marketingAnalyticsTableLogic,
+            ['query', 'defaultColumns'],
         ],
     })),
     actions({
@@ -673,11 +697,19 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             },
             persistConfig,
             {
-                setDates: (_, { dateTo, dateFrom }) => ({
-                    dateTo,
-                    dateFrom,
-                    interval: getDefaultInterval(dateFrom, dateTo),
-                }),
+                setDates: (_, { dateTo, dateFrom }) => {
+                    if (dateTo && !isValidRelativeOrAbsoluteDate(dateTo)) {
+                        dateTo = INITIAL_DATE_TO
+                    }
+                    if (dateFrom && !isValidRelativeOrAbsoluteDate(dateFrom)) {
+                        dateFrom = INITIAL_DATE_FROM
+                    }
+                    return {
+                        dateTo,
+                        dateFrom,
+                        interval: getDefaultInterval(dateFrom, dateTo),
+                    }
+                },
                 setInterval: ({ dateFrom: oldDateFrom, dateTo: oldDateTo }, { interval }) => {
                     const { dateFrom, dateTo } = updateDatesWithInterval(interval, oldDateFrom, oldDateTo)
                     return {
@@ -690,6 +722,12 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     if (!dateFrom && !dateTo) {
                         dateFrom = INITIAL_DATE_FROM
                         dateTo = INITIAL_DATE_TO
+                    }
+                    if (dateTo && !isValidRelativeOrAbsoluteDate(dateTo)) {
+                        dateTo = INITIAL_DATE_TO
+                    }
+                    if (dateFrom && !isValidRelativeOrAbsoluteDate(dateFrom)) {
+                        dateFrom = INITIAL_DATE_FROM
                     }
                     return {
                         dateTo,
@@ -763,128 +801,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         ],
     }),
     selectors(({ actions, values }) => ({
-        // Helper functions for dynamic marketing analytics
-        createMarketingDataWarehouseNodes: [
-            (s) => [s.validExternalTables, s.baseCurrency],
-            (validExternalTables: ExternalTable[], baseCurrency: string): DataWarehouseNode[] => {
-                if (!validExternalTables || validExternalTables.length === 0) {
-                    return []
-                }
-
-                const nodeList: DataWarehouseNode[] = validExternalTables
-                    .map((table) => {
-                        if (!table.source_map || !table.source_map.date || !table.source_map.total_cost) {
-                            return null
-                        }
-
-                        const returning: DataWarehouseNode = {
-                            kind: NodeKind.DataWarehouseNode,
-                            id: table.id,
-                            name: table.schema_name,
-                            custom_name: `${table.schema_name} Cost`,
-                            id_field: 'id',
-                            distinct_id_field: 'id',
-                            timestamp_field: table.source_map.date,
-                            table_name: table.name,
-                            math: PropertyMathType.Sum,
-                            math_property: table.source_map.total_cost,
-                            math_property_revenue_currency: {
-                                static: (table.source_map.currency || baseCurrency) as CurrencyCode,
-                            },
-                        }
-                        return returning
-                    })
-                    .filter(Boolean) as DataWarehouseNode[]
-
-                return nodeList
-            },
-        ],
-
-        createDynamicCampaignQuery: [
-            (s) => [s.validExternalTables, s.baseCurrency],
-            (validExternalTables: ExternalTable[], baseCurrency: string): string | null => {
-                if (!validExternalTables || validExternalTables.length === 0) {
-                    return null
-                }
-
-                const unionQueries = validExternalTables
-                    .map((table) => {
-                        const tableName = table.name
-                        const schemaName = table.schema_name
-                        if (
-                            !table.source_map ||
-                            !table.source_map.date ||
-                            !table.source_map.total_cost ||
-                            !table.source_map.campaign_name
-                        ) {
-                            return null
-                        }
-
-                        const costSelect = table.source_map.currency
-                            ? `toFloat(convertCurrency('${table.source_map.currency}', '${baseCurrency}', toFloat(coalesce(${table.source_map.total_cost}, 0))))`
-                            : `toFloat(coalesce(${table.source_map.total_cost}, 0))`
-
-                        // TODO: we should replicate this logic for the area charts once we build the query runner
-                        return `
-                        SELECT 
-                            ${table.source_map.campaign_name} as campaignname,
-                            ${costSelect} as cost,
-                            toFloat(coalesce(${table.source_map.clicks || '0'}, 0)) as clicks,
-                            toFloat(coalesce(${table.source_map.impressions || '0'}, 0)) as impressions,
-                            ${table.source_map.source_name || `'${schemaName}'`} as source_name
-                        FROM ${tableName}
-                        WHERE ${table.source_map.date} >= '2025-01-01'
-                    `.trim()
-                    })
-                    .filter(Boolean)
-
-                if (unionQueries.length === 0) {
-                    return `SELECT 'No valid sources_map configured' as message`
-                }
-
-                const query = `
-                    WITH campaign_costs AS (
-                        SELECT 
-                            campaignname,
-                            source_name,
-                            sum(cost) as total_cost,
-                            sum(clicks) as total_clicks,
-                            sum(impressions) as total_impressions
-                        FROM (
-                            ${unionQueries.join('\n                            UNION ALL\n')}
-                        )
-                        GROUP BY campaignname, source_name
-                    ),
-                    campaign_pageviews AS (
-                        SELECT 
-                            properties.utm_campaign as campaign_name,
-                            count(*) as pageviews,
-                            uniq(distinct_id) as unique_visitors
-                        FROM events 
-                        WHERE event = '$pageview' 
-                            AND properties.utm_campaign IS NOT NULL
-                            AND properties.utm_campaign != ''
-                        GROUP BY properties.utm_campaign
-                    )
-                    SELECT 
-                        cc.campaignname as "Campaign",
-                        cc.source_name as "Source",
-                        round(cc.total_cost, 2) as "Total Cost",
-                        cc.total_clicks as "Total Clicks", 
-                        cc.total_impressions as "Total Impressions",
-                        round(cc.total_cost / nullif(cc.total_clicks, 0), 2) as "Cost per Click",
-                        round(cc.total_clicks / nullif(cc.total_impressions, 0) * 100, 2) as "CTR",
-                        coalesce(cp.pageviews, 0) as "Pageviews",
-                        coalesce(cp.unique_visitors, 0) as "Unique Visitors",
-                        round(cc.total_cost / nullif(coalesce(cp.pageviews, 1), 0), 2) as "Cost per Pageview"
-                    FROM campaign_costs cc
-                    LEFT JOIN campaign_pageviews cp ON cc.campaignname = cp.campaign_name
-                    ORDER BY cc.total_cost DESC
-                    LIMIT 20
-                `.trim()
-                return query
-            },
-        ],
         preAggregatedEnabled: [
             (s) => [s.featureFlags, s.currentTeam],
             (featureFlags: Record<string, boolean>, currentTeam: TeamPublicType | TeamType | null) => {
@@ -949,19 +865,12 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         ],
         hasHostFilter: [(s) => [s.rawWebAnalyticsFilters], (filters) => filters.some((f) => f.key === '$host')],
         webAnalyticsFilters: [
-            (s) => [
-                s.rawWebAnalyticsFilters,
-                s.isPathCleaningEnabled,
-                s.domainFilter,
-                s.deviceTypeFilter,
-                () => values.featureFlags,
-            ],
+            (s) => [s.rawWebAnalyticsFilters, s.isPathCleaningEnabled, s.domainFilter, s.deviceTypeFilter],
             (
                 rawWebAnalyticsFilters: WebAnalyticsPropertyFilters,
                 isPathCleaningEnabled: boolean,
                 domainFilter: string | null,
-                deviceTypeFilter: DeviceType | null,
-                featureFlags: Record<string, boolean>
+                deviceTypeFilter: DeviceType | null
             ) => {
                 let filters = rawWebAnalyticsFilters
 
@@ -996,7 +905,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 }
 
                 // Translate exact path filters to cleaned path filters
-                if (featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_IMPROVED_PATH_CLEANING] && isPathCleaningEnabled) {
+                if (isPathCleaningEnabled) {
                     filters = filters.map((filter) => ({
                         ...filter,
                         operator:
@@ -1068,6 +977,14 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 conversionGoal,
             }),
         ],
+        marketingContext: [
+            (s) => [s.createMarketingDataWarehouseNodes, s.marketingCompareFilter, s.marketingDateFilter],
+            (createMarketingDataWarehouseNodes, marketingCompareFilter, marketingDateFilter) => ({
+                createMarketingDataWarehouseNodes,
+                marketingCompareFilter,
+                marketingDateFilter,
+            }),
+        ],
         tiles: [
             (s) => [
                 s.productTab,
@@ -1079,6 +996,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 () => values.currentTeam,
                 () => values.tileVisualizations,
                 () => values.preAggregatedEnabled,
+                () => values.campaignCostsBreakdown,
+                s.marketingContext,
             ],
             (
                 productTab,
@@ -1098,8 +1017,12 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 isGreaterThanMd,
                 currentTeam,
                 tileVisualizations,
-                preAggregatedEnabled
+                preAggregatedEnabled,
+                campaignCostsBreakdown,
+                marketingContext
             ): WebAnalyticsTile[] => {
+                const { createMarketingDataWarehouseNodes, marketingCompareFilter, marketingDateFilter } =
+                    marketingContext
                 const dateRange = { date_from: dateFrom, date_to: dateTo }
                 const sampling = { enabled: false, forceSamplingRate: { numerator: 1, denominator: 10 } }
 
@@ -1154,17 +1077,15 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
 
                 const revenueEventsSeries: EventsNode[] =
                     includeRevenue && currentTeam?.revenue_analytics_config
-                        ? ([
-                              ...currentTeam.revenue_analytics_config.events.map((e) => ({
-                                  name: e.eventName,
-                                  event: e.eventName,
-                                  custom_name: e.eventName,
-                                  math: PropertyMathType.Sum,
-                                  kind: NodeKind.EventsNode,
-                                  math_property: e.revenueProperty,
-                                  math_property_revenue_currency: e.revenueCurrencyProperty,
-                              })),
-                          ] as EventsNode[])
+                        ? (currentTeam.revenue_analytics_config.events.map((e) => ({
+                              name: e.eventName,
+                              event: e.eventName,
+                              custom_name: e.eventName,
+                              math: PropertyMathType.Sum,
+                              kind: NodeKind.EventsNode,
+                              math_property: e.revenueProperty,
+                              math_property_revenue_currency: e.revenueCurrencyProperty,
+                          })) as EventsNode[])
                         : []
 
                 const conversionRevenueSeries =
@@ -1206,6 +1127,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             filterTestAccounts,
                             conversionGoal,
                             properties: webAnalyticsFilters,
+                            tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
                             ...trendsQueryProperties,
                         },
                         hidePersonsModal: true,
@@ -1235,7 +1157,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     ].filter(isNotNil)
 
                     // Check if this tile has a visualization preference
-                    const visualization = tileVisualizations[tileId]
+                    const visualization =
+                        tileVisualizations[tileId as unknown as keyof typeof tileVisualizations] || undefined
 
                     const baseTabProps = {
                         id: tabId,
@@ -1243,7 +1166,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         linkText,
                         insightProps: createInsightProps(tileId, tabId),
                         canOpenModal: true,
-                        ...(tab || {}),
+                        ...tab,
                     }
 
                     // In case of a graph, we need to use the breakdownFilter and a InsightsVizNode,
@@ -1265,6 +1188,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                     filterTestAccounts,
                                     conversionGoal,
                                     properties: webAnalyticsFilters,
+                                    tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
                                 },
                                 hidePersonsModal: true,
                                 embedded: true,
@@ -1291,13 +1215,29 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 filterTestAccounts,
                                 conversionGoal,
                                 orderBy: tablesOrderBy ?? undefined,
-                                ...(source || {}),
+                                tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
+                                ...source,
                             },
                             embedded: false,
                             showActions: true,
                             columns,
                         },
                     }
+                }
+
+                let errorTrackingQ: DataTableNode | undefined
+
+                try {
+                    errorTrackingQ = errorTrackingQuery({
+                        orderBy: 'users',
+                        dateRange: dateRange,
+                        filterTestAccounts: filterTestAccounts,
+                        filterGroup: replayFilters.filter_group,
+                        columns: ['error', 'users', 'occurrences'],
+                        limit: 4,
+                    })
+                } catch (e) {
+                    posthog.captureException(e, { dateRange, replayFilters, filterTestAccounts })
                 }
 
                 if (productTab === ProductTab.WEB_VITALS) {
@@ -1335,6 +1275,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                     filterTestAccounts,
                                     properties: webAnalyticsFilters,
                                 },
+                                tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
                             },
                             insightProps: {
                                 dashboardItemId: getDashboardItemId(TileId.WEB_VITALS, 'web-vitals-overview', false),
@@ -1377,18 +1318,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 }
 
                 if (productTab === ProductTab.MARKETING) {
-                    // Generate dynamic series from sources_map
-                    const createDynamicMarketingSeries = (): DataWarehouseNode[] => {
-                        const dynamicNodes = values.createMarketingDataWarehouseNodes
-
-                        if (!dynamicNodes || dynamicNodes.length === 0) {
-                            return []
-                        }
-
-                        return dynamicNodes
-                    }
-
-                    const dynamicSeries = createDynamicMarketingSeries()
                     return [
                         {
                             kind: 'query',
@@ -1397,7 +1326,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 colSpanClassName: 'md:col-span-2',
                                 orderWhenLargeClassName: 'xxl:order-1',
                             },
-                            title: 'Marketing Costs',
+                            title: 'Marketing costs',
                             query: {
                                 kind: NodeKind.InsightVizNode,
                                 embedded: true,
@@ -1405,9 +1334,10 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 hideTooltipOnScroll: true,
                                 source: {
                                     kind: NodeKind.TrendsQuery,
+                                    compareFilter: marketingCompareFilter,
                                     series:
-                                        dynamicSeries.length > 0
-                                            ? dynamicSeries
+                                        createMarketingDataWarehouseNodes.length > 0
+                                            ? createMarketingDataWarehouseNodes
                                             : [
                                                   // Fallback when no sources are configured
                                                   {
@@ -1417,8 +1347,11 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                                       math: BaseMathType.TotalCount,
                                                   },
                                               ],
-                                    interval: 'week',
-                                    dateRange: dateRange,
+                                    interval: marketingDateFilter.interval,
+                                    dateRange: {
+                                        date_from: marketingDateFilter.dateFrom,
+                                        date_to: marketingDateFilter.dateTo,
+                                    },
                                     trendsFilter: {
                                         display: ChartDisplayType.ActionsAreaGraph,
                                         aggregationAxisFormat: 'numeric',
@@ -1426,18 +1359,19 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                     },
                                 },
                             },
+                            showIntervalSelect: true,
                             insightProps: createInsightProps(TileId.MARKETING),
                             canOpenInsight: true,
                             canOpenModal: false,
                             docs: {
-                                title: 'Marketing Costs',
+                                title: 'Marketing costs',
                                 description:
-                                    dynamicSeries.length > 0
+                                    createMarketingDataWarehouseNodes.length > 0
                                         ? 'Track costs from your configured marketing data sources.'
                                         : 'Configure marketing data sources in the settings to track costs from your ad platforms.',
                             },
                         },
-                        values.campaignCostsBreakdown
+                        campaignCostsBreakdown
                             ? {
                                   kind: 'query',
                                   tileId: TileId.MARKETING_CAMPAIGN_BREAKDOWN,
@@ -1445,13 +1379,13 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                       colSpanClassName: 'md:col-span-2',
                                       orderWhenLargeClassName: 'xxl:order-2',
                                   },
-                                  title: 'Campaign Costs Breakdown',
-                                  query: values.campaignCostsBreakdown,
+                                  title: 'Campaign costs breakdown',
+                                  query: campaignCostsBreakdown,
                                   insightProps: createInsightProps(TileId.MARKETING_CAMPAIGN_BREAKDOWN),
                                   canOpenModal: true,
                                   canOpenInsight: false,
                                   docs: {
-                                      title: 'Campaign Costs Breakdown',
+                                      title: 'Campaign costs breakdown',
                                       description:
                                           'Breakdown of marketing costs by individual campaign names across all ad platforms.',
                                   },
@@ -2002,6 +1936,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                                   conversionGoal,
                                                   filterTestAccounts,
                                                   properties: webAnalyticsFilters,
+                                                  tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
                                               },
                                               hidePersonsModal: true,
                                               embedded: true,
@@ -2075,6 +2010,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                           totalIntervals: isGreaterThanMd ? 8 : 5,
                                           period: RetentionPeriod.Week,
                                       },
+                                      tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
                                   },
                                   vizSpecificOptions: {
                                       [InsightType.RETENTION]: {
@@ -2140,6 +2076,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                           ],
                                           dateRange,
                                           conversionGoal,
+                                          tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
                                       },
                                       docs: {
                                           url: 'https://posthog.com/docs/web-analytics/dashboard#active-hours',
@@ -2153,11 +2090,23 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                                           the day and day of the week.
                                                       </p>
                                                       <p>
-                                                          Note: It is expected that selecting a time range longer than 7
+                                                          Each cell represents the number of unique users during a
+                                                          specific hour of a specific day. The "All" column aggregates
+                                                          totals for each day, and the bottom row aggregates totals for
+                                                          each hour. The bottom-right cell shows the grand total. The
+                                                          displayed time is based on your project's date and time
+                                                          settings (UTC by default, configurable in{' '}
+                                                          <Link to={urls.settings('project', 'date-and-time')}>
+                                                              project settings
+                                                          </Link>
+                                                          ).
+                                                      </p>
+                                                      <p>
+                                                          <strong>Note:</strong> Selecting a time range longer than 7
                                                           days will include additional occurrences of weekdays and
                                                           hours, potentially increasing the user counts in those
-                                                          buckets. The recommendation is to select 7 closed days or
-                                                          multiple of 7 closed day ranges.
+                                                          buckets. For best results, select 7 closed days or multiple of
+                                                          7 closed day ranges.
                                                       </p>
                                                   </div>
                                               </>
@@ -2183,6 +2132,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                           ],
                                           dateRange,
                                           conversionGoal,
+                                          tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
                                       },
                                       docs: {
                                           url: 'https://posthog.com/docs/web-analytics/dashboard#active-hours',
@@ -2195,11 +2145,23 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                                           pageviews, broken down by hour of the day and day of the week.
                                                       </p>
                                                       <p>
-                                                          Note: It is expected that selecting a time range longer than 7
+                                                          Each cell represents the number of total pageviews during a
+                                                          specific hour of a specific day. The "All" column aggregates
+                                                          totals for each day, and the bottom row aggregates totals for
+                                                          each hour. The bottom-right cell shows the grand total. The
+                                                          displayed time is based on your project's date and time
+                                                          settings (UTC by default, configurable in{' '}
+                                                          <Link to={urls.settings('project', 'date-and-time')}>
+                                                              project settings
+                                                          </Link>
+                                                          ).
+                                                      </p>
+                                                      <p>
+                                                          <strong>Note:</strong> Selecting a time range longer than 7
                                                           days will include additional occurrences of weekdays and
                                                           hours, potentially increasing the user counts in those
-                                                          buckets. The recommendation is to select 7 closed days or
-                                                          multiple of 7 closed day ranges.
+                                                          buckets. For best results, select 7 closed days or multiple of
+                                                          7 closed day ranges.
                                                       </p>
                                                   </div>
                                               </>
@@ -2234,6 +2196,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                       limit: 10,
                                       orderBy: tablesOrderBy ?? undefined,
                                       filterTestAccounts,
+                                      tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
                                   },
                                   embedded: true,
                                   showActions: true,
@@ -2277,21 +2240,14 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                               },
                           }
                         : null,
-                    !conversionGoal
+                    !conversionGoal && errorTrackingQ
                         ? {
                               kind: 'error_tracking',
                               tileId: TileId.ERROR_TRACKING,
                               layout: {
                                   colSpanClassName: 'md:col-span-1',
                               },
-                              query: errorTrackingQuery({
-                                  orderBy: 'users',
-                                  dateRange: dateRange,
-                                  filterTestAccounts: filterTestAccounts,
-                                  filterGroup: replayFilters.filter_group,
-                                  columns: ['error', 'users', 'occurrences'],
-                                  limit: 4,
-                              }),
+                              query: errorTrackingQ,
                               docs: {
                                   url: 'https://posthog.com/docs/error-tracking',
                                   title: 'Error Tracking',
@@ -2333,6 +2289,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                       compareFilter,
                                       limit: 10,
                                       doPathCleaning: isPathCleaningEnabled,
+                                      tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
                                   },
                                   embedded: true,
                                   showActions: true,
@@ -2495,6 +2452,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     } as TrendsFilter,
                     filterTestAccounts,
                     properties: webAnalyticsFilters,
+                    tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
                 },
                 embedded: false,
             }),
@@ -2519,7 +2477,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             urlsByDomain.set(key, [])
                         }
                         urlsByDomain.get(key)!.push(url)
-                    } catch (e) {
+                    } catch {
                         // Silently skip URLs that can't be parsed
                     }
                 }
@@ -2532,26 +2490,64 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             },
         ],
         campaignCostsBreakdown: [
-            (s) => [s.sources_map, s.dataWarehouseTables],
+            (s) => [
+                s.loading,
+                s.query,
+                s.marketingDateFilter,
+                s.webAnalyticsFilters,
+                s.shouldFilterTestAccounts,
+                s.draftConversionGoal,
+                s.defaultColumns,
+            ],
             (
-                sources_map: { [key: string]: SourceMap },
-                dataWarehouseTables: DatabaseSchemaDataWarehouseTable[]
+                loading: boolean,
+                query: DataTableNode,
+                marketingDateFilter: { dateFrom: string; dateTo: string; interval: IntervalType },
+                webAnalyticsFilters: WebAnalyticsPropertyFilters,
+                filterTestAccounts: boolean,
+                draftConversionGoal: ConversionGoalFilter | null,
+                defaultColumns: string[]
             ): DataTableNode | null => {
-                if (!values.createDynamicCampaignQuery) {
+                if (loading) {
                     return null
                 }
 
-                // Don't run if data isn't loaded yet
-                if (!sources_map || !dataWarehouseTables) {
-                    return null
-                }
-
+                const marketingQuery = query?.source as MarketingAnalyticsTableQuery | undefined
+                const columnsWithDraftConversionGoal = [
+                    ...(marketingQuery?.select?.length ? marketingQuery.select : defaultColumns).filter(
+                        (column) => !isDraftConversionGoalColumn(column, draftConversionGoal)
+                    ),
+                    ...(draftConversionGoal
+                        ? [
+                              draftConversionGoal.conversion_goal_name,
+                              `${MarketingAnalyticsHelperForColumnNames.CostPer} ${draftConversionGoal.conversion_goal_name}`,
+                          ]
+                        : []),
+                ]
+                const sortedColumns = getSortedColumnsByArray(columnsWithDraftConversionGoal, defaultColumns)
+                const orderedColumns = orderArrayByPreference(sortedColumns, query?.pinnedColumns || [])
+                const orderBy = getOrderBy(marketingQuery, sortedColumns)
                 return {
+                    ...query,
                     kind: NodeKind.DataTableNode,
                     source: {
-                        kind: NodeKind.HogQLQuery,
-                        query: values.createDynamicCampaignQuery,
+                        ...marketingQuery,
+                        kind: NodeKind.MarketingAnalyticsTableQuery,
+                        dateRange: {
+                            date_from: marketingDateFilter.dateFrom,
+                            date_to: marketingDateFilter.dateTo,
+                        },
+                        properties: webAnalyticsFilters || [],
+                        filterTestAccounts: filterTestAccounts,
+                        draftConversionGoal: draftConversionGoal,
+                        limit: 200,
+                        orderBy,
+                        tags: MARKETING_ANALYTICS_DEFAULT_QUERY_TAGS,
+                        select: orderedColumns,
                     },
+                    full: true,
+                    embedded: false,
+                    showOpenEditorButton: false,
                 }
             },
         ],
@@ -2878,7 +2874,11 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             if (filter_test_accounts && filter_test_accounts !== values.shouldFilterTestAccounts) {
                 actions.setShouldFilterTestAccounts([true, 'true', 1, '1'].includes(filter_test_accounts))
             }
-            if (compare_filter && !objectsEqual(compare_filter, values.compareFilter)) {
+            if (
+                compare_filter &&
+                isCompareFilter(compare_filter) &&
+                !objectsEqual(compare_filter, values.compareFilter)
+            ) {
                 actions.setCompareFilter(compare_filter)
             }
             if (productTab && productTab !== values.productTab) {
@@ -2938,6 +2938,18 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         actions.setConversionGoalWarning
                     ),
             ],
+            [teamLogic.actionTypes.updateCurrentTeam]: async (action) => {
+                const isPreAggregatedEnabled =
+                    values.featureFlags[FEATURE_FLAGS.SETTINGS_WEB_ANALYTICS_PRE_AGGREGATED_TABLES] &&
+                    action?.modifiers?.useWebAnalyticsPreAggregatedTables
+
+                if (isPreAggregatedEnabled && values.conversionGoal) {
+                    actions.setConversionGoal(null)
+                    lemonToast.info(
+                        'Your conversion goal has been cleared as the new query engine does not support it (yet!)'
+                    )
+                }
+            },
         }
     }),
     afterMount(({ actions, values }) => {

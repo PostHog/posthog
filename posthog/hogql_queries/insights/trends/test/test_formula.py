@@ -547,6 +547,7 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
                     "breakdown_value": "Paris",
                     "action": None,
                     "filter": mock.ANY,
+                    "order": 0,
                 },
                 {
                     "data": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
@@ -575,6 +576,7 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
                     "breakdown_value": "London",
                     "action": None,
                     "filter": mock.ANY,
+                    "order": 0,
                 },
             ],
         )

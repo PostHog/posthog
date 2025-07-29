@@ -1,11 +1,18 @@
 import { LemonTabs } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { WebExperimentImplementationDetails } from 'scenes/experiments/WebExperimentImplementationDetails'
 
 import type { CachedExperimentQueryResponse } from '~/queries/schema/schema-general'
-import { ExperimentStatsMethod } from '~/types'
-
-import { ExploreAsInsightButton, ResultsBreakdown, ResultsQuery } from '../components/ResultsBreakdown'
+import { ActivityScope } from '~/types'
+import { AISummary } from '../components/AISummary'
+import {
+    ExploreAsInsightButton,
+    ResultsBreakdown,
+    ResultsBreakdownSkeleton,
+    ResultsInsightInfoBanner,
+    ResultsQuery,
+} from '../components/ResultsBreakdown'
 import { ExperimentImplementationDetails } from '../ExperimentImplementationDetails'
 import { experimentLogic } from '../experimentLogic'
 import { ExperimentMetricModal } from '../Metrics/ExperimentMetricModal'
@@ -16,7 +23,6 @@ import { MetricsViewLegacy } from '../MetricsView/legacy/MetricsViewLegacy'
 import { VariantDeltaTimeseries } from '../MetricsView/legacy/VariantDeltaTimeseries'
 import { Metrics } from '../MetricsView/new/Metrics'
 import { RunningTimeCalculatorModal } from '../RunningTimeCalculator/RunningTimeCalculatorModal'
-import { isLegacyExperimentQuery } from '../utils'
 import {
     EditConclusionModal,
     LegacyExploreButton,
@@ -33,30 +39,32 @@ import { LegacyExperimentHeader } from './LegacyExperimentHeader'
 import { Overview } from './Overview'
 import { ReleaseConditionsModal, ReleaseConditionsTable } from './ReleaseConditionsTable'
 import { SummaryTable } from './SummaryTable'
+import { isLegacyExperiment, isLegacyExperimentQuery } from '../utils'
 
 const ResultsTab = (): JSX.Element => {
     const {
         experiment,
-        legacyMetricResults,
+        legacyPrimaryMetricsResults,
         firstPrimaryMetric,
         primaryMetricsLengthWithSharedMetrics,
-        metricResultsLoading,
+        primaryMetricsResultsLoading,
         hasMinimumExposureForResults,
-        statsMethod,
     } = useValues(experimentLogic)
     /**
      * we still use the legacy metric results here. Results on the new format are loaded
-     * in the metricResults state key. We'll eventually move into using the new state.
+     * in the primaryMetricsResults state key. We'll eventually move into using the new state.
      */
-    const hasSomeResults = legacyMetricResults?.some((result) => result?.insight)
+    const hasSomeResults = legacyPrimaryMetricsResults?.some((result) => result?.insight)
 
     const hasSinglePrimaryMetric = primaryMetricsLengthWithSharedMetrics === 1
 
-    const firstPrimaryMetricResult = legacyMetricResults?.[0]
+    const firstPrimaryMetricResult = legacyPrimaryMetricsResults?.[0]
+
+    const hasLegacyResults = legacyPrimaryMetricsResults.some((result) => result != null)
 
     return (
         <>
-            {!experiment.start_date && !metricResultsLoading && (
+            {!experiment.start_date && !primaryMetricsResultsLoading && (
                 <>
                     {experiment.type === 'web' ? (
                         <WebExperimentImplementationDetails experiment={experiment} />
@@ -72,9 +80,9 @@ const ResultsTab = (): JSX.Element => {
                 </div>
             )}
             {/**
-             * we only show bayesian results for now
+             *  check if we should render the legacy metrics view or the new one
              */}
-            {statsMethod === ExperimentStatsMethod.Bayesian ? (
+            {isLegacyExperiment(experiment) || hasLegacyResults ? (
                 <>
                     <MetricsViewLegacy isSecondary={false} />
                     {/**
@@ -113,23 +121,30 @@ const ResultsTab = (): JSX.Element => {
                                     <ResultsBreakdown
                                         result={firstPrimaryMetricResult as CachedExperimentQueryResponse}
                                         experiment={experiment}
+                                        metricIndex={0}
+                                        isPrimary={true}
                                     >
-                                        {({ query, breakdownResults }) =>
-                                            query &&
-                                            breakdownResults && (
-                                                <div>
-                                                    <div className="flex justify-end">
-                                                        <ExploreAsInsightButton query={query} />
-                                                    </div>
-                                                    <div className="pb-4">
-                                                        <ResultsQuery
-                                                            query={query}
-                                                            breakdownResults={breakdownResults}
+                                        {({ query, breakdownResults, breakdownResultsLoading, exposureDifference }) => (
+                                            <div>
+                                                {breakdownResultsLoading && <ResultsBreakdownSkeleton />}
+                                                {query && breakdownResults && (
+                                                    <div>
+                                                        <div className="flex justify-end">
+                                                            <ExploreAsInsightButton query={query} />
+                                                        </div>
+                                                        <ResultsInsightInfoBanner
+                                                            exposureDifference={exposureDifference}
                                                         />
+                                                        <div className="pb-4">
+                                                            <ResultsQuery
+                                                                query={query}
+                                                                breakdownResults={breakdownResults}
+                                                            />
+                                                        </div>
                                                     </div>
-                                                </div>
-                                            )
-                                        }
+                                                )}
+                                            </div>
+                                        )}
                                     </ResultsBreakdown>
                                 )}
                             </div>
@@ -169,6 +184,7 @@ export function ExperimentView(): JSX.Element {
                 ) : (
                     <>
                         <Info />
+                        <AISummary experimentId={experimentId} />
                         {usesNewQueryRunner ? <ExperimentHeader /> : <LegacyExperimentHeader />}
                         <LemonTabs
                             activeKey={tabKey}
@@ -183,6 +199,11 @@ export function ExperimentView(): JSX.Element {
                                     key: 'variants',
                                     label: 'Variants',
                                     content: <VariantsTab />,
+                                },
+                                {
+                                    key: 'history',
+                                    label: 'History',
+                                    content: <ActivityLog scope={ActivityScope.EXPERIMENT} id={experimentId} />,
                                 },
                             ]}
                         />

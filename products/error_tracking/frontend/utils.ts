@@ -2,7 +2,7 @@ import equal from 'fast-deep-equal'
 import { LogicWrapper } from 'kea'
 import { routerType } from 'kea-router/lib/routerType'
 import { ErrorTrackingException } from 'lib/components/Errors/types'
-import { Dayjs, dayjs } from 'lib/dayjs'
+import { Dayjs, dayjs, QUnitType } from 'lib/dayjs'
 import { componentsToDayJs, dateStringToComponents, isStringDateRegex } from 'lib/utils'
 import { MouseEvent } from 'react'
 import { Params } from 'scenes/sceneTypes'
@@ -90,6 +90,8 @@ export function generateSparklineLabels(range: DateRange, resolution: number): D
     return labels
 }
 
+export type DateRangePrecision = { unit: QUnitType; value: number }
+
 export class ResolvedDateRange {
     date_from: Dayjs
     date_to: Dayjs
@@ -107,7 +109,10 @@ export class ResolvedDateRange {
     }
 
     static fromDateRange(dateRange: DateRange): ResolvedDateRange {
-        return new ResolvedDateRange(resolveDate(dateRange.date_from), resolveDate(dateRange.date_to))
+        return new ResolvedDateRange(
+            resolveDateFrom(dayjs.utc(), dateRange.date_from),
+            resolveDateTo(dayjs.utc(), dateRange.date_to)
+        )
     }
 }
 
@@ -117,18 +122,31 @@ export function resolveDateRange(dateRange: DateRange): ResolvedDateRange {
 }
 
 // Converts relative date to absolute date.
-export function resolveDate(date?: string | null): Dayjs {
+// Keep in sync with posthog/hogql_queries/error_tracking_query_runner.py
+export function resolveDateFrom(offset: Dayjs, date?: string | null): Dayjs {
     if (!date) {
-        return dayjs()
+        return offset.subtract(4, 'years')
     }
-    if (date == 'all') {
-        return dayjs().subtract(1, 'year')
-    }
-    const parsedDate = datetimeStringToDayJs(date)
+    const parsedDate = datetimeStringToDayJs(date, offset)
     if (parsedDate) {
         return parsedDate
     }
-    throw new Error(`Invalid date: ${date}`)
+    throw new Error(`Invalid DateRange (from): ${date}`)
+}
+
+// Converts relative date to absolute date.
+export function resolveDateTo(offset: Dayjs, date?: string | null): Dayjs {
+    if (!date) {
+        return offset
+    }
+    if (date == 'all') {
+        throw new Error('Invalid date: all')
+    }
+    const parsedDate = datetimeStringToDayJs(date, offset)
+    if (parsedDate) {
+        return parsedDate
+    }
+    throw new Error(`Invalid DateRange (to): ${date}`)
 }
 
 const customOptions: Record<string, string> = {
@@ -152,15 +170,15 @@ export function generateDateRangeLabel(dateRange: DateRange): string | undefined
     return 'Custom'
 }
 
-export function datetimeStringToDayJs(date: string | null): Dayjs | null {
+export function datetimeStringToDayJs(date: string | null, offset: Dayjs): Dayjs | null {
     if (!isStringDateRegex.test(date || '')) {
         return dayjs(date)
     }
     const dateComponents = dateStringToComponents(date)
     if (!dateComponents) {
-        return dayjs()
+        return offset
     }
-    return componentsToDayJs(dateComponents)
+    return componentsToDayJs(dateComponents, offset)
 }
 
 export function syncSearchParams(

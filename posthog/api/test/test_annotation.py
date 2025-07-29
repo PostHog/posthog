@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta
-from unittest.mock import patch
+from typing import Optional
+from unittest.mock import MagicMock, patch
 
 from zoneinfo import ZoneInfo
 from django.utils.timezone import now
@@ -17,7 +18,7 @@ from posthog.test.base import (
 
 class TestAnnotation(APIBaseTest, QueryMatchingTest):
     @patch("posthog.api.annotation.report_user_action")
-    def test_retrieving_annotation(self, mock_capture):
+    def test_retrieving_annotation(self, mock_capture: MagicMock) -> None:
         Annotation.objects.create(
             organization=self.organization,
             team=self.team,
@@ -25,7 +26,7 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
             content="hello world!",
         )
 
-        # Annotation creation is not reported to PostHog because it has no created_by
+        # Annotation creation is not reported to PostHog because it has no created_by!
         mock_capture.assert_not_called()
 
         response = self.client.get(f"/api/projects/{self.team.id}/annotations/").json()
@@ -33,7 +34,7 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
         assert response["results"][0]["content"] == "hello world!"
 
     @patch("posthog.api.annotation.report_user_action")
-    def test_retrieving_annotation_is_not_n_plus_1(self, _mock_capture) -> None:
+    def test_retrieving_annotation_is_not_n_plus_1(self, _mock_capture: MagicMock) -> None:
         with self.assertNumQueries(FuzzyInt(8, 9)), snapshot_postgres_queries_context(self):
             response = self.client.get(f"/api/projects/{self.team.id}/annotations/").json()
             assert len(response["results"]) == 0
@@ -62,7 +63,7 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
             response = self.client.get(f"/api/projects/{self.team.id}/annotations/").json()
             assert len(response["results"]) == 2
 
-    def test_org_scoped_annotations_are_returned_between_projects(self):
+    def test_org_scoped_annotations_are_returned_between_projects(self) -> None:
         second_team = Team.objects.create(organization=self.organization, name="Second team")
         Annotation.objects.create(
             organization=self.organization,
@@ -77,7 +78,7 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
         assert len(response["results"]) == 1
         assert response["results"][0]["content"] == "Cross-project annotation!"
 
-    def test_cannot_fetch_annotations_of_org_user_does_not_belong_to(self):
+    def test_cannot_fetch_annotations_of_org_user_does_not_belong_to(self) -> None:
         separate_org, _, separate_team = Organization.objects.bootstrap(None, name="Second team")
         Annotation.objects.create(
             organization=separate_org,
@@ -103,7 +104,7 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
         assert response_2.json()["results"] == []
 
     @patch("posthog.api.annotation.report_user_action")
-    def test_creating_annotation(self, mock_capture):
+    def test_creating_annotation(self, mock_capture: MagicMock) -> None:
         team2 = Organization.objects.bootstrap(None)[2]
 
         self.client.force_login(self.user)
@@ -134,7 +135,7 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
         )
 
     @patch("posthog.api.annotation.report_user_action")
-    def test_can_create_annotations_as_a_bot(self, mock_capture):
+    def test_can_create_annotations_as_a_bot(self, mock_capture: MagicMock) -> None:
         response = self.client.post(
             f"/api/projects/{self.team.id}/annotations/",
             {
@@ -154,7 +155,7 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
         assert get_created_response.json()["creation_type"] == "GIT"
 
     @patch("posthog.api.annotation.report_user_action")
-    def test_downgrading_scope_from_org_to_project_uses_team_id_from_api(self, mock_capture):
+    def test_downgrading_scope_from_org_to_project_uses_team_id_from_api(self, mock_capture: MagicMock) -> None:
         second_team = Team.objects.create(organization=self.organization, name="Second team")
         test_annotation = Annotation.objects.create(
             organization=self.organization,
@@ -179,7 +180,7 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
         # project than the one the user is viewing.
         assert test_annotation.team == second_team
 
-    def test_updating_annotation(self):
+    def test_updating_annotation(self) -> None:
         test_annotation = Annotation.objects.create(
             organization=self.organization,
             team=self.team,
@@ -199,7 +200,7 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
         assert test_annotation.scope == "organization"
         assert test_annotation.date_marker is None
 
-    def test_deleting_annotation(self):
+    def test_deleting_annotation(self) -> None:
         new_user = User.objects.create_and_join(self.organization, "new_annotations@posthog.com", None)
 
         instance = Annotation.objects.create(organization=self.organization, team=self.team, created_by=self.user)
@@ -221,7 +222,9 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
             (None, None, 4),
         ]
     )
-    def test_annotation_can_be_filtered_by_scope(self, scope: str, expected_content: str, expected_result_count: int):
+    def test_annotation_can_be_filtered_by_scope(
+        self, scope: Optional[str], expected_content: Optional[str], expected_result_count: int
+    ) -> None:
         Annotation.objects.create(
             organization=self.organization,
             team=self.team,
@@ -263,7 +266,9 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
             (Annotation.Scope.ORGANIZATION, False, True),  # Outside date range
         ]
     )
-    def test_filter_annotations_by_date_range_and_scope(self, scope, in_date_range, should_be_visible):
+    def test_filter_annotations_by_date_range_and_scope(
+        self, scope: str, in_date_range: bool, should_be_visible: bool
+    ) -> None:
         """Test that annotations can be filtered by date range and scope for session replay integration."""
 
         # Create base dates for our test
@@ -302,84 +307,21 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
         else:
             assert len(results) == 0
 
-    def test_filter_annotations_for_session_replay_scenario(self):
-        """Test a realistic session replay scenario with multiple annotations and scopes."""
-
-        # Session replay scenario: 1-hour recording from 10:00 to 11:00
-        session_start = datetime(2023, 1, 1, 10, 0, 0, tzinfo=ZoneInfo("UTC"))
-        session_end = datetime(2023, 1, 1, 11, 0, 0, tzinfo=ZoneInfo("UTC"))
-
-        # Create annotations at different times and scopes
-        annotations_data = [
-            # Inside session time range
-            (session_start + timedelta(minutes=15), Annotation.Scope.PROJECT, "Project annotation at 15min"),
-            (session_start + timedelta(minutes=30), Annotation.Scope.ORGANIZATION, "Org annotation at 30min"),
-            (session_start + timedelta(minutes=45), Annotation.Scope.PROJECT, "Project annotation at 45min"),
-            # Outside session time range (should not appear)
-            (session_start - timedelta(minutes=30), Annotation.Scope.PROJECT, "Before session"),
-            (session_end + timedelta(minutes=30), Annotation.Scope.ORGANIZATION, "After session"),
-        ]
-
-        for date_marker, scope, content in annotations_data:
-            Annotation.objects.create(
-                organization=self.organization,
-                team=self.team,
-                created_by=self.user,
-                content=content,
-                scope=scope,
-                date_marker=date_marker,
-            )
-
-        # Test: Get all annotations within the session time range
-        response = self.client.get(
-            f"/api/projects/{self.team.id}/annotations/",
-            {
-                "date_from": session_start.isoformat(),
-                "date_to": session_end.isoformat(),
-            },
-        )
-
-        assert response.status_code == 200
-        results = response.json()["results"]
-
-        # Should get 3 annotations (the ones within the time range)
-        assert len(results) == 3
-
-        # Verify they're ordered by date_marker (newest first based on existing ordering)
-        contents = [r["content"] for r in results]
-        assert "Project annotation at 15min" in contents
-        assert "Org annotation at 30min" in contents
-        assert "Project annotation at 45min" in contents
-        assert "Before session" not in contents
-        assert "After session" not in contents
-
-        # Test: Filter by specific scope within time range
-        response_project_only = self.client.get(
-            f"/api/projects/{self.team.id}/annotations/",
-            {
-                "date_from": session_start.isoformat(),
-                "date_to": session_end.isoformat(),
-                "scope": Annotation.Scope.PROJECT,
-            },
-        )
-
-        assert response_project_only.status_code == 200
-        project_results = response_project_only.json()["results"]
-
-        # Should get 2 project-scoped annotations
-        assert len(project_results) == 2
-        project_contents = [r["content"] for r in project_results]
-        assert "Project annotation at 15min" in project_contents
-        assert "Project annotation at 45min" in project_contents
-        assert "Org annotation at 30min" not in project_contents
-
-    def test_filter_annotations_400_for_invalid_scope(self):
+    def test_filter_annotations_400_for_invalid_scope(self) -> None:
         response = self.client.get(
             f"/api/projects/{self.team.id}/annotations/",
             {"scope": "invalid_scope"},
         )
         assert response.status_code == 400
         assert response.json()["detail"] == "Invalid scope: invalid_scope"
+
+    def test_create_annotations_400_for_recording_scope(self) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/annotations/",
+            {"scope": "recording"},
+        )
+        assert response.status_code == 400
+        assert response.json()["detail"] == "Recording scope is deprecated"
 
     @parameterized.expand(
         [
@@ -388,28 +330,12 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
             ("2024-01-01T11:00:00Z", "2024-01-01T10:00:00Z", "date_from must be before date_to"),
         ]
     )
-    def test_filter_annotations_400_for_invalid_date_range(self, date_from, date_to, error_message):
+    def test_filter_annotations_400_for_invalid_date_range(
+        self, date_from: str, date_to: str, error_message: str
+    ) -> None:
         response = self.client.get(
             f"/api/projects/{self.team.id}/annotations/",
             {"date_from": date_from, "date_to": date_to},
         )
         assert response.status_code == 400
         assert response.json()["detail"] == f"Invalid date range: {error_message}"
-
-    def test_filter_annotations_by_specific_recording(self):
-        annotation = Annotation.objects.create(
-            organization=self.organization,
-            team=self.team,
-            created_by=self.user,
-            content="Test annotation",
-            scope=Annotation.Scope.RECORDING,
-            recording_id="123e4567-e89b-12d3-a456-426614174000",
-        )
-
-        response = self.client.get(
-            f"/api/projects/{self.team.id}/annotations/",
-            {"recording": "123e4567-e89b-12d3-a456-426614174000"},
-        )
-        assert response.status_code == 200
-        assert len(response.json()["results"]) == 1
-        assert response.json()["results"][0]["id"] == annotation.id

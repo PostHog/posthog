@@ -30,6 +30,7 @@ import {
     InsightQueryNode,
     InsightVizNode,
     LifecycleQuery,
+    MarketingAnalyticsTableQuery,
     MathType,
     Node,
     NodeKind,
@@ -39,9 +40,11 @@ import {
     QueryStatusResponse,
     ResultCustomizationBy,
     RetentionQuery,
+    RevenueAnalyticsArpuQuery,
+    RevenueAnalyticsCustomerCountQuery,
     RevenueAnalyticsGrowthRateQuery,
-    RevenueAnalyticsInsightsQuery,
     RevenueAnalyticsOverviewQuery,
+    RevenueAnalyticsRevenueQuery,
     RevenueAnalyticsTopCustomersQuery,
     RevenueExampleDataWarehouseTablesQuery,
     RevenueExampleEventsQuery,
@@ -60,6 +63,7 @@ import {
 import { BaseMathType, ChartDisplayType, IntervalType } from '~/types'
 
 import { LATEST_VERSIONS } from './latest-versions'
+import { getAppContext } from 'lib/utils/getAppContext'
 
 export function isDataNode(node?: Record<string, any> | null): node is EventsQuery | PersonsNode {
     return (
@@ -150,22 +154,32 @@ export function isHogQLMetadata(node?: Record<string, any> | null): node is HogQ
     return node?.kind === NodeKind.HogQLMetadata
 }
 
-export function isRevenueAnalyticsOverviewQuery(
-    node?: Record<string, any> | null
-): node is RevenueAnalyticsOverviewQuery {
-    return node?.kind === NodeKind.RevenueAnalyticsOverviewQuery
+export function isRevenueAnalyticsArpuQuery(node?: Record<string, any> | null): node is RevenueAnalyticsArpuQuery {
+    return node?.kind === NodeKind.RevenueAnalyticsArpuQuery
 }
 
-export function isRevenueAnalyticsInsightsQuery(
+export function isRevenueAnalyticsCustomerCountQuery(
     node?: Record<string, any> | null
-): node is RevenueAnalyticsInsightsQuery {
-    return node?.kind === NodeKind.RevenueAnalyticsInsightsQuery
+): node is RevenueAnalyticsCustomerCountQuery {
+    return node?.kind === NodeKind.RevenueAnalyticsCustomerCountQuery
 }
 
 export function isRevenueAnalyticsGrowthRateQuery(
     node?: Record<string, any> | null
 ): node is RevenueAnalyticsGrowthRateQuery {
     return node?.kind === NodeKind.RevenueAnalyticsGrowthRateQuery
+}
+
+export function isRevenueAnalyticsOverviewQuery(
+    node?: Record<string, any> | null
+): node is RevenueAnalyticsOverviewQuery {
+    return node?.kind === NodeKind.RevenueAnalyticsOverviewQuery
+}
+
+export function isRevenueAnalyticsRevenueQuery(
+    node?: Record<string, any> | null
+): node is RevenueAnalyticsRevenueQuery {
+    return node?.kind === NodeKind.RevenueAnalyticsRevenueQuery
 }
 
 export function isRevenueAnalyticsTopCustomersQuery(
@@ -188,6 +202,12 @@ export function isWebExternalClicksQuery(node?: Record<string, any> | null): boo
 
 export function isWebGoalsQuery(node?: Record<string, any> | null): node is WebGoalsQuery {
     return node?.kind === NodeKind.WebGoalsQuery
+}
+
+export function isMarketingAnalyticsTableQuery(
+    node?: Record<string, any> | null
+): node is MarketingAnalyticsTableQuery {
+    return node?.kind === NodeKind.MarketingAnalyticsTableQuery
 }
 
 export function isTracesQuery(node?: Record<string, any> | null): node is TracesQuery {
@@ -614,13 +634,11 @@ function isHogQLRaw(value: any): value is HogQLRaw {
 }
 
 function formatHogQLValue(value: any): string {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const { teamLogic } = require('scenes/teamLogic')
-
     if (Array.isArray(value)) {
         return `[${value.map(formatHogQLValue).join(', ')}]`
     } else if (dayjs.isDayjs(value)) {
-        return value.tz(teamLogic.values.timezone).format("'YYYY-MM-DD HH:mm:ss'")
+        const timezone = getAppContext()?.current_team?.timezone || 'UTC'
+        return value.tz(timezone).format("'YYYY-MM-DD HH:mm:ss'")
     } else if (isHogQLIdentifier(value)) {
         return escapePropertyAsHogQLIdentifier(value.identifier)
     } else if (isHogQLRaw(value)) {
@@ -706,27 +724,61 @@ export function getMathTypeWarning(
  * Recursively adds the latest version for the respective kind to each node. This
  * is necessary so that schema migrations don't run on hardcoded queries that
  * are already the latest version. */
-export function getFreshQuery<T = any>(node: T): T {
+export function setLatestVersionsOnQuery<T = any>(node: T, options?: { recursion?: boolean }): T {
+    const recursion = options?.recursion ?? true
+
     if (node === null || typeof node !== 'object') {
         return node
     }
 
-    if (Array.isArray(node)) {
-        return (node as unknown as any[]).map(getFreshQuery) as unknown as T
+    if (recursion === true && Array.isArray(node)) {
+        return (node as unknown as any[]).map((value) => setLatestVersionsOnQuery(value)) as unknown as T
     }
 
     const cloned: Record<string, any> = { ...(node as any) }
 
-    if ('kind' in cloned) {
+    if (
+        'kind' in cloned &&
+        Object.values(NodeKind).includes(cloned.kind) &&
+        LATEST_VERSIONS[cloned.kind as NodeKind] > 1
+    ) {
         const latest = LATEST_VERSIONS[cloned.kind as NodeKind]
         cloned.version = latest || 1
     }
 
-    for (const [key, value] of Object.entries(cloned)) {
-        if (value !== null && typeof value === 'object') {
-            cloned[key] = getFreshQuery(value)
+    if (recursion === true) {
+        for (const [key, value] of Object.entries(cloned)) {
+            if (value !== null && typeof value === 'object') {
+                cloned[key] = setLatestVersionsOnQuery(value)
+            }
         }
     }
 
     return cloned as T
+}
+
+/** Checks wether a given query node satisfies all latest versions of the query schema. */
+export function checkLatestVersionsOnQuery(node: any): boolean {
+    if (node === null || typeof node !== 'object') {
+        return true
+    }
+
+    if (Array.isArray(node)) {
+        return node.every((value) => checkLatestVersionsOnQuery(value))
+    }
+
+    if ('kind' in node && Object.values(NodeKind).includes(node.kind)) {
+        const latest = LATEST_VERSIONS[node.kind as NodeKind]
+        if (node.version !== latest) {
+            return false
+        }
+    }
+
+    for (const value of Object.values(node)) {
+        if (!checkLatestVersionsOnQuery(value)) {
+            return false
+        }
+    }
+
+    return true
 }

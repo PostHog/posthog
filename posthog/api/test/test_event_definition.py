@@ -123,8 +123,8 @@ class TestEventDefinitionAPI(APIBaseTest):
         assert response.status_code == status.HTTP_204_NO_CONTENT
         assert EventDefinition.objects.filter(id=event_definition.id).count() == 0
         mock_capture.assert_called_once_with(
-            self.user.distinct_id,
-            "event definition deleted",
+            distinct_id=self.user.distinct_id,
+            event="event definition deleted",
             properties={"name": "test_event"},
             groups={
                 "instance": ANY,
@@ -233,6 +233,44 @@ class TestEventDefinitionAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["count"] == 1
         assert response.json()["results"][0]["name"] == "$pageview"
+
+    @patch("posthog.models.Organization.is_feature_available", return_value=False)
+    def test_update_event_definition_without_taxonomy_entitlement(self, mock_is_feature_available):
+        event_definition = EventDefinition.objects.create(team=self.demo_team, name="test_event")
+
+        response = self.client.patch(
+            f"/api/projects/@current/event_definitions/{event_definition.id}",
+            {"name": "updated_event"},
+        )
+
+        assert response.status_code == status.HTTP_402_PAYMENT_REQUIRED
+
+    @patch("posthog.models.Organization.is_feature_available", return_value=False)
+    def test_update_event_definition_cannot_set_verified_without_entitlement(self, mock_is_feature_available):
+        """Test that enterprise-only fields require license"""
+        event_definition = EventDefinition.objects.create(team=self.demo_team, name="test_event")
+
+        response = self.client.patch(
+            f"/api/projects/@current/event_definitions/{event_definition.id}",
+            {"verified": True},  # This should be blocked since it's enterprise-only
+        )
+
+        assert response.status_code == status.HTTP_402_PAYMENT_REQUIRED
+
+    @patch("posthog.settings.EE_AVAILABLE", True)
+    @patch("posthog.models.Organization.is_feature_available", return_value=True)
+    def test_update_event_definition_with_taxonomy_entitlement(self, *mocks):
+        event_definition = EventDefinition.objects.create(team=self.demo_team, name="test_event")
+
+        response = self.client.patch(
+            f"/api/projects/@current/event_definitions/{event_definition.id}",
+            {"verified": True},  # verified field only exists in enterprise serializer
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+
+        # Verify the enterprise-only field was updated
+        assert response.json()["verified"]
 
 
 @dataclasses.dataclass

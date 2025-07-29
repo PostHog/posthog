@@ -7,6 +7,7 @@ from ee.hogai.graph.query_executor.format import (
     SQLResultsFormatter,
     TrendsResultsFormatter,
 )
+from posthog.clickhouse.query_tagging import tags_context, Product
 from posthog.models.team.team import Team
 from posthog.schema import (
     AssistantFunnelsQuery,
@@ -24,7 +25,7 @@ from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.clickhouse.client.execute_async import get_query_status
 from rest_framework.exceptions import APIException
 from posthog.errors import ExposedCHQueryError
-from posthog.hogql.errors import ExposedHogQLError
+from posthog.hogql.errors import ExposedHogQLError, NotImplementedError as HogQLNotImplementedError
 from time import sleep
 import json
 from django.core.serializers.json import DjangoJSONEncoder
@@ -83,7 +84,8 @@ class AssistantQueryExecutor:
         Raises:
             Exception: If query execution fails with descriptive error messages
         """
-        response_dict = self._execute_query(query, execution_mode)
+        with tags_context(product=Product.MAX_AI, team_id=self._team.pk, org_id=self._team.organization_id):
+            response_dict = self._execute_query(query, execution_mode)
 
         try:
             # Attempt to format results using query-specific formatters
@@ -160,7 +162,7 @@ class AssistantQueryExecutor:
                 # Use the completed query results
                 response_dict = query_status["results"]
 
-        except (APIException, ExposedHogQLError, ExposedCHQueryError) as err:
+        except (APIException, ExposedHogQLError, HogQLNotImplementedError, ExposedCHQueryError) as err:
             # Handle known query execution errors with user-friendly messages
             err_message = str(err)
             if isinstance(err, APIException):

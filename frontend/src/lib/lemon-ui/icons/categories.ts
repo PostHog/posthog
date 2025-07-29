@@ -32,6 +32,8 @@ export const OBJECTS = {
         'IconCrown',
         'IconBolt',
         'IconBook',
+        'IconBookmark',
+        'IconBookmarkSolid',
         'IconConfetti',
         'IconPresent',
         'IconMagicWand',
@@ -107,8 +109,10 @@ export const TECHNOLOGY = {
         'IconChat',
         'IconThoughtBubble',
         'IconChatHelp',
+        'IconComment',
     ],
     Hardware: [
+        'IconCompass',
         'IconBatteryCharge',
         'IconButton',
         'IconCamera',
@@ -164,6 +168,7 @@ export const TECHNOLOGY = {
         'IconMouseScrollDown',
         'IconDrag',
         'IconPointer',
+        'IconImage',
     ],
 }
 
@@ -188,6 +193,7 @@ export const ELEMENTS = {
         'IconSort',
         'IconSortAlpha',
         'IconExternal',
+        'IconEmojiAdd',
     ],
     Symbols: [
         'IconLock',
@@ -201,10 +207,12 @@ export const ELEMENTS = {
         'IconCheck',
         'IconCircleDashed',
         'IconX',
+        'IconAtSign',
         'IconEllipsis',
         'IconHide',
         'IconStopFilled',
         'IconListCheck',
+        'IconEmoji',
     ],
     'Arrows & Shapes': [
         'IconArrowLeft',
@@ -284,7 +292,7 @@ export const TEAMS_AND_COMPANIES = {
     'Feature Success': ['IconFlask', 'IconTestTube', 'IconMultivariateTesting', 'IconSplitTesting', 'IconBalance'],
     Pipeline: ['IconWebhooks', 'IconDecisionTree'],
     'Product OS': ['IconNotebook', 'IconHogQL', 'IconDashboard', 'IconSupport'],
-    Logos: ['IconLogomark', 'IconGithub'],
+    Logos: ['IconLogomark', 'IconGithub', 'IconLinear'],
     ErrorTracking: ['IconIssue'],
     LLMObservability: ['IconLlmObservability', 'IconLlmPromptEvaluation', 'IconLlmPromptManagement'],
 }

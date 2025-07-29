@@ -51,12 +51,12 @@ export const ProfilePicture = React.forwardRef<HTMLSpanElement, ProfilePicturePr
             return // There are no guarantees on how long it takes to fetch a Gravatar, so we skip this in snapshots
         }
         // Check if Gravatar exists
-        const emailOrNameWithEmail = email || (name?.includes('@') ? name : undefined)
-        if (emailOrNameWithEmail) {
-            const emailHash = md5(emailOrNameWithEmail.trim().toLowerCase())
-            return `https://www.gravatar.com/avatar/${emailHash}?s=96&d=404`
+        const identifier = email || (name?.includes('@') ? name : undefined)
+        if (identifier) {
+            const hash = md5(identifier.trim().toLowerCase())
+            return `https://www.gravatar.com/avatar/${hash}?s=96&d=404`
         }
-    }, [email, hedgehogProfile])
+    }, [email, hedgehogProfile, name])
 
     const pictureComponent = (
         <span className={clsx('ProfilePicture', size, className)} ref={ref}>

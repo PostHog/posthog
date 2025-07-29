@@ -9,6 +9,7 @@ from botocore.config import Config
 from django.db import transaction
 from django.test import override_settings
 from freezegun import freeze_time
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog import redis
@@ -20,7 +21,7 @@ from posthog.session_recordings.models.session_recording_playlist import (
     SessionRecordingPlaylist,
     SessionRecordingPlaylistViewed,
 )
-from posthog.session_recordings.queries.test.session_replay_sql import (
+from posthog.session_recordings.queries_to_replace.test.session_replay_sql import (
     produce_replay_summary,
 )
 from posthog.session_recordings.session_recording_playlist_api import PLAYLIST_COUNT_REDIS_PREFIX
@@ -52,13 +53,26 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
         bucket = s3.Bucket(OBJECT_STORAGE_BUCKET)
         bucket.objects.filter(Prefix=TEST_BUCKET).delete()
 
-    def _create_playlist(self, data: dict | None = None):
-        response = self.client.post(
+    def _create_playlist(
+        self,
+        data: dict | None = None,
+        expected_status_code: int | None = None,
+        expected_response_json: dict | None = None,
+    ):
+        post_response = self.client.post(
             f"/api/projects/{self.team.id}/session_recording_playlists",
             data=data,
         )
-        assert response.status_code == status.HTTP_201_CREATED
-        return response
+
+        if expected_status_code:
+            assert post_response.status_code == expected_status_code
+        else:
+            assert post_response.status_code == status.HTTP_201_CREATED
+
+        if expected_response_json:
+            assert post_response.json() == expected_response_json
+
+        return post_response
 
     def test_list_playlists_when_there_are_no_playlists(self):
         response = self.client.get(f"/api/projects/{self.team.id}/session_recording_playlists")
@@ -193,21 +207,39 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
         }
 
     def test_creates_playlist_without_type(self):
-        response = self._create_playlist({"name": "test"})
-        playlist_id = response.json()["id"]
-        playlist = SessionRecordingPlaylist.objects.get(id=playlist_id)
-        assert playlist.type is None
-        assert response.status_code == status.HTTP_201_CREATED
-        assert response.json()["name"] == "test"
+        self._create_playlist(
+            {"name": "test"},
+            status.HTTP_400_BAD_REQUEST,
+            expected_response_json={
+                "attr": None,
+                "code": "invalid_input",
+                "detail": "Must provide a valid playlist type: either filters or collection",
+                "type": "validation_error",
+            },
+        )
+
+    def test_creates_playlist_with_unknown_type(self):
+        self._create_playlist(
+            {"name": "test", "type": "tomato"},
+            status.HTTP_400_BAD_REQUEST,
+            expected_response_json={
+                "attr": None,
+                "code": "invalid_input",
+                "detail": "Must provide a valid playlist type: either filters or collection",
+                "type": "validation_error",
+            },
+        )
 
     def test_creates_playlist_with_filters_type(self):
-        response = self._create_playlist({"name": "test filters", "type": "filters"})
-        playlist_id = response.json()["id"]
+        create_response = self._create_playlist({"name": "test filters", "type": "filters", "filters": {"foo": "bar"}})
+
+        playlist_id = create_response.json()["id"]
         playlist = SessionRecordingPlaylist.objects.get(id=playlist_id)
         assert playlist.type == SessionRecordingPlaylist.PlaylistType.FILTERS
-        assert response.status_code == status.HTTP_201_CREATED
-        assert response.json()["name"] == "test filters"
-        assert response.json()["type"] == SessionRecordingPlaylist.PlaylistType.FILTERS
+
+        assert create_response.status_code == status.HTTP_201_CREATED
+        assert create_response.json()["name"] == "test filters"
+        assert create_response.json()["type"] == SessionRecordingPlaylist.PlaylistType.FILTERS
 
     def test_creates_playlist_with_collection_type(self):
         response = self._create_playlist({"name": "test collection", "type": "collection"})
@@ -218,44 +250,43 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
         assert response.json()["name"] == "test collection"
         assert response.json()["type"] == SessionRecordingPlaylist.PlaylistType.COLLECTION
 
-    def test_creates_playlist(self):
-        response = self._create_playlist({"name": "test"})
-
-        assert response.json() == {
-            "id": response.json()["id"],
-            "short_id": response.json()["short_id"],
-            "name": "test",
-            "derived_name": None,
-            "description": "",
-            "pinned": False,
-            "created_at": mock.ANY,
-            "created_by": response.json()["created_by"],
-            "deleted": False,
-            "filters": {},
-            "last_modified_at": mock.ANY,
-            "last_modified_by": response.json()["last_modified_by"],
-            "recordings_counts": {
-                "collection": {
-                    "count": None,
-                    "watched_count": 0,
-                },
-                "saved_filters": {
-                    "count": None,
-                    "has_more": None,
-                    "watched_count": None,
-                    "increased": None,
-                    "last_refreshed_at": None,
-                },
+    def test_cannot_create_saved_filters_with_no_filters(self):
+        self._create_playlist(
+            {"type": "filters"},
+            status.HTTP_400_BAD_REQUEST,
+            expected_response_json={
+                "attr": None,
+                "code": "invalid_input",
+                "detail": "You must provide a valid filters when creating a saved filter",
+                "type": "validation_error",
             },
-            "type": None,
-        }
+        )
 
-    def test_can_create_many_playlists(self):
-        for i in range(100):
-            self._create_playlist({"name": f"test-{i}"})
+    def test_cannot_create_collection_with_filters(self):
+        self._create_playlist(
+            {"type": "collection", "filters": {"events": [{"id": "test"}]}},
+            status.HTTP_400_BAD_REQUEST,
+            expected_response_json={
+                "attr": None,
+                "code": "invalid_input",
+                "detail": "You cannot create a collection with filters",
+                "type": "validation_error",
+            },
+        )
+
+    def test_can_create_many_playlists_without_n_plus_1(self):
+        # one query to get started and then 13 per creation
+        with self.assertNumQueries(13 * 50 + 1):
+            for i in range(50):
+                self._create_playlist({"name": f"test-{i}", "type": "collection"})
+
+        # 13 per creation
+        with self.assertNumQueries(13 * 100):
+            for i in range(100):
+                self._create_playlist({"name": f"test-{i}", "type": "collection"})
 
     def test_gets_individual_playlist_by_shortid(self):
-        create_response = self._create_playlist()
+        create_response = self._create_playlist({"type": "collection"})
 
         response = self.client.get(
             f"/api/projects/{self.team.id}/session_recording_playlists/{create_response.json()['short_id']}"
@@ -264,7 +295,7 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
         assert response.json()["short_id"] == create_response.json()["short_id"]
 
     def test_marks_playlist_as_viewed(self):
-        create_response = self._create_playlist({"filters": {"events": [{"id": "test"}]}})
+        create_response = self._create_playlist({"filters": {"events": [{"id": "test"}]}, "type": "filters"})
         short_id = create_response.json()["short_id"]
 
         assert SessionRecordingPlaylistViewed.objects.count() == 0
@@ -284,7 +315,7 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
         assert viewed_record.viewed_at == mock.ANY
 
     def test_can_marks_playlist_as_viewed_more_than_once(self):
-        create_response = self._create_playlist({"filters": {"events": [{"id": "test"}]}})
+        create_response = self._create_playlist({"filters": {"events": [{"id": "test"}]}, "type": "filters"})
         short_id = create_response.json()["short_id"]
 
         assert SessionRecordingPlaylistViewed.objects.count() == 0
@@ -300,7 +331,7 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
         assert SessionRecordingPlaylistViewed.objects.count() == 2
 
     def test_cannot_mark_playlist_as_viewed_more_than_once_at_the_same_time(self):
-        create_response = self._create_playlist({"filters": {"events": [{"id": "test"}]}})
+        create_response = self._create_playlist({"filters": {"events": [{"id": "test"}]}, "type": "filters"})
         short_id = create_response.json()["short_id"]
 
         assert SessionRecordingPlaylistViewed.objects.count() == 0
@@ -321,22 +352,8 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
 
         assert SessionRecordingPlaylistViewed.objects.count() == 1
 
-    def test_cannot_mark_playlist_as_viewed_if_it_has_no_filters(self):
-        """We're going to split playlists so that 'collections' have pinned recordings, let's validate a viewable playlist as one with filters"""
-        create_response = self._create_playlist()
-        short_id = create_response.json()["short_id"]
-
-        assert SessionRecordingPlaylistViewed.objects.count() == 0
-
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/session_recording_playlists/{short_id}/playlist_viewed"
-        )
-
-        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-        assert SessionRecordingPlaylistViewed.objects.count() == 0
-
     def test_cannot_mark_playlist_as_viewed_in_different_team(self):
-        create_response = self._create_playlist({"filters": {"events": [{"id": "test"}]}})
+        create_response = self._create_playlist({"filters": {"events": [{"id": "test"}]}, "type": "filters"})
         short_id = create_response.json()["short_id"]
 
         another_team = Team.objects.create(organization=self.organization)
@@ -349,7 +366,13 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
         assert SessionRecordingPlaylistViewed.objects.count() == 0
 
     def test_updates_playlist(self):
-        create_response = self._create_playlist()
+        create_response = self._create_playlist(
+            {
+                "type": "filters",
+                "filters": {"events": [{"id": "original"}]},
+            }
+        )
+        assert "short_id" in create_response.json(), create_response.json()
         short_id = create_response.json()["short_id"]
 
         with freeze_time("2022-01-02"):
@@ -358,17 +381,65 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
                 {
                     "name": "changed name",
                     "description": "changed description",
-                    "filters": {"events": [{"id": "test"}]},
+                    "filters": {"events": [{"id": "updated"}]},
                     "pinned": True,
                 },
             )
+            assert response.status_code == status.HTTP_200_OK, response.json()
 
         assert response.json()["short_id"] == short_id
         assert response.json()["name"] == "changed name"
         assert response.json()["description"] == "changed description"
-        assert response.json()["filters"] == {"events": [{"id": "test"}]}
+        assert response.json()["filters"] == {"events": [{"id": "updated"}]}
         assert response.json()["created_at"] == mock.ANY
         assert response.json()["last_modified_at"] == "2022-01-02T00:00:00Z"
+
+    def test_cannot_update_type(self) -> None:
+        create_response = self._create_playlist({"type": "collection"})
+        assert "short_id" in create_response.json(), create_response.json()
+        short_id = create_response.json()["short_id"]
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/session_recording_playlists/{short_id}",
+            {
+                "type": "filters",
+                "filters": {"events": [{"id": "test"}]},
+            },
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+
+    @parameterized.expand([["empty_dict", {}], ["none", None]])
+    def test_cannot_update_saved_filter_to_have_no_filters(self, _name: str, updated_filters: dict | None) -> None:
+        create_response = self._create_playlist(
+            {
+                "type": "filters",
+                "filters": {"events": [{"id": "test"}]},
+            }
+        )
+        assert "short_id" in create_response.json(), create_response.json()
+        short_id = create_response.json()["short_id"]
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/session_recording_playlists/{short_id}",
+            {
+                "type": "filters",
+                "filters": updated_filters,
+            },
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+
+    def test_cannot_update_collection_to_have_filters(self) -> None:
+        create_response = self._create_playlist({"type": "collection"})
+        assert "short_id" in create_response.json(), create_response.json()
+        short_id = create_response.json()["short_id"]
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/session_recording_playlists/{short_id}",
+            {"filters": {"events": [{"id": "test"}]}},
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
 
     def test_rejects_updates_to_readonly_playlist_properties(self):
         # Create a playlist with a specific initial type
@@ -503,7 +574,9 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
         Pinning specific items is only allowed for type=collection playlists.
         """
         # Create a playlist explicitly marked as filters type
-        response = self._create_playlist({"name": "test filters only", "type": "filters"})
+        response = self._create_playlist(
+            {"name": "test filters only", "type": "filters", "filters": {"wat": "am filter"}}
+        )
         playlist_id = response.json()["id"]
         playlist = SessionRecordingPlaylist.objects.get(id=playlist_id)
         assert playlist.type == SessionRecordingPlaylist.PlaylistType.FILTERS
@@ -736,29 +809,18 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
             name="Collection Explicit No Filters",
             type=SessionRecordingPlaylist.PlaylistType.COLLECTION,
         )
-        p_null_filters_no_items = SessionRecordingPlaylist.objects.create(
-            team=self.team, name="Null Filters No Items", filters={"events": [{"id": "test"}]}, type=None
-        )
-        p_null_filters_items = SessionRecordingPlaylist.objects.create(
-            team=self.team, name="Null Filters Items", filters={"events": [{"id": "test"}]}, type=None
-        )
-        p_null_no_filters_items = SessionRecordingPlaylist.objects.create(
-            team=self.team, name="Null No Filters Items", type=None
-        )
 
         # Add items to relevant playlists
         recording = SessionRecording.objects.create(team=self.team, session_id=str(uuid4()))
         SessionRecordingPlaylistItem.objects.create(playlist=p_collection_explicit_items, recording=recording)
         SessionRecordingPlaylistItem.objects.create(playlist=p_collection_explicit_no_filters, recording=recording)
-        SessionRecordingPlaylistItem.objects.create(playlist=p_null_filters_items, recording=recording)
-        SessionRecordingPlaylistItem.objects.create(playlist=p_null_no_filters_items, recording=recording)
 
         # Test filtering by type=filters
         response_filters = self.client.get(f"/api/projects/{self.team.id}/session_recording_playlists?type=filters")
         assert response_filters.status_code == status.HTTP_200_OK
         results_filters = response_filters.json()["results"]
-        assert len(results_filters) == 2
-        assert {p["id"] for p in results_filters} == {p_filters_explicit.id, p_null_filters_no_items.id}
+        assert len(results_filters) == 1
+        assert {p["id"] for p in results_filters} == {p_filters_explicit.id}
 
         # Test filtering by type=collection
         response_collection = self.client.get(
@@ -766,32 +828,29 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
         )
         assert response_collection.status_code == status.HTTP_200_OK
         results_collection = response_collection.json()["results"]
-        assert len(results_collection) == 4
+        assert len(results_collection) == 2
         assert {p["id"] for p in results_collection} == {
             p_collection_explicit_items.id,
             p_collection_explicit_no_filters.id,
-            p_null_filters_items.id,
-            p_null_no_filters_items.id,
         }
 
         # Test listing without type filter (should include all non-deleted)
+        # TODO should we allow interacting without specifying type?
         response_all = self.client.get(f"/api/projects/{self.team.id}/session_recording_playlists")
         assert response_all.status_code == status.HTTP_200_OK
         results_all = response_all.json()["results"]
         # Assuming no other playlists were created in the setup
-        assert len(results_all) == 6
+        assert len(results_all) == 3
 
     def test_create_playlist_in_specific_folder(self):
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/session_recording_playlists",
+        response = self._create_playlist(
             {
                 "name": "Playlist in folder",
                 "filters": {"events": [{"id": "$pageview"}]},
+                "type": "filters",
                 "_create_in_folder": "Special Folder/Session Recordings",
-            },
-            format="json",
+            }
         )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
         playlist_id = response.json()["short_id"]
 
         assert playlist_id is not None
@@ -801,3 +860,128 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
         ).first()
         assert fs_entry is not None
         assert "Special Folder/Session Recordings" in fs_entry.path
+
+    def test_bulk_add_remove_playlist_items(self):
+        playlist1 = SessionRecordingPlaylist.objects.create(
+            team=self.team,
+            name="bulk playlist",
+            created_by=self.user,
+            type=SessionRecordingPlaylist.PlaylistType.COLLECTION,
+        )
+
+        recording_ids = ["bulk_session_1", "bulk_session_2", "bulk_session_3"]
+
+        # Test bulk add
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/session_recording_playlists/{playlist1.short_id}/recordings/bulk_add",
+            {"session_recording_ids": recording_ids},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK
+        result = response.json()
+        assert result["success"] is True
+        assert result["added_count"] == 3
+        assert result["total_requested"] == 3
+
+        # Verify items were created
+        for recording_id in recording_ids:
+            assert SessionRecordingPlaylistItem.objects.filter(
+                playlist=playlist1, recording__session_id=recording_id
+            ).exists()
+
+        # Test bulk delete
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/session_recording_playlists/{playlist1.short_id}/recordings/bulk_delete",
+            {"session_recording_ids": recording_ids},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK
+        result = response.json()
+        assert result["success"] is True
+        assert result["deleted_count"] == 3
+        assert result["total_requested"] == 3
+
+        # Verify items were deleted
+        for recording_id in recording_ids:
+            assert not SessionRecordingPlaylistItem.objects.filter(
+                playlist=playlist1, recording__session_id=recording_id
+            ).exists()
+
+    def test_bulk_add_validation_errors(self):
+        playlist = SessionRecordingPlaylist.objects.create(
+            team=self.team,
+            name="bulk validation playlist",
+            created_by=self.user,
+            type=SessionRecordingPlaylist.PlaylistType.COLLECTION,
+        )
+
+        # Test empty array
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/session_recording_playlists/{playlist.short_id}/recordings/bulk_add",
+            {"session_recording_ids": []},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "must be provided as a non-empty array" in response.json()["detail"]
+
+        # Test non-array input
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/session_recording_playlists/{playlist.short_id}/recordings/bulk_add",
+            {"session_recording_ids": "not_an_array"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+        # Test too many recordings (over 20 limit)
+        too_many_ids = [f"session_{i}" for i in range(21)]
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/session_recording_playlists/{playlist.short_id}/recordings/bulk_add",
+            {"session_recording_ids": too_many_ids},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "Cannot process more than 20 recordings at once" in response.json()["detail"]
+
+    def test_cannot_bulk_add_to_filters_playlist(self):
+        playlist = SessionRecordingPlaylist.objects.create(
+            team=self.team,
+            name="filters only playlist",
+            created_by=self.user,
+            type=SessionRecordingPlaylist.PlaylistType.FILTERS,
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/session_recording_playlists/{playlist.short_id}/recordings/bulk_add",
+            {"session_recording_ids": ["session_1", "session_2"]},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "Cannot add recordings to a playlist that is type 'filters'" in response.json()["detail"]
+
+    def test_bulk_add_partial_success(self):
+        playlist = SessionRecordingPlaylist.objects.create(
+            team=self.team,
+            name="partial success playlist",
+            created_by=self.user,
+            type=SessionRecordingPlaylist.PlaylistType.COLLECTION,
+        )
+
+        # Add one recording first
+        existing_id = "existing_session"
+        self.client.post(
+            f"/api/projects/{self.team.id}/session_recording_playlists/{playlist.short_id}/recordings/{existing_id}"
+        )
+
+        # Try to bulk add including the existing one and new ones
+        recording_ids = [existing_id, "new_session_1", "new_session_2"]
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/session_recording_playlists/{playlist.short_id}/recordings/bulk_add",
+            {"session_recording_ids": recording_ids},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        result = response.json()
+        assert result["success"] is True
+        assert result["added_count"] == 2  # Only new ones counted
+        assert result["total_requested"] == 3

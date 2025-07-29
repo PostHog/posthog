@@ -775,6 +775,39 @@ class TestCustomGoogleOAuth2(APILicensedTest):
         self.details = {"email": "test@posthog.com"}
         self.sub = "google-oauth2|123456789"
 
+    def test_auth_extra_arguments_without_email(self):
+        """Test that auth_extra_arguments returns base arguments when no email is provided."""
+        # Mock strategy to return empty GET parameters
+        mock_request = type("MockRequest", (), {})()
+        mock_request.GET = {}
+
+        mock_strategy = type("MockStrategy", (), {})()
+        mock_strategy.request = mock_request
+        mock_strategy.setting = lambda name, default=None, backend=None: default
+
+        self.google_oauth.strategy = mock_strategy
+
+        extra_args = self.google_oauth.auth_extra_arguments()
+
+        # Should only contain base arguments from parent class, no login_hint
+        self.assertNotIn("login_hint", extra_args)
+
+    def test_auth_extra_arguments_with_email(self):
+        """Test that auth_extra_arguments adds login_hint when email is provided."""
+        # Mock strategy to return email in GET parameters
+        mock_request = type("MockRequest", (), {})()
+        mock_request.GET = {"email": "test@posthog.com"}
+
+        mock_strategy = type("MockStrategy", (), {})()
+        mock_strategy.request = mock_request
+        mock_strategy.setting = lambda name, default=None, backend=None: default
+
+        self.google_oauth.strategy = mock_strategy
+
+        extra_args = self.google_oauth.auth_extra_arguments()
+
+        self.assertEqual(extra_args["login_hint"], "test@posthog.com")
+
     def test_get_user_id_existing_user_with_sub(self):
         """Test that a user with sub as uid continues using that sub."""
         # Create user with sub as uid

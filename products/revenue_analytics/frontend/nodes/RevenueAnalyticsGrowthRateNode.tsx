@@ -14,6 +14,7 @@ import {
 } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import { GraphDataset, GraphType } from '~/types'
+import { revenueAnalyticsLogic } from '../revenueAnalyticsLogic'
 
 let uniqueNode = 0
 export function RevenueAnalyticsGrowthRateNode(props: {
@@ -21,6 +22,7 @@ export function RevenueAnalyticsGrowthRateNode(props: {
     cachedResults?: AnyResponseType
     context: QueryContext
 }): JSX.Element | null {
+    const { dateFilter } = useValues(revenueAnalyticsLogic)
     const { onData, loadPriority, dataNodeCollectionId } = props.context.insightProps ?? {}
     const [key] = useState(() => `RevenueAnalyticsGrowthRate.${uniqueNode++}`)
     const logic = dataNodeLogic({
@@ -80,6 +82,7 @@ export function RevenueAnalyticsGrowthRateNode(props: {
                             type={GraphType.Line}
                             datasets={datasets}
                             labels={labels}
+                            isInProgress={!dateFilter.dateTo}
                             trendsFilter={{ aggregationAxisFormat: 'percentage' }}
                             labelGroupType="none"
                         />

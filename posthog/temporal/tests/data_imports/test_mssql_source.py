@@ -31,7 +31,7 @@ import pytest
 import pytz
 import structlog
 
-from posthog.temporal.data_imports.pipelines.mssql.mssql import (
+from posthog.temporal.data_imports.sources.mssql.mssql import (
     _get_table_average_row_size,
     _get_table_stats,
 )
@@ -461,7 +461,7 @@ class TestGetTableAverageRowSize:
             cursor=mssql_source_table,
             schema=mssql_config["schema"],
             table_name=MSSQL_TABLE_NAME,
-            is_incremental=False,
+            should_use_incremental_field=False,
             incremental_field=None,
             incremental_field_type=None,
             db_incremental_field_last_value=None,
@@ -490,7 +490,7 @@ class TestGetTableAverageRowSize:
             cursor=mssql_source_table,
             schema=mssql_config["schema"],
             table_name=MSSQL_TABLE_NAME,
-            is_incremental=True,
+            should_use_incremental_field=True,
             incremental_field="created_at",
             incremental_field_type=IncrementalFieldType.DateTime,
             db_incremental_field_last_value=None,
@@ -564,7 +564,7 @@ class TestGetTableAverageRowSize:
             cursor=mssql_source_table_known_row_size,
             schema=mssql_config["schema"],
             table_name=MSSQL_TABLE_NAME,
-            is_incremental=False,
+            should_use_incremental_field=False,
             incremental_field=None,
             incremental_field_type=None,
             db_incremental_field_last_value=None,

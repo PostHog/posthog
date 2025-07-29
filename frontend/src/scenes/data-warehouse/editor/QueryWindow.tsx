@@ -1,17 +1,16 @@
 import { Monaco } from '@monaco-editor/react'
-import { IconBolt, IconBook, IconBrackets, IconDownload, IconPlayFilled, IconSidebarClose } from '@posthog/icons'
-import { LemonDivider } from '@posthog/lemon-ui'
+import { IconBook, IconDownload, IconPlayFilled, IconSidebarClose } from '@posthog/icons'
+import { LemonDivider, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { IconCancel } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Link } from 'lib/lemon-ui/Link'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import type { editor as importedEditor } from 'monaco-editor'
 import { useMemo } from 'react'
 import { urls } from 'scenes/urls'
 
+import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
@@ -22,7 +21,6 @@ import { OutputPane } from './OutputPane'
 import { QueryHistoryModal } from './QueryHistoryModal'
 import { QueryPane } from './QueryPane'
 import { QueryTabs } from './QueryTabs'
-import { editorSidebarLogic, EditorSidebarTab } from './sidebar/editorSidebarLogic'
 
 interface QueryWindowProps {
     onSetMonacoAndEditor: (monaco: Monaco, editor: importedEditor.IStandaloneCodeEditor) => void
@@ -43,6 +41,9 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
         originalQueryInput,
         suggestedQueryInput,
     } = useValues(multitabEditorLogic)
+    const { activePanelIdentifier } = useValues(panelLayoutLogic)
+    const { setActivePanelIdentifier } = useActions(panelLayoutLogic)
+
     const {
         renameTab,
         selectTab,
@@ -62,71 +63,57 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
     const { updatingDataWarehouseSavedQuery } = useValues(dataWarehouseViewsLogic)
     const { sidebarWidth } = useValues(editorSizingLogic)
     const { resetDefaultSidebarWidth } = useActions(editorSizingLogic)
-    const { setActiveTab } = useActions(editorSidebarLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
-    const isMaterializedView =
-        !!editingView?.last_run_at ||
-        (!!editingView?.status &&
-            (editingView.status === 'Completed' ||
-                editingView.status === 'Failed' ||
-                editingView.status === 'Cancelled' ||
-                editingView.status === 'Running'))
+    const isMaterializedView = !!editingView?.last_run_at || !!editingView?.sync_frequency
 
-    const renderAddSQLVariablesButton = (): JSX.Element => (
-        <LemonButton
-            onClick={() => setActiveTab(EditorSidebarTab.QueryVariables)}
-            icon={<IconBrackets />}
-            type="tertiary"
-            size="xsmall"
-            id="sql-editor-query-window-add-variables"
-            data-attr="sql-editor-query-window-add-variables-button"
-        >
-            Add SQL variables
-        </LemonButton>
-    )
+    const renderSidebarButton = (): JSX.Element => {
+        if (activePanelIdentifier !== 'Database') {
+            return (
+                <LemonButton
+                    onClick={() => setActivePanelIdentifier('Database')}
+                    className="rounded-none"
+                    icon={<IconSidebarClose />}
+                    type="tertiary"
+                    size="small"
+                />
+            )
+        }
 
-    const renderMaterializeButton = (): JSX.Element => (
-        <LemonButton
-            onClick={() => setActiveTab(EditorSidebarTab.QueryInfo)}
-            icon={<IconBolt />}
-            type="tertiary"
-            size="xsmall"
-            id="sql-editor-query-window-materialize"
-            data-attr="sql-editor-query-window-materialize-button"
-        >
-            Materialize
-        </LemonButton>
-    )
+        if (sidebarWidth === 0) {
+            return (
+                <LemonButton
+                    onClick={() => resetDefaultSidebarWidth()}
+                    className="rounded-none"
+                    icon={<IconSidebarClose />}
+                    type="tertiary"
+                    size="small"
+                />
+            )
+        }
 
-    const editingViewDisabledReason = useMemo(() => {
+        return <></>
+    }
+
+    const [editingViewDisabledReason, EditingViewButtonIcon] = useMemo(() => {
         if (updatingDataWarehouseSavedQuery) {
-            return 'Saving...'
+            return ['Saving...', Spinner]
         }
 
         if (!response) {
-            return 'Run query to update'
+            return ['Run query to update', IconDownload]
         }
 
         if (!changesToSave) {
-            return 'No changes to save'
+            return ['No changes to save', IconDownload]
         }
 
-        return undefined
+        return [undefined, IconDownload]
     }, [updatingDataWarehouseSavedQuery, changesToSave, response])
 
     return (
         <div className="flex flex-1 flex-col h-full overflow-hidden">
             <div className="flex flex-row overflow-x-auto">
-                {sidebarWidth === 0 && (
-                    <LemonButton
-                        onClick={() => resetDefaultSidebarWidth()}
-                        className="rounded-none"
-                        icon={<IconSidebarClose />}
-                        type="tertiary"
-                        size="small"
-                    />
-                )}
+                {renderSidebarButton()}
                 <QueryTabs
                     models={allTabs}
                     onClick={selectTab}
@@ -166,20 +153,19 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
                                         ...sourceQuery.source,
                                         query: queryInput,
                                     },
-                                    types: response?.types ?? [],
+                                    types: response && 'types' in response ? response?.types ?? [] : [],
                                     shouldRematerialize: isMaterializedView,
                                     edited_history_id: inProgressViewEdits[editingView.id],
                                 })
                             }
                             disabledReason={editingViewDisabledReason}
-                            icon={<IconDownload />}
+                            icon={<EditingViewButtonIcon />}
                             type="tertiary"
                             size="xsmall"
                             id={`sql-editor-query-window-update-${isMaterializedView ? 'materialize' : 'view'}`}
                         >
                             {isMaterializedView ? 'Update and re-materialize view' : 'Update view'}
                         </LemonButton>
-                        {!isMaterializedView && renderMaterializeButton()}
                         <LemonButton
                             onClick={() => openHistoryModal()}
                             icon={<IconBook />}
@@ -191,7 +177,6 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
                         </LemonButton>
                     </>
                 )}
-                {editingInsight && renderAddSQLVariablesButton()}
                 {!editingInsight && !editingView && (
                     <>
                         <LemonButton
@@ -204,13 +189,9 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
                         >
                             Save as view
                         </LemonButton>
-                        {renderMaterializeButton()}
-                        {renderAddSQLVariablesButton()}
                     </>
                 )}
-                {featureFlags[FEATURE_FLAGS.SQL_EDITOR_AI_ERROR_FIXER] && (
-                    <FixErrorButton type="tertiary" size="xsmall" source="action-bar" />
-                )}
+                <FixErrorButton type="tertiary" size="xsmall" source="action-bar" />
             </div>
             <QueryPane
                 originalValue={originalQueryInput}

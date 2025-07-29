@@ -25,7 +25,7 @@ class TestInkeepDocsNode(ClickhouseTestMixin, BaseTest):
                 lambda _: LangchainAIMessage(content="Here's what I found in the documentation...")
             ),
         ):
-            node = InkeepDocsNode(self.team)
+            node = InkeepDocsNode(self.team, self.user)
             state = AssistantState(
                 messages=[HumanMessage(content="How do I use feature flags?")],
                 root_tool_call_id=test_tool_call_id,
@@ -53,7 +53,7 @@ class TestInkeepDocsNode(ClickhouseTestMixin, BaseTest):
             "ee.hogai.graph.inkeep_docs.nodes.InkeepDocsNode._get_model",
             return_value=RunnableLambda(lambda _: LangchainAIMessage(content=response_with_continuation)),
         ):
-            node = InkeepDocsNode(self.team)
+            node = InkeepDocsNode(self.team, self.user)
             state = AssistantState(
                 messages=[HumanMessage(content="Show me user stats")],
                 root_tool_call_id=test_tool_call_id,
@@ -66,7 +66,7 @@ class TestInkeepDocsNode(ClickhouseTestMixin, BaseTest):
             self.assertEqual(second_message.content, response_with_continuation)
 
     def test_node_constructs_messages(self):
-        node = InkeepDocsNode(self.team)
+        node = InkeepDocsNode(self.team, self.user)
         state = AssistantState(
             messages=[
                 HumanMessage(content="First message"),
@@ -85,7 +85,7 @@ class TestInkeepDocsNode(ClickhouseTestMixin, BaseTest):
         self.assertIsInstance(messages[3], LangchainHumanMessage)
 
     def test_router_with_data_continuation(self):
-        node = InkeepDocsNode(self.team)
+        node = InkeepDocsNode(self.team, self.user)
         state = AssistantState(
             messages=[
                 HumanMessage(content="Explain PostHog trends, and show me an example trends insight"),
@@ -95,7 +95,7 @@ class TestInkeepDocsNode(ClickhouseTestMixin, BaseTest):
         self.assertEqual(node.router(state), "root")  # Going back to root, so that the agent can continue with the task
 
     def test_router_without_data_continuation(self):
-        node = InkeepDocsNode(self.team)
+        node = InkeepDocsNode(self.team, self.user)
         state = AssistantState(
             messages=[
                 HumanMessage(content="How do I use feature flags?"),
@@ -106,7 +106,7 @@ class TestInkeepDocsNode(ClickhouseTestMixin, BaseTest):
 
     def test_node_filters_empty_messages(self):
         """Test that messages with empty content are filtered out during message construction."""
-        node = InkeepDocsNode(self.team)
+        node = InkeepDocsNode(self.team, self.user)
         state = AssistantState(
             messages=[
                 HumanMessage(content=""),  # Empty message that should be filtered
@@ -130,7 +130,7 @@ class TestInkeepDocsNode(ClickhouseTestMixin, BaseTest):
             "ee.hogai.graph.inkeep_docs.nodes.InkeepDocsNode._get_model",
             return_value=RunnableLambda(lambda _: LangchainAIMessage(content="Response")),
         ):
-            node = InkeepDocsNode(self.team)
+            node = InkeepDocsNode(self.team, self.user)
             state = AssistantState(
                 messages=[HumanMessage(content="Question")],
                 root_tool_call_id=test_tool_call_id,
@@ -143,7 +143,7 @@ class TestInkeepDocsNode(ClickhouseTestMixin, BaseTest):
             self.assertEqual(first_message.tool_call_id, test_tool_call_id)
 
             # Check that the output state resets tool_call_id
-            self.assertEqual(next_state.root_tool_call_id, "")
+            self.assertEqual(next_state.root_tool_call_id, None)
 
     def test_message_id_generation(self):
         """Test that each message gets a unique UUID."""
@@ -151,7 +151,7 @@ class TestInkeepDocsNode(ClickhouseTestMixin, BaseTest):
             "ee.hogai.graph.inkeep_docs.nodes.InkeepDocsNode._get_model",
             return_value=RunnableLambda(lambda _: LangchainAIMessage(content="Response")),
         ):
-            node = InkeepDocsNode(self.team)
+            node = InkeepDocsNode(self.team, self.user)
             state = AssistantState(
                 messages=[HumanMessage(content="Question")],
                 root_tool_call_id="test-id",

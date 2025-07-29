@@ -1,15 +1,13 @@
 import { IconBell, IconCheck } from '@posthog/icons'
-import { LemonButton, LemonTable, LemonTag, lemonToast, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonSkeleton, LemonTable, LemonTag, lemonToast, Link } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import posthog from 'posthog-js'
 import { useCallback, useEffect } from 'react'
 import { DataWarehouseSourceIcon } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
 import { SceneExport } from 'scenes/sceneTypes'
 
-import { ManualLinkSourceType, SourceConfig, SurveyEventName, SurveyEventProperties } from '~/types'
+import { ManualLinkSourceType, SurveyEventName, SurveyEventProperties } from '~/types'
 
 import { DataWarehouseInitialBillingLimitNotice } from '../DataWarehouseInitialBillingLimitNotice'
 import SchemaForm from '../external/forms/SchemaForm'
@@ -18,13 +16,33 @@ import { SyncProgressStep } from '../external/forms/SyncProgressStep'
 import { DatawarehouseTableForm } from '../new/DataWarehouseTableForm'
 import { dataWarehouseTableLogic } from './dataWarehouseTableLogic'
 import { sourceWizardLogic } from './sourceWizardLogic'
+import { availableSourcesDataLogic } from './availableSourcesDataLogic'
+import { SourceConfig } from '~/queries/schema/schema-general'
+import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
+import { IconBlank } from 'lib/lemon-ui/icons'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 export const scene: SceneExport = {
     component: NewSourceWizardScene,
-    logic: sourceWizardLogic,
+    // logic: sourceWizardLogic, // NOTE: We can't mount it here as it needs the availableSourcesDataLogic to be mounted first
 }
 
 export function NewSourceWizardScene(): JSX.Element {
+    const { availableSources, availableSourcesLoading } = useValues(availableSourcesDataLogic)
+
+    if (availableSourcesLoading || availableSources === null) {
+        return <LemonSkeleton />
+    }
+
+    return (
+        <BindLogic logic={sourceWizardLogic} props={{ availableSources }}>
+            <InternalNewSourceWizardScene />
+        </BindLogic>
+    )
+}
+
+function InternalNewSourceWizardScene(): JSX.Element {
     const { closeWizard } = useActions(sourceWizardLogic)
 
     return (
@@ -43,7 +61,7 @@ export function NewSourceWizardScene(): JSX.Element {
                     </>
                 }
             />
-            <NewSourcesWizard />
+            <InternalSourcesWizard />
         </>
     )
 }
@@ -54,12 +72,23 @@ interface NewSourcesWizardProps {
 }
 
 export function NewSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
-    const { onComplete } = props
-    const wizardLogic = sourceWizardLogic({ onComplete })
+    const { availableSources, availableSourcesLoading } = useValues(availableSourcesDataLogic)
 
+    if (availableSourcesLoading || availableSources === null) {
+        return <LemonSkeleton />
+    }
+
+    return (
+        <BindLogic logic={sourceWizardLogic} props={{ onComplete: props.onComplete, availableSources }}>
+            <InternalSourcesWizard {...props} />
+        </BindLogic>
+    )
+}
+
+function InternalSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
     const { modalTitle, modalCaption, isWrapped, currentStep, isLoading, canGoBack, canGoNext, nextButtonText } =
-        useValues(wizardLogic)
-    const { onBack, onSubmit, onClear } = useActions(wizardLogic)
+        useValues(sourceWizardLogic)
+    const { onBack, onSubmit, onClear } = useActions(sourceWizardLogic)
     const { tableLoading: manualLinkIsLoading } = useValues(dataWarehouseTableLogic)
 
     useEffect(() => {
@@ -105,7 +134,7 @@ export function NewSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
             {!isWrapped && <DataWarehouseInitialBillingLimitNotice />}
             <>
                 <h3>{modalTitle}</h3>
-                <p>{modalCaption}</p>
+                <LemonMarkdown className="mb-6">{modalCaption}</LemonMarkdown>
 
                 {currentStep === 1 ? (
                     <FirstStep {...props} />
@@ -126,17 +155,13 @@ export function NewSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
 }
 
 function FirstStep({ disableConnectedSources }: Pick<NewSourcesWizardProps, 'disableConnectedSources'>): JSX.Element {
-    const { connectors, manualConnectors, addToHubspotButtonUrl } = useValues(sourceWizardLogic)
+    const { connectors, manualConnectors } = useValues(sourceWizardLogic)
     const { selectConnector, toggleManualLinkFormVisible, onNext, setManualLinkingProvider } =
         useActions(sourceWizardLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
     const onClick = (sourceConfig: SourceConfig): void => {
-        if (sourceConfig.name == 'Hubspot') {
-            window.open(addToHubspotButtonUrl() as string, '_self')
-        } else {
-            selectConnector(sourceConfig)
-        }
+        selectConnector(sourceConfig)
         onNext()
     }
 
@@ -145,9 +170,15 @@ function FirstStep({ disableConnectedSources }: Pick<NewSourcesWizardProps, 'dis
         setManualLinkingProvider(manualLinkSource)
     }
 
-    const filteredConnectors = connectors.filter((n) => {
-        return !(n.name === 'GoogleAds' && !featureFlags[FEATURE_FLAGS.GOOGLE_ADS_DWH])
-    })
+    const filteredConnectors = connectors
+        .filter((n) => {
+            if (n.name === 'MetaAds') {
+                return featureFlags[FEATURE_FLAGS.META_ADS_DWH]
+            }
+
+            return true
+        })
+        .sort((a, b) => Number(a.unreleasedSource) - Number(b.unreleasedSource))
 
     return (
         <>
@@ -166,7 +197,11 @@ function FirstStep({ disableConnectedSources }: Pick<NewSourcesWizardProps, 'dis
                         title: 'Source',
                         width: 0,
                         render: function (_, sourceConfig) {
-                            return <DataWarehouseSourceIcon type={sourceConfig.name} />
+                            return sourceConfig.name ? (
+                                <DataWarehouseSourceIcon type={sourceConfig.name} />
+                            ) : (
+                                <IconBlank />
+                            )
                         },
                     },
                     {

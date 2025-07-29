@@ -12,6 +12,8 @@ import { ExportedAssetType, ExporterFormat } from '~/types'
 import { SidePanelPaneHeader } from '../../components/SidePanelPaneHeader'
 import { sidePanelExportsLogic } from './sidePanelExportsLogic'
 
+const ROW_LIMIT_IN_THOUSANDS = 300
+
 export const SidePanelExportsIcon = (): JSX.Element => {
     const { freshUndownloadedExports } = useValues(sidePanelExportsLogic)
     return (
@@ -74,6 +76,12 @@ const ExportsContent = (): JSX.Element => {
                                     )}
                                     {isNotDownloaded && (
                                         <span className="text-xs text-secondary mt-1"> · not downloaded yet</span>
+                                    )}
+                                    {asset.export_format === ExporterFormat.CSV && (
+                                        <span className="text-xs text-secondary mt-1">
+                                            {' '}
+                                            · {ROW_LIMIT_IN_THOUSANDS}k row limit
+                                        </span>
                                     )}
                                 </div>
                             </div>

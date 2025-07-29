@@ -7,13 +7,12 @@ import { runInstrumentedFunction } from '../../main/utils'
 import { Hub } from '../../types'
 import { logger } from '../../utils/logger'
 import { CdpRedis, createCdpRedisPool } from '../redis'
-import { buildGlobalsWithInputs, HogExecutorService } from '../services/hog-executor.service'
-import { HogFunctionManagerService } from '../services/hog-function-manager.service'
-import { HogFunctionMonitoringService } from '../services/hog-function-monitoring.service'
-import { HogWatcherService, HogWatcherState } from '../services/hog-watcher.service'
+import { HogExecutorService } from '../services/hog-executor.service'
 import { LegacyPluginExecutorService } from '../services/legacy-plugin-executor.service'
-import { convertToHogFunctionFilterGlobal } from '../utils'
-import { filterFunctionInstrumented } from '../utils/hog-function-filtering'
+import { HogFunctionManagerService } from '../services/managers/hog-function-manager.service'
+import { HogFunctionMonitoringService } from '../services/monitoring/hog-function-monitoring.service'
+import { HogWatcherService, HogWatcherState } from '../services/monitoring/hog-watcher.service'
+import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from '../utils/hog-function-filtering'
 import { createInvocation, createInvocationResult } from '../utils/invocation-utils'
 import { cleanNullValues } from './transformation-functions'
 
@@ -45,12 +44,6 @@ export const hogWatcherLatency = new Histogram({
     labelNames: ['operation'],
 })
 
-export const hogTransformationExecutionDuration = new Histogram({
-    name: 'hog_transformation_execution_duration_ms',
-    help: 'Duration of Hog transformation executions in ms',
-    buckets: [0, 10, 20, 50, 100, 200, 500, 1000],
-})
-
 export interface TransformationResult {
     event: PluginEvent | null
     invocationResults: CyclotronJobInvocationResult[]
@@ -77,13 +70,10 @@ export class HogTransformerService {
         this.hogWatcher = new HogWatcherService(hub, this.redis)
     }
 
-    public async start(): Promise<void> {
-        await this.hogFunctionManager.start()
-    }
+    public async start(): Promise<void> {}
 
     public async stop(): Promise<void> {
         await this.processInvocationResults()
-        await this.hogFunctionManager.stop()
         await this.redis.useClient({ name: 'cleanup' }, async (client) => {
             await client.quit()
         })
@@ -122,8 +112,8 @@ export class HogTransformerService {
         return {
             project: {
                 id: event.team_id,
-                name: 'WHERE TO GET THIS FROM??',
-                url: this.hub.SITE_URL ?? 'http://localhost:8000',
+                name: '',
+                url: this.hub.SITE_URL,
             },
             event: {
                 uuid: event.uuid,
@@ -204,7 +194,7 @@ export class HogTransformerService {
 
                     // Check if function has filters - if not, always apply
                     if (hogFunction.filters?.bytecode) {
-                        const filterResults = filterFunctionInstrumented({
+                        const filterResults = await filterFunctionInstrumented({
                             fn: hogFunction,
                             filters: hogFunction.filters,
                             filterGlobals,
@@ -223,9 +213,7 @@ export class HogTransformerService {
                                         },
                                         hogFunction
                                     ),
-                                    {
-                                        queue: 'hog',
-                                    },
+                                    {},
                                     {
                                         metrics: filterResults.metrics,
                                         logs: filterResults.logs,
@@ -249,6 +237,16 @@ export class HogTransformerService {
 
                     if (!result.execResult) {
                         hogTransformationDroppedEvents.inc()
+                        this.hogFunctionMonitoringService.queueAppMetric(
+                            {
+                                team_id: event.team_id,
+                                app_source_id: hogFunction.id,
+                                metric_kind: 'other',
+                                metric_name: 'dropped',
+                                count: 1,
+                            },
+                            'hog_function'
+                        )
                         transformationsFailed.push(transformationIdentifier)
                         return {
                             event: null,
@@ -339,23 +337,13 @@ export class HogTransformerService {
         globals: HogFunctionInvocationGlobals
     ): Promise<CyclotronJobInvocationResult> {
         const transformationFunctions = await this.getTransformationFunctions()
-        const globalsWithInputs = buildGlobalsWithInputs(globals, {
-            ...(hogFunction.inputs ?? {}),
-            ...(hogFunction.encrypted_inputs ?? {}),
-        })
+        const globalsWithInputs = await this.hogExecutor.buildInputsWithGlobals(hogFunction, globals)
 
         const invocation = createInvocation(globalsWithInputs, hogFunction)
 
         const result = isLegacyPluginHogFunction(hogFunction)
             ? await this.pluginExecutor.execute(invocation)
-            : // measures the duration of the hog code execution for transformations
-              (() => {
-                  const start = performance.now()
-                  const res = this.hogExecutor.execute(invocation, { functions: transformationFunctions })
-                  const duration = performance.now() - start
-                  hogTransformationExecutionDuration.observe(duration)
-                  return res
-              })()
+            : await this.hogExecutor.execute(invocation, { functions: transformationFunctions })
         return result
     }
 

@@ -34,7 +34,6 @@ class AnnotationSerializer(serializers.ModelSerializer):
             "updated_at",
             "deleted",
             "scope",
-            "recording_id",
         ]
         read_only_fields = [
             "id",
@@ -50,6 +49,14 @@ class AnnotationSerializer(serializers.ModelSerializer):
     def update(self, instance: Annotation, validated_data: dict[str, Any]) -> Annotation:
         instance.team_id = self.context["team_id"]
         return super().update(instance, validated_data)
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        scope = attrs.get("scope", None)
+
+        if scope == Annotation.Scope.RECORDING.value:
+            raise serializers.ValidationError("Recording scope is deprecated")
+
+        return attrs
 
     def create(self, validated_data: dict[str, Any], *args: Any, **kwargs: Any) -> Annotation:
         request = self.context["request"]
@@ -120,6 +127,13 @@ class AnnotationsViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.Mo
 
         if date_from_parsed and date_to_parsed and date_from_parsed > date_to_parsed:
             raise serializers.ValidationError("Invalid date range: date_from must be before date_to")
+
+        # Add is_emoji filtering
+        is_emoji = self.request.query_params.get("is_emoji")
+        if is_emoji is not None:
+            # Convert string to boolean (true, 1, yes -> True; false, 0, no -> False)
+            is_emoji_bool = is_emoji.lower() in ("true", "1", "yes")
+            queryset = queryset.filter(is_emoji=is_emoji_bool)
 
         return queryset
 

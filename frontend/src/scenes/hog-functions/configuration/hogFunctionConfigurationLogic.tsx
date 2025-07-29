@@ -7,8 +7,6 @@ import { beforeUnload, router } from 'kea-router'
 import { CombinedLocation } from 'kea-router/lib/utils'
 import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
-import { asyncSaveToModal } from 'lib/components/SaveTo/saveToLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { uuid } from 'lib/utils'
@@ -25,28 +23,22 @@ import { deleteFromTree, refreshTreeItem } from '~/layout/panel-layout/ProjectTr
 import { groupsModel } from '~/models/groupsModel'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { performQuery } from '~/queries/query'
+import { DataTableNode, EventsNode, EventsQuery, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
+import { escapePropertyAsHogQLIdentifier, hogql, setLatestVersionsOnQuery } from '~/queries/utils'
 import {
-    ActorsQuery,
-    DataTableNode,
-    EventsNode,
-    EventsQuery,
-    NodeKind,
-    TrendsQuery,
-} from '~/queries/schema/schema-general'
-import { escapePropertyAsHogQLIdentifier, hogql } from '~/queries/utils'
-import {
-    AnyPersonScopeFilter,
     AnyPropertyFilter,
     AvailableFeature,
     BaseMathType,
     ChartDisplayType,
+    CyclotronJobFiltersType,
+    CyclotronJobInputSchemaType,
+    CyclotronJobInputType,
+    CyclotronJobInvocationGlobals,
+    CyclotronJobInvocationGlobalsWithInputs,
     EventType,
     FilterLogicalOperator,
     HogFunctionConfigurationContextId,
     HogFunctionConfigurationType,
-    HogFunctionInputSchemaType,
-    HogFunctionInputType,
-    HogFunctionInvocationGlobals,
     HogFunctionMappingType,
     HogFunctionTemplateType,
     HogFunctionType,
@@ -89,19 +81,18 @@ const NEW_FUNCTION_TEMPLATE: HogFunctionTemplateType = {
     name: '',
     description: '',
     inputs_schema: [],
-    hog: "print('Hello, world!');",
+    code_language: 'hog',
+    code: "print('Hello, world!');",
     status: 'stable',
 }
 
 export const TYPES_WITH_GLOBALS: HogFunctionTypeType[] = ['transformation', 'destination']
-export const TYPES_WITH_SPARKLINE: HogFunctionTypeType[] = ['destination', 'site_destination', 'transformation']
+export const TYPES_WITH_REAL_EVENTS: HogFunctionTypeType[] = ['destination', 'site_destination', 'transformation']
 export const TYPES_WITH_VOLUME_WARNING: HogFunctionTypeType[] = ['destination', 'site_destination']
 
 export function sanitizeConfiguration(data: HogFunctionConfigurationType): HogFunctionConfigurationType {
-    function sanitizeInputs(
-        data: HogFunctionConfigurationType | HogFunctionMappingType
-    ): Record<string, HogFunctionInputType> {
-        const sanitizedInputs: Record<string, HogFunctionInputType> = {}
+    function sanitizeInputs(data: HogFunctionMappingType): Record<string, CyclotronJobInputType> {
+        const sanitizedInputs: Record<string, CyclotronJobInputType> = {}
         data.inputs_schema?.forEach((inputSchema) => {
             const templatingEnabled = inputSchema.templating ?? true
             const input = data.inputs?.[inputSchema.key]
@@ -120,7 +111,7 @@ export function sanitizeConfiguration(data: HogFunctionConfigurationType): HogFu
             if (inputSchema.type === 'json' && typeof value === 'string') {
                 try {
                     value = JSON.parse(value)
-                } catch (e) {
+                } catch {
                     // Ignore
                 }
             }
@@ -132,6 +123,15 @@ export function sanitizeConfiguration(data: HogFunctionConfigurationType): HogFu
         })
 
         return sanitizedInputs
+    }
+
+    const filters = data.filters ?? {}
+    filters.source = filters.source ?? 'events'
+
+    if (filters.source === 'person-updates') {
+        // Ensure we aren't passing in values that aren't supported
+        delete filters.actions
+        delete filters.events
     }
 
     const payload: HogFunctionConfigurationType = {
@@ -149,9 +149,9 @@ export function sanitizeConfiguration(data: HogFunctionConfigurationType): HogFu
     return payload
 }
 
-const templateToConfiguration = (template: HogFunctionTemplateType): HogFunctionConfigurationType => {
-    function getInputs(inputs_schema?: HogFunctionInputSchemaType[] | null): Record<string, HogFunctionInputType> {
-        const inputs: Record<string, HogFunctionInputType> = {}
+export const templateToConfiguration = (template: HogFunctionTemplateType): HogFunctionConfigurationType => {
+    function getInputs(inputs_schema?: CyclotronJobInputSchemaType[] | null): Record<string, CyclotronJobInputType> {
+        const inputs: Record<string, CyclotronJobInputType> = {}
         inputs_schema?.forEach((schema) => {
             if (schema.default !== undefined) {
                 inputs[schema.key] = { value: schema.default }
@@ -160,32 +160,28 @@ const templateToConfiguration = (template: HogFunctionTemplateType): HogFunction
         return inputs
     }
 
-    function getMappingInputs(
-        inputs_schema?: HogFunctionInputSchemaType[] | null
-    ): Record<string, HogFunctionInputType> {
-        const inputs: Record<string, HogFunctionInputType> = {}
-        inputs_schema?.forEach((schema) => {
-            if (schema.default !== undefined) {
-                inputs[schema.key] = { value: schema.default }
-            }
-        })
-        return inputs
+    let mappings: HogFunctionMappingType[] | undefined
+
+    if (template?.mapping_templates) {
+        mappings = template.mapping_templates
+            .filter((t) => t.include_by_default)
+            .map((template) => ({
+                ...template,
+                inputs: template.inputs_schema?.reduce((acc, input) => {
+                    acc[input.key] = { value: input.default }
+                    return acc
+                }, {} as Record<string, CyclotronJobInputType>),
+            }))
     }
 
     return {
         type: template.type ?? 'destination',
-        kind: template.kind,
         name: template.name,
         description: typeof template.description === 'string' ? template.description : '',
         inputs_schema: template.inputs_schema,
         filters: template.filters,
-        mappings: template.mappings?.map(
-            (mapping): HogFunctionMappingType => ({
-                ...mapping,
-                inputs: getMappingInputs(mapping.inputs_schema),
-            })
-        ),
-        hog: template.hog,
+        mappings: mappings,
+        hog: template.code,
         icon_url: template.icon_url,
         inputs: getInputs(template.inputs_schema),
         enabled: true,
@@ -195,7 +191,7 @@ const templateToConfiguration = (template: HogFunctionTemplateType): HogFunction
 export function convertToHogFunctionInvocationGlobals(
     event: EventType,
     person: PersonType
-): HogFunctionInvocationGlobals {
+): CyclotronJobInvocationGlobals {
     const team = teamLogic.findMounted()?.values?.currentTeam
     const projectUrl = `${window.location.origin}/project/${team?.id}`
     return {
@@ -303,15 +299,12 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         resetToTemplate: true,
         deleteHogFunction: true,
         sparklineQueryChanged: (sparklineQuery: TrendsQuery) => ({ sparklineQuery } as { sparklineQuery: TrendsQuery }),
-        personsCountQueryChanged: (personsCountQuery: ActorsQuery) =>
-            ({ personsCountQuery } as { personsCountQuery: ActorsQuery }),
         loadSampleGlobals: (payload?: { eventId?: string }) => ({ eventId: payload?.eventId }),
         setUnsavedConfiguration: (configuration: HogFunctionConfigurationType | null) => ({ configuration }),
         persistForUnload: true,
         setSampleGlobalsError: (error) => ({ error }),
-        setSampleGlobals: (sampleGlobals: HogFunctionInvocationGlobals | null) => ({ sampleGlobals }),
+        setSampleGlobals: (sampleGlobals: CyclotronJobInvocationGlobals | null) => ({ sampleGlobals }),
         setShowEventsList: (showEventsList: boolean) => ({ showEventsList }),
-        sendBroadcast: true,
         setOldHogCode: (oldHogCode: string) => ({ oldHogCode }),
         setNewHogCode: (newHogCode: string) => ({ newHogCode }),
         clearHogCodeDiff: true,
@@ -319,10 +312,24 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         reportAIHogFunctionAccepted: true,
         reportAIHogFunctionRejected: true,
         reportAIHogFunctionPromptOpen: true,
+        setOldFilters: (oldFilters: CyclotronJobFiltersType) => ({ oldFilters }),
+        setNewFilters: (newFilters: CyclotronJobFiltersType) => ({ newFilters }),
+        clearFiltersDiff: true,
+        reportAIFiltersPrompted: true,
+        reportAIFiltersAccepted: true,
+        reportAIFiltersRejected: true,
+        reportAIFiltersPromptOpen: true,
+        setOldInputs: (oldInputs: CyclotronJobInputSchemaType[]) => ({ oldInputs }),
+        setNewInputs: (newInputs: CyclotronJobInputSchemaType[]) => ({ newInputs }),
+        clearInputsDiff: true,
+        reportAIHogFunctionInputsPrompted: true,
+        reportAIHogFunctionInputsAccepted: true,
+        reportAIHogFunctionInputsRejected: true,
+        reportAIHogFunctionInputsPromptOpen: true,
     }),
     reducers(({ props }) => ({
         sampleGlobals: [
-            null as HogFunctionInvocationGlobals | null,
+            null as CyclotronJobInvocationGlobals | null,
             {
                 setSampleGlobals: (_, { sampleGlobals }) => sampleGlobals,
             },
@@ -378,6 +385,34 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 clearHogCodeDiff: () => null,
             },
         ],
+        oldFilters: [
+            null as CyclotronJobFiltersType | null,
+            {
+                setOldFilters: (_, { oldFilters }) => oldFilters,
+                clearFiltersDiff: () => null,
+            },
+        ],
+        newFilters: [
+            null as CyclotronJobFiltersType | null,
+            {
+                setNewFilters: (_, { newFilters }) => newFilters,
+                clearFiltersDiff: () => null,
+            },
+        ],
+        oldInputs: [
+            null as CyclotronJobInputSchemaType[] | null,
+            {
+                setOldInputs: (_, { oldInputs }) => oldInputs,
+                clearInputsDiff: () => null,
+            },
+        ],
+        newInputs: [
+            null as CyclotronJobInputSchemaType[] | null,
+            {
+                setNewInputs: (_, { newInputs }) => newInputs,
+                clearInputsDiff: () => null,
+            },
+        ],
     })),
     loaders(({ actions, props, values }) => ({
         template: [
@@ -394,8 +429,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                         }
                     }
 
-                    const dbTemplates = !!values.featureFlags[FEATURE_FLAGS.GET_HOG_TEMPLATES_FROM_DB]
-                    const res = await api.hogFunctions.getTemplate(props.templateId, dbTemplates)
+                    const res = await api.hogFunctions.getTemplate(props.templateId)
 
                     if (!res) {
                         throw new Error('Template not found')
@@ -442,7 +476,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             null as null | SparklineData,
             {
                 sparklineQueryChanged: async ({ sparklineQuery }, breakpoint) => {
-                    if (!TYPES_WITH_SPARKLINE.includes(values.type)) {
+                    if (!TYPES_WITH_REAL_EVENTS.includes(values.type)) {
                         return null
                     }
                     if (values.sparkline === null) {
@@ -500,27 +534,8 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             },
         ],
 
-        personsCount: [
-            null as number | null,
-            {
-                personsCountQueryChanged: async ({ personsCountQuery }, breakpoint) => {
-                    if (values.type !== 'broadcast') {
-                        return null
-                    }
-                    if (values.personsCount === null) {
-                        await breakpoint(100)
-                    } else {
-                        await breakpoint(1000)
-                    }
-                    const result = await performQuery(personsCountQuery)
-                    breakpoint()
-                    return result?.results?.[0]?.[0] ?? null
-                },
-            },
-        ],
-
         sampleGlobals: [
-            null as HogFunctionInvocationGlobals | null,
+            null as CyclotronJobInvocationGlobals | null,
             {
                 loadSampleGlobals: async ({ eventId }, breakpoint) => {
                     if (!values.lastEventQuery) {
@@ -567,7 +582,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                                 let properties = {}
                                 try {
                                     properties = JSON.parse(tuple[3])
-                                } catch (e) {
+                                } catch {
                                     // Ignore
                                 }
                                 globals.groups![groupType.group_type] = {
@@ -590,21 +605,6 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                         }
                         return values.exampleInvocationGlobals
                     }
-                },
-            },
-        ],
-        broadcast: [
-            false,
-            {
-                sendBroadcast: async () => {
-                    const id = values.hogFunction?.id
-                    if (!id) {
-                        lemonToast.error('No broadcast to send')
-                        return false
-                    }
-                    await api.hogFunctions.sendBroadcast(id)
-                    lemonToast.success('Broadcast sent!')
-                    return true
                 },
             },
         ],
@@ -653,15 +653,8 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                             ? 'Transformations'
                             : type === 'source_webhook'
                             ? 'Sources'
-                            : type === 'broadcast'
-                            ? 'Broadcasts'
-                            : type === 'messaging_campaign'
-                            ? 'Campaigns'
                             : 'Destinations'
-                    const folder = await asyncSaveToModal({ defaultFolder: `Unfiled/${typeFolder}` })
-                    if (typeof folder === 'string') {
-                        payload._create_in_folder = folder
-                    }
+                    payload._create_in_folder = `Unfiled/${typeFolder}`
                 }
                 await asyncActions.upsertHogFunction(payload as HogFunctionConfigurationType)
             },
@@ -765,7 +758,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                     if (inputSchema.type === 'json' && typeof value === 'string') {
                         try {
                             JSON.parse(value)
-                        } catch (e) {
+                        } catch {
                             inputErrors[key] = 'Invalid JSON'
                         }
 
@@ -825,7 +818,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         ],
         exampleInvocationGlobals: [
             (s) => [s.configuration, s.currentProject, s.groupTypes, s.contextId],
-            (configuration, currentProject, groupTypes, contextId): HogFunctionInvocationGlobals => {
+            (configuration, currentProject, groupTypes, contextId): CyclotronJobInvocationGlobals => {
                 const currentUrl = window.location.href.split('#')[0]
                 const eventId = uuid()
                 const personId = uuid()
@@ -861,7 +854,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                               },
                           }),
                 }
-                const globals: HogFunctionInvocationGlobals = {
+                const globals: CyclotronJobInvocationGlobals = {
                     event,
                     person:
                         contextId !== 'error-tracking'
@@ -906,11 +899,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         ],
         sampleGlobalsWithInputs: [
             (s) => [s.sampleGlobals, s.exampleInvocationGlobals, s.configuration],
-            (
-                sampleGlobals,
-                exampleInvocationGlobals,
-                configuration
-            ): Partial<HogFunctionInvocationGlobals> & { inputs?: Record<string, any> } => {
+            (sampleGlobals, exampleInvocationGlobals, configuration): CyclotronJobInvocationGlobalsWithInputs => {
                 const inputs: Record<string, any> = {}
                 for (const input of configuration?.inputs_schema || []) {
                     inputs[input.key] = input.type
@@ -1045,13 +1034,20 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             },
         ],
 
+        sourceUsesEvents: [
+            (s) => [s.configuration, s.type],
+            (configuration, type) => {
+                return TYPES_WITH_REAL_EVENTS.includes(type) && (configuration.filters?.source ?? 'events') === 'events'
+            },
+        ],
+
         sparklineQuery: [
-            (s) => [s.configuration, s.matchingFilters, s.type],
-            (configuration, matchingFilters, type): TrendsQuery | null => {
-                if (!TYPES_WITH_SPARKLINE.includes(type)) {
+            (s) => [s.configuration, s.matchingFilters, s.sourceUsesEvents],
+            (configuration, matchingFilters, sourceUsesEvents): TrendsQuery | null => {
+                if (!sourceUsesEvents) {
                     return null
                 }
-                return {
+                return setLatestVersionsOnQuery({
                     kind: NodeKind.TrendsQuery,
                     filterTestAccounts: configuration.filters?.filter_test_accounts,
                     series: [
@@ -1073,49 +1069,15 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                     modifiers: {
                         personsOnEventsMode: 'person_id_no_override_properties_on_events',
                     },
-                }
-            },
-            { resultEqualityCheck: equal },
-        ],
-
-        personsCountQuery: [
-            (s) => [s.configuration, s.type],
-            (configuration, type): ActorsQuery | null => {
-                if (type !== 'broadcast') {
-                    return null
-                }
-                return {
-                    kind: NodeKind.ActorsQuery,
-                    properties: configuration.filters?.properties as AnyPersonScopeFilter[] | undefined,
-                    select: ['count()'],
-                }
-            },
-            { resultEqualityCheck: equal },
-        ],
-
-        personsListQuery: [
-            (s) => [s.configuration, s.type],
-            (configuration, type): DataTableNode | null => {
-                if (type !== 'broadcast') {
-                    return null
-                }
-                return {
-                    kind: NodeKind.DataTableNode,
-                    source: {
-                        kind: NodeKind.ActorsQuery,
-                        properties: configuration.filters?.properties as AnyPersonScopeFilter[] | undefined,
-                        select: ['person', 'properties.email', 'created_at'],
-                    },
-                    full: true,
-                }
+                })
             },
             { resultEqualityCheck: equal },
         ],
 
         baseEventsQuery: [
-            (s) => [s.configuration, s.matchingFilters, s.groupTypes, s.type],
-            (configuration, matchingFilters, groupTypes, type): EventsQuery | null => {
-                if (!TYPES_WITH_GLOBALS.includes(type)) {
+            (s) => [s.configuration, s.matchingFilters, s.groupTypes, s.sourceUsesEvents],
+            (configuration, matchingFilters, groupTypes, sourceUsesEvents): EventsQuery | null => {
+                if (!sourceUsesEvents) {
                     return null
                 }
                 const query: EventsQuery = {
@@ -1136,7 +1098,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                         `tuple(${name}.created_at, ${name}.index, ${name}.key, ${name}.properties, ${name}.updated_at)`
                     )
                 })
-                return query
+                return setLatestVersionsOnQuery(query)
             },
             { resultEqualityCheck: equal },
         ],
@@ -1145,13 +1107,16 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             (s) => [s.baseEventsQuery],
             (baseEventsQuery): DataTableNode | null => {
                 return baseEventsQuery
-                    ? {
-                          kind: NodeKind.DataTableNode,
-                          source: {
-                              ...baseEventsQuery,
-                              select: defaultDataTableColumns(NodeKind.EventsQuery),
+                    ? setLatestVersionsOnQuery(
+                          {
+                              kind: NodeKind.DataTableNode,
+                              source: {
+                                  ...baseEventsQuery,
+                                  select: defaultDataTableColumns(NodeKind.EventsQuery),
+                              },
                           },
-                      }
+                          { recursion: false }
+                      )
                     : null
             },
         ],
@@ -1170,7 +1135,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         templateHasChanged: [
             (s) => [s.hogFunction, s.configuration],
             (hogFunction, configuration) => {
-                return hogFunction?.template?.hog && hogFunction.template.hog !== configuration.hog
+                return hogFunction?.template?.code && hogFunction.template.code !== configuration.hog
             },
         ],
         mappingTemplates: [
@@ -1205,6 +1170,23 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             },
         ],
 
+        currentInputs: [
+            (s) => [s.newInputs, s.configuration],
+            (newInputs: CyclotronJobInputSchemaType[] | null, configuration: HogFunctionConfigurationType) => {
+                return newInputs ?? configuration.inputs_schema ?? []
+            },
+        ],
+
+        inputsDiff: [
+            (s) => [s.oldInputs, s.newInputs],
+            (oldInputs: CyclotronJobInputSchemaType[] | null, newInputs: CyclotronJobInputSchemaType[] | null) => {
+                if (!oldInputs || !newInputs) {
+                    return null
+                }
+                return { oldInputs, newInputs }
+            },
+        ],
+
         canLoadSampleGlobals: [
             (s) => [s.lastEventQuery],
             (lastEventQuery) => {
@@ -1225,6 +1207,30 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         },
         reportAIHogFunctionPromptOpen: () => {
             posthog.capture('ai_hog_function_prompt_open', { type: values.type })
+        },
+        reportAIFiltersPrompted: () => {
+            posthog.capture('ai_hog_function_filters_prompted', { type: values.type })
+        },
+        reportAIFiltersAccepted: () => {
+            posthog.capture('ai_hog_function_filters_accepted', { type: values.type })
+        },
+        reportAIFiltersRejected: () => {
+            posthog.capture('ai_hog_function_filters_rejected', { type: values.type })
+        },
+        reportAIFiltersPromptOpen: () => {
+            posthog.capture('ai_hog_function_filters_prompt_open', { type: values.type })
+        },
+        reportAIHogFunctionInputsPrompted: () => {
+            posthog.capture('ai_hog_function_inputs_prompted', { type: values.type })
+        },
+        reportAIHogFunctionInputsAccepted: () => {
+            posthog.capture('ai_hog_function_inputs_accepted', { type: values.type })
+        },
+        reportAIHogFunctionInputsRejected: () => {
+            posthog.capture('ai_hog_function_inputs_rejected', { type: values.type })
+        },
+        reportAIHogFunctionInputsPromptOpen: () => {
+            posthog.capture('ai_hog_function_inputs_prompt_open', { type: values.type })
         },
         loadTemplateSuccess: () => actions.resetForm(),
         loadHogFunctionSuccess: () => {
@@ -1266,23 +1272,9 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
 
             const config: HogFunctionConfigurationType = {
                 ...baseConfig,
-                ...(cache.configFromUrl ?? {}),
+                ...cache.configFromUrl,
             }
 
-            if (values.template?.mapping_templates) {
-                config.mappings = [
-                    ...(config.mappings ?? []),
-                    ...values.template.mapping_templates
-                        .filter((t) => t.include_by_default)
-                        .map((template) => ({
-                            ...template,
-                            inputs: template.inputs_schema?.reduce((acc, input) => {
-                                acc[input.key] = { value: input.default }
-                                return acc
-                            }, {} as Record<string, HogFunctionInputType>),
-                        })),
-                ]
-            }
             const paramsFromUrl = cache.paramsFromUrl ?? {}
             const unsavedConfigurationToApply =
                 (values.unsavedConfiguration?.timestamp ?? 0) > Date.now() - UNSAVED_CONFIGURATION_TTL
@@ -1346,7 +1338,10 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
 
                 actions.setConfigurationValues({
                     ...config,
+                    enabled: values.configuration.enabled,
                     filters: config.filters ?? values.configuration.filters,
+                    // NOTE: Technically mapping should also be sanitized against the template mappings but this is a bit of a pain
+                    mappings: values.configuration.mappings?.length ? values.configuration.mappings : config.mappings,
                     // Keep some existing things when manually resetting the template
                     name: values.configuration.name,
                     description: values.configuration.description,
@@ -1424,11 +1419,6 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         sparklineQuery: async (sparklineQuery) => {
             if (sparklineQuery) {
                 actions.sparklineQueryChanged(sparklineQuery)
-            }
-        },
-        personsCountQuery: async (personsCountQuery) => {
-            if (personsCountQuery) {
-                actions.personsCountQueryChanged(personsCountQuery)
             }
         },
     })),

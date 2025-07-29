@@ -4,6 +4,10 @@ from posthog.models.team import Team
 from posthog.models.user import User
 
 
+# !!! DEPRECATED !!!
+# Please use the ee.Role model instead
+
+
 class UserGroup(UUIDModel):
     team = models.ForeignKey(Team, on_delete=models.CASCADE, related_name="user_groups")
     name = models.TextField()

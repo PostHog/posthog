@@ -48,6 +48,7 @@ export interface ProjectTreeLogicProps {
     defaultOnlyFolders?: boolean
     root?: string
     includeRoot?: boolean
+    hideFolders?: string[]
 }
 
 export const projectTreeLogic = kea<projectTreeLogicType>([
@@ -75,7 +76,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         ],
         actions: [
             panelLayoutLogic,
-            ['setActivePanelIdentifier'],
+            ['setActivePanelIdentifier', 'resetPanelLayout'],
             projectTreeDataLogic,
             [
                 'loadFolder',
@@ -620,9 +621,21 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             },
         ],
         fullFileSystemFiltered: [
-            (s) => [s.fullFileSystem, s.searchTerm, (_, props) => props.root, (_, props) => props.includeRoot],
-            (fullFileSystem, searchTerm, root, includeRoot): TreeDataItem[] => {
+            (s) => [
+                s.fullFileSystem,
+                s.searchTerm,
+                (_, props) => props.root,
+                (_, props) => props.includeRoot,
+                (_, props) => props.hideFolders,
+            ],
+            (fullFileSystem, searchTerm, root, includeRoot, hideFolders): TreeDataItem[] => {
                 let firstFolders = fullFileSystem
+
+                // Filter out folders specified in hideFolders prop
+                if (hideFolders && hideFolders.length > 0) {
+                    firstFolders = firstFolders.filter((item) => !hideFolders.includes(item.id))
+                }
+
                 const rootFolders = root ? splitPath(root) : []
                 const rootWithProtocol =
                     rootFolders.length > 0 && rootFolders[0].endsWith(':') && root.startsWith(`${rootFolders[0]}//`)
@@ -804,6 +817,10 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         setActivePanelIdentifier: () => {
             // clear search term when changing panel
             actions.clearSearch()
+            actions.setProjectTreeMode('tree')
+        },
+        resetPanelLayout: () => {
+            actions.setProjectTreeMode('tree')
         },
         loadFolderSuccess: ({ folder }) => {
             if (folder === '') {

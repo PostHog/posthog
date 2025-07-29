@@ -17,6 +17,9 @@ cp node_modules/posthog-js/dist/posthog-recorder.js* dist/
 cp node_modules/posthog-js/dist/surveys.js* dist/
 cp node_modules/posthog-js/dist/exception-autocapture.js* dist/
 cp node_modules/posthog-js/dist/web-vitals.js* dist/
+cp node_modules/posthog-js/dist/tracing-headers.js* dist/
 cp node_modules/posthog-js/dist/dead-clicks-autocapture.js* dist/
 cp node_modules/posthog-js/dist/customizations.full.js* dist/
+# there are multiple external integrations that we use, so we need to copy them all
+cp node_modules/posthog-js/dist/*integration.js* dist/ 2>/dev/null || true
 

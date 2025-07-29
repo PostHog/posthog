@@ -19,15 +19,23 @@ For your team sprint planning copy this template into a comment below for each t
 # Team ___
 
 **Support hero:** ___
+**Off during the sprint:** ___
 
-## OKR
+## Quarter goals
 
-1. OKR, status (red/yellow/green) and action points if yellow/red
+1. Quarter goals, status (red/yellow/green) and action points if yellow/red
 
 ## Retro
 
+### Changelog
+
+List any [shipped new minor/medium features](https://posthog.com/handbook/brand/product-announcements#types-of-announcement) should add to the changelog. PR links appreciated. For major features or new products, please refer to [the handbook](https://posthog.com/handbook/team-structure#launching-new-products-and-features). Please leave @joethreepwood tagged when copy/pasting. 
+
+### Tasks
+
 <!-- Grab the high and low priority items from last time and add whether that item was completed or not -->
-- 
+
+## Plan
 
 ### High priority
 

@@ -178,10 +178,12 @@ class TestRevenueAnalyticsOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(
             results,
             [
-                RevenueAnalyticsOverviewItem(key=RevenueAnalyticsOverviewItemKey.REVENUE, value=Decimal("8864.83175")),
+                RevenueAnalyticsOverviewItem(
+                    key=RevenueAnalyticsOverviewItemKey.REVENUE, value=Decimal("8900.0246133332")
+                ),
                 RevenueAnalyticsOverviewItem(key=RevenueAnalyticsOverviewItemKey.PAYING_CUSTOMER_COUNT, value=3),
                 RevenueAnalyticsOverviewItem(
-                    key=RevenueAnalyticsOverviewItemKey.AVG_REVENUE_PER_CUSTOMER, value=Decimal("2954.9439166666")
+                    key=RevenueAnalyticsOverviewItemKey.AVG_REVENUE_PER_CUSTOMER, value=Decimal("2966.674871111")
                 ),
             ],
         )
@@ -230,10 +232,25 @@ class TestRevenueAnalyticsOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         s3 = str(uuid7("2024-02-04"))
         self._create_purchase_events(
             [
-                ("p1", [("2023-12-02", s1, 42, "USD")]),
+                ("p1", [("2023-12-02", s1, 42, "USD"), ("2023-12-02", s1, 35456, "ARS")]),
                 ("p2", [("2024-01-01", s2, 43, "BRL"), ("2024-01-02", s3, 87, "BRL")]),  # 2 events, 1 customer
             ]
         )
+
+        # Ignore events in ARS because they're considered tests
+        self.team.test_account_filters = [
+            {
+                "key": "currency",
+                "operator": "not_icontains",
+                "value": "ARS",
+                "type": "event",
+            }
+        ]
+        self.team.save()
+
+        # Make sure Revenue Analytics is configured to filter test accounts out
+        self.team.revenue_analytics_config.filter_test_accounts = True
+        self.team.revenue_analytics_config.save()
 
         results = self._run_revenue_analytics_overview_query(
             date_range=DateRange(date_from="2023-11-01", date_to="2024-01-31"),
@@ -297,3 +314,35 @@ class TestRevenueAnalyticsOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 ),
             ],
         )
+
+    def test_convertToProjectTimezone_date_range_sql_snapshot(self):
+        self.team.timezone = "America/Los_Angeles"
+        self.team.save()
+
+        query = RevenueAnalyticsOverviewQuery(
+            dateRange=DateRange(date_from="2023-11-01", date_to="2023-11-30"),
+            properties=[],
+            modifiers=HogQLQueryModifiers(formatCsvAllowDoubleQuotes=True),
+        )
+
+        # Test with convertToProjectTimezone=True (should use team timezone for date range)
+        modifiers_with_tz = HogQLQueryModifiers(formatCsvAllowDoubleQuotes=True, convertToProjectTimezone=True)
+        runner_with_tz = RevenueAnalyticsOverviewQueryRunner(team=self.team, query=query, modifiers=modifiers_with_tz)
+
+        # Test with convertToProjectTimezone=False (should use UTC for date range)
+        modifiers_utc = HogQLQueryModifiers(formatCsvAllowDoubleQuotes=True, convertToProjectTimezone=False)
+        runner_utc = RevenueAnalyticsOverviewQueryRunner(team=self.team, query=query, modifiers=modifiers_utc)
+
+        # Generate SQL to capture in snapshots - the date boundaries should be different
+        runner_with_tz.calculate()
+        runner_utc.calculate()
+
+        # Verify timezone info is used correctly in date range calculation
+        tz_date_range = runner_with_tz.query_date_range
+        utc_date_range = runner_utc.query_date_range
+
+        # Team timezone should be used when convertToProjectTimezone=True
+        assert tz_date_range.date_from().tzinfo.key == "America/Los_Angeles"
+
+        # UTC should be used when convertToProjectTimezone=False
+        assert utc_date_range.date_from().tzinfo.key == "UTC"

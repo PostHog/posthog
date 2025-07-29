@@ -1,4 +1,4 @@
-import { actions, connect, defaults, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, connect, defaults, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import api from 'lib/api'
@@ -14,17 +14,19 @@ import {
     ErrorTrackingIssueAggregations,
     ErrorTrackingRelationalIssue,
 } from '~/queries/schema/schema-general'
-import { ActivityScope, Breadcrumb } from '~/types'
+import { ActivityScope, Breadcrumb, IntegrationType } from '~/types'
 
 import { errorFiltersLogic } from './components/ErrorFilters/errorFiltersLogic'
 import { issueActionsLogic } from './components/IssueActions/issueActionsLogic'
 import type { errorTrackingIssueSceneLogicType } from './errorTrackingIssueSceneLogicType'
 import { errorTrackingIssueQuery } from './queries'
 import { ERROR_TRACKING_DETAILS_RESOLUTION } from './utils'
+import { subscriptions } from 'kea-subscriptions'
 
 export interface ErrorTrackingIssueSceneLogicProps {
     id: ErrorTrackingIssue['id']
     fingerprint?: string
+    timestamp?: string
 }
 
 export type ErrorTrackingIssueStatus = ErrorTrackingIssue['status']
@@ -34,29 +36,34 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
     props({} as ErrorTrackingIssueSceneLogicProps),
     key((props) => props.id),
 
-    connect(() => {
-        const filtersLogic = errorFiltersLogic()
-        const issueActions = issueActionsLogic()
-        return {
-            values: [filtersLogic, ['dateRange', 'filterTestAccounts', 'filterGroup', 'searchQuery']],
-            actions: [
-                filtersLogic,
-                ['setDateRange', 'setFilterTestAccounts', 'setFilterGroup', 'setSearchQuery'],
-                issueActions,
-                ['updateIssueAssignee', 'updateIssueStatus', 'updateIssueName'],
-            ],
-        }
-    }),
+    connect(() => ({
+        values: [errorFiltersLogic, ['dateRange', 'filterTestAccounts', 'filterGroup', 'searchQuery']],
+        actions: [
+            errorFiltersLogic,
+            ['setDateRange', 'setFilterTestAccounts', 'setFilterGroup', 'setSearchQuery'],
+            issueActionsLogic,
+            ['updateIssueAssignee', 'updateIssueStatus', 'updateIssueName', 'updateIssueDescription'],
+        ],
+    })),
 
     actions({
         loadIssue: true,
         loadSummary: true,
-        loadFirstSeenEvent: (timestamp: string) => ({ timestamp }),
+        loadInitialEvent: (timestamp: string) => ({ timestamp }),
+        setInitialEventTimestamp: (timestamp: string | null) => ({ timestamp }),
         setIssue: (issue: ErrorTrackingRelationalIssue) => ({ issue }),
         setLastSeen: (lastSeen: Dayjs) => ({ lastSeen }),
         selectEvent: (event: ErrorEventType | null) => ({
             event,
         }),
+        createExternalReference: (integrationId: IntegrationType['id'], config: Record<string, string>) => ({
+            integrationId,
+            config,
+        }),
+        updateAssignee: (assignee: ErrorTrackingIssue['assignee']) => ({ assignee }),
+        updateStatus: (status: ErrorTrackingIssue['status']) => ({ status }),
+        updateName: (name: string) => ({ name }),
+        updateDescription: (description: string) => ({ description }),
     }),
 
     defaults({
@@ -64,29 +71,13 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         summary: null as ErrorTrackingIssueSummary | null,
         properties: null as ErrorEventProperties | null,
         lastSeen: null as Dayjs | null,
-        firstSeenEvent: null as ErrorEventType | null,
+        initialEvent: null as ErrorEventType | null,
         selectedEvent: null as ErrorEventType | null,
+        initialEventTimestamp: null as string | null,
+        initialEventLoading: true as boolean,
     }),
 
     reducers(({ values }) => ({
-        issue: {
-            setIssue: (_, { issue }: { issue: ErrorTrackingRelationalIssue }) => issue,
-            updateIssueAssignee: (state, { id, assignee }) => {
-                if (state && id == state.id) {
-                    return { ...state, assignee }
-                }
-                return state
-            },
-            updateIssueStatus: (state, { id, status }) => {
-                if (state && id == state.id) {
-                    return { ...state, status }
-                }
-                return state
-            },
-            updateIssueName: (state, { name }) => {
-                return state ? { ...state, name } : null
-            },
-        },
         summary: {},
         lastSeen: {
             setLastSeen: (prevLastSeen, { lastSeen }) => {
@@ -96,10 +87,18 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                 return prevLastSeen
             },
         },
+        initialEventTimestamp: {
+            setInitialEventTimestamp: (state, { timestamp }) => {
+                if (!state && timestamp) {
+                    return timestamp
+                }
+                return state
+            },
+        },
         selectedEvent: {
             selectEvent: (_, { event }) => {
-                if (!event && values.firstSeenEvent) {
-                    return values.firstSeenEvent
+                if (!event && values.initialEvent) {
+                    return values.initialEvent
                 }
                 return event
             },
@@ -108,35 +107,71 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
 
     loaders(({ values, actions, props }) => ({
         issue: {
+            setIssue: ({ issue }) => issue,
             loadIssue: async () => await api.errorTracking.getIssue(props.id, props.fingerprint),
+            createExternalReference: async ({ integrationId, config }) => {
+                if (values.issue) {
+                    const response = await api.errorTracking.createExternalReference(props.id, integrationId, config)
+                    // TODO: we only allow one external reference until we redesign the page
+                    return { ...values.issue, external_issues: [response] }
+                }
+                return null
+            },
+            updateAssignee: ({ assignee }) => {
+                if (values.issue) {
+                    return { ...values.issue, assignee }
+                }
+                return values.issue
+            },
+            updateStatus: ({ status }) => {
+                if (values.issue) {
+                    return { ...values.issue, status }
+                }
+                return values.issue
+            },
+            updateName: ({ name }) => {
+                if (values.issue) {
+                    return { ...values.issue, name }
+                }
+                return values.issue
+            },
+            updateDescription: ({ description }) => {
+                if (values.issue) {
+                    return { ...values.issue, description }
+                }
+                return values.issue
+            },
         },
-        firstSeenEvent: {
-            loadFirstSeenEvent: async ({ timestamp }) => {
+        initialEvent: {
+            loadInitialEvent: async ({ timestamp }) => {
                 const response = await api.query(
                     errorTrackingIssueQuery({
                         issueId: props.id,
                         dateRange: getNarrowDateRange(timestamp),
                         filterTestAccounts: false,
                         withAggregations: false,
-                        withFirstEvent: true,
+                        withFirstEvent: false,
+                        withLastEvent: true,
                     }),
                     { refresh: 'blocking' }
                 )
                 const issue = response.results[0]
-                if (!issue.first_event) {
+                let positionEvent = null
+                if (issue.last_event) {
+                    positionEvent = issue.last_event
+                } else {
                     return null
                 }
-                const first_event_properties = JSON.parse(issue.first_event.properties)
-                const firstSeenEvent: ErrorEventType = {
-                    uuid: issue.first_event.uuid,
-                    timestamp: issue.first_event.timestamp,
+                const initialEvent: ErrorEventType = {
+                    uuid: positionEvent.uuid,
+                    timestamp: positionEvent.timestamp,
                     person: { distinct_ids: [], properties: {} },
-                    properties: first_event_properties,
+                    properties: JSON.parse(positionEvent.properties),
                 }
                 if (!values.selectedEvent) {
-                    actions.selectEvent(firstSeenEvent)
+                    actions.selectEvent(initialEvent)
                 }
-                return firstSeenEvent
+                return initialEvent
             },
         },
         summary: {
@@ -151,13 +186,17 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                         volumeResolution: ERROR_TRACKING_DETAILS_RESOLUTION,
                         withAggregations: true,
                         withFirstEvent: false,
+                        withLastEvent: false,
                     }),
                     { refresh: 'blocking' }
                 )
                 if (!response.results.length) {
                     return null
                 }
-                actions.setLastSeen(dayjs(response.results[0].last_seen))
+                if (response.results[0] && response.results[0].last_seen) {
+                    actions.setLastSeen(dayjs(response.results[0].last_seen))
+                    actions.setInitialEventTimestamp(response.results[0].last_seen)
+                }
                 const summary = response.results[0]
                 if (!summary.aggregations) {
                     return null
@@ -169,7 +208,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         },
     })),
 
-    selectors(({ actions, props }) => ({
+    selectors(({ actions }) => ({
         breadcrumbs: [
             (s) => [s.issue],
             (issue: ErrorTrackingRelationalIssue | null): Breadcrumb[] => {
@@ -183,9 +222,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                     {
                         key: [Scene.ErrorTrackingIssue, exceptionType],
                         name: exceptionType,
-                        onRename: async (name: string) => {
-                            return actions.updateIssueName(props.id, name)
-                        },
+                        onRename: async (name: string) => actions.updateName(name),
                     },
                 ]
             },
@@ -201,6 +238,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
             },
         ],
         issueId: [(_, p) => [p.id], (id: string) => id],
+
         firstSeen: [
             (s) => [s.issue],
             (issue: ErrorTrackingRelationalIssue | null) => (issue ? dayjs(issue.first_seen) : null),
@@ -209,21 +247,51 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         aggregations: [(s) => [s.summary], (summary: ErrorTrackingIssueSummary | null) => summary?.aggregations],
     })),
 
-    listeners(({ actions }) => {
+    subscriptions(({ actions }) => ({
+        initialEventTimestamp: (value: string | null, oldValue: string | null) => {
+            if (!oldValue && value) {
+                actions.loadInitialEvent(value)
+            }
+        },
+    })),
+
+    listeners(({ props, actions }) => {
         return {
             setDateRange: actions.loadSummary,
             setFilterGroup: actions.loadSummary,
             setFilterTestAccounts: actions.loadSummary,
             setSearchQuery: actions.loadSummary,
-            loadIssue: actions.loadSummary,
-            loadIssueSuccess: [({ issue }) => actions.loadFirstSeenEvent(issue.first_seen)],
             loadIssueFailure: ({ errorObject: { status, data } }) => {
                 if (status == 308 && 'issue_id' in data) {
                     router.actions.replace(urls.errorTrackingIssue(data.issue_id))
                 }
             },
+            updateName: ({ name }) => actions.updateIssueName(props.id, name),
+            updateDescription: ({ description }) => actions.updateIssueDescription(props.id, description),
+            updateAssignee: ({ assignee }) => actions.updateIssueAssignee(props.id, assignee),
+            updateStatus: ({ status }) => actions.updateIssueStatus(props.id, status),
+            selectEvent: ({ event }) => {
+                if (event) {
+                    router.actions.replace(
+                        router.values.currentLocation.pathname,
+                        {
+                            ...router.values.searchParams,
+                            timestamp: event.timestamp,
+                        },
+                        router.values.hashParams
+                    )
+                }
+            },
         }
     }),
+
+    events(({ props, actions }) => ({
+        afterMount: () => {
+            actions.loadIssue()
+            actions.setInitialEventTimestamp(props.timestamp ?? null)
+            actions.loadSummary()
+        },
+    })),
 ])
 
 function getNarrowDateRange(timestamp: Dayjs | string): DateRange {

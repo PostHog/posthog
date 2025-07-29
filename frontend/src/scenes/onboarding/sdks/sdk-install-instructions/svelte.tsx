@@ -1,4 +1,4 @@
-import { Link } from '@posthog/lemon-ui'
+import { LemonDivider, Link } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -7,13 +7,16 @@ import { apiHostOrigin } from 'lib/utils/apiHost'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { JSInstallSnippet } from './js-web'
+import { SDK_DEFAULTS_DATE } from './constants'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import SetupWizardBanner from './components/SetupWizardBanner'
 
 function SvelteAppClientCodeSnippet(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const isPersonProfilesDisabled = featureFlags[FEATURE_FLAGS.PERSONLESS_EVENTS_NOT_SUPPORTED]
 
-    const options = [`api_host: '${apiHostOrigin()}'`]
+    const options = [`api_host: '${apiHostOrigin()}'`, `defaults: '${SDK_DEFAULTS_DATE}'`]
 
     if (!isPersonProfilesDisabled) {
         options.push(
@@ -27,7 +30,7 @@ function SvelteAppClientCodeSnippet(): JSX.Element {
 import { browser } from '$app/environment';
 import { onMount } from 'svelte';
 
-onMount(() => {
+export const load = async () => {
   if (browser) {
     posthog.init(
       '${currentTeam?.api_token}',
@@ -36,14 +39,26 @@ onMount(() => {
       }
     )
   }
-});`}
+
+  return
+};`}
         </CodeSnippet>
     )
 }
 
-export function SDKInstallSvelteJSInstructions(): JSX.Element {
+export function SDKInstallSvelteJSInstructions({ hideWizard }: { hideWizard?: boolean }): JSX.Element {
+    const { isCloudOrDev } = useValues(preflightLogic)
+    const showSetupWizard = !hideWizard && isCloudOrDev
     return (
         <>
+            {showSetupWizard && (
+                <>
+                    <h2>Automated Installation</h2>
+                    <SetupWizardBanner integrationName="Svelte" />
+                    <LemonDivider label="OR" />
+                    <h2>Manual Installation</h2>
+                </>
+            )}
             <h3>Install posthog-js using your package manager</h3>
             <JSInstallSnippet />
 

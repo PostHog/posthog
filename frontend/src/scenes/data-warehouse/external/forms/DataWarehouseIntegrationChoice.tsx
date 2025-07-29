@@ -1,7 +1,9 @@
-import { IntegrationChoice, IntegrationConfigureProps } from 'scenes/hog-functions/integrations/IntegrationChoice'
+import {
+    IntegrationChoice,
+    IntegrationConfigureProps,
+} from 'lib/components/CyclotronJob/integrations/IntegrationChoice'
 import { urls } from 'scenes/urls'
-
-import { SourceConfig } from '~/types'
+import { SourceConfig } from '~/queries/schema/schema-general'
 
 export type DataWarehouseIntegrationChoice = IntegrationConfigureProps & {
     sourceConfig: SourceConfig
@@ -9,12 +11,13 @@ export type DataWarehouseIntegrationChoice = IntegrationConfigureProps & {
 
 export function DataWarehouseIntegrationChoice({
     sourceConfig,
+    integration,
     ...props
 }: DataWarehouseIntegrationChoice): JSX.Element {
     return (
         <IntegrationChoice
             {...props}
-            integration={sourceConfig.name.toLowerCase()}
+            integration={integration ?? sourceConfig.name.toLowerCase()}
             redirectUrl={urls.dataWarehouseSourceNew(sourceConfig.name.toLowerCase())}
         />
     )

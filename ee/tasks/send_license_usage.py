@@ -51,9 +51,9 @@ def send_license_usage():
 
         if not response.ok:
             posthoganalytics.capture(
-                user.distinct_id,  # type: ignore
                 "send license usage data error",
-                {
+                distinct_id=user.distinct_id,  # type: ignore
+                properties={
                     "error": response.content,
                     "status_code": response.status_code,
                     "date": date_from.strftime("%Y-%m-%d"),
@@ -69,9 +69,9 @@ def send_license_usage():
             return
         else:
             posthoganalytics.capture(
-                user.distinct_id,  # type: ignore
                 "send license usage data",
-                {
+                distinct_id=user.distinct_id,  # type: ignore
+                properties={
                     "date": date_from.strftime("%Y-%m-%d"),
                     "events_count": events_count,
                     "license_keys": [license.key for license in License.objects.all()],
@@ -85,9 +85,9 @@ def send_license_usage():
     except Exception as err:
         try:
             posthoganalytics.capture(
-                user.distinct_id,  # type: ignore
                 "send license usage data error",
-                {
+                distinct_id=user.distinct_id,  # type: ignore
+                properties={
                     "error": str(err),
                     "date": date_from.strftime("%Y-%m-%d"),
                     "organization_name": user.current_organization.name,  # type: ignore

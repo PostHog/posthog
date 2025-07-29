@@ -1,4 +1,4 @@
-import { ProjectId } from '~/src/types'
+import { ProjectId } from '~/types'
 
 import { addGroupProperties } from './groups'
 

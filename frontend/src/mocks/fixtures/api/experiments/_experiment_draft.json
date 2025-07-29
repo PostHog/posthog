@@ -84,8 +84,5 @@
     "type": "product",
     "exposure_criteria": {},
     "metrics": [],
-    "metrics_secondary": [],
-    "stats_config": {
-        "version": 2
-    }
+    "metrics_secondary": []
 }

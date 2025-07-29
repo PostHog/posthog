@@ -124,25 +124,31 @@ then
 export REGISTRY_URL="posthog/posthog"
 fi
 
-# rewrite caddyfile
-rm -f Caddyfile
-envsubst > Caddyfile <<EOF
-{
-$TLS_BLOCK
-}
-$DOMAIN, http://, https:// {
-encode gzip zstd
-reverse_proxy http://web:8000
-reverse_proxy http://livestream:8666
-}
-EOF
+
 
 # Write .env file
-envsubst > .env <<EOF
+cat > .env <<EOF
 POSTHOG_SECRET=$POSTHOG_SECRET
 ENCRYPTION_SALT_KEYS=$ENCRYPTION_SALT_KEYS
 DOMAIN=$DOMAIN
+TLS_BLOCK=$TLS_BLOCK
+REGISTRY_URL=$REGISTRY_URL
+CADDY_TLS_BLOCK=$TLS_BLOCK
+CADDY_HOST=$DOMAIN, http://, https://
+POSTHOG_APP_TAG=$POSTHOG_APP_TAG
 EOF
+
+# Download GeoLite2-City.mmdb if it doesn't exist
+echo "Downloading GeoIP database file"
+apt-get update && 
+apt-get install -y --no-install-recommends curl ca-certificates brotli && 
+mkdir -p ./share && 
+if [ ! -f ./share/GeoLite2-City.mmdb ]; then 
+    curl -L 'https://mmdbcdn.posthog.net/' --http1.1 | brotli --decompress --output=./share/GeoLite2-City.mmdb && 
+    echo '{\"date\": \"'$(date +%Y-%m-%d)'\"}' > ./share/GeoLite2-City.json; 
+    chmod 644 ./share/GeoLite2-City.mmdb &&
+    chmod 644 ./share/GeoLite2-City.json
+fi
 
 # write entrypoint
 # NOTE: this is duplicated in bin/upgrade-hobby, so if you change it here,
@@ -216,9 +222,7 @@ sudo usermod -aG docker "${USER}" || true
 echo "Configuring Docker Compose...."
 rm -f docker-compose.yml
 cp posthog/docker-compose.base.yml docker-compose.base.yml
-cp posthog/docker-compose.hobby.yml docker-compose.yml.tmpl
-envsubst < docker-compose.yml.tmpl > docker-compose.yml
-rm docker-compose.yml.tmpl
+cp posthog/docker-compose.hobby.yml docker-compose.yml
 echo "Starting the stack!"
 sudo -E docker-compose -f docker-compose.yml up -d --no-build --pull always
 

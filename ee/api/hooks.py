@@ -7,18 +7,11 @@ from rest_framework.response import Response
 from django.core.exceptions import ValidationError
 
 from ee.models.hook import Hook, HOOK_EVENTS
-from django.conf import settings
 from posthog.api.hog_function import HogFunctionSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models.hog_functions.hog_function import HogFunction
-from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.cdp.templates.zapier.template_zapier import template as template_zapier
-
-
-def hog_functions_enabled(team: Team) -> bool:
-    enabled_teams = settings.HOOK_HOG_FUNCTION_TEAMS.split(",")
-    return "*" in enabled_teams or str(team.id) in enabled_teams
 
 
 def create_zapier_hog_function(hook: Hook, serializer_context: dict, from_migration: bool = False) -> HogFunction:
@@ -104,9 +97,6 @@ class HookViewSet(
     serializer_class = HookSerializer
 
     def create(self, request, *args, **kwargs):
-        if not hog_functions_enabled(self.team):
-            return super().create(request, *args, **kwargs)
-
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         hook = Hook(**serializer.validated_data)

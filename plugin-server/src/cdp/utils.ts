@@ -1,26 +1,25 @@
 // NOTE: PostIngestionEvent is our context event - it should never be sent directly to an output, but rather transformed into a lightweight schema
 
 import { DateTime } from 'luxon'
-import RE2 from 're2'
 import { gunzip, gzip } from 'zlib'
 
 import { RawClickHouseEvent, Team, TimestampFormat } from '../types'
 import { safeClickhouseString } from '../utils/db/utils'
 import { parseJSON } from '../utils/json-parse'
 import { castTimestampOrNow, clickHouseTimestampToISO, UUIDT } from '../utils/utils'
-import { MAX_GROUP_TYPES_PER_TEAM } from '../worker/ingestion/group-type-manager'
 import { CdpInternalEvent } from './schema'
 import {
     HogFunctionCapturedEvent,
-    HogFunctionFilterGlobals,
     HogFunctionInvocationGlobals,
     HogFunctionType,
     LogEntry,
     LogEntrySerialized,
+    MinimalLogEntry,
 } from './types'
 // ID of functions that are hidden from normal users and used by us for special testing
 // For example, transformations use this to only run if in comparison mode
 export const CDP_TEST_ID = '[CDP-TEST-HIDDEN]'
+export const MAX_LOG_LENGTH = 10000
 
 export const PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES = [
     'email',
@@ -32,7 +31,7 @@ export const PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES = [
     'UserName',
 ]
 
-const getPersonDisplayName = (team: Team, distinctId: string, properties: Record<string, any>): string => {
+export const getPersonDisplayName = (team: Team, distinctId: string, properties: Record<string, any>): string => {
     const personDisplayNameProperties = team.person_display_name_properties ?? PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
     const customPropertyKey = personDisplayNameProperties.find((x) => properties?.[x])
     const propertyIdentifier = customPropertyKey ? properties[customPropertyKey] : undefined
@@ -134,124 +133,6 @@ export function convertInternalEventToHogFunctionInvocationGlobals(
     return context
 }
 
-function getElementsChainHref(elementsChain: string): string {
-    // Adapted from SQL: extract(elements_chain, '(?::|\")href="(.*?)"'),
-    const hrefRegex = new RE2(/(?::|")href="(.*?)"/)
-    const hrefMatch = hrefRegex.exec(elementsChain)
-    return hrefMatch ? hrefMatch[1] : ''
-}
-
-function getElementsChainTexts(elementsChain: string): string[] {
-    // Adapted from SQL: arrayDistinct(extractAll(elements_chain, '(?::|\")text="(.*?)"')),
-    const textRegex = new RE2(/(?::|")text="(.*?)"/g)
-    const textMatches = new Set<string>()
-    let textMatch
-    while ((textMatch = textRegex.exec(elementsChain)) !== null) {
-        textMatches.add(textMatch[1])
-    }
-    return Array.from(textMatches)
-}
-
-function getElementsChainIds(elementsChain: string): string[] {
-    // Adapted from SQL: arrayDistinct(extractAll(elements_chain, '(?::|\")attr_id="(.*?)"')),
-    const idRegex = new RE2(/(?::|")attr_id="(.*?)"/g)
-    const idMatches = new Set<string>()
-    let idMatch
-    while ((idMatch = idRegex.exec(elementsChain)) !== null) {
-        idMatches.add(idMatch[1])
-    }
-    return Array.from(idMatches)
-}
-
-function getElementsChainElements(elementsChain: string): string[] {
-    // Adapted from SQL: arrayDistinct(extractAll(elements_chain, '(?:^|;)(a|button|form|input|select|textarea|label)(?:\\.|$|:)'))
-    const elementRegex = new RE2(/(?:^|;)(a|button|form|input|select|textarea|label)(?:\.|$|:)/g)
-    const elementMatches = new Set<string>()
-    let elementMatch
-    while ((elementMatch = elementRegex.exec(elementsChain)) !== null) {
-        elementMatches.add(elementMatch[1])
-    }
-    return Array.from(elementMatches)
-}
-
-export function convertToHogFunctionFilterGlobal(globals: HogFunctionInvocationGlobals): HogFunctionFilterGlobals {
-    const groups: Record<string, any> = {}
-
-    // We need to add default empty groups so that filtering works as it expects it to always exist
-    for (let i = 0; i < MAX_GROUP_TYPES_PER_TEAM; i++) {
-        groups[`group_${i}`] = {
-            key: null,
-            index: i,
-            properties: {},
-        }
-    }
-
-    for (const [_groupType, group] of Object.entries(globals.groups || {})) {
-        groups[`group_${group.index}`] = {
-            key: group.id,
-            index: group.index,
-            properties: group.properties,
-        }
-        groups[_groupType] = groups[`group_${group.index}`]
-    }
-
-    const elementsChain = globals.event.elements_chain ?? globals.event.properties['$elements_chain']
-    const response = {
-        ...groups,
-        event: globals.event.event,
-        elements_chain: elementsChain,
-        elements_chain_href: '',
-        elements_chain_texts: [] as string[],
-        elements_chain_ids: [] as string[],
-        elements_chain_elements: [] as string[],
-        timestamp: globals.event.timestamp,
-        properties: globals.event.properties,
-        person: globals.person ? { id: globals.person.id, properties: globals.person.properties } : undefined,
-        pdi: globals.person
-            ? {
-                  distinct_id: globals.event.distinct_id,
-                  person_id: globals.person.id,
-                  person: { id: globals.person.id, properties: globals.person.properties },
-              }
-            : undefined,
-        distinct_id: globals.event.distinct_id,
-    } satisfies HogFunctionFilterGlobals
-
-    // The elements_chain_* fields are stored as materialized columns in ClickHouse.
-    // We use the same formula to calculate them here.
-    if (elementsChain) {
-        const cache: Record<string, any> = {}
-        Object.defineProperties(response, {
-            elements_chain_href: {
-                get: () => {
-                    cache.elements_chain_href ??= getElementsChainHref(elementsChain)
-                    return cache.elements_chain_href
-                },
-            },
-            elements_chain_texts: {
-                get: () => {
-                    cache.elements_chain_texts ??= getElementsChainTexts(elementsChain)
-                    return cache.elements_chain_texts
-                },
-            },
-            elements_chain_ids: {
-                get: () => {
-                    cache.elements_chain_ids ??= getElementsChainIds(elementsChain)
-                    return cache.elements_chain_ids
-                },
-            },
-            elements_chain_elements: {
-                get: () => {
-                    cache.elements_chain_elements ??= getElementsChainElements(elementsChain)
-                    return cache.elements_chain_elements
-                },
-            },
-        })
-    }
-
-    return response
-}
-
 export const convertToCaptureEvent = (event: HogFunctionCapturedEvent, team: Team): any => {
     return {
         uuid: new UUIDT().toString(),
@@ -327,6 +208,35 @@ export function isSegmentPluginHogFunction(hogFunction: HogFunctionType): boolea
     return hogFunction.template_id?.startsWith('segment-') ?? false
 }
 
+export function isNativeHogFunction(hogFunction: HogFunctionType): boolean {
+    return hogFunction.template_id?.startsWith('native-') ?? false
+}
+
 export function filterExists<T>(value: T): value is NonNullable<T> {
     return Boolean(value)
+}
+
+export const sanitizeLogMessage = (args: any[], sensitiveValues?: string[]): string => {
+    let message = args.map((arg) => (typeof arg !== 'string' ? JSON.stringify(arg) : arg)).join(', ')
+
+    // Find and replace any sensitive values
+    sensitiveValues?.forEach((sensitiveValue) => {
+        message = message.replaceAll(sensitiveValue, '***REDACTED***')
+    })
+
+    if (message.length > MAX_LOG_LENGTH) {
+        message = message.slice(0, MAX_LOG_LENGTH) + '... (truncated)'
+    }
+
+    return message
+}
+
+export const createAddLogFunction = (logs: MinimalLogEntry[]) => {
+    return (level: 'debug' | 'warn' | 'error' | 'info', ...args: any[]) => {
+        logs.push({
+            level,
+            timestamp: DateTime.now(),
+            message: sanitizeLogMessage(args),
+        })
+    }
 }

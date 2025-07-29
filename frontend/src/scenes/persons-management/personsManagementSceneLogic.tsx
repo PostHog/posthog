@@ -15,6 +15,8 @@ import { Breadcrumb } from '~/types'
 
 import type { personsManagementSceneLogicType } from './personsManagementSceneLogicType'
 import { Persons } from './tabs/Persons'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 export type PersonsManagementTab = {
     key: string
@@ -34,7 +36,12 @@ export const personsManagementSceneLogic = kea<personsManagementSceneLogicType>(
     path(['scenes', 'persons-management', 'personsManagementSceneLogic']),
     connect(() => ({
         actions: [groupsSceneLogic, ['setGroupTypeIndex']],
-        values: [groupsModel, ['aggregationLabel', 'groupTypes', 'groupTypesLoading', 'groupsAccessStatus']],
+        values: [
+            groupsModel,
+            ['aggregationLabel', 'groupTypes', 'groupTypesLoading', 'groupsAccessStatus'],
+            featureFlagLogic,
+            ['featureFlags'],
+        ],
     })),
     actions({
         setTabKey: (tabKey: string) => ({ tabKey }),
@@ -85,33 +92,40 @@ export const personsManagementSceneLogic = kea<personsManagementSceneLogicType>(
                 return tabs.find((x) => x.key === tabKey) ?? null
             },
         ],
-
+        crmFeatureFlag: [(s) => [s.featureFlags], (featureFlags) => featureFlags[FEATURE_FLAGS.CRM_ITERATION_ONE]],
         groupTabs: [
-            (s) => [s.groupTypes, s.groupsAccessStatus, s.aggregationLabel],
-            (groupTypes, groupsAccessStatus, aggregationLabel): PersonsManagementTab[] => {
+            (s) => [s.groupTypes, s.groupsAccessStatus, s.aggregationLabel, s.crmFeatureFlag],
+            (groupTypes, groupsAccessStatus, aggregationLabel, crmFeatureFlag): PersonsManagementTab[] => {
                 const showGroupsIntroductionPage = [
                     GroupsAccessStatus.HasAccess,
                     GroupsAccessStatus.HasGroupTypes,
                     GroupsAccessStatus.NoAccess,
                 ].includes(groupsAccessStatus)
 
-                const groupTabs: PersonsManagementTab[] = [
-                    ...(showGroupsIntroductionPage
-                        ? [
-                              {
-                                  key: 'groups-0',
-                                  label: 'Groups',
-                                  url: urls.groups(0),
-                                  content: <Groups groupTypeIndex={0} />,
-                              },
-                          ]
-                        : Array.from(groupTypes.values()).map((groupType) => ({
-                              key: `groups-${groupType.group_type_index}`,
-                              label: capitalizeFirstLetter(aggregationLabel(groupType.group_type_index).plural),
-                              url: urls.groups(groupType.group_type_index),
-                              content: <Groups groupTypeIndex={groupType.group_type_index} />,
-                          }))),
-                ]
+                const groupTabs: PersonsManagementTab[] = showGroupsIntroductionPage
+                    ? [
+                          {
+                              key: 'groups-0',
+                              label: 'Groups',
+                              url: urls.groups(0),
+                              content: <Groups groupTypeIndex={0} />,
+                          },
+                      ]
+                    : Array.from(groupTypes.values()).map(({ group_type_index }) => ({
+                          key: `groups-${group_type_index}`,
+                          label: capitalizeFirstLetter(aggregationLabel(group_type_index).plural),
+                          url: urls.groups(group_type_index),
+                          content: <Groups groupTypeIndex={group_type_index} />,
+                          buttons: crmFeatureFlag ? (
+                              <LemonButton
+                                  type="primary"
+                                  data-attr={`new-group-${group_type_index}`}
+                                  onClick={() => router.actions.push(urls.group(group_type_index, 'new', false))}
+                              >
+                                  New {aggregationLabel(group_type_index).singular}
+                              </LemonButton>
+                          ) : null,
+                      }))
 
                 return groupTabs
             },

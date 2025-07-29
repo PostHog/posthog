@@ -61,6 +61,10 @@ pub struct RawErrProps {
         skip_serializing_if = "Option::is_none"
     )]
     pub fingerprint: Option<String>, // Clients can send us fingerprints, which we'll use if present
+    #[serde(rename = "$issue_name", skip_serializing_if = "Option::is_none")]
+    pub issue_name: Option<String>, // Clients can send us custom issue names, which we'll use if present
+    #[serde(rename = "$issue_description", skip_serializing_if = "Option::is_none")]
+    pub issue_description: Option<String>, // Clients can send us custom issue descriptions, which we'll use if present
     #[serde(flatten)]
     // A catch-all for all the properties we don't "care" about, so when we send back to kafka we don't lose any info
     pub other: HashMap<String, Value>,
@@ -70,6 +74,8 @@ pub struct RawErrProps {
 pub struct FingerprintedErrProps {
     pub exception_list: Vec<Exception>,
     pub fingerprint: Fingerprint,
+    pub proposed_issue_name: Option<String>,
+    pub proposed_issue_description: Option<String>,
     pub proposed_fingerprint: String, // We suggest a fingerprint, based on hashes, but let users override client-side
     pub other: HashMap<String, Value>,
 }
@@ -188,6 +194,8 @@ impl RawErrProps {
         FingerprintedErrProps {
             exception_list: self.exception_list,
             fingerprint,
+            proposed_issue_name: self.issue_name,
+            proposed_issue_description: self.issue_description,
             proposed_fingerprint,
             other: self.other,
         }
@@ -348,7 +356,7 @@ mod test {
             Some("https://app-static.eu.posthog.com/static/chunk-PGUQKT6S.js".to_string())
         );
         assert_eq!(frame.fn_name, "?".to_string());
-        assert!(frame.in_app);
+        assert!(frame.meta.in_app);
         assert_eq!(frame.location.as_ref().unwrap().line, 64);
         assert_eq!(frame.location.as_ref().unwrap().column, 25112);
 
@@ -360,7 +368,7 @@ mod test {
             Some("https://app-static.eu.posthog.com/static/chunk-PGUQKT6S.js".to_string())
         );
         assert_eq!(frame.fn_name, "n.loadForeignModule".to_string());
-        assert!(frame.in_app);
+        assert!(frame.meta.in_app);
         assert_eq!(frame.location.as_ref().unwrap().line, 64);
         assert_eq!(frame.location.as_ref().unwrap().column, 15003);
     }

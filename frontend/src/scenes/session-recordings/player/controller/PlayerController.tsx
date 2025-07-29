@@ -1,17 +1,23 @@
-import { IconPause, IconPlay, IconRewindPlay } from '@posthog/icons'
+import { IconPause, IconPlay, IconRewindPlay, IconVideoCamera } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
-import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
-import { IconComment, IconFullScreen } from 'lib/lemon-ui/icons'
+import { IconFullScreen } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { PlayerUpNext } from 'scenes/session-recordings/player/PlayerUpNext'
-import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
+import {
+    sessionRecordingPlayerLogic,
+    SessionRecordingPlayerMode,
+} from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { SessionPlayerState } from '~/types'
 
+import { playerSettingsLogic } from '../playerSettingsLogic'
 import { SeekSkip, Timestamp } from './PlayerControllerTime'
 import { Seekbar } from './Seekbar'
+
+import { CommentOnRecordingButton } from 'scenes/session-recordings/player/commenting/CommentOnRecordingButton'
+import { LemonTag } from 'lib/lemon-ui/LemonTag'
 
 function PlayPauseButton(): JSX.Element {
     const { playingState, endReached } = useValues(sessionRecordingPlayerLogic)
@@ -60,36 +66,41 @@ function FullScreen(): JSX.Element {
     )
 }
 
-function AnnotateRecording(): JSX.Element {
-    const { setIsCommenting } = useActions(sessionRecordingPlayerLogic)
-    const { isCommenting } = useValues(sessionRecordingPlayerLogic)
+function CinemaMode(): JSX.Element {
+    const { isCinemaMode, sidebarOpen } = useValues(playerSettingsLogic)
+    const { setIsCinemaMode, setSidebarOpen } = useActions(playerSettingsLogic)
+
+    const handleCinemaMode = (): void => {
+        setIsCinemaMode(!isCinemaMode)
+        if (sidebarOpen) {
+            setSidebarOpen(false)
+        }
+    }
 
     return (
-        <LemonButton
-            size="xsmall"
-            onClick={() => setIsCommenting(!isCommenting)}
-            tooltip={
-                isCommenting ? (
+        <>
+            {isCinemaMode && <LemonTag type="success">You are in "Cinema mode"</LemonTag>}
+            <LemonButton
+                size="xsmall"
+                onClick={handleCinemaMode}
+                tooltip={
                     <>
-                        Stop commenting <KeyboardShortcut c />
+                        <span>{!isCinemaMode ? 'Enter' : 'Exit'}</span> cinema mode
                     </>
-                ) : (
-                    <>
-                        Comment on this recording <KeyboardShortcut c />
-                    </>
-                )
-            }
-            data-attr={isCommenting ? 'stop-annotating-recording' : 'annotate-recording'}
-            active={isCommenting}
-            icon={<IconComment className="text-xl" />}
-        >
-            Comment
-        </LemonButton>
+                }
+                status={isCinemaMode ? 'danger' : 'default'}
+                icon={<IconVideoCamera className="text-2xl" />}
+                data-attr={isCinemaMode ? 'exit-cinema-mode' : 'cinema-mode'}
+            />
+        </>
     )
 }
 
 export function PlayerController(): JSX.Element {
-    const { playlistLogic } = useValues(sessionRecordingPlayerLogic)
+    const { playlistLogic, logicProps } = useValues(sessionRecordingPlayerLogic)
+    const { isCinemaMode } = useValues(playerSettingsLogic)
+
+    const playerMode = logicProps.mode ?? SessionRecordingPlayerMode.Standard
 
     const { ref, size } = useResizeBreakpoints({
         0: 'small',
@@ -107,10 +118,13 @@ export function PlayerController(): JSX.Element {
                     <SeekSkip direction="forward" />
                 </div>
                 <div className="flex justify-end items-center">
-                    <FlaggedFeature flag="annotations-recording-scope" match={true}>
-                        <AnnotateRecording />
-                    </FlaggedFeature>
-                    {playlistLogic ? <PlayerUpNext playlistLogic={playlistLogic} /> : undefined}
+                    {!isCinemaMode && playerMode === SessionRecordingPlayerMode.Standard && (
+                        <>
+                            <CommentOnRecordingButton />
+                            {playlistLogic ? <PlayerUpNext playlistLogic={playlistLogic} /> : undefined}
+                        </>
+                    )}
+                    <CinemaMode />
                     <FullScreen />
                 </div>
             </div>

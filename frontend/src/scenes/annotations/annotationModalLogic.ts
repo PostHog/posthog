@@ -1,11 +1,9 @@
-import { LemonSelectOption, LemonSelectOptions } from '@posthog/lemon-ui'
+import {} from '@posthog/lemon-ui'
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { urlToAction } from 'kea-router'
 import api from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { Dayjs, dayjs } from 'lib/dayjs'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -22,7 +20,6 @@ export const annotationScopeToName: Record<AnnotationScope, string> = {
     [AnnotationScope.Dashboard]: 'Dashboard',
     [AnnotationScope.Project]: 'Project',
     [AnnotationScope.Organization]: 'Organization',
-    [AnnotationScope.Recording]: 'Recording',
 }
 
 export const annotationScopeToLevel: Record<AnnotationScope, number> = {
@@ -30,7 +27,6 @@ export const annotationScopeToLevel: Record<AnnotationScope, number> = {
     [AnnotationScope.Dashboard]: 1,
     [AnnotationScope.Project]: 2,
     [AnnotationScope.Organization]: 3,
-    [AnnotationScope.Recording]: 4,
 }
 
 export interface AnnotationModalForm {
@@ -39,7 +35,6 @@ export interface AnnotationModalForm {
     content: AnnotationType['content']
     dashboardItemId: AnnotationType['dashboard_item'] | null
     dashboardId: AnnotationType['dashboard_id'] | null
-    recordingId: AnnotationType['recording_id'] | null
 }
 
 export const annotationModalLogic = kea<annotationModalLogicType>([
@@ -49,16 +44,7 @@ export const annotationModalLogic = kea<annotationModalLogicType>([
             annotationsModel,
             ['loadAnnotationsSuccess', 'replaceAnnotation', 'appendAnnotations', 'deleteAnnotation'],
         ],
-        values: [
-            annotationsModel,
-            ['annotations', 'annotationsLoading'],
-            teamLogic,
-            ['timezone'],
-            userLogic,
-            ['user'],
-            featureFlagLogic,
-            ['featureFlags'],
-        ],
+        values: [annotationsModel, ['annotations', 'annotationsLoading'], teamLogic, ['timezone'], userLogic, ['user']],
     })),
     actions({
         openModalToCreateAnnotation: (
@@ -149,30 +135,6 @@ export const annotationModalLogic = kea<annotationModalLogicType>([
             (s) => [s.annotations, s.annotationsLoading],
             (annotations, annotationsLoading): boolean => {
                 return annotations.length === 0 && !annotationsLoading
-            },
-        ],
-        allowRecordingScope: [
-            (s) => [s.featureFlags],
-            (featureFlags): boolean => {
-                return !!featureFlags[FEATURE_FLAGS.ANNOTATIONS_RECORDING_SCOPE]
-            },
-        ],
-        scopeOptions: [
-            (s) => [s.allowRecordingScope],
-            (allowRecordingScope): LemonSelectOptions<AnnotationType['scope'] | null> => {
-                const scopes = Object.values(AnnotationScope).filter((scope) => {
-                    return allowRecordingScope ? true : scope !== AnnotationScope.Recording
-                })
-                const scopeOptions: LemonSelectOption<AnnotationType['scope'] | null>[] = scopes.map((scope) => ({
-                    value: scope,
-                    label: annotationScopeToName[scope],
-                }))
-                // add any with value null as the first option
-                scopeOptions.unshift({
-                    value: null,
-                    label: 'Any',
-                })
-                return scopeOptions
             },
         ],
     })),

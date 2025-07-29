@@ -149,8 +149,8 @@ class OrganizationMemberViewSet(
         is_self_removal = requesting_user.id == removed_user.id
 
         posthoganalytics.capture(
-            str(requesting_user.distinct_id),
-            "organization member removed",
+            distinct_id=str(requesting_user.distinct_id),
+            event="organization member removed",
             properties={
                 "removed_member_id": removed_user.distinct_id,
                 "removed_by_id": requesting_user.distinct_id,

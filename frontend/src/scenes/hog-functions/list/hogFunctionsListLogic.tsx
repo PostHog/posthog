@@ -11,7 +11,7 @@ import { projectLogic } from 'scenes/projectLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { deleteFromTree, refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
-import { AvailableFeature, HogFunctionFiltersType, HogFunctionType, HogFunctionTypeType, UserType } from '~/types'
+import { AvailableFeature, CyclotronJobFiltersType, HogFunctionType, HogFunctionTypeType, UserType } from '~/types'
 
 import type { hogFunctionsListLogicType } from './hogFunctionsListLogicType'
 
@@ -28,7 +28,7 @@ export type HogFunctionListLogicProps = {
     logicKey?: string
     type: HogFunctionTypeType
     additionalTypes?: HogFunctionTypeType[]
-    forceFilterGroups?: HogFunctionFiltersType[]
+    forceFilterGroups?: CyclotronJobFiltersType[]
     syncFiltersWithUrl?: boolean
     manualFunctions?: HogFunctionType[]
 }

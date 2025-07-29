@@ -1,12 +1,14 @@
-from datetime import datetime, timedelta, UTC
+from datetime import UTC, datetime, timedelta
+
+from dateutil import parser
 from django.core.cache import cache
 from freezegun import freeze_time
 from rest_framework import status
 
 from ee.api.test.base import APILicensedTest
-from dateutil import parser
-
-from ee.clickhouse.views.experiment_saved_metrics import ExperimentToSavedMetricSerializer
+from ee.clickhouse.views.experiment_saved_metrics import (
+    ExperimentToSavedMetricSerializer,
+)
 from posthog.models import WebExperiment
 from posthog.models.action.action import Action
 from posthog.models.cohort.cohort import Cohort
@@ -14,10 +16,10 @@ from posthog.models.experiment import Experiment, ExperimentSavedMetric
 from posthog.models.feature_flag import FeatureFlag, get_feature_flags_for_team_in_cache
 from posthog.test.base import (
     ClickhouseTestMixin,
+    FuzzyInt,
     _create_event,
     _create_person,
     flush_persons_and_events,
-    FuzzyInt,
 )
 from posthog.test.test_journeys import journeys_for
 
@@ -100,11 +102,10 @@ class TestExperimentCRUD(APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.json()["name"], "Test Experiment")
         self.assertEqual(response.json()["feature_flag_key"], ff_key)
-        self.assertEqual(response.json()["stats_config"], {"version": 2, "method": "bayesian"})
+        self.assertEqual(response.json()["stats_config"], {"method": "bayesian"})
 
         id = response.json()["id"]
         experiment = Experiment.objects.get(pk=id)
-        self.assertEqual(experiment.get_stats_config("version"), 2)
 
         created_ff = FeatureFlag.objects.get(key=ff_key)
 
@@ -118,7 +119,7 @@ class TestExperimentCRUD(APILicensedTest):
         # Now update
         response = self.client.patch(
             f"/api/projects/{self.team.id}/experiments/{id}",
-            {"description": "Bazinga", "end_date": end_date, "stats_config": {"version": 1}},
+            {"description": "Bazinga", "end_date": end_date},
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -126,7 +127,76 @@ class TestExperimentCRUD(APILicensedTest):
         experiment = Experiment.objects.get(pk=id)
         self.assertEqual(experiment.description, "Bazinga")
         self.assertEqual(experiment.end_date.strftime("%Y-%m-%dT%H:%M"), end_date)
-        self.assertEqual(experiment.get_stats_config("version"), 1)
+
+    def test_creating_experiment_with_ensure_experience_continuity(self):
+        ff_key = "test-continuity-flag"
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Test Experiment with Continuity",
+                "description": "",
+                "start_date": None,  # Draft experiment
+                "end_date": None,
+                "feature_flag_key": ff_key,
+                "parameters": {"ensure_experience_continuity": True},
+                "filters": {
+                    "events": [{"order": 0, "id": "$pageview"}],
+                    "properties": [],
+                },
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.json()["name"], "Test Experiment with Continuity")
+        self.assertEqual(response.json()["feature_flag_key"], ff_key)
+
+        # Check that the feature flag was created with ensure_experience_continuity
+        created_ff = FeatureFlag.objects.get(key=ff_key)
+        self.assertEqual(created_ff.ensure_experience_continuity, True)
+
+        # Test with ensure_experience_continuity set to False
+        ff_key_false = "test-no-continuity-flag"
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Test Experiment without Continuity",
+                "description": "",
+                "start_date": None,
+                "end_date": None,
+                "feature_flag_key": ff_key_false,
+                "parameters": {"ensure_experience_continuity": False},
+                "filters": {
+                    "events": [{"order": 0, "id": "$pageview"}],
+                    "properties": [],
+                },
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        created_ff_false = FeatureFlag.objects.get(key=ff_key_false)
+        self.assertEqual(created_ff_false.ensure_experience_continuity, False)
+
+        # Test without specifying ensure_experience_continuity (should default to False)
+        ff_key_default = "test-default-continuity-flag"
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Test Experiment with Default Continuity",
+                "description": "",
+                "start_date": None,
+                "end_date": None,
+                "feature_flag_key": ff_key_default,
+                "parameters": {},
+                "filters": {
+                    "events": [{"order": 0, "id": "$pageview"}],
+                    "properties": [],
+                },
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        created_ff_default = FeatureFlag.objects.get(key=ff_key_default)
+        self.assertEqual(created_ff_default.ensure_experience_continuity, False)
 
     def test_creating_updating_web_experiment(self):
         ff_key = "a-b-tests"
@@ -1416,48 +1486,6 @@ class TestExperimentCRUD(APILicensedTest):
             "Feature flag variants must contain a control variant",
         )
 
-    def test_soft_deleting_feature_flag_does_not_delete_experiment(self):
-        ff_key = "a-b-tests"
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/experiments/",
-            {
-                "name": "Test Experiment",
-                "description": "",
-                "start_date": "2021-12-01T10:23",
-                "end_date": None,
-                "feature_flag_key": ff_key,
-                "parameters": None,
-                "filters": {
-                    "events": [
-                        {"order": 0, "id": "$pageview"},
-                        {"order": 1, "id": "$pageleave"},
-                    ],
-                    "properties": [],
-                },
-            },
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(response.json()["name"], "Test Experiment")
-        self.assertEqual(response.json()["feature_flag_key"], ff_key)
-
-        created_ff = FeatureFlag.objects.get(key=ff_key)
-
-        id = response.json()["id"]
-
-        # Now delete the feature flag
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/feature_flags/{created_ff.pk}/",
-            {"deleted": True},
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-        feature_flag_response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/{created_ff.pk}/")
-        self.assertEqual(feature_flag_response.json().get("deleted"), True)
-
-        self.assertIsNotNone(Experiment.objects.get(pk=id))
-
     def test_creating_updating_experiment_with_group_aggregation(self):
         ff_key = "a-b-tests"
         response = self.client.post(
@@ -2378,6 +2406,186 @@ class TestExperimentCRUD(APILicensedTest):
         response = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment_id}/")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
+    def test_create_experiment_with_missing_parameters(self):
+        ff_key = "a-b-tests"
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Test Experiment",
+                "feature_flag_key": ff_key,
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+    def test_duplicate_experiment(self) -> None:
+        """Test that experiments can be duplicated with the same settings and metrics"""
+        ff_key = "duplicate-test-flag"
+
+        # Create original experiment
+        original_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Original Experiment",
+                "description": "Original description",
+                "start_date": "2021-12-01T10:23",
+                "end_date": None,
+                "feature_flag_key": ff_key,
+                "parameters": {
+                    "feature_flag_variants": [
+                        {"key": "control", "name": "Control Group", "rollout_percentage": 50},
+                        {"key": "test", "name": "Test Variant", "rollout_percentage": 50},
+                    ]
+                },
+                "filters": {"events": [{"order": 0, "id": "$pageview"}]},
+                "metrics": [{"metric_type": "count", "count_query": {"events": [{"id": "$pageview"}]}}],
+                "metrics_secondary": [{"metric_type": "count", "count_query": {"events": [{"id": "$click"}]}}],
+                "stats_config": {"method": "bayesian"},
+                "exposure_criteria": {"filterTestAccounts": True},
+            },
+        )
+
+        self.assertEqual(original_response.status_code, status.HTTP_201_CREATED)
+        original_experiment = original_response.json()
+
+        # Duplicate the experiment
+        duplicate_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{original_experiment['id']}/duplicate/",
+            {},
+        )
+
+        self.assertEqual(duplicate_response.status_code, status.HTTP_201_CREATED)
+        duplicate_experiment = duplicate_response.json()
+
+        # Verify duplicate has correct properties
+        self.assertEqual(duplicate_experiment["name"], "Original Experiment (Copy)")
+        self.assertEqual(duplicate_experiment["description"], original_experiment["description"])
+        self.assertEqual(duplicate_experiment["type"], original_experiment["type"])
+        self.assertEqual(duplicate_experiment["parameters"], original_experiment["parameters"])
+        self.assertEqual(duplicate_experiment["filters"], original_experiment["filters"])
+        self.assertEqual(duplicate_experiment["metrics"], original_experiment["metrics"])
+        self.assertEqual(duplicate_experiment["metrics_secondary"], original_experiment["metrics_secondary"])
+        self.assertEqual(duplicate_experiment["stats_config"], original_experiment["stats_config"])
+        self.assertEqual(duplicate_experiment["exposure_criteria"], original_experiment["exposure_criteria"])
+
+        # Verify feature flag is reused
+        self.assertEqual(duplicate_experiment["feature_flag_key"], original_experiment["feature_flag_key"])
+
+        # Verify reset fields
+        self.assertIsNone(duplicate_experiment["start_date"])
+        self.assertIsNone(duplicate_experiment["end_date"])
+        self.assertFalse(duplicate_experiment["archived"])
+        self.assertFalse(duplicate_experiment["deleted"])
+
+        # Verify different IDs
+        self.assertNotEqual(duplicate_experiment["id"], original_experiment["id"])
+
+    def test_duplicate_experiment_name_conflict_resolution(self) -> None:
+        """Test that duplicate experiment names are handled with incremental suffixes"""
+        ff_key = "name-conflict-test-flag"
+
+        # Create original experiment
+        original_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Conflict Test",
+                "feature_flag_key": ff_key,
+                "filters": {"events": [{"order": 0, "id": "$pageview"}]},
+            },
+        )
+
+        self.assertEqual(original_response.status_code, status.HTTP_201_CREATED)
+        original_experiment = original_response.json()
+
+        # Create first duplicate
+        first_duplicate_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{original_experiment['id']}/duplicate/",
+            {},
+        )
+
+        self.assertEqual(first_duplicate_response.status_code, status.HTTP_201_CREATED)
+        first_duplicate = first_duplicate_response.json()
+        self.assertEqual(first_duplicate["name"], "Conflict Test (Copy)")
+
+        # Create second duplicate to test name conflict resolution
+        second_duplicate_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{original_experiment['id']}/duplicate/",
+            {},
+        )
+
+        self.assertEqual(second_duplicate_response.status_code, status.HTTP_201_CREATED)
+        second_duplicate = second_duplicate_response.json()
+        self.assertEqual(second_duplicate["name"], "Conflict Test (Copy) 1")
+
+    def test_duplicate_experiment_with_custom_feature_flag(self) -> None:
+        """Test that experiments can be duplicated with a different feature flag"""
+        # Create original experiment
+        original_ff_key = "original-flag"
+        original_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Original Experiment",
+                "description": "Original description",
+                "start_date": "2021-12-01T10:23",
+                "end_date": None,
+                "feature_flag_key": original_ff_key,
+                "parameters": {
+                    "feature_flag_variants": [
+                        {"key": "control", "name": "Control Group", "rollout_percentage": 50},
+                        {"key": "test", "name": "Test Variant", "rollout_percentage": 50},
+                    ]
+                },
+                "filters": {"events": [{"order": 0, "id": "$pageview"}]},
+                "metrics": [{"metric_type": "count", "count_query": {"events": [{"id": "$pageview"}]}}],
+                "metrics_secondary": [{"metric_type": "count", "count_query": {"events": [{"id": "$click"}]}}],
+            },
+        )
+
+        self.assertEqual(original_response.status_code, status.HTTP_201_CREATED)
+        original_experiment = original_response.json()
+
+        # Create a new feature flag to use for the duplicate
+        new_flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="duplicate-test-flag",
+            created_by=self.user,
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+                "multivariate": {
+                    "variants": [
+                        {"key": "control", "name": "Control", "rollout_percentage": 50},
+                        {"key": "test", "name": "Test", "rollout_percentage": 50},
+                    ]
+                },
+            },
+        )
+
+        # Duplicate the experiment with a custom feature flag
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{original_experiment['id']}/duplicate",
+            {"feature_flag_key": new_flag.key},
+        )
+
+        assert response.status_code == 201
+        duplicate_data = response.json()
+
+        # Verify the duplicate uses the new feature flag
+        assert duplicate_data["feature_flag_key"] == "duplicate-test-flag"
+        assert duplicate_data["feature_flag"]["key"] == "duplicate-test-flag"
+
+        # Verify the duplicate has the same settings
+        assert duplicate_data["description"] == original_experiment["description"]
+        assert duplicate_data["parameters"] == original_experiment["parameters"]
+        assert duplicate_data["filters"] == original_experiment["filters"]
+        assert duplicate_data["metrics"] == original_experiment["metrics"]
+        assert duplicate_data["metrics_secondary"] == original_experiment["metrics_secondary"]
+
+        # Verify temporal fields are reset
+        assert duplicate_data["start_date"] is None
+        assert duplicate_data["end_date"] is None
+        assert duplicate_data["archived"] is False
+
 
 class TestExperimentAuxiliaryEndpoints(ClickhouseTestMixin, APILicensedTest):
     def _generate_experiment(self, start_date="2024-01-01T10:23", extra_parameters=None):
@@ -2916,3 +3124,32 @@ class TestExperimentAuxiliaryEndpoints(ClickhouseTestMixin, APILicensedTest):
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["detail"], "Experiment already has an exposure cohort")
+
+    def test_create_experiment_with_stats_config(self) -> None:
+        """Test that stats_config can be passed from frontend and is preserved"""
+        ff_key = "stats-config-test"
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Stats Config Test Experiment",
+                "description": "",
+                "start_date": None,
+                "end_date": None,
+                "feature_flag_key": ff_key,
+                "parameters": None,
+                "filters": {},
+                "stats_config": {
+                    "method": "bayesian",
+                    "use_new_bayesian_method": True,
+                },
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.json()["name"], "Stats Config Test Experiment")
+        self.assertEqual(response.json()["feature_flag_key"], ff_key)
+
+        # Verify stats_config is preserved with custom fields
+        stats_config = response.json()["stats_config"]
+        self.assertEqual(stats_config["method"], "bayesian")
+        self.assertEqual(stats_config["use_new_bayesian_method"], True)

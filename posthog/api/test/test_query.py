@@ -625,8 +625,8 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(response.results), 10)
 
     @patch("posthog.hogql.constants.DEFAULT_RETURNED_ROWS", 10)
-    @patch("posthog.hogql.constants.MAX_SELECT_RETURNED_ROWS", 15)
-    def test_full_hogql_query_limit_exported(self, MAX_SELECT_RETURNED_ROWS=15, DEFAULT_RETURNED_ROWS=10):
+    @patch("posthog.hogql.constants.CSV_EXPORT_LIMIT", 15)
+    def test_full_hogql_query_limit_exported(self, CSV_EXPORT_LIMIT=15, DEFAULT_RETURNED_ROWS=10):
         random_uuid = f"RANDOM_TEST_ID::{UUIDT()}"
         with freeze_time("2020-01-10 12:00:00"):
             for _ in range(20):
@@ -678,8 +678,8 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(response.results), 10)
 
     @patch("posthog.hogql.constants.DEFAULT_RETURNED_ROWS", 10)
-    @patch("posthog.hogql.constants.MAX_SELECT_RETURNED_ROWS", 15)
-    def test_full_events_query_limit_exported(self, MAX_SELECT_RETURNED_ROWS=15, DEFAULT_RETURNED_ROWS=10):
+    @patch("posthog.hogql.constants.CSV_EXPORT_LIMIT", 15)
+    def test_full_events_query_limit_exported(self, CSV_EXPORT_LIMIT=15, DEFAULT_RETURNED_ROWS=10):
         random_uuid = f"RANDOM_TEST_ID::{UUIDT()}"
         with freeze_time("2020-01-10 12:00:00"):
             for _ in range(20):
@@ -1192,3 +1192,22 @@ class TestQueryDraftSql(APIBaseTest):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), {"sql": "SELECT 1"})
         hit_openai_mock.assert_called_once()
+
+
+class TestQueryUpgrade(APIBaseTest):
+    def test_upgrades_valid_query(self):
+        query = {"kind": "RetentionQuery", "retentionFilter": {"period": "Day", "totalIntervals": 7, "showMean": True}}
+
+        response = self.client.post(f"/api/environments/{self.team.id}/query/upgrade/", {"query": query})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json(),
+            {
+                "query": {
+                    "kind": "RetentionQuery",
+                    "retentionFilter": {"meanRetentionCalculation": "simple", "period": "Day", "totalIntervals": 7},
+                    "version": 2,
+                }
+            },
+        )

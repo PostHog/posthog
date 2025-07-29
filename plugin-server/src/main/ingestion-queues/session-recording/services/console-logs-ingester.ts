@@ -41,7 +41,8 @@ function deduplicateConsoleLogEvents(consoleLogEntries: ConsoleLogEntry[]): Cons
 export class ConsoleLogsIngester {
     constructor(
         private readonly producer: KafkaProducerWrapper,
-        private readonly persistentHighWaterMarker?: OffsetHighWaterMarker
+        private readonly persistentHighWaterMarker?: OffsetHighWaterMarker,
+        private readonly metadataSwitchoverDate: Date | null = null
     ) {}
 
     public async consumeBatch(messages: IncomingRecordingMessage[]) {
@@ -128,6 +129,14 @@ export class ConsoleLogsIngester {
             )
         ) {
             return drop('high_water_mark')
+        }
+
+        // Check if we should process this event based on the switchover date
+        if (this.metadataSwitchoverDate) {
+            const switchoverMs = this.metadataSwitchoverDate.getTime()
+            if (event.metadata.timestamp >= switchoverMs) {
+                return drop('after_switchover')
+            }
         }
 
         const rrwebEvents = Object.values(event.eventsByWindowId).reduce((acc, val) => acc.concat(val), [])

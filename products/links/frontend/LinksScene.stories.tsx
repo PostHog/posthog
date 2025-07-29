@@ -1,6 +1,4 @@
-import { Meta } from '@storybook/react'
-import { router } from 'kea-router'
-import { useEffect } from 'react'
+import { Meta, StoryObj } from '@storybook/react'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
@@ -59,11 +57,13 @@ const LINKS_RESULT: LinkType[] = [
 ]
 
 const meta: Meta = {
+    component: App,
     title: 'Scenes-App/Links',
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2023-01-28', // To stabilize relative dates
+        pageUrl: urls.links(),
     },
     decorators: [
         mswDecorator({
@@ -80,23 +80,18 @@ const meta: Meta = {
     ],
 }
 export default meta
-export function LinksList(): JSX.Element {
-    useEffect(() => {
-        router.actions.push(urls.links())
-    }, [])
-    return <App />
+
+type Story = StoryObj<typeof meta>
+export const LinksList: Story = {}
+
+export const NewLink: Story = {
+    parameters: {
+        pageUrl: urls.link('new'),
+    },
 }
 
-export function NewLink(): JSX.Element {
-    useEffect(() => {
-        router.actions.push(urls.link('new'))
-    }, [])
-    return <App />
-}
-
-export function LinkDetails(): JSX.Element {
-    useEffect(() => {
-        router.actions.push(urls.link('0187c22c-06d9-0000-34fe-daa2e2afb503'))
-    }, [])
-    return <App />
+export const LinkDetails: Story = {
+    parameters: {
+        pageUrl: urls.link('0187c22c-06d9-0000-34fe-daa2e2afb503'),
+    },
 }

@@ -1,9 +1,6 @@
 {
     "name": "@posthog/products-logs",
     "scripts": {},
-    "dependencies": {
-        "eslint-plugin-posthog": "workspace:*"
-    },
     "peerDependencies": {
         "@posthog/icons": "*",
         "@storybook/react": "*",
@@ -11,7 +8,6 @@
         "classnames": "*",
         "clsx": "*",
         "eslint": "*",
-        "eslint-plugin-posthog": "*",
         "jest": "*",
         "fast-deep-equal": "*",
         "kea": "*",
@@ -22,6 +18,7 @@
         "stylelint": "*",
         "typescript": "*",
         "use-debounce": "*",
-        "ansi-colors": "*"
+        "ansi-colors": "*",
+        "@posthog/products-error-tracking": "workspace:*"
     }
 }

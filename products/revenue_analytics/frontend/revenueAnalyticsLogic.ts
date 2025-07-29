@@ -9,7 +9,7 @@ import {
     DataTableNode,
     NodeKind,
     QuerySchema,
-    RevenueAnalyticsInsightsQueryGroupBy,
+    RevenueAnalyticsGroupBy,
     RevenueAnalyticsPropertyFilters,
     RevenueAnalyticsTopCustomersGroupBy,
 } from '~/queries/schema/schema-general'
@@ -21,8 +21,10 @@ import { revenueAnalyticsSettingsLogic } from './settings/revenueAnalyticsSettin
 
 export enum RevenueAnalyticsQuery {
     OVERVIEW,
-    GROSS_REVENUE,
-    REVENUE_GROWTH_RATE,
+    REVENUE,
+    ARPU,
+    CUSTOMER_COUNT,
+    GROWTH_RATE,
     TOP_CUSTOMERS,
 }
 
@@ -75,6 +77,7 @@ const setQueryParams = (params: Record<string, string>): string => {
     return `${urls.revenueAnalytics()}${urlParams.toString() ? '?' + urlParams.toString() : ''}`
 }
 
+export type MRRMode = 'mrr' | 'arr'
 export type DisplayMode = 'line' | 'area' | 'bar' | 'table'
 
 export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
@@ -93,10 +96,11 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
         setRevenueAnalyticsFilters: (revenueAnalyticsFilters: RevenueAnalyticsPropertyFilters) => ({
             revenueAnalyticsFilters,
         }),
+        setMRRMode: (mrrMode: MRRMode) => ({ mrrMode }),
         setInsightsDisplayMode: (displayMode: DisplayMode) => ({ displayMode }),
         setTopCustomersDisplayMode: (displayMode: DisplayMode) => ({ displayMode }),
         setGrowthRateDisplayMode: (displayMode: DisplayMode) => ({ displayMode }),
-        setGrossRevenueGroupBy: (groupBy: RevenueAnalyticsInsightsQueryGroupBy) => ({ groupBy }),
+        setGroupBy: (groupBy: RevenueAnalyticsGroupBy[]) => ({ groupBy }),
     }),
     reducers(() => ({
         dateFilter: [
@@ -115,11 +119,18 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
             persistConfig,
             { setRevenueAnalyticsFilters: (_, { revenueAnalyticsFilters }) => revenueAnalyticsFilters },
         ],
-        grossRevenueGroupBy: [
-            'all' as RevenueAnalyticsInsightsQueryGroupBy,
+        groupBy: [
+            [] as RevenueAnalyticsGroupBy[],
             persistConfig,
             {
-                setGrossRevenueGroupBy: (_, { groupBy }) => groupBy,
+                setGroupBy: (_, { groupBy }) => groupBy,
+            },
+        ],
+        mrrMode: [
+            'mrr' as MRRMode,
+            persistConfig,
+            {
+                setMRRMode: (_, { mrrMode }) => mrrMode,
             },
         ],
         insightsDisplayMode: [
@@ -208,14 +219,14 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
                 s.revenueAnalyticsFilter,
                 s.topCustomersDisplayMode,
                 s.growthRateDisplayMode,
-                s.grossRevenueGroupBy,
+                s.groupBy,
             ],
             (
                 dateFilter,
                 revenueAnalyticsFilter,
                 topCustomersDisplayMode,
                 growthRateDisplayMode,
-                grossRevenueGroupBy
+                groupBy
             ): Record<RevenueAnalyticsQuery, QuerySchema> => {
                 const { dateFrom, dateTo, interval } = dateFilter
                 const dateRange = { date_from: dateFrom, date_to: dateTo }
@@ -229,14 +240,28 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
                         properties: revenueAnalyticsFilter,
                         dateRange,
                     },
-                    [RevenueAnalyticsQuery.GROSS_REVENUE]: {
-                        kind: NodeKind.RevenueAnalyticsInsightsQuery,
+                    [RevenueAnalyticsQuery.REVENUE]: {
+                        kind: NodeKind.RevenueAnalyticsRevenueQuery,
                         properties: revenueAnalyticsFilter,
-                        groupBy: grossRevenueGroupBy,
+                        groupBy,
                         interval,
                         dateRange,
                     },
-                    [RevenueAnalyticsQuery.REVENUE_GROWTH_RATE]: wrapWithDataTableNodeIfNeeded(
+                    [RevenueAnalyticsQuery.CUSTOMER_COUNT]: {
+                        kind: NodeKind.RevenueAnalyticsCustomerCountQuery,
+                        properties: revenueAnalyticsFilter,
+                        groupBy,
+                        interval,
+                        dateRange,
+                    },
+                    [RevenueAnalyticsQuery.ARPU]: {
+                        kind: NodeKind.RevenueAnalyticsArpuQuery,
+                        properties: revenueAnalyticsFilter,
+                        groupBy,
+                        interval,
+                        dateRange,
+                    },
+                    [RevenueAnalyticsQuery.GROWTH_RATE]: wrapWithDataTableNodeIfNeeded(
                         {
                             kind: NodeKind.RevenueAnalyticsGrowthRateQuery,
                             properties: revenueAnalyticsFilter,
@@ -262,21 +287,16 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
     actionToUrl(() => ({
         setDates: ({ dateFrom, dateTo }): string =>
             setQueryParams({ date_from: dateFrom ?? '', date_to: dateTo ?? '' }),
-        setGrossRevenueGroupBy: ({ groupBy }): string => setQueryParams({ revenue_group_by: groupBy ?? '' }),
         setRevenueAnalyticsFilters: ({ revenueAnalyticsFilters }): string =>
             setQueryParams({ filters: JSON.stringify(revenueAnalyticsFilters) }),
     })),
     urlToAction(({ actions, values }) => ({
-        [urls.revenueAnalytics()]: (_, { filters, date_from, date_to, revenue_group_by }) => {
+        [urls.revenueAnalytics()]: (_, { filters, date_from, date_to }) => {
             if (
                 (date_from && date_from !== values.dateFilter.dateFrom) ||
                 (date_to && date_to !== values.dateFilter.dateTo)
             ) {
                 actions.setDates(date_from, date_to)
-            }
-
-            if (revenue_group_by && revenue_group_by !== values.grossRevenueGroupBy) {
-                actions.setGrossRevenueGroupBy(revenue_group_by)
             }
 
             const parsedFilters = isRevenueAnalyticsPropertyFilters(filters) ? filters : undefined

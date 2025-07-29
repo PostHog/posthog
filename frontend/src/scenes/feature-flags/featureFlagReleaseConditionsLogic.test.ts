@@ -11,7 +11,7 @@ import {
     PropertyOperator,
 } from '~/types'
 
-import { featureFlagReleaseConditionsLogic } from './FeatureFlagReleaseConditionsLogic'
+import { featureFlagReleaseConditionsLogic } from './featureFlagReleaseConditionsLogic'
 
 function generateFeatureFlagFilters(
     groups: FeatureFlagGroupType[],
@@ -394,6 +394,118 @@ describe('the feature flag release conditions logic', () => {
                 // no extra calls when changing rollout percentage
                 expect(api.create).toHaveBeenCalledTimes(4)
             })
+        })
+    })
+
+    describe('moving condition sets', () => {
+        it('moves simple condition set up', () => {
+            const filters = generateFeatureFlagFilters([
+                { properties: [], rollout_percentage: 50, variant: null, sort_key: 'A' },
+                { properties: [], rollout_percentage: 75, variant: null, sort_key: 'B' },
+                { properties: [], rollout_percentage: 100, variant: null, sort_key: 'C' },
+            ])
+            logic.actions.setFilters(filters)
+
+            logic.actions.moveConditionSetUp(1)
+
+            expect(logic.values.filters.groups).toEqual([
+                { properties: [], rollout_percentage: 75, variant: null, sort_key: 'B' },
+                { properties: [], rollout_percentage: 50, variant: null, sort_key: 'A' },
+                { properties: [], rollout_percentage: 100, variant: null, sort_key: 'C' },
+            ])
+        })
+
+        it('moves simple condition set down', () => {
+            const filters = generateFeatureFlagFilters([
+                { properties: [], rollout_percentage: 50, variant: null, sort_key: 'A' },
+                { properties: [], rollout_percentage: 75, variant: null, sort_key: 'B' },
+                { properties: [], rollout_percentage: 100, variant: null, sort_key: 'C' },
+            ])
+            logic.actions.setFilters(filters)
+
+            logic.actions.moveConditionSetDown(0)
+
+            expect(logic.values.filters.groups).toEqual([
+                { properties: [], rollout_percentage: 75, variant: null, sort_key: 'B' },
+                { properties: [], rollout_percentage: 50, variant: null, sort_key: 'A' },
+                { properties: [], rollout_percentage: 100, variant: null, sort_key: 'C' },
+            ])
+        })
+
+        it('preserves properties after reordering', () => {
+            const filters = generateFeatureFlagFilters([
+                {
+                    properties: [
+                        {
+                            key: '$current_url',
+                            type: PropertyFilterType.Person,
+                            value: 'qa-33-percent-off-yearly-v1',
+                            operator: PropertyOperator.IContains,
+                        },
+                    ],
+                    rollout_percentage: 50,
+                    variant: null,
+                    sort_key: 'A',
+                },
+                {
+                    properties: [
+                        {
+                            key: 'current_organization_membership_level',
+                            type: PropertyFilterType.Person,
+                            value: ['15'],
+                            operator: PropertyOperator.Exact,
+                        },
+                        {
+                            key: 'email',
+                            type: PropertyFilterType.Person,
+                            value: ['customer-two@example.com', 'customer-six@example.com'],
+                            operator: PropertyOperator.Exact,
+                        },
+                    ],
+                    rollout_percentage: 75,
+                    variant: null,
+                    sort_key: 'B',
+                },
+            ])
+
+            logic.actions.setFilters(filters)
+
+            logic.actions.moveConditionSetUp(1)
+
+            expect(logic.values.filters.groups).toEqual([
+                {
+                    properties: [
+                        {
+                            key: 'current_organization_membership_level',
+                            type: PropertyFilterType.Person,
+                            value: ['15'],
+                            operator: PropertyOperator.Exact,
+                        },
+                        {
+                            key: 'email',
+                            type: PropertyFilterType.Person,
+                            value: ['customer-two@example.com', 'customer-six@example.com'],
+                            operator: PropertyOperator.Exact,
+                        },
+                    ],
+                    rollout_percentage: 75,
+                    variant: null,
+                    sort_key: 'B',
+                },
+                {
+                    properties: [
+                        {
+                            key: '$current_url',
+                            type: PropertyFilterType.Person,
+                            value: 'qa-33-percent-off-yearly-v1',
+                            operator: PropertyOperator.IContains,
+                        },
+                    ],
+                    rollout_percentage: 50,
+                    variant: null,
+                    sort_key: 'A',
+                },
+            ])
         })
     })
 })

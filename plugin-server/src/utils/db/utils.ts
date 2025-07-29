@@ -1,7 +1,7 @@
 import { Properties } from '@posthog/plugin-scaffold'
 import { Counter } from 'prom-client'
 
-import { TopicMessage } from '~/src/kafka/producer'
+import { TopicMessage } from '~/kafka/producer'
 
 import { defaultConfig } from '../../config/config'
 import { KAFKA_PERSON } from '../../config/kafka-topics'
@@ -44,13 +44,17 @@ export function timeoutGuard(
     message: string,
     context?: Record<string, any> | (() => Record<string, any>),
     timeout = defaultConfig.TASK_TIMEOUT * 1000,
-    sendException = true
+    sendException = true,
+    reportMetric?: () => void
 ): NodeJS.Timeout {
     return setTimeout(() => {
         const ctx = typeof context === 'function' ? context() : context
         logger.warn('⌛', message, ctx)
         if (sendException) {
             captureException(message, ctx ? { extra: ctx } : undefined)
+        }
+        if (reportMetric) {
+            reportMetric()
         }
     }, timeout)
 }

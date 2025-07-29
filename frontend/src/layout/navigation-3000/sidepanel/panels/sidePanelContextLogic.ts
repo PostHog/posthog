@@ -50,7 +50,7 @@ export const sidePanelContextLogic = kea<sidePanelContextLogicType>([
             ],
             (sceneConfig, context): SidePanelSceneContext => {
                 return {
-                    ...(context ?? {}),
+                    ...context,
                     ...(!context?.activity_scope ? activityFiltersForScene(sceneConfig) : {}),
                 }
             },

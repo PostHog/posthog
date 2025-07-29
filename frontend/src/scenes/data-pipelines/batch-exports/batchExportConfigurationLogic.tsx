@@ -43,6 +43,10 @@ export function getDefaultConfiguration(service: string): Record<string, any> {
         ...(service === 'Snowflake' && {
             authentication_type: 'password',
         }),
+        ...(service === 'S3' && {
+            file_format: 'Parquet',
+            compression: 'zstd',
+        }),
     }
 }
 
@@ -229,7 +233,7 @@ const sessionsTable: DatabaseSchemaBatchExportTable = {
         },
         session_id_v7: {
             name: 'session_id_v7',
-            type: 'integer',
+            type: 'string',
             hogql_value: 'session_id_v7',
             schema_valid: true,
         },
@@ -784,7 +788,7 @@ export const batchExportConfigurationLogic = kea<batchExportConfigurationLogicTy
                         client_email: jsonConfig.client_email,
                         token_uri: jsonConfig.token_uri,
                     })
-                } catch (e) {
+                } catch {
                     actions.setConfigurationManualErrors({
                         json_config_file: 'The config file is not valid',
                     })

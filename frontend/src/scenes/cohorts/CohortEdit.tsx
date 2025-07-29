@@ -5,7 +5,7 @@ import { router } from 'kea-router'
 import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
 import { TZLabel } from 'lib/components/TZLabel'
-import { CohortTypeEnum } from 'lib/constants'
+import { CohortTypeEnum, FEATURE_FLAGS } from 'lib/constants'
 import { IconErrorOutline, IconUploadFile } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -21,10 +21,18 @@ import { CohortCriteriaGroups } from 'scenes/cohorts/CohortFilters/CohortCriteri
 import { COHORT_TYPE_OPTIONS } from 'scenes/cohorts/CohortFilters/constants'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
 import { urls } from 'scenes/urls'
+import { ScenePanel, ScenePanelActions, ScenePanelDivider, ScenePanelMetaInfo } from '~/layout/scenes/SceneLayout'
 
+import { SceneAddToDropdownMenu } from 'lib/components/Scenes/InsightOrDashboard/SceneAddToDropdownMenu'
+import { SceneFile } from 'lib/components/Scenes/SceneFile'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { AndOrFilterSelect } from '~/queries/nodes/InsightViz/PropertyGroupFilters/AndOrFilterSelect'
 import { Query } from '~/queries/Query/Query'
 import { NotebookNodeType } from '~/types'
+
+import { IconCopy, IconTrash } from '@posthog/icons'
+import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+const RESOURCE_TYPE = 'cohort'
 
 export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
     const logicProps = { id }
@@ -32,14 +40,16 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
     const { deleteCohort, setOuterGroupsType, setQuery, duplicateCohort } = useActions(logic)
     const { cohort, cohortLoading, cohortMissing, query, duplicatedCohortLoading } = useValues(logic)
     const isNewCohort = cohort.id === 'new' || cohort.id === undefined
+    const { featureFlags } = useValues(featureFlagLogic)
+    const newSceneLayout = featureFlags[FEATURE_FLAGS.NEW_SCENE_LAYOUT]
 
     if (cohortMissing) {
         return <NotFound object="cohort" />
     }
 
-    if (cohortLoading) {
+    if (cohortLoading && !newSceneLayout) {
         return (
-            <div className="deprecated-space-y-2">
+            <div className="flex flex-col gap-y-2">
                 <LemonSkeleton active className="h-4 w-2/5" />
                 <LemonSkeleton active className="h-4 w-full" />
                 <LemonSkeleton active className="h-4 w-full" />
@@ -49,87 +59,147 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
     }
     return (
         <div className="cohort">
-            <Form id="cohort" logic={cohortEditLogic} props={logicProps} formKey="cohort" enableFormOnSubmit>
-                <PageHeader
-                    buttons={
-                        <div className="flex items-center gap-2">
-                            {isNewCohort ? (
-                                <LemonButton
-                                    data-attr="cancel-cohort"
-                                    type="secondary"
-                                    onClick={() => {
-                                        router.actions.push(urls.cohorts())
-                                    }}
-                                    disabled={cohortLoading}
-                                >
-                                    Cancel
-                                </LemonButton>
-                            ) : (
-                                <More
-                                    overlay={
-                                        <>
-                                            {!cohort.is_static && (
-                                                <>
-                                                    <LemonButton
-                                                        onClick={() => duplicateCohort(false)}
-                                                        fullWidth
-                                                        disabledReason={
-                                                            cohort.is_calculating
-                                                                ? 'Cohort is still calculating'
-                                                                : undefined
-                                                        }
-                                                        loading={duplicatedCohortLoading}
-                                                    >
-                                                        Duplicate as dynamic cohort
-                                                    </LemonButton>
-                                                    <LemonButton
-                                                        onClick={() => duplicateCohort(true)}
-                                                        fullWidth
-                                                        disabledReason={
-                                                            cohort.is_calculating
-                                                                ? 'Cohort is still calculating'
-                                                                : undefined
-                                                        }
-                                                        loading={duplicatedCohortLoading}
-                                                    >
-                                                        Duplicate as static cohort
-                                                    </LemonButton>
-                                                    <LemonDivider />
-                                                </>
-                                            )}
-                                            <LemonButton
-                                                data-attr="delete-cohort"
-                                                fullWidth
-                                                status="danger"
-                                                onClick={deleteCohort}
-                                            >
-                                                Delete cohort
-                                            </LemonButton>
-                                        </>
-                                    }
-                                />
-                            )}
-                            {!isNewCohort && (
-                                <NotebookSelectButton
-                                    type="secondary"
-                                    resource={{
-                                        type: NotebookNodeType.Cohort,
-                                        attrs: { id },
-                                    }}
-                                />
-                            )}
+            <PageHeader
+                buttons={
+                    <div className="flex items-center gap-2">
+                        {isNewCohort ? (
                             <LemonButton
-                                type="primary"
-                                data-attr="save-cohort"
-                                htmlType="submit"
-                                loading={cohortLoading || cohort.is_calculating}
-                                form="cohort"
+                                data-attr="cancel-cohort"
+                                type="secondary"
+                                onClick={() => {
+                                    router.actions.push(urls.cohorts())
+                                }}
+                                disabled={cohortLoading}
                             >
-                                Save
+                                Cancel
                             </LemonButton>
-                        </div>
-                    }
-                />
+                        ) : (
+                            <>
+                                {!newSceneLayout && (
+                                    <More
+                                        overlay={
+                                            <>
+                                                {!cohort.is_static && (
+                                                    <>
+                                                        <LemonButton
+                                                            onClick={() => duplicateCohort(false)}
+                                                            fullWidth
+                                                            disabledReason={
+                                                                cohort.is_calculating
+                                                                    ? 'Cohort is still calculating'
+                                                                    : undefined
+                                                            }
+                                                            loading={duplicatedCohortLoading}
+                                                        >
+                                                            Duplicate as dynamic cohort
+                                                        </LemonButton>
+                                                        <LemonButton
+                                                            onClick={() => duplicateCohort(true)}
+                                                            fullWidth
+                                                            disabledReason={
+                                                                cohort.is_calculating
+                                                                    ? 'Cohort is still calculating'
+                                                                    : undefined
+                                                            }
+                                                            loading={duplicatedCohortLoading}
+                                                        >
+                                                            Duplicate as static cohort
+                                                        </LemonButton>
+                                                        <LemonDivider />
+                                                    </>
+                                                )}
+                                                <LemonButton
+                                                    data-attr="delete-cohort"
+                                                    fullWidth
+                                                    status="danger"
+                                                    onClick={deleteCohort}
+                                                >
+                                                    Delete cohort
+                                                </LemonButton>
+                                            </>
+                                        }
+                                    />
+                                )}
+                            </>
+                        )}
+                        {!isNewCohort && !newSceneLayout && (
+                            <NotebookSelectButton
+                                type="secondary"
+                                resource={{
+                                    type: NotebookNodeType.Cohort,
+                                    attrs: { id },
+                                }}
+                            />
+                        )}
+                        <LemonButton
+                            type="primary"
+                            data-attr="save-cohort"
+                            htmlType="submit"
+                            loading={cohortLoading || cohort.is_calculating}
+                            form="cohort"
+                        >
+                            Save
+                        </LemonButton>
+                    </div>
+                }
+            />
+
+            <ScenePanel>
+                <ScenePanelMetaInfo>
+                    <SceneFile dataAttrKey={RESOURCE_TYPE} />
+                </ScenePanelMetaInfo>
+
+                <ScenePanelDivider />
+
+                <ScenePanelActions>
+                    <SceneAddToDropdownMenu
+                        notebook={true}
+                        dataAttrKey={RESOURCE_TYPE}
+                        disabledReasons={{
+                            'Save the cohort first': isNewCohort,
+                        }}
+                    />
+
+                    <ButtonPrimitive
+                        onClick={() => duplicateCohort(false)}
+                        disabledReasons={{
+                            'Save the cohort first': isNewCohort,
+                            'Cohort must be static to duplicate': !cohort.is_static,
+                            'Cohort is still calculating': cohort.is_calculating ?? false,
+                        }}
+                        menuItem
+                    >
+                        <IconCopy /> Duplicate as dynamic cohort
+                    </ButtonPrimitive>
+
+                    <ButtonPrimitive
+                        onClick={() => duplicateCohort(true)}
+                        disabledReasons={{
+                            'Save the cohort first': isNewCohort,
+                            'Cohort must be static to duplicate': !cohort.is_static,
+                            'Cohort is still calculating': cohort.is_calculating ?? false,
+                        }}
+                        menuItem
+                    >
+                        <IconCopy /> Duplicate as static cohort
+                    </ButtonPrimitive>
+
+                    <ScenePanelDivider />
+
+                    <ButtonPrimitive
+                        onClick={() => {
+                            deleteCohort()
+                        }}
+                        variant="danger"
+                        menuItem
+                        data-attr={`${RESOURCE_TYPE}-delete`}
+                    >
+                        <IconTrash />
+                        Delete
+                    </ButtonPrimitive>
+                </ScenePanelActions>
+            </ScenePanel>
+            <Form id="cohort" logic={cohortEditLogic} props={logicProps} formKey="cohort" enableFormOnSubmit>
                 <div className="deprecated-space-y-2 max-w-200">
                     <div className="flex gap-4 flex-wrap">
                         <div className="flex-1">
@@ -280,8 +350,9 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                                 Persons in this cohort
                                 <span className="text-secondary ml-2">
                                     {!cohort.is_calculating &&
+                                        cohort.count !== undefined &&
                                         `(${cohort.count} matching ${pluralize(
-                                            cohort.count ?? 0,
+                                            cohort.count,
                                             'person',
                                             'persons',
                                             false
@@ -291,11 +362,16 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                             {cohort.is_calculating ? (
                                 <div className="cohort-recalculating flex items-center">
                                     <Spinner className="mr-4" />
-                                    We're recalculating who belongs to this cohort. This could take up to a couple of
-                                    minutes.
+                                    {cohort.is_static
+                                        ? "We're creating this cohort. This could take up to a couple of minutes."
+                                        : "We're recalculating who belongs to this cohort. This could take up to a couple of minutes."}
                                 </div>
                             ) : (
-                                <Query query={query} setQuery={setQuery} context={{ refresh: 'force_blocking' }} />
+                                <Query
+                                    query={query}
+                                    setQuery={setQuery}
+                                    context={{ refresh: 'force_blocking', fileNameForExport: cohort.name }}
+                                />
                             )}
                         </div>
                     </>

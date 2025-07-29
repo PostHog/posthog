@@ -1,22 +1,21 @@
 from typing import Any
-from ee.hogai.tool import MaxTool
-from posthog.hogql.database.database import create_hogql_database, serialize_database
-from posthog.hogql.context import HogQLContext
-from ee.hogai.graph.sql.toolkit import SQL_SCHEMA
+
+from langchain.schema import HumanMessage
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
-from langchain.schema import HumanMessage
 
 from ee.hogai.graph.schema_generator.parsers import PydanticOutputParserException, parse_pydantic_structured_output
 from ee.hogai.graph.schema_generator.utils import SchemaGeneratorOutput
-
+from ee.hogai.graph.sql.toolkit import SQL_SCHEMA
+from ee.hogai.tool import MaxTool
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.database import create_hogql_database, serialize_database
 from posthog.hogql.errors import ExposedHogQLError, ResolutionError
 from posthog.hogql.functions.mapping import HOGQL_AGGREGATIONS, HOGQL_CLICKHOUSE_FUNCTIONS, HOGQL_POSTHOG_FUNCTIONS
 from posthog.hogql.metadata import get_table_names
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import print_ast
 from posthog.warehouse.models import Database
-
 
 _hogql_functions: str | None = None
 
@@ -186,8 +185,8 @@ class HogQLQueryFixerTool(MaxTool):
     root_system_prompt_template: str = SQL_ASSISTANT_ROOT_SYSTEM_PROMPT
 
     def _run_impl(self) -> tuple[str, str | None]:
-        database = create_hogql_database(self._team_id)
-        hogql_context = HogQLContext(team_id=self._team_id, enable_select_queries=True, database=database)
+        database = create_hogql_database(team=self._team)
+        hogql_context = HogQLContext(team=self._team, enable_select_queries=True, database=database)
 
         all_tables = database.get_all_tables()
         schema_description = _get_schema_description(self.context, hogql_context, database)
@@ -236,7 +235,7 @@ The newly updated query gave us this error:
 
     @property
     def _model(self):
-        return ChatOpenAI(model="gpt-4o", temperature=0, disable_streaming=True).with_structured_output(
+        return ChatOpenAI(model="gpt-4.1", temperature=0, disable_streaming=True).with_structured_output(
             SQL_SCHEMA,
             method="function_calling",
             include_raw=False,

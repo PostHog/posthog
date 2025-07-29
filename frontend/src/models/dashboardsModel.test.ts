@@ -48,6 +48,7 @@ const basicDashboard: DashboardBasicType = {
     pinned: false,
     created_at: new Date().toISOString(),
     created_by: null,
+    last_accessed_at: null,
     is_shared: false,
     deleted: false,
     creation_mode: 'default',

@@ -18,7 +18,6 @@ export class CohortPage {
 
         await this.page.fill('[data-attr="cohort-name"]', name)
         await this.page.click('[data-attr="save-cohort"]')
-        await this.page.locator('[data-attr="save-to-modal-save-button"]').click()
 
         await expect(this.page.locator('[data-attr=success-toast]')).toHaveText(/Cohort saved/)
         await this.page.locator('[data-attr="toast-close-button"]').click()

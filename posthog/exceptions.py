@@ -43,8 +43,8 @@ class Conflict(APIException):
     default_code = "conflict"
 
 
-class ClickhouseAtCapacity(APIException):
-    status_code = 500
+class ClickHouseAtCapacity(APIException):
+    status_code = 503
     default_detail = (
         "Queries are a little too busy right now. We're working to free up resources. Please try again later."
     )
@@ -59,6 +59,16 @@ class QuerySizeExceeded(APIException):
     default_detail = "Query size exceeded."
 
 
+class ClickHouseQueryTimeOut(APIException):
+    status_code = 504
+    default_detail = "Query has hit the max execution time before completing. See our docs for how to improve your query performance. You may need to materialize."
+
+
+class ClickHouseQueryMemoryLimitExceeded(APIException):
+    status_code = 504
+    default_detail = "Query has reached the max memory limit before completing. See our docs for how to improve your query memory footprint. You may need to narrow date range or materialize."
+
+
 class ExceptionContext(TypedDict):
     request: HttpRequest
 
@@ -69,7 +79,7 @@ def exception_reporting(exception: Exception, context: ExceptionContext) -> Opti
     Used through drf-exceptions-hog
     """
     if not isinstance(exception, APIException):
-        tags = get_query_tags()
+        tags = get_query_tags().model_dump(exclude_none=True)
         logger.exception(exception, path=context["request"].path, **tags)
         return capture_exception(exception)
     return None

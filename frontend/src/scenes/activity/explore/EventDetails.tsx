@@ -1,5 +1,6 @@
 import './EventDetails.scss'
 
+import { INTERNAL_EXCEPTION_PROPERTY_KEYS } from '@posthog/products-error-tracking/frontend/utils'
 import { ErrorDisplay } from 'lib/components/Errors/ErrorDisplay'
 import { HTMLElementsDisplay } from 'lib/components/HTMLElementsDisplay/HTMLElementsDisplay'
 import { JSONViewer } from 'lib/components/JSONViewer'
@@ -12,7 +13,6 @@ import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { Link } from 'lib/lemon-ui/Link'
 import { pluralize } from 'lib/utils'
 import { AutocaptureImageTab, autocaptureToImage } from 'lib/utils/autocapture-previews'
-import { INTERNAL_EXCEPTION_PROPERTY_KEYS } from 'products/error_tracking/frontend/utils'
 import { ConversationDisplay } from 'products/llm_observability/frontend/ConversationDisplay/ConversationDisplay'
 import { useState } from 'react'
 import { urls } from 'scenes/urls'
@@ -20,6 +20,7 @@ import { urls } from 'scenes/urls'
 import { KNOWN_PROMOTED_PROPERTY_PARENTS } from '~/taxonomy/taxonomy'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP } from '~/taxonomy/taxonomy'
 import { EventType, PropertyDefinitionType } from '~/types'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 
 interface EventDetailsProps {
     event: EventType
@@ -146,6 +147,23 @@ export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Elem
                         eventProperties={event.properties}
                         // fallback on timestamp as uuid is optional
                         eventId={event.uuid ?? event.timestamp ?? 'error'}
+                    />
+                </div>
+            ),
+        })
+        tabs.push({
+            key: 'event_properties',
+            label: 'Exception properties',
+            content: (
+                <div className="mx-3 -mt-4">
+                    <LemonBanner type="info" dismissKey="event-details-exception-properties-why-banner">
+                        These are the internal properties that PostHog uses to display information about exceptions.
+                    </LemonBanner>
+                    <PropertiesTable
+                        type={PropertyDefinitionType.Event}
+                        properties={exceptionProperties}
+                        sortProperties
+                        tableProps={tableProps}
                     />
                 </div>
             ),

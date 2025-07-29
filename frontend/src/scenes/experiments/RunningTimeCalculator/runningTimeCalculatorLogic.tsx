@@ -1,22 +1,29 @@
 import equal from 'fast-deep-equal'
-import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { DEFAULT_MDE, experimentLogic } from 'scenes/experiments/experimentLogic'
-
 import { performQuery } from '~/queries/query'
 import {
     ExperimentMetric,
-    ExperimentMetricType,
+    FunnelsQuery,
     isExperimentFunnelMetric,
     isExperimentMeanMetric,
+    TrendsQuery,
     TrendsQueryResponse,
 } from '~/queries/schema/schema-general'
-import { AnyPropertyFilter, Experiment, ExperimentMetricMathType } from '~/types'
+import { AnyPropertyFilter, BaseMathType, Experiment, ExperimentMetricMathType, FunnelVizType } from '~/types'
 
 import { calculateRecommendedSampleSize, calculateVariance } from './experimentStatisticsUtils'
-import { getFunnelQuery, getSumQuery, getTotalCountQuery } from './metricQueryUtils'
 import type { runningTimeCalculatorLogicType } from './runningTimeCalculatorLogicType'
+
+import {
+    addExposureToQuery,
+    compose,
+    getDefaultDateRange,
+    getEventNode,
+    getQuery,
+} from '~/scenes/experiments/metricQueryUtils'
 
 export const TIMEFRAME_HISTORICAL_DATA_DAYS = 14
 export const VARIANCE_SCALING_FACTOR_TOTAL_COUNT = 2
@@ -113,18 +120,50 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
                     return null
                 }
 
-                const query =
-                    metric.metric_type === ExperimentMetricType.MEAN &&
-                    metric.source.math === ExperimentMetricMathType.TotalCount
-                        ? getTotalCountQuery(
-                              metric,
-                              values.experiment,
-                              values.exposureEstimateConfig?.eventFilter ?? null
-                          )
-                        : metric.metric_type === ExperimentMetricType.MEAN &&
-                          metric.source.math === ExperimentMetricMathType.Sum
-                        ? getSumQuery(metric, values.experiment, values.exposureEstimateConfig?.eventFilter ?? null)
-                        : getFunnelQuery(metric, values.experiment, values.exposureEstimateConfig?.eventFilter ?? null)
+                /**
+                 * we get the event filter from the exposure estimate config, or use
+                 * $pageview as the default.
+                 */
+                const eventFilter = values.exposureEstimateConfig?.eventFilter ?? {
+                    event: '$pageview',
+                    name: '$pageview',
+                    properties: [],
+                    entityType: TaxonomicFilterGroupType.Events,
+                }
+                /**
+                 * we create the exposure event node and add math properties to it
+                 */
+                const exposureEventNode = getEventNode(eventFilter, {
+                    mathProps: {
+                        math: BaseMathType.UniqueUsers,
+                    },
+                })
+
+                /**
+                 * let's compose a query builder that will take a metric and return a query
+                 * with all the options we need for running time calculations.
+                 */
+                const queryBuilder = compose<
+                    ExperimentMetric,
+                    FunnelsQuery | TrendsQuery | undefined,
+                    FunnelsQuery | TrendsQuery | undefined
+                >(
+                    getQuery({
+                        filterTestAccounts: !!values.experiment.exposure_criteria?.filterTestAccounts,
+                        dateRange: getDefaultDateRange(),
+                        funnelsFilter: {
+                            funnelVizType: FunnelVizType.Steps,
+                        },
+                        trendsFilter: {},
+                    }),
+                    addExposureToQuery(exposureEventNode)
+                )
+
+                const query = queryBuilder(metric)
+
+                if (!query) {
+                    return null
+                }
 
                 const result = (await performQuery(query, undefined, 'force_blocking')) as Partial<TrendsQueryResponse>
 
@@ -205,6 +244,12 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
             }
         },
     })),
+    afterMount(({ actions, values }) => {
+        // Initial calculation if we have a valid metric selected and no metric result yet
+        if (values.metric && !values.metricResult && values.metricIndex !== null) {
+            actions.loadMetricResult()
+        }
+    }),
     selectors({
         defaultMetricIndex: [
             (s) => [s.experiment, s.exposureEstimateConfig],

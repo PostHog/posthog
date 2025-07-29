@@ -4,7 +4,7 @@ import { mkdirSync, readdirSync, rmSync } from 'node:fs'
 import { Message, TopicPartitionOffset } from 'node-rdkafka'
 import path from 'path'
 
-import { KafkaConsumer } from '~/src/kafka/consumer'
+import { KafkaConsumer } from '~/kafka/consumer'
 
 import { defaultConfig } from '../../../../src/config/config'
 import { SessionRecordingIngester } from '../../../../src/main/ingestion-queues/session-recording/session-recordings-consumer'

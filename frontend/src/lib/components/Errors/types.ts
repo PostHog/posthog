@@ -83,7 +83,7 @@ export type FingerprintRecordPart = FingerprintManual | FingerprintFrame | Finge
 
 export interface ExceptionAttributes {
     ingestionErrors?: string[]
-    runtime: ErrorTrackingRuntime
+    runtime?: ErrorTrackingRuntime
     type?: string
     value?: string
     synthetic?: boolean
@@ -96,7 +96,7 @@ export interface ExceptionAttributes {
     sentryUrl?: string
     level?: string
     url?: string
-    handled: boolean
+    handled?: boolean
 }
 
 export type SymbolSetStatus = 'valid' | 'invalid'

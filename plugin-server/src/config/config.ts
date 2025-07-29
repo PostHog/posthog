@@ -2,12 +2,14 @@ import { LogLevel, PluginLogLevel, PluginsServerConfig, stringToPluginServerMode
 import { isDevEnv, isProdEnv, isTestEnv, stringToBoolean } from '../utils/env-utils'
 import { KAFKAJS_LOG_LEVEL_MAPPING } from './constants'
 import {
+    KAFKA_APP_METRICS_2,
     KAFKA_CLICKHOUSE_HEATMAP_EVENTS,
     KAFKA_EVENTS_JSON,
     KAFKA_EVENTS_PLUGIN_INGESTION,
     KAFKA_EVENTS_PLUGIN_INGESTION_DLQ,
     KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
     KAFKA_EXCEPTION_SYMBOLIFICATION_EVENTS,
+    KAFKA_LOG_ENTRIES,
 } from './kafka-topics'
 
 export const DEFAULT_HTTP_SERVER_PORT = 6738
@@ -16,6 +18,7 @@ export const defaultConfig = overrideWithEnv(getDefaultConfig())
 
 export function getDefaultConfig(): PluginsServerConfig {
     return {
+        INSTRUMENT_THREAD_PERFORMANCE: false,
         DATABASE_URL: isTestEnv()
             ? 'postgres://posthog:posthog@localhost:5432/test_posthog'
             : isDevEnv()
@@ -35,19 +38,20 @@ export function getDefaultConfig(): PluginsServerConfig {
         POSTHOG_DB_PASSWORD: '',
         POSTHOG_POSTGRES_HOST: 'localhost',
         POSTHOG_POSTGRES_PORT: 5432,
-        CLICKHOUSE_HOST: 'localhost',
-        CLICKHOUSE_OFFLINE_CLUSTER_HOST: null,
-        CLICKHOUSE_DATABASE: isTestEnv() ? 'posthog_test' : 'default',
-        CLICKHOUSE_USER: 'default',
-        CLICKHOUSE_PASSWORD: null,
-        CLICKHOUSE_CA: null,
-        CLICKHOUSE_SECURE: false,
+        CASSANDRA_HOST: 'localhost',
+        CASSANDRA_PORT: 9042,
+        CASSANDRA_KEYSPACE: isTestEnv() ? 'test_posthog' : 'posthog',
+        CASSANDRA_USER: null,
+        CASSANDRA_PASSWORD: null,
+        WRITE_BEHAVIOURAL_COUNTERS_TO_CASSANDRA: false,
         EVENT_OVERFLOW_BUCKET_CAPACITY: 1000,
         EVENT_OVERFLOW_BUCKET_REPLENISH_RATE: 1.0,
+        KAFKA_BATCH_START_LOGGING_ENABLED: false,
         SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: false,
         CONSUMER_BATCH_SIZE: 500,
         CONSUMER_MAX_HEARTBEAT_INTERVAL_MS: 30_000,
         CONSUMER_MAX_BACKGROUND_TASKS: 1,
+        CONSUMER_WAIT_FOR_BACKGROUND_TASKS_ON_REBALANCE: false,
         CONSUMER_AUTO_CREATE_TOPICS: true,
         KAFKA_HOSTS: 'kafka:9092', // KEEP IN SYNC WITH posthog/settings/data_stores.py
         KAFKA_CLIENT_CERT_B64: undefined,
@@ -68,8 +72,12 @@ export function getDefaultConfig(): PluginsServerConfig {
         POSTHOG_REDIS_PASSWORD: '',
         POSTHOG_REDIS_HOST: '',
         POSTHOG_REDIS_PORT: 6379,
+        DEDUPLICATION_REDIS_HOST: '127.0.0.1',
+        DEDUPLICATION_REDIS_PORT: 6379,
+        DEDUPLICATION_REDIS_PASSWORD: '',
+        DEDUPLICATION_TTL_SECONDS: 60,
+        DEDUPLICATION_REDIS_PREFIX: 'deduplication:',
         BASE_DIR: '..',
-        PLUGINS_RELOAD_PUBSUB_CHANNEL: 'reload-plugins',
         TASK_TIMEOUT: 30,
         TASKS_PER_WORKER: 10,
         INGESTION_CONCURRENCY: 10,
@@ -83,12 +91,11 @@ export function getDefaultConfig(): PluginsServerConfig {
         SCHEDULE_LOCK_TTL: 60,
         REDIS_POOL_MIN_SIZE: 1,
         REDIS_POOL_MAX_SIZE: 3,
-        DISABLE_MMDB: isTestEnv(),
         MMDB_FILE_LOCATION: '../share/GeoLite2-City.mmdb',
         DISTINCT_ID_LRU_SIZE: 10000,
         EVENT_PROPERTY_LRU_SIZE: 10000,
         HEALTHCHECK_MAX_STALE_SECONDS: 2 * 60 * 60, // 2 hours
-        SITE_URL: null,
+        SITE_URL: isDevEnv() ? 'http://localhost:8000' : '',
         KAFKA_PARTITIONS_CONSUMED_CONCURRENTLY: 1,
         CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: KAFKA_EVENTS_JSON,
         CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: KAFKA_CLICKHOUSE_HEATMAP_EVENTS,
@@ -122,12 +129,6 @@ export function getDefaultConfig(): PluginsServerConfig {
         // posthog
         POSTHOG_API_KEY: '',
         POSTHOG_HOST_URL: 'http://localhost:8010',
-
-        STARTUP_PROFILE_DURATION_SECONDS: 300, // 5 minutes
-        STARTUP_PROFILE_CPU: false,
-        STARTUP_PROFILE_HEAP: false,
-        STARTUP_PROFILE_HEAP_INTERVAL: 512 * 1024, // default v8 value
-        STARTUP_PROFILE_HEAP_DEPTH: 16, // default v8 value
 
         SESSION_RECORDING_LOCAL_DIRECTORY: '.tmp/sessions',
         // NOTE: 10 minutes
@@ -172,17 +173,17 @@ export function getDefaultConfig(): PluginsServerConfig {
         CDP_REDIS_HOST: '',
         CDP_REDIS_PORT: 6479,
         CDP_CYCLOTRON_BATCH_DELAY_MS: 50,
-        CDP_CYCLOTRON_BATCH_SIZE: 300,
         CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN: '',
-        CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE: 'postgres',
-        CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_MAPPING: '*:postgres',
+        CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_KIND: 'hog',
+        CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE: 'kafka',
+        CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_MAPPING: '*:kafka',
         CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_TEAM_MAPPING: '',
         CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_FORCE_SCHEDULED_TO_POSTGRES: false,
         CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE: 100,
         CDP_CYCLOTRON_INSERT_PARALLEL_BATCHES: true,
         CDP_CYCLOTRON_COMPRESS_VM_STATE: isProdEnv() ? false : true,
         CDP_CYCLOTRON_USE_BULK_COPY_JOB: isProdEnv() ? false : true,
-        CDP_CYCLOTRON_COMPRESS_KAFKA_DATA: isProdEnv() ? false : true,
+        CDP_CYCLOTRON_COMPRESS_KAFKA_DATA: true,
         CDP_HOG_WATCHER_SAMPLE_RATE: 0, // default is off
         CDP_FETCH_TIMEOUT_MS: 10 * 1000, // 10 seconds
         CDP_FETCH_RETRIES: 3,
@@ -192,6 +193,12 @@ export function getDefaultConfig(): PluginsServerConfig {
         CDP_LEGACY_EVENT_CONSUMER_GROUP_ID: 'clickhouse-plugin-server-async-onevent',
         CDP_LEGACY_EVENT_CONSUMER_TOPIC: KAFKA_EVENTS_JSON,
         CDP_LEGACY_EVENT_REDIRECT_TOPIC: '',
+
+        CDP_PLUGIN_CAPTURE_EVENTS_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION,
+
+        HOG_FUNCTION_MONITORING_APP_METRICS_TOPIC: KAFKA_APP_METRICS_2,
+        HOG_FUNCTION_MONITORING_LOG_ENTRIES_TOPIC: KAFKA_LOG_ENTRIES,
+        HOG_FUNCTION_MONITORING_EVENTS_PRODUCED_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION,
 
         // Destination Migration Diffing
         DESTINATION_MIGRATION_DIFFING_ENABLED: false,
@@ -230,8 +237,8 @@ export function getDefaultConfig(): PluginsServerConfig {
         SESSION_RECORDING_V2_S3_ACCESS_KEY_ID: 'object_storage_root_user',
         SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY: 'object_storage_root_password',
         SESSION_RECORDING_V2_S3_TIMEOUT_MS: 30000,
-        SESSION_RECORDING_V2_REPLAY_EVENTS_KAFKA_TOPIC: '',
-        SESSION_RECORDING_V2_CONSOLE_LOG_ENTRIES_KAFKA_TOPIC: '',
+        SESSION_RECORDING_V2_REPLAY_EVENTS_KAFKA_TOPIC: 'clickhouse_session_replay_events',
+        SESSION_RECORDING_V2_CONSOLE_LOG_ENTRIES_KAFKA_TOPIC: 'log_entries',
         SESSION_RECORDING_V2_CONSOLE_LOG_STORE_SYNC_BATCH_LIMIT: 1000,
         SESSION_RECORDING_V2_METADATA_SWITCHOVER: '',
 
@@ -250,19 +257,24 @@ export function getDefaultConfig(): PluginsServerConfig {
             60 *
             60,
 
+        PERSON_BATCH_WRITING_DB_WRITE_MODE: 'NO_ASSERT',
+        PERSON_BATCH_WRITING_MODE: 'NONE',
+        PERSON_BATCH_WRITING_SHADOW_MODE_PERCENTAGE: 0,
+        PERSON_BATCH_WRITING_OPTIMISTIC_UPDATES_ENABLED: false,
+        PERSON_BATCH_WRITING_MAX_CONCURRENT_UPDATES: 10,
+        PERSON_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES: 5,
+        PERSON_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS: 50,
         PERSON_CACHE_ENABLED_FOR_UPDATES: true,
         PERSON_CACHE_ENABLED_FOR_CHECKS: true,
         GROUP_BATCH_WRITING_ENABLED: false,
         GROUP_BATCH_WRITING_MAX_CONCURRENT_UPDATES: 10,
-        GROUP_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL: 50,
+        GROUP_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS: 50,
         GROUP_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES: 5,
         USE_DYNAMIC_EVENT_INGESTION_RESTRICTION_CONFIG: false,
 
         // Messaging
         MAILJET_PUBLIC_KEY: '',
         MAILJET_SECRET_KEY: '',
-
-        DISABLE_GROUP_SELECT_FOR_UPDATE: false,
     }
 }
 

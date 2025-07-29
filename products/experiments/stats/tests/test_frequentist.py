@@ -1,15 +1,14 @@
 from unittest import TestCase
 from products.experiments.stats.frequentist.method import FrequentistConfig, FrequentistMethod
-from products.experiments.stats.frequentist.statistics import (
+from products.experiments.stats.shared.statistics import (
     ProportionStatistic,
     SampleMeanStatistic,
-    TestType,
-    DifferenceType,
 )
+from products.experiments.stats.shared.enums import DifferenceType
 
 
 def create_test_result_dict(result):
-    """Convert TestResult to dictionary similar to gbstats format."""
+    """Convert TestResult to dictionary for easy interpretation."""
     return {
         "expected": result.point_estimate,
         "ci": [result.confidence_interval[0], result.confidence_interval[1]],
@@ -28,6 +27,10 @@ def create_test_result_dict(result):
 class TestTwoSidedTTest(TestCase):
     def test_two_sided_ttest_with_sample_mean(self):
         """Test basic two-sided t-test with sample mean statistics."""
+
+        # imported here so that pytest doesn't try to discover tests inside it
+        from products.experiments.stats.frequentist.method import TestType
+
         stat_a = SampleMeanStatistic(sum=1922.7, sum_squares=94698.29, n=2461)
         stat_b = SampleMeanStatistic(sum=1196.87, sum_squares=37377.9767, n=2507)
 
@@ -54,6 +57,10 @@ class TestTwoSidedTTest(TestCase):
 
     def test_two_sided_ttest_with_sample_proportion(self):
         """Test basic two-sided t-test with sample proportion statistics."""
+
+        # imported here so that pytest doesn't try to discover tests inside it
+        from products.experiments.stats.frequentist.method import TestType
+
         stat_a = ProportionStatistic(sum=62, n=1471)
         stat_b = ProportionStatistic(sum=87, n=1529)
 

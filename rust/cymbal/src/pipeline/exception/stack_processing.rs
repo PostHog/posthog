@@ -6,7 +6,7 @@ use crate::{
     app_context::AppContext,
     error::{PipelineResult, UnhandledError},
     fingerprinting::resolve_fingerprint,
-    metric_consts::FRAME_RESOLUTION,
+    metric_consts::{FINGERPRINT_BATCH_TIME, FRAME_BATCH_TIME, FRAME_RESOLUTION},
     types::{FingerprintedErrProps, RawErrProps, Stacktrace},
 };
 
@@ -15,6 +15,7 @@ pub async fn do_stack_processing(
     events: &[PipelineResult],
     mut indexed_props: Vec<(usize, RawErrProps)>,
 ) -> Result<Vec<(usize, FingerprintedErrProps)>, (usize, UnhandledError)> {
+    let frame_batch_timer = common_metrics::timing_guard(FRAME_BATCH_TIME, &[]);
     let mut frame_resolve_handles = HashMap::new();
     for (index, props) in indexed_props.iter_mut() {
         let team_id = events[*index]
@@ -82,7 +83,9 @@ pub async fn do_stack_processing(
         };
         frame_lookup_table.insert(id, res);
     }
+    frame_batch_timer.fin();
 
+    let fingerprint_timer = common_metrics::timing_guard(FINGERPRINT_BATCH_TIME, &[]);
     let mut indexed_fingerprinted = Vec::new();
     for (index, mut props) in indexed_props.into_iter() {
         for exception in props.exception_list.iter_mut() {
@@ -116,6 +119,7 @@ pub async fn do_stack_processing(
         let fingerprinted = props.to_fingerprinted(proposed);
         indexed_fingerprinted.push((index, fingerprinted));
     }
+    fingerprint_timer.fin(); // Could just let this be dropped, tbh
 
     Ok(indexed_fingerprinted)
 }

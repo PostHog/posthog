@@ -2,8 +2,8 @@ import { LemonCollapse } from '@posthog/lemon-ui'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { useState } from 'react'
 
-import { OnboardingStepKey } from '../onboardingLogic'
 import { OnboardingStep } from '../OnboardingStep'
+import { OnboardingStepKey } from '~/types'
 
 export function OnboardingErrorTrackingSourceMapsStep({ stepKey }: { stepKey: OnboardingStepKey }): JSX.Element {
     const [activeKey, setActiveKey] = useState<'cli' | 'no-minification' | 'public-source-maps' | undefined>(undefined)

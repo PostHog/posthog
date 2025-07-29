@@ -1,10 +1,10 @@
-from datetime import timedelta
+from datetime import timedelta, datetime
 from unittest import TestCase
 from freezegun import freeze_time
-
 from dateutil.relativedelta import relativedelta
 from django.utils.timezone import now
 from posthog.models.utils import uuid7
+from zoneinfo import ZoneInfo
 
 from posthog.hogql_queries.error_tracking_query_runner import ErrorTrackingQueryRunner, search_tokenizer
 from posthog.schema import (
@@ -217,6 +217,13 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
 
     @freeze_time("2022-01-10T12:11:00")
+    def test_date_range_resolution(self):
+        date_from = ErrorTrackingQueryRunner.parse_relative_date_from("-1d")
+        date_to = ErrorTrackingQueryRunner.parse_relative_date_to("+1d")
+        self.assertEqual(date_from, datetime(2022, 1, 9, 12, 11, 0, tzinfo=ZoneInfo(key="UTC")))
+        self.assertEqual(date_to, datetime(2022, 1, 11, 12, 11, 0, tzinfo=ZoneInfo(key="UTC")))
+
+    @freeze_time("2022-01-10T12:11:00")
     @snapshot_clickhouse_queries
     def test_issue_grouping(self):
         results = self._calculate(issueId=self.issue_id_one, withAggregations=True)["results"]
@@ -253,7 +260,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         results = sorted(
             self._calculate(
-                dateRange=DateRange(date_from="2022-01-10", date_to="2022-01-11"),
+                dateRange=DateRange(date_from="-1d", date_to="+1d"),
                 filterTestAccounts=True,
                 searchQuery="databasenot",
                 withAggregations=True,
@@ -313,6 +320,29 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(results[0]["aggregations"]["occurrences"], 1)
         self.assertEqual(results[0]["aggregations"]["sessions"], 0)
         self.assertEqual(results[0]["aggregations"]["users"], 1)
+
+    @freeze_time("2022-01-10 12:11:00")
+    @snapshot_clickhouse_queries
+    def test_search_person_properties(self):
+        distinct_id = "david@posthog.com"
+
+        _create_person(
+            team=self.team,
+            distinct_ids=[distinct_id],
+            properties={"email": distinct_id},
+            is_identified=True,
+        )
+
+        self.create_events_and_issue(
+            issue_id="684bd8ae-498f-4548-bc05-e621b5b5b9aa",
+            fingerprint="fingerprint_DatabaseNotFoundX",
+            distinct_ids=[distinct_id],
+        )
+
+        results = self._calculate(searchQuery="david@posthog.com")["results"]
+
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["id"], "684bd8ae-498f-4548-bc05-e621b5b5b9aa")
 
     @freeze_time("2020-01-10 12:11:00")
     @snapshot_clickhouse_queries

@@ -124,9 +124,6 @@ from posthog.warehouse.models.external_data_job import ExternalDataJob
 from posthog.warehouse.models.external_data_schema import ExternalDataSchema
 from posthog.warehouse.models.external_data_source import ExternalDataSource
 from posthog.warehouse.models.table import DataWarehouseTable, DataWarehouseTableColumns
-from products.revenue_analytics.backend.views.revenue_analytics_base_view import (
-    RevenueAnalyticsBaseView,
-)
 
 if TYPE_CHECKING:
     from posthog.models import Team
@@ -385,6 +382,9 @@ def create_hogql_database(
     from posthog.hogql.query import create_default_modifiers_for_team
     from posthog.models import Team
     from posthog.warehouse.models import DataWarehouseJoin, DataWarehouseSavedQuery
+    from products.revenue_analytics.backend.views.revenue_analytics_base_view import (
+        RevenueAnalyticsBaseView,
+    )
 
     if timings is None:
         timings = HogQLTimings()
@@ -463,19 +463,20 @@ def create_hogql_database(
 
     with timings.measure("initial_domain_type"):
         database.persons.fields["$virt_initial_referring_domain_type"] = create_initial_domain_type(
-            "$virt_initial_referring_domain_type", timings=timings
+            name="$virt_initial_referring_domain_type", timings=timings
         )
         poe.fields["$virt_initial_referring_domain_type"] = create_initial_domain_type(
-            "$virt_initial_referring_domain_type",
+            name="$virt_initial_referring_domain_type",
             timings=timings,
             properties_path=["poe", "properties"],
         )
     with timings.measure("initial_channel_type"):
         database.persons.fields["$virt_initial_channel_type"] = create_initial_channel_type(
-            "$virt_initial_channel_type", modifiers.customChannelTypeRules, timings=timings
+            name="$virt_initial_channel_type", custom_rules=modifiers.customChannelTypeRules, timings=timings
         )
         poe.fields["$virt_initial_channel_type"] = create_initial_channel_type(
-            "$virt_initial_channel_type",
+            name="$virt_initial_channel_type",
+            custom_rules=modifiers.customChannelTypeRules,
             timings=timings,
             properties_path=["poe", "properties"],
         )
@@ -509,7 +510,7 @@ def create_hogql_database(
 
         with timings.measure("for_schema_source"):
             for stripe_source in stripe_sources:
-                revenue_views = RevenueAnalyticsBaseView.for_schema_source(stripe_source)
+                revenue_views = RevenueAnalyticsBaseView.for_schema_source(stripe_source, modifiers)
 
                 # View will have a name similar to stripe.prefix.table_name
                 # We want to create a nested table group where stripe is the parent,
@@ -523,7 +524,7 @@ def create_hogql_database(
         # Similar to the above, these will be in the format revenue_analytics.<event_name>.events_revenue_view
         # so let's make sure we have the proper nested queries
         with timings.measure("for_events"):
-            revenue_views = RevenueAnalyticsBaseView.for_events(team)
+            revenue_views = RevenueAnalyticsBaseView.for_events(team, modifiers)
             for view in revenue_views:
                 views[view.name] = view
                 create_nested_table_group(view.name.split("."), views, view)
@@ -725,7 +726,12 @@ def create_hogql_database(
                 elif isinstance(field, ast.Call) and isinstance(field.args[0], ast.Field):
                     from_field = field.args[0].chain
                 else:
-                    raise ResolutionError("Data Warehouse Join HogQL expression should be a Field or Call node")
+                    capture_exception(
+                        Exception(
+                            f"Data Warehouse Join HogQL expression should be a Field or Call node: {join.source_table_key}"
+                        )
+                    )
+                    continue
 
                 field = parse_expr(join.joining_table_key)
                 if isinstance(field, ast.Field):
@@ -739,7 +745,12 @@ def create_hogql_database(
                 elif isinstance(field, ast.Call) and isinstance(field.args[0], ast.Field):
                     to_field = field.args[0].chain
                 else:
-                    raise ResolutionError("Data Warehouse Join HogQL expression should be a Field or Call node")
+                    capture_exception(
+                        Exception(
+                            f"Data Warehouse Join HogQL expression should be a Field or Call node: {join.joining_table_key}"
+                        )
+                    )
+                    continue
 
                 source_table.fields[join.field_name] = LazyJoin(
                     from_field=from_field,
@@ -774,14 +785,23 @@ def create_hogql_database(
 
                         if isinstance(table_or_field, ast.VirtualTable):
                             table_or_field.fields[join.field_name] = ast.FieldTraverser(chain=["..", join.field_name])
+
+                            override_source_table_key = f"person.{join.source_table_key}"
+
+                            # If the source_table_key is a ast.Call node, then we want to inject in `person` on the chain of the inner `ast.Field` node
+                            source_table_key_node = parse_expr(join.source_table_key)
+                            if isinstance(source_table_key_node, ast.Call) and isinstance(
+                                source_table_key_node.args[0], ast.Field
+                            ):
+                                source_table_key_node.args[0].chain = ["person", *source_table_key_node.args[0].chain]
+                                override_source_table_key = source_table_key_node.to_hogql()
+
                             database.events.fields[join.field_name] = LazyJoin(
                                 from_field=from_field,
                                 to_field=to_field,
                                 join_table=joining_table,
                                 # reusing join_function but with different source_table_key since we're joining 'directly' on events
-                                join_function=join.join_function(
-                                    override_source_table_key=f"person.{join.source_table_key}"
-                                ),
+                                join_function=join.join_function(override_source_table_key=override_source_table_key),
                             )
                         else:
                             table_or_field.fields[join.field_name] = LazyJoin(
@@ -859,6 +879,9 @@ def serialize_database(
 ) -> dict[str, DatabaseSchemaTable]:
     from posthog.warehouse.models.datawarehouse_saved_query import (
         DataWarehouseSavedQuery,
+    )
+    from products.revenue_analytics.backend.views.revenue_analytics_base_view import (
+        RevenueAnalyticsBaseView,
     )
 
     tables: dict[str, DatabaseSchemaTable] = {}

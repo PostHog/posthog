@@ -1,7 +1,7 @@
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
-from langchain_openai import ChatOpenAI
+from ee.hogai.llm import MaxChatOpenAI
 
 from ee.hogai.graph.base import AssistantNode
 from ee.hogai.graph.title_generator.prompts import TITLE_GENERATION_PROMPT
@@ -21,12 +21,12 @@ class TitleGeneratorNode(AssistantNode):
             return None
 
         runnable = (
-            ChatPromptTemplate.from_messages([("system", TITLE_GENERATION_PROMPT), ("user", human_message.content)])
+            ChatPromptTemplate.from_messages([("system", TITLE_GENERATION_PROMPT), ("user", "{user_input}")])
             | self._model
             | StrOutputParser()
         )
 
-        title = runnable.invoke({}, config=config)
+        title = runnable.invoke({"user_input": human_message.content}, config=config)
 
         conversation.title = title
         conversation.save()
@@ -35,4 +35,10 @@ class TitleGeneratorNode(AssistantNode):
 
     @property
     def _model(self):
-        return ChatOpenAI(model="gpt-4.1-nano", temperature=0.7, max_completion_tokens=100)
+        return MaxChatOpenAI(
+            model="gpt-4.1-nano",
+            temperature=0.7,
+            max_completion_tokens=100,
+            user=self._user,
+            team=self._team,
+        )

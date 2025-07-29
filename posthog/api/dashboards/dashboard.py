@@ -113,6 +113,7 @@ class DashboardBasicSerializer(
             "pinned",
             "created_at",
             "created_by",
+            "last_accessed_at",
             "is_shared",
             "deleted",
             "creation_mode",
@@ -122,6 +123,7 @@ class DashboardBasicSerializer(
             "effective_privilege_level",
             "user_access_level",
             "access_control_version",
+            "last_refresh",
         ]
         read_only_fields = fields
 
@@ -185,6 +187,7 @@ class DashboardSerializer(DashboardBasicSerializer, InsightVariableMappingMixin)
             "user_access_level",
             "access_control_version",
             "_create_in_folder",
+            "last_refresh",
         ]
         read_only_fields = ["creation_mode", "effective_restriction_level", "is_shared", "user_access_level"]
 

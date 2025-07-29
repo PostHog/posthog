@@ -1,5 +1,3 @@
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-
 import { Query } from '~/queries/Query/Query'
 import { NodeKind } from '~/queries/schema/schema-general'
 import type { InsightShortId } from '~/types'
@@ -10,19 +8,15 @@ import type { ResultBreakdownRenderProps } from './types'
  * make the props non-nullable
  */
 type SafeResultBreakdownRenderProps = {
-    [K in keyof ResultBreakdownRenderProps]: NonNullable<ResultBreakdownRenderProps[K]>
+    [K in keyof Omit<ResultBreakdownRenderProps, 'breakdownResultsLoading' | 'exposureDifference'>]: NonNullable<
+        ResultBreakdownRenderProps[K]
+    >
 }
 
 /**
  * shows a breakdown of the results for ExperimentFunnelsQueryResponse
  */
 export const ResultsQuery = ({ query, breakdownResults }: SafeResultBreakdownRenderProps): JSX.Element | null => {
-    const isEnabled = useFeatureFlag('EXPERIMENTS_NEW_RUNNER_RESULTS_BREAKDOWN')
-
-    if (!isEnabled) {
-        return null
-    }
-
     /**
      * bail if the result is from a trends query.
      * trends queries are not supported yet.

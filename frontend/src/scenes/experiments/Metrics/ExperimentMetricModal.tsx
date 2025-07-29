@@ -7,6 +7,7 @@ import { Experiment } from '~/types'
 
 import { experimentLogic } from '../experimentLogic'
 import { ExperimentMetricForm } from '../ExperimentMetricForm'
+import { modalsLogic } from '../modalsLogic'
 
 export function ExperimentMetricModal({
     experimentId,
@@ -15,22 +16,14 @@ export function ExperimentMetricModal({
     experimentId: Experiment['id']
     isSecondary?: boolean
 }): JSX.Element {
-    const {
-        experiment,
-        experimentLoading,
-        isPrimaryMetricModalOpen,
-        isSecondaryMetricModalOpen,
-        editingPrimaryMetricIndex,
-        editingSecondaryMetricIndex,
-    } = useValues(experimentLogic({ experimentId }))
-    const {
-        setMetric,
-        updateExperimentMetrics,
-        setExperiment,
-        closePrimaryMetricModal,
-        closeSecondaryMetricModal,
-        restoreUnmodifiedExperiment,
-    } = useActions(experimentLogic({ experimentId }))
+    const { experiment, experimentLoading, editingPrimaryMetricIndex, editingSecondaryMetricIndex } = useValues(
+        experimentLogic({ experimentId })
+    )
+    const { setMetric, updateExperimentMetrics, setExperiment, restoreUnmodifiedExperiment } = useActions(
+        experimentLogic({ experimentId })
+    )
+    const { closePrimaryMetricModal, closeSecondaryMetricModal } = useActions(modalsLogic)
+    const { isPrimaryMetricModalOpen, isSecondaryMetricModalOpen } = useValues(modalsLogic)
 
     const metricIdx = isSecondary ? editingSecondaryMetricIndex : editingPrimaryMetricIndex
     const metricsField = isSecondary ? 'metrics_secondary' : 'metrics'

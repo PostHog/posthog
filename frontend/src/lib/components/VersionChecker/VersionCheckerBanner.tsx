@@ -19,7 +19,7 @@ export function VersionCheckerBanner(): JSX.Element | null {
             dismissKey={dismissKey}
             action={{
                 children: 'View the changelog',
-                to: 'https://github.com/PostHog/posthog-js/blob/main/CHANGELOG.md',
+                to: 'https://github.com/PostHog/posthog-js/blob/main/packages/browser/CHANGELOG.md',
                 targetBlank: true,
             }}
             className="mb-4"

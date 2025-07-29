@@ -12,8 +12,8 @@ import { PathRegexModal } from './PathRegexModal'
 
 interface PathCleanFilterItem {
     filter: PathCleaningFilter
-    onChange: (filter: PathCleaningFilter) => void
-    onRemove: () => void
+    onChange?: (filter: PathCleaningFilter) => void
+    onRemove?: () => void
 }
 
 export function PathCleanFilterItem({ filter, onChange, onRemove }: PathCleanFilterItem): JSX.Element {
@@ -25,7 +25,7 @@ export function PathCleanFilterItem({ filter, onChange, onRemove }: PathCleanFil
 
     return (
         <>
-            {visible && (
+            {visible && onChange && (
                 <PathRegexModal
                     filter={filter}
                     isOpen={visible}
@@ -47,7 +47,7 @@ export function PathCleanFilterItem({ filter, onChange, onRemove }: PathCleanFil
                 <Tooltip title={isInvalidRegex ? 'NOTE: Invalid Regex, will be skipped' : null}>
                     <LemonSnack
                         type="pill"
-                        onClick={() => setVisible(!visible)}
+                        onClick={onChange ? () => setVisible(!visible) : undefined}
                         onClose={onRemove}
                         title={`${filter.regex} is mapped to ${filter.alias}`}
                         className={clsx({ 'border border-accent': isInvalidRegex })}

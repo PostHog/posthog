@@ -20,7 +20,7 @@ import { urls } from 'scenes/urls'
 import {
     ActivityScope,
     Breadcrumb,
-    HogFunctionFilterPropertyFilter,
+    CyclotronJobFilterPropertyFilter,
     HogFunctionType,
     HogFunctionTypeType,
 } from '~/types'
@@ -66,7 +66,7 @@ export const hogFunctionSceneLogic = kea<hogFunctionSceneLogicType>([
                     return undefined
                 }
                 const alertIdProp = configuration.filters.properties.find(
-                    (p: HogFunctionFilterPropertyFilter) => p.key === 'alert_id'
+                    (p: CyclotronJobFilterPropertyFilter) => p.key === 'alert_id'
                 )
                 const value = alertIdProp?.value
                 return value ? String(value) : undefined
@@ -250,7 +250,7 @@ export function HogFunctionScene(): JSX.Element {
                   key: 'logs',
                   content: <HogFunctionLogs hogFunctionId={id} />,
               },
-        type === 'site_app' || type === 'site_destination'
+        type === 'site_app' || type === 'site_destination' || type === 'internal_destination'
             ? null
             : {
                   label: 'Testing',

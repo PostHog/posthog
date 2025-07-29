@@ -6,7 +6,6 @@ import { VM } from 'vm2'
 import { Hub, PluginConfig, PluginConfigVMResponse } from '../../types'
 import { createCache } from './extensions/cache'
 import { createConsole } from './extensions/console'
-import { createGeoIp } from './extensions/geoip'
 import { createPosthog } from './extensions/posthog'
 import { createStorage } from './extensions/storage'
 import { createUtils } from './extensions/utilities'
@@ -96,7 +95,6 @@ export function createPluginConfigVM(
             config: pluginConfig.config,
             attachments: pluginConfig.attachments,
             storage: createStorage(hub, pluginConfig),
-            geoip: createGeoIp(hub),
             utils: createUtils(hub, pluginConfig.id),
         },
         '__pluginHostMeta'

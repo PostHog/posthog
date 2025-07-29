@@ -1,7 +1,7 @@
-import { ExperimentVariantResultFrequentist } from '~/queries/schema/schema-general'
-
+import { type ExperimentVariantResult } from '../shared/utils'
 import { BAR_HEIGHT, BAR_SPACING, VIEW_BOX_WIDTH } from './constants'
 import { GridLines } from './GridLines'
+import { useAxisScale } from './useAxisScale'
 import { useTooltipHover } from './useTooltipHover'
 import { VariantBar } from './VariantBar'
 import { VariantTooltip } from './VariantTooltip'
@@ -15,13 +15,14 @@ export function Chart({
     isSecondary,
 }: {
     chartSvgRef: React.RefObject<SVGSVGElement>
-    variantResults: ExperimentVariantResultFrequentist[]
+    variantResults: ExperimentVariantResult[]
     chartRadius: number
     metricIndex: number
     tickValues: number[]
     isSecondary: boolean
 }): JSX.Element {
     const { showTooltip, hideTooltip, showTooltipFromTooltip, isTooltipVisible } = useTooltipHover()
+    const scale = useAxisScale(chartRadius, VIEW_BOX_WIDTH)
 
     const chartHeight = Math.max(BAR_SPACING + (BAR_HEIGHT + BAR_SPACING) * variantResults.length, 70)
 
@@ -32,15 +33,15 @@ export function Chart({
                     ref={chartSvgRef}
                     viewBox={`0 0 ${VIEW_BOX_WIDTH} ${chartHeight}`}
                     preserveAspectRatio="xMidYMid meet"
-                    className="ml-12 max-w-[1000px]"
+                    className="ml-12"
                 >
                     <g className="grid-lines-layer">
                         {/* Vertical grid lines */}
-                        <GridLines tickValues={tickValues} chartRadius={chartRadius} chartHeight={chartHeight} />
+                        <GridLines tickValues={tickValues} scale={scale} height={chartHeight} />
                     </g>
                     <g className="variant-bars-layer">
                         {/* Variant bars */}
-                        {variantResults.map((variantResult: ExperimentVariantResultFrequentist, index: number) => (
+                        {variantResults.map((variantResult: ExperimentVariantResult, index: number) => (
                             <VariantBar
                                 key={`variant-bar-${variantResult.key}`}
                                 variantResult={variantResult}
@@ -58,7 +59,7 @@ export function Chart({
                 </svg>
             </div>
 
-            {variantResults.map((variantResult: ExperimentVariantResultFrequentist, index: number) => (
+            {variantResults.map((variantResult: ExperimentVariantResult, index: number) => (
                 <VariantTooltip
                     key={`tooltip-${variantResult.key}`}
                     variantResult={variantResult}

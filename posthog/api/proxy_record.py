@@ -28,8 +28,8 @@ def generate_target_cname(organization_id, domain) -> str:
 def _capture_proxy_event(request, record: ProxyRecord, event_type: str) -> None:
     organization = Organization.objects.get(id=record.organization_id)
     posthoganalytics.capture(
-        request.user.distinct_id,
-        f"managed reverse proxy {event_type}",
+        distinct_id=str(request.user.distinct_id),
+        event=f"managed reverse proxy {event_type}",
         properties={
             "proxy_record_id": record.id,
             "domain": record.domain,

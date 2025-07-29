@@ -1,18 +1,32 @@
-import ClickHouse from '@posthog/clickhouse'
 import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 import { v4 } from 'uuid'
 
 import { waitForExpect } from '~/tests/helpers/expectations'
+import { resetKafka } from '~/tests/helpers/kafka'
 
-import { resetTestDatabaseClickhouse } from '../../tests/helpers/clickhouse'
-import { createUserTeamAndOrganization, resetTestDatabase } from '../../tests/helpers/sql'
-import { Database, Hub, PipelineEvent, PluginsServerConfig, ProjectId, RawClickHouseEvent, Team } from '../types'
+import { Clickhouse } from '../../tests/helpers/clickhouse'
+import { createUserTeamAndOrganization, fetchPostgresPersons, resetTestDatabase } from '../../tests/helpers/sql'
+import { Hub, InternalPerson, PipelineEvent, PluginsServerConfig, ProjectId, RawClickHouseEvent, Team } from '../types'
 import { closeHub, createHub } from '../utils/db/hub'
 import { parseRawClickHouseEvent } from '../utils/event'
 import { parseJSON } from '../utils/json-parse'
 import { UUIDT } from '../utils/utils'
 import { IngestionConsumer } from './ingestion-consumer'
+
+// Mock the limiter so it always returns true
+jest.mock('~/utils/token-bucket', () => {
+    const mockConsume = jest.fn().mockReturnValue(true)
+    return {
+        IngestionWarningLimiter: {
+            consume: mockConsume,
+        },
+    }
+})
+
+const waitForKafkaMessages = async (hub: Hub) => {
+    await hub.db.kafkaProducer.flush()
+}
 
 class EventBuilder {
     private event: Partial<PipelineEvent> = {}
@@ -29,6 +43,7 @@ class EventBuilder {
         }
         this.event.distinct_id = distinctId
         this.event.team_id = team.id
+        this.event.token = team.api_token
     }
 
     withEvent(event: string) {
@@ -49,6 +64,12 @@ class EventBuilder {
     withTimestamp(timestamp: number) {
         const date = DateTime.fromMillis(timestamp)
         this.event.timestamp = date.toString()
+        this.event.now = date.toString()
+        return this
+    }
+
+    withNow(now: number) {
+        const date = DateTime.fromMillis(now)
         this.event.now = date.toString()
         return this
     }
@@ -93,6 +114,7 @@ const DEFAULT_TEAM: Team = {
     cookieless_server_hash_mode: null,
     timezone: 'UTC',
     available_features: [],
+    drop_events_older_than_seconds: null,
 }
 
 let offsetIncrementer = 0
@@ -122,10 +144,11 @@ export const createKafkaMessages: (events: PipelineEvent[]) => Message[] = (even
     return events.map(createKafkaMessage)
 }
 
-const testWithTeamIngester = (
+const testWithTeamIngesterBase = (
     name: string,
     testFn: (ingester: IngestionConsumer, hub: Hub, team: Team) => Promise<void>,
-    pluginServerConfig: Partial<PluginsServerConfig> = {}
+    pluginServerConfig: Partial<PluginsServerConfig> = {},
+    teamOverrides: Partial<Team> = {}
 ) => {
     test.concurrent(name, async () => {
         const hub = await createHub({
@@ -133,7 +156,8 @@ const testWithTeamIngester = (
             APP_METRICS_FLUSH_FREQUENCY_MS: 0,
             ...pluginServerConfig,
         })
-        const teamId = Math.floor(Math.random() * 1000000000)
+
+        const teamId = Math.floor((Date.now() % 1000000000) + Math.random() * 1000000)
         const userId = teamId
         const organizationId = new UUIDT().toString()
 
@@ -144,6 +168,7 @@ const testWithTeamIngester = (
             organization_id: organizationId,
             uuid: v4(),
             name: teamId.toString(),
+            ...teamOverrides,
         }
         const userUuid = new UUIDT().toString()
         const organizationMembershipId = new UUIDT().toString()
@@ -154,8 +179,16 @@ const testWithTeamIngester = (
             userId,
             userUuid,
             newTeam.organization_id,
-            organizationMembershipId
+            organizationMembershipId,
+            teamOverrides
         )
+
+        // Fetch the team from the database to ensure we have the actual persisted data
+        const fetchedTeam = await hub.teamManager.getTeam(newTeam.id)
+        if (!fetchedTeam) {
+            throw new Error(`Failed to fetch team ${newTeam.id} from database`)
+        }
+
         const ingester = new IngestionConsumer(hub)
         // NOTE: We don't actually use kafka so we skip instantiation for faster tests
         ingester['kafkaConsumer'] = {
@@ -170,25 +203,67 @@ const testWithTeamIngester = (
         jest.spyOn(hub.db, 'updateGroupOptimistically')
 
         await ingester.start()
-        await testFn(ingester, hub, newTeam)
+        await testFn(ingester, hub, fetchedTeam)
         await ingester.stop()
         await closeHub(hub)
     })
 }
 
+const testWithTeamIngester = (
+    name: string,
+    config: { teamOverrides?: Partial<Team>; pluginServerConfig?: Partial<PluginsServerConfig> } = {},
+    testFn: (ingester: IngestionConsumer, hub: Hub, team: Team) => Promise<void>
+) => {
+    describe(name, () => {
+        testWithTeamIngesterBase(
+            `${name} (batch writing disabled)`,
+            testFn,
+            {
+                ...config.pluginServerConfig,
+                PERSON_BATCH_WRITING_MODE: 'NONE',
+            },
+            config.teamOverrides
+        )
+
+        testWithTeamIngesterBase(
+            `${name} (batch writing enabled)`,
+            testFn,
+            {
+                ...config.pluginServerConfig,
+                PERSON_BATCH_WRITING_MODE: 'BATCH',
+            },
+            config.teamOverrides
+        )
+
+        testWithTeamIngesterBase(
+            `${name} (batch writing shadow mode enabled)`,
+            testFn,
+            {
+                ...config.pluginServerConfig,
+                PERSON_BATCH_WRITING_MODE: 'SHADOW',
+                PERSON_BATCH_WRITING_SHADOW_MODE_PERCENTAGE: 100,
+            },
+            config.teamOverrides
+        )
+    })
+}
+
 describe('Event Pipeline E2E tests', () => {
+    const clickhouse = Clickhouse.create()
     beforeAll(async () => {
+        await resetKafka()
         await resetTestDatabase()
-        await resetTestDatabaseClickhouse()
+        await clickhouse.resetTestDatabase()
         process.env.SITE_URL = 'https://example.com'
     })
 
     afterAll(async () => {
         await resetTestDatabase()
-        await resetTestDatabaseClickhouse()
+        await clickhouse.resetTestDatabase()
+        clickhouse.close()
     })
 
-    testWithTeamIngester('should handle $$client_ingestion_warning events', async (ingester, hub, team) => {
+    testWithTeamIngester('should handle $$client_ingestion_warning events', {}, async (ingester, hub, team) => {
         const events = [
             new EventBuilder(team)
                 .withEvent('$$client_ingestion_warning')
@@ -197,36 +272,37 @@ describe('Event Pipeline E2E tests', () => {
         ]
 
         await ingester.handleKafkaBatch(createKafkaMessages(events))
+        await waitForKafkaMessages(hub)
 
         await waitForExpect(async () => {
-            await waitForExpect(async () => {
-                const warnings = await fetchIngestionWarnings(hub, team.id)
-                expect(warnings).toEqual([
-                    expect.objectContaining({
-                        type: 'client_ingestion_warning',
-                        team_id: team.id,
-                        details: expect.objectContaining({ message: 'test message' }),
-                    }),
-                ])
-            })
+            const warnings = await fetchIngestionWarnings(hub, team.id)
+            expect(warnings).toEqual([
+                expect.objectContaining({
+                    type: 'client_ingestion_warning',
+                    team_id: team.id.toString(),
+                    details: expect.objectContaining({ message: 'test message' }),
+                }),
+            ])
         })
     })
 
-    testWithTeamIngester('should process events without a team_id', async (ingester, hub, team) => {
-        const token = team.api_token
-        const events = [new EventBuilder(team).withEvent('test event').withToken(token).build()]
+    testWithTeamIngester('should process events without a team_id', {}, async (ingester, hub, team) => {
+        const events = [new EventBuilder(team).withEvent('test event').build()]
 
         await ingester.handleKafkaBatch(createKafkaMessages(events))
+
+        await waitForKafkaMessages(hub)
 
         await waitForExpect(async () => {
             const events = await fetchEvents(hub, team.id)
             expect(events.length).toBe(1)
-            expect(events[0].team_id).toBe(team.id)
+            expect(events[0].team_id).toBe(team.id.toString())
         })
     })
 
     testWithTeamIngester(
         'can set and update group properties with $groupidentify events',
+        {},
         async (ingester, hub, team) => {
             const groupKey = 'group_key'
             const distinctId = new UUIDT().toString()
@@ -240,6 +316,7 @@ describe('Event Pipeline E2E tests', () => {
 
             await ingester.handleKafkaBatch(createKafkaMessages(events))
 
+            await waitForKafkaMessages(hub)
             await waitForExpect(async () => {
                 const group = await hub.db.fetchGroup(team.id, 0, groupKey)
                 expect(group).toEqual(
@@ -261,6 +338,8 @@ describe('Event Pipeline E2E tests', () => {
             ]
 
             await ingester.handleKafkaBatch(createKafkaMessages(updateEvents))
+
+            await waitForKafkaMessages(hub)
 
             await waitForExpect(async () => {
                 const group = await hub.db.fetchGroup(team.id, 0, groupKey)
@@ -291,104 +370,8 @@ describe('Event Pipeline E2E tests', () => {
     )
 
     testWithTeamIngester(
-        'can set and update group properties with $groupidentify events, when batch processing',
-        async (ingester, hub, team) => {
-            const groupKey = 'group_key'
-            const distinctId = new UUIDT().toString()
-
-            const events = [
-                new EventBuilder(team, distinctId)
-                    .withEvent('$groupidentify')
-                    .withGroupProperties('organization', groupKey, { foo: 'bar' })
-                    .build(),
-            ]
-
-            await ingester.handleKafkaBatch(createKafkaMessages(events))
-
-            await waitForExpect(async () => {
-                const group = await hub.db.fetchGroup(team.id, 0, groupKey)
-                expect(group).toEqual(
-                    expect.objectContaining({
-                        team_id: team.id,
-                        group_type_index: 0,
-                        group_properties: { foo: 'bar' },
-                        group_key: groupKey,
-                        version: 1,
-                    })
-                )
-            })
-
-            const updateEvents = [
-                new EventBuilder(team, distinctId)
-                    .withEvent('$groupidentify')
-                    .withGroupProperties('organization', groupKey, { prop: 'value' })
-                    .build(),
-            ]
-
-            await ingester.handleKafkaBatch(createKafkaMessages(updateEvents))
-
-            await waitForExpect(async () => {
-                const group = await hub.db.fetchGroup(team.id, 0, groupKey)
-                expect(group).toEqual(
-                    expect.objectContaining({
-                        team_id: team.id,
-                        group_type_index: 0,
-                        group_properties: { foo: 'bar', prop: 'value' },
-                        group_key: groupKey,
-                        version: 2,
-                    })
-                )
-            })
-
-            await waitForExpect(async () => {
-                const events = await fetchEvents(hub, team.id)
-                expect(events.length).toEqual(2)
-                expect(events[0].event).toEqual('$groupidentify')
-                expect(events[0].properties.$group_set).toEqual({ foo: 'bar' })
-                expect(events[1].event).toEqual('$groupidentify')
-                expect(events[1].properties.$group_set).toEqual({ prop: 'value' })
-            })
-
-            // Should have fetched the group 4 times:
-            // 1 for each event and 2 in test check
-            expect(hub.db.fetchGroup).toHaveBeenCalledTimes(4)
-        },
-        {
-            GROUP_BATCH_WRITING_ENABLED: true,
-        }
-    )
-
-    testWithTeamIngester('can handle high amount of $groupidentify in same batch', async (ingester, hub, team) => {
-        const n = 150
-        const distinctId = new UUIDT().toString()
-        const events = []
-        for (let i = 0; i < n; i++) {
-            const m: Record<string, number> = {}
-            m[i.toString()] = i
-            events.push(
-                new EventBuilder(team, distinctId)
-                    .withEvent('$groupidentify')
-                    .withGroupProperties('organization', 'group_key', m)
-                    .build()
-            )
-        }
-
-        await ingester.handleKafkaBatch(createKafkaMessages(events))
-
-        await waitForExpect(async () => {
-            const events = await fetchEvents(hub, team.id)
-            expect(events.length).toEqual(n)
-        })
-
-        // Should have fetched the group for each event
-        expect(hub.db.fetchGroup).toHaveBeenCalledTimes(150)
-        expect(hub.db.insertGroup).toHaveBeenCalledTimes(1)
-        expect(hub.db.updateGroup).toHaveBeenCalledTimes(149)
-        expect(hub.db.updateGroupOptimistically).toHaveBeenCalledTimes(0)
-    })
-
-    testWithTeamIngester(
-        'can handle high amount of $groupidentify in same batch, when batch processing',
+        'can handle high amount of $groupidentify in same batch',
+        { pluginServerConfig: { GROUP_BATCH_WRITING_ENABLED: true } },
         async (ingester, hub, team) => {
             const n = 150
             const distinctId = new UUIDT().toString()
@@ -406,6 +389,8 @@ describe('Event Pipeline E2E tests', () => {
 
             await ingester.handleKafkaBatch(createKafkaMessages(events))
 
+            await waitForKafkaMessages(hub)
+
             await waitForExpect(async () => {
                 const events = await fetchEvents(hub, team.id)
                 expect(events.length).toEqual(n)
@@ -417,13 +402,10 @@ describe('Event Pipeline E2E tests', () => {
             // Update once
             expect(hub.db.updateGroup).toHaveBeenCalledTimes(0)
             expect(hub.db.updateGroupOptimistically).toHaveBeenCalledTimes(1)
-        },
-        {
-            GROUP_BATCH_WRITING_ENABLED: true,
         }
     )
 
-    testWithTeamIngester('can handle multiple $groupidentify in same batch', async (ingester, hub, team) => {
+    testWithTeamIngester('can handle multiple $groupidentify in same batch', {}, async (ingester, hub, team) => {
         const timestamp = DateTime.now().toMillis()
         const distinctId = new UUIDT().toString()
         const groupKey = 'group_key'
@@ -447,6 +429,8 @@ describe('Event Pipeline E2E tests', () => {
 
         await ingester.handleKafkaBatch(createKafkaMessages(events))
 
+        await waitForKafkaMessages(hub)
+
         await waitForExpect(async () => {
             const events = await fetchEvents(hub, team.id)
             expect(events.length).toEqual(3)
@@ -458,84 +442,30 @@ describe('Event Pipeline E2E tests', () => {
             expect(events[2].properties.$group_set).toEqual({ k2: 'v3', k4: 'v3' })
         })
 
+        // Should have fetched the group once
+        expect(hub.db.fetchGroup).toHaveBeenCalledTimes(1)
+
         await waitForExpect(async () => {
             const group = await hub.db.fetchGroup(team.id, 0, groupKey)
             expect(group).toEqual(
                 expect.objectContaining({
                     team_id: team.id,
                     group_type_index: 0,
-                    // Missing k3: v2 as we do not read the group properties before making a write
                     group_properties: { k1: 'v1', k2: 'v3', k3: 'v2', k4: 'v3' },
                     group_key: groupKey,
-                    version: 3,
+                    // Just one write after the creation of the group
+                    version: 2,
                 })
             )
         })
     })
 
-    testWithTeamIngester(
-        'can handle multiple $groupidentify in same batch, when batch processing',
-        async (ingester, hub, team) => {
-            const timestamp = DateTime.now().toMillis()
-            const distinctId = new UUIDT().toString()
-            const groupKey = 'group_key'
-            const events = [
-                new EventBuilder(team, distinctId)
-                    .withEvent('$groupidentify')
-                    .withGroupProperties('organization', groupKey, { k1: 'v1' })
-                    .withTimestamp(timestamp)
-                    .build(),
-                new EventBuilder(team, distinctId)
-                    .withEvent('$groupidentify')
-                    .withGroupProperties('organization', groupKey, { k2: 'v2', k3: 'v2' })
-                    .withTimestamp(timestamp + 1)
-                    .build(),
-                new EventBuilder(team, distinctId)
-                    .withEvent('$groupidentify')
-                    .withGroupProperties('organization', groupKey, { k2: 'v3', k4: 'v3' })
-                    .withTimestamp(timestamp + 2)
-                    .build(),
-            ]
-
-            await ingester.handleKafkaBatch(createKafkaMessages(events))
-
-            await waitForExpect(async () => {
-                const events = await fetchEvents(hub, team.id)
-                expect(events.length).toEqual(3)
-                expect(events[0].event).toEqual('$groupidentify')
-                expect(events[0].properties.$group_set).toEqual({ k1: 'v1' })
-                expect(events[1].event).toEqual('$groupidentify')
-                expect(events[1].properties.$group_set).toEqual({ k2: 'v2', k3: 'v2' })
-                expect(events[2].event).toEqual('$groupidentify')
-                expect(events[2].properties.$group_set).toEqual({ k2: 'v3', k4: 'v3' })
-            })
-
-            // Should have fetched the group once
-            expect(hub.db.fetchGroup).toHaveBeenCalledTimes(1)
-
-            await waitForExpect(async () => {
-                const group = await hub.db.fetchGroup(team.id, 0, groupKey)
-                expect(group).toEqual(
-                    expect.objectContaining({
-                        team_id: team.id,
-                        group_type_index: 0,
-                        group_properties: { k1: 'v1', k2: 'v3', k3: 'v2', k4: 'v3' },
-                        group_key: groupKey,
-                        // Just one write after the creation of the group
-                        version: 2,
-                    })
-                )
-            })
-        },
-        {
-            GROUP_BATCH_WRITING_ENABLED: true,
-        }
-    )
-
-    testWithTeamIngester('can handle $groupidentify with no properties', async (ingester, hub, team) => {
+    testWithTeamIngester('can handle $groupidentify with no properties', {}, async (ingester, hub, team) => {
         const events = [new EventBuilder(team).withEvent('$groupidentify').withProperties({}).build()]
 
         await ingester.handleKafkaBatch(createKafkaMessages(events))
+
+        await waitForKafkaMessages(hub)
 
         await waitForExpect(async () => {
             const events = await fetchEvents(hub, team.id)
@@ -546,26 +476,60 @@ describe('Event Pipeline E2E tests', () => {
     })
 
     testWithTeamIngester(
-        'can handle $groupidentify with no properties, when batch processing',
+        'can handle multiple $groupidentify for different distinct ids',
+        {},
         async (ingester, hub, team) => {
-            const events = [new EventBuilder(team).withEvent('$groupidentify').withProperties({}).build()]
+            const n = 50
+            const distinctIds = []
+            for (let i = 0; i < n; i++) {
+                distinctIds.push(new UUIDT().toString())
+            }
 
+            const events = []
+            for (const distinctId of distinctIds) {
+                events.push(
+                    new EventBuilder(team, distinctId)
+                        .withEvent('$groupidentify')
+                        .withGroupProperties('organization', distinctId, { foo: 'bar' })
+                        .build()
+                )
+                events.push(
+                    new EventBuilder(team, distinctId)
+                        .withEvent('$groupidentify')
+                        .withGroupProperties('organization', distinctId, { update: 'new' })
+                        .build()
+                )
+            }
+
+            // handle 100 events in one batch
             await ingester.handleKafkaBatch(createKafkaMessages(events))
+
+            await waitForKafkaMessages(hub)
 
             await waitForExpect(async () => {
                 const events = await fetchEvents(hub, team.id)
-                expect(events.length).toEqual(1)
-                expect(events[0].event).toEqual('$groupidentify')
-                expect(events[0].properties).toEqual({})
+                expect(events.length).toEqual(n * 2)
             })
-        },
-        {
-            GROUP_BATCH_WRITING_ENABLED: true,
+
+            for (const distinctId of distinctIds) {
+                await waitForExpect(async () => {
+                    const group = await hub.db.fetchGroup(team.id, 0, distinctId)
+                    expect(group).toEqual(
+                        expect.objectContaining({
+                            team_id: team.id,
+                            group_type_index: 0,
+                            group_properties: { foo: 'bar', update: 'new' },
+                            version: 2,
+                        })
+                    )
+                })
+            }
         }
     )
 
     testWithTeamIngester(
         'can handle multiple $groupidentify for different distinct ids',
+        {},
         async (ingester, hub, team) => {
             const n = 50
             const distinctIds = []
@@ -591,6 +555,8 @@ describe('Event Pipeline E2E tests', () => {
 
             // handle 100 events in one batch
             await ingester.handleKafkaBatch(createKafkaMessages(events))
+
+            await waitForKafkaMessages(hub)
 
             await waitForExpect(async () => {
                 const events = await fetchEvents(hub, team.id)
@@ -614,101 +580,53 @@ describe('Event Pipeline E2E tests', () => {
     )
 
     testWithTeamIngester(
-        'can handle multiple $groupidentify for different distinct ids, when batch processing',
+        'can $set and update person properties when reading event',
+        {},
         async (ingester, hub, team) => {
-            const n = 50
-            const distinctIds = []
-            for (let i = 0; i < n; i++) {
-                distinctIds.push(new UUIDT().toString())
-            }
-
-            const events = []
-            for (const distinctId of distinctIds) {
-                events.push(
+            const distinctId = new UUIDT().toString()
+            const timestamp = DateTime.now().toMillis()
+            await ingester.handleKafkaBatch(
+                createKafkaMessages([
                     new EventBuilder(team, distinctId)
-                        .withEvent('$groupidentify')
-                        .withGroupProperties('organization', distinctId, { foo: 'bar' })
-                        .build()
-                )
-                events.push(
+                        .withEvent('$identify')
+                        .withProperties({
+                            $set: { prop: 'value' },
+                        })
+                        .withTimestamp(timestamp)
+                        .build(),
                     new EventBuilder(team, distinctId)
-                        .withEvent('$groupidentify')
-                        .withGroupProperties('organization', distinctId, { update: 'new' })
-                        .build()
-                )
-            }
-
-            // handle 100 events in one batch
-            await ingester.handleKafkaBatch(createKafkaMessages(events))
+                        .withEvent('$identify')
+                        .withProperties({
+                            $set: { prop: 'updated value' },
+                        })
+                        .withTimestamp(timestamp + 1)
+                        .build(),
+                    new EventBuilder(team, distinctId)
+                        .withEvent('$identify')
+                        .withProperties({
+                            $set: { value: 'new value' },
+                        })
+                        .withTimestamp(timestamp + 2)
+                        .build(),
+                ])
+            )
 
             await waitForExpect(async () => {
                 const events = await fetchEvents(hub, team.id)
-                expect(events.length).toEqual(n * 2)
+                expect(events.length).toEqual(3)
+                expect(events[0].event).toEqual('$identify')
+                expect(events[0].person_properties).toEqual(expect.objectContaining({ prop: 'value' }))
+                expect(events[1].event).toEqual('$identify')
+                expect(events[1].person_properties).toEqual(expect.objectContaining({ prop: 'updated value' }))
+                expect(events[2].event).toEqual('$identify')
+                expect(events[2].person_properties).toEqual(
+                    expect.objectContaining({ prop: 'updated value', value: 'new value' })
+                )
             })
-
-            for (const distinctId of distinctIds) {
-                await waitForExpect(async () => {
-                    const group = await hub.db.fetchGroup(team.id, 0, distinctId)
-                    expect(group).toEqual(
-                        expect.objectContaining({
-                            team_id: team.id,
-                            group_type_index: 0,
-                            group_properties: { foo: 'bar', update: 'new' },
-                            version: 2,
-                        })
-                    )
-                })
-            }
-        },
-        {
-            GROUP_BATCH_WRITING_ENABLED: true,
         }
     )
 
-    testWithTeamIngester('can $set and update person properties when reading event', async (ingester, hub, team) => {
-        const distinctId = new UUIDT().toString()
-        const timestamp = DateTime.now().toMillis()
-        await ingester.handleKafkaBatch(
-            createKafkaMessages([
-                new EventBuilder(team, distinctId)
-                    .withEvent('$identify')
-                    .withProperties({
-                        $set: { prop: 'value' },
-                    })
-                    .withTimestamp(timestamp)
-                    .build(),
-                new EventBuilder(team, distinctId)
-                    .withEvent('$identify')
-                    .withProperties({
-                        $set: { prop: 'updated value' },
-                    })
-                    .withTimestamp(timestamp + 1)
-                    .build(),
-                new EventBuilder(team, distinctId)
-                    .withEvent('$identify')
-                    .withProperties({
-                        $set: { value: 'new value' },
-                    })
-                    .withTimestamp(timestamp + 2)
-                    .build(),
-            ])
-        )
-
-        await waitForExpect(async () => {
-            const events = await fetchEvents(hub, team.id)
-            expect(events.length).toEqual(3)
-            expect(events[0].event).toEqual('$identify')
-            expect(events[0].person_properties).toEqual(expect.objectContaining({ prop: 'value' }))
-            expect(events[1].event).toEqual('$identify')
-            expect(events[1].person_properties).toEqual(expect.objectContaining({ prop: 'updated value' }))
-            expect(events[2].event).toEqual('$identify')
-            expect(events[2].person_properties).toEqual(
-                expect.objectContaining({ prop: 'updated value', value: 'new value' })
-            )
-        })
-    })
-
-    testWithTeamIngester('can handle events with $process_person_profile=false', async (ingester, hub, team) => {
+    testWithTeamIngester('can handle events with $process_person_profile=false', {}, async (ingester, hub, team) => {
         const distinctId = new UUIDT().toString()
         const timestamp = DateTime.now().toMillis()
         await ingester.handleKafkaBatch(
@@ -765,32 +683,37 @@ describe('Event Pipeline E2E tests', () => {
         })
     })
 
-    testWithTeamIngester('can $set and update person properties with top level $set', async (ingester, hub, team) => {
-        const distinctId = new UUIDT().toString()
-        await ingester.handleKafkaBatch(
-            createKafkaMessages([
-                new EventBuilder(team, distinctId)
-                    .withEvent('$identify')
-                    .withProperties({
-                        distinct_id: distinctId,
-                    })
-                    .withOverrides({
-                        $set: { prop: 'value' },
-                    })
-                    .build(),
-            ])
-        )
+    testWithTeamIngester(
+        'can $set and update person properties with top level $set',
+        {},
+        async (ingester, hub, team) => {
+            const distinctId = new UUIDT().toString()
+            await ingester.handleKafkaBatch(
+                createKafkaMessages([
+                    new EventBuilder(team, distinctId)
+                        .withEvent('$identify')
+                        .withProperties({
+                            distinct_id: distinctId,
+                        })
+                        .withOverrides({
+                            $set: { prop: 'value' },
+                        })
+                        .build(),
+                ])
+            )
 
-        await waitForExpect(async () => {
-            const events = await fetchEvents(hub, team.id)
-            expect(events.length).toEqual(1)
-            expect(events[0].event).toEqual('$identify')
-            expect(events[0].person_properties).toEqual(expect.objectContaining({ prop: 'value' }))
-        })
-    })
+            await waitForExpect(async () => {
+                const events = await fetchEvents(hub, team.id)
+                expect(events.length).toEqual(1)
+                expect(events[0].event).toEqual('$identify')
+                expect(events[0].person_properties).toEqual(expect.objectContaining({ prop: 'value' }))
+            })
+        }
+    )
 
     testWithTeamIngester(
         'should guarantee that person properties are set in the order of the events',
+        {},
         async (ingester, hub, team) => {
             const distinctId = new UUIDT().toString()
             const timestamp = DateTime.now().toMillis()
@@ -839,6 +762,7 @@ describe('Event Pipeline E2E tests', () => {
 
     testWithTeamIngester(
         'should be able to $set_once person properties but not update',
+        {},
         async (ingester, hub, team) => {
             const distinctId = new UUIDT().toString()
             const events = [
@@ -867,6 +791,7 @@ describe('Event Pipeline E2E tests', () => {
 
     testWithTeamIngester(
         'should be able to $set_once person properties but not update, at the top level',
+        {},
         async (ingester, hub, team) => {
             const distinctId = new UUIDT().toString()
             const events = [
@@ -898,7 +823,7 @@ describe('Event Pipeline E2E tests', () => {
         }
     )
 
-    testWithTeamIngester('should identify previous events with $anon_distinct_id', async (ingester, hub, team) => {
+    testWithTeamIngester('should identify previous events with $anon_distinct_id', {}, async (ingester, hub, team) => {
         const initialDistinctId = new UUIDT().toString()
         const personIdentifier = 'test@posthog.com'
 
@@ -922,7 +847,7 @@ describe('Event Pipeline E2E tests', () => {
         })
     })
 
-    testWithTeamIngester('should perserve all events if merge fails', async (ingester, hub, team) => {
+    testWithTeamIngester('should perserve all events if merge fails', {}, async (ingester, hub, team) => {
         const illegalDistinctId = '0'
         const distinctId = new UUIDT().toString()
 
@@ -932,6 +857,8 @@ describe('Event Pipeline E2E tests', () => {
         ]
 
         await ingester.handleKafkaBatch(createKafkaMessages(events))
+
+        await waitForKafkaMessages(hub)
 
         await waitForExpect(async () => {
             const persons = await fetchPersons(hub, team.id)
@@ -960,7 +887,7 @@ describe('Event Pipeline E2E tests', () => {
         })
     })
 
-    testWithTeamIngester('should preserve properties if merge fails', async (ingester, hub, team) => {
+    testWithTeamIngester('should preserve properties if merge fails', {}, async (ingester, hub, team) => {
         const illegalDistinctId = '0'
         const distinctId = new UUIDT().toString()
         await ingester.handleKafkaBatch(
@@ -984,7 +911,7 @@ describe('Event Pipeline E2E tests', () => {
         })
     })
 
-    testWithTeamIngester('should merge all events into same person id', async (ingester, hub, team) => {
+    testWithTeamIngester('should merge all events into same person id', {}, async (ingester, hub, team) => {
         const initialDistinctId = 'id1'
         const secondDistinctId = 'id2'
         const personIdentifier = 'person_id'
@@ -993,6 +920,8 @@ describe('Event Pipeline E2E tests', () => {
         const event2 = new EventBuilder(team, secondDistinctId).withEvent('custom event 2').withProperties({}).build()
 
         await ingester.handleKafkaBatch(createKafkaMessages([event1, event2]))
+
+        await waitForKafkaMessages(hub)
 
         await waitForExpect(async () => {
             const persons = await fetchPersons(hub, team.id)
@@ -1031,6 +960,8 @@ describe('Event Pipeline E2E tests', () => {
             ])
         )
 
+        await waitForKafkaMessages(hub)
+
         await waitForExpect(async () => {
             const events = await fetchEvents(hub, team.id)
             expect(events.length).toEqual(4)
@@ -1040,7 +971,7 @@ describe('Event Pipeline E2E tests', () => {
         })
     })
 
-    testWithTeamIngester('should resolve to same person id chained merges', async (ingester, hub, team) => {
+    testWithTeamIngester('should resolve to same person id chained merges', {}, async (ingester, hub, team) => {
         const initialDistinctId = 'initialId'
         const secondDistinctId = 'secondId'
         const thirdDistinctId = 'thirdId'
@@ -1052,6 +983,8 @@ describe('Event Pipeline E2E tests', () => {
                 new EventBuilder(team, thirdDistinctId).withEvent('custom event 3').withProperties({}).build(),
             ])
         )
+
+        await waitForKafkaMessages(hub)
 
         await waitForExpect(async () => {
             const events = await fetchEvents(hub, team.id)
@@ -1078,6 +1011,8 @@ describe('Event Pipeline E2E tests', () => {
             ])
         )
 
+        await waitForKafkaMessages(hub)
+
         await waitForExpect(async () => {
             const events = await fetchEvents(hub, team.id)
             expect(events.length).toEqual(5)
@@ -1087,6 +1022,7 @@ describe('Event Pipeline E2E tests', () => {
 
     testWithTeamIngester(
         'should resolve to same person id even with complex chained merges',
+        {},
         async (ingester, hub, team) => {
             const initialDistinctId = new UUIDT().toString()
             const secondDistinctId = new UUIDT().toString()
@@ -1101,6 +1037,8 @@ describe('Event Pipeline E2E tests', () => {
                     new EventBuilder(team, forthDistinctId).withEvent('custom event 4').withProperties({}).build(),
                 ])
             )
+
+            await waitForKafkaMessages(hub)
 
             await waitForExpect(async () => {
                 const persons = await fetchPersons(hub, team.id)
@@ -1126,6 +1064,8 @@ describe('Event Pipeline E2E tests', () => {
                 ])
             )
 
+            await waitForKafkaMessages(hub)
+
             await waitForExpect(async () => {
                 const events = await fetchEvents(hub, team.id)
                 expect(events.length).toBe(6)
@@ -1143,6 +1083,8 @@ describe('Event Pipeline E2E tests', () => {
                 ])
             )
 
+            await waitForKafkaMessages(hub)
+
             await waitForExpect(async () => {
                 const events = await fetchEvents(hub, team.id)
                 expect(events.length).toBe(7)
@@ -1151,7 +1093,7 @@ describe('Event Pipeline E2E tests', () => {
         }
     )
 
-    testWithTeamIngester('should produce ingestion warnings for messages over 1MB', async (ingester, hub, team) => {
+    testWithTeamIngester('should produce ingestion warnings for messages over 1MB', {}, async (ingester, hub, team) => {
         // For this we basically want the plugin-server to try and produce a new
         // message larger than 1MB. We do this by creating a person with a lot of
         // properties. We will end up denormalizing the person properties onto the
@@ -1178,6 +1120,8 @@ describe('Event Pipeline E2E tests', () => {
 
         await ingester.handleKafkaBatch(createKafkaMessages(events))
 
+        await waitForKafkaMessages(hub)
+
         await waitForExpect(async () => {
             const ingestionWarnings = await fetchIngestionWarnings(hub, team.id)
             expect(ingestionWarnings.length).toBe(1)
@@ -1186,7 +1130,7 @@ describe('Event Pipeline E2E tests', () => {
     })
 
     const fetchPersons = async (hub: Hub, teamId: number) => {
-        const persons = await hub.db.fetchPersons(Database.ClickHouse, teamId)
+        const persons = await clickhouse.fetchPersons(teamId)
         return persons.map((person) => ({
             ...person,
             properties: parseJSON(person.properties),
@@ -1194,7 +1138,10 @@ describe('Event Pipeline E2E tests', () => {
     }
 
     const fetchEvents = async (hub: Hub, teamId: number) => {
-        const queryResult = (await hub.db.clickhouse.querying(`
+        // Force ClickHouse to merge parts to ensure FINAL consistency
+        await clickhouse.exec(`OPTIMIZE TABLE person_distinct_id_overrides FINAL`)
+
+        const queryResult = (await clickhouse.query(`
             SELECT *,
                    if(notEmpty(overrides.person_id), overrides.person_id, e.person_id) as person_id
             FROM events e
@@ -1210,17 +1157,851 @@ describe('Event Pipeline E2E tests', () => {
             ) AS overrides USING distinct_id
             WHERE team_id = ${teamId}
             ORDER BY timestamp ASC
-        `)) as unknown as ClickHouse.ObjectQueryResult<RawClickHouseEvent>
-        return queryResult.data.map(parseRawClickHouseEvent)
+        `)) as unknown as RawClickHouseEvent[]
+        return queryResult.map(parseRawClickHouseEvent)
     }
 
     const fetchIngestionWarnings = async (hub: Hub, teamId: number) => {
-        const queryResult = (await hub.db.clickhouse.querying(`
+        const queryResult = await clickhouse.query(`
             SELECT *
             FROM ingestion_warnings
             WHERE team_id = ${teamId}
-            ORDER BY timestamp ASC
-        `)) as unknown as ClickHouse.ObjectQueryResult<any>
-        return queryResult.data.map((warning) => ({ ...warning, details: parseJSON(warning.details) }))
+        `)
+
+        return queryResult.map((warning: any) => ({ ...warning, details: parseJSON(warning.details) }))
     }
+
+    testWithTeamIngester('alias events ordering scenario 1: original order', {}, async (ingester, hub, team) => {
+        const testName = DateTime.now().toFormat('yyyy-MM-dd-HH-mm-ss')
+        const user1DistinctId = 'user1-distinct-id'
+        const user2DistinctId = 'user2-distinct-id'
+        const user3DistinctId = 'user3-distinct-id'
+
+        const events = [
+            // User 1 creation
+            new EventBuilder(team, user1DistinctId)
+                .withEvent('$identify')
+                .withProperties({
+                    $set: {
+                        name: 'User 1',
+                        email: `user1-${user1DistinctId}@example.com`,
+                        age: 30,
+                        test_name: testName,
+                    },
+                })
+                .build(),
+            new EventBuilder(team, user1DistinctId)
+                .withEvent('$identify')
+                .withProperties({
+                    $set: {
+                        new_name: 'User 1 - Updated',
+                    },
+                })
+                .build(),
+            // User 2 creation
+            new EventBuilder(team, user2DistinctId)
+                .withEvent('$identify')
+                .withProperties({
+                    $set: {
+                        name: 'User 2',
+                        email: `user2-${user2DistinctId}@example.com`,
+                        age: 30,
+                        test_name: testName,
+                    },
+                })
+                .build(),
+            new EventBuilder(team, user2DistinctId)
+                .withEvent('$identify')
+                .withProperties({
+                    $set: {
+                        new_name: 'User 2 - Updated',
+                    },
+                })
+                .build(),
+            // Merge users: alias user1 -> user2
+            new EventBuilder(team, user1DistinctId)
+                .withEvent('$create_alias')
+                .withProperties({
+                    distinct_id: user1DistinctId,
+                    alias: user2DistinctId,
+                })
+                .build(),
+
+            // Create alias for user2 -> user3
+            new EventBuilder(team, user2DistinctId)
+                .withEvent('$create_alias')
+                .withProperties({
+                    distinct_id: user2DistinctId,
+                    alias: user3DistinctId,
+                })
+                .build(),
+        ]
+
+        await ingester.handleKafkaBatch(createKafkaMessages(events))
+        await waitForKafkaMessages(hub)
+
+        await waitForExpect(async () => {
+            const events = await fetchEvents(hub, team.id)
+            expect(events.length).toBe(6)
+
+            // TODO: Add specific assertions based on expected behavior
+            // All events should be processed without errors
+            expect(events).toBeDefined()
+        })
+
+        // fetch the person properties
+        await waitForExpect(async () => {
+            const persons = await fetchPostgresPersons(hub.db, team.id)
+            expect(persons.length).toBe(1)
+            const personsClickhouse = await fetchPersons(hub, team.id)
+            expect(personsClickhouse.length).toBe(1)
+            expect(persons[0].properties).toMatchObject(
+                expect.objectContaining({
+                    name: 'User 1',
+                    new_name: 'User 1 - Updated',
+                    email: `user1-${user1DistinctId}@example.com`,
+                    age: 30,
+                    test_name: testName,
+                })
+            )
+            expect(personsClickhouse[0].properties).toMatchObject(
+                expect.objectContaining({
+                    name: 'User 1',
+                    new_name: 'User 1 - Updated',
+                    email: `user1-${user1DistinctId}@example.com`,
+                    age: 30,
+                    test_name: testName,
+                })
+            )
+            const distinctIdsPersons = await hub.db.fetchDistinctIds({
+                id: persons[0].id,
+                team_id: team.id,
+            } as InternalPerson)
+            expect(distinctIdsPersons.length).toBe(3)
+            // Except distinctids to match the ids, in any order
+            expect(distinctIdsPersons.map((distinctId) => distinctId.distinct_id)).toEqual(
+                expect.arrayContaining([user1DistinctId, user2DistinctId, user3DistinctId])
+            )
+        })
+    })
+
+    testWithTeamIngester('alias events ordering scenario 2: alias first', {}, async (ingester, hub, team) => {
+        const testName = DateTime.now().toFormat('yyyy-MM-dd-HH-mm-ss')
+        const user1DistinctId = 'user1-distinct-id'
+        const user2DistinctId = 'user2-distinct-id'
+        const user3DistinctId = 'user3-distinct-id'
+
+        const events = [
+            // User 1 creation
+            new EventBuilder(team, user1DistinctId)
+                .withEvent('$identify')
+                .withProperties({
+                    $set: {
+                        name: 'User 1',
+                        email: `user1-${user1DistinctId}@example.com`,
+                        age: 30,
+                        test_name: testName,
+                    },
+                })
+                .build(),
+            new EventBuilder(team, user1DistinctId)
+                .withEvent('$identify')
+                .withProperties({
+                    $set: {
+                        new_name: 'User 1 - Updated',
+                    },
+                })
+                .build(),
+            // User 2 creation
+            new EventBuilder(team, user2DistinctId)
+                .withProperties({
+                    anon_distinct_id: user2DistinctId,
+                    $set: {
+                        name: 'User 2',
+                        email: `user2-${user2DistinctId}@example.com`,
+                        age: 30,
+                        test_name: testName,
+                    },
+                })
+                .build(),
+            new EventBuilder(team, user2DistinctId)
+                .withEvent('$identify')
+                .withProperties({
+                    $set: {
+                        new_name: 'User 2 - Updated',
+                    },
+                })
+                .build(),
+
+            // Create alias for user2 -> user3
+            new EventBuilder(team, user2DistinctId)
+                .withEvent('$create_alias')
+                .withProperties({
+                    distinct_id: user2DistinctId,
+                    alias: user3DistinctId,
+                })
+                .build(),
+
+            // Merge users: alias user1 -> user2
+            new EventBuilder(team, user1DistinctId)
+                .withEvent('$create_alias')
+                .withProperties({
+                    distinct_id: user1DistinctId,
+                    alias: user2DistinctId,
+                })
+                .build(),
+        ]
+
+        await ingester.handleKafkaBatch(createKafkaMessages(events))
+        await waitForKafkaMessages(hub)
+
+        await waitForExpect(async () => {
+            const events = await fetchEvents(hub, team.id)
+            expect(events.length).toBe(6)
+
+            // TODO: Add specific assertions based on expected behavior
+            // All events should be processed without errors
+            expect(events).toBeDefined()
+        })
+
+        // fetch the person properties
+        await waitForExpect(async () => {
+            const persons = await fetchPostgresPersons(hub.db, team.id)
+            expect(persons.length).toBe(1)
+            const personsClickhouse = await fetchPersons(hub, team.id)
+            expect(personsClickhouse.length).toBe(1)
+            expect(persons[0].properties).toMatchObject(
+                expect.objectContaining({
+                    name: 'User 1',
+                    new_name: 'User 1 - Updated',
+                    email: `user1-${user1DistinctId}@example.com`,
+                    age: 30,
+                    test_name: testName,
+                })
+            )
+            expect(personsClickhouse[0].properties).toMatchObject(
+                expect.objectContaining({
+                    name: 'User 1',
+                    new_name: 'User 1 - Updated',
+                    email: `user1-${user1DistinctId}@example.com`,
+                    age: 30,
+                    test_name: testName,
+                })
+            )
+            const distinctIdsPersons = await hub.db.fetchDistinctIds({
+                id: persons[0].id,
+                team_id: team.id,
+            } as InternalPerson)
+            expect(distinctIdsPersons.length).toBe(3)
+            // Except distinctids to match the ids, in any order
+            expect(distinctIdsPersons.map((distinctId) => distinctId.distinct_id)).toEqual(
+                expect.arrayContaining([user1DistinctId, user2DistinctId, user3DistinctId])
+            )
+        })
+    })
+
+    testWithTeamIngester('alias events ordering scenario 2: user 2 first', {}, async (ingester, hub, team) => {
+        const testName = DateTime.now().toFormat('yyyy-MM-dd-HH-mm-ss')
+        const user1DistinctId = 'user1-distinct-id'
+        const user2DistinctId = 'user2-distinct-id'
+        const user3DistinctId = 'user3-distinct-id'
+
+        const events = [
+            // User 2 creation
+            new EventBuilder(team, user2DistinctId)
+                .withProperties({
+                    anon_distinct_id: user2DistinctId,
+                    $set: {
+                        name: 'User 2',
+                        email: `user2-${user2DistinctId}@example.com`,
+                        age: 30,
+                        test_name: testName,
+                    },
+                })
+                .build(),
+            new EventBuilder(team, user2DistinctId)
+                .withEvent('$identify')
+                .withProperties({
+                    $set: {
+                        new_name: 'User 2 - Updated',
+                    },
+                })
+                .build(),
+
+            // Create alias for user2 -> user3
+            new EventBuilder(team, user2DistinctId)
+                .withEvent('$create_alias')
+                .withProperties({
+                    distinct_id: user2DistinctId,
+                    alias: user3DistinctId,
+                })
+                .build(),
+
+            // User 1 creation
+            new EventBuilder(team, user1DistinctId)
+                .withEvent('$identify')
+                .withProperties({
+                    $set: {
+                        name: 'User 1',
+                        email: `user1-${user1DistinctId}@example.com`,
+                        age: 30,
+                        test_name: testName,
+                    },
+                })
+                .build(),
+            new EventBuilder(team, user1DistinctId)
+                .withEvent('$identify')
+                .withProperties({
+                    $set: {
+                        new_name: 'User 1 - Updated',
+                    },
+                })
+                .build(),
+
+            // Merge users: alias user1 -> user2
+            new EventBuilder(team, user1DistinctId)
+                .withEvent('$create_alias')
+                .withProperties({
+                    distinct_id: user1DistinctId,
+                    alias: user2DistinctId,
+                })
+                .build(),
+        ]
+
+        await ingester.handleKafkaBatch(createKafkaMessages(events))
+        await waitForKafkaMessages(hub)
+
+        await waitForExpect(async () => {
+            const events = await fetchEvents(hub, team.id)
+            expect(events.length).toBe(6)
+
+            // TODO: Add specific assertions based on expected behavior
+            // All events should be processed without errors
+            expect(events).toBeDefined()
+        })
+
+        // fetch the person properties
+        await waitForExpect(async () => {
+            const persons = await fetchPostgresPersons(hub.db, team.id)
+            expect(persons.length).toBe(1)
+            const personsClickhouse = await fetchPersons(hub, team.id)
+            expect(personsClickhouse.length).toBe(1)
+            expect(persons[0].properties).toMatchObject(
+                expect.objectContaining({
+                    name: 'User 1',
+                    new_name: 'User 1 - Updated',
+                    email: `user1-${user1DistinctId}@example.com`,
+                    age: 30,
+                    test_name: testName,
+                })
+            )
+            expect(personsClickhouse[0].properties).toMatchObject(
+                expect.objectContaining({
+                    name: 'User 1',
+                    new_name: 'User 1 - Updated',
+                    email: `user1-${user1DistinctId}@example.com`,
+                    age: 30,
+                    test_name: testName,
+                })
+            )
+            const distinctIdsPersons = await hub.db.fetchDistinctIds({
+                id: persons[0].id,
+                team_id: team.id,
+            } as InternalPerson)
+            expect(distinctIdsPersons.length).toBe(3)
+            // Except distinctids to match the ids, in any order
+            expect(distinctIdsPersons.map((distinctId) => distinctId.distinct_id)).toEqual(
+                expect.arrayContaining([user1DistinctId, user2DistinctId, user3DistinctId])
+            )
+        })
+    })
+
+    testWithTeamIngester(
+        'alias events ordering scenario 2: user 2 first, separate batch',
+        {},
+        async (ingester, hub, team) => {
+            const testName = DateTime.now().toFormat('yyyy-MM-dd-HH-mm-ss')
+            const user1DistinctId = 'user1-distinct-id'
+            const user2DistinctId = 'user2-distinct-id'
+            const user3DistinctId = 'user3-distinct-id'
+
+            const events = [
+                // User 2 creation
+                new EventBuilder(team, user2DistinctId)
+                    .withProperties({
+                        anon_distinct_id: user2DistinctId,
+                        $set: {
+                            name: 'User 2',
+                            email: `user2-${user2DistinctId}@example.com`,
+                            age: 30,
+                            test_name: testName,
+                        },
+                    })
+                    .build(),
+                new EventBuilder(team, user2DistinctId)
+                    .withEvent('$identify')
+                    .withProperties({
+                        $set: {
+                            new_name: 'User 2 - Updated',
+                        },
+                    })
+                    .build(),
+
+                // Create alias for user2 -> user3
+                new EventBuilder(team, user2DistinctId)
+                    .withEvent('$create_alias')
+                    .withProperties({
+                        distinct_id: user2DistinctId,
+                        alias: user3DistinctId,
+                    })
+                    .build(),
+            ]
+
+            const events2 = [
+                // User 1 creation
+                new EventBuilder(team, user1DistinctId)
+                    .withEvent('$identify')
+                    .withProperties({
+                        $set: {
+                            name: 'User 1',
+                            email: `user1-${user1DistinctId}@example.com`,
+                            age: 30,
+                            test_name: testName,
+                        },
+                    })
+                    .build(),
+                new EventBuilder(team, user1DistinctId)
+                    .withEvent('$identify')
+                    .withProperties({
+                        $set: {
+                            new_name: 'User 1 - Updated',
+                        },
+                    })
+                    .build(),
+
+                // Merge users: alias user1 -> user2
+                new EventBuilder(team, user1DistinctId)
+                    .withEvent('$create_alias')
+                    .withProperties({
+                        distinct_id: user1DistinctId,
+                        alias: user2DistinctId,
+                    })
+                    .build(),
+            ]
+
+            await ingester.handleKafkaBatch(createKafkaMessages(events))
+            await waitForKafkaMessages(hub)
+
+            await ingester.handleKafkaBatch(createKafkaMessages(events2))
+            await waitForKafkaMessages(hub)
+
+            await waitForExpect(async () => {
+                const events = await fetchEvents(hub, team.id)
+                expect(events.length).toBe(6)
+
+                // TODO: Add specific assertions based on expected behavior
+                // All events should be processed without errors
+                expect(events).toBeDefined()
+            })
+
+            // fetch the person properties
+            await waitForExpect(async () => {
+                const persons = await fetchPostgresPersons(hub.db, team.id)
+                expect(persons.length).toBe(2)
+                const personsClickhouse = await fetchPersons(hub, team.id)
+                expect(personsClickhouse.length).toBe(2)
+                expect(persons.map((person) => person.properties)).toEqual(
+                    expect.arrayContaining([
+                        expect.objectContaining({
+                            name: 'User 1',
+                            new_name: 'User 1 - Updated',
+                            email: `user1-${user1DistinctId}@example.com`,
+                            age: 30,
+                            test_name: testName,
+                        }),
+                        expect.objectContaining({
+                            name: 'User 2',
+                            new_name: 'User 2 - Updated',
+                            email: `user2-${user2DistinctId}@example.com`,
+                            age: 30,
+                            test_name: testName,
+                        }),
+                    ])
+                )
+                expect(personsClickhouse.map((person) => person.properties)).toEqual(
+                    expect.arrayContaining([
+                        expect.objectContaining({
+                            name: 'User 1',
+                            new_name: 'User 1 - Updated',
+                            email: `user1-${user1DistinctId}@example.com`,
+                            age: 30,
+                            test_name: testName,
+                        }),
+                        expect.objectContaining({
+                            name: 'User 2',
+                            new_name: 'User 2 - Updated',
+                            email: `user2-${user2DistinctId}@example.com`,
+                            age: 30,
+                            test_name: testName,
+                        }),
+                    ])
+                )
+                const person1 = persons.find((person) => person.properties.name === 'User 1')!
+                const person2 = persons.find((person) => person.properties.name === 'User 2')!
+                const distinctIdsPersons1 = await hub.db.fetchDistinctIds({
+                    id: person1.id,
+                    team_id: team.id,
+                } as InternalPerson)
+                expect(distinctIdsPersons1.length).toBe(1)
+                // Except distinctids to match the ids, in any order
+                expect(distinctIdsPersons1.map((distinctId) => distinctId.distinct_id)).toEqual(
+                    expect.arrayContaining([user1DistinctId])
+                )
+                const distinctIdsPersons2 = await hub.db.fetchDistinctIds({
+                    id: person2.id,
+                    team_id: team.id,
+                } as InternalPerson)
+                expect(distinctIdsPersons2.length).toBe(2)
+                // Except distinctids to match the ids, in any order
+                expect(distinctIdsPersons2.map((distinctId) => distinctId.distinct_id)).toEqual(
+                    expect.arrayContaining([user2DistinctId, user3DistinctId])
+                )
+            })
+        }
+    )
+
+    testWithTeamIngester(
+        'Should set and $unset person properties, different batches',
+        {},
+        async (ingester, hub, team) => {
+            const user1DistinctId = 'user1-distinct-id'
+
+            const events = [
+                new EventBuilder(team, user1DistinctId)
+                    .withEvent('$identify')
+                    .withProperties({
+                        $set: {
+                            name: 'User 1',
+                            property_to_unset: 'value',
+                        },
+                    })
+                    .build(),
+            ]
+
+            await ingester.handleKafkaBatch(createKafkaMessages(events))
+            await waitForKafkaMessages(hub)
+
+            await waitForExpect(async () => {
+                const persons = await fetchPostgresPersons(hub.db, team.id)
+                expect(persons.length).toBe(1)
+                const personsClickhouse = await fetchPersons(hub, team.id)
+                expect(personsClickhouse.length).toBe(1)
+                expect(persons[0].properties).toMatchObject(
+                    expect.objectContaining({
+                        name: 'User 1',
+                        property_to_unset: 'value',
+                    })
+                )
+                expect(personsClickhouse[0].properties).toMatchObject(
+                    expect.objectContaining({
+                        name: 'User 1',
+                        property_to_unset: 'value',
+                    })
+                )
+            })
+
+            const events2 = [
+                new EventBuilder(team, user1DistinctId)
+                    .withEvent('$identify')
+                    .withProperties({
+                        $unset: ['property_to_unset'],
+                    })
+                    .build(),
+            ]
+
+            await ingester.handleKafkaBatch(createKafkaMessages(events2))
+            await waitForKafkaMessages(hub)
+
+            await waitForExpect(async () => {
+                const persons = await fetchPostgresPersons(hub.db, team.id)
+                expect(persons.length).toBe(1)
+                const personsClickhouse = await fetchPersons(hub, team.id)
+                expect(personsClickhouse.length).toBe(1)
+                expect(persons[0].properties).toMatchObject(
+                    expect.objectContaining({
+                        name: 'User 1',
+                    })
+                )
+                expect(persons[0].properties).not.toHaveProperty('property_to_unset')
+                expect(personsClickhouse[0].properties).toMatchObject(
+                    expect.objectContaining({
+                        name: 'User 1',
+                    })
+                )
+                expect(personsClickhouse[0].properties).not.toHaveProperty('property_to_unset')
+            })
+        }
+    )
+
+    testWithTeamIngester('Should set and $unset person properties, same batch', {}, async (ingester, hub, team) => {
+        const user1DistinctId = 'user1-distinct-id'
+
+        const events = [
+            new EventBuilder(team, user1DistinctId)
+                .withEvent('$identify')
+                .withProperties({
+                    $set: {
+                        name: 'User 1',
+                        property_to_unset: 'value',
+                    },
+                })
+                .build(),
+            new EventBuilder(team, user1DistinctId)
+                .withEvent('$identify')
+                .withProperties({
+                    $unset: ['property_to_unset'],
+                })
+                .build(),
+        ]
+
+        await ingester.handleKafkaBatch(createKafkaMessages(events))
+        await waitForKafkaMessages(hub)
+
+        await waitForExpect(async () => {
+            const persons = await fetchPostgresPersons(hub.db, team.id)
+            expect(persons.length).toBe(1)
+            const personsClickhouse = await fetchPersons(hub, team.id)
+            expect(personsClickhouse.length).toBe(1)
+            expect(persons[0].properties).toMatchObject(
+                expect.objectContaining({
+                    name: 'User 1',
+                })
+            )
+            expect(persons[0].properties).not.toHaveProperty('property_to_unset')
+            expect(personsClickhouse[0].properties).toMatchObject(
+                expect.objectContaining({
+                    name: 'User 1',
+                })
+            )
+            expect(personsClickhouse[0].properties).not.toHaveProperty('property_to_unset')
+        })
+    })
+
+    testWithTeamIngester(
+        'should process events with various timestamps when dropping is disabled',
+        { teamOverrides: { drop_events_older_than_seconds: null } },
+        async (ingester, hub, team) => {
+            const currentTime = DateTime.now().toMillis()
+            const events = [
+                // Current time event
+                new EventBuilder(team)
+                    .withEvent('current_time_event')
+                    .withTimestamp(currentTime)
+                    .withNow(currentTime)
+                    .build(),
+                // Recent event (30 minutes ago)
+                new EventBuilder(team)
+                    .withEvent('recent_event')
+                    .withTimestamp(currentTime - 30 * 60 * 1000)
+                    .withNow(currentTime)
+                    .build(),
+                // Old event (2 hours ago)
+                new EventBuilder(team)
+                    .withEvent('old_event')
+                    .withTimestamp(currentTime - 2 * 60 * 60 * 1000)
+                    .withNow(currentTime)
+                    .build(),
+                // Very old event (1 day ago)
+                new EventBuilder(team)
+                    .withEvent('very_old_event')
+                    .withTimestamp(currentTime - 24 * 60 * 60 * 1000)
+                    .withNow(currentTime)
+                    .build(),
+                // Extremely old event (1 month ago)
+                new EventBuilder(team)
+                    .withEvent('extremely_old_event')
+                    .withTimestamp(currentTime - 30 * 24 * 60 * 60 * 1000)
+                    .withNow(currentTime)
+                    .build(),
+                // Future event (1 hour from now)
+                new EventBuilder(team)
+                    .withEvent('future_event')
+                    .withTimestamp(currentTime + 60 * 60 * 1000)
+                    .withNow(currentTime)
+                    .build(),
+            ]
+
+            await ingester.handleKafkaBatch(createKafkaMessages(events))
+            await waitForKafkaMessages(hub)
+
+            await waitForExpect(async () => {
+                const events = await fetchEvents(hub, team.id)
+                // All events should be processed when dropping is disabled
+                expect(events.length).toBe(6)
+
+                // Verify all events are present
+                const eventTypes = events.map((e) => e.event)
+                expect(eventTypes).toContain('current_time_event')
+                expect(eventTypes).toContain('recent_event')
+                expect(eventTypes).toContain('old_event')
+                expect(eventTypes).toContain('very_old_event')
+                expect(eventTypes).toContain('extremely_old_event')
+                expect(eventTypes).toContain('future_event')
+            })
+        }
+    )
+
+    testWithTeamIngester(
+        'should drop old events when dropping is enabled',
+        { teamOverrides: { drop_events_older_than_seconds: 3600 } },
+        async (ingester, hub, team) => {
+            const currentTime = DateTime.now().toMillis()
+            const events = [
+                // Current time event - should pass
+                new EventBuilder(team)
+                    .withEvent('current_time_event')
+                    .withTimestamp(currentTime)
+                    .withNow(currentTime)
+                    .build(),
+                // Recent event (30 minutes ago) - should pass
+                new EventBuilder(team)
+                    .withEvent('recent_event')
+                    .withTimestamp(currentTime - 30 * 60 * 1000)
+                    .withNow(currentTime)
+                    .build(),
+                // Just under threshold (59 minutes ago) - should pass
+                new EventBuilder(team)
+                    .withEvent('just_under_threshold')
+                    .withTimestamp(currentTime - 59 * 60 * 1000)
+                    .withNow(currentTime)
+                    .build(),
+                // Just over threshold (61 minutes ago) - should be dropped
+                new EventBuilder(team)
+                    .withEvent('just_over_threshold')
+                    .withTimestamp(currentTime - 61 * 60 * 1000)
+                    .withNow(currentTime)
+                    .build(),
+                // Old event (2 hours ago) - should be dropped
+                new EventBuilder(team)
+                    .withEvent('old_event')
+                    .withTimestamp(currentTime - 2 * 60 * 60 * 1000)
+                    .withNow(currentTime)
+                    .build(),
+                // Very old event (1 day ago) - should be dropped
+                new EventBuilder(team)
+                    .withEvent('very_old_event')
+                    .withTimestamp(currentTime - 24 * 60 * 60 * 1000)
+                    .withNow(currentTime)
+                    .build(),
+                // Future event (1 hour from now) - should pass
+                new EventBuilder(team)
+                    .withEvent('future_event')
+                    .withTimestamp(currentTime + 60 * 60 * 1000)
+                    .withNow(currentTime)
+                    .build(),
+            ]
+
+            await ingester.handleKafkaBatch(createKafkaMessages(events))
+            await waitForKafkaMessages(hub)
+
+            await waitForExpect(async () => {
+                const events = await fetchEvents(hub, team.id)
+                // Only events under 1 hour old should be processed
+                expect(events.length).toBe(4)
+
+                // Verify only expected events are present
+                const eventTypes = events.map((e) => e.event)
+                expect(eventTypes).toContain('current_time_event')
+                expect(eventTypes).toContain('recent_event')
+                expect(eventTypes).toContain('just_under_threshold')
+                expect(eventTypes).toContain('future_event')
+
+                // Verify dropped events are not present
+                expect(eventTypes).not.toContain('just_over_threshold')
+                expect(eventTypes).not.toContain('old_event')
+                expect(eventTypes).not.toContain('very_old_event')
+            })
+
+            // Check that ingestion warnings were created for dropped events
+            await waitForExpect(async () => {
+                const warnings = await fetchIngestionWarnings(hub, team.id)
+                expect(warnings.length).toBe(3)
+
+                const warningTypes = warnings.map((w) => w.type)
+                expect(warningTypes).toEqual(
+                    expect.arrayContaining(['event_dropped_too_old', 'event_dropped_too_old', 'event_dropped_too_old'])
+                )
+            })
+        }
+    )
+
+    testWithTeamIngester(
+        'should process all events when drop threshold is set to 0',
+        { teamOverrides: { drop_events_older_than_seconds: 0 } },
+        async (ingester, hub, team) => {
+            const currentTime = DateTime.now().toMillis()
+            const events = [
+                // Current time event - should pass
+                new EventBuilder(team)
+                    .withEvent('current_time_event')
+                    .withTimestamp(currentTime)
+                    .withNow(currentTime)
+                    .build(),
+                // Recent event (30 minutes ago) - should pass
+                new EventBuilder(team)
+                    .withEvent('recent_event')
+                    .withTimestamp(currentTime - 30 * 60 * 1000)
+                    .withNow(currentTime)
+                    .build(),
+                // Old event (2 hours ago) - should pass (0 threshold means no dropping)
+                new EventBuilder(team)
+                    .withEvent('old_event')
+                    .withTimestamp(currentTime - 2 * 60 * 60 * 1000)
+                    .withNow(currentTime)
+                    .build(),
+                // Very old event (1 day ago) - should pass (0 threshold means no dropping)
+                new EventBuilder(team)
+                    .withEvent('very_old_event')
+                    .withTimestamp(currentTime - 24 * 60 * 60 * 1000)
+                    .withNow(currentTime)
+                    .build(),
+                // Extremely old event (1 month ago) - should pass (0 threshold means no dropping)
+                new EventBuilder(team)
+                    .withEvent('extremely_old_event')
+                    .withTimestamp(currentTime - 30 * 24 * 60 * 60 * 1000)
+                    .withNow(currentTime)
+                    .build(),
+                // Future event (1 hour from now) - should pass
+                new EventBuilder(team)
+                    .withEvent('future_event')
+                    .withTimestamp(currentTime + 60 * 60 * 1000)
+                    .withNow(currentTime)
+                    .build(),
+            ]
+
+            await ingester.handleKafkaBatch(createKafkaMessages(events))
+            await waitForKafkaMessages(hub)
+
+            await waitForExpect(async () => {
+                const events = await fetchEvents(hub, team.id)
+                // All events should be processed when threshold is 0 (no dropping)
+                expect(events.length).toBe(6)
+
+                // Verify all events are present
+                const eventTypes = events.map((e) => e.event)
+                expect(eventTypes).toContain('current_time_event')
+                expect(eventTypes).toContain('recent_event')
+                expect(eventTypes).toContain('old_event')
+                expect(eventTypes).toContain('very_old_event')
+                expect(eventTypes).toContain('extremely_old_event')
+                expect(eventTypes).toContain('future_event')
+            })
+
+            // Check that no ingestion warnings were created (no events should be dropped)
+            await waitForExpect(async () => {
+                const warnings = await fetchIngestionWarnings(hub, team.id)
+                expect(warnings.length).toBe(0)
+            })
+        }
+    )
 })

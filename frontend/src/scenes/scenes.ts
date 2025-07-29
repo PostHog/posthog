@@ -196,6 +196,10 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         name: 'Groups',
         defaultDocsPath: '/docs/product-analytics/group-analytics',
     },
+    [Scene.GroupsNew]: {
+        projectBased: true,
+        defaultDocsPath: '/docs/product-analytics/group-analytics',
+    },
     [Scene.Group]: {
         projectBased: true,
         name: 'People & groups',
@@ -432,17 +436,12 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         organizationBased: true,
         layout: 'app-container',
     },
-    [Scene.MessagingBroadcasts]: {
-        projectBased: true,
-        name: 'Messaging broadcasts',
-    },
-    [Scene.MessagingCampaigns]: {
-        projectBased: true,
-        name: 'Messaging campaigns',
-    },
-    [Scene.MessagingLibrary]: {
-        projectBased: true,
-        name: 'Messaging library',
+    [Scene.OAuthAuthorize]: {
+        name: 'Authorize',
+        layout: 'plain',
+        projectBased: false,
+        organizationBased: false,
+        allowUnauthenticated: true,
     },
     [Scene.HogFunction]: {
         projectBased: true,
@@ -524,7 +523,7 @@ export const redirects: Record<
             const after = dayjs(timestamp).subtract(15, 'second').startOf('second').toISOString()
             const before = dayjs(timestamp).add(15, 'second').startOf('second').toISOString()
             Object.assign(query.source as EventsQuery, { before, after })
-        } catch (e) {
+        } catch {
             lemonToast.error('Invalid event timestamp')
         }
         return combineUrl(urls.activity(ActivityTab.ExploreEvents), {}, { q: query }).url
@@ -533,6 +532,7 @@ export const redirects: Record<
     '/events/properties/:id': ({ id }) => urls.propertyDefinition(id),
     '/annotations': () => urls.annotations(),
     '/annotations/:id': ({ id }) => urls.annotation(id),
+    '/comments': () => urls.comments(),
     '/recordings/:id': ({ id }) => urls.replaySingle(id),
     '/recordings/playlists/:id': ({ id }) => urls.replayPlaylist(id),
     '/recordings/file-playback': () => urls.replayFilePlayback(),
@@ -568,7 +568,7 @@ export const redirects: Record<
     '/batch_exports': urls.dataPipelines('destinations'),
     '/apps': urls.dataPipelines('overview'),
     '/apps/:id': urls.dataPipelines('overview'),
-    '/messaging': urls.messagingBroadcasts(),
+    '/messaging': urls.messaging('campaigns'),
     '/settings/organization-rbac': urls.settings('organization-roles'),
     '/data-warehouse/sources/:id': ({ id }) => urls.dataWarehouseSource(id, 'schemas'),
     ...productRedirects,
@@ -627,6 +627,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.persons()]: [Scene.PersonsManagement, 'persons'],
     [urls.customCss()]: [Scene.CustomCss, 'customCss'],
     [urls.groups(':groupTypeIndex')]: [Scene.PersonsManagement, 'groups'],
+    [urls.groupsNew(':groupTypeIndex')]: [Scene.GroupsNew, 'groupsNew'],
     [urls.group(':groupTypeIndex', ':groupKey', false)]: [Scene.Group, 'group'],
     [urls.group(':groupTypeIndex', ':groupKey', false, ':groupTab')]: [Scene.Group, 'groupWithTab'],
     [urls.cohort(':id')]: [Scene.Cohort, 'cohort'],
@@ -645,6 +646,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.featureFlag(':id')]: [Scene.FeatureFlag, 'featureFlag'],
     [urls.annotations()]: [Scene.DataManagement, 'annotations'],
     [urls.annotation(':id')]: [Scene.DataManagement, 'annotation'],
+    [urls.comments()]: [Scene.DataManagement, 'comments'],
     [urls.projectHomepage()]: [Scene.ProjectHomepage, 'projectHomepage'],
     [urls.max()]: [Scene.Max, 'max'],
     [urls.projectCreateFirst()]: [Scene.ProjectCreateFirst, 'projectCreateFirst'],
@@ -695,6 +697,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.wizard()]: [Scene.Wizard, 'wizard'],
     [urls.startups()]: [Scene.StartupProgram, 'startupProgram'],
     [urls.startups(':referrer')]: [Scene.StartupProgram, 'startupProgramWithReferrer'],
+    [urls.oauthAuthorize()]: [Scene.OAuthAuthorize, 'oauthAuthorize'],
     [urls.dataPipelines(':kind' as any)]: [Scene.DataPipelines, 'dataPipelines'],
     [urls.dataPipelinesNew(':kind' as any)]: [Scene.DataPipelinesNew, 'dataPipelinesNew'],
     [urls.dataWarehouseSourceNew()]: [Scene.DataWarehouseSourceNew, 'dataWarehouseSourceNew'],

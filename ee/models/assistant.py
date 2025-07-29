@@ -1,9 +1,7 @@
-from collections.abc import Iterable
 from datetime import timedelta
 
 from django.db import models
 from django.utils import timezone
-from langgraph.checkpoint.serde.types import TASKS
 
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -33,10 +31,6 @@ class Conversation(UUIDModel):
     type = models.CharField(max_length=20, choices=Type.choices, default=Type.ASSISTANT)
     title = models.CharField(null=True, blank=True, help_text="Title of the conversation.", max_length=250)
 
-    @property
-    def is_locked(self) -> bool:
-        return self.status in (self.Status.IN_PROGRESS, self.Status.CANCELING)
-
 
 class ConversationCheckpoint(UUIDModel):
     thread = models.ForeignKey(Conversation, on_delete=models.CASCADE, related_name="checkpoints")
@@ -57,16 +51,6 @@ class ConversationCheckpoint(UUIDModel):
                 name="unique_checkpoint",
             )
         ]
-
-    @property
-    def pending_sends(self) -> Iterable["ConversationCheckpointWrite"]:
-        if self.parent_checkpoint is None:
-            return []
-        return self.parent_checkpoint.writes.filter(channel=TASKS).order_by("task_id", "idx")
-
-    @property
-    def pending_writes(self) -> Iterable["ConversationCheckpointWrite"]:
-        return self.writes.order_by("idx", "task_id")
 
 
 class ConversationCheckpointBlob(UUIDModel):
@@ -170,7 +154,10 @@ class CoreMemory(UUIDModel):
         self.save()
 
     def append_core_memory(self, text: str):
-        self.text = self.text + "\n" + text
+        if self.text == "":
+            self.text = text
+        else:
+            self.text = self.text + "\n" + text
         self.save()
 
     def replace_core_memory(self, original_fragment: str, new_fragment: str):

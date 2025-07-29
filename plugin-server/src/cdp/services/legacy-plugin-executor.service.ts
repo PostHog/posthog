@@ -1,5 +1,4 @@
 import { PluginEvent, ProcessedPluginEvent, RetryError, StorageExtension } from '@posthog/plugin-scaffold'
-import { DateTime } from 'luxon'
 import { Histogram } from 'prom-client'
 
 import { Hub } from '../../types'
@@ -15,9 +14,8 @@ import {
     LegacyTransformationPlugin,
     LegacyTransformationPluginMeta,
 } from '../legacy-plugins/types'
-import { sanitizeLogMessage } from '../services/hog-executor.service'
 import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult } from '../types'
-import { CDP_TEST_ID, isLegacyPluginHogFunction } from '../utils'
+import { CDP_TEST_ID, createAddLogFunction, isLegacyPluginHogFunction } from '../utils'
 import { createInvocationResult } from '../utils/invocation-utils'
 
 const pluginExecutionDuration = new Histogram({
@@ -116,17 +114,8 @@ export class LegacyPluginExecutorService {
         invocation: CyclotronJobInvocationHogFunction,
         options?: LegacyPluginExecutorOptions
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
-        const result = createInvocationResult<CyclotronJobInvocationHogFunction>(invocation, {
-            queue: 'plugin',
-        })
-
-        const addLog = (level: 'debug' | 'warn' | 'error' | 'info', ...args: any[]) => {
-            result.logs.push({
-                level,
-                timestamp: DateTime.now(),
-                message: sanitizeLogMessage(args),
-            })
-        }
+        const result = createInvocationResult<CyclotronJobInvocationHogFunction>(invocation)
+        const addLog = createAddLogFunction(result.logs)
 
         const pluginLogger: LegacyPluginLogger = {
             debug: (...args: any[]) => addLog('debug', ...args),

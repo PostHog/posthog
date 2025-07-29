@@ -2,6 +2,7 @@ import './LemonInput.scss'
 
 import { useMergeRefs } from '@floating-ui/react'
 import { IconEye, IconSearch, IconX } from '@posthog/icons'
+import { Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { IconEyeHidden } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -40,8 +41,10 @@ interface LemonInputPropsBase
     prefix?: React.ReactElement | null
     /** Element to suffix input field */
     suffix?: React.ReactElement | null
-    /** Whether input field is disabled */
+    /** @deprecated Use `disabledReason` instead and provide a reason. */
     disabled?: boolean
+    /** Like plain `disabled`, except we enforce a reason to be shown in the tooltip. */
+    disabledReason?: string | null | false
     /** Whether input field is full width. Cannot be used in conjuction with `autoWidth`. */
     fullWidth?: boolean
     /** Whether input field should be as wide as its content. Cannot be used in conjuction with `fullWidth`. */
@@ -75,7 +78,7 @@ export interface LemonInputPropsNumber
 
 export type LemonInputProps = LemonInputPropsText | LemonInputPropsNumber
 
-export const LemonInput = React.forwardRef<HTMLDivElement, LemonInputProps>(function _LemonInput(
+export const LemonInput = React.forwardRef<HTMLDivElement, LemonInputProps>(function LemonInput(
     {
         className,
         onChange,
@@ -94,6 +97,8 @@ export const LemonInput = React.forwardRef<HTMLDivElement, LemonInputProps>(func
         size = 'medium',
         stopPropagation = false,
         inputRef,
+        disabled,
+        disabledReason,
         ...props
     },
     ref
@@ -155,63 +160,66 @@ export const LemonInput = React.forwardRef<HTMLDivElement, LemonInputProps>(func
     const InputComponent = autoWidth ? RawInputAutosize : 'input'
 
     return (
-        <span
-            className={clsx(
-                'LemonInput',
-                status !== 'default' && `LemonInput--status-${status}`,
-                type && `LemonInput--type-${type}`,
-                size && `LemonInput--${size}`,
-                fullWidth && 'LemonInput--full-width',
-                value && 'LemonInput--has-content',
-                !props.disabled && focused && 'LemonInput--focused',
-                transparentBackground && 'LemonInput--transparent-background',
-                className
-            )}
-            aria-disabled={props.disabled}
-            onClick={() => focus()}
-            ref={ref}
-        >
-            {prefix}
-            <InputComponent
-                className="LemonInput__input"
-                ref={mergedInputRef}
-                type={(type === 'password' && passwordVisible ? 'text' : type) || 'text'}
-                value={value}
-                onChange={(event) => {
-                    if (stopPropagation) {
-                        event.stopPropagation()
-                    }
-                    if (type === 'number') {
-                        onChange?.(event.currentTarget.valueAsNumber)
-                    } else {
-                        onChange?.(event.currentTarget.value ?? '')
-                    }
-                }}
-                onFocus={(event) => {
-                    if (stopPropagation) {
-                        event.stopPropagation()
-                    }
-                    setFocused(true)
-                    onFocus?.(event)
-                }}
-                onBlur={(event) => {
-                    if (stopPropagation) {
-                        event.stopPropagation()
-                    }
-                    setFocused(false)
-                    onBlur?.(event)
-                }}
-                onKeyDown={(event) => {
-                    if (stopPropagation) {
-                        event.stopPropagation()
-                    }
-                    if (onPressEnter && event.key === 'Enter') {
-                        onPressEnter(event)
-                    }
-                }}
-                {...props}
-            />
-            {suffix}
-        </span>
+        <Tooltip title={disabledReason ?? undefined}>
+            <span
+                className={clsx(
+                    'LemonInput',
+                    status !== 'default' && `LemonInput--status-${status}`,
+                    type && `LemonInput--type-${type}`,
+                    size && `LemonInput--${size}`,
+                    fullWidth && 'LemonInput--full-width',
+                    value && 'LemonInput--has-content',
+                    !disabled && !disabledReason && focused && 'LemonInput--focused',
+                    transparentBackground && 'LemonInput--transparent-background',
+                    className
+                )}
+                aria-disabled={disabled || !!disabledReason}
+                onClick={() => focus()}
+                ref={ref}
+            >
+                {prefix}
+                <InputComponent
+                    className="LemonInput__input"
+                    ref={mergedInputRef}
+                    type={(type === 'password' && passwordVisible ? 'text' : type) || 'text'}
+                    value={value}
+                    disabled={disabled || !!disabledReason}
+                    onChange={(event) => {
+                        if (stopPropagation) {
+                            event.stopPropagation()
+                        }
+                        if (type === 'number') {
+                            onChange?.(event.currentTarget.valueAsNumber)
+                        } else {
+                            onChange?.(event.currentTarget.value ?? '')
+                        }
+                    }}
+                    onFocus={(event) => {
+                        if (stopPropagation) {
+                            event.stopPropagation()
+                        }
+                        setFocused(true)
+                        onFocus?.(event)
+                    }}
+                    onBlur={(event) => {
+                        if (stopPropagation) {
+                            event.stopPropagation()
+                        }
+                        setFocused(false)
+                        onBlur?.(event)
+                    }}
+                    onKeyDown={(event) => {
+                        if (stopPropagation) {
+                            event.stopPropagation()
+                        }
+                        if (onPressEnter && event.key === 'Enter') {
+                            onPressEnter(event)
+                        }
+                    }}
+                    {...props}
+                />
+                {suffix}
+            </span>
+        </Tooltip>
     )
 })

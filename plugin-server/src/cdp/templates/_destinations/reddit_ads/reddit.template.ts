@@ -1,6 +1,5 @@
-import { HogFunctionInputSchemaType } from '~/src/cdp/types'
-
-import { HogFunctionTemplate } from '../../types'
+import { HogFunctionInputSchemaType } from '~/cdp/types'
+import { HogFunctionTemplate } from '~/cdp/types'
 
 const build_inputs = (): HogFunctionInputSchemaType[] => {
     return [
@@ -34,14 +33,15 @@ const build_inputs = (): HogFunctionInputSchemaType[] => {
 
 export const template: HogFunctionTemplate = {
     free: false,
-    status: 'beta',
+    status: 'alpha',
     type: 'destination',
     id: 'template-reddit-conversions-api',
     name: 'Reddit Conversions API',
     description: 'Track how many Reddit users interact with your website.',
     icon_url: '/static/services/reddit.png',
     category: ['Advertisement'],
-    hog: `
+    code_language: 'hog',
+    code: `
 if (empty(inputs.accountId) or empty(inputs.conversionsAccessToken)) {
     throw Error('Account ID and access token are required')
 }

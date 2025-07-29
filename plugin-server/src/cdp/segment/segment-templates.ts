@@ -1,8 +1,8 @@
 import { DestinationDefinition, destinations } from '@segment/action-destinations'
 
-import { HogFunctionFilterEvent, HogFunctionInputSchemaType } from '~/src/cdp/types'
+import { HogFunctionFilterEvent, HogFunctionInputSchemaType, HogFunctionTemplate } from '~/cdp/types'
 
-import { HogFunctionTemplate } from '../templates/types'
+import { EXTEND_OBJECT_KEY } from '../services/hog-executor.service'
 
 export type SegmentDestination = {
     template: HogFunctionTemplate
@@ -268,6 +268,8 @@ const translateInputs = (defaultVal: any, multiple: boolean = false) => {
                 if (typeof val === 'object' && val['@path']) {
                     val = val['@path'].replace('$.', 'event.')
                     val = normalizeValue(val)
+                } else if (typeof val === 'object' && val['@template']) {
+                    val = `'${val['@template']}'`
                 } else if (typeof val === 'string') {
                     val = `'${val}'`
                 }
@@ -276,6 +278,8 @@ const translateInputs = (defaultVal: any, multiple: boolean = false) => {
                 if (typeof fallbackVal === 'object' && fallbackVal['@path']) {
                     fallbackVal = fallbackVal['@path'].replace('$.', 'event.')
                     fallbackVal = normalizeValue(fallbackVal)
+                } else if (typeof fallbackVal === 'object' && fallbackVal['@template']) {
+                    fallbackVal = `'${fallbackVal['@template']}'`
                 } else if (typeof fallbackVal === 'string') {
                     fallbackVal = `'${fallbackVal}'`
                 }
@@ -293,7 +297,7 @@ const translateInputs = (defaultVal: any, multiple: boolean = false) => {
         } else if (defaultVal && '@arrayPath' in defaultVal) {
             let val = defaultVal['@arrayPath'][0]
             val = val.replace('$.', 'event.')
-            return normalizeValue(val)
+            return `{${normalizeValue(val)}}`
         }
     }
     return JSON.stringify(defaultVal)
@@ -315,10 +319,12 @@ const getDefaultValue = (key: string, field: any, mapping?: Record<string, any> 
         return defaultVal
     }
 
-    if (
-        field.type === 'object' &&
-        (typeof field.default === 'undefined' || !('@path' in field.default || '@arrayPath' in field.default))
-    ) {
+    if (field.type === 'object' && (typeof field.default === 'undefined' || !('@arrayPath' in field.default))) {
+        if (field.default && '@path' in field.default) {
+            return {
+                [EXTEND_OBJECT_KEY]: translateInputs(checkOverride(field.default, key), field.multiple),
+            }
+        }
         return Object.fromEntries(
             Object.entries(field.properties ?? {}).map(([key, { multiple }]: [string, any]) => {
                 const defaultVal = (field.default as Record<string, object>) ?? {}
@@ -336,9 +342,6 @@ const getFieldType = (field: any) => {
     }
 
     if (field.type === 'object') {
-        if (typeof field.default !== 'undefined' && '@path' in field.default) {
-            return 'string'
-        }
         if (typeof field.default !== 'undefined' && '@arrayPath' in field.default) {
             return 'string'
         }
@@ -349,11 +352,11 @@ const getFieldType = (field: any) => {
         return 'string'
     }
 
-    if (typeof field.default === 'object' && '@path' in field.default) {
-        return 'string'
-    }
-
     return field.type ?? 'string'
+}
+
+const getFieldDescription = (description: string) => {
+    return description.replaceAll(/\[([^\]]+)\]\(https?:\/\/[^\/]*segment\.com[^)]*\)(\s*\{:.*?\})?/g, '$1') // Remove segment.com links completely, keeping only the link text
 }
 
 const translateInputsSchema = (
@@ -369,7 +372,7 @@ const translateInputsSchema = (
             key,
             label: field.label,
             type: getFieldType(field),
-            description: field.description,
+            description: getFieldDescription(field.description),
             default: getDefaultValue(key, field, mapping),
             required: field.required ?? false,
             secret: field.type === 'password' ? true : false,
@@ -379,75 +382,85 @@ const translateInputsSchema = (
 
 const getIconUrl = (id: string, slug: string | undefined) => {
     const icon_overrides = {
-        'segment-gameball': 'gameball.co',
-        'segment-angler-ai': 'getangler.ai',
-        'segment-amazon-amc': 'amazon.com',
-        'segment-canvas': 'supernova.ai',
+        'segment-actions-gameball': 'gameball.co',
+        'segment-actions-angler-ai': 'getangler.ai',
+        'segment-actions-amazon-amc': 'amazon.com',
+        'segment-actions-canvas': 'supernova.ai',
         'segment-voucherify-actions': 'voucherify.io',
-        'segment-voyage': 'voyagesms.com',
+        'segment-actions-voyage': 'voyagesms.com',
         'segment-encharge-cloud-actions': 'encharge.io',
-        'segment-cloud-gwen': 'gwenplatform.com',
-        'segment-heap-cloud': 'heap.io',
-        'segment-hyperengage': 'hyperengage.io',
+        'segment-actions-cloud-gwen': 'gwenplatform.com',
+        'segment-actions-hyperengage': 'hyperengage.io',
         'segment-inleads-ai': 'inleads.ai',
         'segment-metronome-actions': 'metronome.com',
-        'segment-movable-ink': 'movableink.com',
         'segment-outfunnel': 'outfunnel.com',
-        'segment-playerzero-cloud': 'playerzero.ai',
-        'segment-revx': 'revx.io',
-        'segment-saleswings': 'saleswingsapp.com',
-        'segment-schematic': 'schematichq.com',
+        'segment-actions-playerzero-cloud': 'playerzero.ai',
+        'segment-actions-revx': 'revx.io',
+        'segment-actions-saleswings': 'saleswingsapp.com',
+        'segment-actions-schematic': 'schematichq.com',
+        'segment-actions-canny': 'canny.io',
     }
 
     if (!slug && !(id in icon_overrides)) {
         return '/static/posthog-icon.svg'
     }
 
-    return `/api/environments/@current/hog_functions/icon/?id=${
-        id in icon_overrides ? icon_overrides[id as keyof typeof icon_overrides] : `${slug}.com`
+    return `/static/services/${
+        id in icon_overrides ? icon_overrides[id as keyof typeof icon_overrides] + '.png' : `${slug}.com.png`
     }`
 }
 
 // hide all destinations for now
 const APPROVED_DESTINATIONS: string[] = [
-    // 'segment-mixpanel',
-    // 'segment-amplitude',
-    // 'segment-launchdarkly',
-    // 'segment-canny',
-    // 'segment-fullstory-cloud',
-    // 'segment-drip',
-    // 'segment-heap',
-    // 'segment-pipedrive',
+    'segment-actions-mixpanel',
+    'segment-actions-amplitude',
+    'segment-actions-launchdarkly',
+    'segment-actions-canny',
+    'segment-actions-fullstory-cloud',
+    'segment-actions-drip',
+    'segment-actions-pipedrive',
+    'segment-inleads-ai',
+    'segment-actions-koala-cloud',
+    'segment-actions-pushwoosh',
+    'segment-actions-schematic',
+    'segment-actions-usermotion',
+    'segment-actions-accoil-analytics',
 ]
 
 const HIDDEN_DESTINATIONS = [
-    'segment-snap-conversions',
-    'segment-google-sheets-dev',
-    'segment-google-analytics-4',
-    'segment-google-campaign-manager-360',
+    // duplicate destinations
+    'segment-actions-snap-conversions',
     'segment-hubspot-cloud',
-    'segment-facebook-conversions-api',
     'segment-june-actions',
     'segment-intercom-cloud',
-    'segment-avo',
+    'segment-actions-avo',
     'segment-loops',
-    'segment-google-enhanced-conversions',
-    'segment-reddit-conversions-api',
-    'segment-customerio',
+    'segment-actions-reddit-conversions-api',
+    'segment-actions-customerio',
     'segment-slack',
     'segment-webhook',
     'segment-webhook-extensible',
-    'segment-gleap-cloud-actions',
-    'segment-adjust',
-    'segment-apolloio',
     'segment-attio',
-    'segment-braze-cloud',
-    'segment-klaviyo',
+    'segment-actions-braze-cloud',
+    'segment-actions-klaviyo',
     'segment-tiktok-conversions',
     'segment-tiktok-conversions-sandbox',
-    'segment-tiktok-offline-conversions',
-    'segment-tiktok-offline-conversions-sandbox',
-    'segment-toplyne-cloud',
+    'segment-actions-tiktok-offline-conversions',
+    'segment-actions-tiktok-offline-conversions-sandbox',
+    'segment-facebook-conversions-api',
+    'segment-actions-google-enhanced-conversions',
+    'segment-gleap-cloud-actions',
+
+    // broken destinations
+    'segment-actions-apolloio',
+    'segment-actions-toplyne-cloud',
+    'segment-actions-heap-cloud',
+
+    // these destinations require a raw segment event (https://github.com/PostHog/posthog/pull/33451)
+    'segment-actions-equals',
+    'segment-actions-gainsight-px-cloud',
+    'segment-actions-iqm',
+    'segment-actions-movable-ink',
 ]
 
 export const SEGMENT_DESTINATIONS = Object.entries(destinations)
@@ -455,14 +468,15 @@ export const SEGMENT_DESTINATIONS = Object.entries(destinations)
     .filter(([_, destination]) => {
         const id =
             'segment-' +
-            (destination.slug?.replace('actions-', '') ??
-                destination.name.replace('Actions ', '').replaceAll(' ', '-').toLowerCase())
+            (destination.slug ?? destination.name.replace('Actions ', '').replaceAll(' ', '-').toLowerCase())
         if (HIDDEN_DESTINATIONS.includes(id) || id.includes('audiences')) {
             return false
         }
         if (
             Object.keys(destination.authentication?.fields ?? {}).length === 0 ||
-            (destination?.presets ?? []).length === 0
+            (destination?.presets ?? [])
+                .filter((preset) => preset.type === 'automatic' && preset.subscribe)
+                .filter((preset) => preset.partnerAction in destination.actions).length === 0
         ) {
             return false
         }
@@ -471,15 +485,14 @@ export const SEGMENT_DESTINATIONS = Object.entries(destinations)
     .map(([_, destination]) => {
         const id =
             'segment-' +
-            (destination.slug?.replace('actions-', '') ??
-                destination.name.replace('Actions ', '').replaceAll(' ', '-').toLowerCase())
+            (destination.slug ?? destination.name.replace('Actions ', '').replaceAll(' ', '-').toLowerCase())
         const name = destination.name.replace(' (Actions)', '').replace('Actions ', '')
 
         return {
             destination,
             template: {
                 free: false,
-                status: APPROVED_DESTINATIONS.includes(id) ? 'beta' : 'hidden',
+                status: APPROVED_DESTINATIONS.includes(id) ? 'beta' : 'alpha',
                 type: 'destination',
                 id,
                 name,
@@ -496,7 +509,8 @@ export const SEGMENT_DESTINATIONS = Object.entries(destinations)
                         default: false,
                     },
                 ],
-                hog: 'return event',
+                code_language: 'javascript',
+                code: 'return event',
                 mapping_templates: (destination.presets ?? [])
                     .filter((preset) => preset.type === 'automatic' && preset.subscribe)
                     .filter((preset) => preset.partnerAction in destination.actions)

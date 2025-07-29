@@ -3,7 +3,6 @@ import { actionToUrl, router } from 'kea-router'
 import { objectsEqual } from 'lib/utils'
 import { DATAWAREHOUSE_EDITOR_ITEM_ID } from 'scenes/data-warehouse/utils'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
-import { maxContextLogic } from 'scenes/max/maxContextLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/filterTestAccountDefaultsLogic'
 
@@ -60,11 +59,11 @@ export const insightDataLogic = kea<insightDataLogicType>([
         ],
         actions: [
             insightLogic,
-            ['setInsight', 'setMaxContext'],
+            ['setInsight'],
             dataNodeLogic({ key: insightVizDataNodeKey(props) } as DataNodeLogicProps),
             ['loadData', 'loadDataSuccess', 'loadDataFailure', 'setResponse as setInsightData'],
         ],
-        logic: [insightDataTimingLogic(props), insightUsageLogic(props), maxContextLogic],
+        logic: [insightDataTimingLogic(props), insightUsageLogic(props)],
     })),
 
     actions({
@@ -168,7 +167,10 @@ export const insightDataLogic = kea<insightDataLogicType>([
             (s) => [s.insightDataRaw],
             (insightDataRaw): Record<string, any> => {
                 // :TRICKY: The queries return results as `results`, but insights expect `result`
-                return { ...insightDataRaw, result: insightDataRaw?.results ?? insightDataRaw?.result }
+                return {
+                    ...insightDataRaw,
+                    result: (insightDataRaw as any)?.results ?? (insightDataRaw as any)?.result,
+                }
             },
         ],
 
@@ -213,9 +215,6 @@ export const insightDataLogic = kea<insightDataLogicType>([
             actions.setInsightData({ ...values.insightData, result: savedResult ? savedResult : null })
         },
         setQuery: ({ query }) => {
-            // Update MaxAI context when query changes
-            actions.setMaxContext()
-
             // if the query is not changed, don't save it
             if (!query || !values.queryChanged) {
                 return

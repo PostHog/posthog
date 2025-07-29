@@ -1,24 +1,26 @@
-from ee.hogai.graph.trends.toolkit import TRENDS_SCHEMA
-from .conftest import MaxEval
-import pytest
-from braintrust import EvalCase
 from datetime import datetime
 
+import pytest
+from braintrust import EvalCase
+
+from ee.hogai.graph.trends.toolkit import TRENDS_SCHEMA
 from posthog.schema import (
-    AssistantTrendsQuery,
+    AssistantEventMultipleBreakdownFilterType,
+    AssistantGenericMultipleBreakdownFilter,
+    AssistantTrendsBreakdownFilter,
     AssistantTrendsEventsNode,
     AssistantTrendsFilter,
-    AssistantTrendsBreakdownFilter,
-    AssistantGenericMultipleBreakdownFilter,
-    AssistantEventMultipleBreakdownFilterType,
+    AssistantTrendsQuery,
     NodeKind,
 )
-from .scorers import PlanCorrectness, QueryAndPlanAlignment, QueryKindSelection, TimeRangeRelevancy, PlanAndQueryOutput
+
+from .conftest import MaxEval
+from .scorers import PlanAndQueryOutput, PlanCorrectness, QueryAndPlanAlignment, QueryKindSelection, TimeRangeRelevancy
 
 
 @pytest.mark.django_db
-def eval_trends(call_root_for_insight_generation):
-    MaxEval(
+async def eval_trends(call_root_for_insight_generation):
+    await MaxEval(
         experiment_name="trends",
         task=call_root_for_insight_generation,
         scores=[
@@ -302,5 +304,123 @@ Time interval: day
                     ),
                 ),
             ),
-        ],
+            EvalCase(
+                input="How many paid bill events have occurred with amount more than 20 usd in this January?",
+                expected=PlanAndQueryOutput(
+                    plan="""
+Events:
+- paid_bill
+    - math operation: total count
+    - property filter 1:
+        - entity: event
+        - property name: amount_usd
+        - property type: Numeric
+        - operator: greater than
+        - property value: 20
+
+Time period: this January
+Time interval: day
+""",
+                    query=AssistantTrendsQuery(
+                        dateRange={
+                            "date_from": f"{datetime.now().year}-01-01",
+                            "date_to": f"{datetime.now().year}-01-31",
+                        },
+                        filterTestAccounts=True,
+                        interval="day",
+                        trendsFilter=AssistantTrendsFilter(
+                            display="ActionsLineGraph",
+                            showLegend=True,
+                        ),
+                        series=[
+                            AssistantTrendsEventsNode(
+                                event="paid_bill",
+                                math="total",
+                                properties=[
+                                    {
+                                        "key": "amount_usd",
+                                        "value": 20,
+                                        "operator": "gt",
+                                        "type": "event",
+                                    },
+                                ],
+                            )
+                        ],
+                    ),
+                ),
+            ),
+            EvalCase(
+                input="on hedgebox.net, what is the % of mac os x users",
+                expected=PlanAndQueryOutput(
+                    plan="""
+Events:
+- All events
+    - math operation: unique users
+    - property filter 1:
+        - entity: event
+        - property name: $host
+        - property type: String
+        - operator: equals
+        - property value: hedgebox.net
+- All events
+    - math operation: unique users
+    - property filter 1:
+        - entity: event
+        - property name: $host
+        - property type: String
+        - operator: equals
+        - property value: hedgebox.net
+    - property filter 2:
+        - entity: event
+        - property name: $os
+        - property type: String
+        - operator: equals
+        - property value: Mac OS X
+
+Formula:
+`B/A * 100`, where `A` is total unique users on hedgebox.net and `B` is unique users on hedgebox.net with Mac OS X
+""",
+                    query=AssistantTrendsQuery(
+                        dateRange={"date_from": "-30d", "date_to": None},
+                        filterTestAccounts=True,
+                        interval="day",
+                        trendsFilter=AssistantTrendsFilter(
+                            display="BoldNumber", showLegend=True, formulas=["B/A * 100"]
+                        ),
+                        series=[
+                            AssistantTrendsEventsNode(
+                                event=None,
+                                math="dau",
+                                properties=[
+                                    {
+                                        "key": "$host",
+                                        "value": "hedgebox.net",
+                                        "operator": "icontains",
+                                        "type": "event",
+                                    },
+                                ],
+                            ),
+                            AssistantTrendsEventsNode(
+                                event=None,
+                                math="dau",
+                                properties=[
+                                    {
+                                        "key": "$host",
+                                        "value": "hedgebox.net",
+                                        "operator": "icontains",
+                                        "type": "event",
+                                    },
+                                    {
+                                        "key": "$os",
+                                        "value": "Mac OS X",
+                                        "operator": "exact",
+                                        "type": "event",
+                                    },
+                                ],
+                            ),
+                        ],
+                    ),
+                ),
+            ),
+        ][-1:],
     )

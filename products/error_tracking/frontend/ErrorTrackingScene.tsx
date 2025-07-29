@@ -8,7 +8,6 @@ import { humanFriendlyLargeNumber } from 'lib/utils'
 import { posthog } from 'posthog-js'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
-import { userLogic } from 'scenes/userLogic'
 
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { Query } from '~/queries/Query/Query'
@@ -31,6 +30,10 @@ import { errorTrackingSceneLogic } from './errorTrackingSceneLogic'
 import { useSparklineData } from './hooks/use-sparkline-data'
 import { OccurrenceSparkline } from './OccurrenceSparkline'
 import { ERROR_TRACKING_LISTING_RESOLUTION } from './utils'
+import { ErrorTrackingSceneTool } from './components/SceneTool'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 export const scene: SceneExport = {
     component: ErrorTrackingScene,
@@ -40,6 +43,7 @@ export const scene: SceneExport = {
 export function ErrorTrackingScene(): JSX.Element {
     const { hasSentExceptionEvent, hasSentExceptionEventLoading } = useValues(errorIngestionLogic)
     const { query } = useValues(errorTrackingSceneLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
     const insightProps: InsightLogicProps = {
         dashboardItemId: 'new-ErrorTrackingQuery',
     }
@@ -62,8 +66,10 @@ export function ErrorTrackingScene(): JSX.Element {
         emptyStateDetail: 'Try changing the date range, changing the filters or removing the assignee.',
     }
 
+    // TODO - fix feature flag check once the feature flag is created etc
     return (
         <ErrorTrackingSetupPrompt>
+            {featureFlags[FEATURE_FLAGS.ERROR_TRACKING_SCENE_TOOL] && <ErrorTrackingSceneTool />}
             <BindLogic logic={errorTrackingDataNodeLogic} props={{ key: insightVizDataNodeKey(insightProps) }}>
                 <Header />
                 {hasSentExceptionEventLoading || hasSentExceptionEvent ? null : <IngestionStatusCheck />}
@@ -86,7 +92,7 @@ const VolumeColumn: QueryContextColumnComponent = (props) => {
     if (!record.aggregations) {
         throw new Error('No aggregations found')
     }
-    const data = useSparklineData(record.aggregations.volumeRange, dateRange, ERROR_TRACKING_LISTING_RESOLUTION)
+    const data = useSparklineData(record.aggregations, dateRange, ERROR_TRACKING_LISTING_RESOLUTION)
     return (
         <div className="flex justify-end">
             <OccurrenceSparkline className="h-8" data={data} displayXAxis={false} />
@@ -122,40 +128,52 @@ const CustomGroupTitleHeader: QueryContextColumnTitleComponent = ({ columnName }
 const CustomGroupSeparator = (): JSX.Element => <IconMinus className="text-quaternary" transform="rotate(90)" />
 
 const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
-    const { selectedIssueIds } = useValues(errorTrackingSceneLogic)
-    const { setSelectedIssueIds } = useActions(errorTrackingSceneLogic)
+    const { selectedIssueIds, shiftKeyHeld, previouslyCheckedRecordIndex } = useValues(errorTrackingSceneLogic)
+    const { setSelectedIssueIds, setPreviouslyCheckedRecordIndex } = useActions(errorTrackingSceneLogic)
     const { updateIssueAssignee, updateIssueStatus } = useActions(issueActionsLogic)
+    const { results } = useValues(errorTrackingDataNodeLogic)
+
     const record = props.record as ErrorTrackingIssue
     const checked = selectedIssueIds.includes(record.id)
     const runtime = getRuntimeFromLib(record.library)
+    const recordIndex = props.recordIndex
+
+    const onChange = (newValue: boolean): void => {
+        const includedIds: string[] = []
+
+        if (!shiftKeyHeld || previouslyCheckedRecordIndex === null) {
+            includedIds.push(record.id)
+        } else {
+            const start = Math.min(previouslyCheckedRecordIndex, recordIndex)
+            const end = Math.max(previouslyCheckedRecordIndex, recordIndex) + 1
+            includedIds.push(...results.slice(start, end).map((r) => r.id))
+        }
+
+        setPreviouslyCheckedRecordIndex(recordIndex)
+        setSelectedIssueIds(
+            newValue
+                ? [...new Set([...selectedIssueIds, ...includedIds])]
+                : selectedIssueIds.filter((id) => !includedIds.includes(id))
+        )
+    }
 
     return (
         <div className="flex items-start gap-x-2 group my-1">
-            <LemonCheckbox
-                className="h-[1.2rem]"
-                checked={checked}
-                onChange={(newValue) => {
-                    setSelectedIssueIds(
-                        newValue
-                            ? [...new Set([...selectedIssueIds, record.id])]
-                            : selectedIssueIds.filter((id) => id != record.id)
-                    )
-                }}
-            />
+            <LemonCheckbox className="h-[1.2rem]" checked={checked} onChange={onChange} />
 
             <div className="flex flex-col gap-[2px]">
                 <Link
                     className="flex-1 pr-12"
-                    to={urls.errorTrackingIssue(record.id)}
+                    to={urls.errorTrackingIssue(record.id, { timestamp: record.last_seen })}
                     onClick={() => {
-                        const issueLogic = errorTrackingIssueSceneLogic({ id: record.id })
+                        const issueLogic = errorTrackingIssueSceneLogic({ id: record.id, timestamp: record.last_seen })
                         issueLogic.mount()
                         issueLogic.actions.setIssue(record)
                     }}
                 >
                     <div className="flex items-center h-[1.2rem] gap-2">
-                        <RuntimeIcon runtime={runtime} fontSize="0.8rem" />
-                        <span className="font-semibold text-[1.2em]">{record.name || 'Unknown Type'}</span>
+                        <RuntimeIcon className="shrink-0" runtime={runtime} fontSize="0.8rem" />
+                        <span className="font-semibold text-[1.2em] line-clamp-1">{record.name || 'Unknown Type'}</span>
                     </div>
                 </Link>
                 <div className="line-clamp-1 text-secondary">{record.description}</div>
@@ -216,20 +234,29 @@ const CountColumn = ({ record, columnName }: { record: unknown; columnName: stri
 }
 
 const Header = (): JSX.Element => {
-    const { user } = useValues(userLogic)
+    const { isDev } = useValues(preflightLogic)
+
+    const onClick = (): void => {
+        setInterval(() => {
+            throw new Error('Kaboom !')
+        }, 100)
+    }
 
     return (
         <PageHeader
             buttons={
                 <>
-                    {user?.is_staff ? (
-                        <LemonButton
-                            onClick={() => {
-                                posthog.captureException(new Error('Kaboom !'))
-                            }}
-                        >
-                            Send an exception
-                        </LemonButton>
+                    {isDev ? (
+                        <>
+                            <LemonButton
+                                onClick={() => {
+                                    posthog.captureException(new Error('Kaboom !'))
+                                }}
+                            >
+                                Send an exception
+                            </LemonButton>
+                            <LemonButton onClick={onClick}>Start exception loop</LemonButton>
+                        </>
                     ) : null}
                     <LemonButton to="https://posthog.com/docs/error-tracking" type="secondary" targetBlank>
                         Documentation

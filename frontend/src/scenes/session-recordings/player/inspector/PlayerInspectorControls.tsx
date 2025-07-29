@@ -7,11 +7,12 @@ import {
     IconSearch,
     IconStethoscope,
     IconTerminal,
+    IconComment,
 } from '@posthog/icons'
 import { LemonButton, LemonInput, SideAction, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { IconChevronRight, IconComment, IconUnverifiedEvent } from 'lib/lemon-ui/icons'
+import { IconChevronRight, IconUnverifiedEvent } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { useEffect, useState } from 'react'
@@ -289,8 +290,7 @@ export function PlayerInspectorControls(): JSX.Element {
                 {mode !== SessionRecordingPlayerMode.Sharing && <EventsFilterSettingsButton />}
                 <ConsoleFilterSettingsButton />
                 <NetworkFilterSettingsButton />
-                {featureFlags[FEATURE_FLAGS.ANNOTATIONS_RECORDING_SCOPE] &&
-                    mode !== SessionRecordingPlayerMode.Sharing && <CommentsFilterSettingsButton />}
+                {mode !== SessionRecordingPlayerMode.Sharing && <CommentsFilterSettingsButton />}
                 {(window.IMPERSONATED_SESSION || featureFlags[FEATURE_FLAGS.SESSION_REPLAY_DOCTOR]) &&
                     mode !== SessionRecordingPlayerMode.Sharing && (
                         <SettingsToggle

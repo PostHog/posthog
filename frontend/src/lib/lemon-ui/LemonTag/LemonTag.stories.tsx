@@ -1,6 +1,5 @@
 import { IconFlag, IconInfo } from '@posthog/icons'
 import { Meta, StoryObj } from '@storybook/react'
-import { BreakdownTag as BreakdownTagComponent } from 'scenes/insights/filters/BreakdownFilter/BreakdownTag'
 
 import { LemonTag as LemonTagComponent, LemonTagType } from './LemonTag'
 
@@ -103,17 +102,5 @@ export const CloseOnClick: Story = {
                 </div>
             </div>
         </div>
-    ),
-}
-
-export const BreakdownTag: Story = {
-    render: () => (
-        <>
-            <BreakdownTagComponent breakdownType="event" breakdown="$browser" />
-            <div className="mt-1" />
-            <BreakdownTagComponent breakdownType="hogql" breakdown="$properties.browser" />
-            <div className="mt-1" />
-            <BreakdownTagComponent breakdownType="cohort" breakdown={1} />
-        </>
     ),
 }

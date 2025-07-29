@@ -10,6 +10,7 @@ from functools import partial
 import uuid
 from django.utils import timezone
 from django.db.models import Q
+from more_itertools import chunked
 
 from posthog.clickhouse.adhoc_events_deletion import ADHOC_EVENTS_DELETION_TABLE
 from posthog.clickhouse.cluster import (
@@ -90,7 +91,6 @@ class PendingDeletesTable(Table):
 
     timestamp: datetime
     team_id: int | None = None
-    is_reporting: bool = False
 
     @property
     def timestamp_isoformat(self) -> str:
@@ -102,10 +102,7 @@ class PendingDeletesTable(Table):
 
     @property
     def table_name(self) -> str:
-        if self.is_reporting:
-            return "pending_deletes_reporting"
-        else:
-            return f"pending_deletes_{self.clickhouse_timestamp}"
+        return f"pending_deletes_{self.clickhouse_timestamp}"
 
     @property
     def qualified_name(self):
@@ -263,7 +260,7 @@ class PendingDeletesDictionary(Dictionary):
 
     @property
     def query(self) -> str:
-        return f"SELECT team_id, deletion_type, key, created_at FROM {self.source.qualified_name} WHERE deletion_type IN ({DeletionType.Person}, {DeletionType.Team})"
+        return f"SELECT team_id, deletion_type, key, created_at FROM {self.source.qualified_name}"
 
     def create(self, client: Client, shards: int, max_execution_time: int, max_memory_usage: int) -> None:
         client.execute(
@@ -374,76 +371,44 @@ def create_pending_deletions_table(
 
 
 @dagster.op
-def create_reporting_pending_deletions_table(
-    config: DeleteConfig,
-    cluster: dagster.ResourceParam[ClickhouseCluster],
-) -> PendingDeletesTable:
-    """Create a merge tree table in ClickHouse to store pending deletes."""
-    table = PendingDeletesTable(
-        timestamp=config.parsed_timestamp,
-        is_reporting=True,
-    )
-    cluster.map_all_hosts(table.create).result()
-    cluster.map_all_hosts(table.truncate).result()
-    return table
-
-
-@dagster.op
 def load_pending_deletions(
     context: dagster.OpExecutionContext,
     create_pending_deletions_table: PendingDeletesTable,
     cluster: dagster.ResourceParam[ClickhouseCluster],
-    cleanup_delete_assets: bool | None = None,
 ) -> PendingDeletesTable:
     """Query postgres using django ORM to get pending deletions and insert directly into ClickHouse."""
 
-    pending_deletions = AsyncDeletion.objects.all()
-
-    if not create_pending_deletions_table.is_reporting:
-        pending_deletions = pending_deletions.filter(
-            Q(deletion_type=DeletionType.Person, created_at__lte=create_pending_deletions_table.timestamp)
-            | Q(deletion_type=DeletionType.Team),
-            delete_verified_at__isnull=True,
-        )
-        if create_pending_deletions_table.team_id:
-            pending_deletions = pending_deletions.filter(
-                team_id=create_pending_deletions_table.team_id,
-            )
+    pending_deletions = AsyncDeletion.objects.filter(
+        Q(deletion_type=DeletionType.Person, created_at__lte=create_pending_deletions_table.timestamp)
+        | Q(deletion_type=DeletionType.Team),
+        delete_verified_at__isnull=True,
+    )
+    if create_pending_deletions_table.team_id:
+        pending_deletions = pending_deletions.filter(team_id=create_pending_deletions_table.team_id)
 
     # Process and insert in chunks
-    chunk_size = 10000
-    current_chunk = []
     total_rows = 0
-
-    for deletion in pending_deletions.iterator():
-        current_chunk.append(
-            {
-                "id": deletion.id,
-                "deletion_type": deletion.deletion_type,
-                "key": deletion.key,
-                "group_type_index": deletion.group_type_index,
-                "created_at": deletion.created_at,
-                "delete_verified_at": deletion.delete_verified_at,
-                "created_by_id": str(deletion.created_by.id) if deletion.created_by else None,
-                "team_id": deletion.team_id,
-            }
-        )
-
-        if len(current_chunk) >= chunk_size:
-            cluster.any_host_by_role(
-                Query(create_pending_deletions_table.populate_query, current_chunk),
-                NodeRole.DATA,
-            ).result()
-            total_rows += len(current_chunk)
-            current_chunk = []
-
-    # Insert any remaining records
-    if current_chunk:
+    for chunk in chunked(pending_deletions.iterator(), n=10000):
         cluster.any_host_by_role(
-            Query(create_pending_deletions_table.populate_query, current_chunk),
+            Query(
+                create_pending_deletions_table.populate_query,
+                [
+                    {
+                        "id": deletion.id,
+                        "deletion_type": deletion.deletion_type,
+                        "key": deletion.key,
+                        "group_type_index": deletion.group_type_index,
+                        "created_at": deletion.created_at,
+                        "delete_verified_at": deletion.delete_verified_at,
+                        "created_by_id": str(deletion.created_by.id) if deletion.created_by else None,
+                        "team_id": deletion.team_id,
+                    }
+                    for deletion in chunk
+                ],
+            ),
             NodeRole.DATA,
         ).result()
-        total_rows += len(current_chunk)
+        total_rows += len(chunk)
 
     context.add_output_metadata(
         {
@@ -669,7 +634,6 @@ def delete_team_data_from(
         context: dagster.OpExecutionContext,
         cluster: dagster.ResourceParam[ClickhouseCluster],
         load_and_verify_deletes_dictionary: PendingDeletesDictionary,
-        previous_mutations: PendingDeletesDictionary,
     ) -> tuple[PendingDeletesDictionary, MutationWaiter | None]:
         return delete_team_data(
             context,
@@ -708,56 +672,60 @@ def wait_for_delete_mutations_in_all_hosts(
     return pending_deletes_dict
 
 
+@dataclass
+class VerifiedDeletionResources:
+    pending_deletions_dictionary: PendingDeletesDictionary
+    adhoc_event_deletes_dictionary: AdhocEventDeletesDictionary
+
+
+@dagster.op
+def mark_deletions_verified(
+    cluster: dagster.ResourceParam[ClickhouseCluster],
+    pending_deletions_dictionary: PendingDeletesDictionary,
+    adhoc_event_deletes_dictionary: AdhocEventDeletesDictionary,
+) -> VerifiedDeletionResources:
+    now = timezone.now()
+    deletion_ids = [
+        id
+        for (id,) in cluster.any_host_by_role(
+            Query(f"SELECT id FROM {pending_deletions_dictionary.source.qualified_name}"), node_role=NodeRole.DATA
+        ).result()
+    ]
+    for chunk in chunked(deletion_ids, n=10000):
+        AsyncDeletion.objects.filter(id__in=chunk).update(delete_verified_at=now)
+
+    # Mark adhoc event deletes as verified
+    def mark_adhoc_event_deletes_done(client: Client) -> None:
+        client.execute(f"""
+            INSERT INTO {adhoc_event_deletes_dictionary.source.qualified_name} (team_id, uuid, created_at, deleted_at, is_deleted)
+            SELECT team_id, uuid, created_at, now64(), 1
+            FROM {adhoc_event_deletes_dictionary.qualified_name}
+        """)
+
+    cluster.any_host(mark_adhoc_event_deletes_done).result()
+
+    return VerifiedDeletionResources(pending_deletions_dictionary, adhoc_event_deletes_dictionary)
+
+
 @dagster.op
 def cleanup_delete_assets(
     cluster: dagster.ResourceParam[ClickhouseCluster],
     config: DeleteConfig,
-    create_pending_deletions_table: PendingDeletesTable,
-    create_deletes_dict: PendingDeletesDictionary,
-    create_adhoc_event_deletes_dict: AdhocEventDeletesDictionary,
-    waited_mutation: PendingDeletesDictionary,
+    resources: VerifiedDeletionResources,
 ) -> bool:
     """Clean up temporary tables and mark deletions as verified."""
     # Drop the dictionary and table using the table object
-
     if not config.cleanup:
         config.log.info("Skipping cleanup as cleanup is disabled")
         return True
 
-    # Mark deletions as verified in Django
-    if not create_pending_deletions_table.team_id:
-        AsyncDeletion.objects.filter(
-            Q(deletion_type=DeletionType.Person, created_at__lte=create_pending_deletions_table.timestamp)
-            | Q(deletion_type=DeletionType.Team),
-            delete_verified_at__isnull=True,
-        ).update(delete_verified_at=timezone.now())
-    else:
-        AsyncDeletion.objects.filter(
-            Q(deletion_type=DeletionType.Person, created_at__lte=create_pending_deletions_table.timestamp)
-            | Q(deletion_type=DeletionType.Team),
-            team_id=create_pending_deletions_table.team_id,
-            delete_verified_at__isnull=True,
-            created_at__lte=create_pending_deletions_table.timestamp,
-        ).update(delete_verified_at=timezone.now())
-
     # Must drop dict first
-    cluster.map_all_hosts(create_deletes_dict.drop).result()
-    cluster.map_all_hosts(create_pending_deletions_table.drop).result()
+    cluster.map_all_hosts(resources.pending_deletions_dictionary.drop).result()
+    cluster.map_all_hosts(resources.pending_deletions_dictionary.source.drop).result()
 
-    # Mark adhoc event deletes as verified
-    def mark_adhoc_event_deletes_done(client: Client) -> None:
-        # XXX: temporary fix to allow job to resume if the dictionary was deleted but subsequent steps failed; marking
-        # completion and dropping the dictionary should be split into separate ops to ensure both can complete safely
-        if create_adhoc_event_deletes_dict.exists(client):
-            client.execute(f"""
-                INSERT INTO {create_adhoc_event_deletes_dict.source.qualified_name} (team_id, uuid, created_at, deleted_at, is_deleted)
-                SELECT team_id, uuid, created_at, now64(), 1
-                FROM {create_adhoc_event_deletes_dict.qualified_name}
-            """)
+    cluster.map_all_hosts(resources.adhoc_event_deletes_dictionary.drop).result()
+    cluster.any_host(resources.adhoc_event_deletes_dictionary.source.optimize).result()
 
-    cluster.any_host(mark_adhoc_event_deletes_done).result()
-    cluster.map_all_hosts(create_adhoc_event_deletes_dict.drop).result()
-    cluster.any_host(create_adhoc_event_deletes_dict.source.optimize).result()
     return True
 
 
@@ -766,43 +734,32 @@ def deletes_job():
     """Job that handles deletion of events."""
     # Prepare requested deletions data
     oldest_override_timestamp = get_oldest_person_override_timestamp()
-    report_deletions_table = create_reporting_pending_deletions_table()
-    deletions_table = create_pending_deletions_table(oldest_override_timestamp)
-    loaded_deletions_table = load_pending_deletions(deletions_table)
-    create_deletes_dict_op = create_deletes_dict(loaded_deletions_table)
-    load_dict = load_and_verify_deletes_dictionary(create_deletes_dict_op)
-
-    create_adhoc_event_deletes_dict_op = create_adhoc_event_deletes_dict()
-    load_adhoc_event_deletes_dict = load_and_verify_adhoc_event_deletes_dictionary(create_adhoc_event_deletes_dict_op)
+    deletions_table = load_pending_deletions(create_pending_deletions_table(oldest_override_timestamp))
+    pending_deletes_dictionary = load_and_verify_deletes_dictionary(create_deletes_dict(deletions_table))
+    adhoc_event_deletes_dictionary = load_and_verify_adhoc_event_deletes_dictionary(create_adhoc_event_deletes_dict())
 
     # Delete all data requested
-    delete_mutations = delete_events(load_dict, load_adhoc_event_deletes_dict)
-    waited_mutation = wait_for_delete_mutations_in_shards(delete_mutations)
+    delete_mutations = delete_events(pending_deletes_dictionary, adhoc_event_deletes_dictionary)
+    pending_deletes_dictionary = wait_for_delete_mutations_in_shards(delete_mutations)
 
-    delete_mutations = delete_team_data_from(PERSON_DISTINCT_ID2_TABLE)(load_dict, waited_mutation)
-    waited_mutation = wait_for_delete_mutations_in_all_hosts(delete_mutations)
+    for table in [
+        PERSON_DISTINCT_ID2_TABLE,
+        PERSONS_TABLE,
+        GROUPS_TABLE,
+        # Disable cohortpeople data deletion for now, the mutations run here overload the cluster pretty badly
+        # "cohortpeople",
+        PERSON_STATIC_COHORT_TABLE,
+        PLUGIN_LOG_ENTRIES_TABLE,
+    ]:
+        # NOTE: the reassignment of `pending_deletes_dictionary` below causes these ops to be run serially, since the
+        # input to each step is the output of the previous step
+        delete_mutations = delete_team_data_from(table)(pending_deletes_dictionary)
+        pending_deletes_dictionary = wait_for_delete_mutations_in_all_hosts(delete_mutations)
 
-    delete_mutations = delete_team_data_from(PERSONS_TABLE)(load_dict, waited_mutation)
-    waited_mutation = wait_for_delete_mutations_in_all_hosts(delete_mutations)
-
-    delete_mutations = delete_team_data_from(GROUPS_TABLE)(load_dict, waited_mutation)
-    waited_mutation = wait_for_delete_mutations_in_all_hosts(delete_mutations)
-
-    # Disable cohortpeople data deletion for now, the mutations run here overload the cluster pretty badly
-    # delete_mutations = delete_team_data_from("cohortpeople")(load_dict, waited_mutation)
-    # waited_mutation = wait_for_delete_mutations_in_all_hosts(delete_mutations)
-
-    delete_mutations = delete_team_data_from(PERSON_STATIC_COHORT_TABLE)(load_dict, waited_mutation)
-    waited_mutation = wait_for_delete_mutations_in_all_hosts(delete_mutations)
-
-    delete_mutations = delete_team_data_from(PLUGIN_LOG_ENTRIES_TABLE)(load_dict, waited_mutation)
-    waited_mutation = wait_for_delete_mutations_in_all_hosts(delete_mutations)
+    verified_deletion_resources = mark_deletions_verified(pending_deletes_dictionary, adhoc_event_deletes_dictionary)
 
     # Clean up
-    cleaned = cleanup_delete_assets(
-        deletions_table, create_deletes_dict_op, create_adhoc_event_deletes_dict_op, waited_mutation
-    )
-    load_pending_deletions(report_deletions_table, cleaned)
+    cleanup_delete_assets(verified_deletion_resources)
 
 
 @dagster.run_status_sensor(

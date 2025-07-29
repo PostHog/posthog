@@ -52,7 +52,7 @@ export const messageTemplatesLogic = kea<messageTemplatesLogicType>([
                         const newTemplate = await api.messaging.createTemplate(template)
                         lemonToast.success('Template created successfully')
                         return [...values.templates, newTemplate]
-                    } catch (error) {
+                    } catch {
                         lemonToast.error('Failed to create template')
                         return values.templates
                     }
@@ -68,7 +68,7 @@ export const messageTemplatesLogic = kea<messageTemplatesLogicType>([
                         const updatedTemplate = await api.messaging.updateTemplate(templateId, template)
                         lemonToast.success('Template updated successfully')
                         return values.templates.map((t: MessageTemplate) => (t.id === templateId ? updatedTemplate : t))
-                    } catch (error) {
+                    } catch {
                         lemonToast.error('Failed to update template')
                         return values.templates
                     }

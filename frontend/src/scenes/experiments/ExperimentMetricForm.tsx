@@ -1,23 +1,29 @@
 import { DataWarehousePopoverField } from 'lib/components/TaxonomicFilter/types'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
+import { Link } from 'lib/lemon-ui/Link'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 
 import { Query } from '~/queries/Query/Query'
-import { ExperimentMetric, ExperimentMetricType, NodeKind } from '~/queries/schema/schema-general'
-import { FilterType } from '~/types'
+import {
+    ExperimentMetric,
+    ExperimentMetricType,
+    FunnelsQuery,
+    InsightVizNode,
+    isExperimentFunnelMetric,
+    isExperimentMeanMetric,
+    NodeKind,
+    TrendsQuery,
+} from '~/queries/schema/schema-general'
+import { ExperimentMetricMathType, FilterType } from '~/types'
 
 import { ExperimentMetricConversionWindowFilter } from './ExperimentMetricConversionWindowFilter'
+import { ExperimentMetricFunnelOrderSelector } from './ExperimentMetricFunnelOrderSelector'
 import { ExperimentMetricOutlierHandling } from './ExperimentMetricOutlierHandling'
 import { commonActionFilterProps } from './Metrics/Selectors'
-import {
-    filterToMetricConfig,
-    getAllowedMathTypes,
-    getDefaultExperimentMetric,
-    getMathAvailability,
-    metricToFilter,
-    metricToQuery,
-} from './utils'
+import { filterToMetricConfig, getAllowedMathTypes, getDefaultExperimentMetric, getMathAvailability } from './utils'
+
+import { addExposureToQuery, compose, getFilter, getInsight, getQuery } from './metricQueryUtils'
 
 const dataWarehousePopoverFields: DataWarehousePopoverField[] = [
     {
@@ -79,16 +85,35 @@ export function ExperimentMetricForm({
         },
     ]
 
-    const metricFilter = metricToFilter(metric)
-    const previewQuery = metricToQuery(metric, filterTestAccounts)
+    const metricFilter = getFilter(metric)
 
-    const queryConfig = {
-        kind: NodeKind.InsightVizNode,
-        source: previewQuery,
-        showTable: false,
-        showLastComputation: true,
-        showLastComputationRefresh: false,
-    }
+    /**
+     * TODO: use exposure criteria form running time calculator instead of
+     * default $pageview event.
+     */
+    const queryBuilder = compose<
+        ExperimentMetric,
+        FunnelsQuery | TrendsQuery | undefined,
+        FunnelsQuery | TrendsQuery | undefined,
+        InsightVizNode | undefined
+    >(
+        getQuery({
+            filterTestAccounts,
+        }),
+        addExposureToQuery({
+            kind: NodeKind.EventsNode,
+            event: '$pageview',
+            custom_name: 'Placeholder for experiment exposure',
+            properties: [],
+        }),
+        getInsight({
+            showTable: true,
+            showLastComputation: true,
+            showLastComputationRefresh: false,
+        })
+    )
+
+    const query = queryBuilder(metric)
 
     const hideDeleteBtn = (_: any, index: number): boolean => index === 0
 
@@ -107,21 +132,36 @@ export function ExperimentMetricForm({
                 <LemonLabel className="mb-1">Metric</LemonLabel>
 
                 {metric.metric_type === ExperimentMetricType.MEAN && (
-                    <ActionFilter
-                        bordered
-                        filters={metricFilter}
-                        setFilters={handleSetFilters}
-                        typeKey="experiment-metric"
-                        buttonCopy="Add graph series"
-                        showSeriesIndicator={false}
-                        hideRename={true}
-                        entitiesLimit={1}
-                        showNumericalPropsOnly={true}
-                        mathAvailability={mathAvailability}
-                        allowedMathTypes={allowedMathTypes}
-                        dataWarehousePopoverFields={dataWarehousePopoverFields}
-                        {...commonActionFilterProps}
-                    />
+                    <>
+                        <ActionFilter
+                            bordered
+                            filters={metricFilter}
+                            setFilters={handleSetFilters}
+                            typeKey="experiment-metric"
+                            buttonCopy="Add graph series"
+                            showSeriesIndicator={false}
+                            hideRename={true}
+                            entitiesLimit={1}
+                            showNumericalPropsOnly={true}
+                            mathAvailability={mathAvailability}
+                            allowedMathTypes={allowedMathTypes}
+                            dataWarehousePopoverFields={dataWarehousePopoverFields}
+                            {...commonActionFilterProps}
+                        />
+                        {isExperimentMeanMetric(metric) && metric.source.math === ExperimentMetricMathType.HogQL && (
+                            <div className="text-muted text-sm mt-2">
+                                SQL expressions allow you to write custom computations and aggregations. The expression
+                                should return a numeric value and will be evaluated for each user in the experiment.{' '}
+                                <Link
+                                    to="https://posthog.com/docs/hogql/expressions"
+                                    target="_blank"
+                                    disableDocsPanel={true}
+                                >
+                                    Learn more about HogQL expressions
+                                </Link>
+                            </div>
+                        )}
+                    </>
                 )}
 
                 {metric.metric_type === ExperimentMetricType.FUNNEL && (
@@ -139,13 +179,19 @@ export function ExperimentMetricForm({
                         // showNumericalPropsOnly={true}
                         mathAvailability={mathAvailability}
                         allowedMathTypes={allowedMathTypes}
-                        dataWarehousePopoverFields={dataWarehousePopoverFields}
-                        {...commonActionFilterProps}
+                        // Data warehouse is not supported for funnel metrics - enforced at schema level
+                        actionsTaxonomicGroupTypes={commonActionFilterProps.actionsTaxonomicGroupTypes?.filter(
+                            (type) => type !== 'data_warehouse'
+                        )}
+                        propertiesTaxonomicGroupTypes={commonActionFilterProps.propertiesTaxonomicGroupTypes}
                     />
                 )}
             </div>
             <ExperimentMetricConversionWindowFilter metric={metric} handleSetMetric={handleSetMetric} />
-            {metric.metric_type === ExperimentMetricType.MEAN && (
+            {isExperimentFunnelMetric(metric) && (
+                <ExperimentMetricFunnelOrderSelector metric={metric} handleSetMetric={handleSetMetric} />
+            )}
+            {isExperimentMeanMetric(metric) && (
                 <ExperimentMetricOutlierHandling metric={metric} handleSetMetric={handleSetMetric} />
             )}
             <div>
@@ -164,10 +210,15 @@ export function ExperimentMetricForm({
                     Preview
                 </LemonLabel>
             </div>
-            {/* :KLUDGE: Query chart type is inferred from the initial state, so need to render Trends and Funnels separately */}
-            {metric.metric_type === ExperimentMetricType.MEAN &&
-                metric.source.kind !== NodeKind.ExperimentDataWarehouseNode && <Query query={queryConfig} readOnly />}
-            {metric.metric_type === ExperimentMetricType.FUNNEL && <Query query={queryConfig} readOnly />}
+            {/*
+             * we can't reuse the same <Query> component instance when changing metric types
+             * because the component will mantain it's internal state.
+             * We use to have typeguards here, creating a different execution context for each metric type.
+             * But to do it the React way, we added a key to the <Query> component.
+             *
+             * The query component should be reactive to prop changes, but it's not.
+             */}
+            {query && <Query key={metric.metric_type} query={query} readOnly />}
         </div>
     )
 }

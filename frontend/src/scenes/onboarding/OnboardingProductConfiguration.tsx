@@ -2,9 +2,8 @@ import { LemonDivider, LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import React, { useEffect, useRef } from 'react'
 
-import { ProductKey } from '~/types'
+import { ProductKey, OnboardingStepKey } from '~/types'
 
-import { OnboardingStepKey } from './onboardingLogic'
 import { onboardingProductConfigurationLogic, ProductConfigOption } from './onboardingProductConfigurationLogic'
 import { OnboardingStep } from './OnboardingStep'
 

@@ -50,7 +50,16 @@ class RevenueExampleDataWarehouseTablesQueryRunner(QueryRunnerWithHogQLContext):
 
         # If no queries, return a select with no results
         if len(queries) == 0:
-            return ast.SelectQuery.empty()
+            return ast.SelectQuery.empty(
+                columns=[
+                    "view_name",
+                    "distinct_id",
+                    "original_amount",
+                    "original_currency",
+                    "amount",
+                    "currency",
+                ]
+            )
 
         if len(queries) == 1:
             return queries[0]

@@ -1,7 +1,7 @@
 import { IconGraph } from '@posthog/icons'
 import { combineUrl } from 'kea-router'
 import { AlertType } from 'lib/components/Alerts/types'
-import { INSIGHT_VISUAL_ORDER } from 'lib/constants'
+import { FEATURE_FLAGS, INSIGHT_VISUAL_ORDER } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
 import { HogQLFilters, HogQLVariable, Node, NodeKind } from '~/queries/schema/schema-general'
@@ -126,8 +126,9 @@ export const manifest: ProductManifest = {
             path: `Insight/Calendar heatmap`,
             type: 'insight',
             href: urls.insightNew({ type: InsightType.CALENDAR_HEATMAP }),
-            iconType: 'insightHogQL',
+            iconType: 'insightCalendarHeatmap',
             visualOrder: INSIGHT_VISUAL_ORDER.calendarHeatmap,
+            flag: FEATURE_FLAGS.CALENDAR_HEATMAP_INSIGHT,
         },
     ],
     treeItemsProducts: [

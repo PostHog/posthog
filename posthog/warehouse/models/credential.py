@@ -3,7 +3,7 @@ from django.db import models
 from posthog.helpers.encrypted_fields import EncryptedTextField
 from posthog.models.team import Team
 from posthog.models.utils import CreatedMetaFields, UUIDModel, sane_repr
-from posthog.warehouse.util import database_sync_to_async
+from posthog.sync import database_sync_to_async
 
 
 class DataWarehouseCredential(CreatedMetaFields, UUIDModel):

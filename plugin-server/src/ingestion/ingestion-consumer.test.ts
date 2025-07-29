@@ -4,9 +4,9 @@ import { mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
 import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 
-import { insertHogFunction as _insertHogFunction } from '~/src/cdp/_tests/fixtures'
-import { template as geoipTemplate } from '~/src/cdp/templates/_transformations/geoip/geoip.template'
-import { compileHog } from '~/src/cdp/templates/compiler'
+import { insertHogFunction as _insertHogFunction } from '~/cdp/_tests/fixtures'
+import { template as geoipTemplate } from '~/cdp/templates/_transformations/geoip/geoip.template'
+import { compileHog } from '~/cdp/templates/compiler'
 import { DecodedKafkaMessage } from '~/tests/helpers/mocks/producer.spy'
 import { forSnapshot } from '~/tests/helpers/snapshots'
 import { createTeam, getFirstTeam, getTeam, resetTestDatabase } from '~/tests/helpers/sql'
@@ -19,7 +19,7 @@ import { logger } from '../utils/logger'
 import { UUIDT } from '../utils/utils'
 import { IngestionConsumer } from './ingestion-consumer'
 
-import { COOKIELESS_MODE_FLAG_PROPERTY, COOKIELESS_SENTINEL_VALUE } from '~/src/ingestion/cookieless/cookieless-manager'
+import { COOKIELESS_MODE_FLAG_PROPERTY, COOKIELESS_SENTINEL_VALUE } from '~/ingestion/cookieless/cookieless-manager'
 import { PostgresUse } from '../utils/db/postgres'
 const DEFAULT_TEST_TIMEOUT = 5000
 jest.setTimeout(DEFAULT_TEST_TIMEOUT)
@@ -52,6 +52,14 @@ const createKafkaMessage = (event: PipelineEvent): Message => {
         offset: offsetIncrementer++,
         timestamp: DateTime.now().toMillis(),
         partition: 1,
+        headers: [
+            {
+                distinct_id: Buffer.from(event.distinct_id || ''),
+            },
+            {
+                token: Buffer.from(event.token || ''),
+            },
+        ],
     }
 }
 
@@ -206,11 +214,9 @@ describe('IngestionConsumer', () => {
                 processed_at: '2024-01-01T00:00:00.000Z',
                 consumer_id: 'previous-consumer',
             }
-            messages[0].headers = [
-                {
-                    'kafka-consumer-breadcrumbs': Buffer.from(JSON.stringify([existingBreadcrumb])),
-                },
-            ]
+            messages[0].headers?.push({
+                'kafka-consumer-breadcrumbs': Buffer.from(JSON.stringify([existingBreadcrumb])),
+            })
             await ingester.handleKafkaBatch(messages)
 
             const producedMessages =
@@ -419,14 +425,12 @@ describe('IngestionConsumer', () => {
 
                 if (distinctId) {
                     message.headers.push({
-                        key: 'distinct_id',
-                        value: Buffer.from(distinctId),
+                        distinct_id: Buffer.from(distinctId),
                     })
                 }
                 if (token) {
                     message.headers.push({
-                        key: 'token',
-                        value: Buffer.from(token),
+                        token: Buffer.from(token),
                     })
                 }
             }
@@ -434,15 +438,6 @@ describe('IngestionConsumer', () => {
             beforeEach(() => {
                 jest.spyOn(logger, 'debug')
             })
-
-            const expectDropLogs = (pairs: [string, string | undefined][]) => {
-                for (const [token, distinctId] of pairs) {
-                    expect(jest.mocked(logger.debug)).toHaveBeenCalledWith('🔁', 'Dropped event', {
-                        distinctId,
-                        token,
-                    })
-                }
-            }
 
             describe('with DROP_EVENTS_BY_TOKEN_DISTINCT_ID drops events with matching token:distinct_id when only event keys are listed', () => {
                 beforeEach(async () => {
@@ -460,7 +455,6 @@ describe('IngestionConsumer', () => {
                     expect(
                         mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_events_json_test')
                     ).toHaveLength(0)
-                    expectDropLogs([[team.api_token, 'distinct-id-to-ignore']])
                 })
 
                 it('should not drop events for a different team token', async () => {
@@ -475,7 +469,6 @@ describe('IngestionConsumer', () => {
                     expect(
                         mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_events_json_test')
                     ).not.toHaveLength(0)
-                    expectDropLogs([])
                 })
 
                 it('should not drop events for a different distinct_id', async () => {
@@ -489,7 +482,6 @@ describe('IngestionConsumer', () => {
                     expect(
                         mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_events_json_test')
                     ).not.toHaveLength(0)
-                    expectDropLogs([])
                 })
             })
 
@@ -512,7 +504,6 @@ describe('IngestionConsumer', () => {
                     expect(
                         mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_events_json_test')
                     ).toHaveLength(0)
-                    expectDropLogs([[team.api_token, distinct_id_to_drop]])
                 })
 
                 it('should not drop all events for team with event key listed when distinct_id differs in event', async () => {
@@ -528,7 +519,6 @@ describe('IngestionConsumer', () => {
                     expect(
                         mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_events_json_test')
                     ).not.toHaveLength(0)
-                    expectDropLogs([])
                 })
 
                 it('should drop all events for team with only token listed to be dropped', async () => {
@@ -552,10 +542,6 @@ describe('IngestionConsumer', () => {
                     expect(
                         mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_events_json_test')
                     ).toHaveLength(0)
-                    expectDropLogs([
-                        [team2.api_token, any_distinct_id],
-                        [team2.api_token, other_distinct_id],
-                    ])
                 })
             })
         })
@@ -892,10 +878,10 @@ describe('IngestionConsumer', () => {
 
         beforeEach(async () => {
             // Create a transformation function using the geoip template as an example
-            const hogByteCode = await compileHog(geoipTemplate.hog)
+            const hogByteCode = await compileHog(geoipTemplate.code)
             transformationFunction = await insertHogFunction({
                 name: 'GeoIP Transformation',
-                hog: geoipTemplate.hog,
+                hog: geoipTemplate.code,
                 bytecode: hogByteCode,
             })
 
@@ -1009,19 +995,6 @@ describe('IngestionConsumer', () => {
                         topic: 'log_entries_test',
                         value: {
                             instance_id: expect.any(String),
-                            level: 'debug',
-                            log_source: 'hog_function',
-                            log_source_id: transformationFunction.id,
-                            message: 'Executing function',
-                            team_id: team.id,
-                            timestamp: expect.stringMatching(/2025-01-01 00:00:00\.\d{3}/),
-                        },
-                    },
-                    {
-                        key: expect.any(String),
-                        topic: 'log_entries_test',
-                        value: {
-                            instance_id: expect.any(String),
                             level: 'info',
                             log_source: 'hog_function',
                             log_source_id: transformationFunction.id,
@@ -1089,19 +1062,6 @@ describe('IngestionConsumer', () => {
                         topic: 'log_entries_test',
                         value: {
                             instance_id: expect.any(String),
-                            level: 'debug',
-                            log_source: 'hog_function',
-                            log_source_id: transformationFunction.id,
-                            message: 'Executing function',
-                            team_id: team.id,
-                            timestamp: expect.stringMatching(/2025-01-01 00:00:00\.\d{3}/),
-                        },
-                    },
-                    {
-                        key: expect.any(String),
-                        topic: 'log_entries_test',
-                        value: {
-                            instance_id: expect.any(String),
                             level: 'info',
                             log_source: 'hog_function',
                             log_source_id: transformationFunction.id,
@@ -1142,7 +1102,10 @@ describe('IngestionConsumer', () => {
             expect(forSnapshot(mockProducerObserver.getProducedKafkaMessages())).toMatchInlineSnapshot(`
                 [
                   {
-                    "headers": {},
+                    "headers": {
+                      "distinct_id": "user-1",
+                      "token": "THIS IS NOT A TOKEN FOR TEAM 2",
+                    },
                     "key": "THIS IS NOT A TOKEN FOR TEAM 2:user-1",
                     "topic": "testing_topic",
                     "value": {

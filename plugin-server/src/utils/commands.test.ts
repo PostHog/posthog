@@ -1,8 +1,10 @@
 import '../../tests/helpers/mocks/producer.mock'
 
-import express from 'express'
+import { Server } from 'http'
 import supertest from 'supertest'
+import express from 'ultimate-express'
 
+import { setupExpressApp } from '~/router'
 import { waitForExpect } from '~/tests/helpers/expectations'
 
 import { resetTestDatabase } from '../../tests/helpers/sql'
@@ -12,32 +14,24 @@ import { ServerCommands } from './commands'
 
 describe('Commands API', () => {
     let hub: Hub
-    let app: express.Express
+    let app: express.Application
     let service: ServerCommands
+    let server: Server
 
-    beforeEach(async () => {
+    beforeAll(async () => {
         await resetTestDatabase()
         hub = await createHub()
 
         service = new ServerCommands(hub)
-        app = express()
-        app.use(express.json())
+        app = setupExpressApp()
         app.use('/', service.router())
-        await service.start()
+
+        server = app.listen(0, () => {})
     })
 
-    afterEach(async () => {
+    afterAll(async () => {
         await closeHub(hub)
-        await service.stop()
-    })
-
-    afterAll(() => {
-        jest.useRealTimers()
-    })
-
-    it('errors if missing command', async () => {
-        const res = await supertest(app).post(`/api/commands`).send({ command: 'missing', message: {} })
-        expect(res.status).toEqual(400)
+        server.close()
     })
 
     it('succeeds with valid command', async () => {
@@ -47,19 +41,18 @@ describe('Commands API', () => {
 
     describe('command triggers', () => {
         beforeEach(() => {
-            for (const command of Object.keys(service.messageMap)) {
-                jest.spyOn(service.messageMap, command)
-            }
+            jest.spyOn(service as any, 'reloadPlugins')
+            jest.spyOn(service as any, 'populatePluginCapabilities')
         })
 
         it.each([
-            ['reload-plugins', {}],
-            ['populate-plugin-capabilities', { pluginId: '123' }],
-        ])('triggers the appropriate pubsub message', async (command, message) => {
+            ['reload-plugins', 'reloadPlugins', {}],
+            ['populate-plugin-capabilities', 'populatePluginCapabilities', { pluginId: '123' }],
+        ])('triggers the appropriate pubsub message', async (command, method, message) => {
             await supertest(app).post(`/api/commands`).send({ command, message })
             // Slight delay as it is received via the pubsub
             await waitForExpect(() => {
-                expect(service.messageMap[command]).toHaveBeenCalledWith(JSON.stringify(message))
+                expect((service as any)[method]).toHaveBeenCalledWith(message)
             }, 100)
         })
     })

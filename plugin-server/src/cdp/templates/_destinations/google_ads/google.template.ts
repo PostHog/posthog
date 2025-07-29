@@ -1,6 +1,5 @@
-import { HogFunctionInputSchemaType } from '~/src/cdp/types'
-
-import { HogFunctionTemplate } from '../../types'
+import { HogFunctionInputSchemaType } from '~/cdp/types'
+import { HogFunctionTemplate } from '~/cdp/types'
 
 // Based on https://developers.google.com/google-ads/api/reference/rpc/v18/ClickConversion
 
@@ -77,7 +76,8 @@ export const template: HogFunctionTemplate = {
     description: 'Send conversion events to Google Ads',
     icon_url: '/static/services/google-ads.png',
     category: ['Advertisement'],
-    hog: `
+    code_language: 'hog',
+    code: `
 if (empty(inputs.gclid)) {
     print('Empty \`gclid\`. Skipping...')
     return

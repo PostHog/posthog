@@ -66,7 +66,7 @@ function posthogCORSResponse(req: RestRequest, res: ResponseComposition, ctx: Re
 
 export const defaultMocks: Mocks = {
     get: {
-        '/api/projects/:team_id/activity_log/important_changes/': EMPTY_PAGINATED_RESPONSE,
+        '/api/projects/:team_id/important_changes/': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/actions/': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/annotations/': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/event_definitions/': EMPTY_PAGINATED_RESPONSE,
@@ -110,6 +110,7 @@ export const defaultMocks: Mocks = {
         '/api/environments/:team_id/warehouse_saved_queries/': EMPTY_PAGINATED_RESPONSE,
         '/api/environments/:team_id/warehouse_tables/': EMPTY_PAGINATED_RESPONSE,
         '/api/environments/:team_id/core_memory/': { results: [] },
+        '/api/environments/:team_id/conversations/': EMPTY_PAGINATED_RESPONSE,
         '/api/organizations/@current/': (): MockSignature => [
             200,
             { ...MOCK_DEFAULT_ORGANIZATION, available_product_features: getAvailableProductFeatures() },
@@ -205,14 +206,20 @@ export const defaultMocks: Mocks = {
         'api/projects/:team_id/surveys': EMPTY_PAGINATED_RESPONSE,
         'api/projects/:team_id/surveys/responses_count': {},
         'api/environments/:team_id/integrations': EMPTY_PAGINATED_RESPONSE,
-        'api/projects/:team_id/user_groups': EMPTY_PAGINATED_RESPONSE,
+        'api/environments/:team_id/error_tracking/assignment_rules': EMPTY_PAGINATED_RESPONSE,
+        'api/environments/:team_id/error_tracking/grouping_rules': EMPTY_PAGINATED_RESPONSE,
+        'api/environments/:team_id/error_tracking/suppression_rules': EMPTY_PAGINATED_RESPONSE,
         'api/environments/:team_id/error_tracking/symbol_sets': EMPTY_PAGINATED_RESPONSE,
+        'api/projects/@current/global_access_controls': EMPTY_PAGINATED_RESPONSE,
+        'api/projects/@current/access_controls': EMPTY_PAGINATED_RESPONSE,
     },
     post: {
         'https://us.i.posthog.com/e/': (req, res, ctx): MockSignature => posthogCORSResponse(req, res, ctx),
         '/e/': (req, res, ctx): MockSignature => posthogCORSResponse(req, res, ctx),
         'https://us.i.posthog.com/decide/': (req, res, ctx): MockSignature => posthogCORSResponse(req, res, ctx),
+        'https://us.i.posthog.com/flags/': (req, res, ctx): MockSignature => posthogCORSResponse(req, res, ctx),
         '/decide/': (req, res, ctx): MockSignature => posthogCORSResponse(req, res, ctx),
+        '/flags/': (req, res, ctx): MockSignature => posthogCORSResponse(req, res, ctx),
         'https://us.i.posthog.com/engage/': (req, res, ctx): MockSignature => posthogCORSResponse(req, res, ctx),
         '/api/environments/:team_id/insights/:insight_id/viewed/': (): MockSignature => [201, null],
         'api/environments/:team_id/query': [200, { results: [] }],

@@ -107,9 +107,7 @@ def initialize_otel():
             )
 
         try:
-            PsycopgInstrumentor().instrument(
-                tracer_provider=provider, enable_commenter=True, commenter_options={"opentelemetry_values": True}
-            )
+            PsycopgInstrumentor().instrument(tracer_provider=provider, enable_commenter=False)
             logger.info(
                 "otel_instrumentation_attempt",
                 instrumentor="PsycopgInstrumentor",

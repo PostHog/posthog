@@ -113,9 +113,9 @@ class TestFeatureFlagAnalytics(BaseTest, QueryMatchingTest):
             capture_team_decide_usage(mock_capture, team_id, team_uuid)
             assert mock_capture.capture.call_count == 2
             mock_capture.capture.assert_any_call(
-                team_id,
-                "decide usage",
-                {
+                distinct_id=team_id,
+                event="decide usage",
+                properties={
                     "count": 15,
                     "team_id": team_id,
                     "team_uuid": team_uuid,
@@ -125,9 +125,9 @@ class TestFeatureFlagAnalytics(BaseTest, QueryMatchingTest):
                 },
             )
             mock_capture.capture.assert_any_call(
-                team_id,
-                "local evaluation usage",
-                {
+                distinct_id=team_id,
+                event="local evaluation usage",
+                properties={
                     "count": 15,
                     "team_id": team_id,
                     "team_uuid": team_uuid,
@@ -141,9 +141,9 @@ class TestFeatureFlagAnalytics(BaseTest, QueryMatchingTest):
             capture_team_decide_usage(mock_capture, other_team_id, other_team_uuid)
             capture_team_decide_usage(mock_capture, other_team_id, other_team_uuid)
             mock_capture.capture.assert_called_once_with(
-                other_team_id,
-                "decide usage",
-                {
+                distinct_id=other_team_id,
+                event="decide usage",
+                properties={
                     "count": 10,
                     "team_id": other_team_id,
                     "team_uuid": other_team_uuid,
@@ -204,9 +204,9 @@ class TestFeatureFlagAnalytics(BaseTest, QueryMatchingTest):
 
                 capture_team_decide_usage(mock_capture, other_team_id, other_team_uuid)
                 mock_capture.capture.assert_called_once_with(
-                    other_team_id,
-                    "decide usage",
-                    {
+                    distinct_id=other_team_id,
+                    event="decide usage",
+                    properties={
                         "count": 10,
                         "team_id": other_team_id,
                         "team_uuid": other_team_uuid,
@@ -260,9 +260,9 @@ class TestFeatureFlagAnalytics(BaseTest, QueryMatchingTest):
                 capture_usage_for_all_teams(mock_capture)
 
                 mock_capture.capture.assert_any_call(
-                    team_id,
-                    "decide usage",
-                    {
+                    distinct_id=team_id,
+                    event="decide usage",
+                    properties={
                         "count": 15,
                         "team_id": team_id,
                         "team_uuid": team_uuid,
@@ -273,9 +273,9 @@ class TestFeatureFlagAnalytics(BaseTest, QueryMatchingTest):
                 )
 
                 mock_capture.capture.assert_any_call(
-                    other_team_id,
-                    "decide usage",
-                    {
+                    distinct_id=other_team_id,
+                    event="decide usage",
+                    properties={
                         "count": 10,
                         "team_id": other_team_id,
                         "team_uuid": other_team_uuid,
@@ -347,9 +347,9 @@ class TestFeatureFlagAnalytics(BaseTest, QueryMatchingTest):
                 assert future.exception() is None
 
             mock_capture.capture.assert_any_call(
-                team_id,
-                "decide usage",
-                {
+                distinct_id=team_id,
+                event="decide usage",
+                properties={
                     "count": 15,
                     "team_id": team_id,
                     "team_uuid": team_uuid,
@@ -359,9 +359,9 @@ class TestFeatureFlagAnalytics(BaseTest, QueryMatchingTest):
                 },
             )
             mock_capture.capture.assert_any_call(
-                team_id,
-                "local evaluation usage",
-                {
+                distinct_id=team_id,
+                event="local evaluation usage",
+                properties={
                     "count": 15,
                     "team_id": team_id,
                     "team_uuid": team_uuid,
@@ -452,9 +452,9 @@ class TestFeatureFlagAnalytics(BaseTest, QueryMatchingTest):
                 assert future.exception() is None
 
             mock_capture.capture.assert_any_call(
-                team_id,
-                "decide usage",
-                {
+                distinct_id=team_id,
+                event="decide usage",
+                properties={
                     "count": 15,
                     "team_id": team_id,
                     "team_uuid": team_uuid,
@@ -464,9 +464,9 @@ class TestFeatureFlagAnalytics(BaseTest, QueryMatchingTest):
                 },
             )
             mock_capture.capture.assert_any_call(
-                other_team_id,
-                "decide usage",
-                {
+                distinct_id=other_team_id,
+                event="decide usage",
+                properties={
                     "count": 10,
                     "team_id": other_team_id,
                     "team_uuid": other_team_uuid,
@@ -527,9 +527,9 @@ class TestFeatureFlagAnalytics(BaseTest, QueryMatchingTest):
                 assert future.exception() is None
 
             mock_capture.capture.assert_any_call(
-                team_id,
-                "decide usage",
-                {
+                distinct_id=team_id,
+                event="decide usage",
+                properties={
                     "count": 15,
                     "team_id": team_id,
                     "team_uuid": team_uuid,

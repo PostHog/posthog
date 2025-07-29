@@ -21,7 +21,7 @@ import {
     RevenueAnalyticsQuery,
 } from '../revenueAnalyticsLogic'
 
-const QUERY_ID = RevenueAnalyticsQuery.REVENUE_GROWTH_RATE
+const QUERY_ID = RevenueAnalyticsQuery.GROWTH_RATE
 const INSIGHT_PROPS: InsightLogicProps<InsightVizNode> = {
     dashboardItemId: buildDashboardItemId(QUERY_ID),
     loadPriority: QUERY_ID,

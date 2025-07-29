@@ -1,5 +1,4 @@
 name: Frontend CI
-
 on:
     pull_request:
     push:
@@ -16,7 +15,7 @@ jobs:
     # we skip each step individually, so   they are still reported as success
     # because many of them are required for CI checks to be green
     changes:
-        runs-on: depot-ubuntu-24.04
+        runs-on: depot-ubuntu-24.04-small
         timeout-minutes: 5
         name: Determine need to run frontend checks
         outputs:
@@ -43,7 +42,7 @@ jobs:
                         # Make sure we run if someone is explicitly change the workflow
                         - .github/workflows/ci-frontend.yml
                         # various JS config files
-                        - .eslintrc.js
+                        - .oxlintrc.json
                         - .prettier*
                         - babel.config.js
                         - package.json
@@ -54,14 +53,20 @@ jobs:
                         - webpack.config.js
                         - stylelint*
 
-    frontend-code-quality:
-        name: Code quality checks
+    frontend-format:
+        name: Frontend formatting
         needs: changes
-        # kea typegen and typescript:check need some more oomph
-        runs-on: depot-ubuntu-24.04-4
+        runs-on: depot-ubuntu-24.04
         steps:
+            - name: Skip frontend checks
+              if: ${{ needs.changes.outputs.frontend == 'false' }}
+              run: |
+                  echo "Skipping frontend checks - no frontend changes detected"
+                  exit 0
+
             # we need at least one thing to run to make sure we include everything for required jobs
             - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
+              if: needs.changes.outputs.frontend == 'true'
 
             - name: Install pnpm
               if: needs.changes.outputs.frontend == 'true'
@@ -71,7 +76,7 @@ jobs:
               if: needs.changes.outputs.frontend == 'true'
               uses: actions/setup-node@1d0ff469b7ec7b3cb9d8673fde0c81c44821de2a # v4
               with:
-                  node-version: 18.12.1
+                  node-version: 22.17.1
                   cache: 'pnpm'
 
             - name: Get pnpm cache directory path
@@ -101,25 +106,56 @@ jobs:
               if: needs.changes.outputs.frontend == 'true'
               run: pnpm --filter=@posthog/frontend lint:css
 
-            - name: Generate logic types and run typescript with strict
+            - name: Lint with Oxlint
               if: needs.changes.outputs.frontend == 'true'
-              run: pnpm --filter=@posthog/frontend build:products && pnpm --filter=@posthog/frontend typegen:write && pnpm --filter=@posthog/frontend typescript:check
-              env:
-                  NODE_OPTIONS: --max-old-space-size=16384
+              run: pnpm --filter=@posthog/frontend lint:js -f github
 
-            - name: Lint with ESLint
-              if: needs.changes.outputs.frontend == 'true'
-              run: pnpm --filter=@posthog/frontend lint:js
-              env:
-                  NODE_OPTIONS: --max-old-space-size=16384
+    frontend-toolbar-checks:
+        name: Frontend toolbar checks
+        needs: [changes]
+        runs-on: depot-ubuntu-24.04
+        steps:
+            - name: Skip frontend checks
+              if: ${{ needs.changes.outputs.frontend == 'false' }}
+              run: |
+                  echo "Skipping frontend checks - no frontend changes detected"
+                  exit 0
 
-            - name: Check if "schema.json" is up to date
+            - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
               if: needs.changes.outputs.frontend == 'true'
-              run: pnpm --filter=@posthog/frontend schema:build:json && git diff --exit-code
+            - name: Install pnpm
+              if: needs.changes.outputs.frontend == 'true'
+              uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4
 
-            - name: Check if mobile replay "schema.json" is up to date
+            - name: Set up Node.js
               if: needs.changes.outputs.frontend == 'true'
-              run: pnpm --filter=@posthog/ee mobile-replay:schema:build:json && git diff --exit-code
+              uses: actions/setup-node@1d0ff469b7ec7b3cb9d8673fde0c81c44821de2a # v4
+              with:
+                  node-version: 22.17.1
+                  cache: 'pnpm'
+
+            - name: Get pnpm cache directory path
+              if: needs.changes.outputs.frontend == 'true'
+              id: pnpm-cache-dir
+              run: echo "PNPM_STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
+
+            - uses: actions/cache@d4323d4df104b026a6aa633fdb11d772146be0bf # v4
+              if: needs.changes.outputs.frontend == 'true'
+              id: pnpm-cache
+              with:
+                  path: ${{ steps.pnpm-cache-dir.outputs.PNPM_STORE_PATH }}
+                  key: ${{ runner.os }}-pnpm-cypress-${{ hashFiles('pnpm-lock.yaml') }}
+                  restore-keys: ${{ runner.os }}-pnpm-cypress-
+
+            - name: Install package.json dependencies with pnpm
+              if: needs.changes.outputs.frontend == 'true'
+              run: |
+                  pnpm --filter=@posthog/playwright... install --frozen-lockfile
+                  bin/turbo --filter=@posthog/frontend prepare
+
+            - name: Build products
+              if: needs.changes.outputs.frontend == 'true'
+              run: pnpm --filter=@posthog/frontend build:products
 
             - name: Check toolbar bundle size
               if: needs.changes.outputs.frontend == 'true'
@@ -136,6 +172,80 @@ jobs:
               if: needs.changes.outputs.frontend == 'true'
               run: pnpm --filter=@posthog/frontend check-toolbar-csp-eval
 
+    frontend-typescript-checks:
+        name: Frontend typechecking
+        needs: [changes]
+        runs-on: depot-ubuntu-24.04-8
+        steps:
+            - name: Skip frontend checks
+              if: ${{ needs.changes.outputs.frontend == 'false' }}
+              run: |
+                  echo "Skipping frontend checks - no frontend changes detected"
+                  exit 0
+
+            - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
+              if: needs.changes.outputs.frontend == 'true'
+
+            - name: Install pnpm
+              if: needs.changes.outputs.frontend == 'true'
+              uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4
+
+            - name: Set up Node.js
+              if: needs.changes.outputs.frontend == 'true'
+              uses: actions/setup-node@1d0ff469b7ec7b3cb9d8673fde0c81c44821de2a # v4
+              with:
+                  node-version: 22.17.1
+                  cache: 'pnpm'
+
+            - name: Get pnpm cache directory path
+              if: needs.changes.outputs.frontend == 'true'
+              id: pnpm-cache-dir
+              run: echo "PNPM_STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
+
+            - uses: actions/cache@d4323d4df104b026a6aa633fdb11d772146be0bf # v4
+              if: needs.changes.outputs.frontend == 'true'
+              id: pnpm-cache
+              with:
+                  path: ${{ steps.pnpm-cache-dir.outputs.PNPM_STORE_PATH }}
+                  key: ${{ runner.os }}-pnpm-cypress-${{ hashFiles('pnpm-lock.yaml') }}
+                  restore-keys: ${{ runner.os }}-pnpm-cypress-
+
+            - name: Install package.json dependencies with pnpm
+              if: needs.changes.outputs.frontend == 'true'
+              run: |
+                  pnpm --filter=@posthog/playwright... install --frozen-lockfile
+                  bin/turbo --filter=@posthog/frontend prepare
+
+            - name: Cache .typegen
+              if: needs.changes.outputs.frontend == 'true'
+              uses: actions/cache@d4323d4df104b026a6aa633fdb11d772146be0bf # v4
+              with:
+                  path: .typegen
+                  key: ${{ runner.os }}-typegen-${{ hashFiles('pnpm-lock.yaml') }}
+                  restore-keys: ${{ runner.os }}-typegen-
+
+            - name: Build products
+              if: needs.changes.outputs.frontend == 'true'
+              run: pnpm --filter=@posthog/frontend build:products
+
+            - name: Kea typegen
+              if: needs.changes.outputs.frontend == 'true'
+              run: pnpm --filter=@posthog/frontend typegen:write
+
+            - name: Run typescript with strict
+              if: needs.changes.outputs.frontend == 'true'
+              run: pnpm --filter=@posthog/frontend typescript:check
+              env:
+                  NODE_OPTIONS: --max-old-space-size=16384
+
+            - name: Check if "schema.json" is up to date
+              if: needs.changes.outputs.frontend == 'true'
+              run: pnpm --filter=@posthog/frontend schema:build:json && git diff --exit-code
+
+            - name: Check if mobile replay "schema.json" is up to date
+              if: needs.changes.outputs.frontend == 'true'
+              run: pnpm --filter=@posthog/ee mobile-replay:schema:build:json && git diff --exit-code
+
     jest:
         runs-on: depot-ubuntu-24.04
         needs: changes
@@ -150,7 +260,14 @@ jobs:
 
         steps:
             # we need at least one thing to run to make sure we include everything for required jobs
+            - name: Skip frontend checks
+              if: ${{ needs.changes.outputs.frontend == 'false' }}
+              run: |
+                  echo "Skipping frontend checks - no frontend changes detected"
+                  exit 0
+
             - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
+              if: needs.changes.outputs.frontend == 'true'
 
             - name: Remove ee
               if: needs.changes.outputs.frontend == 'true' && matrix.segment == 'FOSS'
@@ -164,7 +281,7 @@ jobs:
               if: needs.changes.outputs.frontend == 'true'
               uses: actions/setup-node@1d0ff469b7ec7b3cb9d8673fde0c81c44821de2a # v4
               with:
-                  node-version: 18.12.1
+                  node-version: 22.17.1
                   cache: pnpm
 
             - name: Install package.json dependencies with pnpm
@@ -181,9 +298,12 @@ jobs:
 
     calculate-running-time:
         name: Calculate running time
-        needs: [jest, frontend-code-quality, changes]
+        needs: [jest, frontend-typescript-checks, frontend-format, frontend-toolbar-checks, changes]
         runs-on: depot-ubuntu-24.04
-        if: needs.changes.outputs.frontend == 'true'
+        if: # Run on pull requests to PostHog/posthog + on PostHog/posthog outside of PRs - but never on forks
+            needs.changes.outputs.frontend == 'true' && (
+            (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog') ||
+            (github.event_name != 'pull_request' && github.repository == 'PostHog/posthog'))
         steps:
             - name: Calculate running time
               run: |

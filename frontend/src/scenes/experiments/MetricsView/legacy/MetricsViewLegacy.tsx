@@ -3,10 +3,10 @@ import { LemonDivider, Tooltip } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { IconAreaChart } from 'lib/lemon-ui/icons'
 
-import { credibleIntervalForVariant } from '../../experimentCalculations'
+import { EXPERIMENT_MAX_PRIMARY_METRICS, EXPERIMENT_MAX_SECONDARY_METRICS } from '../../constants'
+import { credibleIntervalForVariant } from '../../legacyExperimentCalculations'
 import { experimentLogic } from '../../experimentLogic'
 import { AddPrimaryMetric, AddSecondaryMetric } from '../shared/AddMetric'
-import { MAX_PRIMARY_METRICS } from '../shared/const'
 import { getNiceTickValues } from '../shared/utils'
 import { DeltaChart } from './DeltaChart'
 
@@ -14,10 +14,10 @@ export function MetricsViewLegacy({ isSecondary }: { isSecondary?: boolean }): J
     const {
         experiment,
         getInsightType,
-        legacyMetricResults,
-        legacySecondaryMetricResults,
-        primaryMetricsResultErrors,
-        secondaryMetricsResultErrors,
+        legacyPrimaryMetricsResults,
+        legacySecondaryMetricsResults,
+        primaryMetricsResultsErrors,
+        secondaryMetricsResultsErrors,
     } = useValues(experimentLogic)
 
     const variants = experiment?.feature_flag?.filters?.multivariate?.variants
@@ -25,9 +25,9 @@ export function MetricsViewLegacy({ isSecondary }: { isSecondary?: boolean }): J
         return <></>
     }
 
-    const results = isSecondary ? legacySecondaryMetricResults : legacyMetricResults
+    const results = isSecondary ? legacySecondaryMetricsResults : legacyPrimaryMetricsResults
 
-    const errors = isSecondary ? secondaryMetricsResultErrors : primaryMetricsResultErrors
+    const errors = isSecondary ? secondaryMetricsResultsErrors : primaryMetricsResultsErrors
     const hasSomeResults = results?.some((result) => result?.insight)
 
     let metrics = isSecondary ? experiment.metrics_secondary : experiment.metrics
@@ -185,8 +185,9 @@ export function MetricsViewLegacy({ isSecondary }: { isSecondary?: boolean }): J
                         <IconAreaChart fontSize="30" />
                         <div className="text-sm text-center text-balance max-w-sm">
                             <p>
-                                Add up to {MAX_PRIMARY_METRICS} <span>{isSecondary ? 'secondary' : 'primary'}</span>{' '}
-                                metrics.
+                                {`Add up to ${
+                                    isSecondary ? EXPERIMENT_MAX_SECONDARY_METRICS : EXPERIMENT_MAX_PRIMARY_METRICS
+                                } ${isSecondary ? 'secondary' : 'primary'} metrics.`}
                             </p>
                             <p>
                                 {isSecondary

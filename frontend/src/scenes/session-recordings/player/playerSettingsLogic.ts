@@ -35,6 +35,7 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
         setSidebarOpen: (open: boolean) => ({ open }),
         setPlaylistOpen: (open: boolean) => ({ open }),
         setURLOverrideSidebarOpen: (open: boolean) => ({ open }),
+        setIsCinemaMode: (isCinemaMode: boolean) => ({ isCinemaMode }),
     }),
     connect(() => ({
         values: [teamLogic, ['currentTeam']],
@@ -104,6 +105,13 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
             { persist: true },
             {
                 setHideViewedRecordings: (_, { hideViewedRecordings }) => hideViewedRecordings,
+            },
+        ],
+        isCinemaMode: [
+            false,
+            { persist: true },
+            {
+                setIsCinemaMode: (_, { isCinemaMode }) => isCinemaMode,
             },
         ],
     })),

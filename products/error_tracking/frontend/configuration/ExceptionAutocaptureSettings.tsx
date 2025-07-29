@@ -1,9 +1,7 @@
 import { LemonSwitch } from '@posthog/lemon-ui'
-import { LemonCard, LemonDivider } from '@posthog/lemon-ui'
-import { useActions } from 'kea'
-import { useValues } from 'kea'
+import { LemonDivider } from '@posthog/lemon-ui'
+import { useValues, useActions } from 'kea'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Link } from 'lib/lemon-ui/Link'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { ProductIntentContext } from 'lib/utils/product-intents'
@@ -21,7 +19,8 @@ export function ExceptionAutocaptureSettings(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { updateCurrentTeam, addProductIntent } = useActions(teamLogic)
     const { reportAutocaptureExceptionsToggled } = useActions(eventUsageLogic)
-    const suppressionRulesEnabled = !!useFeatureFlag('ERROR_TRACKING_SUPPRESSION_RULES')
+
+    const checked = !!currentTeam?.autocapture_exceptions_opt_in
 
     return (
         <div className="flex flex-col gap-y-4">
@@ -61,36 +60,41 @@ export function ExceptionAutocaptureSettings(): JSX.Element {
                 />
             </div>
 
-            {suppressionRulesEnabled && (
-                <div>
-                    <h3>Suppression rules</h3>
-                    <p>You can filter by type or message content to skip capturing certain exceptions on the client</p>
-                    <ErrorTrackingClientSuppression />
-                </div>
-            )}
+            <div>
+                <h3>Suppression rules</h3>
+                <p>You can filter by type or message content to skip capturing certain exceptions on the client</p>
+                <ErrorTrackingClientSuppression disabled={!checked} />
+            </div>
         </div>
     )
 }
 
-function ErrorTrackingClientSuppression(): JSX.Element {
+function ErrorTrackingClientSuppression({ disabled }: { disabled: boolean }): JSX.Element {
     return (
-        <ErrorTrackingRules<ErrorTrackingSuppressionRule> ruleType={ErrorTrackingRuleType.Suppression}>
-            {({ rule, editable }) => {
+        <ErrorTrackingRules<ErrorTrackingSuppressionRule>
+            ruleType={ErrorTrackingRuleType.Suppression}
+            disabledReason={
+                disabled
+                    ? 'Suppression rules only apply to autocaptured exceptions. Enable exception autocapture first.'
+                    : undefined
+            }
+        >
+            {({ rule, editing }) => {
                 return (
-                    <LemonCard key={rule.id} hoverEffect={false} className="flex flex-col p-0">
+                    <>
                         <div className="flex gap-2 justify-between px-2 py-3">
                             <div className="flex gap-1 items-center">
                                 <div>Ignore exceptions that match </div>
-                                <ErrorTrackingRules.Operator rule={rule} editable={editable} />
+                                <ErrorTrackingRules.Operator rule={rule} editing={editing} />
                                 <div>of the following filters:</div>
                             </div>
-                            <ErrorTrackingRules.Actions rule={rule} editable={editable} />
+                            {!disabled && <ErrorTrackingRules.Actions rule={rule} editing={editing} />}
                         </div>
                         <LemonDivider className="my-0" />
                         <div className="p-2">
                             <ErrorTrackingRules.Filters
                                 rule={rule}
-                                editable={editable}
+                                editing={editing}
                                 taxonomicGroupTypes={[TaxonomicFilterGroupType.EventProperties]}
                                 propertyAllowList={{
                                     [TaxonomicFilterGroupType.EventProperties]: [
@@ -100,7 +104,7 @@ function ErrorTrackingClientSuppression(): JSX.Element {
                                 }}
                             />
                         </div>
-                    </LemonCard>
+                    </>
                 )
             }}
         </ErrorTrackingRules>

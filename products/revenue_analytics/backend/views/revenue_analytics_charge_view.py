@@ -2,7 +2,10 @@ from typing import cast
 
 from posthog.hogql import ast
 from posthog.models.team.team import Team
-from posthog.schema import DatabaseSchemaManagedViewTableKind
+from posthog.schema import (
+    DatabaseSchemaManagedViewTableKind,
+    HogQLQueryModifiers,
+)
 from posthog.warehouse.models.external_data_source import ExternalDataSource
 from posthog.warehouse.models.table import DataWarehouseTable
 from posthog.warehouse.models.external_data_schema import ExternalDataSchema
@@ -23,8 +26,8 @@ from products.revenue_analytics.backend.views.currency_helpers import (
     currency_aware_amount,
     is_zero_decimal_in_stripe,
 )
-from .revenue_analytics_base_view import RevenueAnalyticsBaseView
-from posthog.temporal.data_imports.pipelines.stripe.constants import (
+from .revenue_analytics_base_view import RevenueAnalyticsBaseView, events_expr_for_team
+from posthog.temporal.data_imports.sources.stripe.constants import (
     CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,
 )
 
@@ -53,11 +56,12 @@ class RevenueAnalyticsChargeView(RevenueAnalyticsBaseView):
         return DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_CHARGE
 
     @classmethod
-    def for_events(cls, team: "Team") -> list["RevenueAnalyticsBaseView"]:
+    def for_events(cls, team: "Team", _modifiers: HogQLQueryModifiers) -> list["RevenueAnalyticsBaseView"]:
         if len(team.revenue_analytics_config.events) == 0:
             return []
 
         revenue_config = team.revenue_analytics_config
+        generic_team_expr = events_expr_for_team(team)
 
         queries: list[tuple[str, str, ast.SelectQuery]] = []
         for event in revenue_config.events:
@@ -71,6 +75,16 @@ class RevenueAnalyticsChargeView(RevenueAnalyticsBaseView):
                 event,
                 amount_expr=ast.Field(chain=["currency_aware_amount"]),
             )
+
+            filter_exprs = [
+                comparison_expr,
+                generic_team_expr,
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.NotEq,
+                    left=ast.Field(chain=["amount"]),  # refers to the Alias above
+                    right=ast.Constant(value=None),
+                ),
+            ]
 
             query = ast.SelectQuery(
                 select=[
@@ -102,16 +116,7 @@ class RevenueAnalyticsChargeView(RevenueAnalyticsBaseView):
                     ast.Alias(alias="amount", expr=currency_aware_amount_expr),
                 ],
                 select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
-                where=ast.And(
-                    exprs=[
-                        comparison_expr,
-                        ast.CompareOperation(
-                            op=ast.CompareOperationOp.NotEq,
-                            left=ast.Field(chain=["amount"]),  # refers to the Alias above
-                            right=ast.Constant(value=None),
-                        ),
-                    ]
-                ),
+                where=ast.And(exprs=filter_exprs),
                 order_by=[ast.OrderExpr(expr=ast.Field(chain=["timestamp"]), order="DESC")],
             )
 
@@ -129,7 +134,9 @@ class RevenueAnalyticsChargeView(RevenueAnalyticsBaseView):
         ]
 
     @classmethod
-    def for_schema_source(cls, source: ExternalDataSource) -> list["RevenueAnalyticsBaseView"]:
+    def for_schema_source(
+        cls, source: ExternalDataSource, _modifiers: HogQLQueryModifiers
+    ) -> list["RevenueAnalyticsBaseView"]:
         # Currently only works for stripe sources
         if not source.source_type == ExternalDataSource.Type.STRIPE:
             return []

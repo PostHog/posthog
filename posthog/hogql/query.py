@@ -20,6 +20,7 @@ from posthog.hogql.printer import (
 )
 from posthog.hogql.resolver_utils import extract_select_queries
 from posthog.hogql.timings import HogQLTimings
+from posthog.hogql.transforms.preaggregated_table_transformation import do_preaggregated_table_transforms
 from posthog.hogql.variables import replace_variables
 from posthog.hogql.visitor import clone_expr
 from posthog.models.team import Team
@@ -123,6 +124,13 @@ class HogQLQueryExecutor:
                         value=get_default_limit_for_context(self.limit_context or LimitContext.QUERY)
                     )
 
+    def _apply_optimizers(self):
+        if self.query_modifiers.useWebAnalyticsPreAggregatedTables:
+            with self.timings.measure("preaggregated_table_transforms"):
+                transformed_node = do_preaggregated_table_transforms(self.select_query, self.context)
+                if isinstance(transformed_node, ast.SelectQuery) or isinstance(transformed_node, ast.SelectSetQuery):
+                    self.select_query = transformed_node
+
     def _generate_hogql(self):
         self.hogql_context = dataclasses.replace(
             self.context,
@@ -131,6 +139,7 @@ class HogQLQueryExecutor:
             enable_select_queries=True,
             timings=self.timings,
             modifiers=self.query_modifiers,
+            limit_context=self.limit_context,
         )
 
         with self.timings.measure("clone"):
@@ -189,6 +198,7 @@ class HogQLQueryExecutor:
                 enable_select_queries=True,
                 timings=self.timings,
                 modifiers=self.query_modifiers,
+                limit_context=self.limit_context,
                 # it's valid to reuse the hogql DB because the modifiers are the same,
                 # and if we don't we end up creating the virtual DB twice per query
                 database=self.hogql_context.database if self.hogql_context else None,
@@ -267,6 +277,7 @@ class HogQLQueryExecutor:
         self._process_variables()
         self._process_placeholders()
         self._apply_limit()
+        self._apply_optimizers()
         with self.timings.measure("_generate_hogql"):
             self._generate_hogql()
         with self.timings.measure("_generate_clickhouse_sql"):

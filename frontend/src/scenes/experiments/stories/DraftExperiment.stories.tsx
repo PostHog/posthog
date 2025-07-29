@@ -1,6 +1,5 @@
-import { Meta, StoryFn } from '@storybook/react'
-import { router } from 'kea-router'
-import { useEffect } from 'react'
+import { Meta, StoryObj } from '@storybook/react'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
@@ -8,12 +7,14 @@ import { mswDecorator } from '~/mocks/browser'
 import EXPERIMENT_DRAFT from '~/mocks/fixtures/api/experiments/_experiment_draft.json'
 
 const meta: Meta = {
+    component: App,
     title: 'Scenes-App/Experiments',
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2025-01-27',
-        featureFlags: ['experiments-new-query-runner'],
+        featureFlags: [FEATURE_FLAGS.EXPERIMENTS_NEW_QUERY_RUNNER],
+        pageUrl: urls.experiment(EXPERIMENT_DRAFT.id),
     },
     decorators: [
         mswDecorator({
@@ -29,9 +30,5 @@ const meta: Meta = {
 }
 export default meta
 
-export const DraftExperiment: StoryFn = () => {
-    useEffect(() => {
-        router.actions.push(urls.experiment(EXPERIMENT_DRAFT.id))
-    }, [])
-    return <App />
-}
+type Story = StoryObj<typeof meta>
+export const DraftExperiment: Story = {}

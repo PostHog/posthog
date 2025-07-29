@@ -8,6 +8,7 @@ from typing import Literal, get_args
 # WARNING: Make sure to keep in sync with the frontend!
 APIScopeObject = Literal[
     "action",
+    "access_control",
     "activity_log",
     "annotation",
     "batch_export",
@@ -58,7 +59,6 @@ APIScopeObjectOrNotSupported = Literal[
     APIScopeObject,
     "INTERNAL",
 ]
-
 
 API_SCOPE_OBJECTS: tuple[APIScopeObject, ...] = get_args(APIScopeObject)
 API_SCOPE_ACTIONS: tuple[APIScopeActions, ...] = get_args(APIScopeActions)

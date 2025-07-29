@@ -1,12 +1,20 @@
-use std::collections::{HashMap, HashSet};
+use std::{
+    collections::{HashMap, HashSet},
+    time::Duration,
+    time::Instant,
+};
 
+use common_database::{PostgresReader, PostgresWriter};
 use common_types::{PersonId, ProjectId, TeamId};
 use serde_json::Value;
 use sha1::{Digest, Sha1};
 use sqlx::{postgres::PgQueryResult, Acquire, Row};
-use std::time::Duration;
 use tokio::time::{sleep, timeout};
-use tracing::info;
+use tracing::{info, instrument, warn};
+
+// Add thread-local imports for test-specific counter
+#[cfg(test)]
+use std::cell::RefCell;
 
 use crate::{
     api::{errors::FlagError, types::FlagValue},
@@ -19,16 +27,19 @@ use crate::{
     },
     properties::{
         property_matching::match_property,
-        property_models::{OperatorType, PropertyFilter, PropertyType},
+        property_models::{OperatorType, PropertyFilter},
     },
 };
 
-use super::{
-    flag_group_type_mapping::GroupTypeIndex,
-    flag_matching::{FlagEvaluationState, PostgresReader, PostgresWriter},
-};
+use super::{flag_group_type_mapping::GroupTypeIndex, flag_matching::FlagEvaluationState};
 
 const LONG_SCALE: u64 = 0xfffffffffffffff;
+
+// Replace the static counter with thread-local storage
+#[cfg(test)]
+thread_local! {
+    static FETCH_CALLS: RefCell<u64> = const { RefCell::new(0) };
+}
 
 /// Calculates a deterministic hash value between 0 and 1 for a given identifier and salt.
 ///
@@ -56,6 +67,7 @@ pub fn calculate_hash(prefix: &str, hashed_identifier: &str, salt: &str) -> Resu
 ///
 /// This function fetches both person and group properties for a specified distinct ID and team ID.
 /// It updates the properties cache with the fetched properties and returns void if it succeeds.
+#[instrument(skip_all, fields(team_id = %team_id, distinct_id = %distinct_id, person_query_ms, cohort_query_ms, group_query_ms, cohort_ids = ?static_cohort_ids, group_type_indexes = ?group_type_indexes, group_keys = ?group_keys))]
 pub async fn fetch_and_locally_cache_all_relevant_properties(
     flag_evaluation_state: &mut FlagEvaluationState,
     reader: PostgresReader,
@@ -65,7 +77,17 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
     group_keys: &HashSet<String>,
     static_cohort_ids: Vec<CohortId>,
 ) -> Result<(), FlagError> {
-    let conn_timer = common_metrics::timing_guard(FLAG_DB_CONNECTION_TIME, &[]);
+    // Add the test-specific counter increment
+    #[cfg(test)]
+    increment_fetch_calls_count();
+    let labels = [
+        ("pool".to_string(), "reader".to_string()),
+        (
+            "operation".to_string(),
+            "fetch_and_locally_cache_all_relevant_properties".to_string(),
+        ),
+    ];
+    let conn_timer = common_metrics::timing_guard(FLAG_DB_CONNECTION_TIME, &labels);
     let mut conn = reader.as_ref().get_connection().await?;
     conn_timer.fin();
 
@@ -89,6 +111,7 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
             AND ppd.team_id = $2
     "#;
 
+    let person_query_start = Instant::now();
     let person_query_timer = common_metrics::timing_guard(FLAG_PERSON_QUERY_TIME, &[]);
     let (person_id, person_props): (Option<PersonId>, Option<Value>) = sqlx::query_as(person_query)
         .bind(&distinct_id)
@@ -98,6 +121,24 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
         .unwrap_or((None, None));
     person_query_timer.fin();
 
+    let person_query_duration = person_query_start.elapsed();
+    tracing::Span::current().record("person_query_ms", person_query_duration.as_millis());
+
+    if person_query_duration.as_millis() > 500 {
+        warn!(
+            "Slow person query detected: {}ms for distinct_id={}, team_id={}",
+            person_query_duration.as_millis(),
+            distinct_id,
+            team_id
+        );
+    } else {
+        info!(
+            "Person query completed: {}ms for distinct_id={}, team_id={}",
+            person_query_duration.as_millis(),
+            distinct_id,
+            team_id,
+        );
+    }
     let person_processing_timer = common_metrics::timing_guard(FLAG_PERSON_PROCESSING_TIME, &[]);
     if let Some(person_id) = person_id {
         // NB: this is where we actually set our person ID in the flag evaluation state.
@@ -117,6 +158,7 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
                     FROM cohort_membership
                 "#;
 
+            let cohort_query_start = Instant::now();
             let cohort_timer = common_metrics::timing_guard(FLAG_COHORT_QUERY_TIME, &[]);
             let cohort_rows = sqlx::query(cohort_query)
                 .bind(&static_cohort_ids)
@@ -124,6 +166,25 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
                 .fetch_all(&mut *conn)
                 .await?;
             cohort_timer.fin();
+
+            let cohort_query_duration = cohort_query_start.elapsed();
+            tracing::Span::current().record("cohort_query_ms", cohort_query_duration.as_millis());
+
+            if cohort_query_duration.as_millis() > 200 {
+                warn!(
+                    "Slow cohort query detected: {}ms for person_id={}, cohort_count={}",
+                    cohort_query_duration.as_millis(),
+                    person_id,
+                    static_cohort_ids.len()
+                );
+            } else {
+                info!(
+                    "Cohort query completed: {}ms for person_id={}, cohort_count={}",
+                    cohort_query_duration.as_millis(),
+                    person_id,
+                    static_cohort_ids.len()
+                );
+            }
 
             let cohort_processing_timer =
                 common_metrics::timing_guard(FLAG_COHORT_PROCESSING_TIME, &[]);
@@ -149,16 +210,26 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
     }
 
     // if we have person properties, set them
-    if let Some(person_props) = person_props {
-        flag_evaluation_state.set_person_properties(
-            person_props
-                .as_object()
-                .unwrap_or(&serde_json::Map::new())
-                .iter()
-                .map(|(k, v)| (k.clone(), v.clone()))
-                .collect(),
-        );
-    }
+    let mut all_person_properties: HashMap<String, Value> = if let Some(person_props) = person_props
+    {
+        person_props
+            .as_object()
+            .unwrap_or(&serde_json::Map::new())
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect()
+    } else {
+        HashMap::new()
+    };
+
+    // Always add distinct_id to person properties to match Python implementation
+    // This allows flags to filter on distinct_id even when no other person properties exist
+    all_person_properties.insert(
+        "distinct_id".to_string(),
+        Value::String(distinct_id.clone()),
+    );
+
+    flag_evaluation_state.set_person_properties(all_person_properties);
     person_processing_timer.fin();
 
     // Only fetch group property data if we have group types to look up
@@ -178,6 +249,7 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
             group_type_indexes.iter().cloned().collect();
         let group_keys_vec: Vec<String> = group_keys.iter().cloned().collect();
 
+        let group_query_start = Instant::now();
         let group_query_timer = common_metrics::timing_guard(FLAG_GROUP_QUERY_TIME, &[]);
         let groups = sqlx::query(group_query)
             .bind(team_id)
@@ -186,6 +258,28 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
             .fetch_all(&mut *conn)
             .await?;
         group_query_timer.fin();
+
+        let group_query_duration = group_query_start.elapsed();
+        tracing::Span::current().record("group_query_ms", group_query_duration.as_millis());
+
+        if group_query_duration.as_millis() > 300 {
+            warn!(
+                "Slow group query detected: {}ms for team_id={}, group_types={}, group_keys={}",
+                group_query_duration.as_millis(),
+                team_id,
+                group_type_indexes_vec.len(),
+                group_keys_vec.len()
+            );
+        } else {
+            info!(
+                "Group query completed: {}ms for team_id={}, group_types={}, group_keys={}, results={}",
+                group_query_duration.as_millis(),
+                team_id,
+                group_type_indexes_vec.len(),
+                group_keys_vec.len(),
+                groups.len()
+            );
+        }
 
         let group_processing_timer = common_metrics::timing_guard(FLAG_GROUP_PROCESSING_TIME, &[]);
         for row in groups {
@@ -203,24 +297,46 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
     Ok(())
 }
 
-/// Check if all required properties are present in the overrides
-/// and none of them are of type "cohort" – if so, return the overrides,
-/// otherwise return None, because we can't locally compute cohort properties
+/// Return any locally computable property overrides (non-cohort properties).
+/// This returns the subset of overrides that can be computed locally, even if not all flag properties are overridden.
 pub fn locally_computable_property_overrides(
     property_overrides: &Option<HashMap<String, Value>>,
     property_filters: &[PropertyFilter],
 ) -> Option<HashMap<String, Value>> {
-    property_overrides.as_ref().and_then(|overrides| {
-        let should_prefer_overrides = property_filters.iter().all(|prop| {
-            overrides.contains_key(&prop.key) && prop.prop_type != PropertyType::Cohort
-        });
+    let overrides = property_overrides.as_ref()?;
 
-        if should_prefer_overrides {
-            Some(overrides.clone())
-        } else {
-            None
-        }
-    })
+    // Early return if flag has cohort filters - these require DB lookup
+    if has_cohort_filters(property_filters) {
+        return None;
+    }
+
+    // Only return overrides if they're useful for this flag
+    if are_overrides_useful_for_flag(overrides, property_filters) {
+        Some(overrides.clone())
+    } else {
+        None
+    }
+}
+
+/// Checks if any property filters involve cohorts that require database lookup
+fn has_cohort_filters(property_filters: &[PropertyFilter]) -> bool {
+    property_filters.iter().any(|prop| prop.is_cohort())
+}
+
+/// Determines if the provided overrides contain properties that the flag actually needs
+fn are_overrides_useful_for_flag(
+    overrides: &HashMap<String, Value>,
+    property_filters: &[PropertyFilter],
+) -> bool {
+    // If flag doesn't need any properties, overrides aren't useful
+    if property_filters.is_empty() {
+        return false;
+    }
+
+    // Check if overrides contain at least one property the flag needs
+    property_filters
+        .iter()
+        .any(|filter| overrides.contains_key(&filter.key))
 }
 
 /// Check if all properties match the given filters
@@ -248,11 +364,10 @@ pub fn match_flag_value_to_flag_filter(
     filter: &PropertyFilter,
     flag_evaluation_results: &HashMap<FeatureFlagId, FlagValue>,
 ) -> bool {
-    // If the operator is not exact, we can't match the flag value to the flag filter
-    if filter.operator != Some(OperatorType::Exact) {
-        // Should we log this?
+    // Flag dependencies must use the flag_evaluates_to operator
+    if filter.operator != Some(OperatorType::FlagEvaluatesTo) {
         tracing::error!(
-            "Flag filter operator for property type Flag is not `exact`, skipping flag value matching: {:?}",
+            "Flag filter operator for property type Flag must be `flag_evaluates_to`, skipping flag value matching: {:?}",
             filter
         );
         return false;
@@ -287,7 +402,16 @@ pub async fn get_feature_flag_hash_key_overrides(
     distinct_id_and_hash_key_override: Vec<String>,
 ) -> Result<HashMap<String, String>, FlagError> {
     let mut feature_flag_hash_key_overrides = HashMap::new();
+    let labels = [
+        ("pool".to_string(), "reader".to_string()),
+        (
+            "operation".to_string(),
+            "get_feature_flag_hash_key_overrides".to_string(),
+        ),
+    ];
+    let conn_timer = common_metrics::timing_guard(FLAG_DB_CONNECTION_TIME, &labels);
     let mut conn = reader.as_ref().get_connection().await?;
+    conn_timer.fin();
 
     let person_and_distinct_id_query = r#"
             SELECT person_id, distinct_id 
@@ -467,9 +591,18 @@ pub async fn should_write_hash_key_override(
 
     for retry in 0..MAX_RETRIES {
         let result = timeout(QUERY_TIMEOUT, async {
+            let labels = [
+                ("pool".to_string(), "reader".to_string()),
+                (
+                    "operation".to_string(),
+                    "should_write_hash_key_override".to_string(),
+                ),
+            ];
+            let conn_timer = common_metrics::timing_guard(FLAG_DB_CONNECTION_TIME, &labels);
             let mut conn = reader.get_connection().await.map_err(|e| {
                 FlagError::DatabaseError(format!("Failed to acquire connection: {}", e))
             })?;
+            conn_timer.fin();
 
             let rows = sqlx::query(query)
                 .bind(team_id)
@@ -512,13 +645,28 @@ pub async fn should_write_hash_key_override(
 }
 
 #[cfg(test)]
+pub fn get_fetch_calls_count() -> u64 {
+    FETCH_CALLS.with(|counter| *counter.borrow())
+}
+
+#[cfg(test)]
+pub fn reset_fetch_calls_count() {
+    FETCH_CALLS.with(|counter| *counter.borrow_mut() = 0);
+}
+
+#[cfg(test)]
+pub fn increment_fetch_calls_count() {
+    FETCH_CALLS.with(|counter| *counter.borrow_mut() += 1);
+}
+
+#[cfg(test)]
 mod tests {
     use rstest::rstest;
     use serde_json::json;
 
     use crate::{
         flags::flag_models::{FeatureFlagRow, FlagFilters},
-        properties::property_models::{OperatorType, PropertyFilter},
+        properties::property_models::{OperatorType, PropertyFilter, PropertyType},
         utils::test_utils::{
             create_test_flag, insert_flag_for_team_in_pg, insert_new_team_in_pg,
             insert_person_for_team_in_pg, setup_pg_reader_client, setup_pg_writer_client,
@@ -569,6 +717,7 @@ mod tests {
             active: flag.active,
             ensure_experience_continuity: flag.ensure_experience_continuity,
             version: flag.version,
+            evaluation_runtime: flag.evaluation_runtime,
         };
 
         // Insert the feature flag into the database
@@ -623,6 +772,7 @@ mod tests {
             ("age".to_string(), json!(30)),
         ]));
 
+        // Test case 1: No cohort properties - should return overrides
         let property_filters = vec![
             PropertyFilter {
                 key: "email".to_string(),
@@ -645,6 +795,7 @@ mod tests {
         let result = locally_computable_property_overrides(&overrides, &property_filters);
         assert!(result.is_some());
 
+        // Test case 2: Property filters include cohort - should return None
         let property_filters_with_cohort = vec![
             PropertyFilter {
                 key: "email".to_string(),
@@ -667,6 +818,76 @@ mod tests {
         let result =
             locally_computable_property_overrides(&overrides, &property_filters_with_cohort);
         assert!(result.is_none());
+
+        // Test case 3: Empty property filters - should return None (no properties needed)
+        let empty_filters = vec![];
+        let result = locally_computable_property_overrides(&overrides, &empty_filters);
+        assert!(result.is_none());
+
+        // Test case 4: Overrides contain some but not all properties from filters - should return None (no complete overlap)
+        let property_filters_extra = vec![
+            PropertyFilter {
+                key: "email".to_string(),
+                value: Some(json!("test@example.com")),
+                operator: None,
+                prop_type: PropertyType::Person,
+                group_type_index: None,
+                negation: None,
+            },
+            PropertyFilter {
+                key: "missing_property".to_string(), // This property is NOT in overrides
+                value: Some(json!("some_value")),
+                operator: None,
+                prop_type: PropertyType::Person,
+                group_type_index: None,
+                negation: None,
+            },
+        ];
+
+        let result = locally_computable_property_overrides(&overrides, &property_filters_extra);
+        assert!(result.is_some()); // Should return overrides because there's partial overlap (email)
+        let returned_overrides = result.unwrap();
+        assert!(returned_overrides.contains_key("email")); // email should be included
+        assert!(returned_overrides.contains_key("age")); // age should also be included (all overrides returned)
+        assert!(!returned_overrides.contains_key("missing_property")); // missing_property was not in original overrides
+        assert_eq!(returned_overrides.len(), 2); // Both email and age should be returned
+    }
+
+    #[tokio::test]
+    async fn test_person_property_overrides_bug_fix() {
+        // This test specifically addresses the bug where person property overrides
+        // were ignored if the flag didn't explicitly check for those properties.
+
+        // Simulate sending an override for $feature_enrollment/discussions
+        let overrides = Some(HashMap::from([
+            ("$feature_enrollment/discussions".to_string(), json!(false)),
+            ("email".to_string(), json!("user@example.com")),
+        ]));
+
+        // Simulate a flag that only checks for email, not $feature_enrollment/discussions
+        let flag_property_filters = vec![PropertyFilter {
+            key: "email".to_string(),
+            value: Some(json!("user@example.com")),
+            operator: Some(OperatorType::Exact),
+            prop_type: PropertyType::Person,
+            group_type_index: None,
+            negation: None,
+        }];
+
+        let result = locally_computable_property_overrides(&overrides, &flag_property_filters);
+        assert!(result.is_some(), "Person property overrides should be returned even when flag doesn't check for all override properties");
+
+        let returned_overrides = result.unwrap();
+        assert_eq!(
+            returned_overrides.get("$feature_enrollment/discussions"),
+            Some(&json!(false)),
+            "The $feature_enrollment/discussions override should be present"
+        );
+        assert_eq!(
+            returned_overrides.get("email"),
+            Some(&json!("user@example.com")),
+            "The email override should be present"
+        );
     }
 
     #[rstest]
@@ -695,7 +916,7 @@ mod tests {
         let filter = PropertyFilter {
             key: filter_flag_id.to_string(),
             value: Some(filter_value),
-            operator: Some(OperatorType::Exact),
+            operator: Some(OperatorType::FlagEvaluatesTo),
             prop_type: PropertyType::Flag,
             negation: None,
             group_type_index: None,

@@ -189,7 +189,7 @@ function buildEventLabel(
         return { ...center, radius: bbox.width / 2 + options.eventMinSpace, id: `moving-${index}` }
     })
 
-    const clonedNodes = [...movingNodes.map((node) => ({ ...node }))]
+    const clonedNodes = movingNodes.map((node) => ({ ...node }))
     const simulation = d3
         .forceSimulation(movingNodes)
         .velocityDecay(0.9)

@@ -12,6 +12,7 @@ import { ChartParams, GraphDataset, GraphType } from '~/types'
 
 import { funnelDataLogic } from './funnelDataLogic'
 import { funnelPersonsModalLogic } from './funnelPersonsModalLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 const LineGraphWrapper = ({ inCardView, children }: { inCardView?: boolean; children: JSX.Element }): JSX.Element => {
     if (inCardView) {
@@ -27,8 +28,9 @@ export function FunnelLineGraph({
     showPersonsModal: showPersonsModalProp = true,
 }: Omit<ChartParams, 'filters'>): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
-    const { indexedSteps, aggregationTargetLabel, incompletenessOffsetFromEnd, interval, querySource, insightData } =
+    const { indexedSteps, aggregationTargetLabel, incompletenessOffsetFromEnd, querySource, interval, insightData } =
         useValues(funnelDataLogic(insightProps))
+    const { weekStartDay } = useValues(teamLogic)
     const { canOpenPersonModal } = useValues(funnelPersonsModalLogic(insightProps))
 
     if (!isInsightQueryNode(querySource)) {
@@ -56,7 +58,12 @@ export function FunnelLineGraph({
                             return 'Trend'
                         }
                         return (
-                            getFormattedDate(indexedSteps[0].days?.[datum.dataIndex], interval ?? undefined) +
+                            getFormattedDate(indexedSteps[0].days?.[datum.dataIndex], {
+                                interval,
+                                dateRange: insightData?.resolved_date_range,
+                                timezone: insightData?.timezone,
+                                weekStartDay,
+                            }) +
                             ' ' +
                             (insightData?.timezone ? shortTimeZone(insightData.timezone) : 'UTC')
                         )

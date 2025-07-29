@@ -3,6 +3,7 @@ import { loaders } from 'kea-loaders'
 
 import { performQuery } from '~/queries/query'
 import { NodeKind, SessionsTimelineQuery, SessionsTimelineQueryResponse } from '~/queries/schema/schema-general'
+import { setLatestVersionsOnQuery } from '~/queries/utils'
 
 import type { notebookNodePersonFeedLogicType } from './notebookNodePersonFeedLogicType'
 
@@ -20,10 +21,12 @@ export const notebookNodePersonFeedLogic = kea<notebookNodePersonFeedLogicType>(
             null as SessionsTimelineQueryResponse['results'] | null,
             {
                 loadSessionsTimeline: async () => {
-                    const result = await performQuery<SessionsTimelineQuery>({
-                        kind: NodeKind.SessionsTimelineQuery,
-                        personId: props.personId,
-                    })
+                    const result = await performQuery<SessionsTimelineQuery>(
+                        setLatestVersionsOnQuery({
+                            kind: NodeKind.SessionsTimelineQuery,
+                            personId: props.personId,
+                        })
+                    )
                     return result.results
                 },
             },

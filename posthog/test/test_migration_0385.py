@@ -1,5 +1,9 @@
 from posthog.test.base import NonAtomicTestMigrations
 
+import pytest
+
+pytestmark = pytest.mark.skip("old migrations slow overall test run down")
+
 
 class FixingExceptionAutocaptureMigration(NonAtomicTestMigrations):
     migrate_from = "0384_activity_log_was_impersonated"

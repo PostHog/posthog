@@ -281,10 +281,10 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                     if (regexp) {
                         const match = argument.match(regexp)
                         if (match && match[1]) {
-                            prefixedResults = [...prefixedResults, ...resolveCommand(command, match[2], match[1])]
+                            prefixedResults.push(...resolveCommand(command, match[2], match[1]))
                         }
                     }
-                    directResults = [...directResults, ...resolveCommand(command, argument)]
+                    directResults.push(...resolveCommand(command, argument))
                 }
                 const allResults = directResults.concat(prefixedResults)
                 let fusableResults: CommandResult[] = []
@@ -486,7 +486,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                     },
                     {
                         icon: IconHogQL,
-                        display: 'Create a new Calendar Heatmap insight',
+                        display: 'Create a new Calendar heatmap insight (BETA)',
                         executor: () => {
                             push(INSIGHT_TYPE_URLS[InsightType.CALENDAR_HEATMAP])
                         },

@@ -1,12 +1,11 @@
-from collections.abc import Callable
-from typing import Any, Optional, cast
+from typing import Any, cast
 from urllib.parse import urlparse
 
 import structlog
 from django.conf import settings
 from django.http import HttpRequest, HttpResponse, HttpResponseRedirect, HttpResponseServerError
 from django.template import loader
-from django.urls import URLPattern, include, path, re_path
+from django.urls import include, path, re_path
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.csrf import (
     csrf_exempt,
@@ -25,10 +24,10 @@ from two_factor.urls import urlpatterns as tf_urls
 from posthog.api import (
     api_not_found,
     authentication,
-    capture,
     decide,
     hog_function_template,
     remote_config,
+    report,
     router,
     sharing,
     signup,
@@ -37,21 +36,23 @@ from posthog.api import (
     uploaded_media,
     user,
 )
-from .api.web_experiment import web_experiments
-from .api.utils import hostname_in_allowed_url_list
+from posthog.api.zendesk_orgcheck import ensure_zendesk_organization
+from posthog.api.web_experiment import web_experiments
+from posthog.api.utils import hostname_in_allowed_url_list
 from products.early_access_features.backend.api import early_access_features
-from posthog.api.survey import surveys
+from posthog.api.survey import surveys, public_survey_page
 from posthog.constants import PERMITTED_FORUM_DOMAINS
 from posthog.demo.legacy import demo_route
 from posthog.models import User
 from posthog.models.instance_setting import get_instance_setting
 
-from .utils import render_template
+from .utils import opt_slash_path, render_template
 from .views import (
     health,
     login_required,
     preflight_check,
     redis_values_view,
+    api_key_search_view,
     robots_txt,
     security_txt,
     stats,
@@ -61,6 +62,7 @@ from .views import (
 from posthog.api.query import progress
 
 from posthog.api.slack import slack_interactivity_callback
+from posthog.oauth2_urls import urlpatterns as oauth2_urls
 
 logger = structlog.get_logger(__name__)
 
@@ -144,12 +146,6 @@ def authorize_and_redirect(request: HttpRequest) -> HttpResponse:
     )
 
 
-def opt_slash_path(route: str, view: Callable, name: Optional[str] = None) -> URLPattern:
-    """Catches path with or without trailing slash, taking into account query param and hash."""
-    # Ignoring the type because while name can be optional on re_path, mypy doesn't agree
-    return re_path(rf"^{route}/?(?:[?#].*)?$", view, name=name)  # type: ignore
-
-
 urlpatterns = [
     path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
     # Optional UI:
@@ -171,6 +167,7 @@ urlpatterns = [
     opt_slash_path("_stats", stats),
     opt_slash_path("_preflight", preflight_check),
     re_path(r"^admin/redisvalues$", redis_values_view, name="redis_values"),
+    re_path(r"^admin/apikeysearch$", api_key_search_view, name="api_key_search"),
     # ee
     *ee_urlpatterns,
     # api
@@ -178,6 +175,7 @@ urlpatterns = [
     path("api/environments/<int:team_id>/query/<str:query_uuid>/progress/", progress),
     path("api/environments/<int:team_id>/query/<str:query_uuid>/progress", progress),
     path("api/unsubscribe", unsubscribe.unsubscribe),
+    opt_slash_path("api/support/ensure-zendesk-organization", csrf_exempt(ensure_zendesk_organization)),
     path("api/", include(router.urls)),
     path("", include(tf_urls)),
     opt_slash_path("api/user/redirect_to_site", user.redirect_to_site),
@@ -186,6 +184,7 @@ urlpatterns = [
     opt_slash_path("api/early_access_features", early_access_features),
     opt_slash_path("api/web_experiments", web_experiments),
     opt_slash_path("api/surveys", surveys),
+    re_path(r"^external_surveys/(?P<survey_id>[^/]+)/?$", public_survey_page),
     opt_slash_path("api/signup", signup.SignupViewset.as_view()),
     opt_slash_path("api/social_signup", signup.SocialSignupViewset.as_view()),
     path("api/signup/<str:invite_id>/", signup.InviteSignupViewset.as_view()),
@@ -221,16 +220,11 @@ urlpatterns = [
     path("array/<str:token>/config.js", remote_config.RemoteConfigJSAPIView.as_view()),
     path("array/<str:token>/array.js", remote_config.RemoteConfigArrayJSAPIView.as_view()),
     re_path(r"^demo.*", login_required(demo_route)),
+    path("", include((oauth2_urls, "oauth2_provider"), namespace="oauth2_provider")),
     # ingestion
     # NOTE: When adding paths here that should be public make sure to update ALWAYS_ALLOWED_ENDPOINTS in middleware.py
     opt_slash_path("decide", decide.get_decide),
-    opt_slash_path("e", capture.get_event),
-    opt_slash_path("engage", capture.get_event),
-    opt_slash_path("track", capture.get_event),
-    opt_slash_path("capture", capture.get_event),
-    opt_slash_path("batch", capture.get_event),
-    opt_slash_path("s", capture.get_event),  # session recordings
-    opt_slash_path("report", capture.get_csp_event),  # CSP violation reports
+    opt_slash_path("report", report.get_csp_event),  # CSP violation reports
     opt_slash_path("robots.txt", robots_txt),
     opt_slash_path(".well-known/security.txt", security_txt),
     # auth

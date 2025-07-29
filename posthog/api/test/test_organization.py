@@ -1,7 +1,6 @@
 from rest_framework import status
 from unittest.mock import patch, ANY
 from typing import cast
-
 from posthog.models import Organization, OrganizationMembership, Team, FeatureFlag
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.utils import generate_random_token_personal
@@ -152,8 +151,8 @@ class TestOrganizationAPI(APIBaseTest):
 
         # Verify the capture event was called correctly
         mock_capture.assert_any_call(
-            self.user.distinct_id,
             "organization 2fa enforcement toggled",
+            distinct_id=self.user.distinct_id,
             properties={
                 "enabled": True,
                 "organization_id": str(self.organization.id),

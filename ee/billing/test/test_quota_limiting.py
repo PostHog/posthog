@@ -87,10 +87,10 @@ class TestQuotaLimiting(BaseTest):
             group_properties={"organization": {"id": str(org_id)}},
         )
         # Check out many times it was called
-        assert patch_capture.call_count == 8  # 7 logs + 1 org
+        assert patch_capture.call_count == 1  # 1 org event from org_quota_limited_until
         # Find the org action call
         org_action_call = next(
-            call for call in patch_capture.call_args_list if call.args[1] == "org_quota_limited_until"
+            call for call in patch_capture.call_args_list if call.kwargs.get("event") == "org_quota_limited_until"
         )
         assert org_action_call.kwargs.get("properties") == {
             "event": "ignored",
@@ -138,10 +138,10 @@ class TestQuotaLimiting(BaseTest):
             group_properties={"organization": {"id": org_id}},
         )
         # Check out many times it was called
-        assert patch_capture.call_count == 8  # 7 logs + 1 org
+        assert patch_capture.call_count == 1  # 1 org event from org_quota_limited_until
         # Find the org action call
         org_action_call = next(
-            call for call in patch_capture.call_args_list if call.args[1] == "org_quota_limited_until"
+            call for call in patch_capture.call_args_list if call.kwargs.get("event") == "org_quota_limited_until"
         )
         assert org_action_call.kwargs.get("properties") == {
             "event": "already limited",
@@ -198,7 +198,7 @@ class TestQuotaLimiting(BaseTest):
             quota_limited_orgs, quota_limiting_suspended_orgs = update_all_orgs_billing_quotas()
         # Shouldn't be called due to lazy evaluation of the conditional
         patch_feature_enabled.assert_not_called()
-        assert patch_capture.call_count == 7  # 7 logs
+        assert patch_capture.call_count == 0  # No events should be captured since org won't be limited
         assert quota_limited_orgs["events"] == {}
         assert quota_limited_orgs["exceptions"] == {}
         assert quota_limited_orgs["recordings"] == {}
@@ -300,10 +300,14 @@ class TestQuotaLimiting(BaseTest):
             assert quota_limiting_suspended_orgs["api_queries_read_bytes"] == {}
 
             # Check out many times it was called
-            assert patch_capture.call_count == 9  # 7 logs + 1 org and 1 log from org_quota_limited_until
+            assert (
+                patch_capture.call_count == 2
+            )  # 1 org_quota_limited_until event + 1 organization quota limits changed event
             # Find the org action call
             org_action_call = next(
-                call for call in patch_capture.call_args_list if call.args[1] == "organization quota limits changed"
+                call
+                for call in patch_capture.call_args_list
+                if call.kwargs.get("event") == "organization quota limits changed"
             )
             assert org_action_call.kwargs.get("properties") == {
                 "quota_limited_events": 1612137599,
@@ -1122,10 +1126,10 @@ class TestQuotaLimiting(BaseTest):
 
         self.assertEqual(tokens, [])
         mock_capture.assert_called_once()
-        self.assertIn(
-            f"quota_limiting: No team tokens found for organization: {self.organization.id}",
-            str(mock_capture.call_args[0][0]),
-        )
+
+        call_args = mock_capture.call_args
+        self.assertEqual(str(call_args[0][0]), "quota_limiting: No team tokens found for organization")  # type: ignore
+        self.assertEqual(call_args[0][1], {"organization_id": self.organization.id})  # type: ignore
 
     def test_feature_flags_quota_limiting(self):
         with self.settings(USE_TZ=False), freeze_time("2021-01-25T00:00:00Z"):
@@ -1141,30 +1145,30 @@ class TestQuotaLimiting(BaseTest):
             self.organization.customer_trust_scores = zero_trust_scores()
             self.organization.save()
 
-            # Test immediate limiting with trust score 0
+            # Test that feature flags always get 2-day grace period even with trust score 0
             quota_limited_orgs, quota_limiting_suspended_orgs = update_all_orgs_billing_quotas()
             org_id = str(self.organization.id)
-            assert quota_limited_orgs["feature_flag_requests"] == {org_id: 1612137599}
-            assert quota_limiting_suspended_orgs["feature_flag_requests"] == {}
-            assert self.team.api_token.encode("UTF-8") in self.redis_client.zrange(
-                f"@posthog/quota-limits/feature_flag_requests", 0, -1
-            )
-
-            # Test medium trust score (7) - should get 1 day suspension
-            self.organization.customer_trust_scores["feature_flags"] = 7
-            self.organization.usage["feature_flag_requests"] = {"usage": 110, "limit": 100}
-            self.organization.save()
-            self.redis_client.delete(f"@posthog/quota-limits/feature_flag_requests")
-
-            quota_limited_orgs, quota_limiting_suspended_orgs = update_all_orgs_billing_quotas()
             assert quota_limited_orgs["feature_flag_requests"] == {}
-            assert quota_limiting_suspended_orgs["feature_flag_requests"] == {org_id: 1611705600}  # 1 day suspension
+            assert quota_limiting_suspended_orgs["feature_flag_requests"] == {org_id: 1611792000}  # 2 day suspension
             assert self.team.api_token.encode("UTF-8") in self.redis_client.zrange(
                 f"@posthog/quota-limiting-suspended/feature_flag_requests", 0, -1
             )
 
-            # Test suspension expiry leads to limiting
-            with freeze_time("2021-01-27T00:00:00Z"):  # 2 days later
+            # Test medium trust score (7) - should still get 2 day suspension due to special case
+            self.organization.customer_trust_scores["feature_flags"] = 7
+            self.organization.usage["feature_flag_requests"] = {"usage": 110, "limit": 100}
+            self.organization.save()
+            self.redis_client.delete(f"@posthog/quota-limiting-suspended/feature_flag_requests")
+
+            quota_limited_orgs, quota_limiting_suspended_orgs = update_all_orgs_billing_quotas()
+            assert quota_limited_orgs["feature_flag_requests"] == {}
+            assert quota_limiting_suspended_orgs["feature_flag_requests"] == {org_id: 1611792000}  # 2 day suspension
+            assert self.team.api_token.encode("UTF-8") in self.redis_client.zrange(
+                f"@posthog/quota-limiting-suspended/feature_flag_requests", 0, -1
+            )
+
+            # Test suspension expiry leads to limiting after 2 days
+            with freeze_time("2021-01-28T00:00:00Z"):  # 3 days later
                 quota_limited_orgs, quota_limiting_suspended_orgs = update_all_orgs_billing_quotas()
                 assert quota_limited_orgs["feature_flag_requests"] == {org_id: 1612137599}
                 assert quota_limiting_suspended_orgs["feature_flag_requests"] == {}
@@ -1197,6 +1201,50 @@ class TestQuotaLimiting(BaseTest):
             assert quota_limiting_suspended_orgs["feature_flag_requests"] == {}
             assert self.redis_client.zrange(f"@posthog/quota-limits/feature_flag_requests", 0, -1) == []
             assert self.redis_client.zrange(f"@posthog/quota-limiting-suspended/feature_flag_requests", 0, -1) == []
+
+    def test_feature_flags_always_get_2_day_grace_period(self):
+        """Test that feature flags always get at least a 2-day grace period, or their trust score grace period if higher"""
+        with self.settings(USE_TZ=False), freeze_time("2021-01-25T00:00:00Z"):
+            self.organization.usage = {
+                "events": {"usage": 10, "limit": 100},
+                "exceptions": {"usage": 10, "limit": 100},
+                "recordings": {"usage": 10, "limit": 100},
+                "rows_synced": {"usage": 10, "limit": 100},
+                "feature_flag_requests": {"usage": 110, "limit": 100},
+                "api_queries_read_bytes": {"usage": 10, "limit": 100},
+                "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
+            }
+            org_id = str(self.organization.id)
+
+            # Test different trust scores get at least 2-day grace period for feature flags
+            test_cases = [
+                (0, 1611792000),  # Trust score 0 -> 2 days (1611792000 = 2021-01-27T00:00:00Z)
+                (3, 1611792000),  # Trust score 3 -> 2 days (normally 0, but minimum is 2)
+                (7, 1611792000),  # Trust score 7 -> 2 days (normally 1, but minimum is 2)
+                (10, 1611878400),  # Trust score 10 -> 3 days (normally 3, which is > 2)
+                (15, 1612051200),  # Trust score 15 -> 5 days (normally 5, which is > 2)
+            ]
+
+            for trust_score, expected_timestamp in test_cases:
+                self.organization.customer_trust_scores = {"feature_flags": trust_score}
+                self.organization.save()
+
+                # Clear any existing Redis state
+                self.redis_client.delete(f"@posthog/quota-limits/feature_flag_requests")
+                self.redis_client.delete(f"@posthog/quota-limiting-suspended/feature_flag_requests")
+
+                quota_limited_orgs, quota_limiting_suspended_orgs = update_all_orgs_billing_quotas()
+
+                # Should get at least 2-day grace period, or more if trust score allows
+                assert (
+                    quota_limited_orgs["feature_flag_requests"] == {}
+                ), f"Trust score {trust_score} should not immediately limit"
+                assert quota_limiting_suspended_orgs["feature_flag_requests"] == {
+                    org_id: expected_timestamp
+                }, f"Trust score {trust_score} should get appropriate grace period"
+                assert self.team.api_token.encode("UTF-8") in self.redis_client.zrange(
+                    f"@posthog/quota-limiting-suspended/feature_flag_requests", 0, -1
+                )
 
     def test_api_queries_quota_limiting(self):
         with self.settings(USE_TZ=False), freeze_time("2021-01-25T00:00:00Z"):
@@ -1265,13 +1313,21 @@ class TestQuotaLimiting(BaseTest):
                     f"@posthog/quota-limiting-suspended/api_queries_read_bytes", 0, -1
                 )
 
-            # Test high trust score organization is not limited
-            self.organization.customer_trust_scores[trust_key] = 15
-            self.organization.save()
-            quota_limited_orgs, quota_limiting_suspended_orgs = update_all_orgs_billing_quotas()
-            assert quota_limited_orgs["api_queries_read_bytes"] == {}
-            assert quota_limiting_suspended_orgs["api_queries_read_bytes"] == {}
-            assert self.redis_client.zrange(f"@posthog/quota-limits/api_queries_read_bytes", 0, -1) == []
+            # Test high trust score (15) - should get 5 day suspension
+            with freeze_time("2021-01-25T00:00:00Z"):
+                self.organization.customer_trust_scores[trust_key] = 15
+                self.organization.usage["api_queries_read_bytes"] = {"usage": 110, "limit": 100}
+                self.organization.save()
+                self.redis_client.delete(f"@posthog/quota-limits/api_queries_read_bytes")
+
+                quota_limited_orgs, quota_limiting_suspended_orgs = update_all_orgs_billing_quotas()
+                assert quota_limited_orgs["api_queries_read_bytes"] == {}
+                assert quota_limiting_suspended_orgs["api_queries_read_bytes"] == {
+                    org_id: 1612051200
+                }  # 5 day suspension
+                assert self.team.api_token.encode("UTF-8") in self.redis_client.zrange(
+                    f"@posthog/quota-limiting-suspended/api_queries_read_bytes", 0, -1
+                )
 
             # Test never_drop_data organization is not limited
             self.organization.customer_trust_scores[trust_key] = 0
@@ -1321,7 +1377,7 @@ class TestQuotaLimiting(BaseTest):
             # Find the specific call for org_quota_limited_until with suspension removed
             event = None
             for call in mock_capture.call_args_list:
-                if len(call[0]) >= 2 and call[0][1] == "org_quota_limited_until":
+                if len(call) >= 2 and call[1]["event"] == "org_quota_limited_until":
                     event = call
                     break
 

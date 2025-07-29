@@ -142,15 +142,54 @@ export function processAllSnapshots(
     return snapshotsBySource
 }
 
+export function processAllSnapshotsRaw(
+    sources: SessionRecordingSnapshotSource[] | null,
+    snapshotsBySource: Record<SourceKey | 'processed', SessionRecordingSnapshotSourceResponse> | null
+): RecordingSnapshot[] {
+    if (!sources || !snapshotsBySource) {
+        return []
+    }
+
+    const result: RecordingSnapshot[] = []
+
+    for (const source of sources) {
+        const sourceKey = keyForSource(source)
+        const sourceData = snapshotsBySource[sourceKey]
+        const sourceSnapshots = sourceData?.snapshots || []
+
+        for (const snapshot of sourceSnapshots) {
+            result.push(snapshot)
+        }
+    }
+
+    result.sort((a, b) => a.timestamp - b.timestamp)
+
+    return result
+}
+
 let postHogEEModule: PostHogEE
 
 function isRecordingSnapshot(x: unknown): x is RecordingSnapshot {
     return typeof x === 'object' && x !== null && 'type' in x && 'timestamp' in x
 }
 
-function hasAnyWireframes(snapshotData: Record<string, any>[]): boolean {
+const mobileFullSnapshot = (x: Record<string, any>): boolean => isObject(x.data) && 'wireframes' in x.data
+
+// the mobileFullSnapshot above wasn't catching recordings from React Native SDK 4.1.0 that were missing meta events so...
+const mobileIncrementalUpdate = (y: Record<string, any>): boolean => {
+    return (
+        'type' in y &&
+        y.type === 3 &&
+        isObject(y.data) &&
+        'updates' in y.data &&
+        Array.isArray(y.data.updates) &&
+        y.data.updates.some((du) => isObject(du) && 'wireframe' in du)
+    )
+}
+
+export function hasAnyWireframes(snapshotData: Record<string, any>[]): boolean {
     return snapshotData.some((d) => {
-        return isObject(d.data) && 'wireframes' in d.data
+        return mobileFullSnapshot(d) || mobileIncrementalUpdate(d)
     })
 }
 
@@ -222,7 +261,7 @@ export const parseEncodedSnapshots = async (
                 // Apply chunking to the snapshot if needed
                 return chunkMutationSnapshot(baseSnapshot)
             })
-        } catch (e) {
+        } catch {
             if (typeof l === 'string') {
                 unparseableLines.push(l)
             }

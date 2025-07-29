@@ -13,6 +13,7 @@ from posthog.cloud_utils import get_cached_instance_license, is_cloud
 from posthog.constants import AvailableFeature
 from posthog.settings import INSTANCE_TAG, SITE_URL
 from posthog.utils import get_instance_realm
+from posthog.helpers.email_utils import EmailNormalizer
 
 from .organization import Organization, OrganizationMembership
 from .personal_api_key import PersonalAPIKey, hash_key_value
@@ -63,7 +64,7 @@ class UserManager(BaseUserManager):
         """Create and save a User with the given email and password."""
         if email is None:
             raise ValueError("Email must be provided!")
-        email = self.normalize_email(email)
+        email = EmailNormalizer.normalize(email)
         extra_fields.setdefault("distinct_id", generate_random_token())
         user = self.model(email=email, first_name=first_name, **extra_fields)
         if password is not None:
@@ -236,14 +237,16 @@ class User(AbstractUser, UUIDClassicModel):
             if self.current_team is not None:
                 self.current_organization_id = self.current_team.organization_id
             self.current_organization = self.organizations.first()
-            self.save()
+            if self.current_organization is not None:
+                self.save(update_fields=["current_organization"])
         return self.current_organization
 
     @cached_property
     def team(self) -> Optional[Team]:
         if self.current_team is None and self.organization is not None:
             self.current_team = self.teams.filter(organization=self.current_organization).first()
-            self.save()
+            if self.current_team:
+                self.save(update_fields=["current_team"])
         return self.current_team
 
     def join(

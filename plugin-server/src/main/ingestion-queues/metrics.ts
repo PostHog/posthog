@@ -8,6 +8,12 @@ export const kafkaRebalancePartitionCount = new Gauge({
     labelNames: ['topic'],
 })
 
+export const kafkaConsumerAssignment = new Gauge({
+    name: 'kafka_consumer_assignment',
+    help: 'Kafka consumer partition assignment status',
+    labelNames: ['topic_name', 'partition_id', 'pod', 'group_id'],
+})
+
 export const latestOffsetTimestampGauge = new Gauge({
     name: 'latest_processed_timestamp_ms',
     help: 'Timestamp of the latest offset that has been committed.',

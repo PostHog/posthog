@@ -34,7 +34,13 @@ aws-sdk-s3 = { workspace = true }
 rdkafka = { workspace = true }
 rayon = "1.10.0"
 celes = "=2.4.0"
+tempfile = "3.8"
+natord = "1.0.9"
+thiserror.workspace = true
+bytes.workspace = true
+futures-util = "0.3.31"
+zip = "4.0.0"
+flate2.workspace = true
 
 [dev-dependencies]
-tempfile = "3.8"
 httpmock = { workspace = true }

@@ -2,9 +2,12 @@ import { dayjs } from 'lib/dayjs'
 
 import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 
+import type { SpanAggregation } from './llmObservabilityTraceDataLogic'
+
 import {
     AnthropicInputMessage,
     AnthropicTextMessage,
+    AnthropicThinkingMessage,
     AnthropicToolCallMessage,
     AnthropicToolResultMessage,
     CompatMessage,
@@ -19,13 +22,31 @@ function formatUsage(inputTokens: number, outputTokens?: number | null): string 
     return `${inputTokens} → ${outputTokens || 0} (∑ ${inputTokens + (outputTokens || 0)})`
 }
 
-export function formatLLMUsage(trace_or_event: LLMTrace | LLMTraceEvent): string | null {
-    if ('properties' in trace_or_event && typeof trace_or_event.properties.$ai_input_tokens === 'number') {
-        return formatUsage(trace_or_event.properties.$ai_input_tokens, trace_or_event.properties.$ai_output_tokens)
+export function formatLLMUsage(
+    trace_or_event_or_aggregation: LLMTrace | LLMTraceEvent | SpanAggregation
+): string | null {
+    // Handle SpanAggregation
+    if (
+        'totalCost' in trace_or_event_or_aggregation &&
+        'totalLatency' in trace_or_event_or_aggregation &&
+        'hasGenerationChildren' in trace_or_event_or_aggregation
+    ) {
+        const aggregation = trace_or_event_or_aggregation as SpanAggregation
+        return formatUsage(aggregation.inputTokens || 0, aggregation.outputTokens)
     }
 
-    if (!('properties' in trace_or_event) && typeof trace_or_event.inputTokens === 'number') {
-        return formatUsage(trace_or_event.inputTokens, trace_or_event.outputTokens)
+    // Handle LLMTraceEvent
+    if ('properties' in trace_or_event_or_aggregation) {
+        const event = trace_or_event_or_aggregation as LLMTraceEvent
+        if (typeof event.properties.$ai_input_tokens === 'number') {
+            return formatUsage(event.properties.$ai_input_tokens, event.properties.$ai_output_tokens)
+        }
+    }
+
+    // Handle LLMTrace
+    const trace = trace_or_event_or_aggregation as LLMTrace
+    if (typeof trace.inputTokens === 'number') {
+        return formatUsage(trace.inputTokens, trace.outputTokens)
     }
 
     return null
@@ -62,6 +83,14 @@ export function getSessionID(event: LLMTrace | LLMTraceEvent): string | null {
     }
 
     return event.events.find((e) => e.properties.$session_id !== null)?.properties.$session_id || null
+}
+
+export function getRecordingStatus(event: LLMTrace | LLMTraceEvent): string | null {
+    if (isLLMTraceEvent(event)) {
+        return event.properties.$recording_status || null
+    }
+
+    return event.events.find((e) => e.properties.$recording_status !== null)?.properties.$recording_status || null
 }
 
 export function isOpenAICompatToolCall(input: unknown): input is OpenAIToolCall {
@@ -111,6 +140,10 @@ export function isAnthropicTextMessage(output: unknown): output is AnthropicText
 
 export function isAnthropicToolCallMessage(output: unknown): output is AnthropicToolCallMessage {
     return !!output && typeof output === 'object' && 'type' in output && output.type === 'tool_use'
+}
+
+export function isAnthropicThinkingMessage(output: unknown): output is AnthropicThinkingMessage {
+    return !!output && typeof output === 'object' && 'type' in output && output.type === 'thinking'
 }
 
 export function isAnthropicToolResultMessage(output: unknown): output is AnthropicToolResultMessage {
@@ -196,7 +229,6 @@ export function normalizeMessage(output: unknown, defaultRole?: string): CompatM
             },
         ]
     }
-
     // Tool call completion
     if (isAnthropicToolCallMessage(output)) {
         return [
@@ -216,7 +248,15 @@ export function normalizeMessage(output: unknown, defaultRole?: string): CompatM
             },
         ]
     }
-
+    // Thinking
+    if (isAnthropicThinkingMessage(output)) {
+        return [
+            {
+                role: 'assistant (thinking)',
+                content: output.thinking,
+            },
+        ]
+    }
     // Tool result completion
     if (isAnthropicToolResultMessage(output)) {
         if (Array.isArray(output.content)) {
@@ -228,7 +268,6 @@ export function normalizeMessage(output: unknown, defaultRole?: string): CompatM
                     tool_call_id: output.tool_use_id,
                 }))
         }
-
         return [
             {
                 role,
@@ -253,6 +292,7 @@ export function normalizeMessage(output: unknown, defaultRole?: string): CompatM
         ]
     }
     // Unsupported message.
+    console.warn('Unsupported AI message type', output)
     return [
         {
             role: 'user',

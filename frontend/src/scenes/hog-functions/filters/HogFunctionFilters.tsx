@@ -1,26 +1,29 @@
-import { LemonBanner, LemonLabel, LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
+import { IconCheck, IconX } from '@posthog/icons'
+import { LemonBanner, LemonButton, LemonLabel, LemonSelect } from '@posthog/lemon-ui'
 import { id } from 'chartjs-plugin-trendline'
 import clsx from 'clsx'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { useMemo } from 'react'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
+import MaxTool from 'scenes/max/MaxTool'
 
 import { groupsModel } from '~/models/groupsModel'
-import { NodeKind } from '~/queries/schema/schema-general'
-import { AnyPropertyFilter, EntityTypes, FilterType, HogFunctionFiltersType } from '~/types'
+import { AnyPropertyFilter, CyclotronJobFiltersType, EntityTypes, FilterType } from '~/types'
 
 import { hogFunctionConfigurationLogic } from '../configuration/hogFunctionConfigurationLogic'
 import { HogFunctionFiltersInternal } from './HogFunctionFiltersInternal'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
-function sanitizeActionFilters(filters?: FilterType): Partial<HogFunctionFiltersType> {
+function sanitizeActionFilters(filters?: FilterType): Partial<CyclotronJobFiltersType> {
     if (!filters) {
         return {}
     }
-    const sanitized: HogFunctionFiltersType = {}
+    const sanitized: CyclotronJobFiltersType = {}
 
     if (filters.events) {
         sanitized.events = filters.events.map((f) => ({
@@ -45,49 +48,61 @@ function sanitizeActionFilters(filters?: FilterType): Partial<HogFunctionFilters
     return sanitized
 }
 
-export function HogFunctionFilters({ embedded = false }: { embedded?: boolean }): JSX.Element {
+export function HogFunctionFilters({
+    embedded = false,
+    showTriggerOptions = true,
+}: {
+    embedded?: boolean
+    showTriggerOptions?: boolean
+}): JSX.Element {
     const { groupsTaxonomicTypes } = useValues(groupsModel)
-    const { configuration, type, useMapping, filtersContainPersonProperties } = useValues(hogFunctionConfigurationLogic)
+    const { configuration, type, useMapping, filtersContainPersonProperties, oldFilters, newFilters } =
+        useValues(hogFunctionConfigurationLogic)
+    const {
+        setOldFilters,
+        setNewFilters,
+        clearFiltersDiff,
+        reportAIFiltersPrompted,
+        reportAIFiltersAccepted,
+        reportAIFiltersRejected,
+        reportAIFiltersPromptOpen,
+    } = useActions(hogFunctionConfigurationLogic)
 
-    if (type === 'broadcast') {
-        return (
-            <div className="p-3 border rounded deprecated-space-y-2 bg-surface-primary">
-                <LemonField name="filters" label="Filters">
-                    {({ value, onChange }) => (
-                        <PropertyFilters
-                            propertyFilters={value?.properties ?? []}
-                            taxonomicGroupTypes={[
-                                TaxonomicFilterGroupType.PersonProperties,
-                                TaxonomicFilterGroupType.Cohorts,
-                                TaxonomicFilterGroupType.HogQLExpression,
-                            ]}
-                            onChange={(properties: AnyPropertyFilter[]) => {
-                                onChange({
-                                    ...value,
-                                    properties,
-                                })
-                            }}
-                            pageKey={`HogFunctionPropertyFilters.${id}`}
-                            metadataSource={{ kind: NodeKind.ActorsQuery }}
-                        />
-                    )}
-                </LemonField>
-            </div>
-        )
-    }
+    const isLegacyPlugin = configuration?.template?.id?.startsWith('plugin-')
+    const isTransformation = type === 'transformation'
+    const aiFiltersCreation = useFeatureFlag('AI_HOG_FUNCTION_CREATION')
+    const cdpPersonUpdatesEnabled = useFeatureFlag('CDP_PERSON_UPDATES')
+
+    const taxonomicGroupTypes = useMemo(() => {
+        const types = [
+            TaxonomicFilterGroupType.EventProperties,
+            TaxonomicFilterGroupType.EventMetadata,
+            TaxonomicFilterGroupType.HogQLExpression,
+        ]
+
+        if (!isTransformation) {
+            types.push(
+                TaxonomicFilterGroupType.PersonProperties,
+                TaxonomicFilterGroupType.EventFeatureFlags,
+                TaxonomicFilterGroupType.Elements,
+                ...groupsTaxonomicTypes
+            )
+        }
+
+        return types
+    }, [isTransformation, groupsTaxonomicTypes])
+
+    const showMasking = type === 'destination' && !isLegacyPlugin && showTriggerOptions
 
     if (type === 'internal_destination') {
         return <HogFunctionFiltersInternal />
     }
 
-    const isLegacyPlugin = configuration?.template?.id?.startsWith('plugin-')
+    // NOTE: Mappings won't work for person updates currently as they are totally event based...
+    const showSourcePicker = cdpPersonUpdatesEnabled && type === 'destination' && !useMapping
+    const showEventMatchers = !useMapping && (configuration?.filters?.source ?? 'events') === 'events'
 
-    const showMasking = type === 'destination' && !isLegacyPlugin
-    const showDropEvents = false // TODO coming back to this later for the dropEvents Transformation
-
-    const isTransformation = type === 'transformation'
-
-    return (
+    const mainContent = (
         <div
             className={clsx(
                 'deprecated-space-y-2 rounded bg-surface-primary',
@@ -95,6 +110,24 @@ export function HogFunctionFilters({ embedded = false }: { embedded?: boolean })
                 embedded && 'p-2'
             )}
         >
+            {showSourcePicker && (
+                <LemonField name="filters" label="Source">
+                    {({ value, onChange }) => {
+                        return (
+                            <LemonSelect
+                                options={[
+                                    { value: 'events', label: 'Events' },
+                                    { value: 'person-updates', label: 'Person updates' },
+                                ]}
+                                value={value?.source ?? 'events'}
+                                onChange={(val) => {
+                                    onChange({ ...value, source: val })
+                                }}
+                            />
+                        )
+                    }}
+                </LemonField>
+            )}
             <LemonField
                 name="filters"
                 label={useMapping ? 'Global filters' : 'Filters'}
@@ -104,8 +137,17 @@ export function HogFunctionFilters({ embedded = false }: { embedded?: boolean })
                         : 'Filters applied to all events'
                 }
             >
-                {({ value, onChange }) => {
-                    const filters = (value ?? {}) as HogFunctionFiltersType
+                {({ value, onChange: _onChange }) => {
+                    const filters = (value ?? {}) as CyclotronJobFiltersType
+                    const currentFilters = newFilters ?? filters
+
+                    const onChange = (newValue: CyclotronJobFiltersType): void => {
+                        if (oldFilters && newFilters) {
+                            clearFiltersDiff()
+                        }
+                        _onChange(newValue)
+                    }
+
                     return (
                         <>
                             {useMapping && (
@@ -116,40 +158,30 @@ export function HogFunctionFilters({ embedded = false }: { embedded?: boolean })
                             )}
                             {!isTransformation && (
                                 <TestAccountFilterSwitch
-                                    checked={filters?.filter_test_accounts ?? false}
-                                    onChange={(filter_test_accounts) => onChange({ ...filters, filter_test_accounts })}
+                                    checked={currentFilters?.filter_test_accounts ?? false}
+                                    onChange={(filter_test_accounts) => {
+                                        const newValue = { ...currentFilters, filter_test_accounts }
+                                        onChange(newValue)
+                                    }}
                                     fullWidth
                                 />
                             )}
                             <PropertyFilters
-                                propertyFilters={(filters?.properties ?? []) as AnyPropertyFilter[]}
-                                taxonomicGroupTypes={
-                                    isTransformation
-                                        ? [
-                                              TaxonomicFilterGroupType.EventProperties,
-                                              TaxonomicFilterGroupType.HogQLExpression,
-                                          ]
-                                        : [
-                                              TaxonomicFilterGroupType.EventProperties,
-                                              TaxonomicFilterGroupType.PersonProperties,
-                                              TaxonomicFilterGroupType.EventFeatureFlags,
-                                              TaxonomicFilterGroupType.Elements,
-                                              TaxonomicFilterGroupType.HogQLExpression,
-                                              ...groupsTaxonomicTypes,
-                                          ]
-                                }
+                                propertyFilters={(currentFilters?.properties ?? []) as AnyPropertyFilter[]}
+                                taxonomicGroupTypes={taxonomicGroupTypes}
                                 onChange={(properties: AnyPropertyFilter[]) => {
-                                    onChange({
-                                        ...filters,
+                                    const newValue = {
+                                        ...currentFilters,
                                         properties,
-                                    })
+                                    }
+                                    onChange(newValue as CyclotronJobFiltersType)
                                 }}
                                 pageKey={`HogFunctionPropertyFilters.${id}`}
                             />
 
-                            {!useMapping ? (
+                            {showEventMatchers ? (
                                 <>
-                                    <div className="flex justify-between w-full gap-2">
+                                    <div className="flex gap-2 justify-between w-full">
                                         <LemonLabel>
                                             {isTransformation ? 'Match events' : 'Match events and actions'}
                                         </LemonLabel>
@@ -159,10 +191,10 @@ export function HogFunctionFilters({ embedded = false }: { embedded?: boolean })
                                     </p>
                                     <ActionFilter
                                         bordered
-                                        filters={value ?? {} /* TODO: this is any */}
+                                        filters={currentFilters ?? {} /* TODO: this is any */}
                                         setFilters={(payload) => {
                                             onChange({
-                                                ...value,
+                                                ...currentFilters,
                                                 ...sanitizeActionFilters(payload),
                                             })
                                         }}
@@ -176,21 +208,7 @@ export function HogFunctionFilters({ embedded = false }: { embedded?: boolean })
                                                 ? [TaxonomicFilterGroupType.Events]
                                                 : [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions]
                                         }
-                                        propertiesTaxonomicGroupTypes={
-                                            isTransformation
-                                                ? [
-                                                      TaxonomicFilterGroupType.EventProperties,
-                                                      TaxonomicFilterGroupType.HogQLExpression,
-                                                  ]
-                                                : [
-                                                      TaxonomicFilterGroupType.EventProperties,
-                                                      TaxonomicFilterGroupType.EventFeatureFlags,
-                                                      TaxonomicFilterGroupType.Elements,
-                                                      TaxonomicFilterGroupType.PersonProperties,
-                                                      TaxonomicFilterGroupType.HogQLExpression,
-                                                      ...groupsTaxonomicTypes,
-                                                  ]
-                                        }
+                                        propertiesTaxonomicGroupTypes={taxonomicGroupTypes}
                                         propertyFiltersPopover
                                         addFilterDefaultOptions={{
                                             id: '$pageview',
@@ -199,41 +217,49 @@ export function HogFunctionFilters({ embedded = false }: { embedded?: boolean })
                                         }}
                                         buttonCopy="Add event matcher"
                                     />
-
-                                    {showDropEvents && (
-                                        <>
-                                            <LemonLabel>
-                                                <span className="flex items-center justify-between flex-1 gap-2">
-                                                    Drop events that don't match
-                                                    <LemonSwitch
-                                                        checked={value?.drop_events ?? false}
-                                                        onChange={(drop_events) => onChange({ ...value, drop_events })}
-                                                    />
-                                                </span>
-                                            </LemonLabel>
-
-                                            {!value?.drop_events ? (
-                                                <p>
-                                                    Currently, this will run for all events that match the above
-                                                    conditions. Any that do not match will be unmodified and ingested as
-                                                    they are.
-                                                </p>
-                                            ) : (
-                                                <LemonBanner type="error">
-                                                    This will drop all events that don't match the above conditions.
-                                                    Please ensure this is definitely intended.
-                                                </LemonBanner>
-                                            )}
-                                        </>
-                                    )}
                                 </>
                             ) : null}
+                            {oldFilters && newFilters && (
+                                <div className="flex gap-2 items-center p-2 mt-4 rounded border border-dashed bg-surface-secondary">
+                                    <div className="flex-1 text-center">
+                                        <span className="text-sm font-medium">Suggested by Max</span>
+                                    </div>
+                                    <div className="flex gap-2">
+                                        <LemonButton
+                                            status="danger"
+                                            icon={<IconX />}
+                                            onClick={() => {
+                                                onChange(oldFilters)
+                                                reportAIFiltersRejected()
+                                                clearFiltersDiff()
+                                            }}
+                                            tooltipPlacement="top"
+                                            size="small"
+                                        >
+                                            Reject
+                                        </LemonButton>
+                                        <LemonButton
+                                            type="tertiary"
+                                            icon={<IconCheck color="var(--success)" />}
+                                            onClick={() => {
+                                                onChange(newFilters)
+                                                reportAIFiltersAccepted()
+                                                clearFiltersDiff()
+                                            }}
+                                            tooltipPlacement="top"
+                                            size="small"
+                                        >
+                                            Accept
+                                        </LemonButton>
+                                    </div>
+                                </div>
+                            )}
                         </>
                     )
                 }}
             </LemonField>
 
-            {filtersContainPersonProperties ? (
+            {filtersContainPersonProperties && showEventMatchers ? (
                 <LemonBanner type="warning">
                     You are filtering on Person properties. Be aware that this filtering applies at the time the event
                     is processed so if Person Profiles are not enabled or the person property has not been set by then
@@ -241,9 +267,16 @@ export function HogFunctionFilters({ embedded = false }: { embedded?: boolean })
                 </LemonBanner>
             ) : null}
             {showMasking ? (
-                <LemonField name="masking" label="Trigger options">
+                <LemonField
+                    name="masking"
+                    label="Trigger options"
+                    info={`
+                        You can configure the destination to only run once within a given time interval or until a certain number of events have been processed. 
+                        This is useful for rate limiting the destination for example if you only want to receive one message per day.
+                    `}
+                >
                     {({ value, onChange }) => (
-                        <div className="flex flex-wrap items-center gap-1">
+                        <div className="flex flex-wrap gap-1 items-center">
                             <LemonSelect
                                 options={[
                                     {
@@ -273,7 +306,7 @@ export function HogFunctionFilters({ embedded = false }: { embedded?: boolean })
                             />
                             {configuration.masking?.hash ? (
                                 <>
-                                    <div className="flex flex-wrap items-center gap-1">
+                                    <div className="flex flex-wrap gap-1 items-center">
                                         <span>of</span>
                                         <LemonSelect
                                             value={value?.ttl}
@@ -318,7 +351,7 @@ export function HogFunctionFilters({ embedded = false }: { embedded?: boolean })
                                             ]}
                                         />
                                     </div>
-                                    <div className="flex flex-wrap items-center gap-1">
+                                    <div className="flex flex-wrap gap-1 items-center">
                                         <span>or until</span>
                                         <LemonSelect
                                             value={value?.threshold}
@@ -355,4 +388,35 @@ export function HogFunctionFilters({ embedded = false }: { embedded?: boolean })
             ) : null}
         </div>
     )
+
+    if (aiFiltersCreation) {
+        return (
+            <MaxTool
+                name="create_hog_function_filters"
+                displayName="Set up filters with AI"
+                description="Max can set up filters for your function"
+                context={{
+                    current_filters: JSON.stringify(configuration?.filters ?? {}),
+                    function_type: type,
+                }}
+                callback={(toolOutput: string) => {
+                    const parsedFilters = JSON.parse(toolOutput)
+                    setOldFilters(configuration?.filters ?? {})
+                    setNewFilters(parsedFilters)
+                    reportAIFiltersPrompted()
+                }}
+                onMaxOpen={() => {
+                    reportAIFiltersPromptOpen()
+                }}
+                introOverride={{
+                    headline: 'What events and properties should trigger this function?',
+                    description: 'Let me help you set up the right filters for your function.',
+                }}
+            >
+                {mainContent}
+            </MaxTool>
+        )
+    }
+
+    return mainContent
 }

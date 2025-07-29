@@ -149,13 +149,11 @@ export const notebooksModel = kea<notebooksModelType>([
                 if (!tile.insight) {
                     return acc
                 }
-                return [
-                    ...acc,
-                    {
-                        title: tile.insight.name,
-                        query: tile.insight.query,
-                    },
-                ]
+                acc.push({
+                    title: tile.insight.name,
+                    query: tile.insight.query,
+                })
+                return acc
             }, [] as { title: string; query: InsightVizNode | Node | null }[])
 
             const resources = queries.map((x) => ({

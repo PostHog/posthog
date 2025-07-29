@@ -1,6 +1,12 @@
 from typing import TYPE_CHECKING, Literal, cast
 
 from posthog.hogql import ast
+
+from posthog.hogql.database.schema.channel_type import (
+    wrap_with_null_if_empty,
+    create_channel_type_expr,
+    ChannelTypeExprs,
+)
 from posthog.hogql.parser import parse_select
 from posthog.hogql_queries.web_analytics.pre_aggregated.query_builder import WebAnalyticsPreAggregatedQueryBuilder
 from posthog.hogql_queries.web_analytics.pre_aggregated.properties import STATS_TABLE_SUPPORTED_FILTERS
@@ -10,26 +16,36 @@ if TYPE_CHECKING:
     from posthog.hogql_queries.web_analytics.stats_table import WebStatsTableQueryRunner
 
 
-class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder):
-    SUPPORTED_BREAKDOWNS = [
-        WebStatsBreakdown.DEVICE_TYPE,
-        WebStatsBreakdown.BROWSER,
-        WebStatsBreakdown.OS,
-        WebStatsBreakdown.VIEWPORT,
-        WebStatsBreakdown.INITIAL_REFERRING_DOMAIN,
-        WebStatsBreakdown.INITIAL_UTM_SOURCE,
-        WebStatsBreakdown.INITIAL_UTM_MEDIUM,
-        WebStatsBreakdown.INITIAL_UTM_CAMPAIGN,
-        WebStatsBreakdown.INITIAL_UTM_TERM,
-        WebStatsBreakdown.INITIAL_UTM_CONTENT,
-        WebStatsBreakdown.COUNTRY,
-        WebStatsBreakdown.REGION,
-        WebStatsBreakdown.CITY,
-        WebStatsBreakdown.INITIAL_PAGE,
-        WebStatsBreakdown.PAGE,
-        WebStatsBreakdown.EXIT_PAGE,
-    ]
+WEB_ANALYTICS_STATS_TABLE_PRE_AGGREGATED_SUPPORTED_BREAKDOWNS = [
+    WebStatsBreakdown.DEVICE_TYPE,
+    WebStatsBreakdown.BROWSER,
+    WebStatsBreakdown.OS,
+    WebStatsBreakdown.VIEWPORT,
+    WebStatsBreakdown.INITIAL_REFERRING_DOMAIN,
+    WebStatsBreakdown.INITIAL_UTM_SOURCE,
+    WebStatsBreakdown.INITIAL_UTM_MEDIUM,
+    WebStatsBreakdown.INITIAL_UTM_CAMPAIGN,
+    WebStatsBreakdown.INITIAL_UTM_TERM,
+    WebStatsBreakdown.INITIAL_UTM_CONTENT,
+    WebStatsBreakdown.COUNTRY,
+    WebStatsBreakdown.REGION,
+    WebStatsBreakdown.CITY,
+    WebStatsBreakdown.INITIAL_PAGE,
+    WebStatsBreakdown.PAGE,
+    WebStatsBreakdown.EXIT_PAGE,
+    WebStatsBreakdown.INITIAL_CHANNEL_TYPE,
+]
 
+
+def _nullif_empty_decorator(func):
+    def wrapper(self):
+        result = func(self)
+        return wrap_with_null_if_empty(result)
+
+    return wrapper
+
+
+class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder):
     def __init__(self, runner: "WebStatsTableQueryRunner") -> None:
         super().__init__(runner=runner, supported_props_filters=STATS_TABLE_SUPPORTED_FILTERS)
 
@@ -37,7 +53,40 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
         if not super().can_use_preaggregated_tables():
             return False
 
-        return self.runner.query.breakdownBy in self.SUPPORTED_BREAKDOWNS
+        return self.runner.query.breakdownBy in WEB_ANALYTICS_STATS_TABLE_PRE_AGGREGATED_SUPPORTED_BREAKDOWNS
+
+    def _get_channel_type_expr(self) -> ast.Expr:
+        """Create a channel type expression using the available fields in pre-aggregated tables."""
+
+        def _wrap_with_lower(expr: ast.Expr) -> ast.Expr:
+            return ast.Call(name="lower", args=[expr])
+
+        channel_type_exprs = ChannelTypeExprs(
+            campaign=_wrap_with_lower(wrap_with_null_if_empty(ast.Field(chain=["utm_campaign"]))),
+            medium=_wrap_with_lower(wrap_with_null_if_empty(ast.Field(chain=["utm_medium"]))),
+            source=_wrap_with_lower(wrap_with_null_if_empty(ast.Field(chain=["utm_source"]))),
+            referring_domain=wrap_with_null_if_empty(ast.Field(chain=["referring_domain"])),
+            url=ast.Constant(value=None),  # URL not available in pre-aggregated tables
+            hostname=ast.Field(chain=["host"]),
+            pathname=ast.Field(chain=["entry_pathname"]),
+            has_gclid=ast.Field(chain=["has_gclid"]),
+            has_fbclid=ast.Field(chain=["has_fbclid"]),
+            # To keep this compatible with the non-pre-aggregated version, we need to return '1' when the boolean is true, null otherwise
+            gad_source=ast.Call(
+                name="if",
+                args=[
+                    ast.Field(chain=["has_gad_source_paid_search"]),
+                    ast.Constant(value="1"),
+                    ast.Constant(value=None),
+                ],
+            ),
+        )
+
+        return create_channel_type_expr(
+            custom_rules=None,  # Custom rules not supported for pre-aggregated tables yet
+            source_exprs=channel_type_exprs,
+            timings=self.runner.timings,
+        )
 
     def _bounce_rate_query(self) -> ast.SelectQuery:
         # Like in the original stats_table, we will need this method to build the "Paths" tile so it is a special breakdown
@@ -52,11 +101,15 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
                 {visitors_tuple} AS `context.columns.visitors`,
                 {views_tuple} as `context.columns.views`,
                 {bounce_rate_tuple} as `context.columns.bounce_rate`
-            FROM web_bounces_combined FINAL
+            FROM web_bounces_combined
+            WHERE and({filters}, {breakdown_value} IS NOT NULL)
             GROUP BY `context.columns.breakdown_value`
             """,
                 placeholders={
-                    "breakdown_value": self._apply_path_cleaning(ast.Field(chain=["entry_pathname"])),
+                    "breakdown_value": ast.Call(
+                        name="nullIf",
+                        args=[self._apply_path_cleaning(ast.Field(chain=["entry_pathname"])), ast.Constant(value="")],
+                    ),
                     "visitors_tuple": self._period_comparison_tuple(
                         "persons_uniq_state", "uniqMergeIf", current_period_filter, previous_period_filter
                     ),
@@ -66,11 +119,15 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
                     "bounce_rate_tuple": self._bounce_rate_calculation_tuple(
                         current_period_filter, previous_period_filter
                     ),
+                    "filters": self._get_bounce_rate_filters(),
                 },
             ),
         )
 
         return query
+
+    def _get_bounce_rate_filters(self) -> ast.Expr:
+        return self._get_filters(table_name="web_bounces_combined", exclude_pathname=True)
 
     def _path_query(self) -> ast.SelectQuery:
         previous_period_filter, current_period_filter = self.get_date_ranges(table_name="web_stats_combined")
@@ -85,13 +142,17 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
                 {views_tuple} as `context.columns.views`,
                 any(bounces.`context.columns.bounce_rate`) as `context.columns.bounce_rate`
             FROM
-                web_stats_combined FINAL
+                web_stats_combined
             LEFT JOIN ({bounce_subquery}) bounces
                 ON {join_condition}
+            WHERE and({filters}, {breakdown_value} IS NOT NULL)
             GROUP BY `context.columns.breakdown_value`
             """,
                 placeholders={
-                    "breakdown_value": self._apply_path_cleaning(ast.Field(chain=["pathname"])),
+                    "breakdown_value": ast.Call(
+                        name="nullIf",
+                        args=[self._apply_path_cleaning(ast.Field(chain=["pathname"])), ast.Constant(value="")],
+                    ),
                     "visitors_tuple": self._period_comparison_tuple(
                         "persons_uniq_state",
                         "uniqMergeIf",
@@ -112,6 +173,37 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
                         left=self._apply_path_cleaning(ast.Field(chain=["web_stats_combined", "pathname"])),
                         right=ast.Field(chain=["bounces", "context.columns.breakdown_value"]),
                     ),
+                    "filters": self._get_filters(table_name="web_stats_combined"),
+                },
+            ),
+        )
+
+        return query
+
+    def _default_breakdown_query(self) -> ast.SelectQuery:
+        previous_period_filter, current_period_filter = self.get_date_ranges()
+
+        query = cast(
+            ast.SelectQuery,
+            parse_select(
+                """
+            SELECT
+                {breakdown_field} as `context.columns.breakdown_value`,
+                {visitors_tuple} AS `context.columns.visitors`,
+                {views_tuple} as `context.columns.views`
+            FROM web_stats_combined
+            WHERE {filters}
+            GROUP BY `context.columns.breakdown_value`
+            """,
+                placeholders={
+                    "breakdown_field": self._get_breakdown_field(),
+                    "visitors_tuple": self._period_comparison_tuple(
+                        "persons_uniq_state", "uniqMergeIf", current_period_filter, previous_period_filter
+                    ),
+                    "views_tuple": self._period_comparison_tuple(
+                        "pageviews_count_state", "sumMergeIf", current_period_filter, previous_period_filter
+                    ),
+                    "filters": self._get_filters(table_name="web_stats_combined"),
                 },
             ),
         )
@@ -121,40 +213,10 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
     def get_query(self) -> ast.SelectQuery:
         if self.runner.query.breakdownBy == WebStatsBreakdown.INITIAL_PAGE:
             query = self._bounce_rate_query()
-            table_name = "web_bounces_combined"
         elif self.runner.query.breakdownBy == WebStatsBreakdown.PAGE:
             query = self._path_query()
-            table_name = "web_stats_combined"
         else:
-            previous_period_filter, current_period_filter = self.get_date_ranges()
-
-            query = cast(
-                ast.SelectQuery,
-                parse_select(
-                    """
-                SELECT
-                    {breakdown_field} as `context.columns.breakdown_value`,
-                    {visitors_tuple} AS `context.columns.visitors`,
-                    {views_tuple} as `context.columns.views`
-                FROM web_stats_combined FINAL
-                GROUP BY `context.columns.breakdown_value`
-                """,
-                    placeholders={
-                        "breakdown_field": self._get_breakdown_field(),
-                        "visitors_tuple": self._period_comparison_tuple(
-                            "persons_uniq_state", "uniqMergeIf", current_period_filter, previous_period_filter
-                        ),
-                        "views_tuple": self._period_comparison_tuple(
-                            "pageviews_count_state", "sumMergeIf", current_period_filter, previous_period_filter
-                        ),
-                    },
-                ),
-            )
-            table_name = "web_stats_combined"
-
-        filters = self._get_filters(table_name=table_name)
-        if filters:
-            query.where = filters
+            query = self._default_breakdown_query()
 
         query.order_by = [self._get_order_by()]
 
@@ -182,6 +244,7 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
 
         return ast.OrderExpr(expr=ast.Field(chain=["context.columns.views"]), order="DESC")
 
+    @_nullif_empty_decorator
     def _get_breakdown_field(self):
         match self.runner.query.breakdownBy:
             case WebStatsBreakdown.DEVICE_TYPE:
@@ -225,9 +288,10 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
                 return ast.Field(chain=["city_name"])
             case WebStatsBreakdown.EXIT_PAGE:
                 return self._apply_path_cleaning(ast.Field(chain=["end_pathname"]))
+            case WebStatsBreakdown.INITIAL_CHANNEL_TYPE:
+                return self._get_channel_type_expr()
 
     def _apply_path_cleaning(self, path_expr: ast.Expr) -> ast.Expr:
-        """Apply path cleaning to path expressions, similar to the non-pre-aggregated version"""
         if not self.runner.query.doPathCleaning:
             return path_expr
 
@@ -243,6 +307,18 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
     ) -> ast.Tuple:
         field_chain: list[str | int] = [table_prefix, state_field] if table_prefix else [state_field]
 
+        previous_expr = (
+            ast.Constant(value=None)
+            if not self.runner.query_compare_to_date_range
+            else ast.Call(
+                name=function_name,
+                args=[
+                    ast.Field(chain=field_chain),
+                    previous_period_filter,
+                ],
+            )
+        )
+
         return ast.Tuple(
             exprs=[
                 ast.Call(
@@ -252,13 +328,7 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
                         current_period_filter,
                     ],
                 ),
-                ast.Call(
-                    name=function_name,
-                    args=[
-                        ast.Field(chain=field_chain),
-                        previous_period_filter,
-                    ],
-                ),
+                previous_expr,
             ]
         )
 
@@ -292,9 +362,16 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
                 ],
             )
 
+        # When there's no comparison period, return None for previous period to match regular approach
+        previous_expr = (
+            ast.Constant(value=None)
+            if not self.runner.query_compare_to_date_range
+            else safe_bounce_rate(previous_period_filter)
+        )
+
         return ast.Tuple(
             exprs=[
                 safe_bounce_rate(current_period_filter),
-                safe_bounce_rate(previous_period_filter),
+                previous_expr,
             ]
         )

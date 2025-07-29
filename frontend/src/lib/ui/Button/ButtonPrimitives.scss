@@ -1,11 +1,22 @@
 :root {
+    --button-icon-size-xxs: 12px;
+    --button-icon-size-xs: 12px;
+    --button-icon-size-sm: 12px;
+    --button-icon-size-base: 16px;
+    --button-icon-size-lg: 20px;
+    --button-padding-x-xxs: 4px;
+    --button-padding-x-xs: 4px;
     --button-padding-x-sm: 4px;
     --button-padding-x-base: 6px;
     --button-padding-x-lg: 8px;
+    --button-padding-y-xxs: 3px;
+    --button-padding-y-xs: 3px;
     --button-padding-y-sm: 3px;
-    --button-padding-y-base: 5px;
+    --button-padding-y-base: 4px;
     --button-padding-y-lg: 7px;
-    --button-height-sm: 26px;
+    --button-height-xxs: 20px;
+    --button-height-xs: 24px;
+    --button-height-sm: 28px;
     --button-height-base: 30px;
     --button-height-base-tall: 45px;
     --button-height-lg: 40px;
@@ -49,6 +60,27 @@
         &[data-focused='true'],
         &:hover {
             background-color: var(--bg-fill-button-tertiary-hover);
+        }
+    }
+}
+
+.button-primitive--variant-danger {
+    color: var(--text-error);
+    border: 1px solid transparent;
+
+    &:not([aria-disabled='true']) {
+        &[data-active='true'],
+        &[data-current='true'],
+        &[data-state='open'],
+        &[data-state='checked'],
+        &[data-highlighted],
+        &.button-primitive--active {
+            background-color: var(--bg-fill-error-highlight);
+        }
+
+        &[data-focused='true'],
+        &:hover {
+            background-color: var(--bg-fill-error-highlight);
         }
     }
 }
@@ -97,11 +129,31 @@
     }
 }
 
+.button-primitive--height-xxs {
+    height: var(--button-height-xxs);
+
+    &.icon-only {
+        width: var(--button-height-xxs);
+    }
+}
+
+.button-primitive--height-xs {
+    height: var(--button-height-xs);
+
+    &.icon-only {
+        width: var(--button-height-xs);
+    }
+}
+
 .button-primitive--height-sm {
     height: var(--button-height-sm);
 
     &.icon-only {
         width: var(--button-height-sm);
+    }
+
+    &.button-primitive--height-auto {
+        min-height: var(--button-height-sm);
     }
 }
 
@@ -111,6 +163,10 @@
     &.icon-only {
         width: var(--button-height-base);
     }
+
+    &.button-primitive--height-auto {
+        min-height: var(--button-height-base);
+    }
 }
 
 .button-primitive--height-base-tall {
@@ -118,6 +174,10 @@
 
     &.icon-only {
         width: var(--button-height-base);
+    }
+
+    &.button-primitive--height-auto {
+        min-height: var(--button-height-base-tall);
     }
 }
 
@@ -127,38 +187,63 @@
     &.icon-only {
         width: var(--button-height-lg);
     }
+
+    &.button-primitive--height-auto {
+        min-height: var(--button-height-lg);
+    }
+}
+
+.button-primitive--size-xxs {
+    padding-right: var(--button-padding-x-xxs);
+    padding-left: var(--button-padding-x-xxs);
+
+    svg {
+        width: var(--button-icon-size-xxs);
+        height: var(--button-icon-size-xxs);
+    }
+}
+
+.button-primitive--size-xs {
+    padding-right: var(--button-padding-x-xs);
+    padding-left: var(--button-padding-x-xs);
+
+    svg {
+        width: var(--button-icon-size-xs);
+        height: var(--button-icon-size-xs);
+    }
 }
 
 .button-primitive--size-sm {
-    padding-right: var(--button-padding-x-sm);
-    padding-left: var(--button-padding-x-sm);
+    padding: var(--button-padding-y-sm) var(--button-padding-x-sm);
 
     svg {
-        width: 12px;
-        height: 12px;
+        width: var(--button-icon-size-sm);
+        height: var(--button-icon-size-sm);
     }
 }
 
 .button-primitive--size-base {
-    padding-right: var(--button-padding-x-base);
-    padding-left: var(--button-padding-x-base);
+    padding: var(--button-padding-y-base) var(--button-padding-x-base);
 
     svg {
-        width: 16px;
-        height: 16px;
+        width: var(--button-icon-size-base);
+        height: var(--button-icon-size-base);
     }
 }
 
 .button-primitive--size-lg {
-    padding-right: var(--button-padding-x-lg);
-    padding-left: var(--button-padding-x-lg);
+    padding: var(--button-padding-y-lg) var(--button-padding-x-lg);
 
     svg {
-        width: 20px;
-        height: 20px;
+        width: var(--button-icon-size-lg);
+        height: var(--button-icon-size-lg);
     }
 }
 
 .button-primitive--full-width {
     width: 100%;
+}
+
+.button-primitive--height-auto {
+    height: auto;
 }

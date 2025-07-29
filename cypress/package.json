@@ -10,8 +10,8 @@
         "cypress-axe": "^1.5.0",
         "cypress-network-idle": "^1.14.2",
         "cypress-terminal-report": "^6.1.0",
-        "eslint-plugin-posthog": "workspace:*",
-        "typescript": "4.8.8"
+        "posthog-js": "1.258.2",
+        "typescript": "5.2.2"
     },
     "devDependencies": {
         "@babel/core": "^7.22.10",
@@ -29,15 +29,14 @@
         "process": "^0.11.10"
     },
     "peerDependencies": {
-        "posthog-js": "*",
-        "typescript": "*",
         "babel-loader": "*",
-        "style-loader": "*",
-        "less-loader": "*",
-        "sass-loader": "*",
-        "file-loader": "*",
         "css-loader": "*",
+        "file-loader": "*",
+        "less-loader": "*",
         "postcss-loader": "*",
+        "sass-loader": "*",
+        "style-loader": "*",
+        "typescript": "*",
         "webpack": "*"
     }
 }

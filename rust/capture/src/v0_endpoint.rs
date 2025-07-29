@@ -31,6 +31,10 @@ use crate::{
     v0_request::{EventFormData, EventQuery},
 };
 
+// EXAMPLE: use verbose_sample_percent env var to capture extra logging/metric details of interest
+// let roll = thread_rng().with_borrow_mut(|rng| rng.gen_range(0.0..100.0));
+// if roll < verbose_sample_percent { ... }
+
 /// handle_legacy owns the /e, /capture, /track, and /engage capture endpoints
 #[instrument(
     skip_all,

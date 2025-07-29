@@ -96,19 +96,19 @@ pub struct Config {
     #[envconfig(default = "false")]
     pub enable_mirror: bool,
 
-    // TEMP: used to gate the new process_batch_v2 write path code in
-    // the current property-defs-rs deployments *and* new mirror
-    #[envconfig(default = "false")]
-    pub enable_v2: bool,
-
     #[envconfig(default = "100")]
     pub v2_ingest_batch_size: usize,
 
-    // *ONLY* for use in the new property-defs-rs-v2 mirror deploy, and (for now)
+    // For use in the new property-defs-rs-v2 mirror deploy, and (for now)
     // behind `enable_mirror` flag during the refactor/transition. Maps to the new
-    // PROPDEFS isolated PG DB instances in production.
-    #[envconfig(default = "postgres://posthog:posthog@localhost:5432/posthog")]
-    pub database_propdefs_url: String,
+    // isolated propdefs DB instances in production. If unset, defaults to use
+    // database_url and std pool
+    pub database_propdefs_url: Option<String>,
+
+    // RO creds for the new isolated persons DB is required to access
+    // the posthog_grouptypemappings for the team -> group_meta cache.
+    // if unset, defaults to use database_url and std pool
+    pub database_persons_url: Option<String>,
 }
 
 #[derive(Clone)]

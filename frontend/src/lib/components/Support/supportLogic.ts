@@ -1,10 +1,10 @@
 import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { urlToAction } from 'kea-router'
-import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { uuid } from 'lib/utils'
 import posthog from 'posthog-js'
+import api from 'lib/api'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -14,10 +14,11 @@ import { userLogic } from 'scenes/userLogic'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import {
     AvailableFeature,
+    BillingPlan,
     OrganizationBasicType,
-    ProductKey,
     Region,
     SidePanelTab,
+    StartupProgramLabel,
     TeamPublicType,
     UserType,
 } from '~/types'
@@ -147,6 +148,11 @@ export const TARGET_AREA_TO_NAME = [
                 label: 'Onboarding',
             },
             {
+                value: 'platform_addons',
+                'data-attr': `support-form-target-area-platform_addons`,
+                label: 'Platform addons',
+            },
+            {
                 value: 'sdk',
                 'data-attr': `support-form-target-area-onboarding`,
                 label: 'SDK / Implementation',
@@ -274,6 +280,8 @@ export type SupportTicketTargetArea =
     | 'data_ingestion'
     | 'batch_exports'
     | 'messaging'
+    | 'platform_addons'
+    | 'max-ai'
 export type SupportTicketSeverityLevel = keyof typeof SEVERITY_LEVEL_TO_NAME
 export type SupportTicketKind = keyof typeof SUPPORT_KIND_TO_SUBJECT
 
@@ -314,6 +322,7 @@ export const URL_PATH_TO_TARGET_AREA: Record<string, SupportTicketTargetArea> = 
     source: 'data_warehouse',
     sources: 'data_warehouse',
     messaging: 'messaging',
+    billing: 'billing',
 }
 
 export const SUPPORT_TICKET_TEMPLATES = {
@@ -369,6 +378,8 @@ export const supportLogic = kea<supportLogicType>([
             ['hasAvailableFeature'],
             billingLogic,
             ['billing'],
+            organizationLogic,
+            ['isCurrentOrganizationNew'],
         ],
         actions: [sidePanelStateLogic, ['openSidePanel', 'setSidePanelOptions']],
     })),
@@ -376,10 +387,10 @@ export const supportLogic = kea<supportLogicType>([
         closeSupportForm: true,
         openSupportForm: (values: Partial<SupportFormFields>) => values,
         submitZendeskTicket: (form: SupportFormFields) => form,
+        ensureZendeskOrganization: true,
         updateUrlParams: true,
         openEmailForm: true,
         closeEmailForm: true,
-        setFocusedField: (field: string | null) => ({ field }),
     })),
     reducers(() => ({
         isSupportFormOpen: [
@@ -394,14 +405,6 @@ export const supportLogic = kea<supportLogicType>([
             {
                 openEmailForm: () => true,
                 closeEmailForm: () => false,
-            },
-        ],
-        focusedField: [
-            null as string | null,
-            {
-                setFocusedField: (_, { field }) => field,
-                // Reset focused field when form is closed
-                closeSupportForm: () => null,
             },
         ],
     })),
@@ -430,8 +433,8 @@ export const supportLogic = kea<supportLogicType>([
                 formValues.name = values.user?.first_name ?? formValues.name ?? 'name not set'
                 formValues.email = values.user?.email ?? formValues.email ?? ''
                 actions.submitZendeskTicket(formValues)
-                actions.closeSupportForm()
-                actions.resetSendSupportRequest()
+                // Form closing and resetting is now handled in submitZendeskTicket listener
+                // based on success/failure of the submission
             },
         },
     })),
@@ -442,6 +445,10 @@ export const supportLogic = kea<supportLogicType>([
                 sendSupportRequest.kind
                     ? SUPPORT_TICKET_KIND_TO_TITLE[sendSupportRequest.kind]
                     : 'Leave a message with PostHog',
+        ],
+        targetArea: [
+            (s) => [s.sendSupportRequest],
+            (sendSupportRequest: SupportFormFields) => sendSupportRequest.target_area,
         ],
     }),
     listeners(({ actions, props, values }) => ({
@@ -460,7 +467,15 @@ export const supportLogic = kea<supportLogicType>([
                 actions.setSidePanelOptions(panelOptions)
             }
         },
-        openSupportForm: async ({ name, email, isEmailFormOpen, kind, target_area, severity_level, message }) => {
+        openSupportForm: async ({
+            name,
+            email,
+            isEmailFormOpen,
+            kind,
+            target_area,
+            severity_level,
+            message,
+        }: Partial<SupportFormFields>) => {
             let area = target_area ?? getURLPathToTargetArea(window.location.pathname)
             if (!userLogic.values.user) {
                 area = 'login'
@@ -472,7 +487,7 @@ export const supportLogic = kea<supportLogicType>([
                 kind,
                 target_area: area,
                 severity_level: severity_level ?? null,
-                message: message ?? '',
+                message: message ?? values.sendSupportRequest.message ?? '',
             })
 
             if (isEmailFormOpen === 'true' || isEmailFormOpen === true) {
@@ -490,7 +505,7 @@ export const supportLogic = kea<supportLogicType>([
 
             actions.updateUrlParams()
         },
-        submitZendeskTicket: async ({ name, email, kind, target_area, severity_level, message }) => {
+        submitZendeskTicket: async ({ name, email, kind, target_area, severity_level, message }: SupportFormFields) => {
             const zendesk_ticket_uuid = uuid()
             const subject =
                 SUPPORT_KIND_TO_SUBJECT[kind ?? 'support'] +
@@ -503,79 +518,68 @@ export const supportLogic = kea<supportLogicType>([
                 ')'
             const cloudRegion = preflightLogic.values.preflight?.region
 
-            // Get billing information
             const billing = billingLogic.values.billing
-            const currentOrganization = organizationLogic.values.currentOrganization
+            const billingPlan = billingLogic.values.billingPlan
 
-            // Determine plan level tag
-            let planLevelTag = 'plan_free' // default
+            let planLevelTag = 'plan_free'
 
-            if (billing) {
-                const platformAndSupportProduct = billing.products?.find(
-                    (p) => p.type === ProductKey.PLATFORM_AND_SUPPORT
-                )
+            const knownEnterpriseOrgIds = ['018713f3-8d56-0000-32fa-75ce97e6662f']
+            const isKnownEnterpriseOrg = knownEnterpriseOrgIds.includes(userLogic?.values?.user?.organization?.id || '')
 
-                // Check for enterprise plan (custom subscription level or legacy enterprise)
-                const hasLegacyEnterprisePlan = platformAndSupportProduct?.plans?.some(
-                    (a) => a.current_plan && a.plan_key?.includes('enterprise')
-                )
+            const isNewOrganization = values.isCurrentOrganizationNew
 
-                // Find the current plan
-                const currentPlan = platformAndSupportProduct?.plans?.find((plan) => plan.current_plan)
+            const hasBoostTrial = billing?.trial?.status === 'active' && (billing.trial?.target as any) === 'boost'
+            const hasScaleTrial = billing?.trial?.status === 'active' && (billing.trial?.target as any) === 'scale'
+            const hasEnterpriseTrial = billing?.trial?.status === 'active' && billing.trial?.target === 'enterprise'
 
-                // Check for active addons (must be subscribed and not just included with main product)
-                const activeAddons =
-                    platformAndSupportProduct?.addons?.filter((a) => a.subscribed && !a.included_with_main_product) ||
-                    []
-                const hasScaleAddon = activeAddons.some((a) => a.type === 'scale')
-                const hasTeamsAddon = activeAddons.some((a) => a.type === 'teams')
-                const hasBoostAddon = activeAddons.some((a) => a.type === 'boost')
+            if (isKnownEnterpriseOrg || hasEnterpriseTrial || billingPlan === BillingPlan.Enterprise) {
+                planLevelTag = 'plan_enterprise'
+            } else if (isNewOrganization) {
+                planLevelTag = 'plan_onboarding'
+            } else if (hasScaleTrial) {
+                planLevelTag = 'plan_scale'
+            } else if (hasBoostTrial) {
+                planLevelTag = 'plan_boost'
+            } else if (billingPlan) {
+                switch (billingPlan) {
+                    case BillingPlan.Scale:
+                        planLevelTag = 'plan_scale'
+                        break
+                    case BillingPlan.Boost:
+                        planLevelTag = 'plan_boost'
+                        break
+                    case BillingPlan.Teams:
+                        planLevelTag = 'plan_teams_legacy'
+                        break
+                    case BillingPlan.Paid:
+                        const projectedAmount = parseFloat(billing?.projected_total_amount_usd_with_limit || '0')
+                        const shouldMarkAsFree = projectedAmount === 0
 
-                // Check if current plan is enterprise OR if enterprise addon is subscribed
-                const hasEnterpriseAddon = activeAddons.some((a) => a.type === 'enterprise')
-                const hasEnterprisePlan =
-                    hasLegacyEnterprisePlan ||
-                    (currentPlan?.plan_key?.includes('enterprise') ?? false) ||
-                    hasEnterpriseAddon
-
-                // Check if organization was created within the last 3 months
-                const orgCreatedAt = currentOrganization?.created_at
-                const isNewOrganization = orgCreatedAt && dayjs().diff(dayjs(orgCreatedAt), 'month') < 3
-
-                // Check for addon trials - only count billing-level trials, not addon trial eligibility
-                // Note: Using 'as any' because the trial target types are outdated - they can also be 'boost', 'scale' etc.
-                const hasBoostTrial = billing.trial?.status === 'active' && (billing.trial?.target as any) === 'boost'
-                const hasScaleTrial = billing.trial?.status === 'active' && (billing.trial?.target as any) === 'scale'
-                const hasEnterpriseTrial = billing.trial?.status === 'active' && billing.trial?.target === 'enterprise'
-
-                // Update the checks to include trials
-                const hasBoostAddonOrTrial = hasBoostAddon || hasBoostTrial
-                const hasScaleAddonOrTrial = hasScaleAddon || hasScaleTrial
-                const hasEnterpriseAddonOrTrial = hasEnterprisePlan || hasEnterpriseTrial
-
-                // Determine plan level based on priority
-                if (hasEnterpriseAddonOrTrial) {
-                    planLevelTag = 'plan_enterprise'
-                } else if (isNewOrganization) {
-                    planLevelTag = 'plan_onboarding'
-                } else if (hasScaleAddonOrTrial) {
-                    planLevelTag = 'plan_scale'
-                } else if (hasTeamsAddon) {
-                    planLevelTag = 'plan_teams_legacy'
-                } else if (hasBoostAddonOrTrial) {
-                    planLevelTag = 'plan_boost'
-                } else if (currentPlan?.plan_key?.includes('paid')) {
-                    planLevelTag = 'plan_pay-as-you-go'
-                } else if (currentPlan?.plan_key?.includes('free') || billing.subscription_level === 'free') {
-                    planLevelTag = 'plan_free'
+                        planLevelTag = shouldMarkAsFree ? 'plan_pay-as-you-go_free' : 'plan_pay-as-you-go_paying'
+                        break
+                    case BillingPlan.Free:
+                        planLevelTag = 'plan_free'
+                        break
                 }
             }
+
+            const startupProgramLabel = billing?.startup_program_label
+            if (startupProgramLabel === StartupProgramLabel.YC) {
+                planLevelTag = 'plan_yc'
+            } else if (startupProgramLabel === StartupProgramLabel.Startup) {
+                planLevelTag = 'plan_startup'
+            }
+
+            const { accountOwner } = billingLogic.values
+
+            const ownerName = accountOwner?.name?.toLowerCase().replace(/[^a-z0-9]/g, '_') || 'unassigned'
+            const accountOwnerTag = `owner_${ownerName}`
 
             const payload = {
                 request: {
                     requester: { name: name, email: email },
                     subject: subject,
-                    tags: [planLevelTag],
+                    tags: [planLevelTag, accountOwnerTag],
                     custom_fields: [
                         {
                             id: 22084126888475,
@@ -600,6 +604,10 @@ export const supportLogic = kea<supportLogicType>([
                                 : values.hasAvailableFeature(AvailableFeature.EMAIL_SUPPORT)
                                 ? 'email_support'
                                 : 'free_support',
+                        },
+                        {
+                            id: 37742340880411,
+                            value: accountOwner?.name || 'unassigned',
                         },
                     ],
                     comment: {
@@ -633,12 +641,48 @@ export const supportLogic = kea<supportLogicType>([
 
             try {
                 const zendeskRequestBody = JSON.stringify(payload, undefined, 4)
+
+                // First attempt with standard fetch (unchanged from original)
                 const response = await fetch('https://posthoghelp.zendesk.com/api/v2/requests.json', {
                     method: 'POST',
                     body: zendeskRequestBody,
                     headers: { 'Content-Type': 'application/json' },
                 })
+
+                // If the fetch request fails, try the Beacon API as a fallback
                 if (!response.ok) {
+                    console.warn('Fetch attempt to submit support ticket failed, trying Beacon API as fallback')
+
+                    // Detect Firefox
+                    const isFirefox = navigator.userAgent.toLowerCase().indexOf('firefox') > -1
+
+                    // Try Beacon API
+                    const beaconSuccess = navigator.sendBeacon(
+                        'https://posthoghelp.zendesk.com/api/v2/requests.json',
+                        zendeskRequestBody
+                    )
+
+                    if (beaconSuccess) {
+                        // Track success
+                        const properties = {
+                            zendesk_ticket_uuid,
+                            kind,
+                            target_area,
+                            message,
+                            submission_method: 'beacon',
+                            browser: isFirefox ? 'firefox' : 'other',
+                        }
+                        posthog.capture('support_ticket', properties)
+                        lemonToast.success(
+                            "Got the message! If we have follow-up information for you, we'll reply via email."
+                        )
+                        // Only close and reset the form on success
+                        actions.closeSupportForm()
+                        actions.resetSendSupportRequest()
+                        return
+                    }
+
+                    // If both fetch and beacon fail, show the original error message
                     const error = new Error(`There was an error creating the support ticket with zendesk.`)
                     const extra: Record<string, any> = { zendeskBody: zendeskRequestBody }
                     Object.entries(payload).forEach(([key, value]) => {
@@ -656,7 +700,11 @@ export const supportLogic = kea<supportLogicType>([
                         ...extra,
                         ...contexts,
                     })
-                    lemonToast.error(`There was an error sending the message.`)
+                    lemonToast.error(
+                        `Oops, the message couldn't be sent. Please change your browser's privacy level to the standard or default level, then try again. (E.g. In Firefox: Settings > Privacy & Security > Standard)`,
+                        { hideButton: true }
+                    )
+                    // Don't close the form or reset the data so user can try again
                     return
                 }
 
@@ -674,13 +722,27 @@ export const supportLogic = kea<supportLogicType>([
                 }
                 posthog.capture('support_ticket', properties)
                 lemonToast.success("Got the message! If we have follow-up information for you, we'll reply via email.")
+
+                actions.ensureZendeskOrganization()
+
+                // Only close and reset the form on success
+                actions.closeSupportForm()
+                actions.resetSendSupportRequest()
             } catch (e) {
                 posthog.captureException(e)
-                lemonToast.error(`There was an error sending the message.`)
+
+                // More helpful error message
+                // Use the same error message regardless of browser
+                lemonToast.error(
+                    `Oops, the message couldn't be sent. Please change your browser's privacy level to the standard or default level, then try again. (E.g. In Firefox: Settings > Privacy & Security > Standard)`,
+                    { hideButton: true }
+                )
+                // Don't close the form or reset the data so user can try again
             }
         },
 
         closeSupportForm: () => {
+            // Form is only reset by explicit Cancel button or successful submission
             props.onClose?.()
         },
 
@@ -688,6 +750,29 @@ export const supportLogic = kea<supportLogicType>([
             // Only update URL params for non-text fields to prevent focus loss during typing
             if (name !== 'message' && name !== 'name' && name !== 'email') {
                 actions.updateUrlParams()
+            }
+        },
+
+        ensureZendeskOrganization: async () => {
+            try {
+                const currentOrganization = organizationLogic.values.currentOrganization
+
+                if (!currentOrganization?.id || !currentOrganization?.name) {
+                    return
+                }
+
+                await api.create('/api/support/ensure-zendesk-organization', {
+                    organization_id: currentOrganization.id,
+                    organization_name: currentOrganization.name,
+                })
+            } catch (error) {
+                posthog.captureException(error, {
+                    context: 'zendesk_organization_creation',
+                    organization_id: organizationLogic.values.currentOrganization?.id,
+                    organization_name: organizationLogic.values.currentOrganization?.name,
+                    error_message: error instanceof Error ? error.message : String(error),
+                    error_status: error && typeof error === 'object' && 'status' in error ? error.status : undefined,
+                })
             }
         },
     })),

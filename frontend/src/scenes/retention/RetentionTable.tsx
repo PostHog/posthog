@@ -50,7 +50,7 @@ export function RetentionTable({ inSharedMode = false }: { inSharedMode?: boolea
         >
             <tbody>
                 <tr>
-                    <th className="bg">Cohort</th>
+                    <th className="bg whitespace-nowrap">Cohort</th>
                     {!hideSizeColumn && <th className="bg">Size</th>}
                     {range(0, totalIntervals).map((interval) => (
                         <th key={interval}>{`${retentionFilter?.period} ${interval}`}</th>
@@ -72,7 +72,7 @@ export function RetentionTable({ inSharedMode = false }: { inSharedMode?: boolea
                                         !isSingleBreakdown && !isDarkModeOn && expandedBreakdowns[breakdownValue],
                                 })}
                             >
-                                <td className="pr-2">
+                                <td className="pr-2 whitespace-nowrap">
                                     <div className="flex items-center gap-2">
                                         {expandedBreakdowns[breakdownValue] ? (
                                             <IconChevronDown />
@@ -91,9 +91,13 @@ export function RetentionTable({ inSharedMode = false }: { inSharedMode?: boolea
 
                                 {!hideSizeColumn && (
                                     <td>
-                                        {noBreakdown
-                                            ? ((meanData?.totalCohortSize ?? 0) / cohortRows.length).toFixed(1)
-                                            : meanData?.totalCohortSize ?? 0}
+                                        <span className="RetentionTable__TextTab">
+                                            {noBreakdown
+                                                ? cohortRows.length
+                                                    ? Math.round((meanData?.totalCohortSize ?? 0) / cohortRows.length)
+                                                    : 0
+                                                : meanData?.totalCohortSize ?? 0}
+                                        </span>
                                     </td>
                                 )}
 
@@ -122,7 +126,9 @@ export function RetentionTable({ inSharedMode = false }: { inSharedMode?: boolea
                                             'bg-slate-100': !isSingleBreakdown && !isDarkModeOn,
                                         })}
                                     >
-                                        <td className={clsx('pl-2', { 'pl-6': !isSingleBreakdown })}>{row.label}</td>
+                                        <td className={clsx('pl-2 whitespace-nowrap', { 'pl-6': !isSingleBreakdown })}>
+                                            {row.label}
+                                        </td>
                                         {!hideSizeColumn && (
                                             <td>
                                                 <span className="RetentionTable__TextTab">{row.cohortSize}</span>

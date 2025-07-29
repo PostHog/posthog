@@ -1,11 +1,18 @@
 // eslint-disable-next-line simple-import-sort/imports
 import { mockProducerObserver } from '../../../tests/helpers/mocks/producer.mock'
 
-import { HogWatcherState } from '../services/hog-watcher.service'
+import { HogWatcherState } from '../services/monitoring/hog-watcher.service'
 import { HogFunctionInvocationGlobals, HogFunctionType } from '../types'
 import { Hub, Team } from '../../types'
 import { closeHub, createHub } from '../../utils/db/hub'
-import { createTeam, getFirstTeam, getTeam, resetTestDatabase } from '../../../tests/helpers/sql'
+import {
+    createOrganization,
+    createTeam,
+    getFirstTeam,
+    getTeam,
+    resetTestDatabase,
+    updateOrganizationAvailableFeatures,
+} from '../../../tests/helpers/sql'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../_tests/examples'
 import {
     createHogExecutionGlobals,
@@ -14,9 +21,12 @@ import {
     createIncomingEvent,
     createInternalEvent,
 } from '../_tests/fixtures'
-import { CdpEventsConsumer } from './cdp-events.consumer'
+import { CdpEventsConsumer, counterMissingAddon } from './cdp-events.consumer'
 import { CdpInternalEventsConsumer } from './cdp-internal-event.consumer'
 import { CyclotronJobQueue } from '../services/job-queue/job-queue'
+import { insertHogFlow as _insertHogFlow } from '../_tests/fixtures-hogflows'
+import { HogFlow } from '~/schema/hogflow'
+import { FixtureHogFlowBuilder } from '../_tests/builders/hogflow.builder'
 
 jest.setTimeout(1000)
 
@@ -48,7 +58,8 @@ describe.each([
         await resetTestDatabase()
         hub = await createHub()
         team = await getFirstTeam(hub)
-        const team2Id = await createTeam(hub.postgres, team.organization_id)
+        const otherOrganizationId = await createOrganization(hub.postgres)
+        const team2Id = await createTeam(hub.postgres, otherOrganizationId)
         team2 = (await getTeam(hub, team2Id))!
 
         processor = new Consumer(hub)
@@ -176,6 +187,68 @@ describe.each([
                 expect(mockQueueInvocations).toHaveBeenCalledWith(invocations)
             })
 
+            it('should log correct metrics', async () => {
+                const { invocations } = await processor.processBatch([globals])
+
+                expect(invocations).toHaveLength(2)
+                expect(invocations).toMatchObject([
+                    matchInvocation(fnFetchNoFilters, globals),
+                    matchInvocation(fnPrinterPageviewFilters, globals),
+                ])
+
+                expect(mockQueueInvocations).toHaveBeenCalledWith(invocations)
+
+                expect(
+                    mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_app_metrics2_test')
+                ).toMatchObject(
+                    hogType !== 'destination'
+                        ? []
+                        : [
+                              {
+                                  key: globals.event.uuid,
+                                  topic: 'clickhouse_app_metrics2_test',
+                                  value: {
+                                      app_source: 'cdp_destination',
+                                      app_source_id: globals.event.uuid,
+                                      count: 1,
+                                      metric_kind: 'success',
+                                      metric_name: 'event_triggered_destination',
+                                      team_id: 2,
+                                      timestamp: expect.any(String),
+                                  },
+                              },
+                              {
+                                  key: 'custom',
+                                  topic: 'clickhouse_app_metrics2_test',
+                                  value: {
+                                      app_source: 'cdp_destination',
+                                      app_source_id: 'custom',
+                                      count: 1,
+                                      metric_kind: 'success',
+                                      metric_name: 'destination_invoked',
+                                      instance_id: invocations[0].id,
+                                      team_id: 2,
+                                      timestamp: expect.any(String),
+                                  },
+                              },
+                              {
+                                  key: 'custom',
+                                  topic: 'clickhouse_app_metrics2_test',
+                                  value: {
+                                      app_source: 'cdp_destination',
+                                      app_source_id: 'custom',
+                                      count: 1,
+                                      metric_kind: 'success',
+                                      metric_name: 'destination_invoked',
+                                      instance_id: invocations[1].id,
+                                      team_id: 2,
+                                      timestamp: expect.any(String),
+                                  },
+                              },
+                          ]
+                )
+            })
+
             it("should filter out functions that don't match the filter", async () => {
                 globals.event.properties.$current_url = 'https://nomatch.com'
 
@@ -204,6 +277,37 @@ describe.each([
                             timestamp: expect.any(String),
                         },
                     },
+                    ...(hogType !== 'destination'
+                        ? []
+                        : [
+                              {
+                                  key: globals.event.uuid,
+                                  topic: 'clickhouse_app_metrics2_test',
+                                  value: {
+                                      app_source: 'cdp_destination',
+                                      app_source_id: globals.event.uuid,
+                                      count: 1,
+                                      metric_kind: 'success',
+                                      metric_name: 'event_triggered_destination',
+                                      team_id: 2,
+                                      timestamp: expect.any(String),
+                                  },
+                              },
+                              {
+                                  key: 'custom',
+                                  topic: 'clickhouse_app_metrics2_test',
+                                  value: {
+                                      app_source: 'cdp_destination',
+                                      app_source_id: 'custom',
+                                      count: 1,
+                                      metric_kind: 'success',
+                                      metric_name: 'destination_invoked',
+                                      instance_id: invocations[0].id,
+                                      team_id: 2,
+                                      timestamp: expect.any(String),
+                                  },
+                              },
+                          ]),
                 ])
             })
 
@@ -211,8 +315,8 @@ describe.each([
                 [HogWatcherState.disabledForPeriod, 'disabled_temporarily'],
                 [HogWatcherState.disabledIndefinitely, 'disabled_permanently'],
             ])('should filter out functions that are disabled', async (state, metric_name) => {
-                await processor.hogWatcher.forceStateChange(fnFetchNoFilters.id, state)
-                await processor.hogWatcher.forceStateChange(fnPrinterPageviewFilters.id, state)
+                await processor.hogWatcher.forceStateChange(fnFetchNoFilters, state)
+                await processor.hogWatcher.forceStateChange(fnPrinterPageviewFilters, state)
 
                 const { invocations } = await processor.processBatch([globals])
 
@@ -294,6 +398,177 @@ describe.each([
                         },
                     },
                 ])
+            })
+        })
+    })
+
+    describe('missing addon', () => {
+        let counterMissingAddonSpy: jest.SpyInstance
+        beforeEach(async () => {
+            // Team 1 - has the addon
+            await insertHogFunction({
+                team_id: team.id,
+                ...HOG_EXAMPLES.simple_fetch,
+                ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                ...HOG_FILTERS_EXAMPLES.no_filters,
+            })
+
+            await updateOrganizationAvailableFeatures(hub.postgres, team2.organization_id, [])
+
+            // Team 2 - doesn't have the addon
+            await insertHogFunction({
+                team_id: team2.id,
+                ...HOG_EXAMPLES.simple_fetch,
+                ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                ...HOG_FILTERS_EXAMPLES.no_filters,
+            })
+
+            counterMissingAddonSpy = jest.spyOn(counterMissingAddon, 'labels')
+        })
+        it('should process events for teams with the addon', async () => {
+            if (processor instanceof CdpInternalEventsConsumer) {
+                return
+            }
+            const { invocations } = await processor.processBatch([
+                createHogExecutionGlobals({
+                    project: {
+                        id: team.id,
+                    } as any,
+                }),
+            ])
+            expect(invocations).toHaveLength(1)
+            expect(invocations[0].teamId).toBe(team.id)
+            expect(counterMissingAddonSpy).not.toHaveBeenCalled()
+        })
+
+        it('should not process events for teams without the addon', async () => {
+            if (processor instanceof CdpInternalEventsConsumer) {
+                return
+            }
+            const { invocations } = await processor.processBatch([
+                createHogExecutionGlobals({
+                    project: {
+                        id: team2.id,
+                    } as any,
+                }),
+            ])
+            expect(counterMissingAddonSpy).toHaveBeenCalledWith({ team_id: team2.id })
+            // TODO: Swap this to 0 once we release it
+            expect(invocations).toHaveLength(1)
+        })
+    })
+})
+
+describe('hog flow processing', () => {
+    let processor: CdpEventsConsumer | CdpInternalEventsConsumer
+    let hub: Hub
+    let team: Team
+
+    const insertHogFlow = async (hogFlow: HogFlow) => {
+        const teamId = hogFlow.team_id ?? team.id
+
+        const item = await _insertHogFlow(hub.postgres, hogFlow)
+        // Trigger the reload that django would do
+        processor['hogFunctionManager']['onHogFunctionsReloaded'](teamId, [item.id])
+        return item
+    }
+
+    beforeEach(async () => {
+        await resetTestDatabase()
+        hub = await createHub()
+        team = await getFirstTeam(hub)
+        processor = new CdpEventsConsumer(hub)
+
+        // NOTE: We don't want to actually connect to Kafka for these tests as it is slow and we are testing the core logic only
+        processor['kafkaConsumer'] = {
+            connect: jest.fn(),
+            disconnect: jest.fn(),
+            isHealthy: jest.fn(),
+        } as any
+
+        processor['cyclotronJobQueue'] = {
+            queueInvocations: jest.fn(),
+            startAsProducer: jest.fn(() => Promise.resolve()),
+            stop: jest.fn(),
+        } as unknown as jest.Mocked<CyclotronJobQueue>
+
+        await processor.start()
+    })
+
+    afterEach(async () => {
+        jest.setTimeout(10000)
+        await processor.stop()
+        await closeHub(hub)
+    })
+
+    afterAll(() => {
+        jest.useRealTimers()
+    })
+
+    describe('createHogFlowInvocations', () => {
+        let globals: HogFunctionInvocationGlobals
+
+        beforeEach(() => {
+            globals = createHogExecutionGlobals({
+                project: {
+                    id: team.id,
+                } as any,
+                event: {
+                    uuid: 'b3a1fe86-b10c-43cc-acaf-d208977608d0',
+                    event: '$pageview',
+                    properties: {
+                        $current_url: 'https://posthog.com',
+                        $lib_version: '1.0.0',
+                    },
+                } as any,
+            })
+        })
+
+        it('should not create hog flow invocations with no filters', async () => {
+            await insertHogFlow(new FixtureHogFlowBuilder().withTeamId(team.id).build())
+
+            const invocations = await processor['createHogFlowInvocations']([globals])
+            expect(invocations).toHaveLength(0)
+        })
+
+        it('should create hog flow invocations with matching filters', async () => {
+            const hogFlow = await insertHogFlow(
+                new FixtureHogFlowBuilder()
+                    .withTeamId(team.id)
+                    .withTrigger({
+                        type: 'event',
+                        filters: HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter.filters,
+                    })
+                    .build()
+            )
+
+            const noInvocations = await processor['createHogFlowInvocations']([
+                {
+                    ...globals,
+                    event: {
+                        ...globals.event,
+                        event: 'not-a-pageview',
+                    },
+                },
+            ])
+
+            expect(noInvocations).toHaveLength(0)
+
+            const invocations = await processor['createHogFlowInvocations']([globals])
+            expect(invocations).toHaveLength(1)
+            expect(invocations[0]).toMatchObject({
+                functionId: hogFlow.id,
+                hogFlow: {
+                    id: hogFlow.id,
+                },
+                id: expect.any(String),
+                queue: 'hogflow',
+                queuePriority: 1,
+                state: {
+                    event: globals.event,
+                    actionStepCount: 0,
+                },
+                teamId: 2,
             })
         })
     })

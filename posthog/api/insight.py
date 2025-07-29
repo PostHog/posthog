@@ -158,9 +158,9 @@ def log_and_report_insight_activity(
         team = Team.objects.get(id=team_id)
         if not was_impersonated and user.distinct_id:
             posthoganalytics.capture(
-                user.distinct_id,
                 f"insight {activity}",
-                {"insight_id": insight_short_id, **properties},
+                distinct_id=user.distinct_id,
+                properties={"insight_id": insight_short_id, **properties},
                 groups=(groups(organization, team) if team_id else groups(organization)),
             )
 
@@ -177,7 +177,9 @@ def capture_legacy_api_call(request: request.Request, team: Team):
             "was_impersonated": is_impersonated_session(request),
         }
 
-        posthoganalytics.capture(distinct_id, event, properties, groups=(groups(team.organization, team)))
+        posthoganalytics.capture(
+            event, distinct_id=distinct_id, properties=properties, groups=(groups(team.organization, team))
+        )
     except Exception as e:
         logging.exception(f"Error in capture_legacy_api_call: {e}")
         pass

@@ -1,13 +1,16 @@
 from rest_framework import decorators, exceptions, viewsets
 from rest_framework_extensions.routers import NestedRegistryItem
 
+
+from .oauth_application import OAuthApplicationPublicMetadataViewSet
 import products.data_warehouse.backend.api.fix_hogql as fix_hogql
 import products.early_access_features.backend.api as early_access_feature
 from products.user_interviews.backend.api import UserInterviewViewSet
-from products.llm_observability.api import LLMProxyViewSet, MaxToolsViewSet
-from products.messaging.backend.api import MessageTemplatesViewSet
+from products.llm_observability.api import LLMProxyViewSet
+from products.messaging.backend.api import MessageTemplatesViewSet, MessageCategoryViewSet
 import products.logs.backend.api as logs
-from posthog.api import data_color_theme, hog_flow, metalytics, project, wizard
+from posthog.api import data_color_theme, hog_flow, metalytics, project, my_notifications
+from posthog.api.wizard import http as wizard
 from posthog.api.csp_reporting import CSPReportingViewSet
 from posthog.api.routing import DefaultRouterPlusPlus
 from posthog.batch_exports import http as batch_exports
@@ -47,6 +50,7 @@ from . import (
     event_definition,
     exports,
     feature_flag,
+    flag_value,
     hog,
     hog_function,
     hog_function_template,
@@ -74,14 +78,13 @@ from . import (
     team,
     uploaded_media,
     user,
-    user_group,
-    external_web_analytics,
     web_vitals,
 )
 from .file_system import file_system, file_system_shortcut, persisted_folder
 from .dashboards import dashboard, dashboard_templates
 from .data_management import DataManagementViewSet
 from .session import SessionViewSet
+from .external_web_analytics import http as external_web_analytics
 
 
 @decorators.api_view(["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"])
@@ -102,7 +105,7 @@ router.register(r"plugin_config", plugin.LegacyPluginConfigViewSet, "legacy_plug
 
 router.register(r"feature_flag", feature_flag.LegacyFeatureFlagViewSet)  # Used for library side feature flag evaluation
 router.register(r"llm_proxy", LLMProxyViewSet, "llm_proxy")
-
+router.register(r"oauth_application/metadata", OAuthApplicationPublicMetadataViewSet, "oauth_application_metadata")
 # Nested endpoints shared
 projects_router = router.register(r"projects", project.RootProjectViewSet, "projects")
 projects_router.register(r"environments", team.TeamViewSet, "project_environments", ["project_id"])
@@ -175,6 +178,12 @@ projects_router.register(
     r"activity_log",
     activity_log.ActivityLogViewSet,
     "project_activity_log",
+    ["project_id"],
+)
+projects_router.register(
+    r"my_notifications",
+    my_notifications.MyNotificationsViewSet,
+    "project_notifications",
     ["project_id"],
 )
 project_feature_flags_router = projects_router.register(
@@ -321,7 +330,7 @@ projects_router.register(r"uploaded_media", uploaded_media.MediaViewSet, "projec
 
 projects_router.register(r"tags", tagged_item.TaggedItemViewSet, "project_tags", ["project_id"])
 projects_router.register(
-    r"external_web_analytics",
+    r"web_analytics",
     external_web_analytics.ExternalWebAnalyticsViewSet,
     "project_external_web_analytics",
     ["project_id"],
@@ -630,16 +639,16 @@ environments_router.register(
 )
 
 environments_router.register(
-    r"error_tracking/stack_frames",
-    error_tracking.ErrorTrackingStackFrameViewSet,
-    "project_error_tracking_stack_frames",
+    r"error_tracking/external_references",
+    error_tracking.ErrorTrackingExternalReferenceViewSet,
+    "project_error_tracking_external_references",
     ["team_id"],
 )
 
-projects_router.register(
-    r"user_groups",
-    user_group.UserGroupViewSet,
-    "project_user_groups",
+environments_router.register(
+    r"error_tracking/stack_frames",
+    error_tracking.ErrorTrackingStackFrameViewSet,
+    "project_error_tracking_stack_frames",
     ["team_id"],
 )
 
@@ -732,12 +741,17 @@ register_grandfathered_environment_nested_viewset(
 
 environments_router.register(r"lineage", LineageViewSet, "environment_lineage", ["team_id"])
 
-environments_router.register(r"max_tools", MaxToolsViewSet, "environment_max_tools", ["team_id"])
-
 environments_router.register(
     r"messaging_templates",
     MessageTemplatesViewSet,
     "environment_messaging_templates",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"messaging_categories",
+    MessageCategoryViewSet,
+    "environment_messaging_categories",
     ["team_id"],
 )
 
@@ -763,4 +777,11 @@ environments_router.register(
     revenue_analytics.RevenueAnalyticsTaxonomyViewSet,
     "environment_revenue_analytics_taxonomy",
     ["team_id"],
+)
+
+projects_router.register(
+    r"flag_value",
+    flag_value.FlagValueViewSet,
+    "project_flag_value",
+    ["project_id"],
 )

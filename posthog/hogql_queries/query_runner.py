@@ -31,6 +31,7 @@ from posthog.hogql.timings import HogQLTimings
 from posthog.hogql_queries.query_cache import QueryCacheManager
 from posthog.metrics import LABEL_TEAM_ID
 from posthog.models import Team, User
+from posthog.models.team import WeekStartDay
 from posthog.schema import (
     ActorsPropertyTaxonomyQuery,
     ActorsQuery,
@@ -38,6 +39,7 @@ from posthog.schema import (
     DashboardFilter,
     DateRange,
     EventsQuery,
+    SessionBatchEventsQuery,
     EventTaxonomyQuery,
     ExperimentExposureQuery,
     FilterLogicalOperator,
@@ -74,6 +76,7 @@ from posthog.schema import (
     WebGoalsQuery,
     WebOverviewQuery,
     WebStatsTableQuery,
+    MarketingAnalyticsTableQuery,
 )
 from posthog.schema_helpers import to_dict
 from posthog.utils import generate_cache_key, get_from_dict_or_attr, to_json
@@ -150,6 +153,7 @@ RunnableQueryNode = Union[
     LifecycleQuery,
     ActorsQuery,
     EventsQuery,
+    SessionBatchEventsQuery,
     HogQLQuery,
     InsightActorsQuery,
     FunnelsActorsQuery,
@@ -161,6 +165,7 @@ RunnableQueryNode = Union[
     WebStatsTableQuery,
     WebGoalsQuery,
     SessionAttributionExplorerQuery,
+    MarketingAnalyticsTableQuery,
 ]
 
 
@@ -252,6 +257,16 @@ def get_query_runner(
 
         return EventsQueryRunner(
             query=cast(EventsQuery | dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+        )
+    if kind == "SessionBatchEventsQuery":
+        from .ai.session_batch_events_query_runner import SessionBatchEventsQueryRunner
+
+        return SessionBatchEventsQueryRunner(
+            query=cast(SessionBatchEventsQuery | dict[str, Any], query),
             team=team,
             timings=timings,
             limit_context=limit_context,
@@ -407,6 +422,32 @@ def get_query_runner(
             limit_context=limit_context,
         )
 
+    if kind == "RevenueAnalyticsArpuQuery":
+        from products.revenue_analytics.backend.hogql_queries.revenue_analytics_arpu_query_runner import (
+            RevenueAnalyticsArpuQueryRunner,
+        )
+
+        return RevenueAnalyticsArpuQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+        )
+
+    if kind == "RevenueAnalyticsCustomerCountQuery":
+        from products.revenue_analytics.backend.hogql_queries.revenue_analytics_customer_count_query_runner import (
+            RevenueAnalyticsCustomerCountQueryRunner,
+        )
+
+        return RevenueAnalyticsCustomerCountQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+        )
+
     if kind == "RevenueAnalyticsGrowthRateQuery":
         from products.revenue_analytics.backend.hogql_queries.revenue_analytics_growth_rate_query_runner import (
             RevenueAnalyticsGrowthRateQueryRunner,
@@ -420,12 +461,12 @@ def get_query_runner(
             limit_context=limit_context,
         )
 
-    if kind == "RevenueAnalyticsInsightsQuery":
-        from products.revenue_analytics.backend.hogql_queries.revenue_analytics_insights_query_runner import (
-            RevenueAnalyticsInsightsQueryRunner,
+    if kind == "RevenueAnalyticsOverviewQuery":
+        from products.revenue_analytics.backend.hogql_queries.revenue_analytics_overview_query_runner import (
+            RevenueAnalyticsOverviewQueryRunner,
         )
 
-        return RevenueAnalyticsInsightsQueryRunner(
+        return RevenueAnalyticsOverviewQueryRunner(
             query=query,
             team=team,
             timings=timings,
@@ -433,12 +474,12 @@ def get_query_runner(
             limit_context=limit_context,
         )
 
-    if kind == "RevenueAnalyticsOverviewQuery":
-        from products.revenue_analytics.backend.hogql_queries.revenue_analytics_overview_query_runner import (
-            RevenueAnalyticsOverviewQueryRunner,
+    if kind == "RevenueAnalyticsRevenueQuery":
+        from products.revenue_analytics.backend.hogql_queries.revenue_analytics_revenue_query_runner import (
+            RevenueAnalyticsRevenueQueryRunner,
         )
 
-        return RevenueAnalyticsOverviewQueryRunner(
+        return RevenueAnalyticsRevenueQueryRunner(
             query=query,
             team=team,
             timings=timings,
@@ -601,6 +642,19 @@ def get_query_runner(
             modifiers=modifiers,
         )
 
+    if kind == "MarketingAnalyticsTableQuery":
+        from products.marketing_analytics.backend.hogql_queries.marketing_analytics_table_query_runner import (
+            MarketingAnalyticsTableQueryRunner,
+        )
+
+        return MarketingAnalyticsTableQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+        )
+
     raise ValueError(f"Can't get a runner for an unknown query kind: {kind}")
 
 
@@ -640,6 +694,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
     timings: HogQLTimings
     modifiers: HogQLQueryModifiers
     limit_context: LimitContext
+    # query service means programmatic access and /query endpoint
     is_query_service: bool = False
     workload: Workload
 
@@ -677,6 +732,11 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         _modifiers = modifiers or extract_modifiers(query)
         self.modifiers = create_default_modifiers_for_team(team, _modifiers)
         self.query = query
+        self.__post_init__()
+
+    def __post_init__(self):
+        """Called after init, can by overriden by subclasses. Should be idempotent. Also called after dashboard overrides are set."""
+        pass
 
     @property
     def query_type(self) -> type[Q]:
@@ -834,6 +894,11 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 posthoganalytics.tag("insight_id", str(insight_id))
             if dashboard_id:
                 posthoganalytics.tag("dashboard_id", str(dashboard_id))
+            if tags := getattr(self.query, "tags", None):
+                if tags.productKey:
+                    posthoganalytics.tag("product_key", tags.productKey)
+                if tags.scene:
+                    posthoganalytics.tag("scene", tags.scene)
 
             self.query_id = query_id or self.query_id
             CachedResponse: type[CR] = self.cached_response_type
@@ -961,13 +1026,18 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             )
 
     def get_cache_payload(self) -> dict:
+        # remove the tags key, these are used in the query log comment but shouldn't break caching
+        query = to_dict(self.query)
+        query.pop("tags", None)
+
         return {
             "query_runner": self.__class__.__name__,
-            "query": to_dict(self.query),
+            "query": query,
             "team_id": self.team.pk,
             "hogql_modifiers": to_dict(self.modifiers),
             "limit_context": self._limit_context_aliased_for_cache,
             "timezone": self.team.timezone,
+            "week_start_day": self.team.week_start_day or WeekStartDay.SUNDAY,
             "version": 2,
         }
 
@@ -1055,6 +1125,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                         f"{self.query.__class__.__name__} does not support breakdown filters out of the box"
                     )
                 )
+        self.__post_init__()
 
 
 class QueryRunnerWithHogQLContext(QueryRunner):

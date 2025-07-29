@@ -76,6 +76,8 @@
          "posthog_team"."surveys_opt_in",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."flags_persistence_default",
+         "posthog_team"."feature_flag_confirmation_enabled",
+         "posthog_team"."feature_flag_confirmation_message",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -102,6 +104,7 @@
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."revenue_tracking_config",
+         "posthog_team"."drop_events_older_than",
          "posthog_team"."base_currency"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
@@ -123,6 +126,7 @@
          "posthog_organization"."is_ai_data_processing_approved",
          "posthog_organization"."enforce_2fa",
          "posthog_organization"."members_can_invite",
+         "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
@@ -150,6 +154,7 @@
          "posthog_dashboard"."created_by_id",
          "posthog_dashboard"."deleted",
          "posthog_dashboard"."last_accessed_at",
+         "posthog_dashboard"."last_refresh",
          "posthog_dashboard"."filters",
          "posthog_dashboard"."variables",
          "posthog_dashboard"."breakdown_colors",
@@ -209,6 +214,7 @@
          "posthog_dashboard"."created_by_id",
          "posthog_dashboard"."deleted",
          "posthog_dashboard"."last_accessed_at",
+         "posthog_dashboard"."last_refresh",
          "posthog_dashboard"."filters",
          "posthog_dashboard"."variables",
          "posthog_dashboard"."breakdown_colors",
@@ -313,6 +319,8 @@
          "posthog_team"."surveys_opt_in",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."flags_persistence_default",
+         "posthog_team"."feature_flag_confirmation_enabled",
+         "posthog_team"."feature_flag_confirmation_message",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -339,6 +347,7 @@
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."revenue_tracking_config",
+         "posthog_team"."drop_events_older_than",
          "posthog_team"."base_currency"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
@@ -366,6 +375,7 @@
          "posthog_organization"."is_ai_data_processing_approved",
          "posthog_organization"."enforce_2fa",
          "posthog_organization"."members_can_invite",
+         "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
@@ -451,6 +461,7 @@
          "posthog_organization"."is_ai_data_processing_approved",
          "posthog_organization"."enforce_2fa",
          "posthog_organization"."members_can_invite",
+         "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
@@ -490,6 +501,7 @@
          "posthog_organization"."is_ai_data_processing_approved",
          "posthog_organization"."enforce_2fa",
          "posthog_organization"."members_can_invite",
+         "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
@@ -512,7 +524,7 @@
   FROM "ee_accesscontrol"
   WHERE ("ee_accesscontrol"."access_level" = 'none'
          AND "ee_accesscontrol"."organization_member_id" IS NULL
-         AND "ee_accesscontrol"."resource" = 'team'
+         AND "ee_accesscontrol"."resource" = 'project'
          AND "ee_accesscontrol"."resource_id" = '99999'
          AND "ee_accesscontrol"."role_id" IS NULL
          AND "ee_accesscontrol"."team_id" = 99999)
@@ -534,6 +546,7 @@
          "posthog_organization"."is_ai_data_processing_approved",
          "posthog_organization"."enforce_2fa",
          "posthog_organization"."members_can_invite",
+         "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
@@ -561,6 +574,7 @@
          "posthog_dashboard"."created_by_id",
          "posthog_dashboard"."deleted",
          "posthog_dashboard"."last_accessed_at",
+         "posthog_dashboard"."last_refresh",
          "posthog_dashboard"."filters",
          "posthog_dashboard"."variables",
          "posthog_dashboard"."breakdown_colors",
@@ -616,7 +630,8 @@
          "posthog_sharingconfiguration"."recording_id",
          "posthog_sharingconfiguration"."created_at",
          "posthog_sharingconfiguration"."enabled",
-         "posthog_sharingconfiguration"."access_token"
+         "posthog_sharingconfiguration"."access_token",
+         "posthog_sharingconfiguration"."expires_at"
   FROM "posthog_sharingconfiguration"
   WHERE "posthog_sharingconfiguration"."dashboard_id" IN (1,
                                                           2,
@@ -646,6 +661,7 @@
          "posthog_dashboarditem"."filters",
          "posthog_dashboarditem"."filters_hash",
          "posthog_dashboarditem"."query",
+         "posthog_dashboarditem"."query_metadata",
          "posthog_dashboarditem"."order",
          "posthog_dashboarditem"."deleted",
          "posthog_dashboarditem"."saved",
@@ -708,6 +724,8 @@
          "posthog_team"."surveys_opt_in",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."flags_persistence_default",
+         "posthog_team"."feature_flag_confirmation_enabled",
+         "posthog_team"."feature_flag_confirmation_message",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -741,6 +759,7 @@
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."revenue_tracking_config",
+         "posthog_team"."drop_events_older_than",
          "posthog_team"."base_currency",
          "posthog_user"."id",
          "posthog_user"."password",
@@ -859,6 +878,7 @@
          "posthog_dashboard"."created_by_id",
          "posthog_dashboard"."deleted",
          "posthog_dashboard"."last_accessed_at",
+         "posthog_dashboard"."last_refresh",
          "posthog_dashboard"."filters",
          "posthog_dashboard"."variables",
          "posthog_dashboard"."breakdown_colors",
@@ -922,6 +942,7 @@
          "posthog_dashboard"."created_by_id",
          "posthog_dashboard"."deleted",
          "posthog_dashboard"."last_accessed_at",
+         "posthog_dashboard"."last_refresh",
          "posthog_dashboard"."filters",
          "posthog_dashboard"."variables",
          "posthog_dashboard"."breakdown_colors",
@@ -1053,6 +1074,8 @@
          "posthog_team"."surveys_opt_in",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."flags_persistence_default",
+         "posthog_team"."feature_flag_confirmation_enabled",
+         "posthog_team"."feature_flag_confirmation_message",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -1086,6 +1109,7 @@
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."revenue_tracking_config",
+         "posthog_team"."drop_events_older_than",
          "posthog_team"."base_currency"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
@@ -1170,6 +1194,7 @@
          "posthog_dashboarditem"."filters",
          "posthog_dashboarditem"."filters_hash",
          "posthog_dashboarditem"."query",
+         "posthog_dashboarditem"."query_metadata",
          "posthog_dashboarditem"."order",
          "posthog_dashboarditem"."deleted",
          "posthog_dashboarditem"."saved",
@@ -1232,6 +1257,8 @@
          "posthog_team"."surveys_opt_in",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."flags_persistence_default",
+         "posthog_team"."feature_flag_confirmation_enabled",
+         "posthog_team"."feature_flag_confirmation_message",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -1265,6 +1292,7 @@
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."revenue_tracking_config",
+         "posthog_team"."drop_events_older_than",
          "posthog_team"."base_currency",
          "posthog_user"."id",
          "posthog_user"."password",
@@ -1384,6 +1412,7 @@
          "posthog_dashboard"."created_by_id",
          "posthog_dashboard"."deleted",
          "posthog_dashboard"."last_accessed_at",
+         "posthog_dashboard"."last_refresh",
          "posthog_dashboard"."filters",
          "posthog_dashboard"."variables",
          "posthog_dashboard"."breakdown_colors",
@@ -1447,6 +1476,7 @@
          "posthog_dashboard"."created_by_id",
          "posthog_dashboard"."deleted",
          "posthog_dashboard"."last_accessed_at",
+         "posthog_dashboard"."last_refresh",
          "posthog_dashboard"."filters",
          "posthog_dashboard"."variables",
          "posthog_dashboard"."breakdown_colors",
@@ -1486,6 +1516,7 @@
          "posthog_organization"."is_ai_data_processing_approved",
          "posthog_organization"."enforce_2fa",
          "posthog_organization"."members_can_invite",
+         "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
@@ -1536,6 +1567,7 @@
          "posthog_dashboard"."created_by_id",
          "posthog_dashboard"."deleted",
          "posthog_dashboard"."last_accessed_at",
+         "posthog_dashboard"."last_refresh",
          "posthog_dashboard"."filters",
          "posthog_dashboard"."variables",
          "posthog_dashboard"."breakdown_colors",
@@ -1587,7 +1619,7 @@
   FROM "ee_accesscontrol"
   WHERE ("ee_accesscontrol"."access_level" = 'none'
          AND "ee_accesscontrol"."organization_member_id" IS NULL
-         AND "ee_accesscontrol"."resource" = 'team'
+         AND "ee_accesscontrol"."resource" = 'project'
          AND "ee_accesscontrol"."resource_id" = '99999'
          AND "ee_accesscontrol"."role_id" IS NULL
          AND "ee_accesscontrol"."team_id" = 99999)
@@ -1605,6 +1637,7 @@
          "posthog_dashboard"."created_by_id",
          "posthog_dashboard"."deleted",
          "posthog_dashboard"."last_accessed_at",
+         "posthog_dashboard"."last_refresh",
          "posthog_dashboard"."filters",
          "posthog_dashboard"."variables",
          "posthog_dashboard"."breakdown_colors",
@@ -1665,6 +1698,8 @@
          "posthog_team"."surveys_opt_in",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."flags_persistence_default",
+         "posthog_team"."feature_flag_confirmation_enabled",
+         "posthog_team"."feature_flag_confirmation_message",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -1698,6 +1733,7 @@
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."revenue_tracking_config",
+         "posthog_team"."drop_events_older_than",
          "posthog_team"."base_currency"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
@@ -1715,6 +1751,7 @@
          "posthog_dashboard"."created_by_id",
          "posthog_dashboard"."deleted",
          "posthog_dashboard"."last_accessed_at",
+         "posthog_dashboard"."last_refresh",
          "posthog_dashboard"."filters",
          "posthog_dashboard"."variables",
          "posthog_dashboard"."breakdown_colors",
@@ -1778,6 +1815,8 @@
          "posthog_team"."surveys_opt_in",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."flags_persistence_default",
+         "posthog_team"."feature_flag_confirmation_enabled",
+         "posthog_team"."feature_flag_confirmation_message",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -1811,6 +1850,7 @@
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."revenue_tracking_config",
+         "posthog_team"."drop_events_older_than",
          "posthog_team"."base_currency"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
@@ -1894,6 +1934,8 @@
          "posthog_team"."surveys_opt_in",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."flags_persistence_default",
+         "posthog_team"."feature_flag_confirmation_enabled",
+         "posthog_team"."feature_flag_confirmation_message",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -1920,6 +1962,7 @@
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."revenue_tracking_config",
+         "posthog_team"."drop_events_older_than",
          "posthog_team"."base_currency"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
@@ -1937,6 +1980,7 @@
          "posthog_dashboard"."created_by_id",
          "posthog_dashboard"."deleted",
          "posthog_dashboard"."last_accessed_at",
+         "posthog_dashboard"."last_refresh",
          "posthog_dashboard"."filters",
          "posthog_dashboard"."variables",
          "posthog_dashboard"."breakdown_colors",
@@ -2000,6 +2044,8 @@
          "posthog_team"."surveys_opt_in",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."flags_persistence_default",
+         "posthog_team"."feature_flag_confirmation_enabled",
+         "posthog_team"."feature_flag_confirmation_message",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -2033,6 +2079,7 @@
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."revenue_tracking_config",
+         "posthog_team"."drop_events_older_than",
          "posthog_team"."base_currency"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
@@ -2083,6 +2130,8 @@
          "posthog_team"."surveys_opt_in",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."flags_persistence_default",
+         "posthog_team"."feature_flag_confirmation_enabled",
+         "posthog_team"."feature_flag_confirmation_message",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -2109,6 +2158,7 @@
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."revenue_tracking_config",
+         "posthog_team"."drop_events_older_than",
          "posthog_team"."base_currency"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
@@ -2143,6 +2193,7 @@
          "posthog_dashboarditem"."filters",
          "posthog_dashboarditem"."filters_hash",
          "posthog_dashboarditem"."query",
+         "posthog_dashboarditem"."query_metadata",
          "posthog_dashboarditem"."order",
          "posthog_dashboarditem"."deleted",
          "posthog_dashboarditem"."saved",
@@ -2179,6 +2230,7 @@
          "posthog_dashboard"."created_by_id",
          "posthog_dashboard"."deleted",
          "posthog_dashboard"."last_accessed_at",
+         "posthog_dashboard"."last_refresh",
          "posthog_dashboard"."filters",
          "posthog_dashboard"."variables",
          "posthog_dashboard"."breakdown_colors",
@@ -2238,6 +2290,8 @@
          "posthog_team"."surveys_opt_in",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."flags_persistence_default",
+         "posthog_team"."feature_flag_confirmation_enabled",
+         "posthog_team"."feature_flag_confirmation_message",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -2271,6 +2325,7 @@
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."revenue_tracking_config",
+         "posthog_team"."drop_events_older_than",
          "posthog_team"."base_currency"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
@@ -2292,6 +2347,7 @@
          "posthog_organization"."is_ai_data_processing_approved",
          "posthog_organization"."enforce_2fa",
          "posthog_organization"."members_can_invite",
+         "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
@@ -2323,6 +2379,7 @@
          "posthog_organization"."is_ai_data_processing_approved",
          "posthog_organization"."enforce_2fa",
          "posthog_organization"."members_can_invite",
+         "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
@@ -2383,6 +2440,8 @@
          "posthog_team"."surveys_opt_in",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."flags_persistence_default",
+         "posthog_team"."feature_flag_confirmation_enabled",
+         "posthog_team"."feature_flag_confirmation_message",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -2409,6 +2468,7 @@
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."revenue_tracking_config",
+         "posthog_team"."drop_events_older_than",
          "posthog_team"."base_currency"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
@@ -2436,6 +2496,7 @@
          "posthog_organization"."is_ai_data_processing_approved",
          "posthog_organization"."enforce_2fa",
          "posthog_organization"."members_can_invite",
+         "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
@@ -2465,6 +2526,7 @@
          "posthog_dashboard"."created_by_id",
          "posthog_dashboard"."deleted",
          "posthog_dashboard"."last_accessed_at",
+         "posthog_dashboard"."last_refresh",
          "posthog_dashboard"."filters",
          "posthog_dashboard"."variables",
          "posthog_dashboard"."breakdown_colors",
@@ -2524,6 +2586,7 @@
          "posthog_dashboard"."created_by_id",
          "posthog_dashboard"."deleted",
          "posthog_dashboard"."last_accessed_at",
+         "posthog_dashboard"."last_refresh",
          "posthog_dashboard"."filters",
          "posthog_dashboard"."variables",
          "posthog_dashboard"."breakdown_colors",
@@ -2620,6 +2683,8 @@
          "posthog_team"."surveys_opt_in",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."flags_persistence_default",
+         "posthog_team"."feature_flag_confirmation_enabled",
+         "posthog_team"."feature_flag_confirmation_message",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -2646,6 +2711,7 @@
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."revenue_tracking_config",
+         "posthog_team"."drop_events_older_than",
          "posthog_team"."base_currency"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
@@ -2673,6 +2739,7 @@
          "posthog_organization"."is_ai_data_processing_approved",
          "posthog_organization"."enforce_2fa",
          "posthog_organization"."members_can_invite",
+         "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
@@ -2758,6 +2825,7 @@
          "posthog_organization"."is_ai_data_processing_approved",
          "posthog_organization"."enforce_2fa",
          "posthog_organization"."members_can_invite",
+         "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
@@ -2789,6 +2857,7 @@
          "posthog_organization"."is_ai_data_processing_approved",
          "posthog_organization"."enforce_2fa",
          "posthog_organization"."members_can_invite",
+         "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
@@ -2871,6 +2940,7 @@
          "posthog_dashboard"."created_by_id",
          "posthog_dashboard"."deleted",
          "posthog_dashboard"."last_accessed_at",
+         "posthog_dashboard"."last_refresh",
          "posthog_dashboard"."filters",
          "posthog_dashboard"."variables",
          "posthog_dashboard"."breakdown_colors",
@@ -2927,7 +2997,8 @@
          "posthog_sharingconfiguration"."recording_id",
          "posthog_sharingconfiguration"."created_at",
          "posthog_sharingconfiguration"."enabled",
-         "posthog_sharingconfiguration"."access_token"
+         "posthog_sharingconfiguration"."access_token",
+         "posthog_sharingconfiguration"."expires_at"
   FROM "posthog_sharingconfiguration"
   WHERE "posthog_sharingconfiguration"."dashboard_id" IN (1,
                                                           2,
@@ -3023,6 +3094,7 @@
          "posthog_organization"."is_ai_data_processing_approved",
          "posthog_organization"."enforce_2fa",
          "posthog_organization"."members_can_invite",
+         "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
@@ -3050,6 +3122,7 @@
          "posthog_dashboard"."created_by_id",
          "posthog_dashboard"."deleted",
          "posthog_dashboard"."last_accessed_at",
+         "posthog_dashboard"."last_refresh",
          "posthog_dashboard"."filters",
          "posthog_dashboard"."variables",
          "posthog_dashboard"."breakdown_colors",
@@ -3110,6 +3183,8 @@
          "posthog_team"."surveys_opt_in",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."flags_persistence_default",
+         "posthog_team"."feature_flag_confirmation_enabled",
+         "posthog_team"."feature_flag_confirmation_message",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -3143,6 +3218,7 @@
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."revenue_tracking_config",
+         "posthog_team"."drop_events_older_than",
          "posthog_team"."base_currency"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
@@ -3193,6 +3269,8 @@
          "posthog_team"."surveys_opt_in",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."flags_persistence_default",
+         "posthog_team"."feature_flag_confirmation_enabled",
+         "posthog_team"."feature_flag_confirmation_message",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -3219,6 +3297,7 @@
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."revenue_tracking_config",
+         "posthog_team"."drop_events_older_than",
          "posthog_team"."base_currency"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
@@ -3235,6 +3314,7 @@
          "posthog_dashboarditem"."filters",
          "posthog_dashboarditem"."filters_hash",
          "posthog_dashboarditem"."query",
+         "posthog_dashboarditem"."query_metadata",
          "posthog_dashboarditem"."order",
          "posthog_dashboarditem"."deleted",
          "posthog_dashboarditem"."saved",
@@ -3304,6 +3384,8 @@
          "posthog_team"."surveys_opt_in",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."flags_persistence_default",
+         "posthog_team"."feature_flag_confirmation_enabled",
+         "posthog_team"."feature_flag_confirmation_message",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -3337,6 +3419,7 @@
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."revenue_tracking_config",
+         "posthog_team"."drop_events_older_than",
          "posthog_team"."base_currency"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
@@ -3420,6 +3503,8 @@
          "posthog_team"."surveys_opt_in",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."flags_persistence_default",
+         "posthog_team"."feature_flag_confirmation_enabled",
+         "posthog_team"."feature_flag_confirmation_message",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -3446,6 +3531,7 @@
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."revenue_tracking_config",
+         "posthog_team"."drop_events_older_than",
          "posthog_team"."base_currency"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
@@ -3470,7 +3556,7 @@
   FROM "ee_accesscontrol"
   WHERE ("ee_accesscontrol"."access_level" = 'none'
          AND "ee_accesscontrol"."organization_member_id" IS NULL
-         AND "ee_accesscontrol"."resource" = 'team'
+         AND "ee_accesscontrol"."resource" = 'project'
          AND "ee_accesscontrol"."resource_id" = '99999'
          AND "ee_accesscontrol"."role_id" IS NULL
          AND "ee_accesscontrol"."team_id" = 99999)
@@ -3488,6 +3574,7 @@
          "posthog_dashboard"."created_by_id",
          "posthog_dashboard"."deleted",
          "posthog_dashboard"."last_accessed_at",
+         "posthog_dashboard"."last_refresh",
          "posthog_dashboard"."filters",
          "posthog_dashboard"."variables",
          "posthog_dashboard"."breakdown_colors",
@@ -3548,6 +3635,8 @@
          "posthog_team"."surveys_opt_in",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."flags_persistence_default",
+         "posthog_team"."feature_flag_confirmation_enabled",
+         "posthog_team"."feature_flag_confirmation_message",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -3581,6 +3670,7 @@
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."revenue_tracking_config",
+         "posthog_team"."drop_events_older_than",
          "posthog_team"."base_currency"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
@@ -3631,6 +3721,8 @@
          "posthog_team"."surveys_opt_in",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."flags_persistence_default",
+         "posthog_team"."feature_flag_confirmation_enabled",
+         "posthog_team"."feature_flag_confirmation_message",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -3657,6 +3749,7 @@
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."revenue_tracking_config",
+         "posthog_team"."drop_events_older_than",
          "posthog_team"."base_currency"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
@@ -3673,6 +3766,7 @@
          "posthog_dashboarditem"."filters",
          "posthog_dashboarditem"."filters_hash",
          "posthog_dashboarditem"."query",
+         "posthog_dashboarditem"."query_metadata",
          "posthog_dashboarditem"."order",
          "posthog_dashboarditem"."deleted",
          "posthog_dashboarditem"."saved",
@@ -3742,6 +3836,8 @@
          "posthog_team"."surveys_opt_in",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."flags_persistence_default",
+         "posthog_team"."feature_flag_confirmation_enabled",
+         "posthog_team"."feature_flag_confirmation_message",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -3775,6 +3871,7 @@
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."revenue_tracking_config",
+         "posthog_team"."drop_events_older_than",
          "posthog_team"."base_currency"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
@@ -3792,6 +3889,7 @@
          "posthog_dashboard"."created_by_id",
          "posthog_dashboard"."deleted",
          "posthog_dashboard"."last_accessed_at",
+         "posthog_dashboard"."last_refresh",
          "posthog_dashboard"."filters",
          "posthog_dashboard"."variables",
          "posthog_dashboard"."breakdown_colors",
@@ -3855,6 +3953,8 @@
          "posthog_team"."surveys_opt_in",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."flags_persistence_default",
+         "posthog_team"."feature_flag_confirmation_enabled",
+         "posthog_team"."feature_flag_confirmation_message",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -3888,6 +3988,7 @@
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."revenue_tracking_config",
+         "posthog_team"."drop_events_older_than",
          "posthog_team"."base_currency"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
@@ -3938,6 +4039,8 @@
          "posthog_team"."surveys_opt_in",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."flags_persistence_default",
+         "posthog_team"."feature_flag_confirmation_enabled",
+         "posthog_team"."feature_flag_confirmation_message",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -3964,6 +4067,7 @@
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."revenue_tracking_config",
+         "posthog_team"."drop_events_older_than",
          "posthog_team"."base_currency"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
@@ -3997,7 +4101,8 @@
          "posthog_sharingconfiguration"."recording_id",
          "posthog_sharingconfiguration"."created_at",
          "posthog_sharingconfiguration"."enabled",
-         "posthog_sharingconfiguration"."access_token"
+         "posthog_sharingconfiguration"."access_token",
+         "posthog_sharingconfiguration"."expires_at"
   FROM "posthog_sharingconfiguration"
   WHERE "posthog_sharingconfiguration"."dashboard_id" = 99999
   '''
@@ -4012,6 +4117,7 @@
          "posthog_dashboarditem"."filters",
          "posthog_dashboarditem"."filters_hash",
          "posthog_dashboarditem"."query",
+         "posthog_dashboarditem"."query_metadata",
          "posthog_dashboarditem"."order",
          "posthog_dashboarditem"."deleted",
          "posthog_dashboarditem"."saved",
@@ -4048,6 +4154,7 @@
          "posthog_dashboard"."created_by_id",
          "posthog_dashboard"."deleted",
          "posthog_dashboard"."last_accessed_at",
+         "posthog_dashboard"."last_refresh",
          "posthog_dashboard"."filters",
          "posthog_dashboard"."variables",
          "posthog_dashboard"."breakdown_colors",
@@ -4107,6 +4214,8 @@
          "posthog_team"."surveys_opt_in",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."flags_persistence_default",
+         "posthog_team"."feature_flag_confirmation_enabled",
+         "posthog_team"."feature_flag_confirmation_message",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -4140,6 +4249,7 @@
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."revenue_tracking_config",
+         "posthog_team"."drop_events_older_than",
          "posthog_team"."base_currency"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
@@ -4161,6 +4271,7 @@
          "posthog_organization"."is_ai_data_processing_approved",
          "posthog_organization"."enforce_2fa",
          "posthog_organization"."members_can_invite",
+         "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
@@ -4192,6 +4303,7 @@
          "posthog_organization"."is_ai_data_processing_approved",
          "posthog_organization"."enforce_2fa",
          "posthog_organization"."members_can_invite",
+         "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
@@ -4252,6 +4364,8 @@
          "posthog_team"."surveys_opt_in",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."flags_persistence_default",
+         "posthog_team"."feature_flag_confirmation_enabled",
+         "posthog_team"."feature_flag_confirmation_message",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -4278,6 +4392,7 @@
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."revenue_tracking_config",
+         "posthog_team"."drop_events_older_than",
          "posthog_team"."base_currency"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
@@ -4295,6 +4410,7 @@
          "posthog_dashboard"."created_by_id",
          "posthog_dashboard"."deleted",
          "posthog_dashboard"."last_accessed_at",
+         "posthog_dashboard"."last_refresh",
          "posthog_dashboard"."filters",
          "posthog_dashboard"."variables",
          "posthog_dashboard"."breakdown_colors",
@@ -4354,6 +4470,7 @@
          "posthog_dashboard"."created_by_id",
          "posthog_dashboard"."deleted",
          "posthog_dashboard"."last_accessed_at",
+         "posthog_dashboard"."last_refresh",
          "posthog_dashboard"."filters",
          "posthog_dashboard"."variables",
          "posthog_dashboard"."breakdown_colors",
@@ -4465,6 +4582,8 @@
          "posthog_team"."surveys_opt_in",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."flags_persistence_default",
+         "posthog_team"."feature_flag_confirmation_enabled",
+         "posthog_team"."feature_flag_confirmation_message",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -4491,6 +4610,7 @@
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."revenue_tracking_config",
+         "posthog_team"."drop_events_older_than",
          "posthog_team"."base_currency"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
@@ -4518,6 +4638,7 @@
          "posthog_organization"."is_ai_data_processing_approved",
          "posthog_organization"."enforce_2fa",
          "posthog_organization"."members_can_invite",
+         "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
@@ -4603,6 +4724,7 @@
          "posthog_organization"."is_ai_data_processing_approved",
          "posthog_organization"."enforce_2fa",
          "posthog_organization"."members_can_invite",
+         "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
@@ -4625,7 +4747,7 @@
   FROM "ee_accesscontrol"
   WHERE ("ee_accesscontrol"."access_level" = 'none'
          AND "ee_accesscontrol"."organization_member_id" IS NULL
-         AND "ee_accesscontrol"."resource" = 'team'
+         AND "ee_accesscontrol"."resource" = 'project'
          AND "ee_accesscontrol"."resource_id" = '99999'
          AND "ee_accesscontrol"."role_id" IS NULL
          AND "ee_accesscontrol"."team_id" = 99999)
@@ -4643,6 +4765,7 @@
          "posthog_dashboard"."created_by_id",
          "posthog_dashboard"."deleted",
          "posthog_dashboard"."last_accessed_at",
+         "posthog_dashboard"."last_refresh",
          "posthog_dashboard"."filters",
          "posthog_dashboard"."variables",
          "posthog_dashboard"."breakdown_colors",
@@ -4703,6 +4826,8 @@
          "posthog_team"."surveys_opt_in",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."flags_persistence_default",
+         "posthog_team"."feature_flag_confirmation_enabled",
+         "posthog_team"."feature_flag_confirmation_message",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -4736,6 +4861,7 @@
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."revenue_tracking_config",
+         "posthog_team"."drop_events_older_than",
          "posthog_team"."base_currency"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
@@ -4786,6 +4912,8 @@
          "posthog_team"."surveys_opt_in",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."flags_persistence_default",
+         "posthog_team"."feature_flag_confirmation_enabled",
+         "posthog_team"."feature_flag_confirmation_message",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -4812,6 +4940,7 @@
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."revenue_tracking_config",
+         "posthog_team"."drop_events_older_than",
          "posthog_team"."base_currency"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
@@ -4862,6 +4991,8 @@
          "posthog_team"."surveys_opt_in",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."flags_persistence_default",
+         "posthog_team"."feature_flag_confirmation_enabled",
+         "posthog_team"."feature_flag_confirmation_message",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -4895,6 +5026,7 @@
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."revenue_tracking_config",
+         "posthog_team"."drop_events_older_than",
          "posthog_team"."base_currency"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
@@ -4911,6 +5043,7 @@
          "posthog_dashboarditem"."filters",
          "posthog_dashboarditem"."filters_hash",
          "posthog_dashboarditem"."query",
+         "posthog_dashboarditem"."query_metadata",
          "posthog_dashboarditem"."order",
          "posthog_dashboarditem"."deleted",
          "posthog_dashboarditem"."saved",
@@ -4980,6 +5113,8 @@
          "posthog_team"."surveys_opt_in",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."flags_persistence_default",
+         "posthog_team"."feature_flag_confirmation_enabled",
+         "posthog_team"."feature_flag_confirmation_message",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -5013,6 +5148,7 @@
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."revenue_tracking_config",
+         "posthog_team"."drop_events_older_than",
          "posthog_team"."base_currency"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
@@ -5030,6 +5166,7 @@
          "posthog_dashboard"."created_by_id",
          "posthog_dashboard"."deleted",
          "posthog_dashboard"."last_accessed_at",
+         "posthog_dashboard"."last_refresh",
          "posthog_dashboard"."filters",
          "posthog_dashboard"."variables",
          "posthog_dashboard"."breakdown_colors",
@@ -5093,6 +5230,8 @@
          "posthog_team"."surveys_opt_in",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."flags_persistence_default",
+         "posthog_team"."feature_flag_confirmation_enabled",
+         "posthog_team"."feature_flag_confirmation_message",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -5126,6 +5265,7 @@
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."revenue_tracking_config",
+         "posthog_team"."drop_events_older_than",
          "posthog_team"."base_currency"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
@@ -5176,6 +5316,8 @@
          "posthog_team"."surveys_opt_in",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."flags_persistence_default",
+         "posthog_team"."feature_flag_confirmation_enabled",
+         "posthog_team"."feature_flag_confirmation_message",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -5202,6 +5344,7 @@
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."revenue_tracking_config",
+         "posthog_team"."drop_events_older_than",
          "posthog_team"."base_currency"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
@@ -5236,6 +5379,7 @@
          "posthog_dashboarditem"."filters",
          "posthog_dashboarditem"."filters_hash",
          "posthog_dashboarditem"."query",
+         "posthog_dashboarditem"."query_metadata",
          "posthog_dashboarditem"."order",
          "posthog_dashboarditem"."deleted",
          "posthog_dashboarditem"."saved",
@@ -5272,6 +5416,7 @@
          "posthog_dashboard"."created_by_id",
          "posthog_dashboard"."deleted",
          "posthog_dashboard"."last_accessed_at",
+         "posthog_dashboard"."last_refresh",
          "posthog_dashboard"."filters",
          "posthog_dashboard"."variables",
          "posthog_dashboard"."breakdown_colors",
@@ -5331,6 +5476,8 @@
          "posthog_team"."surveys_opt_in",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."flags_persistence_default",
+         "posthog_team"."feature_flag_confirmation_enabled",
+         "posthog_team"."feature_flag_confirmation_message",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -5364,6 +5511,7 @@
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."revenue_tracking_config",
+         "posthog_team"."drop_events_older_than",
          "posthog_team"."base_currency"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
@@ -5385,6 +5533,7 @@
          "posthog_organization"."is_ai_data_processing_approved",
          "posthog_organization"."enforce_2fa",
          "posthog_organization"."members_can_invite",
+         "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
@@ -5410,7 +5559,8 @@
          "posthog_sharingconfiguration"."recording_id",
          "posthog_sharingconfiguration"."created_at",
          "posthog_sharingconfiguration"."enabled",
-         "posthog_sharingconfiguration"."access_token"
+         "posthog_sharingconfiguration"."access_token",
+         "posthog_sharingconfiguration"."expires_at"
   FROM "posthog_sharingconfiguration"
   WHERE "posthog_sharingconfiguration"."dashboard_id" = 99999
   '''
@@ -5430,6 +5580,7 @@
          "posthog_organization"."is_ai_data_processing_approved",
          "posthog_organization"."enforce_2fa",
          "posthog_organization"."members_can_invite",
+         "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
@@ -5490,6 +5641,8 @@
          "posthog_team"."surveys_opt_in",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."flags_persistence_default",
+         "posthog_team"."feature_flag_confirmation_enabled",
+         "posthog_team"."feature_flag_confirmation_message",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -5516,6 +5669,7 @@
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."revenue_tracking_config",
+         "posthog_team"."drop_events_older_than",
          "posthog_team"."base_currency"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
@@ -5533,6 +5687,7 @@
          "posthog_dashboard"."created_by_id",
          "posthog_dashboard"."deleted",
          "posthog_dashboard"."last_accessed_at",
+         "posthog_dashboard"."last_refresh",
          "posthog_dashboard"."filters",
          "posthog_dashboard"."variables",
          "posthog_dashboard"."breakdown_colors",
@@ -5592,6 +5747,7 @@
          "posthog_dashboard"."created_by_id",
          "posthog_dashboard"."deleted",
          "posthog_dashboard"."last_accessed_at",
+         "posthog_dashboard"."last_refresh",
          "posthog_dashboard"."filters",
          "posthog_dashboard"."variables",
          "posthog_dashboard"."breakdown_colors",
@@ -5696,6 +5852,8 @@
          "posthog_team"."surveys_opt_in",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."flags_persistence_default",
+         "posthog_team"."feature_flag_confirmation_enabled",
+         "posthog_team"."feature_flag_confirmation_message",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -5722,6 +5880,7 @@
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."revenue_tracking_config",
+         "posthog_team"."drop_events_older_than",
          "posthog_team"."base_currency"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
@@ -5749,6 +5908,7 @@
          "posthog_organization"."is_ai_data_processing_approved",
          "posthog_organization"."enforce_2fa",
          "posthog_organization"."members_can_invite",
+         "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
@@ -5850,6 +6010,7 @@
          "posthog_organization"."is_ai_data_processing_approved",
          "posthog_organization"."enforce_2fa",
          "posthog_organization"."members_can_invite",
+         "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
@@ -5872,7 +6033,7 @@
   FROM "ee_accesscontrol"
   WHERE ("ee_accesscontrol"."access_level" = 'none'
          AND "ee_accesscontrol"."organization_member_id" IS NULL
-         AND "ee_accesscontrol"."resource" = 'team'
+         AND "ee_accesscontrol"."resource" = 'project'
          AND "ee_accesscontrol"."resource_id" = '99999'
          AND "ee_accesscontrol"."role_id" IS NULL
          AND "ee_accesscontrol"."team_id" = 99999)
@@ -5894,6 +6055,7 @@
          "posthog_organization"."is_ai_data_processing_approved",
          "posthog_organization"."enforce_2fa",
          "posthog_organization"."members_can_invite",
+         "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
@@ -5921,6 +6083,7 @@
          "posthog_dashboard"."created_by_id",
          "posthog_dashboard"."deleted",
          "posthog_dashboard"."last_accessed_at",
+         "posthog_dashboard"."last_refresh",
          "posthog_dashboard"."filters",
          "posthog_dashboard"."variables",
          "posthog_dashboard"."breakdown_colors",
@@ -5976,7 +6139,8 @@
          "posthog_sharingconfiguration"."recording_id",
          "posthog_sharingconfiguration"."created_at",
          "posthog_sharingconfiguration"."enabled",
-         "posthog_sharingconfiguration"."access_token"
+         "posthog_sharingconfiguration"."access_token",
+         "posthog_sharingconfiguration"."expires_at"
   FROM "posthog_sharingconfiguration"
   WHERE "posthog_sharingconfiguration"."dashboard_id" IN (1,
                                                           2,
@@ -6006,6 +6170,7 @@
          "posthog_dashboarditem"."filters",
          "posthog_dashboarditem"."filters_hash",
          "posthog_dashboarditem"."query",
+         "posthog_dashboarditem"."query_metadata",
          "posthog_dashboarditem"."order",
          "posthog_dashboarditem"."deleted",
          "posthog_dashboarditem"."saved",
@@ -6068,6 +6233,8 @@
          "posthog_team"."surveys_opt_in",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."flags_persistence_default",
+         "posthog_team"."feature_flag_confirmation_enabled",
+         "posthog_team"."feature_flag_confirmation_message",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -6101,6 +6268,7 @@
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."revenue_tracking_config",
+         "posthog_team"."drop_events_older_than",
          "posthog_team"."base_currency",
          "posthog_user"."id",
          "posthog_user"."password",
@@ -6219,6 +6387,7 @@
          "posthog_dashboard"."created_by_id",
          "posthog_dashboard"."deleted",
          "posthog_dashboard"."last_accessed_at",
+         "posthog_dashboard"."last_refresh",
          "posthog_dashboard"."filters",
          "posthog_dashboard"."variables",
          "posthog_dashboard"."breakdown_colors",
@@ -6292,6 +6461,7 @@
          "posthog_dashboarditem"."filters",
          "posthog_dashboarditem"."filters_hash",
          "posthog_dashboarditem"."query",
+         "posthog_dashboarditem"."query_metadata",
          "posthog_dashboarditem"."order",
          "posthog_dashboarditem"."deleted",
          "posthog_dashboarditem"."saved",
@@ -6354,6 +6524,8 @@
          "posthog_team"."surveys_opt_in",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."flags_persistence_default",
+         "posthog_team"."feature_flag_confirmation_enabled",
+         "posthog_team"."feature_flag_confirmation_message",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -6387,6 +6559,7 @@
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."revenue_tracking_config",
+         "posthog_team"."drop_events_older_than",
          "posthog_team"."base_currency",
          "posthog_user"."id",
          "posthog_user"."password",
@@ -6478,6 +6651,7 @@
          "posthog_dashboard"."created_by_id",
          "posthog_dashboard"."deleted",
          "posthog_dashboard"."last_accessed_at",
+         "posthog_dashboard"."last_refresh",
          "posthog_dashboard"."filters",
          "posthog_dashboard"."variables",
          "posthog_dashboard"."breakdown_colors",
@@ -6563,6 +6737,8 @@
          "posthog_team"."surveys_opt_in",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."flags_persistence_default",
+         "posthog_team"."feature_flag_confirmation_enabled",
+         "posthog_team"."feature_flag_confirmation_message",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -6596,6 +6772,7 @@
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."revenue_tracking_config",
+         "posthog_team"."drop_events_older_than",
          "posthog_team"."base_currency"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
@@ -6680,6 +6857,7 @@
          "posthog_dashboarditem"."filters",
          "posthog_dashboarditem"."filters_hash",
          "posthog_dashboarditem"."query",
+         "posthog_dashboarditem"."query_metadata",
          "posthog_dashboarditem"."order",
          "posthog_dashboarditem"."deleted",
          "posthog_dashboarditem"."saved",
@@ -6742,6 +6920,8 @@
          "posthog_team"."surveys_opt_in",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."flags_persistence_default",
+         "posthog_team"."feature_flag_confirmation_enabled",
+         "posthog_team"."feature_flag_confirmation_message",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -6775,6 +6955,7 @@
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."revenue_tracking_config",
+         "posthog_team"."drop_events_older_than",
          "posthog_team"."base_currency",
          "posthog_user"."id",
          "posthog_user"."password",
@@ -6894,6 +7075,7 @@
          "posthog_dashboard"."created_by_id",
          "posthog_dashboard"."deleted",
          "posthog_dashboard"."last_accessed_at",
+         "posthog_dashboard"."last_refresh",
          "posthog_dashboard"."filters",
          "posthog_dashboard"."variables",
          "posthog_dashboard"."breakdown_colors",
@@ -6965,6 +7147,7 @@
          "posthog_dashboard"."created_by_id",
          "posthog_dashboard"."deleted",
          "posthog_dashboard"."last_accessed_at",
+         "posthog_dashboard"."last_refresh",
          "posthog_dashboard"."filters",
          "posthog_dashboard"."variables",
          "posthog_dashboard"."breakdown_colors",
@@ -7017,6 +7200,7 @@
          "posthog_dashboard"."created_by_id",
          "posthog_dashboard"."deleted",
          "posthog_dashboard"."last_accessed_at",
+         "posthog_dashboard"."last_refresh",
          "posthog_dashboard"."filters",
          "posthog_dashboard"."variables",
          "posthog_dashboard"."breakdown_colors",
@@ -7195,6 +7379,8 @@
          "posthog_team"."surveys_opt_in",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."flags_persistence_default",
+         "posthog_team"."feature_flag_confirmation_enabled",
+         "posthog_team"."feature_flag_confirmation_message",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -7221,6 +7407,7 @@
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."revenue_tracking_config",
+         "posthog_team"."drop_events_older_than",
          "posthog_team"."base_currency"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
@@ -7248,6 +7435,7 @@
          "posthog_organization"."is_ai_data_processing_approved",
          "posthog_organization"."enforce_2fa",
          "posthog_organization"."members_can_invite",
+         "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
@@ -7287,6 +7475,7 @@
          "posthog_organization"."is_ai_data_processing_approved",
          "posthog_organization"."enforce_2fa",
          "posthog_organization"."members_can_invite",
+         "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
@@ -7372,6 +7561,7 @@
          "posthog_organization"."is_ai_data_processing_approved",
          "posthog_organization"."enforce_2fa",
          "posthog_organization"."members_can_invite",
+         "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
@@ -7394,7 +7584,7 @@
   FROM "ee_accesscontrol"
   WHERE ("ee_accesscontrol"."access_level" = 'none'
          AND "ee_accesscontrol"."organization_member_id" IS NULL
-         AND "ee_accesscontrol"."resource" = 'team'
+         AND "ee_accesscontrol"."resource" = 'project'
          AND "ee_accesscontrol"."resource_id" = '99999'
          AND "ee_accesscontrol"."role_id" IS NULL
          AND "ee_accesscontrol"."team_id" = 99999)
@@ -7445,6 +7635,8 @@
          "posthog_team"."surveys_opt_in",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."flags_persistence_default",
+         "posthog_team"."feature_flag_confirmation_enabled",
+         "posthog_team"."feature_flag_confirmation_message",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -7478,6 +7670,7 @@
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."revenue_tracking_config",
+         "posthog_team"."drop_events_older_than",
          "posthog_team"."base_currency"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
@@ -7532,6 +7725,7 @@
          "posthog_organization"."is_ai_data_processing_approved",
          "posthog_organization"."enforce_2fa",
          "posthog_organization"."members_can_invite",
+         "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
@@ -7569,7 +7763,8 @@
          "posthog_sharingconfiguration"."recording_id",
          "posthog_sharingconfiguration"."created_at",
          "posthog_sharingconfiguration"."enabled",
-         "posthog_sharingconfiguration"."access_token"
+         "posthog_sharingconfiguration"."access_token",
+         "posthog_sharingconfiguration"."expires_at"
   FROM "posthog_sharingconfiguration"
   WHERE "posthog_sharingconfiguration"."dashboard_id" = 99999
   '''
@@ -7671,6 +7866,8 @@
          "posthog_team"."surveys_opt_in",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."flags_persistence_default",
+         "posthog_team"."feature_flag_confirmation_enabled",
+         "posthog_team"."feature_flag_confirmation_message",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -7704,6 +7901,7 @@
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."revenue_tracking_config",
+         "posthog_team"."drop_events_older_than",
          "posthog_team"."base_currency"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
@@ -7719,7 +7917,8 @@
          "posthog_sharingconfiguration"."recording_id",
          "posthog_sharingconfiguration"."created_at",
          "posthog_sharingconfiguration"."enabled",
-         "posthog_sharingconfiguration"."access_token"
+         "posthog_sharingconfiguration"."access_token",
+         "posthog_sharingconfiguration"."expires_at"
   FROM "posthog_sharingconfiguration"
   WHERE "posthog_sharingconfiguration"."dashboard_id" = 99999
   '''
@@ -7761,6 +7960,7 @@
          "posthog_dashboarditem"."filters",
          "posthog_dashboarditem"."filters_hash",
          "posthog_dashboarditem"."query",
+         "posthog_dashboarditem"."query_metadata",
          "posthog_dashboarditem"."order",
          "posthog_dashboarditem"."deleted",
          "posthog_dashboarditem"."saved",
@@ -7823,6 +8023,8 @@
          "posthog_team"."surveys_opt_in",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."flags_persistence_default",
+         "posthog_team"."feature_flag_confirmation_enabled",
+         "posthog_team"."feature_flag_confirmation_message",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -7856,6 +8058,7 @@
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."revenue_tracking_config",
+         "posthog_team"."drop_events_older_than",
          "posthog_team"."base_currency",
          "posthog_user"."id",
          "posthog_user"."password",
@@ -8021,6 +8224,8 @@
          "posthog_team"."surveys_opt_in",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."flags_persistence_default",
+         "posthog_team"."feature_flag_confirmation_enabled",
+         "posthog_team"."feature_flag_confirmation_message",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -8047,6 +8252,7 @@
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."revenue_tracking_config",
+         "posthog_team"."drop_events_older_than",
          "posthog_team"."base_currency"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
@@ -8074,6 +8280,7 @@
          "posthog_organization"."is_ai_data_processing_approved",
          "posthog_organization"."enforce_2fa",
          "posthog_organization"."members_can_invite",
+         "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
@@ -8159,6 +8366,7 @@
          "posthog_organization"."is_ai_data_processing_approved",
          "posthog_organization"."enforce_2fa",
          "posthog_organization"."members_can_invite",
+         "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
@@ -8196,6 +8404,7 @@
          "posthog_organization"."is_ai_data_processing_approved",
          "posthog_organization"."enforce_2fa",
          "posthog_organization"."members_can_invite",
+         "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
@@ -8218,7 +8427,7 @@
   FROM "ee_accesscontrol"
   WHERE ("ee_accesscontrol"."access_level" = 'none'
          AND "ee_accesscontrol"."organization_member_id" IS NULL
-         AND "ee_accesscontrol"."resource" = 'team'
+         AND "ee_accesscontrol"."resource" = 'project'
          AND "ee_accesscontrol"."resource_id" = '99999'
          AND "ee_accesscontrol"."role_id" IS NULL
          AND "ee_accesscontrol"."team_id" = 99999)
@@ -8236,6 +8445,7 @@
          "posthog_dashboard"."created_by_id",
          "posthog_dashboard"."deleted",
          "posthog_dashboard"."last_accessed_at",
+         "posthog_dashboard"."last_refresh",
          "posthog_dashboard"."filters",
          "posthog_dashboard"."variables",
          "posthog_dashboard"."breakdown_colors",
@@ -8263,6 +8473,7 @@
          "posthog_dashboard"."created_by_id",
          "posthog_dashboard"."deleted",
          "posthog_dashboard"."last_accessed_at",
+         "posthog_dashboard"."last_refresh",
          "posthog_dashboard"."filters",
          "posthog_dashboard"."variables",
          "posthog_dashboard"."breakdown_colors",
@@ -8323,6 +8534,8 @@
          "posthog_team"."surveys_opt_in",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."flags_persistence_default",
+         "posthog_team"."feature_flag_confirmation_enabled",
+         "posthog_team"."feature_flag_confirmation_message",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -8356,6 +8569,7 @@
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."revenue_tracking_config",
+         "posthog_team"."drop_events_older_than",
          "posthog_team"."base_currency"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
@@ -8406,6 +8620,8 @@
          "posthog_team"."surveys_opt_in",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."flags_persistence_default",
+         "posthog_team"."feature_flag_confirmation_enabled",
+         "posthog_team"."feature_flag_confirmation_message",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -8432,6 +8648,7 @@
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."revenue_tracking_config",
+         "posthog_team"."drop_events_older_than",
          "posthog_team"."base_currency"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
@@ -8448,6 +8665,7 @@
          "posthog_dashboarditem"."filters",
          "posthog_dashboarditem"."filters_hash",
          "posthog_dashboarditem"."query",
+         "posthog_dashboarditem"."query_metadata",
          "posthog_dashboarditem"."order",
          "posthog_dashboarditem"."deleted",
          "posthog_dashboarditem"."saved",
@@ -8517,6 +8735,8 @@
          "posthog_team"."surveys_opt_in",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."flags_persistence_default",
+         "posthog_team"."feature_flag_confirmation_enabled",
+         "posthog_team"."feature_flag_confirmation_message",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -8550,6 +8770,7 @@
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."revenue_tracking_config",
+         "posthog_team"."drop_events_older_than",
          "posthog_team"."base_currency"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
@@ -8567,6 +8788,7 @@
          "posthog_dashboard"."created_by_id",
          "posthog_dashboard"."deleted",
          "posthog_dashboard"."last_accessed_at",
+         "posthog_dashboard"."last_refresh",
          "posthog_dashboard"."filters",
          "posthog_dashboard"."variables",
          "posthog_dashboard"."breakdown_colors",
@@ -8630,6 +8852,8 @@
          "posthog_team"."surveys_opt_in",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."flags_persistence_default",
+         "posthog_team"."feature_flag_confirmation_enabled",
+         "posthog_team"."feature_flag_confirmation_message",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -8663,6 +8887,7 @@
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."revenue_tracking_config",
+         "posthog_team"."drop_events_older_than",
          "posthog_team"."base_currency"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
@@ -8675,7 +8900,7 @@
   FROM "ee_accesscontrol"
   WHERE ("ee_accesscontrol"."access_level" = 'none'
          AND "ee_accesscontrol"."organization_member_id" IS NULL
-         AND "ee_accesscontrol"."resource" = 'team'
+         AND "ee_accesscontrol"."resource" = 'project'
          AND "ee_accesscontrol"."resource_id" = '99999'
          AND "ee_accesscontrol"."role_id" IS NULL
          AND "ee_accesscontrol"."team_id" = 99999)
@@ -8726,6 +8951,8 @@
          "posthog_team"."surveys_opt_in",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."flags_persistence_default",
+         "posthog_team"."feature_flag_confirmation_enabled",
+         "posthog_team"."feature_flag_confirmation_message",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -8752,6 +8979,7 @@
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."revenue_tracking_config",
+         "posthog_team"."drop_events_older_than",
          "posthog_team"."base_currency"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
@@ -8786,6 +9014,7 @@
          "posthog_dashboarditem"."filters",
          "posthog_dashboarditem"."filters_hash",
          "posthog_dashboarditem"."query",
+         "posthog_dashboarditem"."query_metadata",
          "posthog_dashboarditem"."order",
          "posthog_dashboarditem"."deleted",
          "posthog_dashboarditem"."saved",
@@ -8822,6 +9051,7 @@
          "posthog_dashboard"."created_by_id",
          "posthog_dashboard"."deleted",
          "posthog_dashboard"."last_accessed_at",
+         "posthog_dashboard"."last_refresh",
          "posthog_dashboard"."filters",
          "posthog_dashboard"."variables",
          "posthog_dashboard"."breakdown_colors",
@@ -8881,6 +9111,8 @@
          "posthog_team"."surveys_opt_in",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."flags_persistence_default",
+         "posthog_team"."feature_flag_confirmation_enabled",
+         "posthog_team"."feature_flag_confirmation_message",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -8914,6 +9146,7 @@
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."revenue_tracking_config",
+         "posthog_team"."drop_events_older_than",
          "posthog_team"."base_currency"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
@@ -8964,6 +9197,8 @@
          "posthog_team"."surveys_opt_in",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."flags_persistence_default",
+         "posthog_team"."feature_flag_confirmation_enabled",
+         "posthog_team"."feature_flag_confirmation_message",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -8997,6 +9232,7 @@
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."revenue_tracking_config",
+         "posthog_team"."drop_events_older_than",
          "posthog_team"."base_currency"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
@@ -9047,6 +9283,8 @@
          "posthog_team"."surveys_opt_in",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."flags_persistence_default",
+         "posthog_team"."feature_flag_confirmation_enabled",
+         "posthog_team"."feature_flag_confirmation_message",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -9073,6 +9311,7 @@
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."revenue_tracking_config",
+         "posthog_team"."drop_events_older_than",
          "posthog_team"."base_currency"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
@@ -9107,6 +9346,7 @@
          "posthog_dashboarditem"."filters",
          "posthog_dashboarditem"."filters_hash",
          "posthog_dashboarditem"."query",
+         "posthog_dashboarditem"."query_metadata",
          "posthog_dashboarditem"."order",
          "posthog_dashboarditem"."deleted",
          "posthog_dashboarditem"."saved",
@@ -9143,6 +9383,7 @@
          "posthog_dashboard"."created_by_id",
          "posthog_dashboard"."deleted",
          "posthog_dashboard"."last_accessed_at",
+         "posthog_dashboard"."last_refresh",
          "posthog_dashboard"."filters",
          "posthog_dashboard"."variables",
          "posthog_dashboard"."breakdown_colors",
@@ -9202,6 +9443,8 @@
          "posthog_team"."surveys_opt_in",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."flags_persistence_default",
+         "posthog_team"."feature_flag_confirmation_enabled",
+         "posthog_team"."feature_flag_confirmation_message",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -9235,6 +9478,7 @@
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."revenue_tracking_config",
+         "posthog_team"."drop_events_older_than",
          "posthog_team"."base_currency"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
@@ -9285,6 +9529,8 @@
          "posthog_team"."surveys_opt_in",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."flags_persistence_default",
+         "posthog_team"."feature_flag_confirmation_enabled",
+         "posthog_team"."feature_flag_confirmation_message",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -9318,6 +9564,7 @@
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."revenue_tracking_config",
+         "posthog_team"."drop_events_older_than",
          "posthog_team"."base_currency"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
@@ -9339,6 +9586,7 @@
          "posthog_organization"."is_ai_data_processing_approved",
          "posthog_organization"."enforce_2fa",
          "posthog_organization"."members_can_invite",
+         "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
@@ -9370,6 +9618,7 @@
          "posthog_organization"."is_ai_data_processing_approved",
          "posthog_organization"."enforce_2fa",
          "posthog_organization"."members_can_invite",
+         "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
@@ -9430,6 +9679,8 @@
          "posthog_team"."surveys_opt_in",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."flags_persistence_default",
+         "posthog_team"."feature_flag_confirmation_enabled",
+         "posthog_team"."feature_flag_confirmation_message",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -9456,6 +9707,7 @@
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."revenue_tracking_config",
+         "posthog_team"."drop_events_older_than",
          "posthog_team"."base_currency"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
@@ -9473,6 +9725,7 @@
          "posthog_dashboard"."created_by_id",
          "posthog_dashboard"."deleted",
          "posthog_dashboard"."last_accessed_at",
+         "posthog_dashboard"."last_refresh",
          "posthog_dashboard"."filters",
          "posthog_dashboard"."variables",
          "posthog_dashboard"."breakdown_colors",
@@ -9532,6 +9785,7 @@
          "posthog_dashboard"."created_by_id",
          "posthog_dashboard"."deleted",
          "posthog_dashboard"."last_accessed_at",
+         "posthog_dashboard"."last_refresh",
          "posthog_dashboard"."filters",
          "posthog_dashboard"."variables",
          "posthog_dashboard"."breakdown_colors",
@@ -9658,6 +9912,8 @@
          "posthog_team"."surveys_opt_in",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."flags_persistence_default",
+         "posthog_team"."feature_flag_confirmation_enabled",
+         "posthog_team"."feature_flag_confirmation_message",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -9684,6 +9940,7 @@
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."revenue_tracking_config",
+         "posthog_team"."drop_events_older_than",
          "posthog_team"."base_currency"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
@@ -9711,6 +9968,7 @@
          "posthog_organization"."is_ai_data_processing_approved",
          "posthog_organization"."enforce_2fa",
          "posthog_organization"."members_can_invite",
+         "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
@@ -9796,6 +10054,7 @@
          "posthog_organization"."is_ai_data_processing_approved",
          "posthog_organization"."enforce_2fa",
          "posthog_organization"."members_can_invite",
+         "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
@@ -9818,7 +10077,7 @@
   FROM "ee_accesscontrol"
   WHERE ("ee_accesscontrol"."access_level" = 'none'
          AND "ee_accesscontrol"."organization_member_id" IS NULL
-         AND "ee_accesscontrol"."resource" = 'team'
+         AND "ee_accesscontrol"."resource" = 'project'
          AND "ee_accesscontrol"."resource_id" = '99999'
          AND "ee_accesscontrol"."role_id" IS NULL
          AND "ee_accesscontrol"."team_id" = 99999)
@@ -9836,6 +10095,7 @@
          "posthog_dashboard"."created_by_id",
          "posthog_dashboard"."deleted",
          "posthog_dashboard"."last_accessed_at",
+         "posthog_dashboard"."last_refresh",
          "posthog_dashboard"."filters",
          "posthog_dashboard"."variables",
          "posthog_dashboard"."breakdown_colors",
@@ -9896,6 +10156,8 @@
          "posthog_team"."surveys_opt_in",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."flags_persistence_default",
+         "posthog_team"."feature_flag_confirmation_enabled",
+         "posthog_team"."feature_flag_confirmation_message",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -9929,6 +10191,7 @@
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."revenue_tracking_config",
+         "posthog_team"."drop_events_older_than",
          "posthog_team"."base_currency"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
@@ -9979,6 +10242,8 @@
          "posthog_team"."surveys_opt_in",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."flags_persistence_default",
+         "posthog_team"."feature_flag_confirmation_enabled",
+         "posthog_team"."feature_flag_confirmation_message",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -10005,6 +10270,7 @@
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."revenue_tracking_config",
+         "posthog_team"."drop_events_older_than",
          "posthog_team"."base_currency"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
@@ -10021,6 +10287,7 @@
          "posthog_dashboarditem"."filters",
          "posthog_dashboarditem"."filters_hash",
          "posthog_dashboarditem"."query",
+         "posthog_dashboarditem"."query_metadata",
          "posthog_dashboarditem"."order",
          "posthog_dashboarditem"."deleted",
          "posthog_dashboarditem"."saved",
@@ -10090,6 +10357,8 @@
          "posthog_team"."surveys_opt_in",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."flags_persistence_default",
+         "posthog_team"."feature_flag_confirmation_enabled",
+         "posthog_team"."feature_flag_confirmation_message",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -10123,6 +10392,7 @@
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."revenue_tracking_config",
+         "posthog_team"."drop_events_older_than",
          "posthog_team"."base_currency"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
@@ -10151,6 +10421,7 @@
          "posthog_dashboard"."created_by_id",
          "posthog_dashboard"."deleted",
          "posthog_dashboard"."last_accessed_at",
+         "posthog_dashboard"."last_refresh",
          "posthog_dashboard"."filters",
          "posthog_dashboard"."variables",
          "posthog_dashboard"."breakdown_colors",
@@ -10214,6 +10485,8 @@
          "posthog_team"."surveys_opt_in",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."flags_persistence_default",
+         "posthog_team"."feature_flag_confirmation_enabled",
+         "posthog_team"."feature_flag_confirmation_message",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -10247,6 +10520,7 @@
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."revenue_tracking_config",
+         "posthog_team"."drop_events_older_than",
          "posthog_team"."base_currency"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
@@ -10297,6 +10571,8 @@
          "posthog_team"."surveys_opt_in",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."flags_persistence_default",
+         "posthog_team"."feature_flag_confirmation_enabled",
+         "posthog_team"."feature_flag_confirmation_message",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -10323,6 +10599,7 @@
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."revenue_tracking_config",
+         "posthog_team"."drop_events_older_than",
          "posthog_team"."base_currency"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
@@ -10357,6 +10634,7 @@
          "posthog_dashboarditem"."filters",
          "posthog_dashboarditem"."filters_hash",
          "posthog_dashboarditem"."query",
+         "posthog_dashboarditem"."query_metadata",
          "posthog_dashboarditem"."order",
          "posthog_dashboarditem"."deleted",
          "posthog_dashboarditem"."saved",
@@ -10393,6 +10671,7 @@
          "posthog_dashboard"."created_by_id",
          "posthog_dashboard"."deleted",
          "posthog_dashboard"."last_accessed_at",
+         "posthog_dashboard"."last_refresh",
          "posthog_dashboard"."filters",
          "posthog_dashboard"."variables",
          "posthog_dashboard"."breakdown_colors",
@@ -10452,6 +10731,8 @@
          "posthog_team"."surveys_opt_in",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."flags_persistence_default",
+         "posthog_team"."feature_flag_confirmation_enabled",
+         "posthog_team"."feature_flag_confirmation_message",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -10485,6 +10766,7 @@
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."revenue_tracking_config",
+         "posthog_team"."drop_events_older_than",
          "posthog_team"."base_currency"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
@@ -10506,6 +10788,7 @@
          "posthog_organization"."is_ai_data_processing_approved",
          "posthog_organization"."enforce_2fa",
          "posthog_organization"."members_can_invite",
+         "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
@@ -10537,6 +10820,7 @@
          "posthog_organization"."is_ai_data_processing_approved",
          "posthog_organization"."enforce_2fa",
          "posthog_organization"."members_can_invite",
+         "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
@@ -10597,6 +10881,8 @@
          "posthog_team"."surveys_opt_in",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."flags_persistence_default",
+         "posthog_team"."feature_flag_confirmation_enabled",
+         "posthog_team"."feature_flag_confirmation_message",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -10623,6 +10909,7 @@
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."revenue_tracking_config",
+         "posthog_team"."drop_events_older_than",
          "posthog_team"."base_currency"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
@@ -10644,6 +10931,7 @@
          "posthog_organization"."is_ai_data_processing_approved",
          "posthog_organization"."enforce_2fa",
          "posthog_organization"."members_can_invite",
+         "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
@@ -10671,6 +10959,7 @@
          "posthog_dashboard"."created_by_id",
          "posthog_dashboard"."deleted",
          "posthog_dashboard"."last_accessed_at",
+         "posthog_dashboard"."last_refresh",
          "posthog_dashboard"."filters",
          "posthog_dashboard"."variables",
          "posthog_dashboard"."breakdown_colors",
@@ -10730,6 +11019,7 @@
          "posthog_dashboard"."created_by_id",
          "posthog_dashboard"."deleted",
          "posthog_dashboard"."last_accessed_at",
+         "posthog_dashboard"."last_refresh",
          "posthog_dashboard"."filters",
          "posthog_dashboard"."variables",
          "posthog_dashboard"."breakdown_colors",
@@ -10834,6 +11124,8 @@
          "posthog_team"."surveys_opt_in",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."flags_persistence_default",
+         "posthog_team"."feature_flag_confirmation_enabled",
+         "posthog_team"."feature_flag_confirmation_message",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -10860,6 +11152,7 @@
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."revenue_tracking_config",
+         "posthog_team"."drop_events_older_than",
          "posthog_team"."base_currency"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
@@ -10887,6 +11180,7 @@
          "posthog_organization"."is_ai_data_processing_approved",
          "posthog_organization"."enforce_2fa",
          "posthog_organization"."members_can_invite",
+         "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
@@ -10972,6 +11266,7 @@
          "posthog_organization"."is_ai_data_processing_approved",
          "posthog_organization"."enforce_2fa",
          "posthog_organization"."members_can_invite",
+         "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
@@ -11030,7 +11325,8 @@
          "posthog_sharingconfiguration"."recording_id",
          "posthog_sharingconfiguration"."created_at",
          "posthog_sharingconfiguration"."enabled",
-         "posthog_sharingconfiguration"."access_token"
+         "posthog_sharingconfiguration"."access_token",
+         "posthog_sharingconfiguration"."expires_at"
   FROM "posthog_sharingconfiguration"
   WHERE "posthog_sharingconfiguration"."dashboard_id" IN (1,
                                                           2,
@@ -11060,6 +11356,7 @@
          "posthog_dashboarditem"."filters",
          "posthog_dashboarditem"."filters_hash",
          "posthog_dashboarditem"."query",
+         "posthog_dashboarditem"."query_metadata",
          "posthog_dashboarditem"."order",
          "posthog_dashboarditem"."deleted",
          "posthog_dashboarditem"."saved",
@@ -11122,6 +11419,8 @@
          "posthog_team"."surveys_opt_in",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."flags_persistence_default",
+         "posthog_team"."feature_flag_confirmation_enabled",
+         "posthog_team"."feature_flag_confirmation_message",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -11155,6 +11454,7 @@
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."revenue_tracking_config",
+         "posthog_team"."drop_events_older_than",
          "posthog_team"."base_currency",
          "posthog_user"."id",
          "posthog_user"."password",
@@ -11307,6 +11607,8 @@
          "posthog_team"."surveys_opt_in",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."flags_persistence_default",
+         "posthog_team"."feature_flag_confirmation_enabled",
+         "posthog_team"."feature_flag_confirmation_message",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -11340,6 +11642,7 @@
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."revenue_tracking_config",
+         "posthog_team"."drop_events_older_than",
          "posthog_team"."base_currency"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
@@ -11424,6 +11727,7 @@
          "posthog_dashboarditem"."filters",
          "posthog_dashboarditem"."filters_hash",
          "posthog_dashboarditem"."query",
+         "posthog_dashboarditem"."query_metadata",
          "posthog_dashboarditem"."order",
          "posthog_dashboarditem"."deleted",
          "posthog_dashboarditem"."saved",
@@ -11486,6 +11790,8 @@
          "posthog_team"."surveys_opt_in",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."flags_persistence_default",
+         "posthog_team"."feature_flag_confirmation_enabled",
+         "posthog_team"."feature_flag_confirmation_message",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -11519,6 +11825,7 @@
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."revenue_tracking_config",
+         "posthog_team"."drop_events_older_than",
          "posthog_team"."base_currency",
          "posthog_user"."id",
          "posthog_user"."password",
@@ -11682,6 +11989,8 @@
          "posthog_team"."surveys_opt_in",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."flags_persistence_default",
+         "posthog_team"."feature_flag_confirmation_enabled",
+         "posthog_team"."feature_flag_confirmation_message",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -11708,6 +12017,7 @@
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."revenue_tracking_config",
+         "posthog_team"."drop_events_older_than",
          "posthog_team"."base_currency"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
@@ -11735,6 +12045,7 @@
          "posthog_organization"."is_ai_data_processing_approved",
          "posthog_organization"."enforce_2fa",
          "posthog_organization"."members_can_invite",
+         "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
@@ -11820,6 +12131,7 @@
          "posthog_organization"."is_ai_data_processing_approved",
          "posthog_organization"."enforce_2fa",
          "posthog_organization"."members_can_invite",
+         "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
@@ -11842,7 +12154,7 @@
   FROM "ee_accesscontrol"
   WHERE ("ee_accesscontrol"."access_level" = 'none'
          AND "ee_accesscontrol"."organization_member_id" IS NULL
-         AND "ee_accesscontrol"."resource" = 'team'
+         AND "ee_accesscontrol"."resource" = 'project'
          AND "ee_accesscontrol"."resource_id" = '99999'
          AND "ee_accesscontrol"."role_id" IS NULL
          AND "ee_accesscontrol"."team_id" = 99999)
@@ -11864,6 +12176,7 @@
          "posthog_organization"."is_ai_data_processing_approved",
          "posthog_organization"."enforce_2fa",
          "posthog_organization"."members_can_invite",
+         "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
@@ -11891,6 +12204,7 @@
          "posthog_dashboard"."created_by_id",
          "posthog_dashboard"."deleted",
          "posthog_dashboard"."last_accessed_at",
+         "posthog_dashboard"."last_refresh",
          "posthog_dashboard"."filters",
          "posthog_dashboard"."variables",
          "posthog_dashboard"."breakdown_colors",
@@ -12014,6 +12328,8 @@
          "posthog_team"."surveys_opt_in",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."flags_persistence_default",
+         "posthog_team"."feature_flag_confirmation_enabled",
+         "posthog_team"."feature_flag_confirmation_message",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -12040,6 +12356,7 @@
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."revenue_tracking_config",
+         "posthog_team"."drop_events_older_than",
          "posthog_team"."base_currency"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
@@ -12067,7 +12384,8 @@
          "posthog_sharingconfiguration"."recording_id",
          "posthog_sharingconfiguration"."created_at",
          "posthog_sharingconfiguration"."enabled",
-         "posthog_sharingconfiguration"."access_token"
+         "posthog_sharingconfiguration"."access_token",
+         "posthog_sharingconfiguration"."expires_at"
   FROM "posthog_sharingconfiguration"
   WHERE "posthog_sharingconfiguration"."dashboard_id" = 99999
   '''
@@ -12123,6 +12441,8 @@
          "posthog_team"."surveys_opt_in",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."flags_persistence_default",
+         "posthog_team"."feature_flag_confirmation_enabled",
+         "posthog_team"."feature_flag_confirmation_message",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -12156,6 +12476,7 @@
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."revenue_tracking_config",
+         "posthog_team"."drop_events_older_than",
          "posthog_team"."base_currency"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
@@ -12171,7 +12492,8 @@
          "posthog_sharingconfiguration"."recording_id",
          "posthog_sharingconfiguration"."created_at",
          "posthog_sharingconfiguration"."enabled",
-         "posthog_sharingconfiguration"."access_token"
+         "posthog_sharingconfiguration"."access_token",
+         "posthog_sharingconfiguration"."expires_at"
   FROM "posthog_sharingconfiguration"
   WHERE "posthog_sharingconfiguration"."dashboard_id" = 99999
   '''
@@ -12213,6 +12535,7 @@
          "posthog_dashboarditem"."filters",
          "posthog_dashboarditem"."filters_hash",
          "posthog_dashboarditem"."query",
+         "posthog_dashboarditem"."query_metadata",
          "posthog_dashboarditem"."order",
          "posthog_dashboarditem"."deleted",
          "posthog_dashboarditem"."saved",
@@ -12275,6 +12598,8 @@
          "posthog_team"."surveys_opt_in",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."flags_persistence_default",
+         "posthog_team"."feature_flag_confirmation_enabled",
+         "posthog_team"."feature_flag_confirmation_message",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -12308,6 +12633,7 @@
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."revenue_tracking_config",
+         "posthog_team"."drop_events_older_than",
          "posthog_team"."base_currency",
          "posthog_user"."id",
          "posthog_user"."password",
@@ -12473,6 +12799,8 @@
          "posthog_team"."surveys_opt_in",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."flags_persistence_default",
+         "posthog_team"."feature_flag_confirmation_enabled",
+         "posthog_team"."feature_flag_confirmation_message",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -12499,6 +12827,7 @@
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."revenue_tracking_config",
+         "posthog_team"."drop_events_older_than",
          "posthog_team"."base_currency"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
@@ -12526,6 +12855,7 @@
          "posthog_organization"."is_ai_data_processing_approved",
          "posthog_organization"."enforce_2fa",
          "posthog_organization"."members_can_invite",
+         "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
@@ -12565,6 +12895,7 @@
          "posthog_organization"."is_ai_data_processing_approved",
          "posthog_organization"."enforce_2fa",
          "posthog_organization"."members_can_invite",
+         "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
@@ -12650,6 +12981,7 @@
          "posthog_organization"."is_ai_data_processing_approved",
          "posthog_organization"."enforce_2fa",
          "posthog_organization"."members_can_invite",
+         "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
@@ -12672,7 +13004,7 @@
   FROM "ee_accesscontrol"
   WHERE ("ee_accesscontrol"."access_level" = 'none'
          AND "ee_accesscontrol"."organization_member_id" IS NULL
-         AND "ee_accesscontrol"."resource" = 'team'
+         AND "ee_accesscontrol"."resource" = 'project'
          AND "ee_accesscontrol"."resource_id" = '99999'
          AND "ee_accesscontrol"."role_id" IS NULL
          AND "ee_accesscontrol"."team_id" = 99999)
@@ -12723,6 +13055,8 @@
          "posthog_team"."surveys_opt_in",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."flags_persistence_default",
+         "posthog_team"."feature_flag_confirmation_enabled",
+         "posthog_team"."feature_flag_confirmation_message",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -12756,6 +13090,7 @@
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."revenue_tracking_config",
+         "posthog_team"."drop_events_older_than",
          "posthog_team"."base_currency"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
@@ -12810,6 +13145,7 @@
          "posthog_organization"."is_ai_data_processing_approved",
          "posthog_organization"."enforce_2fa",
          "posthog_organization"."members_can_invite",
+         "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
@@ -12847,7 +13183,8 @@
          "posthog_sharingconfiguration"."recording_id",
          "posthog_sharingconfiguration"."created_at",
          "posthog_sharingconfiguration"."enabled",
-         "posthog_sharingconfiguration"."access_token"
+         "posthog_sharingconfiguration"."access_token",
+         "posthog_sharingconfiguration"."expires_at"
   FROM "posthog_sharingconfiguration"
   WHERE "posthog_sharingconfiguration"."dashboard_id" = 99999
   '''
@@ -12949,6 +13286,8 @@
          "posthog_team"."surveys_opt_in",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."flags_persistence_default",
+         "posthog_team"."feature_flag_confirmation_enabled",
+         "posthog_team"."feature_flag_confirmation_message",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -12982,6 +13321,7 @@
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."revenue_tracking_config",
+         "posthog_team"."drop_events_older_than",
          "posthog_team"."base_currency"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
@@ -12997,7 +13337,8 @@
          "posthog_sharingconfiguration"."recording_id",
          "posthog_sharingconfiguration"."created_at",
          "posthog_sharingconfiguration"."enabled",
-         "posthog_sharingconfiguration"."access_token"
+         "posthog_sharingconfiguration"."access_token",
+         "posthog_sharingconfiguration"."expires_at"
   FROM "posthog_sharingconfiguration"
   WHERE "posthog_sharingconfiguration"."dashboard_id" = 99999
   '''
@@ -13039,6 +13380,7 @@
          "posthog_dashboarditem"."filters",
          "posthog_dashboarditem"."filters_hash",
          "posthog_dashboarditem"."query",
+         "posthog_dashboarditem"."query_metadata",
          "posthog_dashboarditem"."order",
          "posthog_dashboarditem"."deleted",
          "posthog_dashboarditem"."saved",
@@ -13101,6 +13443,8 @@
          "posthog_team"."surveys_opt_in",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."flags_persistence_default",
+         "posthog_team"."feature_flag_confirmation_enabled",
+         "posthog_team"."feature_flag_confirmation_message",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -13134,6 +13478,7 @@
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."revenue_tracking_config",
+         "posthog_team"."drop_events_older_than",
          "posthog_team"."base_currency",
          "posthog_user"."id",
          "posthog_user"."password",
@@ -13299,6 +13644,8 @@
          "posthog_team"."surveys_opt_in",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."flags_persistence_default",
+         "posthog_team"."feature_flag_confirmation_enabled",
+         "posthog_team"."feature_flag_confirmation_message",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -13325,6 +13672,7 @@
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."revenue_tracking_config",
+         "posthog_team"."drop_events_older_than",
          "posthog_team"."base_currency"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
@@ -13352,6 +13700,7 @@
          "posthog_organization"."is_ai_data_processing_approved",
          "posthog_organization"."enforce_2fa",
          "posthog_organization"."members_can_invite",
+         "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
@@ -13437,6 +13786,7 @@
          "posthog_organization"."is_ai_data_processing_approved",
          "posthog_organization"."enforce_2fa",
          "posthog_organization"."members_can_invite",
+         "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
@@ -13474,6 +13824,7 @@
          "posthog_organization"."is_ai_data_processing_approved",
          "posthog_organization"."enforce_2fa",
          "posthog_organization"."members_can_invite",
+         "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
@@ -13496,7 +13847,7 @@
   FROM "ee_accesscontrol"
   WHERE ("ee_accesscontrol"."access_level" = 'none'
          AND "ee_accesscontrol"."organization_member_id" IS NULL
-         AND "ee_accesscontrol"."resource" = 'team'
+         AND "ee_accesscontrol"."resource" = 'project'
          AND "ee_accesscontrol"."resource_id" = '99999'
          AND "ee_accesscontrol"."role_id" IS NULL
          AND "ee_accesscontrol"."team_id" = 99999)
@@ -13518,6 +13869,7 @@
          "posthog_organization"."is_ai_data_processing_approved",
          "posthog_organization"."enforce_2fa",
          "posthog_organization"."members_can_invite",
+         "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",
@@ -13554,6 +13906,7 @@
          "posthog_dashboard"."created_by_id",
          "posthog_dashboard"."deleted",
          "posthog_dashboard"."last_accessed_at",
+         "posthog_dashboard"."last_refresh",
          "posthog_dashboard"."filters",
          "posthog_dashboard"."variables",
          "posthog_dashboard"."breakdown_colors",
@@ -13610,7 +13963,8 @@
          "posthog_sharingconfiguration"."recording_id",
          "posthog_sharingconfiguration"."created_at",
          "posthog_sharingconfiguration"."enabled",
-         "posthog_sharingconfiguration"."access_token"
+         "posthog_sharingconfiguration"."access_token",
+         "posthog_sharingconfiguration"."expires_at"
   FROM "posthog_sharingconfiguration"
   WHERE "posthog_sharingconfiguration"."dashboard_id" IN (1,
                                                           2,
@@ -13743,7 +14097,7 @@
   FROM "ee_accesscontrol"
   WHERE ("ee_accesscontrol"."access_level" = 'none'
          AND "ee_accesscontrol"."organization_member_id" IS NULL
-         AND "ee_accesscontrol"."resource" = 'team'
+         AND "ee_accesscontrol"."resource" = 'project'
          AND "ee_accesscontrol"."resource_id" = '99999'
          AND "ee_accesscontrol"."role_id" IS NULL
          AND "ee_accesscontrol"."team_id" = 99999)
@@ -13794,6 +14148,8 @@
          "posthog_team"."surveys_opt_in",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."flags_persistence_default",
+         "posthog_team"."feature_flag_confirmation_enabled",
+         "posthog_team"."feature_flag_confirmation_message",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -13827,6 +14183,7 @@
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."revenue_tracking_config",
+         "posthog_team"."drop_events_older_than",
          "posthog_team"."base_currency"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
@@ -13881,6 +14238,7 @@
          "posthog_organization"."is_ai_data_processing_approved",
          "posthog_organization"."enforce_2fa",
          "posthog_organization"."members_can_invite",
+         "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."is_hipaa",
          "posthog_organization"."customer_id",

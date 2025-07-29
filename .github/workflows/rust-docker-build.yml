@@ -33,9 +33,6 @@ jobs:
                     - image: cyclotron-janitor
                       dockerfile: ./rust/Dockerfile
                       project: r4zm8vtlbw
-                    - image: cyclotron-fetch
-                      dockerfile: ./rust/Dockerfile
-                      project: r4zm8vtlbw
                     - image: property-defs-rs
                       dockerfile: ./rust/Dockerfile
                       project: vznmbshh6q
@@ -51,9 +48,6 @@ jobs:
                     - image: log-capture
                       dockerfile: ./rust/Dockerfile
                       project: c1bwj4j4qg
-                    - image: links
-                      dockerfile: ./rust/Dockerfile
-                      project: c1bwj4j4qg
         runs-on: depot-ubuntu-22.04
         permissions:
             id-token: write # allow issuing OIDC tokens for this workflow run
@@ -62,7 +56,6 @@ jobs:
 
         outputs:
             capture_digest: ${{ steps.digest.outputs.capture_digest }}
-            cyclotron-fetch_digest: ${{ steps.digest.outputs.cyclotron-fetch_digest }}
             cyclotron-janitor_digest: ${{ steps.digest.outputs.cyclotron-janitor_digest }}
             property-defs-rs_digest: ${{ steps.digest.outputs.property-defs-rs_digest }}
             batch-import-worker_digest: ${{ steps.digest.outputs.batch-import-worker_digest }}
@@ -73,7 +66,6 @@ jobs:
             cymbal_digest: ${{ steps.digest.outputs.cymbal_digest }}
             feature-flags_digest: ${{ steps.digest.outputs.feature-flags_digest }}
             log-capture_digest: ${{ steps.digest.outputs.log-capture_digest }}
-            links_digest: ${{ steps.digest.outputs.links_digest }}
         defaults:
             run:
                 working-directory: rust
@@ -130,7 +122,7 @@ jobs:
 
             - name: Build and push image
               id: docker_build
-              uses: depot/build-push-action@636daae76684e38c301daa0c5eca1c095b24e780 # v1
+              uses: depot/build-push-action@2583627a84956d07561420dcc1d0eb1f2af3fac0 # v1
               with:
                   project: ${{ matrix.project }}
                   context: ./rust/
@@ -169,8 +161,6 @@ jobs:
                               sha: '${{ needs.build.outputs.capture_digest }}'
                     - release: cyclotron
                       values:
-                          fetch_image:
-                              sha: '${{ needs.build.outputs.cyclotron-fetch_digest }}'
                           janitor_image:
                               sha: '${{ needs.build.outputs.cyclotron-janitor_digest }}'
                     - release: property-defs-rs
@@ -203,10 +193,6 @@ jobs:
                       values:
                           image:
                               sha: '${{ needs.build.outputs.log-capture_digest }}'
-                    - release: links
-                      values:
-                          image:
-                              sha: '${{ needs.build.outputs.links_digest }}'
         steps:
             - name: get deployer token
               id: deployer

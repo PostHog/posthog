@@ -93,7 +93,7 @@ export function isValidCohortGroup(criteria: AnyCohortGroupType): boolean {
 export function createCohortFormData(cohort: CohortType): FormData {
     const rawCohort = {
         ...(cohort.name ? { name: cohort.name } : {}),
-        ...{ description: cohort.description ?? '' },
+        description: cohort.description ?? '',
         ...(cohort.csv ? { csv: cohort.csv } : {}),
         ...(cohort.is_static ? { is_static: cohort.is_static } : {}),
         ...(typeof cohort._create_in_folder === 'string' ? { _create_in_folder: cohort._create_in_folder } : {}),
@@ -113,6 +113,7 @@ export function createCohortFormData(cohort: CohortType): FormData {
                                               ...c,
                                               ...('value_property' in c ? { value: c.value_property } : {}),
                                               value_property: undefined,
+                                              sort_key: undefined,
                                           } as AnyCohortCriteriaType)
                                   )
                               ),
@@ -120,6 +121,7 @@ export function createCohortFormData(cohort: CohortType): FormData {
                                   groupList.map((g) => ({
                                       ...g,
                                       id: undefined,
+                                      sort_key: undefined,
                                   }))
                           ).filters.properties,
                           id: undefined,
@@ -157,7 +159,7 @@ export function validateGroup(
         (group.type === FilterLogicalOperator.And && negatedCriteria.length === criteria.length)
     ) {
         const errorMsg = `${negatedCriteria
-            .map((c) => `'${BEHAVIORAL_TYPE_TO_LABEL[criteriaToBehavioralFilterType(c)].label}'`)
+            .map((c) => `'${BEHAVIORAL_TYPE_TO_LABEL[criteriaToBehavioralFilterType(c)]!.label}'`)
             .join(', ')} ${negatedCriteria.length > 1 ? 'are' : 'is a'} negative cohort criteria. ${
             CohortClientErrors.NegationCriteriaMissingOther
         }`
@@ -262,7 +264,8 @@ export function validateGroup(
     return {
         values: criteria.map((c) => {
             const behavioralFilterType = criteriaToBehavioralFilterType(c)
-            let requiredFields = ROWS[behavioralFilterType].fields.filter((f) => !!f.fieldKey) as FieldWithFieldKey[]
+            const row = ROWS[behavioralFilterType]
+            let requiredFields = (row?.fields ?? []).filter((f) => !!f.fieldKey) as FieldWithFieldKey[]
 
             // Edge case where property value is not required if operator is "is set" or "is not set"
             if (
@@ -424,12 +427,17 @@ export function applyAllNestedCriteria(
     }
 }
 
+// Helper function to safely access properties from criteria
+function getCriteriaValue(criteria: AnyCohortCriteriaType, key: string): any {
+    return (criteria as Record<string, any>)[key]
+}
+
 // Populate empty values with default values on changing type, pruning any extra variables
 export function cleanCriteria(criteria: AnyCohortCriteriaType, shouldPurge: boolean = false): AnyCohortCriteriaType {
-    const populatedCriteria = {}
+    const populatedCriteria: Record<string, any> = {}
     const { fields, ...apiProps } = ROWS[criteriaToBehavioralFilterType(criteria)]
     Object.entries(apiProps).forEach(([key, defaultValue]) => {
-        const nextValue = criteria[key] ?? defaultValue
+        const nextValue = getCriteriaValue(criteria, key) ?? defaultValue
         if (shouldPurge) {
             populatedCriteria[key] = defaultValue
         } else if (nextValue !== undefined && nextValue !== null) {
@@ -439,7 +447,7 @@ export function cleanCriteria(criteria: AnyCohortCriteriaType, shouldPurge: bool
         }
     })
     fields.forEach(({ fieldKey, defaultValue }) => {
-        const nextValue = fieldKey ? criteria[fieldKey] ?? defaultValue : null
+        const nextValue = fieldKey ? getCriteriaValue(criteria, fieldKey) ?? defaultValue : null
         if (fieldKey && shouldPurge) {
             populatedCriteria[fieldKey] = defaultValue
         } else if (fieldKey && nextValue !== undefined && nextValue !== null) {
@@ -448,6 +456,9 @@ export function cleanCriteria(criteria: AnyCohortCriteriaType, shouldPurge: bool
             populatedCriteria[fieldKey] = undefined
         }
     })
+    if ((criteria as CohortCriteriaType).sort_key != null) {
+        populatedCriteria.sort_key = (criteria as CohortCriteriaType).sort_key
+    }
     return {
         ...populatedCriteria,
         ...determineFilterType(populatedCriteria['type'], populatedCriteria['value'], populatedCriteria['negation']),
@@ -472,7 +483,7 @@ export function criteriaToHumanSentence(
             if (type === FilterType.Text) {
                 words.push(defaultValue)
             } else if (fieldKey) {
-                const value = criteria[fieldKey]
+                const value = getCriteriaValue(criteria, fieldKey)
                 if (type === FilterType.CohortValues) {
                     words.push(<pre>{cohortsById?.[value]?.name ?? `Cohort ${value}`}</pre>)
                 } else if (type === FilterType.EventsAndActions && typeof value === 'number') {

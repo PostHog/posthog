@@ -4,8 +4,12 @@ import type {
     ExperimentFunnelsQuery,
     ExperimentMetric,
     ExperimentTrendsQuery,
+    ExperimentVariantResultBayesian,
+    ExperimentVariantResultFrequentist,
 } from '~/queries/schema/schema-general'
 import { ExperimentDataWarehouseNode, ExperimentMetricType, NodeKind } from '~/queries/schema/schema-general'
+
+export type ExperimentVariantResult = ExperimentVariantResultFrequentist | ExperimentVariantResultBayesian
 
 export const getMetricTag = (metric: ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery): string => {
     if (metric.kind === NodeKind.ExperimentMetric) {
@@ -135,4 +139,74 @@ export function formatPValue(pValue: number | null | undefined): string {
         return pValue.toFixed(4)
     }
     return pValue.toFixed(3)
+}
+
+export function formatChanceToWin(chanceToWin: number | null | undefined): string {
+    if (chanceToWin == null) {
+        return 'N/A'
+    }
+
+    // Convert to percentage and format
+    const percentage = chanceToWin * 100
+
+    if (percentage >= 99.9) {
+        return '> 99.9%'
+    } else if (percentage <= 0.1) {
+        return '< 0.1%'
+    } else if (percentage < 1) {
+        return percentage.toFixed(2) + '%'
+    }
+    return percentage.toFixed(1) + '%'
+}
+
+export function isBayesianResult(result: ExperimentVariantResult): result is ExperimentVariantResultBayesian {
+    return result.method === 'bayesian'
+}
+
+export function isFrequentistResult(result: ExperimentVariantResult): result is ExperimentVariantResultFrequentist {
+    return result.method === 'frequentist'
+}
+
+export function getVariantInterval(result: ExperimentVariantResult): [number, number] | null {
+    if (isBayesianResult(result)) {
+        return result.credible_interval || null
+    } else if (isFrequentistResult(result)) {
+        return result.confidence_interval || null
+    }
+    return null
+}
+
+export function getIntervalLabel(result: ExperimentVariantResult): string {
+    return isBayesianResult(result) ? 'Credible interval' : 'Confidence interval'
+}
+
+export interface PercentageChangeResult {
+    text: string
+    isSignificant?: boolean
+    isPositive?: boolean
+    pointEstimate?: number
+}
+
+export function formatPercentageChange(result: ExperimentVariantResult): PercentageChangeResult {
+    const interval = getVariantInterval(result)
+    if (!interval) {
+        return {
+            text: '—',
+            isSignificant: false,
+            isPositive: undefined,
+            pointEstimate: undefined,
+        }
+    }
+
+    // Calculate the point estimate as the middle of the interval
+    const [lower, upper] = interval
+    const pointEstimate = (lower + upper) / 2
+    const pointEstimatePercent = (pointEstimate * 100).toFixed(1)
+
+    return {
+        text: `${pointEstimatePercent}%`,
+        isSignificant: result.significant,
+        isPositive: pointEstimate > 0,
+        pointEstimate,
+    }
 }

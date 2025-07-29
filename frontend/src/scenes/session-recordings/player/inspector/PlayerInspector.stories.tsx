@@ -1,6 +1,5 @@
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
 import { BindLogic, useActions, useValues } from 'kea'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { useEffect } from 'react'
 import { largeRecordingJSONL } from 'scenes/session-recordings/__mocks__/large_recording_blob_one'
 import largeRecordingEventsJson from 'scenes/session-recordings/__mocks__/large_recording_load_events_one.json'
@@ -10,7 +9,7 @@ import { PlayerInspector } from 'scenes/session-recordings/player/inspector/Play
 import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
-import { mswDecorator, setFeatureFlags } from '~/mocks/browser'
+import { mswDecorator } from '~/mocks/browser'
 
 type Story = StoryObj<typeof PlayerInspector>
 const meta: Meta<typeof PlayerInspector> = {
@@ -19,40 +18,35 @@ const meta: Meta<typeof PlayerInspector> = {
     decorators: [
         mswDecorator({
             get: {
-                '/api/projects/:team_id/annotations': {
+                '/api/projects/:team_id/comments': {
                     count: 1,
                     results: [
                         {
-                            id: 21,
-                            content: 'about seven seconds in there is this comment which is too long',
-                            date_marker: '2024-11-15T09:19:35.620000Z',
-                            creation_type: 'USR',
-                            dashboard_item: null,
-                            dashboard_id: null,
-                            dashboard_name: null,
-                            insight_short_id: null,
-                            insight_name: null,
-                            insight_derived_name: null,
+                            id: '019838f3-1bab-0000-fce8-04be1d6b6fe3',
                             created_by: {
                                 id: 1,
-                                uuid: '0196b443-26f4-0000-5d24-b982365fe43d',
-                                distinct_id: 'BpwPZw8BGaeISf7DlDprsui5J9DMIYjhE3fTFMJiEMF',
-                                first_name: 'fasdadafsfasdadafsfasdadafsfasdadafsfasdadafsfasdadafs',
+                                uuid: '019838c5-64ac-0000-9f43-17f1bf64f508',
+                                distinct_id: 'xugZUZjVMSe5Ceo67Y1KX85kiQqB4Gp5OSdC02cjsWl',
+                                first_name: 'fasda',
                                 last_name: '',
                                 email: 'paul@posthog.com',
                                 is_email_verified: false,
                                 hedgehog_config: null,
-                                role_at_organization: 'data',
+                                role_at_organization: 'other',
                             },
-                            created_at: '2025-06-11T13:15:06.976791Z',
-                            updated_at: '2025-06-11T13:15:06.977228Z',
                             deleted: false,
+                            content: 'about seven seconds in there is this comment which is too long',
+                            version: 0,
+                            created_at: '2025-07-23T20:21:53.197354Z',
+                            item_id: '01975ab7-e00e-726f-aada-988b2f7fa053',
+                            item_context: {
+                                is_emoji: false,
+                                time_in_recording: '2024-11-15T09:19:35.620000Z',
+                            },
                             scope: 'recording',
-                            recording_id: '01975ab7-e00e-726f-aada-988b2f7fa053',
+                            source_comment: null,
                         },
                     ],
-                    next: null,
-                    previous: null,
                 },
                 '/api/environments/:team_id/session_recordings/:id': largeRecordingMetaJson,
                 '/api/environments/:team_id/session_recordings/:id/snapshots': (req, res, ctx) => {
@@ -102,8 +96,6 @@ const meta: Meta<typeof PlayerInspector> = {
 export default meta
 
 const BasicTemplate: StoryFn<typeof PlayerInspector> = () => {
-    setFeatureFlags([FEATURE_FLAGS.ANNOTATIONS_RECORDING_SCOPE])
-
     const dataLogic = sessionRecordingDataLogic({ sessionRecordingId: '12345', playerKey: 'story-template' })
     const { sessionPlayerMetaData } = useValues(dataLogic)
 

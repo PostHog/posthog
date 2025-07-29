@@ -150,8 +150,8 @@ Map the speakers in the following transcript:
         )
         try:
             return json.loads(assignment_response.output_text)
-        except json.JSONDecodeError:
-            posthoganalytics.capture_exception()
+        except json.JSONDecodeError as e:
+            posthoganalytics.capture_exception(e)
             return None
 
     def _summarize_transcript(self, transcript: str):

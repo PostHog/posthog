@@ -1,12 +1,20 @@
 from typing import cast
+
 from django.test import override_settings
-from posthog.hogql_queries.experiments.experiment_query_runner import ExperimentQueryRunner
-from posthog.hogql_queries.experiments.test.experiment_query_runner.base import ExperimentQueryRunnerBaseTest
+from freezegun import freeze_time
+
+from posthog.hogql_queries.experiments.experiment_query_runner import (
+    ExperimentQueryRunner,
+)
+from posthog.hogql_queries.experiments.test.experiment_query_runner.base import (
+    ExperimentQueryRunnerBaseTest,
+)
 from posthog.schema import (
     EventsNode,
+    ExperimentMeanMetric,
     ExperimentMetricMathType,
     ExperimentQuery,
-    ExperimentMeanMetric,
+    ExperimentStatsValidationFailure,
     ExperimentVariantResultFrequentist,
     NewExperimentQueryResponse,
 )
@@ -14,7 +22,6 @@ from posthog.test.base import (
     flush_persons_and_events,
     snapshot_clickhouse_queries,
 )
-from freezegun import freeze_time
 
 
 @override_settings(IN_UNIT_TESTING=True)
@@ -24,7 +31,7 @@ class TestFrequentistMethod(ExperimentQueryRunnerBaseTest):
     def test_frequentist_property_sum_metric(self):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
-        experiment.stats_config = {"version": 2, "method": "frequentist"}
+        experiment.stats_config = {"method": "frequentist"}
         experiment.save()
 
         metric = ExperimentMeanMetric(
@@ -62,6 +69,7 @@ class TestFrequentistMethod(ExperimentQueryRunnerBaseTest):
         self.assertEqual(test_variant.sum, 20)
         self.assertEqual(control_variant.number_of_samples, 10)
         self.assertEqual(test_variant.number_of_samples, 10)
-        self.assertEqual(test_variant.confidence_interval, [-1.9807682951982126, 1.9807682951982126])
+        self.assertEqual(test_variant.confidence_interval, None)
         self.assertFalse(test_variant.significant)
-        self.assertEqual(test_variant.p_value, 1.0)
+        self.assertEqual(test_variant.p_value, None)
+        self.assertEqual(test_variant.validation_failures, [ExperimentStatsValidationFailure.NOT_ENOUGH_EXPOSURES])

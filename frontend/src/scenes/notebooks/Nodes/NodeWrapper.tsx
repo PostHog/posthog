@@ -83,7 +83,7 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
     const { ref: inViewRef, inView } = useInView({ triggerOnce: true })
 
     const setRefs = useCallback(
-        (node) => {
+        (node: HTMLDivElement | null) => {
             setRef(node)
             inViewRef(node)
         },

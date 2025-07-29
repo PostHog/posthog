@@ -95,7 +95,7 @@ export const TextOnly = (): JSX.Element => {
 }
 
 export const Sizes = (): JSX.Element => {
-    const sizes: LemonButtonProps['size'][] = ['xsmall', 'small', 'medium', 'large']
+    const sizes: LemonButtonProps['size'][] = ['xxsmall', 'xsmall', 'small', 'medium', 'large']
 
     return (
         <div className="deprecated-space-y-2">
@@ -110,7 +110,7 @@ export const Sizes = (): JSX.Element => {
 }
 
 export const SizesIconOnly = (): JSX.Element => {
-    const sizes: LemonButtonProps['size'][] = ['xsmall', 'small', 'medium', 'large']
+    const sizes: LemonButtonProps['size'][] = ['xxsmall', 'xsmall', 'small', 'medium', 'large']
 
     return (
         <div className="deprecated-space-y-2">
@@ -198,61 +198,6 @@ export const Active = (): JSX.Element => {
             </div>
         </div>
     )
-}
-
-export const PseudoStates = (): JSX.Element => {
-    return (
-        <div className="deprecated-space-y-8">
-            <div>
-                <div>
-                    <h5>TYPE=3D STATE=DEFAULT</h5>
-                    <StatusesTemplate type="primary" />
-                </div>
-                <div id="hover">
-                    <h5>TYPE=3D STATE=HOVER</h5>
-                    <StatusesTemplate type="primary" />
-                </div>
-                <div id="active">
-                    <h5>TYPE=3D STATE=HOVER,ACTIVE</h5>
-                    <StatusesTemplate type="primary" />
-                </div>
-            </div>
-            <div>
-                <div>
-                    <h5>TYPE=SECONDARY STATE=DEFAULT</h5>
-                    <StatusesTemplate type="secondary" />
-                </div>
-                <div id="hover">
-                    <h5>TYPE=SECONDARY STATE=HOVER</h5>
-                    <StatusesTemplate type="secondary" />
-                </div>
-                <div id="active">
-                    <h5>TYPE=SECONDARY STATE=HOVER,ACTIVE</h5>
-                    <StatusesTemplate type="secondary" />
-                </div>
-            </div>
-            <div>
-                <div>
-                    <h5>TYPE=TERTIARY STATE=DEFAULT</h5>
-                    <StatusesTemplate type="tertiary" />
-                </div>
-                <div id="hover">
-                    <h5>TYPE=TERTIARY STATE=HOVER</h5>
-                    <StatusesTemplate type="tertiary" />
-                </div>
-                <div id="active">
-                    <h5>TYPE=TERTIARY STATE=HOVER,ACTIVE</h5>
-                    <StatusesTemplate type="tertiary" />
-                </div>
-            </div>
-        </div>
-    )
-}
-PseudoStates.parameters = {
-    pseudo: {
-        hover: ['#hover .LemonButton', '#active .LemonButton'],
-        active: ['#active .LemonButton'],
-    },
 }
 
 export const MenuButtons = (): JSX.Element => {

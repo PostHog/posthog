@@ -15,6 +15,7 @@ from posthog.tasks.alerts.checks import (
 )
 from posthog.tasks.integrations import refresh_integrations
 from posthog.tasks.periodic_digest.periodic_digest import send_all_periodic_digest_reports
+from posthog.tasks.email import send_hog_functions_daily_digest
 from posthog.tasks.tasks import (
     calculate_cohort,
     calculate_decide_usage,
@@ -42,7 +43,6 @@ from posthog.tasks.tasks import (
     redis_celery_queue_depth,
     redis_heartbeat,
     replay_count_metrics,
-    schedule_all_subscriptions,
     send_org_usage_reports,
     start_poll_query_performance,
     stop_surveys_reached_target,
@@ -52,6 +52,7 @@ from posthog.tasks.tasks import (
     update_survey_iteration,
     verify_persons_data_in_sync,
     count_items_in_playlists,
+    schedule_all_subscriptions,
 )
 from posthog.utils import get_crontab
 
@@ -114,6 +115,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="9", minute="0", day_of_week="mon"),
         send_all_periodic_digest_reports.s(),
         name="send all weekly digest reports",
+    )
+
+    # Send HogFunctions daily digest at 9:30 AM UTC (good for US and EU)
+    sender.add_periodic_task(
+        crontab(hour="9", minute="30"),
+        send_hog_functions_daily_digest.s(),
+        name="send HogFunctions daily digest",
     )
 
     # PostHog Cloud cron jobs

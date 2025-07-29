@@ -6,6 +6,7 @@ import {
     LemonTable,
     LemonTag,
     LemonTagProps,
+    LemonTabs,
     Link,
     SpinnerOverlay,
     Tooltip,
@@ -16,7 +17,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { JSONViewer } from 'lib/components/JSONViewer'
 import { NotFound } from 'lib/components/NotFound'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { IconArrowDown, IconArrowUp, IconOpenInNew } from 'lib/lemon-ui/icons'
+import { IconArrowDown, IconArrowUp } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { identifierToHuman, isObject, pluralize } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
@@ -35,7 +36,7 @@ import { MetadataHeader } from './ConversationDisplay/MetadataHeader'
 import { ParametersHeader } from './ConversationDisplay/ParametersHeader'
 import { LLMInputOutput } from './LLMInputOutput'
 import { llmObservabilityPlaygroundLogic } from './llmObservabilityPlaygroundLogic'
-import { llmObservabilityTraceDataLogic, TraceTreeNode } from './llmObservabilityTraceDataLogic'
+import { llmObservabilityTraceDataLogic, EnrichedTraceTreeNode } from './llmObservabilityTraceDataLogic'
 import { llmObservabilityTraceLogic } from './llmObservabilityTraceLogic'
 import {
     formatLLMCost,
@@ -47,6 +48,7 @@ import {
     isLLMTraceEvent,
     removeMilliseconds,
 } from './utils'
+import ViewRecordingButton from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 
 export const scene: SceneExport = {
     component: LLMObservabilityTraceScene,
@@ -65,7 +67,7 @@ export function LLMObservabilityTraceScene(): JSX.Element {
 
 function TraceSceneWrapper(): JSX.Element {
     const { eventId } = useValues(llmObservabilityTraceLogic)
-    const { tree, trace, event, responseLoading, responseError, feedbackEvents, metricEvents } =
+    const { enrichedTree, trace, event, responseLoading, responseError, feedbackEvents, metricEvents } =
         useValues(llmObservabilityTraceDataLogic)
 
     return (
@@ -77,15 +79,15 @@ function TraceSceneWrapper(): JSX.Element {
             ) : !trace ? (
                 <NotFound object="trace" />
             ) : (
-                <div className="relative deprecated-space-y-4 flex flex-col md:h-[calc(100vh_-_var(--breadcrumbs-height-full)_-_var(--scene-padding)_-_var(--scene-padding-bottom))] ">
+                <div className="relative deprecated-space-y-4 flex flex-col">
                     <TraceMetadata
                         trace={trace}
                         metricEvents={metricEvents as LLMTraceEvent[]}
                         feedbackEvents={feedbackEvents as LLMTraceEvent[]}
                     />
                     <div className="flex flex-1 min-h-0 gap-4 flex-col md:flex-row">
-                        <TraceSidebar trace={trace} eventId={eventId} tree={tree} />
-                        <EventContent event={event} />
+                        <TraceSidebar trace={trace} eventId={eventId} tree={enrichedTree} />
+                        <EventContent event={event} tree={enrichedTree} />
                     </div>
                 </div>
             )}
@@ -170,7 +172,7 @@ function TraceSidebar({
 }: {
     trace: LLMTrace
     eventId?: string | null
-    tree: TraceTreeNode[]
+    tree: EnrichedTraceTreeNode[]
 }): JSX.Element {
     const ref = useRef<HTMLDivElement | null>(null)
     const { searchQuery, mostRelevantEvent } = useValues(llmObservabilityTraceDataLogic)
@@ -193,7 +195,7 @@ function TraceSidebar({
 
     return (
         <aside
-            className="border-primary max-h-fit bg-surface-primary border rounded overflow-hidden flex flex-col md:w-80"
+            className="sticky bottom-[var(--scene-padding)] border-primary max-h-fit bg-surface-primary border rounded overflow-hidden flex flex-col w-full md:w-80"
             ref={ref}
         >
             <h3 className="font-medium text-sm px-2 my-2">Tree</h3>
@@ -208,7 +210,16 @@ function TraceSidebar({
                 />
             </div>
             <ul className="overflow-y-auto p-1 *:first:mt-0 overflow-x-hidden">
-                <TreeNode topLevelTrace={trace} item={trace} isSelected={!eventId || eventId === trace.id} />
+                <TreeNode
+                    topLevelTrace={trace}
+                    node={{
+                        event: trace,
+                        displayTotalCost: trace.totalCost || 0,
+                        displayLatency: trace.totalLatency || 0,
+                        displayUsage: formatLLMUsage(trace),
+                    }}
+                    isSelected={!eventId || eventId === trace.id}
+                />
                 <TreeNodeChildren tree={tree} trace={trace} selectedEventId={eventId} />
             </ul>
         </aside>
@@ -244,16 +255,19 @@ function NestingGroup({
 
 const TreeNode = React.memo(function TraceNode({
     topLevelTrace,
-    item,
+    node,
     isSelected,
 }: {
     topLevelTrace: LLMTrace
-    item: LLMTrace | LLMTraceEvent
+    node:
+        | EnrichedTraceTreeNode
+        | { event: LLMTrace; displayTotalCost: number; displayLatency: number; displayUsage: string | null }
     isSelected: boolean
 }): JSX.Element {
-    const totalCost = 'properties' in item ? item.properties.$ai_total_cost_usd : item.totalCost
-    const latency = 'properties' in item ? item.properties.$ai_latency : item.totalLatency
-    const usage = formatLLMUsage(item)
+    const totalCost = node.displayTotalCost
+    const latency = node.displayLatency
+    const usage = node.displayUsage
+    const item = node.event
 
     const children = [
         isLLMTraceEvent(item) && item.properties.$ai_is_error && (
@@ -325,7 +339,7 @@ function TreeNodeChildren({
     trace,
     selectedEventId,
 }: {
-    tree: TraceTreeNode[]
+    tree: EnrichedTraceTreeNode[]
     trace: LLMTrace
     selectedEventId?: string | null
 }): JSX.Element {
@@ -334,15 +348,15 @@ function TreeNodeChildren({
     return (
         <NestingGroup isCollapsed={isCollapsed} onToggle={() => setIsCollapsed(!isCollapsed)}>
             {!isCollapsed ? (
-                tree.map(({ event, children }) => (
-                    <React.Fragment key={event.id}>
+                tree.map((node) => (
+                    <React.Fragment key={node.event.id}>
                         <TreeNode
                             topLevelTrace={trace}
-                            item={event}
-                            isSelected={!!selectedEventId && selectedEventId === event.id}
+                            node={node}
+                            isSelected={!!selectedEventId && selectedEventId === node.event.id}
                         />
-                        {children && (
-                            <TreeNodeChildren tree={children} trace={trace} selectedEventId={selectedEventId} />
+                        {node.children && (
+                            <TreeNodeChildren tree={node.children} trace={trace} selectedEventId={selectedEventId} />
                         )}
                     </React.Fragment>
                 ))
@@ -401,122 +415,194 @@ function EventContentDisplay({
     )
 }
 
-const EventContent = React.memo(({ event }: { event: LLMTrace | LLMTraceEvent | null }): JSX.Element => {
-    const { setupPlaygroundFromEvent } = useActions(llmObservabilityPlaygroundLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
-
-    const showPlaygroundButton =
-        event &&
-        isLLMTraceEvent(event) &&
-        event.event === '$ai_generation' &&
-        featureFlags[FEATURE_FLAGS.LLM_OBSERVABILITY_PLAYGROUND]
-
-    const handleTryInPlayground = (): void => {
-        if (!event) {
-            return
+function findNodeForEvent(tree: EnrichedTraceTreeNode[], eventId: string): EnrichedTraceTreeNode | null {
+    for (const node of tree) {
+        if (node.event.id === eventId) {
+            return node
         }
-
-        let model: string | undefined = undefined
-        let input: any = undefined
-
-        if (isLLMTraceEvent(event)) {
-            model = event.properties.$ai_model
-            // Prefer $ai_input if available, otherwise fallback to $ai_input_state
-            input = event.properties.$ai_input ?? event.properties.$ai_input_state
+        if (node.children) {
+            const result = findNodeForEvent(node.children, eventId)
+            if (result) {
+                return result
+            }
         }
-
-        setupPlaygroundFromEvent({ model, input })
     }
+    return null
+}
 
-    return (
-        <div className="flex-1 bg-surface-primary max-h-fit border rounded flex flex-col border-primary p-4 overflow-y-auto">
-            {!event ? (
-                <InsightEmptyState heading="Event not found" detail="Check if the event ID is correct." />
-            ) : (
-                <>
-                    <header className="deprecated-space-y-2">
-                        <div className="flex-row flex items-center gap-2">
-                            <EventTypeTag event={event} />
-                            <h3 className="text-lg font-semibold p-0 m-0 truncate flex-1">
-                                {formatLLMEventTitle(event)}
-                            </h3>
-                        </div>
-                        {isLLMTraceEvent(event) ? (
-                            <MetadataHeader
-                                isError={event.properties.$ai_is_error}
-                                inputTokens={event.properties.$ai_input_tokens}
-                                outputTokens={event.properties.$ai_output_tokens}
-                                cacheReadTokens={event.properties.$ai_cache_read_input_tokens}
-                                cacheWriteTokens={event.properties.$ai_cache_creation_input_tokens}
-                                totalCostUsd={event.properties.$ai_total_cost_usd}
-                                model={event.properties.$ai_model}
-                                latency={event.properties.$ai_latency}
-                            />
-                        ) : (
-                            <MetadataHeader
-                                inputTokens={event.inputTokens}
-                                outputTokens={event.outputTokens}
-                                totalCostUsd={event.totalCost}
-                                latency={event.totalLatency}
-                            />
-                        )}
-                        {isLLMTraceEvent(event) && <ParametersHeader eventProperties={event.properties} />}
-                        <div className="flex flex-row items-center gap-2">
-                            {showPlaygroundButton && (
-                                <LemonButton
-                                    type="secondary"
-                                    size="small"
-                                    icon={<IconChat />}
-                                    onClick={handleTryInPlayground}
-                                    tooltip="Try this prompt in the playground"
-                                >
-                                    Try in Playground
-                                </LemonButton>
+const EventContent = React.memo(
+    ({ event, tree }: { event: LLMTrace | LLMTraceEvent | null; tree: EnrichedTraceTreeNode[] }): JSX.Element => {
+        const { setupPlaygroundFromEvent } = useActions(llmObservabilityPlaygroundLogic)
+        const { featureFlags } = useValues(featureFlagLogic)
+        const [viewMode, setViewMode] = useState<'conversation' | 'raw'>('conversation')
+
+        const node = event && isLLMTraceEvent(event) ? findNodeForEvent(tree, event.id) : null
+        const aggregation = node?.aggregation || null
+
+        const showPlaygroundButton =
+            event &&
+            isLLMTraceEvent(event) &&
+            event.event === '$ai_generation' &&
+            featureFlags[FEATURE_FLAGS.LLM_OBSERVABILITY_PLAYGROUND]
+
+        const handleTryInPlayground = (): void => {
+            if (!event) {
+                return
+            }
+
+            let model: string | undefined = undefined
+            let input: any = undefined
+
+            if (isLLMTraceEvent(event)) {
+                model = event.properties.$ai_model
+                // Prefer $ai_input if available, otherwise fallback to $ai_input_state
+                input = event.properties.$ai_input ?? event.properties.$ai_input_state
+            }
+
+            setupPlaygroundFromEvent({ model, input })
+        }
+
+        return (
+            <div className="flex-1 bg-surface-primary max-h-fit border rounded flex flex-col border-primary p-4 overflow-y-auto">
+                {!event ? (
+                    <InsightEmptyState heading="Event not found" detail="Check if the event ID is correct." />
+                ) : (
+                    <>
+                        <header className="deprecated-space-y-2">
+                            <div className="flex-row flex items-center gap-2">
+                                <EventTypeTag event={event} />
+                                <h3 className="text-lg font-semibold p-0 m-0 truncate flex-1">
+                                    {formatLLMEventTitle(event)}
+                                </h3>
+                            </div>
+                            {isLLMTraceEvent(event) ? (
+                                <MetadataHeader
+                                    isError={event.properties.$ai_is_error}
+                                    inputTokens={event.properties.$ai_input_tokens}
+                                    outputTokens={event.properties.$ai_output_tokens}
+                                    cacheReadTokens={event.properties.$ai_cache_read_input_tokens}
+                                    cacheWriteTokens={event.properties.$ai_cache_creation_input_tokens}
+                                    totalCostUsd={event.properties.$ai_total_cost_usd}
+                                    model={event.properties.$ai_model}
+                                    latency={event.properties.$ai_latency}
+                                />
+                            ) : (
+                                <MetadataHeader
+                                    inputTokens={event.inputTokens}
+                                    outputTokens={event.outputTokens}
+                                    totalCostUsd={event.totalCost}
+                                    latency={event.totalLatency}
+                                />
                             )}
-                            {hasSessionID(event) && (
-                                <div className="flex flex-row items-center gap-2">
-                                    <Link
-                                        to={urls.replay(undefined, undefined, getSessionID(event) ?? '')}
-                                        className="flex flex-row gap-1 items-center"
-                                    >
-                                        <IconOpenInNew />
-                                        <span>View session recording</span>
-                                    </Link>
+                            {isLLMTraceEvent(event) && <ParametersHeader eventProperties={event.properties} />}
+                            {aggregation && (
+                                <div className="flex flex-row flex-wrap items-center gap-2">
+                                    {aggregation.totalCost > 0 && (
+                                        <LemonTag type="muted" size="small">
+                                            Total Cost: {formatLLMCost(aggregation.totalCost)}
+                                        </LemonTag>
+                                    )}
+                                    {aggregation.totalLatency > 0 && (
+                                        <LemonTag type="muted" size="small">
+                                            Total Latency: {formatLLMLatency(aggregation.totalLatency)}
+                                        </LemonTag>
+                                    )}
+                                    {(aggregation.inputTokens > 0 || aggregation.outputTokens > 0) && (
+                                        <LemonTag type="muted" size="small">
+                                            Tokens: {aggregation.inputTokens} → {aggregation.outputTokens} (∑{' '}
+                                            {aggregation.inputTokens + aggregation.outputTokens})
+                                        </LemonTag>
+                                    )}
                                 </div>
                             )}
-                        </div>
-                    </header>
-                    {isLLMTraceEvent(event) ? (
-                        event.event === '$ai_generation' ? (
-                            <ConversationMessagesDisplay
-                                tools={event.properties.$ai_tools}
-                                input={event.properties.$ai_input}
-                                output={
-                                    event.properties.$ai_is_error
-                                        ? event.properties.$ai_error
-                                        : event.properties.$ai_output_choices ?? event.properties.$ai_output
-                                }
-                                httpStatus={event.properties.$ai_http_status}
-                                raisedError={event.properties.$ai_is_error}
-                            />
-                        ) : (
-                            <EventContentDisplay
-                                input={event.properties.$ai_input_state}
-                                output={event.properties.$ai_output_state ?? event.properties.$ai_error}
-                                raisedError={event.properties.$ai_is_error}
-                            />
-                        )
-                    ) : (
-                        <>
-                            <TraceMetricsTable />
-                            <EventContentDisplay input={event.inputState} output={event.outputState} />
-                        </>
-                    )}
-                </>
-            )}
-        </div>
-    )
-})
+                            {(showPlaygroundButton || hasSessionID(event)) && (
+                                <div className="flex flex-row items-center gap-2">
+                                    {showPlaygroundButton && (
+                                        <LemonButton
+                                            type="secondary"
+                                            size="xsmall"
+                                            icon={<IconChat />}
+                                            onClick={handleTryInPlayground}
+                                            tooltip="Try this prompt in the playground"
+                                        >
+                                            Try in Playground
+                                        </LemonButton>
+                                    )}
+                                    {hasSessionID(event) && (
+                                        <ViewRecordingButton
+                                            inModal
+                                            type="secondary"
+                                            size="xsmall"
+                                            data-attr="llm-observability"
+                                            sessionId={getSessionID(event) || undefined}
+                                            timestamp={removeMilliseconds(event.createdAt)}
+                                        />
+                                    )}
+                                </div>
+                            )}
+                        </header>
+                        <LemonTabs
+                            activeKey={viewMode}
+                            onChange={setViewMode}
+                            tabs={[
+                                {
+                                    key: 'conversation',
+                                    label: 'Conversation',
+                                    content: (
+                                        <>
+                                            {isLLMTraceEvent(event) ? (
+                                                event.event === '$ai_generation' ? (
+                                                    <ConversationMessagesDisplay
+                                                        tools={event.properties.$ai_tools}
+                                                        input={event.properties.$ai_input}
+                                                        output={
+                                                            event.properties.$ai_is_error
+                                                                ? event.properties.$ai_error
+                                                                : event.properties.$ai_output_choices ??
+                                                                  event.properties.$ai_output
+                                                        }
+                                                        httpStatus={event.properties.$ai_http_status}
+                                                        raisedError={event.properties.$ai_is_error}
+                                                    />
+                                                ) : (
+                                                    <EventContentDisplay
+                                                        input={event.properties.$ai_input_state}
+                                                        output={
+                                                            event.properties.$ai_output_state ??
+                                                            event.properties.$ai_error
+                                                        }
+                                                        raisedError={event.properties.$ai_is_error}
+                                                    />
+                                                )
+                                            ) : (
+                                                <>
+                                                    <TraceMetricsTable />
+                                                    <EventContentDisplay
+                                                        input={event.inputState}
+                                                        output={event.outputState}
+                                                    />
+                                                </>
+                                            )}
+                                        </>
+                                    ),
+                                },
+                                {
+                                    key: 'raw',
+                                    label: 'Raw',
+                                    content: (
+                                        <div className="p-2">
+                                            <JSONViewer src={event} collapsed={2} />
+                                        </div>
+                                    ),
+                                },
+                            ]}
+                        />
+                    </>
+                )}
+            </div>
+        )
+    }
+)
 EventContent.displayName = 'EventContent'
 
 function EventTypeTag({ event, size }: { event: LLMTrace | LLMTraceEvent; size?: LemonTagProps['size'] }): JSX.Element {

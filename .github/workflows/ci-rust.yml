@@ -1,5 +1,4 @@
 name: Rust CI
-
 on:
     workflow_dispatch:
     push:
@@ -167,15 +166,8 @@ jobs:
               if: needs.changes.outputs.rust == 'true'
               run: |
                   echo "Starting cargo test"
-                  RUST_BACKTRACE=1 cargo test --all-features ${{ matrix.package == 'feature-flags' && ('--package feature-flags') || '--workspace --exclude feature-flags --exclude links' }}
+                  RUST_BACKTRACE=1 cargo test --all-features ${{ matrix.package == 'feature-flags' && ('--package feature-flags')|| '--workspace --exclude feature-flags'}}
                   echo "Cargo test completed"
-
-            - name: Run cargo test for links
-              if: needs.changes.outputs.rust == 'true'
-              run: |
-                  echo "Starting cargo test for links"
-                  ${{ matrix.package == 'feature-flags' && ('RUST_BACKTRACE=1 cargo test --all-features --package links') || 'echo "Skipping links tests as it is not needed"' }}
-                  echo "Cargo test for links completed"
 
     linting:
         name: Lint Rust services

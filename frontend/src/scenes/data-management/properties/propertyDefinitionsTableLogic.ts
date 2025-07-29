@@ -121,7 +121,7 @@ export const propertyDefinitionsTableLogic = kea<propertyDefinitionsTableLogicTy
 
                     const currentUrl = `${normalizePropertyDefinitionEndpointUrl(url)}`
                     cache.apiCache = {
-                        ...(cache.apiCache ?? {}),
+                        ...cache.apiCache,
                         [currentUrl]: {
                             ...response,
                             previous: normalizePropertyDefinitionEndpointUrl(response.previous),
@@ -141,7 +141,7 @@ export const propertyDefinitionsTableLogic = kea<propertyDefinitionsTableLogicTy
                     }
                     // Update cache as well
                     cache.apiCache = {
-                        ...(cache.apiCache ?? {}),
+                        ...cache.apiCache,
                         [values.propertyDefinitions.current]: {
                             ...values.propertyDefinitions,
                             results: values.propertyDefinitions.results.map((d) =>

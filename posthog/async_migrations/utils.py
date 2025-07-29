@@ -43,7 +43,7 @@ def send_analytics_to_posthog(event, data):
     if user and user.current_organization:
         data["organization_name"] = user.current_organization.name
         groups["organization"] = str(user.current_organization.id)
-    posthoganalytics.capture(get_machine_id(), event, data, groups=groups)
+    posthoganalytics.capture(distinct_id=get_machine_id(), event=event, properties=data, groups=groups)
 
 
 def execute_op(op: AsyncMigrationOperation, uuid: str, rollback: bool = False):

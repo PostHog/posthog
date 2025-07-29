@@ -24,6 +24,7 @@ import {
     determineAnnotationsDateGroup,
 } from './annotationsOverlayLogic'
 import { useAnnotationsPositioning } from './useAnnotationsPositioning'
+import { TextContent } from 'lib/components/Cards/TextCard/TextCard'
 
 /** User-facing format for annotation groups. */
 const INTERVAL_UNIT_TO_HUMAN_DAYJS_FORMAT: Record<IntervalType, string> = {
@@ -269,17 +270,23 @@ function AnnotationCard({ annotation }: { annotation: AnnotationType }): JSX.Ele
                     noPadding
                 />
             </div>
-            <div className="mt-1">{annotation.content}</div>
-            <div className="leading-6 mt-2">
-                <ProfilePicture
-                    user={
-                        annotation.creation_type === 'GIT' ? { first_name: 'GitHub automation' } : annotation.created_by
-                    }
-                    showName
-                    size="md"
-                    type={annotation.creation_type === 'GIT' ? 'bot' : 'person'}
-                />{' '}
-                • {humanFriendlyDetailedTime(annotation.created_at, 'MMMM DD, YYYY', 'h:mm A')}
+            <div className="mt-1">
+                <TextContent text={annotation.content ?? ''} data-attr="annotation-overlay-rendered-content" />
+            </div>
+            <div className="leading-6 mt-2 flex flex-row items-center justify-between">
+                <div>
+                    <ProfilePicture
+                        user={
+                            annotation.creation_type === 'GIT'
+                                ? { first_name: 'GitHub automation' }
+                                : annotation.created_by
+                        }
+                        showName
+                        size="md"
+                        type={annotation.creation_type === 'GIT' ? 'bot' : 'person'}
+                    />{' '}
+                    • {humanFriendlyDetailedTime(annotation.created_at, 'MMMM DD, YYYY', 'h:mm A')}
+                </div>
             </div>
         </li>
     )

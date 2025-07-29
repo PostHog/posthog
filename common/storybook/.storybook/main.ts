@@ -1,5 +1,5 @@
-import { createEntry } from '../webpack.config'
-import { StorybookConfig } from '@storybook/react-webpack5'
+import { createEntry } from '../webpack.config.js'
+import type { StorybookConfig } from '@storybook/types'
 
 const config: StorybookConfig = {
     stories: [
@@ -13,7 +13,6 @@ const config: StorybookConfig = {
         '@storybook/addon-essentials',
         '@storybook/addon-storysource',
         '@storybook/addon-a11y',
-        'storybook-addon-pseudo-states',
     ],
 
     staticDirs: ['public', { from: '../../../frontend/public', to: '/static' }],
@@ -22,6 +21,9 @@ const config: StorybookConfig = {
         const mainConfig = createEntry('main')
         return {
             ...config,
+            cache: {
+                type: 'filesystem',
+            },
             resolve: {
                 ...config.resolve,
                 extensions: [...config.resolve!.extensions!, ...mainConfig.resolve.extensions],

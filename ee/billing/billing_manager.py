@@ -202,7 +202,7 @@ class BillingManager:
                 },
             )
         except Exception as e:
-            capture_exception(e)
+            capture_exception(e, {"organization_id": organization.id})
 
     def deactivate_products(self, organization: Organization, products: str) -> None:
         res = requests.get(

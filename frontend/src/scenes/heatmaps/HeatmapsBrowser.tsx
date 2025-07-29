@@ -1,12 +1,4 @@
-import {
-    IconGear,
-    IconLaptop,
-    IconLlmPromptEvaluation,
-    IconPhone,
-    IconRevert,
-    IconTabletLandscape,
-    IconTabletPortrait,
-} from '@posthog/icons'
+import { IconGear, IconLaptop, IconPhone, IconRevert, IconTabletLandscape, IconTabletPortrait } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
@@ -14,27 +6,20 @@ import {
     LemonInputSelect,
     LemonSegmentedButton,
     LemonSkeleton,
-    lemonToast,
-    Spinner,
 } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { appEditorUrl, AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { DetectiveHog, FilmCameraHog } from 'lib/components/hedgehogs'
-import { ScreenShotEditor } from 'lib/components/TakeScreenshot/ScreenShotEditor'
-import { takeScreenshotLogic } from 'lib/components/TakeScreenshot/takeScreenshotLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import React, { useEffect, useRef } from 'react'
-import { FilterPanel } from 'scenes/heatmaps/FilterPanel'
+import { useRef } from 'react'
 import { FixedReplayHeatmapBrowser } from 'scenes/heatmaps/FixedReplayHeatmapBrowser'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { sidePanelSettingsLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelSettingsLogic'
 
 import { heatmapsBrowserLogic } from './heatmapsBrowserLogic'
+import { IframeHeatmapBrowser } from './IframeHeatmapBrowser'
 
 function UrlSearchHeader(): JSX.Element {
     const logic = heatmapsBrowserLogic()
@@ -180,27 +165,6 @@ function InvalidURL(): JSX.Element {
     )
 }
 
-function IframeErrorOverlay(): JSX.Element | null {
-    const logic = heatmapsBrowserLogic()
-    const { iframeBanner } = useValues(logic)
-    return iframeBanner ? (
-        <div className="absolute mt-10 flex flex-col w-full h-full bg-blend-overlay items-start py-4 px-8 pointer-events-none z-9999">
-            <LemonBanner className="w-full" type={iframeBanner.level}>
-                {iframeBanner.message}. Your site might not allow being embedded in an iframe. You can click "Open in
-                toolbar" above to visit your site and view the heatmap there.
-            </LemonBanner>
-        </div>
-    ) : null
-}
-
-function LoadingOverlay(): JSX.Element {
-    return (
-        <div className="absolute flex flex-col w-full h-full items-center justify-center pointer-events-none z-99999">
-            <Spinner className="text-5xl" textColored={true} />
-        </div>
-    )
-}
-
 export function ViewportChooser(): JSX.Element {
     const logic = heatmapsBrowserLogic()
 
@@ -284,120 +248,6 @@ export function ViewportChooser(): JSX.Element {
     )
 }
 
-function EmbeddedHeatmapBrowser({
-    iframeRef,
-}: {
-    iframeRef?: React.MutableRefObject<HTMLIFrameElement | null>
-}): JSX.Element | null {
-    const logic = heatmapsBrowserLogic()
-
-    const {
-        browserUrl,
-        loading,
-        iframeBanner,
-        heatmapFilters,
-        heatmapColorPalette,
-        heatmapFixedPositionMode,
-        viewportRange,
-        commonFilters,
-        filterPanelCollapsed,
-        heatmapEmpty,
-        widthOverride,
-    } = useValues(logic)
-
-    const {
-        onIframeLoad,
-        setIframeWidth,
-        patchHeatmapFilters,
-        setHeatmapColorPalette,
-        setHeatmapFixedPositionMode,
-        setCommonFilters,
-        toggleFilterPanelCollapsed,
-    } = useActions(logic)
-
-    const { setHtml } = useActions(takeScreenshotLogic({ screenshotKey: 'heatmaps' }))
-    const { featureFlags } = useValues(featureFlagLogic)
-
-    const embeddedFilterPanelProps = {
-        heatmapFilters,
-        heatmapColorPalette,
-        heatmapFixedPositionMode,
-        viewportRange,
-        commonFilters,
-        filterPanelCollapsed,
-        loading,
-        patchHeatmapFilters,
-        setHeatmapColorPalette,
-        setHeatmapFixedPositionMode,
-        setCommonFilters,
-        toggleFilterPanelCollapsed,
-    }
-
-    const { width: iframeWidth } = useResizeObserver<HTMLIFrameElement>({ ref: iframeRef })
-
-    const handleShare = (): void => {
-        const iframe = iframeRef?.current
-        if (!iframe) {
-            lemonToast.error('Cannot take screenshot. Please try again.')
-            return
-        }
-        setHtml(iframe)
-    }
-
-    useEffect(() => {
-        if (widthOverride === null) {
-            setIframeWidth(iframeWidth ?? null)
-        }
-    }, [iframeWidth, setIframeWidth, widthOverride])
-
-    return browserUrl ? (
-        <div className="flex flex-row gap-x-2 w-full">
-            <FilterPanel {...embeddedFilterPanelProps} isEmpty={heatmapEmpty} />
-            <div className="relative flex-1 w-full h-full mt-2">
-                {loading ? <LoadingOverlay /> : null}
-                {!loading && iframeBanner ? <IframeErrorOverlay /> : null}
-                {featureFlags[FEATURE_FLAGS.SCREENSHOT_EDITOR] ? (
-                    <>
-                        <ScreenShotEditor screenshotKey="heatmaps" />
-                        <div className="flex justify-between items-center">
-                            <ViewportChooser />
-                            <LemonButton
-                                className="mb-2 mr-2"
-                                type="secondary"
-                                onClick={handleShare}
-                                icon={<IconLlmPromptEvaluation />}
-                            >
-                                Take screenshot
-                            </LemonButton>
-                        </div>
-                    </>
-                ) : (
-                    <ViewportChooser />
-                )}
-                <div className="flex relative justify-center h-full border-l border-t">
-                    <iframe
-                        id="heatmap-iframe"
-                        ref={iframeRef}
-                        className="h-full bg-white"
-                        // eslint-disable-next-line react/forbid-dom-props
-                        style={{ width: widthOverride ?? '100%' }}
-                        src={appEditorUrl(browserUrl, {
-                            userIntent: 'heatmaps',
-                        })}
-                        onLoad={onIframeLoad}
-                        // these two sandbox values are necessary so that the site and toolbar can run
-                        // this is a very loose sandbox,
-                        // but we specify it so that at least other capabilities are denied
-                        sandbox="allow-scripts allow-same-origin"
-                        // we don't allow things such as camera access though
-                        allow=""
-                    />
-                </div>
-            </div>
-        </div>
-    ) : null
-}
-
 function Warnings(): JSX.Element | null {
     const { currentTeam } = useValues(teamLogic)
     const heatmapsEnabled = currentTeam?.heatmaps_opt_in
@@ -464,7 +314,7 @@ export function HeatmapsBrowser(): JSX.Element {
                                 ) : !isBrowserUrlValid ? (
                                     <InvalidURL />
                                 ) : (
-                                    <EmbeddedHeatmapBrowser iframeRef={iframeRef} />
+                                    <IframeHeatmapBrowser iframeRef={iframeRef} />
                                 )}
                             </>
                         ) : (

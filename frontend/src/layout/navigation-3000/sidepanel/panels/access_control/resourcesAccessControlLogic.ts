@@ -9,6 +9,7 @@ import {
     AccessControlResourceType,
     AccessControlResponseType,
     AccessControlType,
+    AccessControlLevel,
     AccessControlTypeRole,
     AccessControlUpdateType,
     APIScopeObject,
@@ -72,7 +73,7 @@ export const resourcesAccessControlLogic = kea<resourcesAccessControlLogicType>(
     selectors({
         availableLevels: [
             (s) => [s.resourceAccessControls],
-            (resourceAccessControls): string[] => {
+            (resourceAccessControls): AccessControlLevel[] => {
                 return resourceAccessControls?.available_access_levels ?? []
             },
         ],
@@ -100,10 +101,7 @@ export const resourcesAccessControlLogic = kea<resourcesAccessControlLogicType>(
                 const accessControlByResource = accessControls
                     .filter((control) => !control.role && !control.organization_member)
                     .reduce(
-                        (acc, control) => ({
-                            ...acc,
-                            [control.resource]: control,
-                        }),
+                        (acc, control) => Object.assign(acc, { [control.resource]: control }),
                         {} as Record<APIScopeObject, AccessControlTypeRole>
                     )
 
@@ -152,10 +150,8 @@ export const resourcesAccessControlLogic = kea<resourcesAccessControlLogicType>(
                         const accessControlByResource = accessControls
                             .filter((control: AccessControlType) => control.organization_member === member.id)
                             .reduce(
-                                (acc: Record<APIScopeObject, AccessControlTypeRole>, control: AccessControlType) => ({
-                                    ...acc,
-                                    [control.resource]: control as AccessControlTypeRole,
-                                }),
+                                (acc: Record<APIScopeObject, AccessControlTypeRole>, control: AccessControlType) =>
+                                    Object.assign(acc, { [control.resource]: control as AccessControlTypeRole }),
                                 {} as Record<APIScopeObject, AccessControlTypeRole>
                             )
 
@@ -187,10 +183,8 @@ export const resourcesAccessControlLogic = kea<resourcesAccessControlLogicType>(
                         const accessControlByResource = accessControls
                             .filter((control: AccessControlType) => control.role === role.id)
                             .reduce(
-                                (acc: Record<APIScopeObject, AccessControlTypeRole>, control: AccessControlType) => ({
-                                    ...acc,
-                                    [control.resource]: control as AccessControlTypeRole,
-                                }),
+                                (acc: Record<APIScopeObject, AccessControlTypeRole>, control: AccessControlType) =>
+                                    Object.assign(acc, { [control.resource]: control as AccessControlTypeRole }),
                                 {} as Record<APIScopeObject, AccessControlTypeRole>
                             )
 

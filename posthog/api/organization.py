@@ -7,6 +7,7 @@ from rest_framework import exceptions, permissions, serializers, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
 import posthoganalytics
+import json
 
 from posthog import settings
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -15,7 +16,11 @@ from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.cloud_utils import is_cloud
 from posthog.constants import INTERNAL_BOT_EMAIL_SUFFIX, AvailableFeature
 from posthog.event_usage import report_organization_deleted, groups
-from posthog.models import Organization, User
+from posthog.models import (
+    User,
+    Team,
+    Organization,
+)
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.models.organization import OrganizationMembership
@@ -27,7 +32,7 @@ from posthog.permissions import (
     APIScopePermission,
     OrganizationAdminWritePermissions,
     TimeSensitiveActionPermission,
-    OrganizationInviteSettingsPermission,
+    OrganizationMemberPermissions,
     extract_organization,
 )
 from posthog.user_permissions import UserPermissions, UserPermissionsSerializerMixin
@@ -73,6 +78,16 @@ class OrganizationPermissionsWithDelete(OrganizationAdminWritePermissions):
         )
 
 
+class OrganizationPermissionsWithEnvRollback(OrganizationAdminWritePermissions):
+    def has_object_permission(self, request: Request, view, object: Model) -> bool:
+        organization = extract_organization(object, view)
+
+        return (
+            OrganizationMembership.objects.get(user=cast(User, request.user), organization=organization).level
+            >= OrganizationMembership.Level.ADMIN
+        )
+
+
 class OrganizationSerializer(
     serializers.ModelSerializer, UserPermissionsSerializerMixin, UserAccessControlSerializerMixin
 ):
@@ -104,6 +119,7 @@ class OrganizationSerializer(
             "customer_id",
             "enforce_2fa",
             "members_can_invite",
+            "members_can_use_personal_api_keys",
             "member_count",
             "is_ai_data_processing_approved",
             "default_experiment_stats_method",
@@ -198,8 +214,8 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 for permission in [permissions.IsAuthenticated, TimeSensitiveActionPermission, APIScopePermission]
             ]
 
-            if "members_can_invite" in self.request.data:
-                create_permissions.append(OrganizationInviteSettingsPermission())
+            if any(key in self.request.data for key in ["members_can_invite", "members_can_use_personal_api_keys"]):
+                create_permissions.append(OrganizationAdminWritePermissions())
 
             if not is_cloud():
                 create_permissions.append(PremiumMultiorganizationPermission())
@@ -271,8 +287,8 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
             # Add capture event for 2FA enforcement change
             posthoganalytics.capture(
-                str(user.distinct_id),
                 "organization 2fa enforcement toggled",
+                distinct_id=str(user.distinct_id),
                 properties={
                     "enabled": enforce_2fa_value,
                     "organization_id": str(organization.id),
@@ -307,3 +323,70 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             return Response({"status": False, "error": "An internal error has occurred."}, status=500)
 
         return Response({"status": True})
+
+    @action(
+        methods=["POST"],
+        detail=True,
+        url_path="environments_rollback",
+        permission_classes=[
+            permissions.IsAuthenticated,
+            OrganizationMemberPermissions,
+            OrganizationPermissionsWithEnvRollback,
+        ],
+    )
+    def environments_rollback(self, request: Request, **kwargs) -> Response:
+        """
+        Trigger environments rollback migration for users previously on multi-environment projects.
+        The request data should be a mapping of source environment IDs to target environment IDs.
+        Example: { "2": 2, "116911": 2, "99346": 99346, "140256": 99346 }
+        """
+        from posthog.tasks.tasks import environments_rollback_migration
+        from posthog.storage.environments_rollback_storage import (
+            add_organization_to_rollback_list,
+            is_organization_rollback_triggered,
+        )
+
+        organization = self.get_object()
+
+        if is_organization_rollback_triggered(organization.id):
+            raise exceptions.ValidationError("Environments rollback has already been requested for this organization.")
+
+        environment_mappings: dict[str, int] = {str(k): int(v) for k, v in request.data.items()}
+        user = cast(User, request.user)
+        membership = user.organization_memberships.get(organization=organization)
+
+        if not environment_mappings:
+            raise exceptions.ValidationError("Environment mappings are required")
+
+        # Verify all environments exist and belong to this organization
+        all_environment_ids = set(map(int, environment_mappings.keys())) | set(environment_mappings.values())
+        teams = Team.objects.filter(id__in=all_environment_ids, organization_id=organization.id)
+        found_team_ids = set(teams.values_list("id", flat=True))
+
+        missing_team_ids = all_environment_ids - found_team_ids
+        if missing_team_ids:
+            raise exceptions.ValidationError(f"Environments not found: {missing_team_ids}")
+
+        # Trigger the async task to perform the migration
+        environments_rollback_migration.delay(
+            organization_id=organization.id,
+            environment_mappings=environment_mappings,
+            user_id=user.id,
+        )
+
+        # Mark organization as having triggered rollback in Redis
+        add_organization_to_rollback_list(organization.id)
+
+        posthoganalytics.capture(
+            "organization environments rollback started",
+            distinct_id=str(user.distinct_id),
+            properties={
+                "environment_mappings": json.dumps(environment_mappings),
+                "organization_id": str(organization.id),
+                "organization_name": organization.name,
+                "user_role": membership.level,
+            },
+            groups=groups(organization),
+        )
+
+        return Response({"success": True, "message": "Migration started"}, status=202)

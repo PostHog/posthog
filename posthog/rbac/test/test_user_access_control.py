@@ -6,7 +6,7 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.file_system.file_system import FileSystem
 from posthog.models.organization import Organization
-from posthog.rbac.user_access_control import UserAccessControl, UserAccessControlSerializerMixin
+from posthog.rbac.user_access_control import UserAccessControl, UserAccessControlSerializerMixin, AccessSource
 from posthog.test.base import BaseTest
 from rest_framework import serializers
 
@@ -323,14 +323,33 @@ class TestUserAccessControlResourceSpecific(BaseUserAccessControlTest):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
 
-        assert self.user_access_control.access_level_for_object(self.dashboard) == "editor"
+        assert self.user_access_control.access_level_for_object(self.dashboard) == "manager"
         assert self.other_user_access_control.access_level_for_object(self.dashboard) == "editor"
-        assert self.user_access_control.access_level_for_resource("dashboard") == "editor"
+        assert self.user_access_control.access_level_for_resource("dashboard") == "manager"
         assert self.other_user_access_control.access_level_for_resource("dashboard") == "editor"
 
     def test_ac_object_default_response(self):
         assert self.user_access_control.access_level_for_object(self.dashboard) == "editor"
         assert self.other_user_access_control.access_level_for_object(self.dashboard) == "editor"
+
+    def test_setting_explicit_manager_access(self):
+        """
+        Test that the new 'manager' access level works correctly and is above 'editor' in the hierarchy.
+        """
+        # Test that creators have "manager" access to their files by default:
+        # - User is creator of dashboard -> has "manager" access
+        # Create an AccessControl entry giving other_user "editor" access to the dashboard
+        # to verify they can edit but not manage it
+
+        self._create_access_control(
+            resource_id=self.dashboard.id,
+            access_level="editor",
+            resource="dashboard",
+            organization_member=self.other_user.organization_memberships.first(),
+        )
+
+        assert self.other_user_access_control.check_access_level_for_object(self.dashboard, "editor") is True
+        assert self.other_user_access_control.check_access_level_for_object(self.dashboard, "manager") is False
 
 
 @pytest.mark.ee
@@ -538,250 +557,155 @@ class TestUserAccessControlSerializer(BaseUserAccessControlTest):
         serializer = self.Serializer(self.dashboard, context={"user_access_control": self.user_access_control})
         assert serializer.get_user_access_level(self.dashboard) == "editor"  # falls to default_access_level
 
-
-# class TestUserDashboardPermissions(BaseTest, WithPermissionsBase):
-#     def setUp(self):
-#         super().setUp()
-#         self.organization.available_product_features = [
-#             {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": AvailableFeature.ADVANCED_PERMISSIONS},
-#         ]
-#         self.organization.save()
-#         self.dashboard = Dashboard.objects.create(team=self.team)
-
-#     def dashboard_permissions(self):
-#         return self.permissions().dashboard(self.dashboard)
-
-#     def test_dashboard_effective_restriction_level(self):
-#         assert (
-#             self.dashboard_permissions().effective_restriction_level
-#             == Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT
-#         )
-
-#     def test_dashboard_effective_restriction_level_explicit(self):
-#         self.dashboard.restriction_level = Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
-#         self.dashboard.save()
-
-#         assert (
-#             self.dashboard_permissions().effective_restriction_level
-#             == Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
-#         )
-
-#     def test_dashboard_effective_restriction_level_when_feature_not_available(self):
-#         self.organization.available_product_features = []
-#         self.organization.save()
-
-#         self.dashboard.restriction_level = Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
-#         self.dashboard.save()
-
-#         assert (
-#             self.dashboard_permissions().effective_restriction_level
-#             == Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT
-#         )
-
-#     def test_dashboard_can_restrict(self):
-#         assert not self.dashboard_permissions().can_restrict
-
-#     def test_dashboard_can_restrict_as_admin(self):
-#         self.organization_membership.level = OrganizationMembership.Level.ADMIN
-#         self.organization_membership.save()
-
-#         assert self.dashboard_permissions().can_restrict
-
-#     def test_dashboard_can_restrict_as_creator(self):
-#         self.dashboard.created_by = self.user
-#         self.dashboard.save()
-
-#         assert self.dashboard_permissions().can_restrict
-
-#     def test_dashboard_effective_privilege_level_when_everyone_can_edit(self):
-#         self.dashboard.restriction_level = Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT
-#         self.dashboard.save()
-
-#         assert self.dashboard_permissions().effective_privilege_level == Dashboard.PrivilegeLevel.CAN_EDIT
-
-#     def test_dashboard_effective_privilege_level_when_collaborators_can_edit(self):
-#         self.dashboard.restriction_level = Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
-#         self.dashboard.save()
-
-#         assert self.dashboard_permissions().effective_privilege_level == Dashboard.PrivilegeLevel.CAN_VIEW
-
-#     def test_dashboard_effective_privilege_level_priviledged(self):
-#         self.dashboard.restriction_level = Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
-#         self.dashboard.save()
-
-#         DashboardPrivilege.objects.create(
-#             user=self.user,
-#             dashboard=self.dashboard,
-#             level=Dashboard.PrivilegeLevel.CAN_EDIT,
-#         )
-
-#         assert self.dashboard_permissions().effective_privilege_level == Dashboard.PrivilegeLevel.CAN_EDIT
-
-#     def test_dashboard_effective_privilege_level_creator(self):
-#         self.dashboard.restriction_level = Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
-#         self.dashboard.save()
-#         self.dashboard.created_by = self.user
-#         self.dashboard.save()
-
-#         assert self.dashboard_permissions().effective_privilege_level == Dashboard.PrivilegeLevel.CAN_EDIT
-
-#     def test_dashboard_can_edit_when_everyone_can(self):
-#         self.dashboard.restriction_level = Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT
-#         self.dashboard.save()
-
-#         assert self.dashboard_permissions().can_edit
-
-#     def test_dashboard_can_edit_not_collaborator(self):
-#         self.dashboard.restriction_level = Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
-#         self.dashboard.save()
-
-#         assert not self.dashboard_permissions().can_edit
-
-#     def test_dashboard_can_edit_creator(self):
-#         self.dashboard.restriction_level = Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
-#         self.dashboard.save()
-#         self.dashboard.created_by = self.user
-#         self.dashboard.save()
-
-#         assert self.dashboard_permissions().can_edit
-
-#     def test_dashboard_can_edit_priviledged(self):
-#         self.dashboard.restriction_level = Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
-#         self.dashboard.save()
-
-#         DashboardPrivilege.objects.create(
-#             user=self.user,
-#             dashboard=self.dashboard,
-#             level=Dashboard.PrivilegeLevel.CAN_EDIT,
-#         )
-
-#         assert self.dashboard_permissions().can_edit
+    def test_manager_access_level_serializer(self):
+        # Test that the new 'manager' level works in serializers
+        self._create_access_control(resource="dashboard", resource_id=str(self.dashboard.id), access_level="manager")
+        serializer = self.Serializer(self.dashboard, context={"user_access_control": self.user_access_control})
+        assert serializer.get_user_access_level(self.dashboard) == "manager"
 
 
-# class TestUserInsightPermissions(BaseTest, WithPermissionsBase):
-#     def setUp(self):
-#         super().setUp()
-#         self.organization.available_product_features = [
-#             {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": AvailableFeature.ADVANCED_PERMISSIONS},
-#         ]
-#         self.organization.save()
+class TestUserAccessControlAccessSource(BaseUserAccessControlTest):
+    """Test the get_access_source_for_object method"""
 
-#         self.dashboard1 = Dashboard.objects.create(
-#             team=self.team,
-#             restriction_level=Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT,
-#         )
-#         self.dashboard2 = Dashboard.objects.create(team=self.team)
-#         self.insight = Insight.objects.create(team=self.team)
-#         self.tile1 = DashboardTile.objects.create(dashboard=self.dashboard1, insight=self.insight)
-#         self.tile2 = DashboardTile.objects.create(dashboard=self.dashboard2, insight=self.insight)
+    def setUp(self):
+        super().setUp()
+        self.dashboard = Dashboard.objects.create(team=self.team, created_by=self.user)
 
-#     def insight_permissions(self):
-#         return self.permissions().insight(self.insight)
+    def test_creator_access_source(self):
+        """Test that creator gets 'creator' access source"""
+        access_source = self.user_access_control.get_access_source_for_object(self.dashboard)
+        assert access_source == AccessSource.CREATOR
 
-#     def test_effective_restriction_level_limited(self):
-#         assert (
-#             self.insight_permissions().effective_restriction_level
-#             == Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
-#         )
+    def test_organization_admin_access_source(self):
+        """Test that org admins get 'organization_admin' access source"""
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
 
-#     def test_effective_restriction_level_all_allow(self):
-#         Dashboard.objects.all().update(restriction_level=Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT)
+        # Create a dashboard by another user
+        other_dashboard = Dashboard.objects.create(team=self.team, created_by=self.other_user)
 
-#         assert (
-#             self.insight_permissions().effective_restriction_level
-#             == Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT
-#         )
+        access_source = self.user_access_control.get_access_source_for_object(other_dashboard)
+        assert access_source == AccessSource.ORGANIZATION_ADMIN
 
-#     def test_effective_restriction_level_with_no_dashboards(self):
-#         DashboardTile.objects.all().delete()
+    def test_explicit_member_access_source(self):
+        """Test that explicit member access gets 'explicit_member' access source"""
+        # Create a dashboard by another user
+        other_dashboard = Dashboard.objects.create(team=self.team, created_by=self.other_user)
 
-#         assert (
-#             self.insight_permissions().effective_restriction_level
-#             == Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT
-#         )
+        # Give explicit access to the current user
+        self._create_access_control(
+            resource="dashboard",
+            resource_id=str(other_dashboard.id),
+            access_level="viewer",
+            organization_member=self.organization_membership,
+        )
 
-#     def test_effective_restriction_level_with_no_permissioning(self):
-#         self.organization.available_product_features = []
-#         self.organization.save()
+        # Create a fresh UserAccessControl instance to pick up the new access control
+        fresh_user_access_control = UserAccessControl(self.user, self.team)
 
-#         assert (
-#             self.insight_permissions().effective_restriction_level
-#             == Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT
-#         )
+        access_source = fresh_user_access_control.get_access_source_for_object(other_dashboard)
+        assert access_source == AccessSource.EXPLICIT_MEMBER
 
-#     def test_effective_privilege_level_all_limited(self):
-#         Dashboard.objects.all().update(restriction_level=Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT)
+    def test_explicit_role_access_source(self):
+        """Test that explicit role access gets 'explicit_role' access source"""
+        # Create a dashboard by another user
+        other_dashboard = Dashboard.objects.create(team=self.team, created_by=self.other_user)
 
-#         assert self.insight_permissions().effective_privilege_level == Dashboard.PrivilegeLevel.CAN_VIEW
+        # Give role access
+        self._create_access_control(
+            resource="dashboard", resource_id=str(other_dashboard.id), access_level="viewer", role=self.role_a
+        )
 
-#     def test_effective_privilege_level_some_limited(self):
-#         assert self.insight_permissions().effective_privilege_level == Dashboard.PrivilegeLevel.CAN_EDIT
+        # Create a fresh UserAccessControl instance to pick up the new access control
+        fresh_user_access_control = UserAccessControl(self.user, self.team)
 
-#     def test_effective_privilege_level_all_limited_as_collaborator(self):
-#         Dashboard.objects.all().update(restriction_level=Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT)
-#         self.dashboard1.created_by = self.user
-#         self.dashboard1.save()
+        access_source = fresh_user_access_control.get_access_source_for_object(other_dashboard)
+        assert access_source == AccessSource.EXPLICIT_ROLE
 
-#         assert self.insight_permissions().effective_privilege_level == Dashboard.PrivilegeLevel.CAN_EDIT
+    def test_project_admin_access_source(self):
+        """Test that project-level access gets 'project_admin' access source"""
+        # Create a dashboard by another user
+        other_dashboard = Dashboard.objects.create(team=self.team, created_by=self.other_user)
 
-#     def test_effective_privilege_level_with_no_dashboards(self):
-#         DashboardTile.objects.all().delete()
+        # Give project-level access to the current user
+        self._create_access_control(
+            resource="project",
+            resource_id=str(self.team.id),
+            access_level="admin",
+            organization_member=self.organization_membership,
+        )
 
-#         assert self.insight_permissions().effective_privilege_level == Dashboard.PrivilegeLevel.CAN_EDIT
+        # Create a fresh UserAccessControl instance to pick up the new access control
+        fresh_user_access_control = UserAccessControl(self.user, self.team)
 
+        access_source = fresh_user_access_control.get_access_source_for_object(other_dashboard)
+        assert access_source == AccessSource.PROJECT_ADMIN
 
-# class TestUserPermissionsEfficiency(BaseTest, WithPermissionsBase):
-#     def test_dashboard_efficiency(self):
-#         self.organization.available_product_features = [
-#             {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": AvailableFeature.ADVANCED_PERMISSIONS},
-#         ]
-#         self.organization.save()
+    def test_default_access_source(self):
+        """Test that default access gets 'default' access source"""
+        # Create a dashboard by another user
+        other_dashboard = Dashboard.objects.create(team=self.team, created_by=self.other_user)
 
-#         dashboard = Dashboard.objects.create(
-#             team=self.team,
-#             restriction_level=Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT,
-#         )
-#         insights, tiles = [], []
-#         for _ in range(10):
-#             insight = Insight.objects.create(team=self.team)
-#             tile = DashboardTile.objects.create(dashboard=dashboard, insight=insight)
-#             insights.append(insight)
-#             tiles.append(tile)
+        access_source = self.user_access_control.get_access_source_for_object(other_dashboard)
+        assert access_source == AccessSource.DEFAULT
 
-#         user_permissions = self.permissions()
-#         user_permissions.set_preloaded_dashboard_tiles(tiles)
+    def test_access_source_prioritization(self):
+        """Test that access sources are prioritized correctly"""
+        # Create a dashboard by another user
+        other_dashboard = Dashboard.objects.create(team=self.team, created_by=self.other_user)
 
-#         with self.assertNumQueries(3):
-#             assert user_permissions.current_team.effective_membership_level is not None
-#             assert user_permissions.dashboard(dashboard).effective_restriction_level is not None
-#             assert user_permissions.dashboard(dashboard).can_restrict is not None
-#             assert user_permissions.dashboard(dashboard).effective_privilege_level is not None
-#             assert user_permissions.dashboard(dashboard).can_edit is not None
+        # Give explicit member access
+        self._create_access_control(
+            resource="dashboard",
+            resource_id=str(other_dashboard.id),
+            access_level="viewer",
+            organization_member=self.organization_membership,
+        )
 
-#             for insight in insights:
-#                 assert user_permissions.insight(insight).effective_restriction_level is not None
-#                 assert user_permissions.insight(insight).effective_privilege_level is not None
+        # Make user org admin (should override explicit access)
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
 
-#     def test_team_lookup_efficiency(self):
-#         user = User.objects.create(email="test2@posthog.com", distinct_id="test2")
-#         models = []
-#         for _ in range(10):
-#             organization, membership, team = Organization.objects.bootstrap(
-#                 user=user, team_fields={"access_control": True}
-#             )
-#             membership.level = OrganizationMembership.Level.ADMIN  # type: ignore
-#             membership.save()  # type: ignore
+        # Create a fresh UserAccessControl instance to pick up the new membership level
+        fresh_user_access_control = UserAccessControl(self.user, self.team)
 
-#             organization.available_product_features = [
-#                 {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": AvailableFeature.ADVANCED_PERMISSIONS},
-#             ]
-#             organization.save()
+        access_source = fresh_user_access_control.get_access_source_for_object(other_dashboard)
+        assert access_source == AccessSource.ORGANIZATION_ADMIN
 
-#             models.append((organization, membership, team))
+    def test_access_source_without_access_controls_supported(self):
+        """Test access source when access controls are not supported"""
+        # Disable access controls
+        self.organization.available_product_features = []
+        self.organization.save()
 
-#         user_permissions = UserPermissions(user)
-#         with self.assertNumQueries(3):
-#             assert len(user_permissions.team_ids_visible_for_user) == 10
+        # Create a dashboard by another user
+        other_dashboard = Dashboard.objects.create(team=self.team, created_by=self.other_user)
 
-#             for _, _, team in models:
-#                 assert user_permissions.team(team).effective_membership_level == OrganizationMembership.Level.ADMIN
+        access_source = self.user_access_control.get_access_source_for_object(other_dashboard)
+        assert access_source == AccessSource.DEFAULT
+
+    def test_access_source_returns_none_for_no_context(self):
+        """Test that access source returns None when there's no access context"""
+        # Create a user with no organization membership
+        user_without_org = User.objects.create_user(
+            email="noorg@example.com", password="password", first_name="No", last_name="Org"
+        )
+        uac = UserAccessControl(user=user_without_org, team=self.team)
+
+        access_source = uac.get_access_source_for_object(self.dashboard)
+        assert access_source is None
+
+    def test_access_source_with_team_object(self):
+        """Test access source for team objects"""
+        access_source = self.user_access_control.get_access_source_for_object(self.team)
+        assert access_source == AccessSource.DEFAULT  # Default for teams unless org admin
+
+        # Make user org admin
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        # Create a fresh UserAccessControl instance to pick up the new membership level
+        fresh_user_access_control = UserAccessControl(self.user, self.team)
+
+        access_source = fresh_user_access_control.get_access_source_for_object(self.team)
+        assert access_source == AccessSource.ORGANIZATION_ADMIN

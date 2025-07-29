@@ -32,16 +32,16 @@ class LicenseSerializer(serializers.ModelSerializer):
         user = self.context["request"].user
         if not validation.ok:
             posthoganalytics.capture(
-                user.distinct_id,
                 "license key activation failure",
+                distinct_id=user.distinct_id,
                 properties={"error": validation.content},
                 groups=groups(user.current_organization, user.current_team),
             )
             raise LicenseError(resp["code"], resp["detail"])
 
         posthoganalytics.capture(
-            user.distinct_id,
             "license key activation success",
+            distinct_id=user.distinct_id,
             properties={},
             groups=groups(user.current_organization, user.current_team),
         )

@@ -26,12 +26,10 @@ import {
 } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { AccessControlLevel, ProductKey } from '~/types'
+import { AccessControlLevel, PipelineTab, ProductKey, OnboardingStepKey } from '~/types'
 
 import { handleLoginRedirect } from './authentication/loginLogic'
 import { billingLogic } from './billing/billingLogic'
-import { SOURCE_DETAILS, sourceWizardLogic } from './data-warehouse/new/sourceWizardLogic'
-import { OnboardingStepKey } from './onboarding/onboardingLogic'
 import { organizationLogic } from './organizationLogic'
 import { preflightLogic } from './PreflightCheck/preflightLogic'
 import type { sceneLogicType } from './sceneLogicType'
@@ -62,6 +60,7 @@ const pathPrefixesOnboardingNotRequiredFor = [
     urls.debugHog(),
     urls.debugQuery(),
     urls.activity(),
+    urls.oauthAuthorize(),
 ]
 
 export const sceneLogic = kea<sceneLogicType>([
@@ -73,16 +72,7 @@ export const sceneLogic = kea<sceneLogicType>([
     path(['scenes', 'sceneLogic']),
     connect(() => ({
         logic: [router, userLogic, preflightLogic],
-        actions: [
-            router,
-            ['locationChanged'],
-            commandBarLogic,
-            ['setCommandBar'],
-            inviteLogic,
-            ['hideInviteModal'],
-            sourceWizardLogic,
-            ['selectConnector', 'handleRedirect', 'setStep'],
-        ],
+        actions: [router, ['locationChanged'], commandBarLogic, ['setCommandBar'], inviteLogic, ['hideInviteModal']],
         values: [billingLogic, ['billing'], organizationLogic, ['organizationBeingDeleted']],
     })),
     actions({
@@ -208,6 +198,18 @@ export const sceneLogic = kea<sceneLogicType>([
         params: [(s) => [s.sceneParams], (sceneParams): Record<string, string> => sceneParams.params || {}],
         searchParams: [(s) => [s.sceneParams], (sceneParams): Record<string, any> => sceneParams.searchParams || {}],
         hashParams: [(s) => [s.sceneParams], (sceneParams): Record<string, any> => sceneParams.hashParams || {}],
+        productFromUrl: [
+            () => [router.selectors.location],
+            (location: Location): ProductKey | null => {
+                const pathname = location.pathname
+                for (const [productKey, urls] of Object.entries(productUrlMapping)) {
+                    if (urls.some((url) => pathname.includes(url))) {
+                        return productKey as ProductKey
+                    }
+                }
+                return null
+            },
+        ],
     }),
     listeners(({ values, actions, props, selectors }) => ({
         setScene: ({ scene, scrollToTop }, _, __, previousState) => {
@@ -330,24 +332,7 @@ export const sceneLogic = kea<sceneLogicType>([
                                     `Onboarding not completed for ${productKeyFromUrl}, redirecting to onboarding intro`
                                 )
 
-                                if (
-                                    scene === Scene.DataWarehouseSourceNew &&
-                                    params.searchParams.kind == 'hubspot' &&
-                                    params.searchParams.code
-                                ) {
-                                    actions.selectConnector(SOURCE_DETAILS['Hubspot'])
-                                    actions.handleRedirect(params.searchParams.kind, {
-                                        code: params.searchParams.code,
-                                    })
-                                    actions.setStep(2)
-                                    router.actions.replace(
-                                        urls.onboarding(productKeyFromUrl, OnboardingStepKey.LINK_DATA)
-                                    )
-                                } else {
-                                    router.actions.replace(
-                                        urls.onboarding(productKeyFromUrl, OnboardingStepKey.INSTALL)
-                                    )
-                                }
+                                router.actions.replace(urls.onboarding(productKeyFromUrl, OnboardingStepKey.INSTALL))
                                 return
                             }
                         }

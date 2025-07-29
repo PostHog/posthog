@@ -83,7 +83,7 @@ class TestOrganizationInvite(BaseTest):
 
         # Verify the access control has been created correctly
         access_control = AccessControl.objects.filter(
-            team=team, resource="team", resource_id=str(team.id), organization_member=org_membership
+            team=team, resource="project", resource_id=str(team.id), organization_member=org_membership
         ).first()
         if not access_control:
             raise Exception("Access control not found")
@@ -117,7 +117,7 @@ class TestOrganizationInvite(BaseTest):
 
         # Verify the access control has been created with member level
         access_control = AccessControl.objects.filter(
-            team=team, resource="team", resource_id=str(team.id), organization_member=org_membership
+            team=team, resource="project", resource_id=str(team.id), organization_member=org_membership
         ).first()
 
         if not access_control:
@@ -165,7 +165,7 @@ class TestOrganizationInvite(BaseTest):
 
         # Verify the access control has been created correctly for the new team
         access_control = AccessControl.objects.filter(
-            team=new_team, resource="team", resource_id=str(new_team.id), organization_member=org_membership
+            team=new_team, resource="project", resource_id=str(new_team.id), organization_member=org_membership
         ).first()
         if not access_control:
             raise Exception("Access control not found")
@@ -225,3 +225,31 @@ class TestOrganizationInvite(BaseTest):
                 "organization_id": self.organization.id,
             }
         )
+
+    def test_invite_use_without_private_project_access(self):
+        """Test using an invite without private project access returns early"""
+        # Create a user who will use the invite
+        user = User.objects.create_user(email="no_access@posthog.com", password="password", first_name="first_name")
+
+        # Create an invite without private project access
+        invite = OrganizationInvite.objects.create(
+            organization=self.organization,
+            target_email="no_access@posthog.com",
+            private_project_access=None,
+        )
+
+        # Use the invite
+        invite.use(user, prevalidated=True)
+
+        # Verify the user has been added to the organization
+        org_membership = OrganizationMembership.objects.filter(organization=self.organization, user=user).first()
+        self.assertIsNotNone(org_membership)
+
+        # Verify no explicit team memberships were created
+        self.assertEqual(ExplicitTeamMembership.objects.filter(parent_membership=org_membership).count(), 0)
+
+        # Verify no access controls were created
+        self.assertEqual(AccessControl.objects.filter(organization_member=org_membership).count(), 0)
+
+        # Verify the invite has been deleted
+        self.assertFalse(OrganizationInvite.objects.filter(target_email="no_access@posthog.com").exists())

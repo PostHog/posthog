@@ -6,6 +6,7 @@ import datetime as dt
 import gzip
 import hashlib
 import json
+from django.urls import URLPattern, re_path
 import orjson
 import os
 import re
@@ -14,7 +15,7 @@ import string
 import time
 import uuid
 import zlib
-from collections.abc import Generator, Mapping
+from collections.abc import Callable, Generator, Mapping
 from contextlib import contextmanager
 from enum import Enum
 from functools import lru_cache, wraps
@@ -78,23 +79,6 @@ logger = structlog.get_logger(__name__)
 
 # https://stackoverflow.com/questions/4060221/how-to-reliably-open-a-file-in-the-same-directory-as-a-python-script
 __location__ = os.path.realpath(os.path.join(os.getcwd(), os.path.dirname(__file__)))
-
-
-def format_label_date(date: datetime.datetime, interval: str = "default") -> str:
-    date_formats = {
-        "default": "%-d-%b-%Y",
-        "minute": "%-d-%b %H:%M",
-        "hour": "%-d-%b %H:%M",
-        "week": "%-d-%b – %-d-%b",
-        "month": "%b %Y",
-    }
-    labels_format = date_formats.get(interval, date_formats["default"])
-
-    if interval == "week":
-        end_date = date + datetime.timedelta(days=6)
-        return f"{date.strftime('%-d-%b')} – {end_date.strftime('%-d-%b')}"
-
-    return date.strftime(labels_format)
 
 
 class PotentialSecurityProblemException(Exception):
@@ -363,6 +347,19 @@ def render_template(
     if settings.DEBUG and not settings.TEST:
         context["debug"] = True
         context["git_branch"] = get_git_branch()
+        # Add vite dev scripts for development only when explicitly using Vite
+        if not settings.E2E_TESTING and os.environ.get("POSTHOG_USE_VITE"):
+            context["vite_dev_scripts"] = """
+    <script type="module">
+        import RefreshRuntime from 'http://localhost:8234/@react-refresh'
+        RefreshRuntime.injectIntoGlobalHook(window)
+        window.$RefreshReg$ = () => {}
+        window.$RefreshSig$ = () => (type) => type
+        window.__vite_plugin_react_preamble_installed__ = true
+    </script>
+    <!-- Vite development server -->
+    <script type="module" src="http://localhost:8234/@vite/client"></script>
+    <script type="module" src="http://localhost:8234/src/index.tsx"></script>"""
 
     context["js_posthog_ui_host"] = ""
 
@@ -787,7 +784,7 @@ def load_data_from_request(request):
         if data:
             KLUDGES_COUNTER.labels(kludge="data_in_get_param").inc()
 
-    # add the data in sentry's scope in case there's an exception
+    # add the data in the scope in case there's an exception
     with posthoganalytics.new_context():
         if isinstance(data, dict):
             posthoganalytics.tag("data", data)
@@ -1193,6 +1190,14 @@ def str_to_bool(value: Any) -> bool:
     return str(value).lower() in ("y", "yes", "t", "true", "on", "1")
 
 
+def safe_int(value: Any, default: Optional[int] = None) -> Optional[int]:
+    """Safely convert a value to integer, returning default if conversion fails."""
+    try:
+        return int(value)
+    except (ValueError, TypeError):
+        return default
+
+
 def get_helm_info_env() -> dict:
     try:
         return json.loads(os.getenv("HELM_INSTALL_INFO", "{}"))
@@ -1591,3 +1596,9 @@ def to_json(obj: dict) -> bytes:
     json_string = orjson.dumps(obj, default=JSONEncoder().default, option=option)
 
     return json_string
+
+
+def opt_slash_path(route: str, view: Callable, name: Optional[str] = None) -> URLPattern:
+    """Catches path with or without trailing slash, taking into account query param and hash."""
+    # Ignoring the type because while name can be optional on re_path, mypy doesn't agree
+    return re_path(rf"^{route}/?(?:[?#].*)?$", view, name=name)  # type: ignore

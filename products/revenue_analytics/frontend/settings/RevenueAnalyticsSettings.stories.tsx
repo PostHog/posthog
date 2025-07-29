@@ -1,23 +1,19 @@
-import { Meta } from '@storybook/react'
-import { router } from 'kea-router'
+import { Meta, StoryObj } from '@storybook/react'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { useEffect } from 'react'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
 const meta: Meta = {
+    component: App,
     title: 'Scenes-App/Data Management',
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',
         featureFlags: [FEATURE_FLAGS.REVENUE_ANALYTICS],
+        pageUrl: urls.revenueSettings(),
     },
 }
 export default meta
 
-export function RevenueAnalyticsSettings(): JSX.Element {
-    useEffect(() => {
-        router.actions.push(urls.revenueSettings())
-    }, [])
-    return <App />
-}
+type Story = StoryObj<typeof meta>
+export const RevenueAnalyticsSettings: Story = {}

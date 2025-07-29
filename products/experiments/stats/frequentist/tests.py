@@ -1,7 +1,8 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 
-from .statistics import AnyStatistic, StatisticError, DifferenceType
+from ..shared.statistics import AnyStatistic, StatisticError
+from ..shared.enums import DifferenceType
 from .utils import (
     calculate_point_estimate,
     calculate_variance_pooled,

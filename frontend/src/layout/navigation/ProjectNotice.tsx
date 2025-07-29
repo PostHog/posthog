@@ -1,6 +1,5 @@
 import { IconGear, IconPlus } from '@posthog/icons'
 import { Spinner } from '@posthog/lemon-ui'
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { dayjs } from 'lib/dayjs'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
@@ -8,15 +7,15 @@ import { LemonBannerAction } from 'lib/lemon-ui/LemonBanner/LemonBanner'
 import { Link } from 'lib/lemon-ui/Link'
 import { useEffect, useState } from 'react'
 import { verifyEmailLogic } from 'scenes/authentication/signup/verify-email/verifyEmailLogic'
-import { OnboardingStepKey } from 'scenes/onboarding/onboardingLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { ProductKey } from '~/types'
+import { OnboardingStepKey, ProductKey } from '~/types'
 
+import { cn } from 'lib/utils/css-classes'
 import { navigationLogic, ProjectNoticeVariant } from './navigationLogic'
 
 interface ProjectNoticeBlueprint {
@@ -53,7 +52,7 @@ function CountDown({ datetime, callback }: { datetime: dayjs.Dayjs; callback?: (
     return <>{countdown}</>
 }
 
-export function ProjectNotice(): JSX.Element | null {
+export function ProjectNotice({ className }: { className?: string }): JSX.Element | null {
     const { projectNoticeVariant } = useValues(navigationLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { logout, loadUser } = useActions(userLogic)
@@ -61,7 +60,7 @@ export function ProjectNotice(): JSX.Element | null {
     const { closeProjectNotice } = useActions(navigationLogic)
     const { showInviteModal } = useActions(inviteLogic)
     const { requestVerificationLink } = useActions(verifyEmailLogic)
-    const { sceneConfig } = useValues(sceneLogic)
+    const { sceneConfig, productFromUrl } = useValues(sceneLogic)
 
     if (!projectNoticeVariant) {
         return null
@@ -96,7 +95,7 @@ export function ProjectNotice(): JSX.Element | null {
                 <>
                     This project has no events yet. Go to the{' '}
                     <Link
-                        to={urls.onboarding(ProductKey.PRODUCT_ANALYTICS, OnboardingStepKey.INSTALL)}
+                        to={urls.onboarding(productFromUrl ?? ProductKey.PRODUCT_ANALYTICS, OnboardingStepKey.INSTALL)}
                         data-attr="real_project_with_no_events-ingestion_link"
                     >
                         onboarding wizard
@@ -109,7 +108,7 @@ export function ProjectNotice(): JSX.Element | null {
                 </>
             ),
             action: {
-                to: urls.onboarding(ProductKey.PRODUCT_ANALYTICS, OnboardingStepKey.INSTALL),
+                to: urls.onboarding(productFromUrl ?? ProductKey.PRODUCT_ANALYTICS, OnboardingStepKey.INSTALL),
                 'data-attr': 'demo-warning-cta',
                 icon: <IconGear />,
                 children: 'Go to wizard',
@@ -185,7 +184,7 @@ export function ProjectNotice(): JSX.Element | null {
     return (
         <LemonBanner
             type={relevantNotice.type || 'info'}
-            className={clsx('my-4', requiresHorizontalMargin && 'mx-4')}
+            className={cn('my-4', requiresHorizontalMargin && 'mx-4', className)}
             action={relevantNotice.action}
             onClose={relevantNotice.closeable ? () => closeProjectNotice(projectNoticeVariant) : undefined}
         >

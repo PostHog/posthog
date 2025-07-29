@@ -4,7 +4,7 @@ import { Chart, ChartType, defaults, LegendOptions } from 'lib/Chart'
 import { insightAlertsLogic } from 'lib/components/Alerts/insightAlertsLogic'
 import { DateDisplay } from 'lib/components/DateDisplay'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { capitalizeFirstLetter, isMultiSeriesFormula } from 'lib/utils'
+import { capitalizeFirstLetter, isMultiSeriesFormula, hexToRGBA } from 'lib/utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { datasetToActorsQuery } from 'scenes/trends/viz/datasetToActorsQuery'
 
@@ -14,6 +14,8 @@ import { InsightEmptyState } from '../../insights/EmptyStates'
 import { LineGraph } from '../../insights/views/LineGraph/LineGraph'
 import { openPersonsModal } from '../persons-modal/PersonsModal'
 import { trendsDataLogic } from '../trendsDataLogic'
+import { teamLogic } from 'scenes/teamLogic'
+import { ciRanges } from 'lib/statistics'
 
 export function ActionsLineGraph({
     inSharedMode = false,
@@ -35,14 +37,19 @@ export function ActionsLineGraph({
         trendsFilter,
         isLifecycle,
         isStickiness,
-        isDataWarehouseSeries,
+        hasDataWarehouseSeries,
         showLegend,
         hiddenLegendIndexes,
         querySource,
         yAxisScaleType,
         showMultipleYAxes,
         goalLines,
+        insightData,
+        showConfidenceIntervals,
+        confidenceLevel,
+        getTrendsColor,
     } = useValues(trendsDataLogic(insightProps))
+    const { weekStartDay, timezone } = useValues(teamLogic)
 
     const { alertThresholdLines } = useValues(
         insightAlertsLogic({ insightId: insight.id!, insightLogicProps: insightProps })
@@ -80,12 +87,57 @@ export function ActionsLineGraph({
         return <InsightEmptyState heading={context?.emptyStateHeading} detail={context?.emptyStateDetail} />
     }
 
+    const finalDatasets = indexedResults.flatMap((originalDataset, index) => {
+        const yAxisID = showMultipleYAxes && index > 0 ? `y${index}` : 'y'
+        const mainSeries = { ...originalDataset, yAxisID }
+
+        if (showConfidenceIntervals && yAxisScaleType !== 'log10') {
+            const color = getTrendsColor(originalDataset)
+            const [lower, upper] = ciRanges(originalDataset.data, confidenceLevel / 100)
+
+            const lowerCIBound = {
+                ...originalDataset,
+                label: `${originalDataset.label} (CI Lower)`,
+                action: {
+                    ...originalDataset.action,
+                    name: `${originalDataset.label} (CI Lower)`,
+                },
+                data: lower,
+                borderColor: color,
+                backgroundColor: 'transparent',
+                pointRadius: 0,
+                borderWidth: 0,
+                hideTooltip: true,
+                yAxisID,
+            }
+            const upperCIBound = {
+                ...originalDataset,
+                label: `${originalDataset.label} (CI Upper)`,
+                action: {
+                    ...originalDataset.action,
+                    name: `${originalDataset.label} (CI Upper)`,
+                },
+                data: upper,
+                borderColor: color,
+                backgroundColor: hexToRGBA(color, 0.2),
+                pointRadius: 0,
+                borderWidth: 0,
+                fill: '-1',
+                hideTooltip: true,
+                yAxisID,
+            }
+
+            return [lowerCIBound, upperCIBound, mainSeries]
+        }
+        return [mainSeries]
+    })
+
     return (
         <LineGraph
             data-attr="trend-line-graph"
             type={display === ChartDisplayType.ActionsBar || isLifecycle ? GraphType.Bar : GraphType.Line}
             hiddenLegendIndexes={hiddenLegendIndexes}
-            datasets={indexedResults}
+            datasets={finalDatasets}
             labels={labels}
             inSharedMode={inSharedMode}
             labelGroupType={labelGroupType}
@@ -111,16 +163,18 @@ export function ActionsLineGraph({
                       }
                     : {
                           groupTypeLabel: context?.groupTypeLabel,
+                          filter: (s) => !s.hideTooltip,
                       }
             }
             isInProgress={!isStickiness && incompletenessOffsetFromEnd < 0}
             isArea={display === ChartDisplayType.ActionsAreaGraph}
             incompletenessOffsetFromEnd={incompletenessOffsetFromEnd}
             legend={legend}
+            hideAnnotations={inSharedMode}
             goalLines={[...alertThresholdLines, ...(goalLines || [])]}
             onClick={
                 context?.onDataPointClick ||
-                (showPersonsModal && !isMultiSeriesFormula(formula) && !isDataWarehouseSeries)
+                (showPersonsModal && !isMultiSeriesFormula(formula) && !hasDataWarehouseSeries)
                     ? (payload) => {
                           const { index, points } = payload
 
@@ -152,7 +206,13 @@ export function ActionsLineGraph({
                               (label: string) => (
                                   <>
                                       {label} on{' '}
-                                      <DateDisplay interval={interval || 'day'} date={day?.toString() || ''} />
+                                      <DateDisplay
+                                          interval={interval || 'day'}
+                                          resolvedDateRange={insightData?.resolved_date_range}
+                                          timezone={timezone}
+                                          weekStartDay={weekStartDay}
+                                          date={day?.toString() || ''}
+                                      />
                                   </>
                               )
                           )

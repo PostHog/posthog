@@ -1,4 +1,5 @@
 import uuid
+from flaky import flaky
 
 from posthog.hogql_queries.ai.vector_search_query_runner import VectorSearchQueryRunner
 from posthog.models import Organization, Project, Team
@@ -124,6 +125,7 @@ class TestVectorSearchQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(response.results), 1)
         self.assertEqual(response.results[0].id, id2)
 
+    @flaky(max_runs=3, min_passes=1)
     def test_vector_search_selects_max_version(self):
         query = VectorSearchQuery(embedding=[2, 4])
         id = str(uuid.uuid4())

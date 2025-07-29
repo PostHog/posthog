@@ -60,7 +60,7 @@ export function Elements(): JSX.Element {
                 }}
             >
                 <ScrollDepth />
-                {activeToolbarMode === 'heatmap' && <HeatmapCanvas />}
+                {activeToolbarMode === 'heatmap' && <HeatmapCanvas context="toolbar" />}
                 {highlightElementMeta?.rect ? <FocusRect rect={highlightElementMeta.rect} /> : null}
 
                 {elementsToDisplay.map(({ rect, element, apparentZIndex }, index) => {

@@ -1,4 +1,4 @@
-import { actions, connect, kea, listeners, path, reducers } from 'kea'
+import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SettingsLogicProps } from 'scenes/settings/types'
 
@@ -10,11 +10,12 @@ import type { sidePanelSettingsLogicType } from './sidePanelSettingsLogicType'
 export const sidePanelSettingsLogic = kea<sidePanelSettingsLogicType>([
     path(['scenes', 'navigation', 'sidepanel', 'sidePanelSettingsLogic']),
     connect(() => ({
-        values: [featureFlagLogic, ['featureFlags']],
+        values: [featureFlagLogic, ['featureFlags'], sidePanelStateLogic, ['selectedTab', 'sidePanelOpen']],
         actions: [sidePanelStateLogic, ['openSidePanel', 'closeSidePanel']],
     })),
 
     actions({
+        closeSettingsPanel: true,
         openSettingsPanel: (settingsLogicProps: SettingsLogicProps) => ({
             settingsLogicProps,
         }),
@@ -34,13 +35,24 @@ export const sidePanelSettingsLogic = kea<sidePanelSettingsLogicType>([
                 setSettings: (_, { settingsLogicProps }) => {
                     return settingsLogicProps
                 },
+                closeSettingsPanel: () => ({}),
             },
         ],
     })),
 
+    selectors({
+        isOpen: [
+            (s) => [s.sidePanelOpen, s.selectedTab],
+            (sidePanelOpen, selectedTab) => sidePanelOpen && selectedTab === SidePanelTab.Settings,
+        ],
+    }),
+
     listeners(({ actions }) => ({
         openSettingsPanel: () => {
             actions.openSidePanel(SidePanelTab.Settings)
+        },
+        closeSettingsPanel: () => {
+            actions.closeSidePanel(SidePanelTab.Settings)
         },
     })),
 ])

@@ -108,6 +108,9 @@ pub struct Frame {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub resolve_failure: Option<String>, // If we failed to resolve the frame, why?
 
+    #[serde(default)] // Defaults to false
+    pub synthetic: bool, // Some SDKs construct stack traces, or partially reconstruct them. This flag indicates whether the frame is synthetic or not.
+
     // Random extra/internal data we want to tag onto frames, e.g. the raw input. For debugging
     // purposes, all production code should assume this is None
     #[serde(skip_serializing_if = "Option::is_none")]

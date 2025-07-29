@@ -1,7 +1,8 @@
 import builtins
 import json
 from collections.abc import Callable
-from datetime import datetime
+from datetime import datetime, UTC
+from requests import HTTPError
 from typing import Any, List, Optional, TypeVar, Union, cast  # noqa: UP035
 
 from django.db.models import Prefetch
@@ -9,6 +10,7 @@ from django.shortcuts import get_object_or_404
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiExample, OpenApiParameter
 from loginas.utils import is_impersonated_session
+from posthog.api.insight import capture_legacy_api_call
 from prometheus_client import Counter
 from rest_framework import request, response, serializers, viewsets
 from rest_framework.exceptions import MethodNotAllowed, NotFound, ValidationError
@@ -429,7 +431,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         key = request.GET.get("key")
         value = request.GET.get("value")
         flattened = []
-        if key:
+        if key and not key.startswith("$virt"):
             result = self._get_person_property_values_for_key(key, value)
 
             for value, count in result:
@@ -551,20 +553,44 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def delete_property(self, request: request.Request, pk=None, **kwargs) -> response.Response:
         person: Person = get_pk_or_uuid(Person.objects.filter(team_id=self.team_id), pk).get()
 
-        capture_internal(
-            distinct_id=person.distinct_ids[0],
-            ip=None,
-            site_url=None,
-            token=self.team.api_token,
-            now=datetime.now(),
-            sent_at=None,
-            event={
-                "event": "$delete_person_property",
-                "properties": {"$unset": [request.data["$unset"]]},
-                "distinct_id": person.distinct_ids[0],
-                "timestamp": datetime.now().isoformat(),
-            },
-        )
+        event_name = "$delete_person_property"
+        distinct_id = person.distinct_ids[0]
+        timestamp = datetime.now(UTC)
+        properties = {
+            "$unset": [request.data["$unset"]],
+        }
+
+        try:
+            resp = capture_internal(
+                token=self.team.api_token,
+                event_name=event_name,
+                event_source="person_viewset",
+                distinct_id=distinct_id,
+                timestamp=timestamp,
+                properties=properties,
+                process_person_profile=True,
+            )
+            resp.raise_for_status()
+
+        # HTTP error - if applicable, thrown after retires are exhausted
+        except HTTPError as he:
+            return response.Response(
+                {
+                    "success": False,
+                    "detail": "Unable to delete property",
+                },
+                status=he.response.status_code,
+            )
+
+        # catches event payload errors (CaptureInternalError) and misc. (timeout etc.)
+        except Exception:
+            return response.Response(
+                {
+                    "success": False,
+                    "detail": f"Unable to delete property",
+                },
+                status=400,
+            )
 
         log_activity(
             organization_id=self.organization.id,
@@ -654,20 +680,28 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def _set_properties(self, properties, user):
         instance = self.get_object()
-        capture_internal(
-            distinct_id=instance.distinct_ids[0],
-            ip=None,
-            site_url=None,
-            token=instance.team.api_token,
-            now=datetime.now(),
-            sent_at=None,
-            event={
-                "event": "$set",
-                "properties": {"$set": properties},
-                "distinct_id": instance.distinct_ids[0],
-                "timestamp": datetime.now().isoformat(),
-            },
-        )
+        distinct_id = instance.distinct_ids[0]
+        event_name = "$set"
+        timestamp = datetime.now(UTC)
+        properties = {
+            "$set": properties,
+        }
+
+        try:
+            resp = capture_internal(
+                token=instance.team.api_token,
+                event_name=event_name,
+                event_source="person_viewset",
+                distinct_id=distinct_id,
+                timestamp=timestamp,
+                properties=properties,
+                process_person_profile=True,
+            )
+            resp.raise_for_status()
+
+        # Failures in this codepath (old and new) are ignored here
+        except Exception:
+            pass
 
         if self.organization.id:  # should always be true, but mypy...
             log_activity(
@@ -703,6 +737,8 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     @action(methods=["GET", "POST"], detail=False)
     def funnel(self, request: request.Request, **kwargs) -> response.Response:
+        capture_legacy_api_call(request, self.team)
+
         if request.user.is_anonymous or not self.team:
             return response.Response(data=[])
 
@@ -732,6 +768,8 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     @action(methods=["GET"], detail=False)
     def trends(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
+        capture_legacy_api_call(request, self.team)
+
         if request.user.is_anonymous or not self.team:
             return response.Response(data=[])
 

@@ -1,8 +1,10 @@
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import {
+    RevenueAnalyticsArpuNode,
+    RevenueAnalyticsCustomerCountNode,
     RevenueAnalyticsGrowthRateNode,
-    RevenueAnalyticsInsightsNode,
     RevenueAnalyticsOverviewNode,
+    RevenueAnalyticsRevenueNode,
     RevenueAnalyticsTopCustomersNode,
 } from 'products/revenue_analytics/frontend/nodes'
 import { useEffect, useState } from 'react'
@@ -36,9 +38,11 @@ import {
     isDataVisualizationNode,
     isHogQuery,
     isInsightVizNode,
+    isRevenueAnalyticsArpuQuery,
+    isRevenueAnalyticsCustomerCountQuery,
     isRevenueAnalyticsGrowthRateQuery,
-    isRevenueAnalyticsInsightsQuery,
     isRevenueAnalyticsOverviewQuery,
+    isRevenueAnalyticsRevenueQuery,
     isRevenueAnalyticsTopCustomersQuery,
     isSavedInsightNode,
     isWebOverviewQuery,
@@ -153,13 +157,25 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
                 variablesOverride={variablesOverride}
             />
         )
-    } else if (isRevenueAnalyticsInsightsQuery(query)) {
+    } else if (isRevenueAnalyticsArpuQuery(query)) {
         component = (
-            <RevenueAnalyticsInsightsNode query={query} cachedResults={props.cachedResults} context={queryContext} />
+            <RevenueAnalyticsArpuNode query={query} cachedResults={props.cachedResults} context={queryContext} />
+        )
+    } else if (isRevenueAnalyticsCustomerCountQuery(query)) {
+        component = (
+            <RevenueAnalyticsCustomerCountNode
+                query={query}
+                cachedResults={props.cachedResults}
+                context={queryContext}
+            />
         )
     } else if (isRevenueAnalyticsOverviewQuery(query)) {
         component = (
             <RevenueAnalyticsOverviewNode query={query} cachedResults={props.cachedResults} context={queryContext} />
+        )
+    } else if (isRevenueAnalyticsRevenueQuery(query)) {
+        component = (
+            <RevenueAnalyticsRevenueNode query={query} cachedResults={props.cachedResults} context={queryContext} />
         )
     } else if (isRevenueAnalyticsTopCustomersQuery(query)) {
         component = (

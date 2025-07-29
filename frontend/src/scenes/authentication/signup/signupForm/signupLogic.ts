@@ -1,6 +1,6 @@
 import { lemonToast } from '@posthog/lemon-ui'
 import { isString } from '@tiptap/core'
-import { actions, connect, kea, path, reducers, selectors } from 'kea'
+import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { router, urlToAction } from 'kea-router'
 import api from 'lib/api'
@@ -40,17 +40,25 @@ export const signupLogic = kea<signupLogicType>([
     connect(() => ({
         values: [preflightLogic, ['preflight'], featureFlagLogic, ['featureFlags']],
     })),
-    actions({
+    actions(() => ({
         setPanel: (panel: number) => ({ panel }),
-    }),
-    reducers({
+        normalizeEmailWithDelay: (email: string) => ({ email }),
+        setEmailNormalized: (wasNormalized: boolean) => ({ wasNormalized }),
+    })),
+    reducers(() => ({
         panel: [
             0,
             {
                 setPanel: (_, { panel }) => panel,
             },
         ],
-    }),
+        emailWasNormalized: [
+            false,
+            {
+                setEmailNormalized: (_, { wasNormalized }) => wasNormalized,
+            },
+        ],
+    })),
     forms(({ actions, values }) => ({
         signupPanel1: {
             alwaysShowErrors: true,
@@ -108,12 +116,23 @@ export const signupLogic = kea<signupLogicType>([
 
                     location.href = res.redirect_url || '/'
                 } catch (e) {
-                    actions.setSignupPanel2ManualErrors({
-                        generic: {
-                            code: (e as Record<string, any>).code,
-                            detail: (e as Record<string, any>).detail,
-                        },
-                    })
+                    const error = e as Record<string, any>
+
+                    if (error.code === 'throttled') {
+                        actions.setSignupPanel2ManualErrors({
+                            generic: {
+                                code: error.code,
+                                detail: 'Too many signup attempts. Please try again later.',
+                            },
+                        })
+                    } else {
+                        actions.setSignupPanel2ManualErrors({
+                            generic: {
+                                code: error.code,
+                                detail: error.detail,
+                            },
+                        })
+                    }
                     throw e
                 }
             },
@@ -126,6 +145,12 @@ export const signupLogic = kea<signupLogicType>([
                 return validatePassword(password)
             },
         ],
+        emailCaseNotice: [
+            (s) => [s.emailWasNormalized],
+            (emailWasNormalized): string | undefined => {
+                return emailWasNormalized ? '⚠ Your email was automatically converted to lowercase' : undefined
+            },
+        ],
         loginUrl: [
             () => [router.selectors.searchParams],
             (searchParams: Record<string, string>) => {
@@ -134,6 +159,24 @@ export const signupLogic = kea<signupLogicType>([
             },
         ],
     }),
+    listeners(({ actions }) => ({
+        normalizeEmailWithDelay: async ({ email }, breakpoint) => {
+            await breakpoint(500)
+
+            const hasUppercase = /[A-Z]/.test(email)
+            if (hasUppercase) {
+                const normalizedEmail = email.toLowerCase()
+                actions.setSignupPanel1Value('email', normalizedEmail)
+                actions.setEmailNormalized(true)
+            }
+        },
+        setSignupPanel1Value: ({ name, value }) => {
+            if (name.toString() === 'email' && typeof value === 'string') {
+                actions.setEmailNormalized(false)
+                actions.normalizeEmailWithDelay(value)
+            }
+        },
+    })),
     urlToAction(({ actions, values }) => ({
         '/signup': (_, { email, maintenanceRedirect }) => {
             if (values.preflight?.cloud) {
@@ -154,7 +197,7 @@ export const signupLogic = kea<signupLogicType>([
                     regionOverrideFlag !== values.preflight?.region?.toLowerCase()
                 ) {
                     window.location.href = `https://${
-                        CLOUD_HOSTNAMES[regionOverrideFlag.toUpperCase()]
+                        CLOUD_HOSTNAMES[regionOverrideFlag.toUpperCase() as keyof typeof CLOUD_HOSTNAMES]
                     }${urls.signup()}?maintenanceRedirect=true`
                 }
                 if (maintenanceRedirect && isRegionOverrideValid) {

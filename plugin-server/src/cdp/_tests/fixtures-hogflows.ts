@@ -1,45 +1,17 @@
-import { randomUUID } from 'crypto'
-
-import { HogFlow } from '~/src/schema/hogflow'
+import { HogFlow } from '~/schema/hogflow'
 import { insertRow } from '~/tests/helpers/sql'
 
-import { Team } from '../../types'
 import { PostgresRouter } from '../../utils/db/postgres'
 import { UUIDT } from '../../utils/utils'
-import { CyclotronJobInvocationHogFlow, HogFlowInvocationContext } from '../types'
+import { CyclotronJobInvocationHogFlow, CyclotronPerson, HogFlowInvocationContext } from '../types'
+import { convertToHogFunctionFilterGlobal } from '../utils/hog-function-filtering'
+import { createHogExecutionGlobals } from './fixtures'
 
-export const createHogFlow = (hogFlow: Partial<HogFlow>) => {
-    const item: HogFlow = {
-        id: randomUUID(),
-        version: 1,
-        name: 'Hog Flow',
-        team_id: 1,
-        status: 'active',
-        trigger: {
-            type: 'event',
-            filters: {},
-        },
-        exit_condition: 'exit_on_conversion',
-        edges: [],
-        actions: [],
-        ...hogFlow,
-    }
-
-    return item
-}
-
-export const insertHogFlow = async (
-    postgres: PostgresRouter,
-    team_id: Team['id'],
-    hogFlow: Partial<HogFlow> = {}
-): Promise<HogFlow> => {
+export const insertHogFlow = async (postgres: PostgresRouter, hogFlow: HogFlow): Promise<HogFlow> => {
     // This is only used for testing so we need to override some values
 
     const res = await insertRow(postgres, 'posthog_hogflow', {
-        ...createHogFlow({
-            ...hogFlow,
-            team_id: team_id,
-        }),
+        ...hogFlow,
         description: '',
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
@@ -52,18 +24,33 @@ export const createHogFlowInvocationContext = (
     data: Partial<HogFlowInvocationContext> = {}
 ): HogFlowInvocationContext => {
     return {
+        event: {
+            ...createHogExecutionGlobals().event,
+            ...data.event,
+        },
+        actionStepCount: 0,
         ...data,
     }
 }
 
 export const createExampleHogFlowInvocation = (
-    _hogFlow: Partial<HogFlow> = {},
-    _context: Partial<HogFlowInvocationContext> = {}
+    hogFlow: HogFlow,
+    _context: Partial<HogFlowInvocationContext> = {},
+    _person: CyclotronPerson | undefined = undefined
 ): CyclotronJobInvocationHogFlow => {
-    const hogFlow = createHogFlow(_hogFlow)
     // Add the source of the trigger to the globals
 
     const context = createHogFlowInvocationContext(_context)
+
+    const person: CyclotronPerson = {
+        id: 'person_id',
+        properties: {
+            name: 'John Doe',
+        },
+        name: '',
+        url: '',
+        ..._person,
+    }
 
     return {
         id: new UUIDT().toString(),
@@ -73,7 +60,13 @@ export const createExampleHogFlowInvocation = (
         teamId: hogFlow.team_id,
         functionId: hogFlow.id,
         hogFlow,
-        queue: 'hog',
+        person,
+        filterGlobals: convertToHogFunctionFilterGlobal({
+            event: context.event,
+            person,
+            groups: {},
+        }),
+        queue: 'hogflow',
         queuePriority: 0,
     }
 }

@@ -88,7 +88,7 @@ export interface InsightTypeMetadata {
 
 export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
     [NodeKind.CalendarHeatmapQuery]: {
-        name: 'Calendar Heatmap',
+        name: 'Calendar heatmap (BETA)',
         description: 'Visualize total or unique users broken down by day and hour.',
         icon: IconRetentionHeatmap,
         inMenu: true,
@@ -168,6 +168,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconCursor,
         inMenu: true,
     },
+    [NodeKind.SessionBatchEventsQuery]: {
+        name: 'Session Batch Events',
+        description: 'Batch query for events from multiple sessions.',
+        icon: IconCursor,
+        inMenu: false,
+    },
     [NodeKind.PersonsNode]: {
         name: 'Persons',
         description: 'List and explore your persons.',
@@ -189,6 +195,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
     [NodeKind.InsightActorsQueryOptions]: {
         name: 'Persons',
         description: 'Options for InsightActorsQuery.',
+        icon: IconPerson,
+        inMenu: false,
+    },
+    [NodeKind.StickinessActorsQuery]: {
+        name: 'Persons',
+        description: 'List of persons matching specified conditions, derived from an insight.',
         icon: IconPerson,
         inMenu: false,
     },
@@ -270,21 +282,33 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconHogQL,
         inMenu: true,
     },
+    [NodeKind.RevenueAnalyticsArpuQuery]: {
+        name: 'Revenue Analytics ARPU',
+        description: 'View revenue analytics ARPU data.',
+        icon: IconPiggyBank,
+        inMenu: true,
+    },
+    [NodeKind.RevenueAnalyticsCustomerCountQuery]: {
+        name: 'Revenue Analytics Customer Count',
+        description: 'View revenue analytics customer and subscription count.',
+        icon: IconPiggyBank,
+        inMenu: true,
+    },
     [NodeKind.RevenueAnalyticsGrowthRateQuery]: {
         name: 'Revenue Analytics Growth Rate',
         description: 'View revenue analytics growth rate.',
         icon: IconPiggyBank,
         inMenu: true,
     },
-    [NodeKind.RevenueAnalyticsInsightsQuery]: {
-        name: 'Revenue Analytics Insights',
-        description: 'View revenue analytics insights.',
-        icon: IconPiggyBank,
-        inMenu: true,
-    },
     [NodeKind.RevenueAnalyticsOverviewQuery]: {
         name: 'Revenue Analytics Overview',
         description: 'View revenue analytics overview.',
+        icon: IconPiggyBank,
+        inMenu: true,
+    },
+    [NodeKind.RevenueAnalyticsRevenueQuery]: {
+        name: 'Revenue Analytics Revenue',
+        description: 'View revenue analytics gross and MRR revenue.',
         icon: IconPiggyBank,
         inMenu: true,
     },
@@ -455,6 +479,11 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconPieChart,
         inMenu: false,
     },
+    [NodeKind.MarketingAnalyticsTableQuery]: {
+        name: 'Marketing Analytics Table',
+        icon: IconHogQL,
+        inMenu: false,
+    },
 }
 
 export const INSIGHT_TYPES_METADATA: Record<InsightType, InsightTypeMetadata> = {
@@ -539,7 +568,7 @@ export function NewInsightButton({ dataAttr }: NewInsightButtonProps): JSX.Eleme
             minAccessLevel={AccessControlLevel.Editor}
             userAccessLevel={getAppContext()?.resource_access_control?.[AccessControlResourceType.Insight]}
         >
-            New insight
+            New
         </AccessControlledLemonButton>
     )
 }
@@ -753,7 +782,7 @@ export function SavedInsights(): JSX.Element {
                 onChange={(tab) => setSavedInsightsFilters({ tab })}
                 tabs={[
                     { key: SavedInsightsTabs.All, label: 'All insights' },
-                    { key: SavedInsightsTabs.Yours, label: 'Your insights' },
+                    { key: SavedInsightsTabs.Yours, label: 'My insights' },
                     { key: SavedInsightsTabs.Favorites, label: 'Favorites' },
                     { key: SavedInsightsTabs.History, label: 'History' },
                     {

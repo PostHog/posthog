@@ -1,11 +1,14 @@
 import { DESTINATION_PLUGINS, TRANSFORMATION_PLUGINS } from '../legacy-plugins'
 import { SEGMENT_DESTINATIONS } from '../segment/segment-templates'
+import { HogFunctionTemplate, NativeTemplate } from '../types'
 import { allComingSoonTemplates } from './_destinations/coming-soon/coming-soon-destinations.template'
 import { template as googleAdsTemplate } from './_destinations/google_ads/google.template'
 import { template as linearTemplate } from './_destinations/linear/linear.template'
+import { template as nativeWebhook } from './_destinations/native-webhook/webhook.template'
 import { template as redditAdsTemplate } from './_destinations/reddit_ads/reddit.template'
 import { template as snapchatAdsTemplate } from './_destinations/snapchat_ads/snapchat.template'
 import { template as tiktokAdsTemplate } from './_destinations/tiktok_ads/tiktok.template'
+import { template as twilioTemplate } from './_destinations/twilio/twilio.template'
 import { template as webhookTemplate } from './_destinations/webhook/webhook.template'
 import { template as incomingWebhookTemplate } from './_sources/webhook/incoming_webhook.template'
 import { template as botDetectionTemplate } from './_transformations/bot-detection/bot-detection.template'
@@ -13,11 +16,12 @@ import { template as defaultTransformationTemplate } from './_transformations/de
 import { template as dropEventsTemplate } from './_transformations/drop-events/drop-events.template'
 import { template as filterPropertiesTemplate } from './_transformations/filter-properties/filter-properties.template'
 import { template as geoipTemplate } from './_transformations/geoip/geoip.template'
+import { template as hashPropertiesTemplate } from './_transformations/hash-properties/hash-properties.template'
 import { template as ipAnonymizationTemplate } from './_transformations/ip-anonymization/ip-anonymization.template'
 import { template as piiHashingTemplate } from './_transformations/pii-hashing/pii-hashing.template'
 import { template as removeNullPropertiesTemplate } from './_transformations/remove-null-properties/remove-null-properties.template'
 import { template as urlMaskingTemplate } from './_transformations/url-masking/url-masking.template'
-import { HogFunctionTemplate } from './types'
+import { template as urlNormalizationTemplate } from './_transformations/url-normalization/url-normalization.template'
 
 export const HOG_FUNCTION_TEMPLATES_COMING_SOON: HogFunctionTemplate[] = allComingSoonTemplates
 
@@ -28,6 +32,7 @@ export const HOG_FUNCTION_TEMPLATES_DESTINATIONS: HogFunctionTemplate[] = [
     linearTemplate,
     googleAdsTemplate,
     redditAdsTemplate,
+    twilioTemplate,
 ]
 
 export const HOG_FUNCTION_TEMPLATES_TRANSFORMATIONS: HogFunctionTemplate[] = [
@@ -40,7 +45,25 @@ export const HOG_FUNCTION_TEMPLATES_TRANSFORMATIONS: HogFunctionTemplate[] = [
     botDetectionTemplate,
     dropEventsTemplate,
     filterPropertiesTemplate,
+    hashPropertiesTemplate,
+    urlNormalizationTemplate,
 ]
+
+export const NATIVE_HOG_FUNCTIONS: NativeTemplate[] = [nativeWebhook].map((plugin) => ({
+    ...plugin,
+    code_language: 'javascript',
+    code: 'return event;',
+    inputs_schema: [
+        ...plugin.inputs_schema,
+        {
+            key: 'debug_mode',
+            label: 'Debug Mode',
+            type: 'boolean',
+            description: 'Will log configuration and request details',
+            default: false,
+        },
+    ],
+}))
 
 export const HOG_FUNCTION_TEMPLATES_SOURCES: HogFunctionTemplate[] = [incomingWebhookTemplate]
 
@@ -56,6 +79,11 @@ export const HOG_FUNCTION_TEMPLATES_TRANSFORMATIONS_DEPRECATED: HogFunctionTempl
     (x) => x.template
 )
 
+export const NATIVE_HOG_FUNCTIONS_BY_ID = NATIVE_HOG_FUNCTIONS.reduce((acc, plugin) => {
+    acc[plugin.id] = plugin
+    return acc
+}, {} as Record<string, NativeTemplate>)
+
 export const HOG_FUNCTION_TEMPLATES: HogFunctionTemplate[] = [
     ...HOG_FUNCTION_TEMPLATES_DESTINATIONS,
     ...HOG_FUNCTION_TEMPLATES_SEGMENT_DESTINATIONS,
@@ -64,4 +92,5 @@ export const HOG_FUNCTION_TEMPLATES: HogFunctionTemplate[] = [
     ...HOG_FUNCTION_TEMPLATES_TRANSFORMATIONS_DEPRECATED,
     ...HOG_FUNCTION_TEMPLATES_SOURCES,
     ...HOG_FUNCTION_TEMPLATES_COMING_SOON,
+    ...(NATIVE_HOG_FUNCTIONS as unknown as HogFunctionTemplate[]),
 ]

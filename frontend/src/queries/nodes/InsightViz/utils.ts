@@ -12,7 +12,7 @@ import {
     Node,
     NodeKind,
 } from '~/queries/schema/schema-general'
-import { isInsightQueryWithSeries } from '~/queries/utils'
+import { isInsightQueryWithSeries, setLatestVersionsOnQuery } from '~/queries/utils'
 import {
     ActionType,
     DashboardTile,
@@ -25,6 +25,7 @@ import {
 
 import { nodeKindToDefaultQuery } from '../InsightQuery/defaults'
 import { filtersToQueryNode } from '../InsightQuery/utils/filtersToQueryNode'
+import { ApiError } from 'lib/api'
 
 export const getAllEventNames = (query: InsightQueryNode, allActions: ActionType[]): string[] => {
     if (!isInsightQueryWithSeries(query)) {
@@ -114,10 +115,11 @@ export const queryFromFilters = (filters: Partial<FilterType>): InsightVizNode =
     source: filtersToQueryNode(filters),
 })
 
-export const queryFromKind = (kind: InsightNodeKind, filterTestAccountsDefault: boolean): InsightVizNode => ({
-    kind: NodeKind.InsightVizNode,
-    source: { ...nodeKindToDefaultQuery[kind], ...(filterTestAccountsDefault ? { filterTestAccounts: true } : {}) },
-})
+export const queryFromKind = (kind: InsightNodeKind, filterTestAccountsDefault: boolean): InsightVizNode =>
+    setLatestVersionsOnQuery({
+        kind: NodeKind.InsightVizNode,
+        source: { ...nodeKindToDefaultQuery[kind], ...(filterTestAccountsDefault ? { filterTestAccounts: true } : {}) },
+    })
 
 export const getDefaultQuery = (
     insightType: InsightType,
@@ -170,4 +172,16 @@ export const getQueryBasedDashboard = (
                 } as DashboardTile<QueryBasedInsightModel>)
         ),
     }
+}
+
+export const extractValidationError = (error: Error | Record<string, any> | null | undefined): string | null => {
+    if (error instanceof ApiError || (error && typeof error === 'object' && 'status' in error)) {
+        // We use 512 for query timeouts
+        // Async queries put the error message on data.error_message, while synchronous ones use detail
+        return error?.status === 400 || error?.status === 512
+            ? (error.detail || error.data?.error_message)?.replace('Try ', 'Try\u00A0') // Add unbreakable space for better line breaking
+            : null
+    }
+
+    return null
 }

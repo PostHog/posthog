@@ -3,7 +3,7 @@ import re
 import time
 from functools import lru_cache
 from typing import Optional
-
+from django.conf import settings
 from prometheus_client import Counter
 from rest_framework.throttling import SimpleRateThrottle, BaseThrottle, UserRateThrottle
 from rest_framework.request import Request
@@ -280,6 +280,21 @@ class UserOrEmailRateThrottle(SimpleRateThrottle):
         return self.cache_format % {"scope": self.scope, "ident": ident}
 
 
+class SignupIPThrottle(SimpleRateThrottle):
+    """
+    Rate limit signups by IP address to avoid a single IP address from creating too many accounts.
+    """
+
+    scope = "signup_ip"
+    rate = "5/day"
+
+    def get_cache_key(self, request, view):
+        from posthog.utils import get_ip_address
+
+        ip = get_ip_address(request)
+        return self.cache_format % {"scope": self.scope, "ident": ip}
+
+
 class BurstRateThrottle(PersonalApiKeyRateThrottle):
     # Throttle class that's applied on all endpoints (except for capture + decide)
     # Intended to block quick bursts of requests, per project
@@ -366,6 +381,16 @@ class APIQueriesSustainedThrottle(PersonalApiKeyRateThrottle):
     rate = "1200/hour"
 
 
+class WebAnalyticsAPIBurstThrottle(PersonalApiKeyRateThrottle):
+    scope = "web_analytics_api_burst"
+    rate = "240/minute"
+
+
+class WebAnalyticsAPISustainedThrottle(PersonalApiKeyRateThrottle):
+    scope = "web_analytics_api_sustained"
+    rate = "2400/hour"
+
+
 class UserPasswordResetThrottle(UserOrEmailRateThrottle):
     scope = "user_password_reset"
     rate = "6/day"
@@ -394,13 +419,16 @@ class UserEmailVerificationThrottle(UserOrEmailRateThrottle):
 
 class SetupWizardAuthenticationRateThrottle(UserRateThrottle):
     # Throttle class that is applied for authenticating the setup wizard
-    # This is more aggressive than other throttles because the wizard makes OpenAI calls
+    # This is more aggressive than other throttles because the wizard makes LLM calls
     scope = "wizard_authentication"
     rate = "20/day"
 
 
 class SetupWizardQueryRateThrottle(SimpleRateThrottle):
-    rate = "20/day"
+    def get_rate(self):
+        if settings.DEBUG:
+            return "1000/day"
+        return "20/day"
 
     # Throttle per wizard hash
     def get_cache_key(self, request, view):

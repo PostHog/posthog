@@ -5,6 +5,7 @@ import { NotFound } from 'lib/components/NotFound'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { useEffect } from 'react'
 import { experimentLogic } from 'scenes/experiments/experimentLogic'
+import { getExperimentStatus } from 'scenes/experiments/experimentsLogic'
 import { LegacyResultsQuery, ResultsTag, StatusTag } from 'scenes/experiments/ExperimentView/components'
 import { Info } from 'scenes/experiments/ExperimentView/Info'
 import { SummaryTable } from 'scenes/experiments/ExperimentView/SummaryTable'
@@ -18,9 +19,8 @@ import { INTEGER_REGEX_MATCH_GROUPS } from './utils'
 
 const Component = ({ attributes }: NotebookNodeProps<NotebookNodeExperimentAttributes>): JSX.Element => {
     const { id } = attributes
-    const { experiment, experimentLoading, experimentMissing, isExperimentRunning, legacyMetricResults } = useValues(
-        experimentLogic({ experimentId: id })
-    )
+    const { experiment, experimentLoading, experimentMissing, isExperimentRunning, legacyPrimaryMetricsResults } =
+        useValues(experimentLogic({ experimentId: id }))
     const { loadExperiment } = useActions(experimentLogic({ experimentId: id }))
     const { expanded } = useValues(notebookNodeLogic)
     const { insertAfter, setActions } = useActions(notebookNodeLogic)
@@ -41,7 +41,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeExperimentAttri
         return <NotFound object="experiment" />
     }
 
-    if (!legacyMetricResults) {
+    if (!legacyPrimaryMetricsResults) {
         return <></>
     }
 
@@ -55,7 +55,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeExperimentAttri
                     ) : (
                         <>
                             <span className="flex-1 font-semibold truncate">{experiment.name}</span>
-                            <StatusTag experiment={experiment} />
+                            <StatusTag status={getExperimentStatus(experiment)} />
                             <ResultsTag />
                         </>
                     )}
@@ -83,10 +83,13 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeExperimentAttri
                                 <div className="p-2">
                                     <SummaryTable metric={experiment.metrics[0]} />
                                     {/* TODO: Only show results if the metric is a trends or funnels query. Not supported yet with new query runner */}
-                                    {legacyMetricResults[0] &&
-                                        (legacyMetricResults[0].kind === 'ExperimentTrendsQuery' ||
-                                            legacyMetricResults[0].kind === 'ExperimentFunnelsQuery') && (
-                                            <LegacyResultsQuery result={legacyMetricResults[0]} showTable={true} />
+                                    {legacyPrimaryMetricsResults[0] &&
+                                        (legacyPrimaryMetricsResults[0].kind === 'ExperimentTrendsQuery' ||
+                                            legacyPrimaryMetricsResults[0].kind === 'ExperimentFunnelsQuery') && (
+                                            <LegacyResultsQuery
+                                                result={legacyPrimaryMetricsResults[0]}
+                                                showTable={true}
+                                            />
                                         )}
                                 </div>
                             </>

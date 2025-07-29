@@ -54,6 +54,7 @@ class Dashboard(FileSystemSyncMixin, RootTeamMixin, models.Model):
     created_by = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
     deleted = models.BooleanField(default=False)
     last_accessed_at = models.DateTimeField(blank=True, null=True)
+    last_refresh = models.DateTimeField(blank=True, null=True)
     filters = models.JSONField(default=dict)
     variables = models.JSONField(default=dict, null=True, blank=True)
     breakdown_colors = models.JSONField(default=list, null=True, blank=True)

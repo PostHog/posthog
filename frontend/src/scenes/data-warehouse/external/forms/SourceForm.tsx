@@ -1,13 +1,22 @@
-import { LemonDivider, LemonFileInput, LemonInput, LemonSelect, LemonSwitch, LemonTextArea } from '@posthog/lemon-ui'
+import {
+    LemonDivider,
+    LemonFileInput,
+    LemonInput,
+    LemonSelect,
+    LemonSkeleton,
+    LemonSwitch,
+    LemonTextArea,
+} from '@posthog/lemon-ui'
 import { FieldName, Form, Group } from 'kea-forms'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import React, { useEffect } from 'react'
 
-import { SourceConfig, SourceFieldConfig } from '~/types'
-
-import { SOURCE_DETAILS, sourceWizardLogic } from '../../new/sourceWizardLogic'
+import { sourceWizardLogic, SSH_FIELD } from '../../new/sourceWizardLogic'
 import { DataWarehouseIntegrationChoice } from './DataWarehouseIntegrationChoice'
 import { parseConnectionString } from './parseConnectionString'
+import { useValues } from 'kea'
+import { SourceConfig, SourceFieldConfig } from '~/queries/schema/schema-general'
+import { availableSourcesDataLogic } from 'scenes/data-warehouse/new/availableSourcesDataLogic'
 
 export interface SourceFormProps {
     sourceConfig: SourceConfig
@@ -16,7 +25,7 @@ export interface SourceFormProps {
     setSourceConfigValue?: (key: FieldName, value: any) => void
 }
 
-const CONNECTION_STRING_DEFAULT_PORT = {
+const CONNECTION_STRING_DEFAULT_PORT: Record<string, number> = {
     Postgres: 5432,
 }
 
@@ -86,7 +95,7 @@ const sourceFieldToElement = (
                     const isEnabled = value === undefined || value === null || value === 'False' ? enabled : value
                     return (
                         <>
-                            {!!field.caption && <p>{field.caption}</p>}
+                            {!!field.caption && <p className="mb-0">{field.caption}</p>}
                             <LemonSwitch checked={isEnabled} onChange={onChange} />
                             {isEnabled && (
                                 <Group name={field.name}>
@@ -105,6 +114,13 @@ const sourceFieldToElement = (
     if (field.type === 'select') {
         const hasOptionFields = !!field.options.filter((n) => (n.fields?.length ?? 0) > 0).length
 
+        const getOptions = (value: any): JSX.Element[] | undefined =>
+            field.options
+                .find((n) => n.value === (value ?? field.defaultValue))
+                ?.fields?.map((optionField) =>
+                    sourceFieldToElement(optionField, sourceConfig, lastValue?.[optionField.name])
+                )
+
         return (
             <LemonField
                 key={field.name}
@@ -122,13 +138,7 @@ const sourceFieldToElement = (
                             }
                             onChange={onChange}
                         />
-                        <Group name={field.name}>
-                            {field.options
-                                .find((n) => n.value === (value ?? field.defaultValue))
-                                ?.fields?.map((field) =>
-                                    sourceFieldToElement(field, sourceConfig, lastValue?.[field.name])
-                                )}
-                        </Group>
+                        <Group name={field.name}>{getOptions(value)}</Group>
                     </>
                 )}
             </LemonField>
@@ -161,6 +171,7 @@ const sourceFieldToElement = (
                         sourceConfig={sourceConfig}
                         value={value}
                         onChange={onChange}
+                        integration={field.kind}
                     />
                 )}
             </LemonField>
@@ -172,10 +183,24 @@ const sourceFieldToElement = (
             <LemonField key={field.name} name={field.name} label={field.label}>
                 {({ value, onChange }) => (
                     <div className="bg-[white] p-2 border rounded-[var(--radius)]">
-                        <LemonFileInput value={value} accept={field.fileFormat} multiple={false} onChange={onChange} />
+                        <LemonFileInput
+                            value={value}
+                            accept={field.fileFormat.format}
+                            multiple={false}
+                            onChange={onChange}
+                        />
                     </div>
                 )}
             </LemonField>
+        )
+    }
+
+    if (field.type === 'ssh-tunnel') {
+        return sourceFieldToElement(
+            { ...SSH_FIELD, name: field.name, label: field.label },
+            sourceConfig,
+            lastValue,
+            isUpdateMode
         )
     }
 
@@ -209,20 +234,26 @@ export function SourceFormComponent({
     jobInputs,
     setSourceConfigValue,
 }: SourceFormProps): JSX.Element {
+    const { availableSources, availableSourcesLoading } = useValues(availableSourcesDataLogic)
+
     useEffect(() => {
         if (jobInputs && setSourceConfigValue) {
             for (const input of Object.keys(jobInputs || {})) {
                 setSourceConfigValue(['payload', input], jobInputs[input])
             }
         }
-    }, [JSON.stringify(jobInputs), setSourceConfigValue])
+    }, [JSON.stringify(jobInputs), setSourceConfigValue, jobInputs])
 
     const isUpdateMode = !!setSourceConfigValue
+
+    if (availableSourcesLoading || !availableSources) {
+        return <LemonSkeleton />
+    }
 
     return (
         <div className="deprecated-space-y-4">
             <Group name="payload">
-                {SOURCE_DETAILS[sourceConfig.name].fields.map((field) =>
+                {availableSources[sourceConfig.name].fields.map((field) =>
                     sourceFieldToElement(field, sourceConfig, jobInputs?.[field.name], isUpdateMode)
                 )}
             </Group>

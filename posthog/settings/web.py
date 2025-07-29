@@ -73,7 +73,6 @@ MIDDLEWARE = [
     "django_structlog.middlewares.CeleryMiddleware",
     "posthog.middleware.Fix204Middleware",
     "django.middleware.security.SecurityMiddleware",
-    "posthog.middleware.CaptureMiddleware",
     # NOTE: we need healthcheck high up to avoid hitting middlewares that may be
     # using dependencies that the healthcheck should be checking. It should be
     # ok below the above middlewares however.
@@ -99,7 +98,8 @@ MIDDLEWARE = [
     "posthog.middleware.CHQueries",
     "django_prometheus.middleware.PrometheusAfterMiddleware",
     "posthog.middleware.PostHogTokenCookieMiddleware",
-    "posthog.middleware.Fix204Middleware",
+    "posthog.middleware.AdminCSPMiddleware",
+    "posthoganalytics.integrations.django.PosthogContextMiddleware",
 ]
 
 if DEBUG:
@@ -164,7 +164,7 @@ LOGIN_URL = "/login"
 LOGOUT_URL = "/logout"
 LOGIN_REDIRECT_URL = "/"
 APPEND_SLASH = False
-CORS_URLS_REGEX = r"^(/site_app/|/array/|/api/(?!early_access_features|surveys|web_experiments).*$)"
+CORS_URLS_REGEX = r"^(/site_app/|/array/|/static/|/api/(?!early_access_features|surveys|web_experiments).*$)"
 CORS_ALLOW_HEADERS = default_headers + CORS_ALLOWED_TRACING_HEADERS
 X_FRAME_OPTIONS = "SAMEORIGIN"
 
@@ -201,6 +201,8 @@ SOCIAL_AUTH_GITLAB_KEY: str | None = os.getenv("SOCIAL_AUTH_GITLAB_KEY")
 SOCIAL_AUTH_GITLAB_SECRET: str | None = os.getenv("SOCIAL_AUTH_GITLAB_SECRET")
 SOCIAL_AUTH_GITLAB_API_URL: str = os.getenv("SOCIAL_AUTH_GITLAB_API_URL", "https://gitlab.com")
 
+LICENSE_SECRET_KEY = os.getenv("LICENSE_SECRET_KEY", "license-so-secret")
+
 # Cookie age in seconds (default 2 weeks) - these are the standard defaults for Django but having it here to be explicit
 SESSION_COOKIE_AGE = get_from_env("SESSION_COOKIE_AGE", 60 * 60 * 24 * 14, type_cast=int)
 
@@ -218,6 +220,8 @@ IMPERSONATION_IDLE_TIMEOUT_SECONDS = get_from_env("IMPERSONATION_IDLE_TIMEOUT_SE
 IMPERSONATION_COOKIE_LAST_ACTIVITY_KEY = get_from_env(
     "IMPERSONATION_COOKIE_LAST_ACTIVITY_KEY", "impersonation_last_activity"
 )
+# Disallow impersonating other staff
+CAN_LOGIN_AS = lambda request, target_user: request.user.is_staff and not target_user.is_staff
 
 SESSION_COOKIE_CREATED_AT_KEY = get_from_env("SESSION_COOKIE_CREATED_AT_KEY", "session_created_at")
 
@@ -348,7 +352,7 @@ GZIP_RESPONSE_ALLOW_LIST = get_list(
                 "^/?api/(environments|projects)/\\d+/performance_events/?$",
                 "^/?api/(environments|projects)/\\d+/performance_events/.*$",
                 "^/?api/(environments|projects)/\\d+/exports/\\d+/content/?$",
-                "^/?api/(environments|projects)/\\d+/activity_log/important_changes/?$",
+                "^/?api/(environments|projects)/\\d+/my_notifications/?$",
                 "^/?api/(environments|projects)/\\d+/uploaded_media/?$",
                 "^/uploaded_media/.*$",
                 "^/api/element/stats/?$",
@@ -449,13 +453,6 @@ KAFKA_PRODUCE_ACK_TIMEOUT_SECONDS = int(os.getenv("KAFKA_PRODUCE_ACK_TIMEOUT_SEC
 # if `true` we highly increase the rate limit on /query endpoint and limit the number of concurrent queries
 API_QUERIES_ENABLED = get_from_env("API_QUERIES_ENABLED", False, type_cast=str_to_bool)
 
-####
-# Hog
-
-# Teams allowed to modify transformation code (comma-separated list of team IDs),
-# keep in sync with client-side feature flag HOG_TRANSFORMATIONS_CUSTOM_HOG_ENABLED
-HOG_TRANSFORMATIONS_CUSTOM_ENABLED = get_from_env("HOG_TRANSFORMATIONS_CUSTOM_ENABLED", False, type_cast=bool)
-CREATE_HOG_FUNCTION_FROM_PLUGIN_CONFIG = get_from_env("CREATE_HOG_FUNCTION_FROM_PLUGIN_CONFIG", False, type_cast=bool)
 
 ####
 # Livestream
@@ -477,15 +474,22 @@ DEV_DISABLE_NAVIGATION_HOOKS = get_from_env("DEV_DISABLE_NAVIGATION_HOOKS", Fals
 # is set to v7 to test new generation but can be set to "og" to revert
 POSTHOG_JS_UUID_VERSION = os.getenv("POSTHOG_JS_UUID_VERSION", "v7")
 
+# Feature flag to enable HogFunctions daily digest email for specific teams
+# Comma-separated list of team IDs that should receive the digest
+HOG_FUNCTIONS_DAILY_DIGEST_TEAM_IDS = get_list(get_from_env("HOG_FUNCTIONS_DAILY_DIGEST_TEAM_IDS", ""))
+
 
 ####
 # OAuth
 
 OIDC_RSA_PRIVATE_KEY = os.getenv("OIDC_RSA_PRIVATE_KEY", "").replace("\\n", "\n")
 
+
+OAUTH_EXPIRED_TOKEN_RETENTION_PERIOD = 60 * 60 * 24 * 30  # 30 days
+
 OAUTH2_PROVIDER = {
     "OIDC_ENABLED": True,
-    "PKCE_REQUIRED": True,
+    "PKCE_REQUIRED": True,  # We require PKCE for all OAuth flows - including confidential clients
     "OIDC_RSA_PRIVATE_KEY": OIDC_RSA_PRIVATE_KEY,
     "SCOPES": {
         "openid": "OpenID Connect scope",
@@ -495,10 +499,19 @@ OAUTH2_PROVIDER = {
         **get_scope_descriptions(),
     },
     "ALLOWED_REDIRECT_URI_SCHEMES": ["https"],
-    "AUTHORIZATION_CODE_EXPIRE_SECONDS": 60 * 5,
+    "AUTHORIZATION_CODE_EXPIRE_SECONDS": 60
+    * 5,  # client has 5 minutes to complete the OAuth flow before the authorization code expires
     "DEFAULT_SCOPES": ["openid"],
     "OAUTH2_VALIDATOR_CLASS": "posthog.api.oauth.OAuthValidator",
-    "ACCESS_TOKEN_EXPIRE_SECONDS": 60 * 60,
+    "ACCESS_TOKEN_EXPIRE_SECONDS": 60 * 60,  # 1 hour
+    "ROTATE_REFRESH_TOKEN": True,  # Rotate the refresh token whenever a new access token is issued
+    "REFRESH_TOKEN_REUSE_PROTECTION": True,
+    # The default grace period where a client can attempt to use the same refresh token
+    # Using a refresh token after this will revoke all refresh and access tokens
+    "REFRESH_TOKEN_GRACE_PERIOD_SECONDS": 60 * 2,
+    "REFRESH_TOKEN_EXPIRE_SECONDS": 60 * 60 * 24 * 30,
+    "CLEAR_EXPIRED_TOKENS_BATCH_SIZE": 1000,
+    "CLEAR_EXPIRED_TOKENS_BATCH_INTERVAL": 1,
 }
 
 
@@ -507,6 +520,9 @@ OAUTH2_PROVIDER_ACCESS_TOKEN_MODEL = "posthog.OAuthAccessToken"
 OAUTH2_PROVIDER_REFRESH_TOKEN_MODEL = "posthog.OAuthRefreshToken"
 OAUTH2_PROVIDER_ID_TOKEN_MODEL = "posthog.OAuthIDToken"
 OAUTH2_PROVIDER_GRANT_MODEL = "posthog.OAuthGrant"
+
+# Sharing configuration settings
+SHARING_TOKEN_GRACE_PERIOD_SECONDS = 60 * 5  # 5 minutes
 
 if DEBUG:
     OAUTH2_PROVIDER["ALLOWED_REDIRECT_URI_SCHEMES"] = ["http", "https"]

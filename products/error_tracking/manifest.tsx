@@ -33,10 +33,10 @@ export const manifest: ProductManifest = {
     redirects: {},
     urls: {
         errorTracking: (params = {}): string => combineUrl('/error_tracking', params).url,
-        errorTrackingConfiguration: (): string => '/error_tracking/configuration',
+        errorTrackingConfiguration: (params = {}): string => combineUrl('/error_tracking/configuration', params).url,
         /** @param id A UUID or 'new'. ':id' for routing. */
-        errorTrackingIssue: (id: string, fingerprint?: string): string =>
-            combineUrl(`/error_tracking/${id}`, { fingerprint }).url,
+        errorTrackingIssue: (id: string, params: { timestamp?: string; fingerprint?: string } = {}): string =>
+            combineUrl(`/error_tracking/${id}`, params).url,
         errorTrackingAlert: (id: string): string => `/error_tracking/alerts/${id}`,
         errorTrackingAlertNew: (templateId: string): string => `/error_tracking/alerts/new/${templateId}`,
     },

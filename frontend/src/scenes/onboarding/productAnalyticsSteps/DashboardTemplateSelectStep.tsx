@@ -6,9 +6,9 @@ import { useEffect } from 'react'
 import { DashboardTemplateChooser } from 'scenes/dashboard/DashboardTemplateChooser'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 
-import { TemplateAvailabilityContext } from '~/types'
+import { OnboardingStepKey, TemplateAvailabilityContext } from '~/types'
 
-import { onboardingLogic, OnboardingStepKey } from '../onboardingLogic'
+import { onboardingLogic } from '../onboardingLogic'
 import { OnboardingStep } from '../OnboardingStep'
 import { onboardingTemplateConfigLogic } from './onboardingTemplateConfigLogic'
 

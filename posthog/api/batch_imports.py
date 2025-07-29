@@ -3,11 +3,21 @@ from rest_framework import filters, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
+import posthoganalytics
+import uuid
+from datetime import timedelta
+from enum import Enum
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.models.batch_imports import BatchImport, ContentType
+from posthog.models.batch_imports import BatchImport, ContentType, DateRangeExportSource
 from posthog.models.user import User
+
+
+class BatchImportKafkaTopic(str, Enum):
+    MAIN = "main"
+    HISTORICAL = "historical"
+    OVERFLOW = "overflow"
 
 
 class BatchImportSerializer(serializers.ModelSerializer):
@@ -25,7 +35,7 @@ class BatchImportSerializer(serializers.ModelSerializer):
             "state",
             "created_by",
             "status",
-            "status_message",
+            "display_status_message",
             "import_config",
         ]
         read_only_fields = [
@@ -34,6 +44,7 @@ class BatchImportSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
             "state",
+            "display_status_message",
         ]
 
     def create(self, validated_data: dict) -> BatchImport:
@@ -82,7 +93,7 @@ class BatchImportS3SourceCreateSerializer(BatchImportSerializer):
             "updated_at",
             "state",
             "status",
-            "status_message",
+            "display_status_message",
             "import_config",
             "content_type",
             "source_type",
@@ -99,7 +110,7 @@ class BatchImportS3SourceCreateSerializer(BatchImportSerializer):
             "updated_at",
             "state",
             "status",
-            "status_message",
+            "display_status_message",
             "import_config",
         ]
 
@@ -125,13 +136,111 @@ class BatchImportS3SourceCreateSerializer(BatchImportSerializer):
             access_key_id=validated_data["access_key"],
             secret_access_key=validated_data["secret_key"],
         ).to_kafka(
-            topic=f"events_plugin_ingestion_historical",
+            topic=BatchImportKafkaTopic.HISTORICAL,
             send_rate=1000,
             transaction_timeout_seconds=60,
         )
 
         batch_import.save()
         return batch_import
+
+
+class BatchImportDateRangeSourceCreateSerializer(BatchImportSerializer):
+    """Serializer for creating BatchImports with date range source (mixpanel, amplitude, etc.)"""
+
+    start_date = serializers.DateTimeField(write_only=True, required=True)
+    end_date = serializers.DateTimeField(write_only=True, required=True)
+    source_type = serializers.ChoiceField(
+        choices=["mixpanel", "amplitude"],
+        write_only=True,
+        required=True,
+    )
+    content_type = serializers.ChoiceField(
+        choices=["mixpanel", "amplitude"],
+        write_only=True,
+        required=True,
+    )
+    access_key = serializers.CharField(write_only=True, required=True)
+    secret_key = serializers.CharField(write_only=True, required=True)
+    is_eu_region = serializers.BooleanField(write_only=True, required=False, default=False)
+
+    class Meta:
+        model = BatchImport
+        fields = [
+            "id",
+            "team_id",
+            "created_at",
+            "updated_at",
+            "state",
+            "status",
+            "display_status_message",
+            "import_config",
+            "start_date",
+            "end_date",
+            "source_type",
+            "content_type",
+            "access_key",
+            "secret_key",
+            "is_eu_region",
+        ]
+        read_only_fields = [
+            "id",
+            "team_id",
+            "created_at",
+            "updated_at",
+            "state",
+            "status",
+            "display_status_message",
+            "import_config",
+        ]
+
+    def validate(self, data):
+        """Validate the date range doesn't exceed 1 year"""
+        data = super().validate(data)
+
+        start_date = data.get("start_date")
+        end_date = data.get("end_date")
+
+        if start_date and end_date:
+            if end_date <= start_date:
+                raise serializers.ValidationError("End date must be after start date")
+
+            one_year_after_start = start_date + timedelta(days=365)
+            if end_date > one_year_after_start:
+                raise serializers.ValidationError(
+                    "Date range cannot exceed 1 year. Please create multiple migration jobs for longer periods."
+                )
+
+        return data
+
+    def create(self, validated_data: dict, **kwargs) -> BatchImport:
+        """Create a new BatchImport from Date Range Source"""
+        validated_data["team_id"] = self.context["team_id"]
+        source_type = validated_data["source_type"]
+
+        if source_type in ["amplitude", "mixpanel"]:
+            batch_import = BatchImport(
+                team_id=self.context["team_id"],
+                created_by_id=self.context["request"].user.id,
+            )
+
+            batch_import.config.json_lines(ContentType(validated_data["content_type"])).from_date_range(
+                start_date=validated_data["start_date"].isoformat(),
+                end_date=validated_data["end_date"].isoformat(),
+                access_key=validated_data["access_key"],
+                secret_key=validated_data["secret_key"],
+                export_source=DateRangeExportSource(source_type),
+                is_eu_region=validated_data.get("is_eu_region", False),
+            ).to_kafka(
+                topic=BatchImportKafkaTopic.HISTORICAL,
+                send_rate=1000,
+                transaction_timeout_seconds=60,
+            )
+
+            batch_import.save()
+            return batch_import
+        else:
+            raise serializers.ValidationError("Invalid source type")
 
 
 class BatchImportResponseSerializer(serializers.ModelSerializer):
@@ -142,7 +251,7 @@ class BatchImportResponseSerializer(serializers.ModelSerializer):
     start_date = serializers.SerializerMethodField()
     end_date = serializers.SerializerMethodField()
     content_type = serializers.SerializerMethodField()
-    error = serializers.CharField(source="status_message", allow_null=True)
+    status_message = serializers.CharField(source="display_status_message", allow_null=True)
 
     class Meta:
         model = BatchImport
@@ -155,7 +264,7 @@ class BatchImportResponseSerializer(serializers.ModelSerializer):
             "end_date",
             "created_by",
             "created_at",
-            "error",
+            "status_message",
             "state",
         ]
 
@@ -205,7 +314,13 @@ class BatchImportViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def get_serializer_class(self):
         """Use the correct serializer based on the source type"""
         if self.action == "create":
-            return BatchImportS3SourceCreateSerializer
+            source_type = self.request.data.get("source_type")
+            if source_type == "s3":
+                return BatchImportS3SourceCreateSerializer
+            elif source_type in ["mixpanel", "amplitude"]:
+                return BatchImportDateRangeSourceCreateSerializer
+            else:
+                raise serializers.ValidationError("Invalid source type")
         return BatchImportSerializer
 
     def safely_get_queryset(self, queryset=None):
@@ -228,9 +343,43 @@ class BatchImportViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def create(self, request: Request, **kwargs) -> Response:
         """Create a new managed migration/batch import."""
+        existing_running_import = BatchImport.objects.filter(
+            team_id=self.team_id, status=BatchImport.Status.RUNNING
+        ).first()
+
+        if existing_running_import:
+            return Response(
+                {
+                    "error": "Cannot create a new batch import while another import is already running for this organization.",
+                    "detail": f"Please wait for the current import (ID: {existing_running_import.id}) to complete or pause it before starting a new one.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         migration = serializer.save()
+
+        source_type = request.data.get("source_type", "unknown")
+        content_type = request.data.get("content_type", "unknown")
+
+        distinct_id = (
+            request.user.distinct_id
+            if request.user.is_authenticated and request.user.distinct_id
+            else str(uuid.uuid4())
+        )
+
+        posthoganalytics.capture(
+            "batch import created",
+            distinct_id=distinct_id,
+            properties={
+                "batch_import_id": migration.id,
+                "source_type": source_type,
+                "content_type": content_type,
+                "team_id": self.team_id,
+                "$process_person_profile": False,
+            },
+        )
 
         response_serializer = BatchImportResponseSerializer(migration)
         return Response(response_serializer.data, status=status.HTTP_201_CREATED)

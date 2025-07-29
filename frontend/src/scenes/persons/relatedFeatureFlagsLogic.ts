@@ -1,9 +1,9 @@
-import { actions, connect, events, kea, key, path, props, reducers, selectors } from 'kea'
+import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { toParams } from 'lib/utils'
-import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
+import { FeatureFlagsFilters, featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { urls } from 'scenes/urls'
 
@@ -47,7 +47,7 @@ export const relatedFeatureFlagsLogic = kea<relatedFeatureFlagsLogicType>([
     key((props) => `${props.distinctId}`),
     connect(() => ({
         values: [projectLogic, ['currentProjectId'], featureFlagsLogic, ['featureFlags', 'pagination']],
-        actions: [featureFlagsLogic, ['setFeatureFlagsFilters']],
+        actions: [featureFlagsLogic, ['setFeatureFlagsFilters', 'loadFeatureFlagsSuccess']],
     })),
     actions({
         setSearchTerm: (searchTerm: string) => {
@@ -129,19 +129,8 @@ export const relatedFeatureFlagsLogic = kea<relatedFeatureFlagsLogicType>([
                     return featureFlags
                 }
 
-                const { type, active, reason } = filters
+                const { reason } = filters
                 let filteredFlags = featureFlags
-
-                if (type) {
-                    filteredFlags = filteredFlags.filter((flag) =>
-                        type === FeatureFlagReleaseType.Variants
-                            ? flag.filters.multivariate
-                            : !flag.filters.multivariate
-                    )
-                }
-                if (active) {
-                    filteredFlags = filteredFlags.filter((flag) => (active === 'true' ? flag.active : !flag.active))
-                }
                 if (reason) {
                     filteredFlags = filteredFlags.filter((flag) =>
                         reason === 'not matched'
@@ -152,6 +141,42 @@ export const relatedFeatureFlagsLogic = kea<relatedFeatureFlagsLogicType>([
                 return filteredFlags
             },
         ],
+    })),
+    listeners(({ values, actions }) => ({
+        setFilters: ({ filters, replace }) => {
+            const apiFilters: FeatureFlagsFilters = {}
+
+            if (replace) {
+                const currentFilters = values.filters
+
+                if (!('type' in filters) && currentFilters.type) {
+                    apiFilters.type = undefined
+                }
+
+                if (!('active' in filters) && currentFilters.active) {
+                    apiFilters.active = undefined
+                }
+            }
+
+            if ('type' in filters && filters.type !== undefined) {
+                if (filters.type === FeatureFlagReleaseType.ReleaseToggle) {
+                    apiFilters.type = 'boolean'
+                } else if (filters.type === FeatureFlagReleaseType.Variants) {
+                    apiFilters.type = 'multivariant'
+                }
+            }
+
+            if ('active' in filters && filters.active !== undefined) {
+                apiFilters.active = filters.active
+            }
+
+            if (Object.keys(apiFilters).length > 0 || replace) {
+                actions.setFeatureFlagsFilters({ ...apiFilters, page: 1 }, replace)
+            }
+        },
+        loadFeatureFlagsSuccess: () => {
+            actions.loadRelatedFeatureFlags()
+        },
     })),
     events(({ actions }) => ({
         afterMount: actions.loadRelatedFeatureFlags,

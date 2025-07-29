@@ -2,6 +2,7 @@ from typing import Optional
 
 from django.db import models
 from django.utils import timezone
+from django_deprecate_fields import deprecate_field
 
 
 class Annotation(models.Model):
@@ -28,11 +29,13 @@ class Annotation(models.Model):
     creation_type = models.CharField(max_length=3, choices=CreationType.choices, default=CreationType.USER)
     date_marker = models.DateTimeField(null=True, blank=True)
     deleted = models.BooleanField(default=False)
-    # we don't want a foreign key, since not all recordings will be in postgres
-    recording_id = models.UUIDField(null=True, blank=True)
 
     # DEPRECATED: replaced by scope
     apply_all = models.BooleanField(null=True)
+    # DEPRECATED: moved to the comment model
+    recording_id = deprecate_field(models.UUIDField(null=True, blank=True))
+    # DEPRECATED: moved to the comment model
+    is_emoji = deprecate_field(models.BooleanField(default=False, null=True, blank=True))
 
     @property
     def insight_short_id(self) -> Optional[str]:

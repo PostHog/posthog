@@ -15,7 +15,7 @@
 
     &.InsightViz--horizontal {
         flex-flow: row wrap;
-        align-items: start;
+        align-items: flex-start;
 
         .EditorFiltersWrapper {
             width: 100%;
@@ -99,6 +99,12 @@
 .WebAnalyticsDashboard {
     .InsightVizDisplay {
         --insight-viz-min-height: 25rem;
+    }
+}
+
+.RevenueAnalyticsDashboard {
+    .InsightVizDisplay {
+        --insight-viz-min-height: 20rem;
     }
 }
 

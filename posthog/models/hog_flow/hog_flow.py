@@ -1,9 +1,14 @@
 from typing import TYPE_CHECKING
 
 from django.db import models
+from django.db.models.signals import post_save
+from django.dispatch.dispatcher import receiver
 import structlog
 
 from posthog.models.utils import UUIDModel
+from posthog.models.action.action import Action
+from posthog.models.team.team import Team
+from posthog.plugins.plugin_server_api import reload_hog_flows_on_workers
 
 if TYPE_CHECKING:
     pass
@@ -58,3 +63,24 @@ class HogFlow(UUIDModel):
 
     def __str__(self):
         return f"HogFlow {self.id}/{self.version}: {self.name}"
+
+
+@receiver(post_save, sender=HogFlow)
+def hog_flow_saved(sender, instance: HogFlow, created, **kwargs):
+    reload_hog_flows_on_workers(team_id=instance.team_id, hog_flow_ids=[str(instance.id)])
+
+
+@receiver(post_save, sender=Action)
+def action_saved_for_hog_flows(sender, instance: Action, created, **kwargs):
+    # Whenever an action is saved we want to load all hog flows using it
+    # and trigger a refresh
+    from posthog.tasks.hog_flows import refresh_affected_hog_flows
+
+    refresh_affected_hog_flows.delay(action_id=instance.id)
+
+
+@receiver(post_save, sender=Team)
+def team_saved_for_hog_flows(sender, instance: Team, created, **kwargs):
+    from posthog.tasks.hog_flows import refresh_affected_hog_flows
+
+    refresh_affected_hog_flows.delay(team_id=instance.id)

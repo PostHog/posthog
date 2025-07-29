@@ -4,6 +4,7 @@ import { router } from 'kea-router'
 import api, { ApiConfig } from 'lib/api'
 import { timeSensitiveAuthenticationLogic } from 'lib/components/TimeSensitiveAuthentication/timeSensitiveAuthenticationLogic'
 import { OrganizationMembershipLevel } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { isUserLoggedIn } from 'lib/utils'
 import { getAppContext } from 'lib/utils/getAppContext'
@@ -23,6 +24,7 @@ export type OrganizationUpdatePayload = Partial<
         | 'is_member_join_email_enabled'
         | 'enforce_2fa'
         | 'members_can_invite'
+        | 'members_can_use_personal_api_keys'
         | 'is_ai_data_processing_approved'
         | 'default_experiment_stats_method'
     >
@@ -122,6 +124,13 @@ export const organizationLogic = kea<organizationLogicType>([
                         currentOrganization.membership_level
                     )
                 ),
+        ],
+        isCurrentOrganizationNew: [
+            (s) => [s.currentOrganization],
+            (currentOrganization): boolean => {
+                const orgCreatedAt = currentOrganization?.created_at
+                return orgCreatedAt ? dayjs().diff(dayjs(orgCreatedAt), 'month') < 3 : false
+            },
         ],
     }),
     listeners(({ actions }) => ({

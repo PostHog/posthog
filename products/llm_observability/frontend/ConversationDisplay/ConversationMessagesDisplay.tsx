@@ -33,7 +33,7 @@ export function ConversationMessagesDisplay({
     const outputNormalized = normalizeMessages(output, 'assistant')
 
     const outputDisplay = raisedError ? (
-        <div className="flex items-center gap-1.5 rounded border text-default p-2 font-medium bg-[var(--bg-fill-error-tertiary)] border-danger overflow-x-scroll">
+        <div className="flex items-center gap-1.5 rounded border text-default p-2 font-medium bg-[var(--bg-fill-error-tertiary)] border-danger overflow-x-auto">
             <IconExclamation className="text-base" />
             {isObject(output) ? (
                 <JSONViewer src={output} collapsed={4} />
@@ -79,11 +79,7 @@ export function ConversationMessagesDisplay({
                 )
             }
             outputDisplay={outputDisplay}
-            outputHeading={
-                raisedError
-                    ? `Error (${httpStatus})`
-                    : `Output${outputNormalized.length > 1 ? ' (multiple choices)' : ''}`
-            }
+            outputHeading={raisedError ? `Error (${httpStatus})` : 'Output'}
             bordered={bordered}
         />
     )
@@ -108,12 +104,12 @@ export const LLMMessageDisplay = React.memo(
         const { role, content, ...additionalKwargs } = message
         const { isRenderingMarkdown } = useValues(llmObservabilityTraceLogic)
         const { toggleMarkdownRendering } = useActions(llmObservabilityTraceLogic)
-        const [show, setShow] = React.useState(role !== 'system' && role !== 'tool')
+        const [show, setShow] = React.useState(role !== 'system' && role !== 'tool' && role !== 'tools')
 
         // Compute whether the content looks like Markdown.
-        // (Heuristic: looks for code blocks, blockquotes, or headings)
+        // (Heuristic: looks for code blocks, blockquotes, headings, italic, bold, underline, strikethrough)
         const isMarkdownCandidate =
-            content && typeof content === 'string' ? /(\n\s*```|^>\s|#{1,6}\s)/.test(content) : false
+            content && typeof content === 'string' ? /(\n\s*```|^>\s|#{1,6}\s|_|\*|~~)/.test(content) : false
 
         // Render any additional keyword arguments as JSON.
         const additionalKwargsEntries = Array.isArray(additionalKwargs.tools)
@@ -178,21 +174,23 @@ export const LLMMessageDisplay = React.memo(
                         const escapedContent = content.replace(/</g, '&lt;').replace(/>/g, '&gt;')
 
                         try {
-                            return <LemonMarkdown>{escapedContent}</LemonMarkdown>
+                            // pre-wrap, because especially in system prompts, we want to preserve newlines even if they aren't fully Markdown-style
+                            return <LemonMarkdown className="whitespace-pre-wrap">{escapedContent}</LemonMarkdown>
                         } catch {
                             // If markdown still fails, fall back to plain text
-                            return <span className="font-mono text-xs whitespace-pre-wrap">{content}</span>
+                            return <span className="font-mono whitespace-pre-wrap">{content}</span>
                         }
                     } else {
-                        return <LemonMarkdown>{content}</LemonMarkdown>
+                        // pre-wrap, because especially in system prompts, we want to preserve newlines even if they aren't fully Markdown-style
+                        return <LemonMarkdown className="whitespace-pre-wrap">{content}</LemonMarkdown>
                     }
                 } else {
-                    return <span className="font-mono text-xs whitespace-pre-wrap">{content}</span>
+                    return <span className="font-mono whitespace-pre-wrap">{content}</span>
                 }
             }
 
             // Fallback: render as plain text.
-            return <span className="text-xs whitespace-pre-wrap">{content}</span>
+            return <span className="whitespace-pre-wrap">{content}</span>
         }
 
         return (
@@ -200,7 +198,7 @@ export const LLMMessageDisplay = React.memo(
                 className={clsx(
                     'rounded border text-default',
                     isOutput
-                        ? 'bg-[var(--bg-fill-success-tertiary)]'
+                        ? 'bg-[var(--bg-fill-success-tertiary)] not-last:mb-2'
                         : role === 'user'
                         ? 'bg-[var(--bg-fill-tertiary)]'
                         : role === 'assistant'
@@ -210,7 +208,7 @@ export const LLMMessageDisplay = React.memo(
             >
                 <div className="flex items-center gap-1 w-full px-2 h-6 text-xs font-medium">
                     <span className="grow">{role}</span>
-                    {content && (
+                    {(content || Object.keys(additionalKwargsEntries).length > 0) && (
                         <>
                             <LemonButton
                                 size="small"
