@@ -33,8 +33,8 @@ EVAL_USER_FULL_NAME = "Karen Smith"
 
 
 def pytest_addoption(parser):
-    # Example: pytest ee/hogai/eval/eval_sql.py --case churn - to only run cases containing "churn" in input
-    parser.addoption("--case", action="store")
+    # Example: pytest ee/hogai/eval/eval_sql.py --eval churn - to only run cases containing "churn" in input
+    parser.addoption("--eval", action="store")
 
 
 async def MaxEval(
@@ -51,7 +51,7 @@ async def MaxEval(
     init_logger(project_name)
 
     # Filter by --case <eval_case_name_part> pytest flag
-    case_filter = pytestconfig.option.case if pytestconfig else None
+    case_filter = pytestconfig.option.eval
     if case_filter:
         if asyncio.iscoroutine(data):
             data = await data
