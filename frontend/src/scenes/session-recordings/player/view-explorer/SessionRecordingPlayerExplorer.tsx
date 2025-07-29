@@ -28,7 +28,7 @@ function PlayerExplorerSettings({ iframeKey, setIframeKey, onClose }: PlayerExpl
                 title="Reset any changes you've made to the DOM with your developer tools"
             />
             <div className="font-medium">
-                Snapshot of DOM as it was at <Timestamp size="small" />
+                Snapshot of DOM as it was at <Timestamp size="small" noPadding />
             </div>
             <SettingsButton onClick={onClose} label="Close" icon={<IconX />} />
         </SettingsBar>

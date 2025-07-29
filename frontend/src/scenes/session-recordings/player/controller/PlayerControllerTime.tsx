@@ -40,7 +40,7 @@ function RelativeTimestampLabel({ size }: { size: 'small' | 'normal' }): JSX.Ele
     )
 }
 
-export function Timestamp({ size }: { size: 'small' | 'normal' }): JSX.Element {
+export function Timestamp({ size, noPadding = false }: { size: 'small' | 'normal'; noPadding: boolean }): JSX.Element {
     const { logicProps, currentTimestamp, sessionPlayerData } = useValues(sessionRecordingPlayerLogic)
     const { isScrubbing, scrubbingTime } = useValues(seekbarLogic(logicProps))
     const { timestampFormat } = useValues(playerSettingsLogic)
@@ -54,6 +54,7 @@ export function Timestamp({ size }: { size: 'small' | 'normal' }): JSX.Element {
         <LemonButton
             data-attr="recording-timestamp"
             className="text-center whitespace-nowrap font-mono text-xs inline"
+            noPadding={noPadding}
             onClick={() => {
                 const values = Object.values(TimestampFormat)
                 const nextIndex = (values.indexOf(timestampFormat) + 1) % values.length
