@@ -675,7 +675,7 @@ class FeatureFlagSerializer(
     def _find_dependent_flags(self, flag_to_delete: FeatureFlag) -> list[FeatureFlag]:
         """Find all active flags that depend on the given flag."""
         return list(
-            FeatureFlag.objects.filter(team__project_id=self.context["project_id"], deleted=False, active=True)
+            FeatureFlag.objects.filter(team=flag_to_delete.team, deleted=False, active=True)
             .exclude(id=flag_to_delete.id)
             .extra(
                 where=[
