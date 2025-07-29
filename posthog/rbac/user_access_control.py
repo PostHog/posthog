@@ -564,13 +564,78 @@ class UserAccessControl:
 
         return access_level_satisfied_for_resource(resource, access_level, required_level)
 
+    def has_any_specific_access_for_resource(
+        self, resource: APIScopeObject, required_level: AccessControlLevel
+    ) -> bool:
+        """
+        Check if the user has any object-level access controls for the given resource type
+        that meet or exceed the required access level.
+
+        This is useful when a user has "none" access at the resource level but may have
+        specific grants to individual objects of that resource type.
+        """
+        org_membership = self._organization_membership
+
+        if not resource or not org_membership:
+            return False
+
+        # Org admins always have access
+        if org_membership.level >= OrganizationMembership.Level.ADMIN:
+            return True
+
+        # If access controls aren't supported, return False since we're looking for specific grants
+        if not self.access_controls_supported:
+            return False
+
+        # Get all object-level access controls for this resource type
+        filters = self._access_controls_filters_for_queryset(resource)
+        access_controls = self._get_access_controls(filters)
+
+        # These are already pre-loaded so filter what's in memory
+        access_controls = [ac for ac in access_controls if ac.role is not None or ac.organization_member is not None]
+
+        # Check if any access control meets the required level
+        for access_control in access_controls:
+            if access_level_satisfied_for_resource(resource, access_control.access_level, required_level):
+                return True
+
+        return False
+
+    def effective_access_level_for_resource(self, resource: APIScopeObject) -> Optional[AccessControlLevel]:
+        """
+        Get the effective access level for a resource, considering both resource-level
+        and specific object-level access.
+
+        This is used for UI navigation decisions - it allows users to see resource pages
+        if they have specific object access, but does NOT grant creation permissions.
+
+        Returns:
+        - The resource-level access if it's not "none"
+        - "viewer" if user has specific object access (allows page access but not creation)
+        - None or "none" if user has no access at all
+        """
+        # First check resource-level access
+        resource_access = self.access_level_for_resource(resource)
+
+        # If resource access is not "none", return it directly
+        if resource_access and resource_access != NO_ACCESS_LEVEL:
+            return resource_access
+
+        # If resource access is "none" or None, check for specific object access
+        # For navigation purposes, if they have specific access to any objects,
+        # grant them "viewer" level to see the resource page but NOT create new items
+        if self.has_any_specific_access_for_resource(resource, required_level="viewer"):
+            return "viewer"
+
+        return resource_access  # This will be "none" or None
+
     # ------------------------------------------------------------
     # Filtering querysets
     # ------------------------------------------------------------
 
     def filter_queryset_by_access_level(self, queryset: QuerySet, include_all_if_admin=False) -> QuerySet:
-        # Find all items related to the queryset model that have access controls such that the effective level for the user is "none"
-        # and exclude them from the queryset
+        # Filter queryset based on access controls, handling cases where user has "none" resource access
+        # but may have specific object access
 
         model = cast(Model, queryset.model)
         resource = model_to_resource(model)
@@ -584,25 +649,54 @@ class UserAccessControl:
             if org_membership and org_membership.level >= OrganizationMembership.Level.ADMIN:
                 return queryset
 
+        # Check if user has "none" access at resource level
+        resource_access_level = self.access_level_for_resource(resource)
+        has_resource_access = resource_access_level and resource_access_level != NO_ACCESS_LEVEL
+
         model_has_creator = hasattr(model, "created_by")
 
         filters = self._access_controls_filters_for_queryset(resource)
         access_controls = self._get_access_controls(filters)
 
         blocked_resource_ids: set[str] = set()
+        allowed_resource_ids: set[str] = set()
         resource_id_access_levels: dict[str, list[str]] = {}
 
         for access_control in access_controls:
             resource_id_access_levels.setdefault(access_control.resource_id, []).append(access_control.access_level)
 
-        for resource_id, access_levels in resource_id_access_levels.items():
-            # Check if every access level is "none"
-            if all(access_level == NO_ACCESS_LEVEL for access_level in access_levels):
+        for resource_id, _access_levels in resource_id_access_levels.items():
+            # Get the access controls for this specific resource_id to check role/member
+            resource_access_controls = [ac for ac in access_controls if ac.resource_id == resource_id]
+
+            # Only consider access controls that have explicit role or member (not defaults)
+            explicit_access_controls = [
+                ac for ac in resource_access_controls if ac.role is not None or ac.organization_member is not None
+            ]
+
+            if not explicit_access_controls:
+                # No explicit controls for this object - don't block it
+                continue
+
+            # Check if user has any non-"none" access to this specific object
+            has_specific_access = any(ac.access_level != NO_ACCESS_LEVEL for ac in explicit_access_controls)
+
+            if has_specific_access:
+                allowed_resource_ids.add(resource_id)
+            else:
+                # All explicit access levels are "none" - block this object
                 blocked_resource_ids.add(resource_id)
 
-        # Filter the queryset based on the access controls
-        if blocked_resource_ids:
-            # Filter out any IDs where the user is not the creator and the id is blocked
+        # Apply filtering logic based on resource-level access
+        if not has_resource_access and allowed_resource_ids:
+            # User has "none" resource access but specific object access
+            # Only show objects they have explicit access to (plus created objects)
+            if model_has_creator:
+                queryset = queryset.filter(Q(id__in=allowed_resource_ids) | Q(created_by=self._user))
+            else:
+                queryset = queryset.filter(id__in=allowed_resource_ids)
+        elif blocked_resource_ids:
+            # Standard case: exclude explicitly blocked objects
             if model_has_creator:
                 queryset = queryset.exclude(Q(id__in=blocked_resource_ids) & ~Q(created_by=self._user))
             else:

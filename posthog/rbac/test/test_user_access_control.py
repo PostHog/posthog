@@ -1053,3 +1053,202 @@ class TestUserAccessControlSpecificAccessLevelForObject(BaseUserAccessControlTes
 
         access_level = self.user_access_control.specific_access_level_for_object(insight)
         assert access_level == "viewer"
+
+
+@pytest.mark.ee
+class TestSpecificObjectAccessControl(BaseUserAccessControlTest):
+    """
+    Test the new functionality for specific object access when user has "none" resource access.
+    This covers the use case where a user has no general access to a resource type but
+    has been granted access to specific objects within that resource type.
+    """
+
+    def setUp(self):
+        super().setUp()
+        # Create test notebooks for various scenarios
+        from posthog.models.notebook.notebook import Notebook
+
+        self.notebook_1 = Notebook.objects.create(team=self.team, created_by=self.other_user, title="Notebook 1")
+        self.notebook_2 = Notebook.objects.create(team=self.team, created_by=self.other_user, title="Notebook 2")
+        self.notebook_3 = Notebook.objects.create(team=self.team, created_by=self.user, title="My Notebook")
+
+    def test_has_any_specific_access_for_resource_with_specific_access(self):
+        """Test has_any_specific_access_for_resource returns True when user has specific object access"""
+        # Set resource-level access to "none"
+        self._create_access_control(resource="notebook", access_level="none")
+
+        # Give specific access to notebook_1
+        self._create_access_control(
+            resource="notebook",
+            resource_id=str(self.notebook_1.id),
+            access_level="editor",
+            organization_member=self.organization_membership,
+        )
+
+        self._clear_uac_caches()
+
+        # Should return True because user has specific access to at least one notebook
+        assert self.user_access_control.has_any_specific_access_for_resource("notebook", "editor") is True
+        assert self.user_access_control.has_any_specific_access_for_resource("notebook", "viewer") is True
+
+    def test_has_any_specific_access_for_resource_without_specific_access(self):
+        """Test has_any_specific_access_for_resource returns False when user has no specific access"""
+        # Set resource-level access to "none"
+        self._create_access_control(resource="notebook", access_level="none")
+
+        self._clear_uac_caches()
+
+        # Should return False because user has no specific object access
+        assert self.user_access_control.has_any_specific_access_for_resource("notebook", "editor") is False
+        assert self.user_access_control.has_any_specific_access_for_resource("notebook", "viewer") is False
+
+    def test_effective_access_level_for_resource_with_resource_access(self):
+        """Test effective_access_level_for_resource returns resource level when user has resource access"""
+        # Set resource-level access to "editor"
+        self._create_access_control(resource="notebook", access_level="editor")
+
+        self._clear_uac_caches()
+
+        # Should return the resource-level access
+        assert self.user_access_control.effective_access_level_for_resource("notebook") == "editor"
+
+    def test_effective_access_level_for_resource_with_none_resource_and_specific_access(self):
+        """Test effective_access_level_for_resource returns 'viewer' when user has 'none' resource but specific access"""
+        # Set resource-level access to "none"
+        self._create_access_control(resource="notebook", access_level="none")
+
+        # Give specific access to notebook_1
+        self._create_access_control(
+            resource="notebook",
+            resource_id=str(self.notebook_1.id),
+            access_level="editor",
+            organization_member=self.organization_membership,
+        )
+
+        self._clear_uac_caches()
+
+        # Should return "viewer" to allow navigation but not creation
+        assert self.user_access_control.effective_access_level_for_resource("notebook") == "viewer"
+
+    def test_effective_access_level_for_resource_with_none_resource_and_no_specific_access(self):
+        """Test effective_access_level_for_resource returns 'none' when user has no access"""
+        # Set resource-level access to "none"
+        self._create_access_control(resource="notebook", access_level="none")
+
+        self._clear_uac_caches()
+
+        # Should return "none" because user has no access at all
+        assert self.user_access_control.effective_access_level_for_resource("notebook") == "none"
+
+    def test_filter_queryset_by_access_level_with_none_resource_and_specific_access(self):
+        """Test queryset filtering when user has 'none' resource access but specific object access"""
+        from posthog.models.notebook.notebook import Notebook
+
+        # Set resource-level access to "none"
+        self._create_access_control(resource="notebook", access_level="none")
+
+        # Give specific access to notebook_1 only
+        self._create_access_control(
+            resource="notebook",
+            resource_id=str(self.notebook_1.id),
+            access_level="editor",
+            organization_member=self.organization_membership,
+        )
+
+        self._clear_uac_caches()
+
+        # Filter the queryset
+        queryset = Notebook.objects.all()
+        filtered_queryset = self.user_access_control.filter_queryset_by_access_level(queryset)
+
+        # Should only include notebook_1 (specific access) and notebook_3 (created by user)
+        notebook_ids = list(filtered_queryset.values_list("id", flat=True))
+        assert self.notebook_1.id in notebook_ids
+        assert self.notebook_3.id in notebook_ids  # Created by user
+        assert self.notebook_2.id not in notebook_ids  # No access
+
+    def test_filter_queryset_by_access_level_with_resource_access(self):
+        """Test queryset filtering when user has resource-level access"""
+        from posthog.models.notebook.notebook import Notebook
+
+        # Set resource-level access to "editor"
+        self._create_access_control(resource="notebook", access_level="editor")
+
+        # Block specific access to notebook_2
+        self._create_access_control(
+            resource="notebook",
+            resource_id=str(self.notebook_2.id),
+            access_level="none",
+            organization_member=self.organization_membership,
+        )
+
+        self._clear_uac_caches()
+
+        # Filter the queryset
+        queryset = Notebook.objects.all()
+        filtered_queryset = self.user_access_control.filter_queryset_by_access_level(queryset)
+
+        # Should include notebook_1 and notebook_3, but exclude notebook_2
+        notebook_ids = list(filtered_queryset.values_list("id", flat=True))
+        assert self.notebook_1.id in notebook_ids
+        assert self.notebook_3.id in notebook_ids
+        assert self.notebook_2.id not in notebook_ids  # Explicitly blocked
+
+    def test_get_user_access_level_with_specific_access_priority(self):
+        """Test that get_user_access_level prioritizes specific access over resource access"""
+        # Set resource-level access to "none"
+        self._create_access_control(resource="notebook", access_level="none")
+
+        # Give specific access to notebook_1
+        self._create_access_control(
+            resource="notebook",
+            resource_id=str(self.notebook_1.id),
+            access_level="editor",
+            organization_member=self.organization_membership,
+        )
+
+        self._clear_uac_caches()
+
+        # Should return specific access level for notebook_1
+        assert self.user_access_control.get_user_access_level(self.notebook_1) == "editor"
+
+        # Should return None for notebook_2 (no specific access and "none" resource access)
+        assert self.user_access_control.get_user_access_level(self.notebook_2) == "none"
+
+    def test_user_access_control_serializer_mixin_with_specific_access(self):
+        """Test UserAccessControlSerializerMixin returns correct access levels"""
+        from rest_framework import serializers
+        from posthog.models.notebook.notebook import Notebook
+
+        # Set resource-level access to "none"
+        self._create_access_control(resource="notebook", access_level="none")
+
+        # Give specific access to notebook_1
+        self._create_access_control(
+            resource="notebook",
+            resource_id=str(self.notebook_1.id),
+            access_level="editor",
+            organization_member=self.organization_membership,
+        )
+
+        self._clear_uac_caches()
+
+        class NotebookSerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
+            class Meta:
+                model = Notebook
+                fields = ("id", "title", "user_access_level")
+
+        # Test serialization with user_access_control in context
+        serializer = NotebookSerializer(
+            [self.notebook_1, self.notebook_2], many=True, context={"user_access_control": self.user_access_control}
+        )
+
+        data = serializer.data
+
+        # notebook_1 should have "editor" access
+        notebook_1_data = next(item for item in data if item["id"] == self.notebook_1.id)
+        assert notebook_1_data["user_access_level"] == "editor"
+
+        # notebook_2 should have "none" access
+        notebook_2_data = next(item for item in data if item["id"] == self.notebook_2.id)
+        assert notebook_2_data["user_access_level"] == "none"

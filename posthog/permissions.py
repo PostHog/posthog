@@ -596,12 +596,18 @@ class AccessControlPermission(ScopeBasePermission):
 
         # TODO: Scope object should probably be applied against the `required_scopes` attribute
         has_access = uac.check_access_level_for_resource(scope_object, required_level=required_level)
+        if has_access:
+            return True
 
-        if not has_access:
-            self.message = f"You do not have {required_level} access to this resource."
-            return False
+        # Check if they have specific access to any objects of this resource type
+        # This handles the case where a user has "none" access to the resource level
+        # but has been granted access to specific objects within that resource type
+        has_specific_access = uac.has_any_specific_access_for_resource(scope_object, required_level=required_level)
+        if has_specific_access:
+            return True
 
-        return True
+        self.message = f"You do not have {required_level} access to this resource."
+        return False
 
 
 class PostHogFeatureFlagPermission(BasePermission):

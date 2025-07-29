@@ -157,16 +157,16 @@ export const sceneLogic = kea<sceneLogicType>([
         activeScene: [
             (s) => [s.scene, teamLogic.selectors.isCurrentTeamUnavailable],
             (scene, isCurrentTeamUnavailable) => {
-                const resourceAccessControl = window.POSTHOG_APP_CONTEXT?.resource_access_control
+                const effectiveResourceAccessControl = window.POSTHOG_APP_CONTEXT?.effective_resource_access_control
 
                 // Get the access control resource type for the current scene
                 const sceneAccessControlResource = scene ? sceneToAccessControlResourceType[scene as Scene] : null
 
-                // Check if the user has access to this resource
+                // Check if the user has effective access to this resource (includes specific object access)
                 if (
                     sceneAccessControlResource &&
-                    resourceAccessControl &&
-                    resourceAccessControl[sceneAccessControlResource] === AccessControlLevel.None
+                    effectiveResourceAccessControl &&
+                    effectiveResourceAccessControl[sceneAccessControlResource] === AccessControlLevel.None
                 ) {
                     return Scene.ErrorAccessDenied
                 }
