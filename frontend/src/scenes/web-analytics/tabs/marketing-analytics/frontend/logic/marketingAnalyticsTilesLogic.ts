@@ -7,7 +7,7 @@ import {
     MarketingAnalyticsTableQuery,
     MarketingAnalyticsHelperForColumnNames,
 } from '~/queries/schema/schema-general'
-import { BaseMathType, ChartDisplayType, InsightLogicProps, IntervalType } from '~/types'
+import { BaseMathType, InsightLogicProps, IntervalType } from '~/types'
 
 import { isDraftConversionGoalColumn, getSortedColumnsByArray, orderArrayByPreference, getOrderBy } from './utils'
 import { isNotNil } from 'lib/utils'
@@ -15,6 +15,7 @@ import { MARKETING_ANALYTICS_DEFAULT_QUERY_TAGS } from 'scenes/web-analytics/web
 import { marketingAnalyticsLogic } from './marketingAnalyticsLogic'
 import type { marketingAnalyticsTilesLogicType } from './marketingAnalyticsTilesLogicType'
 import { marketingAnalyticsTableLogic } from './marketingAnalyticsTableLogic'
+
 
 export enum TileId {
     MARKETING = 'MARKETING',
@@ -37,15 +38,34 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
     connect(() => ({
         values: [
             marketingAnalyticsLogic,
-            ['compareFilter', 'dateFilter', 'createMarketingDataWarehouseNodes', 'loading', 'draftConversionGoal'],
+            [
+                'compareFilter',
+                'dateFilter',
+                'createMarketingDataWarehouseNodes',
+                'loading',
+                'draftConversionGoal',
+                'chartDisplayType',
+            ],
             marketingAnalyticsTableLogic,
             ['query', 'defaultColumns'],
         ],
     })),
     selectors({
         tiles: [
-            (s) => [s.compareFilter, s.dateFilter, s.createMarketingDataWarehouseNodes, s.campaignCostsBreakdown],
-            (compareFilter, dateFilter, createMarketingDataWarehouseNodes, campaignCostsBreakdown) => {
+            (s) => [
+                s.compareFilter,
+                s.dateFilter,
+                s.createMarketingDataWarehouseNodes,
+                s.campaignCostsBreakdown,
+                s.chartDisplayType,
+            ],
+            (
+                compareFilter,
+                dateFilter,
+                createMarketingDataWarehouseNodes,
+                campaignCostsBreakdown,
+                chartDisplayType
+            ) => {
                 const createInsightProps = (tile: TileId, tab?: string): InsightLogicProps => {
                     return {
                         dashboardItemId: getDashboardItemId(tile, tab, false),
@@ -89,14 +109,14 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                                     date_to: dateFilter.dateTo,
                                 },
                                 trendsFilter: {
-                                    display: ChartDisplayType.ActionsAreaGraph,
+                                    display: chartDisplayType,
                                     aggregationAxisFormat: 'numeric',
                                     aggregationAxisPrefix: '$',
                                 },
                             },
                         },
                         showIntervalSelect: true,
-                        insightProps: createInsightProps(TileId.MARKETING),
+                        insightProps: createInsightProps(TileId.MARKETING, `${chartDisplayType}`),
                         canOpenInsight: true,
                         canOpenModal: false,
                         docs: {
