@@ -355,8 +355,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
         state = getattr(resource, "settings", {}) or {}
 
         # Only check query params for configurations created before SHIP_DATE
-        # TODO: Replace SHIP_DATE with actual deployment date
-        SHIP_DATE = "2024-01-01"  # Placeholder date
+        SHIP_DATE = "2025-07-31"
         created_before_ship = False
         if isinstance(resource, SharingConfiguration):
             created_before_ship = resource.created_at.strftime("%Y-%m-%d") < SHIP_DATE
