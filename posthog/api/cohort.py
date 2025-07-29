@@ -189,18 +189,6 @@ class CohortSerializer(serializers.ModelSerializer):
     # If this cohort is an exposure cohort for an experiment
     experiment_set: serializers.PrimaryKeyRelatedField = serializers.PrimaryKeyRelatedField(many=True, read_only=True)
 
-    # Computed fields for frontend convenience
-    has_behavioral_filters = serializers.SerializerMethodField()
-    is_analytical = serializers.SerializerMethodField()
-
-    def get_has_behavioral_filters(self, obj: Cohort) -> bool:
-        """Returns whether cohort has any behavioral filters"""
-        return obj.has_behavioral_filters
-
-    def get_is_analytical(self, obj: Cohort) -> bool:
-        """Returns whether cohort is analytical (requires ClickHouse)"""
-        return obj.is_analytical
-
     class Meta:
         model = Cohort
         fields = [
@@ -219,8 +207,6 @@ class CohortSerializer(serializers.ModelSerializer):
             "count",
             "is_static",
             "cohort_type",
-            "has_behavioral_filters",
-            "is_analytical",
             "experiment_set",
             "_create_in_folder",
         ]
@@ -233,8 +219,6 @@ class CohortSerializer(serializers.ModelSerializer):
             "errors_calculating",
             "count",
             "cohort_type",
-            "has_behavioral_filters",
-            "is_analytical",
             "experiment_set",
         ]
 

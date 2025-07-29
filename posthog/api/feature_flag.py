@@ -85,7 +85,6 @@ DATABASE_FOR_LOCAL_EVALUATION = (
     else "replica"
 )
 
-BEHAVIOURAL_COHORT_FOUND_ERROR_CODE = "behavioral_cohort_found"
 ANALYTICAL_COHORT_FOUND_ERROR_CODE = "analytical_cohort_found"
 
 MAX_PROPERTY_VALUES = 1000

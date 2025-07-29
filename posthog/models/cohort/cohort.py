@@ -283,27 +283,11 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
                 return True
         return False
 
-    @property
-    def has_behavioral_filters(self) -> bool:
+    def _has_behavioral_filters(self) -> bool:
         """Check if cohort has any behavioral filters (simple or complex)"""
         return any(prop.type == "behavioral" for prop in self.properties.flat)
 
-    @property
-    def is_analytical(self) -> bool:
-        """
-        Check if cohort is analytical (requires ClickHouse for computation).
-
-        Cohorts are analytical if they have complex behavioral filters like:
-        - performed_event_first_time
-        - performed_event_regularly
-        - performed_event_sequence
-        - stopped_performing_event
-        - restarted_performing_event
-        """
-        return self.has_complex_behavioral_filter
-
-    @property
-    def has_only_person_properties(self) -> bool:
+    def _has_only_person_properties(self) -> bool:
         """Check if cohort has only person properties (no behavioral, cohort, or other complex filters)"""
         if not self.properties.flat:
             return False
@@ -325,15 +309,15 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             return "static"
 
         # If cohort has complex behavioral filters, it must be analytical
-        if self.is_analytical:
+        if self.has_complex_behavioral_filter:
             return "analytical"
 
         # If cohort has simple behavioral filters, it can be behavioral
-        if self.has_behavioral_filters:
+        if self._has_behavioral_filters():
             return "behavioral"
 
         # Person-only property cohorts get their own type
-        if self.has_only_person_properties:
+        if self._has_only_person_properties():
             return "person_properties"
 
         # All other cohorts default to analytical

@@ -411,8 +411,6 @@ class TestCohort(BaseTest):
             name="behavioral_cohort",
         )
         self.assertEqual(cohort.determine_cohort_type(), "behavioral")
-        self.assertTrue(cohort.has_behavioral_filters)
-        self.assertFalse(cohort.is_analytical)
         self.assertTrue(cohort.can_be_used_in_real_time)
 
     def test_complex_behavioral_filters_make_analytical_cohort(self):
@@ -440,8 +438,6 @@ class TestCohort(BaseTest):
             name="analytical_cohort",
         )
         self.assertEqual(cohort.determine_cohort_type(), "analytical")
-        self.assertTrue(cohort.has_behavioral_filters)  # Has behavioral filters
-        self.assertTrue(cohort.is_analytical)  # Is analytical
         self.assertFalse(cohort.can_be_used_in_real_time)
 
     def test_person_property_only_cohort_is_person_properties_type(self):
@@ -464,17 +460,12 @@ class TestCohort(BaseTest):
             name="person_cohort",
         )
         self.assertEqual(cohort.determine_cohort_type(), "person_properties")
-        self.assertFalse(cohort.has_behavioral_filters)
-        self.assertFalse(cohort.is_analytical)
         self.assertTrue(cohort.can_be_used_in_real_time)
 
     def test_empty_cohort_defaults_analytical(self):
         """Test that cohorts with no filters default to analytical"""
         cohort = Cohort.objects.create(team=self.team, name="empty_cohort")
         self.assertEqual(cohort.determine_cohort_type(), "analytical")
-        self.assertFalse(cohort.has_behavioral_filters)
-        self.assertFalse(cohort.is_analytical)
-        self.assertFalse(cohort.has_only_person_properties)
         self.assertFalse(cohort.can_be_used_in_real_time)
 
     def test_person_property_with_cohort_reference_is_analytical(self):
@@ -501,9 +492,6 @@ class TestCohort(BaseTest):
             name="mixed_person_cohort",
         )
         self.assertEqual(cohort.determine_cohort_type(), "analytical")
-        self.assertFalse(cohort.has_behavioral_filters)
-        self.assertFalse(cohort.is_analytical)
-        self.assertFalse(cohort.has_only_person_properties)  # Mixed with cohort reference
         self.assertFalse(cohort.can_be_used_in_real_time)
 
     def test_cohort_type_detection_with_mixed_filters(self):
@@ -533,8 +521,6 @@ class TestCohort(BaseTest):
         )
         # Should be analytical because it has complex behavioral filters
         self.assertEqual(cohort.determine_cohort_type(), "analytical")
-        self.assertTrue(cohort.has_behavioral_filters)
-        self.assertTrue(cohort.is_analytical)
         self.assertFalse(cohort.can_be_used_in_real_time)
 
     def test_update_cohort_type_method(self):

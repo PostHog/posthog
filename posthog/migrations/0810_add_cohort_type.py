@@ -44,9 +44,14 @@ class Migration(migrations.Migration):
             model_name="cohort",
             name="cohort_type",
             field=models.CharField(
-                choices=[("analytical", "Analytical"), ("behavioral", "Behavioral")],
+                choices=[
+                    ("static", "Static"),
+                    ("person_properties", "Person Properties"),
+                    ("behavioral", "Behavioral"),
+                    ("analytical", "Analytical"),
+                ],
                 default="analytical",
-                help_text="Determines where this cohort can be used. Analytical cohorts are for analytics only, behavioral cohorts can be used in real-time features.",
+                help_text="Determines where this cohort can be used. Static, person_properties, and behavioral cohorts can be used in real-time features. Analytical cohorts are for analytics only.",
                 max_length=20,
             ),
         ),
