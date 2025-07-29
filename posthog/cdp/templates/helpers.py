@@ -14,7 +14,6 @@ from posthog.cdp.validation import compile_hog
 from posthog.models import HogFunction
 from posthog.models.utils import uuid7
 from posthog.test.base import BaseTest, APIBaseTest
-from posthog.models.hog_function_template import HogFunctionTemplate
 
 
 # TODO this test class only tests part of the template. The hog code is tested, the default mappings are not

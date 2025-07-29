@@ -4,7 +4,6 @@ from posthog.cdp.templates.hog_function_template import sync_template_to_db
 from posthog.cdp.templates.zapier.template_zapier import template as template_zapier
 from posthog.management.commands.migrate_hooks import migrate_hooks
 from posthog.models.action.action import Action
-from posthog.models.hog_function_template import HogFunctionTemplate
 from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.test.base import BaseTest
 
