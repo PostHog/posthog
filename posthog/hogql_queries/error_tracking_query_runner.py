@@ -511,7 +511,7 @@ class ErrorTrackingQueryRunner(QueryRunner):
         aggregations = {f: result[f] for f in ("occurrences", "sessions", "users", "volumeRange")}
         histogram_bins = self.get_volume_buckets()
         aggregations["volume_buckets"] = [
-            {"label": bin, "value": aggregations["volumeRange"][i] if aggregations["volumeRange"] else None}
+            {"label": bin.isoformat(), "value": aggregations["volumeRange"][i] if aggregations["volumeRange"] else None}
             for i, bin in enumerate(histogram_bins)
         ]
         return aggregations
