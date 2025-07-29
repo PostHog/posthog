@@ -337,7 +337,7 @@ class SurveyCreationBasicsScorer(Scorer):
 
 
 @pytest.mark.django_db
-async def eval_surveys(call_surveys_max_tool):
+async def eval_surveys(call_surveys_max_tool, pytestconfig):
     """
     Evaluation for survey creation functionality.
     """
@@ -376,4 +376,5 @@ async def eval_surveys(call_surveys_max_tool):
                 metadata={"test_type": "comprehensive_survey_length_constraint"},
             ),
         ],
+        pytestconfig=pytestconfig,
     )

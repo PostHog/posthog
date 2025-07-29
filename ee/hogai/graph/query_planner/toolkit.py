@@ -106,8 +106,8 @@ class final_answer(BaseModel):
     Use this tool to finalize the answer to the user's question.
     """
 
-    query_kind: MaxSupportedQueryKind
     plan: str
+    query_kind: MaxSupportedQueryKind  # query_kind is intentionally AFTER plan so that these tokens are generated after decision explanation
 
     @field_validator("plan", mode="before")
     def normalize_plan(cls, plan: str) -> str:
