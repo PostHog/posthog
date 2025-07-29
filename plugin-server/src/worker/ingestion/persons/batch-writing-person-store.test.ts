@@ -93,7 +93,7 @@ describe('BatchWritingPersonStore', () => {
             updatePersonAssertVersion: jest.fn().mockResolvedValue([person.version + 1, []]),
             deletePerson: jest.fn().mockResolvedValue([]),
             addDistinctId: jest.fn().mockResolvedValue([]),
-            moveDistinctIds: jest.fn().mockResolvedValue({ success: true, messages: [] }),
+            moveDistinctIds: jest.fn().mockResolvedValue({ success: true, messages: [], distinctIdsMoved: [] }),
             addPersonlessDistinctId: jest.fn().mockResolvedValue(true),
             addPersonlessDistinctIdForMerge: jest.fn().mockResolvedValue(true),
             personPropertiesSize: jest.fn().mockResolvedValue(1024),
