@@ -194,7 +194,6 @@ class FilterOptionsToolsNode(TaxonomyAgentToolsNode):
         if input and not output:
             # Use the toolkit to handle tool execution
             tool_name, output = self._toolkit.handle_tools(input.name, input)
-            # output = result
 
         if output:
             tool_context = f"Tool '{action.tool}' was called with arguments {action.tool_input} and returned: {output}"

@@ -392,11 +392,17 @@ class TestFilterOptionsToolsNode(ClickhouseTestMixin, BaseTest):
     @patch("ee.hogai.graph.filter_options.nodes.FilterOptionsToolkit")
     def test_run_handles_different_tool_calls(self, tool_name, tool_args, mock_toolkit_class):
         """Test run method handles different tool calls correctly."""
+        from ee.hogai.graph.filter_options.toolkit import FilterOptionsTool
+
+        def mocked_handle_tools(tool_name: str, tool_input: FilterOptionsTool) -> tuple[str, str]:
+            if tool_name == "retrieve_entity_property_values":
+                return tool_name, "All the property values"
+            elif tool_name == "retrieve_entity_properties":
+                return tool_name, "All the properties"
 
         # Setup mock toolkit
         mock_toolkit = MagicMock()
-        mock_toolkit.retrieve_entity_property_values.return_value = "All the property values"
-        mock_toolkit.retrieve_entity_properties.return_value = "All the properties"
+        mock_toolkit.handle_tools = MagicMock(side_effect=mocked_handle_tools)
         mock_toolkit_class.return_value = mock_toolkit
 
         node = FilterOptionsToolsNode(self.team, self.user)
@@ -406,12 +412,11 @@ class TestFilterOptionsToolsNode(ClickhouseTestMixin, BaseTest):
             tool_name=AssistantContextualTool.SEARCH_SESSION_RECORDINGS.value,
         )
 
+        result = node.run(state, {})
         if tool_name == "final_answer":
-            result = node.run(state, {})
             assert result.generated_filter_options is not None  # Type guard
             self.assertEqual(result.generated_filter_options["data"], AND_FILTER_EXAMPLE)
         elif tool_name == "ask_user_for_help":
-            result = node.run(state, {})
             # Should return reset state with help message in intermediate_steps
             assert result.intermediate_steps is not None
             self.assertEqual(len(result.intermediate_steps), 1)
@@ -419,14 +424,20 @@ class TestFilterOptionsToolsNode(ClickhouseTestMixin, BaseTest):
             self.assertEqual(action.tool, "ask_user_for_help")
             self.assertEqual(action.tool_input, "Need clarification")
         elif tool_name == "retrieve_entity_property_values":
-            result = node.run(state, {})
-            mock_toolkit.retrieve_entity_property_values.assert_called_once_with(
-                tool_args["arguments"]["entity"], tool_args["arguments"]["property_name"]
-            )
+            # Verify that handle_tools was called with the tool name and FilterOptionsTool object
+            mock_toolkit.handle_tools.assert_called_once()
+            call_args = mock_toolkit.handle_tools.call_args[0]
+            self.assertEqual(call_args[0], tool_name)
+            self.assertIsInstance(call_args[1], FilterOptionsTool)
+            self.assertEqual(call_args[1].name, tool_name)
             assert result.intermediate_steps is not None
             self.assertEqual(result.intermediate_steps[0][1], "All the property values")
         elif tool_name == "retrieve_entity_properties":
-            result = node.run(state, {})
-            mock_toolkit.retrieve_entity_properties.assert_called_once_with(tool_args["arguments"]["entity"])
+            # Verify that handle_tools was called with the tool name and FilterOptionsTool object
+            mock_toolkit.handle_tools.assert_called_once()
+            call_args = mock_toolkit.handle_tools.call_args[0]
+            self.assertEqual(call_args[0], tool_name)
+            self.assertIsInstance(call_args[1], FilterOptionsTool)
+            self.assertEqual(call_args[1].name, tool_name)
             assert result.intermediate_steps is not None
             self.assertEqual(result.intermediate_steps[0][1], "All the properties")
