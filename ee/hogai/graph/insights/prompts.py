@@ -46,9 +46,9 @@ Consider:
 4. Do the query results show relevant data patterns?
 
 Respond with either:
-- YES: If one or more insights can serve as a good starting point. Include which specific insights and explain why.
-When mentioning an insight, include its hyperlink in markdown format: [View Insight →](URL)
+- YES: If one or more insights can serve as a good starting point. Include which specific insights IDs and explain why.
+When mentioning an insight, include its hyperlink in markdown format: [Insight name](URL)
 - NO: If none of the insights are suitable and a new insight should be created from scratch.
 
-Your response MUST be clear and decisive. Always include hyperlinks when mentioning insights.
+Your response MUST be clear and decisive. KEEP THE INSIGHT LINK IN THE RESPONSE TO THE USER.
 """

@@ -14,9 +14,17 @@ import structlog
 
 from ee.hogai.graph.query_executor.query_executor import AssistantQueryExecutor
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
-from posthog.schema import AssistantToolCallMessage
+from posthog.schema import (
+    AssistantToolCallMessage,
+    VisualizationMessage,
+    AssistantTrendsQuery,
+    AssistantFunnelsQuery,
+    AssistantRetentionQuery,
+    AssistantHogQLQuery,
+)
 from ee.hogai.graph.base import AssistantNode
 from .prompts import INSIGHT_EVALUATION_SYSTEM_PROMPT, ITERATIVE_SEARCH_SYSTEM_PROMPT, ITERATIVE_SEARCH_USER_PROMPT
+from .utils import convert_legacy_filters_to_query
 
 from posthog.models import InsightViewed
 
@@ -86,16 +94,29 @@ class InsightSearchNode(AssistantNode):
             # If this is a create_and_query_insight request (both search_query and insight_plan are set),
             # evaluate whether found insights can be used as a starting point
             if insight_plan and search_query:
+                self.__class__.logger.info("Evaluating insights for CREATION")
                 evaluation_result = self._evaluate_insights_for_creation(selected_insights, insight_plan)
 
                 if evaluation_result["should_use_existing"]:
-                    # Show the existing insights to the user
-                    formatted_content = self._format_search_results(selected_insights, search_query)
-                    formatted_content += f"\n\n**Evaluation Result**: {evaluation_result['explanation']}"
+                    # Create visualization messages for the insights to show actual charts
+                    messages_to_return = []
 
-                    formatted_content += f"\n\nINSTRUCTIONS: Link to the insight from the evaluation result by using the insight short ID!"
-                    formatted_content += f"\n\nINSTRUCTIONS: When you mention an insight, include the hyperlink to the insight in the format [View Insight →](Insight URL)"
-                    formatted_content += f"\n\nALSO ADD AN EMOJI!"
+                    # Add the text evaluation explanation first
+                    formatted_content = f"**Evaluation Result**: {evaluation_result['explanation']}"
+                    formatted_content += (
+                        f"\nCRITICAL: Attach the URL to the insight in the format [Insight Name](Insight URL)"
+                    )
+
+                    messages_to_return.append(
+                        AssistantToolCallMessage(
+                            content=formatted_content,
+                            tool_call_id=state.root_tool_call_id or "unknown",
+                            id=str(uuid4()),
+                        )
+                    )
+
+                    # Add visualization messages returned from evaluation
+                    messages_to_return.extend(evaluation_result["visualization_messages"])
 
                     execution_time = time.time() - start_time
                     self.__class__.logger.info(
@@ -111,13 +132,7 @@ class InsightSearchNode(AssistantNode):
                     )
 
                     return PartialAssistantState(
-                        messages=[
-                            AssistantToolCallMessage(
-                                content=formatted_content,
-                                tool_call_id=state.root_tool_call_id or "unknown",
-                                id=str(uuid4()),
-                            ),
-                        ],
+                        messages=messages_to_return,
                         search_insights_query=None,
                         root_tool_call_id=None,
                         root_tool_insight_plan=None,
@@ -143,7 +158,23 @@ class InsightSearchNode(AssistantNode):
                     )
 
             else:
-                formatted_content = self._format_search_results(selected_insights, search_query or "")
+                # Get formatted content and visualization messages
+                formatted_content, viz_messages = self._format_search_results(
+                    selected_insights,
+                    search_query or "",
+                )
+
+                # Create messages list with text explanation and visualizations
+                messages_to_return = [
+                    AssistantToolCallMessage(
+                        content=formatted_content,
+                        tool_call_id=state.root_tool_call_id or "unknown",
+                        id=str(uuid4()),
+                    ),
+                ]
+
+                # Add visualization messages
+                messages_to_return.extend(viz_messages)
 
                 execution_time = time.time() - start_time
                 self.logger.info(
@@ -159,13 +190,7 @@ class InsightSearchNode(AssistantNode):
                 )
 
                 return PartialAssistantState(
-                    messages=[
-                        AssistantToolCallMessage(
-                            content=formatted_content,
-                            tool_call_id=state.root_tool_call_id or "unknown",
-                            id=str(uuid4()),
-                        ),
-                    ],
+                    messages=messages_to_return,
                     search_insights_query=None,
                     root_tool_call_id=None,
                 )
@@ -335,12 +360,16 @@ class InsightSearchNode(AssistantNode):
 
         return valid_ids
 
-    def _format_search_results(self, selected_insights: list[int], search_query: str) -> str:
+    def _format_search_results(
+        self, selected_insights: list[int], search_query: str
+    ) -> str | tuple[str, list[VisualizationMessage]]:
         """Format final search results for display."""
         if not selected_insights:
             return f"No insights found matching '{search_query or 'your search'}'.\n\nSuggest that the user try:\n- Using different keywords\n- Searching for broader terms\n- Creating a new insight instead"
 
         insight_details = []
+        query_executor = AssistantQueryExecutor(self._team, self._utc_now_datetime)
+
         for insight_id in selected_insights:
             insight = next((i for i in self._all_insights if i["insight_id"] == insight_id), None)
             if insight:
@@ -361,12 +390,18 @@ class InsightSearchNode(AssistantNode):
             # Get formatted metadata
             metadata = self._format_insight_metadata(insight)
 
+            # Execute insight if requested
+            execution_results = ""
+            executed_results = self._execute_insight_for_display(insight, query_executor)
+            if executed_results:
+                execution_results = f"\n\n    **Current Data:**\n    ```\n    {executed_results}\n    ```"
+
             if description:
                 result_block = f"""**{i}. {name}**
-    Description: {description}{metadata}
+    Description: {description}{metadata}{execution_results}
     [View Insight →]({insight_url})"""
             else:
-                result_block = f"""**{i}. {name}**{metadata}
+                result_block = f"""**{i}. {name}**{metadata}{execution_results}
     [View Insight →]({insight_url})"""
 
             formatted_results.append(result_block)
@@ -377,14 +412,175 @@ class InsightSearchNode(AssistantNode):
         content += f"\n\nYou found {len(insight_details)} existing insight{'s' if len(insight_details) != 1 else ''}"
         if search_query:
             content += f" related to '{search_query}'"
-        content += ". Present these results to the user and ask them how they'd like to proceed. They can:"
+        content += ". Present these results to the user and ask them how they'd like to proceed. You can:"
         content += "\n- Use one of these insights as-is"
-        content += "\n- Modify an existing insight (change filters, time range, etc.)"
+        content += (
+            "\n- Modify an existing insight (propose to make the change yourself: change filters, time range, etc.)"
+        )
         content += "\n- Create a completely new insight"
         content += "\n\nBe natural and conversational - don't present this as a rigid list of options."
-        content += "\n\nINSTRUCTIONS: Add a link to the insight in the format [View Insight →](Insight URL) where mentioning an insight to the user."
+        content += "\n\nINSTRUCTIONS: Add a link to the insight in the format [Insight Name](Insight URL) where mentioning an insight to the user."
 
         return content
+
+    def _convert_insight_to_query(self, insight: dict) -> tuple[dict | None, str | None]:
+        """
+        Convert an insight (with query or legacy filters) to a modern query format.
+
+        Returns:
+            tuple: (query_dict, query_kind) or (None, None) if conversion fails
+        """
+        try:
+            insight_query = insight.get("insight__query")
+            insight_filters = insight.get("insight__filters")
+
+            # If we have a query, use it
+            if insight_query:
+                # Handle both string and dict formats for insight_query
+                if isinstance(insight_query, str):
+                    query_dict = json.loads(insight_query)
+                elif isinstance(insight_query, dict):
+                    query_dict = insight_query
+                else:
+                    return None, None
+
+            # If no query but we have filters, try to convert legacy filters to query
+            elif insight_filters:
+                query_dict = convert_legacy_filters_to_query(insight_filters)
+                if not query_dict:
+                    return None, None
+
+            else:
+                # No query and no filters
+                return None, None
+
+            query_kind = query_dict.get("kind")
+            return query_dict, query_kind
+
+        except Exception as e:
+            self.logger.warning(f"Failed to convert insight {insight.get('insight_id')} to query: {e}")
+            return None, None
+
+    def _process_insight_for_evaluation(self, insight: dict, query_executor: AssistantQueryExecutor) -> dict:
+        """
+        Process an insight for evaluation: convert to query, execute it, and create visualization message.
+
+        Returns:
+            dict with keys: name, insight_id, description, query, filters, results, visualization_message
+        """
+        insight_info = {
+            "name": insight.get("insight__name") or insight.get("insight__derived_name", "Unnamed"),
+            "insight_id": insight.get("insight_id"),
+            "description": insight.get("insight__description", ""),
+            "query": "",
+            "filters": insight.get("insight__filters", ""),
+            "results": "",
+            "visualization_message": None,
+        }
+
+        try:
+            query_dict, query_kind = self._convert_insight_to_query(insight)
+
+            if query_dict and query_kind:
+                # Import moved inside method to avoid circular imports
+                from ee.hogai.graph.root.nodes import MAX_SUPPORTED_QUERY_KIND_TO_MODEL
+
+                if query_kind in MAX_SUPPORTED_QUERY_KIND_TO_MODEL:
+                    # Execute the query
+                    try:
+                        QueryModel = MAX_SUPPORTED_QUERY_KIND_TO_MODEL[query_kind]
+                        query_obj = QueryModel.model_validate(query_dict)
+                        results, _ = query_executor.run_and_format_query(query_obj)
+
+                        insight_info["query"] = (
+                            json.dumps(query_dict) if isinstance(query_dict, dict) else str(query_dict)
+                        )
+                        insight_info["results"] = results
+                    except Exception as e:
+                        insight_info["query"] = f"Failed to execute query: {str(e)}"
+                        insight_info["results"] = f"Execution failed: {str(e)}"
+                else:
+                    insight_info["query"] = f"Query type '{query_kind}' not supported for execution"
+                    insight_info["results"] = f"Query type '{query_kind}' not supported for execution"
+
+                # Create visualization message
+                viz_message = self._create_visualization_message_for_insight(insight)
+                insight_info["visualization_message"] = viz_message
+
+            else:
+                # No convertible query
+                original_query = insight.get("insight__query")
+                if original_query:
+                    insight_info["query"] = str(original_query)
+                    insight_info["results"] = "Could not convert or execute query"
+                else:
+                    insight_info["query"] = "No query data available"
+                    insight_info["results"] = "Cannot execute - no query or filter data"
+
+        except Exception as e:
+            self.logger.warning(f"Failed to process insight {insight.get('insight_id')}: {e}")
+            insight_info["query"] = insight.get("insight__query", "")
+            insight_info["results"] = "Failed to process insight"
+
+        return insight_info
+
+    def _create_visualization_message_for_insight(self, insight: dict) -> VisualizationMessage | None:
+        """Create a VisualizationMessage for an existing insight to render the chart UI."""
+        try:
+            query_dict, query_kind = self._convert_insight_to_query(insight)
+            if not query_dict or not query_kind:
+                return None
+
+            # Map query kinds to Assistant query types for VisualizationMessage
+            assistant_query_type_map = {
+                "TrendsQuery": AssistantTrendsQuery,
+                "FunnelsQuery": AssistantFunnelsQuery,
+                "RetentionQuery": AssistantRetentionQuery,
+                "HogQLQuery": AssistantHogQLQuery,
+            }
+
+            if not query_kind or query_kind not in assistant_query_type_map:
+                return None
+
+            AssistantQueryModel = assistant_query_type_map[query_kind]
+            query_obj = AssistantQueryModel.model_validate(query_dict)
+
+            # Create VisualizationMessage with the insight's query
+            insight_name = insight.get("insight__name") or insight.get("insight__derived_name", "Unnamed Insight")
+            viz_message = VisualizationMessage(
+                query=f"Existing insight: {insight_name}",
+                plan=f"Showing existing insight: {insight_name}",
+                answer=query_obj,
+                id=str(uuid4()),
+            )
+
+            return viz_message
+
+        except Exception as e:
+            self.logger.warning(f"Failed to create visualization for insight {insight.get('insight_id')}: {e}")
+            return None
+
+    def _execute_insight_for_display(self, insight: dict, query_executor: AssistantQueryExecutor) -> str | None:
+        """Execute an insight query and return formatted results for user display."""
+        try:
+            query_dict, query_kind = self._convert_insight_to_query(insight)
+            if not query_dict or not query_kind:
+                return "No query data available or could not convert"
+
+            # Import moved inside method to avoid circular imports
+            from ee.hogai.graph.root.nodes import MAX_SUPPORTED_QUERY_KIND_TO_MODEL
+
+            if query_kind not in MAX_SUPPORTED_QUERY_KIND_TO_MODEL:
+                return f"Query type '{query_kind}' not supported"
+
+            QueryModel = MAX_SUPPORTED_QUERY_KIND_TO_MODEL[query_kind]
+            query_obj = QueryModel.model_validate(query_dict)
+            results, _ = query_executor.run_and_format_query(query_obj)
+            return results
+
+        except Exception as e:
+            self.logger.warning(f"Failed to execute insight {insight.get('insight_id')}: {e}")
+            return "Could not execute query"
 
     def _create_error_response(self, content: str, tool_call_id: str | None) -> PartialAssistantState:
         """Create error response for the assistant."""
@@ -404,9 +600,19 @@ class InsightSearchNode(AssistantNode):
         """
         Evaluate whether found insights can be used as a starting point for the user's query.
         Executes the insights and provides results to LLM for evaluation.
+
+        Returns:
+            dict with keys:
+            - should_use_existing: bool
+            - explanation: str
+            - visualization_messages: list[VisualizationMessage]
         """
         if not selected_insights:
-            return {"should_use_existing": False, "explanation": "No insights found to evaluate."}
+            return {
+                "should_use_existing": False,
+                "explanation": "No insights found to evaluate.",
+                "visualization_messages": [],
+            }
 
         # Remove duplicates while preserving order
         unique_insights = []
@@ -419,88 +625,34 @@ class InsightSearchNode(AssistantNode):
 
         query_executor = AssistantQueryExecutor(self._team, self._utc_now_datetime)
         insights_with_results = []
+        visualization_messages = []
 
         for insight_id in unique_insights:
             insight = next((i for i in self._all_insights if i["insight_id"] == insight_id), None)
             if not insight:
                 continue
 
-            try:
-                # Execute the insight query to get results
-                insight_query = insight.get("insight__query")
-                if insight_query:
-                    # Parse the JSON query and execute it
-                    from ee.hogai.graph.root.nodes import MAX_SUPPORTED_QUERY_KIND_TO_MODEL
+            insight_info = self._process_insight_for_evaluation(insight, query_executor)
 
-                    # Handle both string and dict formats for insight_query
-                    if isinstance(insight_query, str):
-                        query_dict = json.loads(insight_query)
-                    elif isinstance(insight_query, dict):
-                        query_dict = insight_query
-                    else:
-                        self.__class__.logger.warning(
-                            f"Unexpected insight_query type for insight {insight_id}: {type(insight_query)}"
-                        )
-                        continue
-                    query_kind = query_dict.get("kind")
+            # Add to results (removing the visualization_message key since LLM doens't need to see this + smaller token print)
+            eval_insight_info = {k: v for k, v in insight_info.items() if k != "visualization_message"}
+            insights_with_results.append(eval_insight_info)
 
-                    if query_kind and query_kind in MAX_SUPPORTED_QUERY_KIND_TO_MODEL:
-                        QueryModel = MAX_SUPPORTED_QUERY_KIND_TO_MODEL[query_kind]
-                        query_obj = QueryModel.model_validate(query_dict)
-
-                        results, _ = query_executor.run_and_format_query(query_obj)
-
-                        insight_info = {
-                            "name": insight.get("insight__name") or insight.get("insight__derived_name", "Unnamed"),
-                            "insight_id": insight.get("insight_id"),
-                            "description": insight.get("insight__description", ""),
-                            "query": insight_query,
-                            "filters": insight.get("insight__filters", ""),
-                            "results": results,
-                        }
-                        insights_with_results.append(insight_info)
-                    else:
-                        # Unsupported query type - include without execution
-                        insight_info = {
-                            "name": insight.get("insight__name") or insight.get("insight__derived_name", "Unnamed"),
-                            "insight_id": insight.get("insight_id"),
-                            "description": insight.get("insight__description", ""),
-                            "query": insight_query,
-                            "filters": insight.get("insight__filters", ""),
-                            "results": f"Query type '{query_kind}' not supported for execution",
-                        }
-                        insights_with_results.append(insight_info)
-                else:
-                    # No query data available
-                    insight_info = {
-                        "name": insight.get("insight__name") or insight.get("insight__derived_name", "Unnamed"),
-                        "insight_id": insight.get("insight_id"),
-                        "description": insight.get("insight__description", ""),
-                        "query": "No query data available",
-                        "filters": insight.get("insight__filters", ""),
-                        "results": "Cannot execute - no query data",
-                    }
-                    insights_with_results.append(insight_info)
-
-            except Exception as e:
-                self.__class__.logger.warning(f"Failed to execute insight {insight_id}: {e}")
-                # Still include the insight but without results
-                insight_info = {
-                    "name": insight.get("insight__name") or insight.get("insight__derived_name", "Unnamed"),
-                    "insight_id": insight.get("insight_id"),
-                    "description": insight.get("insight__description", ""),
-                    "query": insight.get("insight__query", ""),
-                    "filters": insight.get("insight__filters", ""),
-                    "results": "Failed to execute query",
-                }
-                insights_with_results.append(insight_info)
+            # TODO: here we loose some visualizationmessages
+            # Collect visualization message if available
+            if insight_info["visualization_message"]:
+                visualization_messages.append(insight_info["visualization_message"])
 
         if not insights_with_results:
-            return {"should_use_existing": False, "explanation": "Could not evaluate any insights."}
+            return {
+                "should_use_existing": False,
+                "explanation": "Could not evaluate any insights.",
+                "visualization_messages": [],
+            }
 
         # Format insights for LLM evaluation with hyperlinks
         formatted_insights = []
-        for i, insight in enumerate(insights_with_results, 1):
+        for _, insight in enumerate(insights_with_results, 1):
             insight_short_id = None
             # Find the original insight data to get the short_id for hyperlink
             original_insight = next(
@@ -516,7 +668,7 @@ class InsightSearchNode(AssistantNode):
             )
 
             formatted_insight = f"""
-**Insight {i}: {insight['name']} ID: {insight['insight_id']}**
+**Insight:  {insight['name']} ID: {insight['insight_id']}**
 Description: {insight['description'] or 'No description'}
 Query: {insight['query']}
 Results: {insight['results']}
@@ -542,11 +694,19 @@ URL: {insight_url}
 
             self.__class__.logger.info(f"***USING EXISTING INSIGHT***")
 
-            return {"should_use_existing": should_use_existing, "explanation": response_text}
+            return {
+                "should_use_existing": should_use_existing,
+                "explanation": response_text,
+                "visualization_messages": visualization_messages,
+            }
 
         except Exception as e:
             self.__class__.logger.warning(f"Failed to evaluate insights: {e}")
-            return {"should_use_existing": False, "explanation": "Could not evaluate insights due to an error."}
+            return {
+                "should_use_existing": False,
+                "explanation": "Could not evaluate insights due to an error.",
+                "visualization_messages": visualization_messages,
+            }
 
     def router(self, state: AssistantState) -> Literal["end", "root", "insights"]:
         # Check if we need to continue with insight creation after evaluation
