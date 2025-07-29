@@ -393,7 +393,6 @@ class FeatureFlagSerializer(
 
     def _validate_flag_reference(self, flag_reference):
         """Validate and convert flag reference to flag key."""
-        from posthog.models import FeatureFlag
         from posthog.utils import safe_int
 
         flag_id = safe_int(flag_reference)
@@ -423,7 +422,6 @@ class FeatureFlagSerializer(
 
     def _check_flag_circular_dependencies(self, filters):
         """Check for circular dependencies in feature flag conditions."""
-        from posthog.models import FeatureFlag
 
         current_flag_key = getattr(self.instance, "key", None) if self.instance else self.initial_data.get("key")
         if not current_flag_key:
