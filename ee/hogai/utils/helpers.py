@@ -5,6 +5,7 @@ from jsonref import replace_refs
 from langchain_core.messages import (
     HumanMessage as LangchainHumanMessage,
     merge_message_runs,
+    AIMessage as LangchainAIMessage,
 )
 
 from ee.hogai.utils.types import AssistantMessageUnion
@@ -167,3 +168,16 @@ def format_events_prompt(events_in_context: list[MaxEventContext], team: Team) -
             desc_tag.text = event_to_description[event_name]
             desc_tag.text = remove_line_breaks(desc_tag.text)
     return ET.tostring(root, encoding="unicode")
+
+
+def extract_content_from_ai_message(response: LangchainAIMessage) -> str:
+    """
+    Extracts the content from a LangchainAIMessage, supporting both reasoning and non-reasoning responses.
+    """
+    if isinstance(response.content, list):
+        text_parts = []
+        for content_item in response.content:
+            if isinstance(content_item, dict) and "text" in content_item:
+                text_parts.append(content_item["text"])
+        return "".join(text_parts)
+    return str(response.content)
