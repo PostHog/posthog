@@ -1,4 +1,4 @@
-import { LemonButton, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonButtonProps, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useKeyHeld } from 'lib/hooks/useKeyHeld'
@@ -40,7 +40,10 @@ function RelativeTimestampLabel({ size }: { size: 'small' | 'normal' }): JSX.Ele
     )
 }
 
-export function Timestamp({ size, noPadding }: { size: 'small' | 'normal'; noPadding?: boolean }): JSX.Element {
+export function Timestamp({
+    size,
+    noPadding,
+}: { size: 'small' | 'normal' } & Pick<LemonButtonProps, 'noPadding'>): JSX.Element {
     const { logicProps, currentTimestamp, sessionPlayerData } = useValues(sessionRecordingPlayerLogic)
     const { isScrubbing, scrubbingTime } = useValues(seekbarLogic(logicProps))
     const { timestampFormat } = useValues(playerSettingsLogic)
