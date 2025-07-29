@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, UTC
 import re
 from typing import Any, cast, TypedDict
 from urllib.parse import urlparse
-import json
+import orjson
 
 import nh3
 import posthoganalytics
@@ -1397,11 +1397,7 @@ def public_survey_page(request, survey_id: str):
 
     # Database query with minimal fields and timeout protection
     try:
-        survey = (
-            Survey.objects.select_related("team")
-            .only("id", "name", "appearance", "archived", "type", "team__id", "team__api_token")
-            .get(id=survey_id)
-        )
+        survey = Survey.objects.select_related("team").get(id=survey_id)
     except Survey.DoesNotExist:
         logger.info("survey_page_not_found", survey_id=survey_id)
         # Use generic error message to prevent survey ID enumeration
@@ -1458,11 +1454,12 @@ def public_survey_page(request, survey_id: str):
     if hasattr(survey.team, "ui_host") and survey.team.ui_host:
         project_config["ui_host"] = survey.team.ui_host
 
+    serializer = SurveySerializer(survey)
+    survey_data = serializer.data
     context = {
         "name": survey.name,
-        "id": survey.id,
-        "appearance": json.dumps(survey.appearance),
-        "project_config_json": json.dumps(project_config),
+        "survey_data": orjson.dumps(survey_data).decode("utf-8"),
+        "project_config_json": orjson.dumps(project_config).decode("utf-8"),
         "debug": settings.DEBUG,
     }
 
