@@ -2211,6 +2211,184 @@ email@example.org,
         cohort_data = response.json()
         self.assertIsNotNone(cohort_data.get("id"))
 
+    def test_cohort_serializer_includes_cohort_type_fields(self):
+        """Test that cohort serializer includes cohort_type and computed fields"""
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={
+                "name": "test_cohort",
+                "filters": {
+                    "properties": {
+                        "type": "OR",
+                        "values": [
+                            {
+                                "type": "AND",
+                                "values": [
+                                    {
+                                        "key": "test_event",
+                                        "type": "behavioral",
+                                        "value": "performed_event",
+                                        "event_type": "events",
+                                    }
+                                ],
+                            }
+                        ],
+                    }
+                },
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, 201)
+
+        data = response.json()
+        self.assertIn("cohort_type", data)
+        self.assertIn("is_behavioral_cohort", data)
+        self.assertIn("is_analytical_cohort", data)
+        self.assertEqual(data["cohort_type"], "behavioral")
+        self.assertTrue(data["is_behavioral_cohort"])
+        self.assertFalse(data["is_analytical_cohort"])
+
+    def test_cohort_type_auto_updated_on_create(self):
+        """Test that cohort type is automatically set on creation"""
+        # Create cohort with complex behavioral filter
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={
+                "name": "complex_behavioral_cohort",
+                "filters": {
+                    "properties": {
+                        "type": "OR",
+                        "values": [
+                            {
+                                "type": "AND",
+                                "values": [
+                                    {
+                                        "key": "test_event",
+                                        "type": "behavioral",
+                                        "value": "performed_event_first_time",
+                                        "event_type": "events",
+                                    }
+                                ],
+                            }
+                        ],
+                    }
+                },
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, 201)
+
+        data = response.json()
+        self.assertEqual(data["cohort_type"], "analytical")
+        self.assertTrue(data["is_behavioral_cohort"])
+        self.assertTrue(data["is_analytical_cohort"])
+
+    def test_cohort_type_auto_updated_on_update(self):
+        """Test that cohort type is automatically updated when filters change"""
+        # Create a simple behavioral cohort
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={
+                "name": "update_test_cohort",
+                "filters": {
+                    "properties": {
+                        "type": "OR",
+                        "values": [
+                            {
+                                "type": "AND",
+                                "values": [
+                                    {
+                                        "key": "test_event",
+                                        "type": "behavioral",
+                                        "value": "performed_event",
+                                        "event_type": "events",
+                                    }
+                                ],
+                            }
+                        ],
+                    }
+                },
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, 201)
+        cohort_id = response.json()["id"]
+        self.assertEqual(response.json()["cohort_type"], "behavioral")
+
+        # Update to complex behavioral filter
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{cohort_id}",
+            data={
+                "filters": {
+                    "properties": {
+                        "type": "OR",
+                        "values": [
+                            {
+                                "type": "AND",
+                                "values": [
+                                    {
+                                        "key": "test_event",
+                                        "type": "behavioral",
+                                        "value": "performed_event_first_time",
+                                        "event_type": "events",
+                                    }
+                                ],
+                            }
+                        ],
+                    }
+                }
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["cohort_type"], "analytical")
+
+    def test_static_cohort_type_is_behavioral(self):
+        """Test that static cohorts are automatically set to behavioral type"""
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts", data={"name": "static_cohort", "is_static": True}, format="json"
+        )
+        self.assertEqual(response.status_code, 201)
+
+        data = response.json()
+        self.assertEqual(data["cohort_type"], "behavioral")
+        self.assertFalse(data["is_behavioral_cohort"])  # No behavioral filters
+        self.assertFalse(data["is_analytical_cohort"])  # No complex behavioral filters
+
+    def test_cohort_type_read_only_in_api(self):
+        """Test that cohort_type cannot be directly set via API"""
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={
+                "name": "test_cohort",
+                "cohort_type": "analytical",  # Try to force analytical
+                "filters": {
+                    "properties": {
+                        "type": "OR",
+                        "values": [
+                            {
+                                "type": "AND",
+                                "values": [
+                                    {
+                                        "key": "test_event",
+                                        "type": "behavioral",
+                                        "value": "performed_event",
+                                        "event_type": "events",
+                                    }
+                                ],
+                            }
+                        ],
+                    }
+                },
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, 201)
+
+        # Should be behavioral despite trying to set analytical
+        data = response.json()
+        self.assertEqual(data["cohort_type"], "behavioral")
+
 
 class TestCalculateCohortCommand(APIBaseTest):
     def test_calculate_cohort_command_success(self):

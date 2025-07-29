@@ -189,6 +189,16 @@ class CohortSerializer(serializers.ModelSerializer):
     # If this cohort is an exposure cohort for an experiment
     experiment_set: serializers.PrimaryKeyRelatedField = serializers.PrimaryKeyRelatedField(many=True, read_only=True)
 
+    # Computed fields for frontend convenience
+    is_behavioral_cohort = serializers.SerializerMethodField()
+    is_analytical_cohort = serializers.SerializerMethodField()
+
+    def get_is_behavioral_cohort(self, obj: Cohort) -> bool:
+        return obj.is_behavioral_cohort
+
+    def get_is_analytical_cohort(self, obj: Cohort) -> bool:
+        return obj.is_analytical_cohort
+
     class Meta:
         model = Cohort
         fields = [
@@ -206,6 +216,9 @@ class CohortSerializer(serializers.ModelSerializer):
             "errors_calculating",
             "count",
             "is_static",
+            "cohort_type",
+            "is_behavioral_cohort",
+            "is_analytical_cohort",
             "experiment_set",
             "_create_in_folder",
         ]
@@ -217,6 +230,9 @@ class CohortSerializer(serializers.ModelSerializer):
             "last_calculation",
             "errors_calculating",
             "count",
+            "cohort_type",
+            "is_behavioral_cohort",
+            "is_analytical_cohort",
             "experiment_set",
         ]
 
@@ -247,6 +263,10 @@ class CohortSerializer(serializers.ModelSerializer):
             raise ValidationError("Cannot set both query and filters at the same time.")
 
         cohort = Cohort.objects.create(team_id=self.context["team_id"], **validated_data)
+
+        # Automatically determine and set cohort type
+        cohort.update_cohort_type()
+        cohort.save()
 
         if cohort.is_static:
             self._handle_static(cohort, self.context, validated_data)
@@ -398,6 +418,10 @@ class CohortSerializer(serializers.ModelSerializer):
 
         if will_create_loops(cohort):
             raise ValidationError("Cohorts cannot reference other cohorts in a loop.")
+
+        # Automatically update cohort type when filters or static status changes
+        if validated_data.get("filters") is not None or validated_data.get("is_static") is not None:
+            cohort.update_cohort_type()
 
         cohort.save()
 

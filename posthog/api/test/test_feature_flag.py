@@ -4930,6 +4930,85 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             cohort_request.json(),
         )
 
+    def test_creating_feature_flag_with_analytical_cohort_type(self):
+        """Test that analytical cohorts cannot be used in feature flags"""
+        # Create an analytical cohort (complex behavioral filter)
+        analytical_cohort = Cohort.objects.create(
+            team=self.team,
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                {
+                                    "key": "test_event",
+                                    "type": "behavioral",
+                                    "value": "performed_event_first_time",
+                                    "event_type": "events",
+                                }
+                            ],
+                        }
+                    ],
+                }
+            },
+            name="analytical_cohort",
+            cohort_type="analytical",
+        )
+
+        # Create a behavioral cohort (simple behavioral filter)
+        behavioral_cohort = Cohort.objects.create(
+            team=self.team,
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                {
+                                    "key": "test_event",
+                                    "type": "behavioral",
+                                    "value": "performed_event",
+                                    "event_type": "events",
+                                }
+                            ],
+                        }
+                    ],
+                }
+            },
+            name="behavioral_cohort",
+            cohort_type="behavioral",
+        )
+
+        # Analytical cohort should be rejected
+        analytical_request = self._create_flag_with_properties(
+            "analytical-cohort-flag",
+            [{"key": "id", "type": "cohort", "value": analytical_cohort.id}],
+            expected_status=status.HTTP_400_BAD_REQUEST,
+        )
+
+        self.assertDictContainsSubset(
+            {
+                "type": "validation_error",
+                "code": "analytical_cohort_found",
+                "attr": "filters",
+            },
+            analytical_request.json(),
+        )
+        self.assertIn(
+            "Analytical cohort 'analytical_cohort' cannot be used in feature flags", analytical_request.json()["detail"]
+        )
+
+        # Behavioral cohort should be accepted
+        behavioral_request = self._create_flag_with_properties(
+            "behavioral-cohort-flag",
+            [{"key": "id", "type": "cohort", "value": behavioral_cohort.id}],
+            expected_status=status.HTTP_201_CREATED,
+        )
+        self.assertEqual(behavioral_request.status_code, status.HTTP_201_CREATED)
+
     def test_validation_group_properties(self):
         groups_request = self._create_flag_with_properties(
             "groups-flag",

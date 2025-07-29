@@ -1481,6 +1481,7 @@ export interface CohortType {
     }
     experiment_set?: number[]
     _create_in_folder?: string | null
+    cohort_type?: 'analytical' | 'behavioral'
 }
 
 export interface InsightHistory {

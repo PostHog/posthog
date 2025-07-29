@@ -370,3 +370,182 @@ class TestCohort(BaseTest):
 
         # Verify the cohort is not in calculating state
         self.assertFalse(cohort.is_calculating)
+
+    def test_cohort_type_defaults_to_analytical(self):
+        """Test that cohorts default to analytical type"""
+        cohort = Cohort.objects.create(
+            team=self.team,
+            groups=[{"properties": [{"key": "$some_prop", "value": "something", "type": "person"}]}],
+            name="test_cohort",
+        )
+        self.assertEqual(cohort.cohort_type, "analytical")
+
+    def test_static_cohort_is_behavioral(self):
+        """Test that static cohorts are automatically classified as behavioral"""
+        cohort = Cohort.objects.create(team=self.team, groups=[], name="static_cohort", is_static=True)
+        self.assertEqual(cohort.determine_cohort_type(), "behavioral")
+
+    def test_simple_behavioral_filters_make_behavioral_cohort(self):
+        """Test that cohorts with simple behavioral filters can be behavioral"""
+        cohort = Cohort.objects.create(
+            team=self.team,
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                {
+                                    "key": "test_event",
+                                    "type": "behavioral",
+                                    "value": "performed_event",
+                                    "event_type": "events",
+                                    "time_value": "30",
+                                    "time_interval": "day",
+                                }
+                            ],
+                        }
+                    ],
+                }
+            },
+            name="behavioral_cohort",
+        )
+        self.assertEqual(cohort.determine_cohort_type(), "behavioral")
+        self.assertTrue(cohort.is_behavioral_cohort)
+        self.assertFalse(cohort.is_analytical_cohort)
+
+    def test_complex_behavioral_filters_make_analytical_cohort(self):
+        """Test that cohorts with complex behavioral filters are analytical"""
+        cohort = Cohort.objects.create(
+            team=self.team,
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                {
+                                    "key": "test_event",
+                                    "type": "behavioral",
+                                    "value": "performed_event_first_time",
+                                    "event_type": "events",
+                                    "time_value": "30",
+                                    "time_interval": "day",
+                                }
+                            ],
+                        }
+                    ],
+                }
+            },
+            name="analytical_cohort",
+        )
+        self.assertEqual(cohort.determine_cohort_type(), "analytical")
+        self.assertTrue(cohort.is_behavioral_cohort)  # Has behavioral filters
+        self.assertTrue(cohort.is_analytical_cohort)  # Has complex behavioral filters
+
+    def test_person_property_only_cohort_defaults_analytical(self):
+        """Test that cohorts with only person properties default to analytical"""
+        cohort = Cohort.objects.create(
+            team=self.team,
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                {"key": "email", "type": "person", "value": "test@example.com", "operator": "exact"}
+                            ],
+                        }
+                    ],
+                }
+            },
+            name="person_cohort",
+        )
+        self.assertEqual(cohort.determine_cohort_type(), "analytical")
+        self.assertFalse(cohort.is_behavioral_cohort)
+        self.assertFalse(cohort.is_analytical_cohort)
+
+    def test_cohort_type_detection_with_mixed_filters(self):
+        """Test cohort type detection with mixed filter types"""
+        cohort = Cohort.objects.create(
+            team=self.team,
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                {"key": "email", "type": "person", "value": "test@example.com", "operator": "exact"},
+                                {
+                                    "key": "test_event",
+                                    "type": "behavioral",
+                                    "value": "performed_event_regularly",
+                                    "event_type": "events",
+                                },
+                            ],
+                        }
+                    ],
+                }
+            },
+            name="mixed_cohort",
+        )
+        # Should be analytical because it has complex behavioral filters
+        self.assertEqual(cohort.determine_cohort_type(), "analytical")
+        self.assertTrue(cohort.is_behavioral_cohort)
+        self.assertTrue(cohort.is_analytical_cohort)
+
+    def test_update_cohort_type_method(self):
+        """Test that update_cohort_type properly updates the cohort type"""
+        cohort = Cohort.objects.create(
+            team=self.team,
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                {
+                                    "key": "test_event",
+                                    "type": "behavioral",
+                                    "value": "performed_event",
+                                    "event_type": "events",
+                                }
+                            ],
+                        }
+                    ],
+                }
+            },
+            name="update_test_cohort",
+            cohort_type="analytical",  # Start as analytical
+        )
+
+        # Update should change it to behavioral
+        cohort.update_cohort_type()
+        self.assertEqual(cohort.cohort_type, "behavioral")
+
+        # Change filters to complex behavioral
+        cohort.filters = {
+            "properties": {
+                "type": "OR",
+                "values": [
+                    {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "key": "test_event",
+                                "type": "behavioral",
+                                "value": "performed_event_first_time",
+                                "event_type": "events",
+                            }
+                        ],
+                    }
+                ],
+            }
+        }
+        cohort.update_cohort_type()
+        self.assertEqual(cohort.cohort_type, "analytical")

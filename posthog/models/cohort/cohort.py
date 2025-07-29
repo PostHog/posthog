@@ -164,6 +164,18 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
 
     is_static = models.BooleanField(default=False)
 
+    # Cohort type determines where this cohort can be used
+    COHORT_TYPE_CHOICES = [
+        ("analytical", "Analytical"),
+        ("behavioral", "Behavioral"),
+    ]
+    cohort_type = models.CharField(
+        max_length=20,
+        choices=COHORT_TYPE_CHOICES,
+        default="analytical",
+        help_text="Determines where this cohort can be used. Analytical cohorts are for analytics only, behavioral cohorts can be used in real-time features.",
+    )
+
     # deprecated in favor of filters
     groups = models.JSONField(default=list)
 
@@ -268,6 +280,40 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             ]:
                 return True
         return False
+
+    @property
+    def is_behavioral_cohort(self) -> bool:
+        """Check if cohort has any behavioral filters (simple or complex)"""
+        return any(prop.type == "behavioral" for prop in self.properties.flat)
+
+    @property
+    def is_analytical_cohort(self) -> bool:
+        """Check if cohort has complex behavioral filters that require ClickHouse"""
+        return self.has_complex_behavioral_filter
+
+    def determine_cohort_type(self) -> str:
+        """Automatically determine cohort type based on its filters"""
+        # Static cohorts are always behavioral (can be used in real-time)
+        if self.is_static:
+            return "behavioral"
+
+        # If cohort has complex behavioral filters, it must be analytical
+        if self.has_complex_behavioral_filter:
+            return "analytical"
+
+        # If cohort has simple behavioral filters, it can be behavioral
+        if self.is_behavioral_cohort:
+            return "behavioral"
+
+        # Cohorts with only person properties can be behavioral
+        # But default to analytical for backward compatibility
+        return "analytical"
+
+    def update_cohort_type(self) -> None:
+        """Update cohort type based on current filters"""
+        new_type = self.determine_cohort_type()
+        if self.cohort_type != new_type:
+            self.cohort_type = new_type
 
     def get_analytics_metadata(self):
         return {
@@ -510,6 +556,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             "query": self.query,
             "groups": self.groups,
             "is_static": self.is_static,
+            "cohort_type": self.cohort_type,
             "created_by_id": self.created_by_id,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "last_error_at": self.last_error_at.isoformat() if self.last_error_at else None,
