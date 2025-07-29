@@ -74,7 +74,7 @@ T = TypeVar("T", RootMessageUnion, BaseMessage)
 class RootNodeUIContextMixin(AssistantNode):
     """Mixin that provides UI context formatting capabilities for root nodes."""
 
-    def _format_ui_context(self, ui_context: Optional[MaxUIContext]) -> str:
+    def _format_ui_context(self, ui_context: MaxUIContext | None, config: RunnableConfig) -> str:
         """
         Format UI context into template variables for the prompt.
 
@@ -110,6 +110,7 @@ class RootNodeUIContextMixin(AssistantNode):
                             else None
                         )
                         formatted_insight = self._run_and_format_insight(
+                            config,
                             insight,
                             query_runner,
                             dashboard_filters,
@@ -149,7 +150,7 @@ class RootNodeUIContextMixin(AssistantNode):
             insights_results = []
             for insight in ui_context.insights:
                 result = self._run_and_format_insight(
-                    insight, query_runner, None, filters_override, variables_override, heading="##"
+                    config, insight, query_runner, None, filters_override, variables_override, heading="##"
                 )
                 if result:
                     insights_results.append(result)
@@ -175,6 +176,7 @@ class RootNodeUIContextMixin(AssistantNode):
 
     def _run_and_format_insight(
         self,
+        config: RunnableConfig,
         insight: MaxInsightContext,
         query_runner: AssistantQueryExecutor,
         dashboard_filters: Optional[dict] = None,
@@ -229,9 +231,11 @@ class RootNodeUIContextMixin(AssistantNode):
             )
             return result
 
-        except Exception:
+        except Exception as err:
             # Skip insights that fail to run
-            capture_exception()
+            capture_exception(
+                err, distinct_id=self._get_user_distinct_id(config), properties=self._get_debug_props(config)
+            )
             return None
 
     def _format_entity_context(self, entities, context_tag: str, entity_type: str) -> str:
@@ -317,7 +321,7 @@ class RootNode(RootNodeUIContextMixin):
         )
         chain = prompt | self._get_model(state, config)
 
-        ui_context = self._format_ui_context(self._get_ui_context(state))
+        ui_context = self._format_ui_context(self._get_ui_context(state), config)
 
         message = chain.invoke(
             {
