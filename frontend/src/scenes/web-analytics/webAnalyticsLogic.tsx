@@ -35,13 +35,10 @@ import {
     AnyEntityNode,
     BreakdownFilter,
     CompareFilter,
-    ConversionGoalFilter,
     CustomEventConversionGoal,
     DataTableNode,
     EventsNode,
     InsightVizNode,
-    MarketingAnalyticsHelperForColumnNames,
-    MarketingAnalyticsTableQuery,
     NodeKind,
     QueryLogTags,
     QuerySchema,
@@ -82,16 +79,9 @@ import {
 } from '~/types'
 
 import { getDashboardItemId, getNewInsightUrlFactory } from './insightsUtils'
-import { marketingAnalyticsLogic } from './tabs/marketing-analytics/frontend/logic/marketingAnalyticsLogic'
 import type { webAnalyticsLogicType } from './webAnalyticsLogicType'
 import posthog from 'posthog-js'
-import { marketingAnalyticsTableLogic } from './tabs/marketing-analytics/frontend/logic/marketingAnalyticsTableLogic'
-import {
-    getOrderBy,
-    orderArrayByPreference,
-    getSortedColumnsByArray,
-    isDraftConversionGoalColumn,
-} from './tabs/marketing-analytics/frontend/logic/utils'
+import { marketingAnalyticsTilesLogic } from './tabs/marketing-analytics/frontend/logic/marketingAnalyticsTilesLogic'
 
 export interface WebTileLayout {
     /** The class has to be spelled out without interpolation, as otherwise Tailwind can't pick it up. */
@@ -141,8 +131,6 @@ export enum TileId {
     PAGE_REPORTS_TIMEZONES = 'PR_TIMEZONES',
     PAGE_REPORTS_LANGUAGES = 'PR_LANGUAGES',
     PAGE_REPORTS_TOP_EVENTS = 'PR_TOP_EVENTS',
-    MARKETING = 'MARKETING',
-    MARKETING_CAMPAIGN_BREAKDOWN = 'MARKETING_CAMPAIGN_BREAKDOWN',
 }
 
 export enum ProductTab {
@@ -197,10 +185,6 @@ const loadPriorityMap: Record<TileId, number> = {
     [TileId.PAGE_REPORTS_TIMEZONES]: 13,
     [TileId.PAGE_REPORTS_LANGUAGES]: 14,
     [TileId.PAGE_REPORTS_TOP_EVENTS]: 15,
-
-    // Marketing Tiles
-    [TileId.MARKETING]: 1,
-    [TileId.MARKETING_CAMPAIGN_BREAKDOWN]: 2,
 }
 
 // To enable a tile here, you must update the QueryRunner to support it
@@ -448,16 +432,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             ['isDev'],
             authorizedUrlListLogic({ type: AuthorizedUrlListType.WEB_ANALYTICS, actionId: null, experimentId: null }),
             ['authorizedUrls'],
-            marketingAnalyticsLogic,
-            [
-                'loading',
-                'createMarketingDataWarehouseNodes',
-                'draftConversionGoal',
-                'compareFilter as marketingCompareFilter',
-                'dateFilter as marketingDateFilter',
-            ],
-            marketingAnalyticsTableLogic,
-            ['query', 'defaultColumns'],
+            marketingAnalyticsTilesLogic,
+            ['tiles as marketingTiles'],
         ],
     })),
     actions({
@@ -977,14 +953,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 conversionGoal,
             }),
         ],
-        marketingContext: [
-            (s) => [s.createMarketingDataWarehouseNodes, s.marketingCompareFilter, s.marketingDateFilter],
-            (createMarketingDataWarehouseNodes, marketingCompareFilter, marketingDateFilter) => ({
-                createMarketingDataWarehouseNodes,
-                marketingCompareFilter,
-                marketingDateFilter,
-            }),
-        ],
         tiles: [
             (s) => [
                 s.productTab,
@@ -996,8 +964,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 () => values.currentTeam,
                 () => values.tileVisualizations,
                 () => values.preAggregatedEnabled,
-                () => values.campaignCostsBreakdown,
-                s.marketingContext,
+                s.marketingTiles,
             ],
             (
                 productTab,
@@ -1018,11 +985,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 currentTeam,
                 tileVisualizations,
                 preAggregatedEnabled,
-                campaignCostsBreakdown,
-                marketingContext
+                marketingTiles
             ): WebAnalyticsTile[] => {
-                const { createMarketingDataWarehouseNodes, marketingCompareFilter, marketingDateFilter } =
-                    marketingContext
                 const dateRange = { date_from: dateFrom, date_to: dateTo }
                 const sampling = { enabled: false, forceSamplingRate: { numerator: 1, denominator: 10 } }
 
@@ -1318,82 +1282,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 }
 
                 if (productTab === ProductTab.MARKETING) {
-                    return [
-                        {
-                            kind: 'query',
-                            tileId: TileId.MARKETING,
-                            layout: {
-                                colSpanClassName: 'md:col-span-2',
-                                orderWhenLargeClassName: 'xxl:order-1',
-                            },
-                            title: 'Marketing costs',
-                            query: {
-                                kind: NodeKind.InsightVizNode,
-                                embedded: true,
-                                hidePersonsModal: true,
-                                hideTooltipOnScroll: true,
-                                source: {
-                                    kind: NodeKind.TrendsQuery,
-                                    compareFilter: marketingCompareFilter,
-                                    series:
-                                        createMarketingDataWarehouseNodes.length > 0
-                                            ? createMarketingDataWarehouseNodes
-                                            : [
-                                                  // Fallback when no sources are configured
-                                                  {
-                                                      kind: NodeKind.EventsNode,
-                                                      event: 'no_sources_configured',
-                                                      custom_name: 'No marketing sources configured',
-                                                      math: BaseMathType.TotalCount,
-                                                  },
-                                              ],
-                                    interval: marketingDateFilter.interval,
-                                    dateRange: {
-                                        date_from: marketingDateFilter.dateFrom,
-                                        date_to: marketingDateFilter.dateTo,
-                                    },
-                                    trendsFilter: {
-                                        display: ChartDisplayType.ActionsAreaGraph,
-                                        aggregationAxisFormat: 'numeric',
-                                        aggregationAxisPrefix: '$',
-                                    },
-                                },
-                            },
-                            showIntervalSelect: true,
-                            insightProps: createInsightProps(TileId.MARKETING),
-                            canOpenInsight: true,
-                            canOpenModal: false,
-                            docs: {
-                                title: 'Marketing costs',
-                                description:
-                                    createMarketingDataWarehouseNodes.length > 0
-                                        ? 'Track costs from your configured marketing data sources.'
-                                        : 'Configure marketing data sources in the settings to track costs from your ad platforms.',
-                            },
-                        },
-                        campaignCostsBreakdown
-                            ? {
-                                  kind: 'query',
-                                  tileId: TileId.MARKETING_CAMPAIGN_BREAKDOWN,
-                                  layout: {
-                                      colSpanClassName: 'md:col-span-2',
-                                      orderWhenLargeClassName: 'xxl:order-2',
-                                  },
-                                  title: 'Campaign costs breakdown',
-                                  query: campaignCostsBreakdown,
-                                  insightProps: createInsightProps(TileId.MARKETING_CAMPAIGN_BREAKDOWN),
-                                  canOpenModal: true,
-                                  canOpenInsight: false,
-                                  docs: {
-                                      title: 'Campaign costs breakdown',
-                                      description:
-                                          'Breakdown of marketing costs by individual campaign names across all ad platforms.',
-                                  },
-                              }
-                            : null,
-                    ]
-                        .filter(isNotNil)
-                        .map((tile) => tile as WebAnalyticsTile)
+                    return marketingTiles as unknown as WebAnalyticsTile[]
                 }
 
                 const allTiles: (WebAnalyticsTile | null)[] = [
@@ -2487,68 +2376,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     const preferredUrl = urls.find((url) => url.protocol === 'https:') ?? urls[0]
                     return preferredUrl.origin
                 })
-            },
-        ],
-        campaignCostsBreakdown: [
-            (s) => [
-                s.loading,
-                s.query,
-                s.marketingDateFilter,
-                s.webAnalyticsFilters,
-                s.shouldFilterTestAccounts,
-                s.draftConversionGoal,
-                s.defaultColumns,
-            ],
-            (
-                loading: boolean,
-                query: DataTableNode,
-                marketingDateFilter: { dateFrom: string; dateTo: string; interval: IntervalType },
-                webAnalyticsFilters: WebAnalyticsPropertyFilters,
-                filterTestAccounts: boolean,
-                draftConversionGoal: ConversionGoalFilter | null,
-                defaultColumns: string[]
-            ): DataTableNode | null => {
-                if (loading) {
-                    return null
-                }
-
-                const marketingQuery = query?.source as MarketingAnalyticsTableQuery | undefined
-                const columnsWithDraftConversionGoal = [
-                    ...(marketingQuery?.select?.length ? marketingQuery.select : defaultColumns).filter(
-                        (column) => !isDraftConversionGoalColumn(column, draftConversionGoal)
-                    ),
-                    ...(draftConversionGoal
-                        ? [
-                              draftConversionGoal.conversion_goal_name,
-                              `${MarketingAnalyticsHelperForColumnNames.CostPer} ${draftConversionGoal.conversion_goal_name}`,
-                          ]
-                        : []),
-                ]
-                const sortedColumns = getSortedColumnsByArray(columnsWithDraftConversionGoal, defaultColumns)
-                const orderedColumns = orderArrayByPreference(sortedColumns, query?.pinnedColumns || [])
-                const orderBy = getOrderBy(marketingQuery, sortedColumns)
-                return {
-                    ...query,
-                    kind: NodeKind.DataTableNode,
-                    source: {
-                        ...marketingQuery,
-                        kind: NodeKind.MarketingAnalyticsTableQuery,
-                        dateRange: {
-                            date_from: marketingDateFilter.dateFrom,
-                            date_to: marketingDateFilter.dateTo,
-                        },
-                        properties: webAnalyticsFilters || [],
-                        filterTestAccounts: filterTestAccounts,
-                        draftConversionGoal: draftConversionGoal,
-                        limit: 200,
-                        orderBy,
-                        tags: MARKETING_ANALYTICS_DEFAULT_QUERY_TAGS,
-                        select: orderedColumns,
-                    },
-                    full: true,
-                    embedded: false,
-                    showOpenEditorButton: false,
-                }
             },
         ],
     })),
