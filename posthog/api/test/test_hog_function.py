@@ -287,7 +287,10 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             "transpiled": None,
             "inputs_schema": [],
             "inputs": {},
-            "filters": {"bytecode": ["_H", HOGQL_BYTECODE_VERSION, 29]},
+            "filters": {
+                "source": "events",
+                "bytecode": ["_H", HOGQL_BYTECODE_VERSION, 29],
+            },
             "icon_url": None,
             "template": None,
             "masking": None,
@@ -861,6 +864,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         assert response.json()["filters"] == {
+            "source": "events",
             "events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}],
             "actions": [{"id": f"{action.id}", "name": "Test Action", "type": "actions", "order": 1}],
             "filter_test_accounts": True,
@@ -1438,6 +1442,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                         {"key": "message", "type": "string", "label": "Message", "required": True},
                     ],
                     "filters": {
+                        "source": "events",
                         "events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}],
                         "filter_test_accounts": True,
                     },
