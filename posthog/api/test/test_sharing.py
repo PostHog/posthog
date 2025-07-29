@@ -75,6 +75,7 @@ class TestSharing(APIBaseTest):
             "access_token": data["access_token"],
             "created_at": None,
             "enabled": False,
+            "settings": None,
         }
 
     @freeze_time("2022-01-01")
@@ -515,7 +516,7 @@ class TestSharing(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
         assert "settings" in data
-        assert data["settings"] == {}
+        assert data["settings"] is None
 
     @patch("posthog.api.exports.exporter.export_asset.delay")
     def test_can_update_settings_field(self, patched_exporter_task: Mock):
@@ -589,7 +590,7 @@ class TestSharing(APIBaseTest):
         assert '"detailed":true' in content
         assert '"showInspector":true' in content
 
-    @freeze_time("2024-06-15")  # After ship date
+    @freeze_time("2025-10-15")  # After ship date
     @patch("posthog.api.exports.exporter.export_asset.delay")
     def test_all_query_params_ignored_for_new_configs(self, patched_exporter_task: Mock):
         """Test that all query params are ignored for configurations created after ship date"""
@@ -604,13 +605,13 @@ class TestSharing(APIBaseTest):
         response = self.client.get(f"/shared/{access_token}?whitelabel=true&noHeader=true&legend=true&detailed=true")
         assert response.status_code == 200
         content = response.content.decode()
-        # None of the options should be active since they're not in state
+        # None of the options should be active since they're not in settings
         assert '"whitelabel":true' not in content
         assert '"noHeader":true' not in content
         assert '"legend":true' not in content
         assert '"detailed":true' not in content
 
-    @freeze_time("2024-06-15")  # After ship date
+    @freeze_time("2025-10-15")  # After ship date
     @patch("posthog.api.exports.exporter.export_asset.delay")
     def test_all_options_from_settings_work_for_new_configs(self, patched_exporter_task: Mock):
         """Test that all options from settings work for new configurations"""
@@ -666,7 +667,7 @@ class TestSharing(APIBaseTest):
             dashboard=self.dashboard,
             enabled=True,
         )
-        assert config.settings == {}
+        assert config.settings is None
 
         # Test with explicit settings
         config_with_settings = SharingConfiguration.objects.create(
