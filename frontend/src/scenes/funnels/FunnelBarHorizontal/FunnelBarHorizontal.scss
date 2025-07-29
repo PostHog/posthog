@@ -142,14 +142,14 @@ $glyph_height: 23px; // Based on .funnel-step-glyph
                 position: absolute;
                 top: 8px;
 
-                // Default for very small bars: position outside
+                // Default: position outside, visible
                 left: calc(100% + #{$label_position_offset});
                 font-weight: bold;
                 line-height: 16px;
                 color: var(--text-3000);
                 white-space: nowrap;
 
-                // When bar is wide enough (approx 60px), position inside
+                // When bar is wide enough (60px+), position inside
                 @container (min-width: 60px) {
                     right: $label_position_offset;
                     left: auto;

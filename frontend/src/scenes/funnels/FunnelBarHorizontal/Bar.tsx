@@ -49,11 +49,14 @@ export function Bar({
     const MINIMUM_SPACE_FOR_LABEL = 60 // pixels
     const cursorType = !disabled ? 'pointer' : ''
     const hasBreakdownSum = isBreakdown && typeof breakdownSumPercentage === 'number'
-    const shouldShowLabel = (!isBreakdown || hasBreakdownSum) && labelVisible
+
+    // For breakdown bars, use JavaScript to calculate remaining space
+    // For non-breakdown bars, rely on CSS container queries
+    const shouldShowLabel = hasBreakdownSum ? labelVisible : !isBreakdown || hasBreakdownSum
 
     const checkLabelVisibility = useCallback((): void => {
         if (!hasBreakdownSum) {
-            // For non-breakdowns, always show label
+            // For non-breakdowns, always show label (CSS handles positioning)
             setLabelVisible(true)
             return
         }
