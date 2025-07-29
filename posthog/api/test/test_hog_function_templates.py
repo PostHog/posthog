@@ -39,7 +39,7 @@ class TestHogFunctionTemplates(ClickhouseTestMixin, APIBaseTest, QueryMatchingTe
         HogFunctionTemplate.objects.all().delete()
 
         # Create test templates that the tests expect
-        self.template1, _ = sync_template_to_db(template_slack)
+        self.template1 = sync_template_to_db(template_slack)
 
         # Create a webhook template
         self.webhook_template = HogFunctionTemplate.objects.create(

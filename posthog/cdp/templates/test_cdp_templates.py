@@ -22,7 +22,7 @@ class TestTemplatesGeneral(BaseTest):
                 assert bytecode[0] == "_H"
 
     def test_sync_template_to_db(self):
-        template_data = HOG_FUNCTION_TEMPLATES[0]
+        template_data = dataclasses.asdict(HOG_FUNCTION_TEMPLATES[0])
         template = sync_template_to_db(template_data)
         assert template.template_id == template_data["id"]
         assert template.name == template_data["name"]
