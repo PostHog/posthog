@@ -1280,6 +1280,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 const newTabs = values.allTabs.map((tab) => ({
                     ...tab,
                     draft: tab.draft?.id === draftId ? undefined : tab.draft,
+                    name: tab.draft?.id === draftId ? tab.view?.name : view.name,
                 }))
                 actions.setTabs(newTabs)
             })
