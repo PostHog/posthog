@@ -119,7 +119,6 @@ $glyph_height: 23px; // Based on .funnel-step-glyph
         border-radius: var(--radius);
 
         .funnel-bar {
-            // Enable container queries on individual bars
             container-type: inline-size;
             position: relative;
             height: 100%;
@@ -141,15 +140,13 @@ $glyph_height: 23px; // Based on .funnel-step-glyph
             .funnel-bar-percentage {
                 position: absolute;
                 top: 8px;
-
-                // Default: position outside, visible
                 left: calc(100% + #{$label_position_offset});
                 font-weight: bold;
                 line-height: 16px;
                 color: var(--text-3000);
                 white-space: nowrap;
 
-                // When bar is wide enough (60px+), position inside
+                // When individual bar is wide enough, position label inside
                 @container (min-width: 60px) {
                     right: $label_position_offset;
                     left: auto;
@@ -158,12 +155,6 @@ $glyph_height: 23px; // Based on .funnel-step-glyph
             }
         }
 
-        // For breakdown funnels, hide all bar labels (they're now in empty space)
-        &.breakdown .funnel-bar .funnel-bar-percentage {
-            display: none;
-        }
-
-        // Empty space contains the breakdown label and uses container queries
         .funnel-bar-empty-space {
             container-type: inline-size;
             position: relative;
@@ -172,19 +163,22 @@ $glyph_height: 23px; // Based on .funnel-step-glyph
                 position: absolute;
                 top: 8px;
                 left: 8px;
-
-                // Hide by default for narrow empty spaces
                 display: none;
                 font-weight: bold;
                 line-height: 16px;
                 color: var(--text-3000);
                 white-space: nowrap;
 
-                // Show label when empty space is wide enough (≥ 60px)
+                // Show breakdown summary label when empty space is wide enough
                 @container (min-width: 60px) {
                     display: block;
                 }
             }
+        }
+
+        // For breakdown funnels: hide individual bar labels, show summary in empty space
+        &.breakdown .funnel-bar .funnel-bar-percentage {
+            display: none;
         }
     }
 }

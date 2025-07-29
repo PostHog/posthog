@@ -104,11 +104,6 @@ export function FunnelBarHorizontal({
                                                 isBreakdown={true}
                                                 breakdownIndex={index}
                                                 breakdownMaxIndex={breakdownMaxIndex}
-                                                breakdownSumPercentage={
-                                                    index === breakdownMaxIndex && breakdownSum
-                                                        ? breakdownSum / basisStep.count
-                                                        : undefined
-                                                }
                                                 onBarClick={() =>
                                                     openPersonsModalForSeries({
                                                         step,
@@ -133,9 +128,11 @@ export function FunnelBarHorizontal({
                                             cursor: `${!inCardView ? 'pointer' : ''}`,
                                         }}
                                     >
-                                        <div className="funnel-bar-percentage">
-                                            {percentage(breakdownSum / basisStep.count, 1, true)}
-                                        </div>
+                                        {isBreakdown && (
+                                            <div className="funnel-bar-percentage">
+                                                {percentage(breakdownSum / basisStep.count, 1, true)}
+                                            </div>
+                                        )}
                                     </div>
                                 </>
                             ) : (

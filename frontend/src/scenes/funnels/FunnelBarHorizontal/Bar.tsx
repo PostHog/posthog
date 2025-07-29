@@ -19,7 +19,6 @@ interface BarProps {
     isBreakdown?: boolean
     breakdownIndex?: number
     breakdownMaxIndex?: number
-    breakdownSumPercentage?: number
     step: FunnelStepWithConversionMetrics
     stepIndex: number
     breakdownFilter: BreakdownFilter | null | undefined
@@ -34,7 +33,6 @@ export function Bar({
     isBreakdown = false,
     breakdownIndex,
     breakdownMaxIndex,
-    breakdownSumPercentage,
     step,
     stepIndex,
     breakdownFilter,
@@ -44,8 +42,11 @@ export function Bar({
     const { getFunnelsColor } = useValues(funnelDataLogic(insightProps))
 
     const cursorType = !disabled ? 'pointer' : ''
-    const hasBreakdownSum = isBreakdown && typeof breakdownSumPercentage === 'number'
-    const shouldShowLabel = !isBreakdown || hasBreakdownSum
+
+    // Labels are handled differently for breakdown vs non-breakdown funnels:
+    // - Non-breakdown: Show labels on bars (CSS positions inside/outside based on width)
+    // - Breakdown: Hide bar labels (CSS), summary shown in empty space instead
+    const shouldShowLabel = !isBreakdown
 
     if (!conversionPercentage) {
         return null
@@ -90,9 +91,9 @@ export function Bar({
                         role="progressbar"
                         aria-valuemin={0}
                         aria-valuemax={100}
-                        aria-valuenow={(breakdownSumPercentage ?? conversionPercentage) * 100}
+                        aria-valuenow={conversionPercentage * 100}
                     >
-                        {percentage(breakdownSumPercentage ?? conversionPercentage, 1, true)}
+                        {percentage(conversionPercentage, 1, true)}
                     </div>
                 )}
             </div>
