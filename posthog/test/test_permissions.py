@@ -15,7 +15,6 @@ except ImportError:
     pass
 
 
-@pytest.mark.ee
 class TestAccessControlPermission(BaseTest):
     """
     Test the AccessControlPermission class to ensure it properly handles
@@ -42,6 +41,8 @@ class TestAccessControlPermission(BaseTest):
         self.factory = APIRequestFactory()
         self.permission = AccessControlPermission()
 
+        self.other_user = self._create_user("other_user")
+
         # Create test notebooks
         from posthog.models.notebook.notebook import Notebook
 
@@ -63,14 +64,17 @@ class TestAccessControlPermission(BaseTest):
         ac.save()
         return ac
 
-    def _create_mock_view(self, scope_object="notebook", action="list", pk=None):
-        """Helper to create a mock view with necessary attributes"""
-        view = Mock()
-        view.scope_object = scope_object
+    def _create_real_view(self, action="list", pk=None):
+        """Helper to create a real NotebookViewSet instance"""
+        from posthog.api.notebook import NotebookViewSet
+
+        view = NotebookViewSet()
         view.action = action
         view.kwargs = {"pk": pk} if pk else {}
         view.team = self.team
         view.user_access_control = UserAccessControl(self.user, self.team)
+        view.request = Mock()
+        view.request.user = self.user
         return view
 
     def _create_mock_request(self, method="GET", user=None):
@@ -94,7 +98,7 @@ class TestAccessControlPermission(BaseTest):
         )
 
         request = self._create_mock_request()
-        view = self._create_mock_view(action="list")
+        view = self._create_real_view(action="list")
 
         # Should have permission
         assert self.permission.has_permission(request, view) is True
@@ -113,7 +117,7 @@ class TestAccessControlPermission(BaseTest):
         )
 
         request = self._create_mock_request()
-        view = self._create_mock_view(action="list")
+        view = self._create_real_view(action="list")
 
         # Should have permission due to specific access fallback
         assert self.permission.has_permission(request, view) is True
@@ -124,7 +128,7 @@ class TestAccessControlPermission(BaseTest):
         self._create_access_control(resource="notebook", access_level="none")
 
         request = self._create_mock_request()
-        view = self._create_mock_view(action="list")
+        view = self._create_real_view(action="list")
 
         # Should NOT have permission
         assert self.permission.has_permission(request, view) is False
@@ -143,7 +147,7 @@ class TestAccessControlPermission(BaseTest):
         )
 
         request = self._create_mock_request()
-        view = self._create_mock_view(action="retrieve", pk=str(self.notebook_1.id))
+        view = self._create_real_view(action="retrieve", pk=str(self.notebook_1.id))
 
         # Should have object permission for notebook_1
         assert self.permission.has_object_permission(request, view, self.notebook_1) is True
@@ -154,7 +158,7 @@ class TestAccessControlPermission(BaseTest):
         self._create_access_control(resource="notebook", access_level="none")
 
         request = self._create_mock_request()
-        view = self._create_mock_view(action="retrieve", pk=str(self.notebook_2.id))
+        view = self._create_real_view(action="retrieve", pk=str(self.notebook_2.id))
 
         # Should NOT have object permission for notebook_2
         assert self.permission.has_object_permission(request, view, self.notebook_2) is False
@@ -173,7 +177,7 @@ class TestAccessControlPermission(BaseTest):
         )
 
         request = self._create_mock_request(method="POST")
-        view = self._create_mock_view(action="create")
+        view = self._create_real_view(action="create")
 
         # Should NOT have permission to create (resource-level check should fail)
         assert self.permission.has_permission(request, view) is False
@@ -188,7 +192,7 @@ class TestAccessControlPermission(BaseTest):
         )
 
         request = self._create_mock_request(method="POST")
-        view = self._create_mock_view(action="create")
+        view = self._create_real_view(action="create")
 
         # Should have permission to create
         assert self.permission.has_permission(request, view) is True
