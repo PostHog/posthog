@@ -541,6 +541,17 @@ class FeatureFlagSerializer(
                     f"Cannot delete a feature flag that is linked to active experiment(s) with ID(s): {', '.join(map(str, experiment_ids))}. Please delete the experiment(s) before deleting the flag."
                 )
 
+            # Check for other flags that depend on this flag
+            dependent_flags = self._find_dependent_flags(instance)
+            if dependent_flags:
+                dependent_flag_names = [f"{flag.key} (ID: {flag.id})" for flag in dependent_flags[:5]]
+                if len(dependent_flags) > 5:
+                    dependent_flag_names.append(f"and {len(dependent_flags) - 5} more")
+                raise exceptions.ValidationError(
+                    f"Cannot delete this feature flag because other flags depend on it: {', '.join(dependent_flag_names)}. "
+                    f"Please update or delete the dependent flags first."
+                )
+
             # If all experiments are soft-deleted, rename the key to free it up
             # Append ID to the key when soft-deleting to prevent key conflicts
             # This allows the original key to be reused while preserving referential integrity for deleted experiments
@@ -660,6 +671,26 @@ class FeatureFlagSerializer(
             and original_flag[field] != getattr(current_instance, field)
             and validated_data[field] != getattr(current_instance, field)
         ]
+
+    def _find_dependent_flags(self, flag_to_delete: FeatureFlag) -> list[FeatureFlag]:
+        """Find all active flags that depend on the given flag."""
+        return list(
+            FeatureFlag.objects.filter(team=flag_to_delete.team, deleted=False, active=True)
+            .exclude(id=flag_to_delete.id)
+            .extra(
+                where=[
+                    """
+                    EXISTS (
+                        SELECT 1 FROM jsonb_array_elements(filters->'groups') AS grp
+                        CROSS JOIN jsonb_array_elements(grp->'properties') AS prop
+                        WHERE prop->>'type' = 'flag'
+                        AND prop->>'key' = %s
+                    )
+                    """
+                ],
+                params=[str(flag_to_delete.id)],
+            )
+        )
 
     def _update_filters(self, validated_data):
         if "get_filters" in validated_data:
