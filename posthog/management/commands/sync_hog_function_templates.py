@@ -78,16 +78,16 @@ class Command(BaseCommand):
             self.stdout.write(self.style.ERROR(f"Error fetching Node.js templates: {str(e)}"))
 
         for template_data in all_templates:
-            template = HogFunctionTemplate.get_template(template_data["id"])
-            if template:
-                serializer = HogFunctionTemplateSerializer(template)
-            else:
-                serializer = HogFunctionTemplateSerializer(data=template_data)
-
-            serializer.is_valid(raise_exception=True)
-
             try:
-                template = serializer.save()
+                template = HogFunctionTemplate.get_template(template_data["id"])
+                if template:
+                    serializer = HogFunctionTemplateSerializer(template, data=template_data)
+                else:
+                    serializer = HogFunctionTemplateSerializer(data=template_data)
+
+                serializer.is_valid(raise_exception=True)
+                serializer.save()
+
                 updated_count += 1
             except Exception as e:
                 error_count += 1
