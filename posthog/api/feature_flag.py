@@ -336,7 +336,7 @@ class FeatureFlagSerializer(
                             # Check cohort type - only behavioral cohorts allowed in feature flags
                             if cohort.cohort_type == "analytical":
                                 raise serializers.ValidationError(
-                                    detail=f"Analytical cohort '{cohort.name}' cannot be used in feature flags. Only behavioral cohorts are supported for real-time evaluation.",
+                                    detail=f"Analytical cohort '{cohort.name}' cannot be used in feature flags. Real-time evaluation only supports behavioral cohorts.",
                                     code=ANALYTICAL_COHORT_FOUND_ERROR_CODE,
                                 )
                     except Cohort.DoesNotExist:
