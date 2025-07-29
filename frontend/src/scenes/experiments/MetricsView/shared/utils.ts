@@ -204,7 +204,7 @@ export function formatPercentageChange(result: ExperimentVariantResult): Percent
     const pointEstimatePercent = (pointEstimate * 100).toFixed(2)
 
     return {
-        text: `${pointEstimatePercent}%`,
+        text: `${pointEstimate > 0 ? '+' : ''}${pointEstimatePercent}%`,
         isSignificant: result.significant,
         isPositive: pointEstimate > 0,
         pointEstimate,
