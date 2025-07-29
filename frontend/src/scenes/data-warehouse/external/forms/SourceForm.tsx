@@ -242,7 +242,7 @@ export function SourceFormComponent({
                 setSourceConfigValue(['payload', input], jobInputs[input])
             }
         }
-    }, [JSON.stringify(jobInputs), setSourceConfigValue, jobInputs])
+    }, [JSON.stringify(jobInputs), setSourceConfigValue])
 
     const isUpdateMode = !!setSourceConfigValue
 
