@@ -8,6 +8,7 @@ import {
     getVariantInterval,
     isBayesianResult,
 } from '../shared/utils'
+import { humanFriendlyNumber } from 'lib/utils'
 
 interface ChartCellTooltipProps {
     variantResult: ExperimentVariantResult
@@ -97,13 +98,21 @@ export function ChartCellTooltip({ variantResult, children }: ChartCellTooltipPr
                         </div>
 
                         <div className="flex justify-between items-center">
-                            <span className="text-muted-alt font-semibold">Samples:</span>
+                            <span className="text-muted-alt font-semibold">Total value:</span>
+                            <span className="font-semibold">{variantResult.sum}</span>
+                        </div>
+
+                        <div className="flex justify-between items-center">
+                            <span className="text-muted-alt font-semibold">Exposures:</span>
                             <span className="font-semibold">{variantResult.number_of_samples}</span>
                         </div>
 
                         <div className="flex justify-between items-center">
-                            <span className="text-muted-alt font-semibold">Sum:</span>
-                            <span className="font-semibold">{variantResult.sum}</span>
+                            <span className="text-muted-alt font-semibold">Value:</span>
+                            <span className="font-semibold">
+                                {' '}
+                                {humanFriendlyNumber(variantResult.sum / variantResult.number_of_samples)}{' '}
+                            </span>
                         </div>
 
                         {isBayesianResult(variantResult) ? (
