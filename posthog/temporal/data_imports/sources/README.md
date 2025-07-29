@@ -80,7 +80,7 @@ The fields `kind` relates to the `Integration.IntegrationKind` enum. Adding a ne
 
 #### `SourceFieldFileUploadConfig`
 
-This allows users to upload files to us. Currently we only support JSON files with either an allow list of keys or an allow-all option - set this via the `fileFormat` option. Define the allowed keys as either a list of keys on `keys` (e.g. `["key_1", "key_2]`) or to allow all keys use just `"*"`.
+This allows users to upload files to us. Currently we only support JSON files with either an allow list of keys or an allow-all option - set this via the `fileFormat` option. Define the allowed keys as either a list of keys on `keys` (e.g. `["key_1", "key_2"]`) or to allow all keys use just `"*"`.
 
 #### `SourceFieldSSHTunnelConfig`
 
@@ -95,7 +95,7 @@ We have a bunch of examples already in the sources directory of how we build up 
 `items`: This is what the pipeline iterates over to pull items from your source. Some rules for the iterator:
 
 -   It should return items as either `dict`, `list[dict]`, or a `pyarrow.Table` object. For sources with a defined schema that we can pull, such as a database table, we prefer the source returned a `pyarrow.Table` object with a well defined schema
--   It's okay to yield items one at a time if thats how the source logic is handled (excluding pyarrow tables). The pipeline will buffer the incoming items until it has a reasonable amount before running the pipeline over the dataset
+-   It's okay to yield items one at a time if that's how the source logic is handled (excluding pyarrow tables). The pipeline will buffer the incoming items until it has a reasonable amount before running the pipeline over the dataset
 -   If you are returning a `pyarrow.Table` object, then please make sure that there is a reasonable limit on how many rows that get held in memory. For most of our sources, we limit this to either 200 MiB or 5,000 rows.
 
 We have some helper methods for returning a `pyarrow.Table` from the source, such as `table_from_iterator()` and `table_from_py_list()` from `posthog/temporal/data_imports/pipelines/pipeline/utils.py`. The pipeline will ultimately convert everything to a `pyarrow.Table` using these methods
@@ -124,7 +124,7 @@ We support and recommend using partitioning for all new sources. Partitioning al
 
 We have several partitioning modes - `md5`, `numerical`, and `datetime`:
 
-`md5` will bucket rows based on a md5 hash of the primary key fields. This is the least efficient partitioning as it means we're typically hitting every partition when syncing a new dataset, though it's still memory efficient as we only merge a single partition at a time, the partitions can grow in size over time and become too large (this is due to their needing to be a finite set of partitions set on the first sync).
+`md5` will bucket rows based on a md5 hash of the primary key fields. This is the least efficient partitioning as it means we're typically hitting every partition when syncing a new dataset, though it's still memory efficient as we only merge a single partition at a time, the partitions can grow in size over time and become too large (this is due to there needing to be a finite set of partitions set on the first sync).
 
 `numerical` will bucket based on a numerical primary key, such as an incrementing `id` field. Each partition will have a set number of rows and the partition count will grow over time.
 
