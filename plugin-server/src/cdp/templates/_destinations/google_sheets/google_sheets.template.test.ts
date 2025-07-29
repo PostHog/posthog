@@ -26,6 +26,10 @@ describe('google sheets template', () => {
         jest.spyOn(Date, 'now').mockReturnValue(fixedTime.getTime())
     })
 
+    afterEach(() => {
+        tester.afterEach()
+    })
+
     it('should invoke the function', async () => {
         const response = await tester.invoke(defaultInputs, defaultGlobals)
 
@@ -76,7 +80,7 @@ describe('google sheets template', () => {
               {
                 "level": "debug",
                 "message": "Function completed in [REPLACED]",
-                "timestamp": "2025-01-01T01:00:00.000+01:00",
+                "timestamp": "2025-01-01T00:00:00.000Z",
               },
             ]
         `)
