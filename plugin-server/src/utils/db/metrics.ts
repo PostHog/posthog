@@ -27,5 +27,5 @@ export const personPropertiesSizeHistogram = new Histogram({
     name: 'person_properties_size',
     help: 'histogram of compressed person JSONB bytes retrieved in Person DB calls',
     labelNames: ['at'],
-    buckets: [1024, 8192, 65536, 524288, 1048576, 2097152, 4194304, 8388608, 16777216, 67108864],
+    buckets: [1024, 8192, 65536, 131072, 262144, 524288, 1048576, 2097152, 8388608],
 })
