@@ -215,9 +215,10 @@ export function DataTable({
         return col?.queryContextColumn?.isRowFillFraction
     })
 
+    const contextRowPropsFn = context?.rowProps
     const onRow = useCallback(
         (record) => {
-            const rowProps = context?.rowProps?.(record)
+            const rowProps = contextRowPropsFn?.(record)
             const rowFillFraction =
                 rowFillFractionIndex >= 0 && Array.isArray(record.result)
                     ? record.result[rowFillFractionIndex]
@@ -238,7 +239,7 @@ export function DataTable({
             }
             return rowProps ?? {}
         },
-        [context?.rowProps, rowFillFractionIndex, context]
+        [contextRowPropsFn, rowFillFractionIndex]
     )
 
     const groupTypes = isActorsQuery(query.source) ? personGroupTypes : eventGroupTypes
