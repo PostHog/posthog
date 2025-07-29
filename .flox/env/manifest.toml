@@ -44,6 +44,7 @@ mprocs = { pkg-path = "mprocs" }
 cmake = { pkg-path = "cmake", version = "3.31.5", pkg-group = "cmake" }
 sqlx-cli = { pkg-path = "sqlx-cli", version = "0.8.3" } # sqlx
 postgresql = { pkg-path = "postgresql_14" } # psql
+cassandra = { pkg-path = "cassandra" } # cqlsh
 
 # Set environment variables in the `[vars]` section. These variables may not
 # reference one another, and are added to the environment without first
@@ -128,9 +129,10 @@ if [[ -t 0 ]]; then
   # Print intro message
   echo -e "
 \033[3mRun the following commands in the given order to get the stack up and running:\033[0m
-1. Run all migrations - \033[31mbin/migrate\033[0m
-2. Start the stack - \033[32mbin/start\033[0m
-3. (optional) Create a user with demo data - \033[34m./manage.py generate_demo_data\033[0m
+1. Spin up containers - \033[33mdocker compose -f docker-compose.dev.yml up -d\033[0m
+2. Run all migrations - \033[31mbin/migrate\033[0m
+3. Start the stack - \033[32mbin/start\033[0m
+4. (optional) Create a user with demo data - \033[34m./manage.py generate_demo_data\033[0m
 "
 fi
 '''

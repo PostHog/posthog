@@ -104,6 +104,7 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
                     "date1": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
                     "impressions1": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
                     "clicks1": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "source1": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
                 },
             ),
             "google_campaign": DataConfig(
@@ -152,6 +153,7 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
                     "date2": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
                     "impressions2": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
                     "clicks2": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "source2": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
                 },
             ),
             "gcs": DataConfig(
@@ -166,6 +168,7 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
                     "date3": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
                     "impressions3": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
                     "clicks3": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "source3": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
                 },
             ),
         }

@@ -15,14 +15,16 @@ import { CdpApi } from './cdp-api'
 import { posthogFilterOutPlugin } from './legacy-plugins/_transformations/posthog-filter-out-plugin/template'
 import { HogFunctionInvocationGlobals, HogFunctionType } from './types'
 import { Server } from 'http'
+import { setupExpressApp } from '~/router'
 
 describe('CDP API', () => {
     let hub: Hub
     let team: Team
-    let app: express.Express
+    let app: express.Application
     let server: Server
     let api: CdpApi
     let hogFunction: HogFunctionType
+    let hogFunctionMultiFetch: HogFunctionType
 
     const globals: Partial<HogFunctionInvocationGlobals> = {
         groups: {},
@@ -62,8 +64,7 @@ describe('CDP API', () => {
         team = await getFirstTeam(hub)
 
         api = new CdpApi(hub)
-        app = express()
-        app.use(express.json())
+        app = setupExpressApp()
         app.use('/', api.router())
         server = app.listen(0, () => {})
     })
@@ -75,6 +76,12 @@ describe('CDP API', () => {
 
         hogFunction = await insertHogFunction({
             ...HOG_EXAMPLES.simple_fetch,
+            ...HOG_INPUTS_EXAMPLES.simple_fetch,
+            ...HOG_FILTERS_EXAMPLES.no_filters,
+        })
+
+        hogFunctionMultiFetch = await insertHogFunction({
+            ...HOG_EXAMPLES.recursive_fetch,
             ...HOG_INPUTS_EXAMPLES.simple_fetch,
             ...HOG_FILTERS_EXAMPLES.no_filters,
         })
@@ -184,6 +191,38 @@ describe('CDP API', () => {
                 {
                     level: 'debug',
                     message: expect.stringContaining('Function completed in'),
+                },
+            ],
+        })
+    })
+
+    it('can invoke a function with multiple fetches', async () => {
+        mockFetch.mockImplementation(() =>
+            Promise.resolve({
+                status: 201,
+                headers: { 'Content-Type': 'application/json' },
+                json: () => Promise.resolve({ real: true }),
+                text: () => Promise.resolve(JSON.stringify({ real: true })),
+            })
+        )
+        const res = await supertest(app)
+            .post(
+                `/api/projects/${hogFunctionMultiFetch.team_id}/hog_functions/${hogFunctionMultiFetch.id}/invocations`
+            )
+            .send({ globals, mock_async_functions: false })
+
+        expect(res.body.errors).toMatchInlineSnapshot(`
+            [
+              "Exceeded maximum number of async steps: 5",
+            ]
+        `)
+
+        expect(mockFetch).toHaveBeenCalledTimes(5)
+        expect(res.body).toMatchObject({
+            logs: [
+                {
+                    level: 'error',
+                    message: expect.stringContaining('Error executing function'),
                 },
             ],
         })
@@ -393,7 +432,7 @@ describe('CDP API', () => {
                 },
                 team_id: team.id,
                 enabled: true,
-                hog: posthogFilterOutPlugin.template.hog,
+                hog: posthogFilterOutPlugin.template.code,
                 inputs_schema: posthogFilterOutPlugin.template.inputs_schema,
             })
         })

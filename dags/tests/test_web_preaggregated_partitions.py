@@ -5,17 +5,16 @@ from unittest.mock import Mock, patch, call
 import dagster
 from dagster import TimeWindow
 
-from dags.web_preaggregated_daily import (
-    pre_aggregate_web_analytics_data,
-)
+from dags.web_preaggregated_daily import pre_aggregate_web_analytics_data
 from posthog.models.web_preaggregated.sql import DROP_PARTITION_SQL
 
 
 class TestPartitionHandling:
     def setup_method(self):
-        self.mock_context = Mock(spec=dagster.AssetExecutionContext)
-        self.mock_context.log = Mock()
-        self.mock_context.op_config = {"team_ids": [1, 2], "extra_clickhouse_settings": ""}
+        self.mock_context = Mock()
+        self.mock_context.log.info = Mock()
+        self.mock_context.log.warning = Mock()
+        self.mock_context.op_config = {}
 
     @pytest.mark.parametrize(
         "start_date_str,end_date_str,expected_partitions",
@@ -43,10 +42,13 @@ class TestPartitionHandling:
         self.mock_context.partition_time_window = TimeWindow(start_datetime, end_datetime)
 
         mock_sql_generator = Mock(return_value="INSERT INTO test_table ...")
+        mock_cluster = Mock()
+
         pre_aggregate_web_analytics_data(
             context=self.mock_context,
             table_name="web_stats_daily",
             sql_generator=mock_sql_generator,
+            cluster=mock_cluster,
         )
 
         actual_drop_calls = [
@@ -67,11 +69,13 @@ class TestPartitionHandling:
 
         mock_sync_execute.side_effect = side_effect
         mock_sql_generator = Mock(return_value="INSERT INTO test_table ...")
+        mock_cluster = Mock()
 
         pre_aggregate_web_analytics_data(
             context=self.mock_context,
             table_name="web_stats_daily",
             sql_generator=mock_sql_generator,
+            cluster=mock_cluster,
         )
 
         assert self.mock_context.log.info.call_count >= 4
@@ -85,10 +89,13 @@ class TestPartitionHandling:
         self.mock_context.partition_time_window = TimeWindow(start_datetime, end_datetime)
 
         mock_sql_generator = Mock(return_value="INSERT INTO test_table ...")
+        mock_cluster = Mock()
+
         pre_aggregate_web_analytics_data(
             context=self.mock_context,
             table_name="web_stats_daily",
             sql_generator=mock_sql_generator,
+            cluster=mock_cluster,
         )
 
         expected_sql = DROP_PARTITION_SQL("web_stats_daily", "2024-01-01", granularity="daily")
@@ -98,12 +105,14 @@ class TestPartitionHandling:
     def test_missing_partition_time_window_raises_error(self):
         self.mock_context.partition_time_window = None
         mock_sql_generator = Mock()
+        mock_cluster = Mock()
 
         with pytest.raises(dagster.Failure, match="This asset should only be run with a partition_time_window"):
             pre_aggregate_web_analytics_data(
                 context=self.mock_context,
                 table_name="web_stats_daily",
                 sql_generator=mock_sql_generator,
+                cluster=mock_cluster,
             )
 
     @patch("dags.web_preaggregated_daily.sync_execute")
@@ -119,12 +128,14 @@ class TestPartitionHandling:
 
         mock_sync_execute.side_effect = side_effect
         mock_sql_generator = Mock(return_value="INSERT INTO test_table ...")
+        mock_cluster = Mock()
 
         with pytest.raises(dagster.Failure, match="Failed to pre-aggregate web_stats_daily"):
             pre_aggregate_web_analytics_data(
                 context=self.mock_context,
                 table_name="web_stats_daily",
                 sql_generator=mock_sql_generator,
+                cluster=mock_cluster,
             )
 
     @patch("dags.web_preaggregated_daily.sync_execute")
@@ -134,14 +145,15 @@ class TestPartitionHandling:
         self.mock_context.partition_time_window = TimeWindow(start_datetime, end_datetime)
 
         mock_sql_generator = Mock(return_value="INSERT INTO test_table ...")
+        mock_cluster = Mock()
+
         pre_aggregate_web_analytics_data(
             context=self.mock_context,
             table_name="web_stats_daily",
             sql_generator=mock_sql_generator,
+            cluster=mock_cluster,
         )
 
-        drop_calls = [call_args for call_args in mock_sync_execute.call_args_list if "DROP PARTITION" in str(call_args)]
-        assert len(drop_calls) == 1
-
-        insert_calls = [call_args for call_args in mock_sync_execute.call_args_list if "INSERT INTO" in str(call_args)]
-        assert len(insert_calls) == 1
+        # Should still drop the partition for the single day
+        expected_sql = DROP_PARTITION_SQL("web_stats_daily", "2024-01-01", granularity="daily")
+        assert call(expected_sql) in mock_sync_execute.call_args_list

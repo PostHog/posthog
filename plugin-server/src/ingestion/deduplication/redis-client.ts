@@ -12,7 +12,7 @@ export type DeduplicationCountResult = {
 }
 
 export type DeduplicationIdsResult = {
-    duplicates: string[]
+    duplicates: Set<string>
     processed: number
 }
 
@@ -201,13 +201,19 @@ export class DeduplicationRedis {
         const startTime = Date.now()
 
         if (keys.length === 0) {
-            return { duplicates: [], processed: 0 }
+            return { duplicates: new Set(), processed: 0 }
         }
 
         if (this.isDisabled) {
             logger.debug('Redis deduplication is disabled, returning safe defaults')
-            const result = { duplicates: [], processed: keys.length }
-            recordDeduplicationOperation('deduplicateIds', startTime, result.processed, result.duplicates, 'disabled')
+            const result = { duplicates: new Set<string>(), processed: keys.length }
+            recordDeduplicationOperation(
+                'deduplicateIds',
+                startTime,
+                result.processed,
+                result.duplicates.size,
+                'disabled'
+            )
             return result
         }
 
@@ -218,7 +224,13 @@ export class DeduplicationRedis {
                 duplicates,
                 processed: keys.length,
             }
-            recordDeduplicationOperation('deduplicateIds', startTime, result.processed, result.duplicates, 'success')
+            recordDeduplicationOperation(
+                'deduplicateIds',
+                startTime,
+                result.processed,
+                result.duplicates.size,
+                'success'
+            )
             return result
         } catch (error) {
             // If destroyed, throw the error instead of returning safe defaults
@@ -232,8 +244,8 @@ export class DeduplicationRedis {
                 scriptSha: this.scripts.deduplicationIds.sha,
             })
             // Return safe defaults instead of throwing
-            const result = { duplicates: [], processed: keys.length }
-            recordDeduplicationOperation('deduplicateIds', startTime, result.processed, result.duplicates, 'error')
+            const result = { duplicates: new Set<string>(), processed: keys.length }
+            recordDeduplicationOperation('deduplicateIds', startTime, result.processed, result.duplicates.size, 'error')
             return result
         }
     }
@@ -242,7 +254,7 @@ export class DeduplicationRedis {
         return keys.map((key) => `${this.prefix}:${key}`)
     }
 
-    private async executeDeduplicationIdsScript(keys: string[], ttl: number): Promise<string[]> {
+    private async executeDeduplicationIdsScript(keys: string[], ttl: number): Promise<Set<string>> {
         if (!this.client) {
             throw new Error('Redis client not initialized')
         }
@@ -264,14 +276,14 @@ export class DeduplicationRedis {
 
         try {
             const result = await this.client.evalsha(script.sha!, prefixedKeys.length, prefixedKeys, ttl)
-            return Array.isArray(result) ? result : []
+            return new Set(Array.isArray(result) ? result : [])
         } catch (error) {
             // Handle NOSCRIPT error by reloading the script
             if (error instanceof Error && error.message.includes('NOSCRIPT')) {
                 logger.warn('DeduplicationIds script not found, reloading...')
                 await this.reloadScript('deduplicationIds')
                 const retryResult = await this.client!.evalsha(script.sha!, prefixedKeys.length, prefixedKeys, ttl)
-                return Array.isArray(retryResult) ? retryResult : []
+                return new Set(Array.isArray(retryResult) ? retryResult : [])
             }
             throw error
         }
