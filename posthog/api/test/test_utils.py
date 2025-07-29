@@ -17,9 +17,11 @@ from posthog.api.utils import (
     safe_clickhouse_string,
     PublicIPOnlyHttpAdapter,
     unparsed_hostname_in_allowed_url_list,
+    is_activity_unread,
 )
 from posthog.models.filters.filter import Filter
 from posthog.test.base import BaseTest
+from datetime import datetime, timedelta
 
 
 def return_true():
@@ -258,3 +260,20 @@ class TestUtils(BaseTest):
         self, _name: str, allowlist: list[str], needle: str | None, expected: bool
     ) -> None:
         assert unparsed_hostname_in_allowed_url_list(allowlist, needle) == expected
+
+
+class TestIsActivityUnread(BaseTest):
+    def test_is_activity_unread(self):
+        base = datetime(2023, 1, 1, 12, 0, 0, 0)
+        before = base - timedelta(seconds=1)
+        at = base
+        after = base + timedelta(microseconds=1)
+
+        # Before: should be read (False)
+        assert not is_activity_unread(base, after)
+        # At: should be read (False)
+        assert not is_activity_unread(base, at)
+        # After: should be unread (True)
+        assert is_activity_unread(after, base)
+        # None: should be unread (True)
+        assert is_activity_unread(base, None)

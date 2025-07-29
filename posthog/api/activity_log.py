@@ -8,6 +8,7 @@ from rest_framework.pagination import PageNumberPagination, CursorPagination, Ba
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.api.utils import is_activity_unread
 from posthog.models import ActivityLog, NotificationViewed
 
 
@@ -28,12 +29,8 @@ class ActivityLogSerializer(serializers.ModelSerializer):
             user=self.context["user"]
         ).first()
 
-        if user_bookmark is None:
-            return True
-        else:
-            # API call from browser only includes milliseconds but python datetime in created_at includes microseconds
-            bookmark_date = user_bookmark.last_viewed_activity_date
-            return bookmark_date < obj.created_at.replace(microsecond=obj.created_at.microsecond // 1000 * 1000)
+        bookmark_date = user_bookmark.last_viewed_activity_date if user_bookmark else None
+        return is_activity_unread(obj.created_at, bookmark_date)
 
 
 class ActivityLogPagination(BasePagination):
