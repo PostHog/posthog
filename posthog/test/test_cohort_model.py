@@ -412,8 +412,8 @@ class TestCohort(BaseTest):
             name="behavioral_cohort",
         )
         self.assertEqual(cohort.determine_cohort_type(), "behavioral")
-        self.assertTrue(cohort.is_behavioral_cohort)
-        self.assertFalse(cohort.is_analytical_cohort)
+        self.assertTrue(cohort.has_behavioral_filters)
+        self.assertFalse(cohort.is_analytical)
 
     def test_complex_behavioral_filters_make_analytical_cohort(self):
         """Test that cohorts with complex behavioral filters are analytical"""
@@ -442,11 +442,11 @@ class TestCohort(BaseTest):
             name="analytical_cohort",
         )
         self.assertEqual(cohort.determine_cohort_type(), "analytical")
-        self.assertTrue(cohort.is_behavioral_cohort)  # Has behavioral filters
-        self.assertTrue(cohort.is_analytical_cohort)  # Has complex behavioral filters
+        self.assertTrue(cohort.has_behavioral_filters)  # Has behavioral filters
+        self.assertTrue(cohort.is_analytical)  # Is analytical
 
-    def test_person_property_only_cohort_defaults_analytical(self):
-        """Test that cohorts with only person properties default to analytical"""
+    def test_person_property_only_cohort_defaults_behavioral(self):
+        """Test that cohorts with only person properties are behavioral (can be used in feature flags)"""
         cohort = Cohort.objects.create(
             team=self.team,
             filters={
@@ -464,9 +464,45 @@ class TestCohort(BaseTest):
             },
             name="person_cohort",
         )
+        self.assertEqual(cohort.determine_cohort_type(), "behavioral")
+        self.assertFalse(cohort.has_behavioral_filters)
+        self.assertFalse(cohort.is_analytical)
+
+    def test_empty_cohort_defaults_analytical(self):
+        """Test that cohorts with no filters default to analytical"""
+        cohort = Cohort.objects.create(team=self.team, name="empty_cohort")
         self.assertEqual(cohort.determine_cohort_type(), "analytical")
-        self.assertFalse(cohort.is_behavioral_cohort)
-        self.assertFalse(cohort.is_analytical_cohort)
+        self.assertFalse(cohort.has_behavioral_filters)
+        self.assertFalse(cohort.is_analytical)
+        self.assertFalse(cohort.has_only_person_properties)
+
+    def test_person_property_with_cohort_reference_is_analytical(self):
+        """Test that cohorts with person properties + cohort references are not behavioral"""
+        # Create a referenced cohort first
+        ref_cohort = Cohort.objects.create(team=self.team, name="ref_cohort")
+
+        cohort = Cohort.objects.create(
+            team=self.team,
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                {"key": "email", "type": "person", "value": "test@example.com", "operator": "exact"},
+                                {"key": "id", "type": "cohort", "value": ref_cohort.id},
+                            ],
+                        }
+                    ],
+                }
+            },
+            name="mixed_person_cohort",
+        )
+        self.assertEqual(cohort.determine_cohort_type(), "analytical")
+        self.assertFalse(cohort.has_behavioral_filters)
+        self.assertFalse(cohort.is_analytical)
+        self.assertFalse(cohort.has_only_person_properties)  # Mixed with cohort reference
 
     def test_cohort_type_detection_with_mixed_filters(self):
         """Test cohort type detection with mixed filter types"""
@@ -495,8 +531,8 @@ class TestCohort(BaseTest):
         )
         # Should be analytical because it has complex behavioral filters
         self.assertEqual(cohort.determine_cohort_type(), "analytical")
-        self.assertTrue(cohort.is_behavioral_cohort)
-        self.assertTrue(cohort.is_analytical_cohort)
+        self.assertTrue(cohort.has_behavioral_filters)
+        self.assertTrue(cohort.is_analytical)
 
     def test_update_cohort_type_method(self):
         """Test that update_cohort_type properly updates the cohort type"""

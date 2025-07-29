@@ -2242,11 +2242,11 @@ email@example.org,
 
         data = response.json()
         self.assertIn("cohort_type", data)
-        self.assertIn("is_behavioral_cohort", data)
-        self.assertIn("is_analytical_cohort", data)
+        self.assertIn("has_behavioral_filters", data)
+        self.assertIn("is_analytical", data)
         self.assertEqual(data["cohort_type"], "behavioral")
-        self.assertTrue(data["is_behavioral_cohort"])
-        self.assertFalse(data["is_analytical_cohort"])
+        self.assertTrue(data["has_behavioral_filters"])
+        self.assertFalse(data["is_analytical"])
 
     def test_cohort_type_auto_updated_on_create(self):
         """Test that cohort type is automatically set on creation"""
@@ -2280,8 +2280,11 @@ email@example.org,
 
         data = response.json()
         self.assertEqual(data["cohort_type"], "analytical")
-        self.assertTrue(data["is_behavioral_cohort"])
-        self.assertTrue(data["is_analytical_cohort"])
+        # Complex behavioral filters result in both flags being true:
+        # - has_behavioral_filters=True because it has behavioral filters
+        # - is_analytical=True because it's an analytical cohort (requires ClickHouse)
+        self.assertTrue(data["has_behavioral_filters"])  # Has behavioral filters
+        self.assertTrue(data["is_analytical"])  # Is analytical cohort
 
     def test_cohort_type_auto_updated_on_update(self):
         """Test that cohort type is automatically updated when filters change"""
@@ -2352,8 +2355,8 @@ email@example.org,
 
         data = response.json()
         self.assertEqual(data["cohort_type"], "behavioral")
-        self.assertFalse(data["is_behavioral_cohort"])  # No behavioral filters
-        self.assertFalse(data["is_analytical_cohort"])  # No complex behavioral filters
+        self.assertFalse(data["has_behavioral_filters"])  # No behavioral filters
+        self.assertFalse(data["is_analytical"])  # Not analytical
 
     def test_cohort_type_read_only_in_api(self):
         """Test that cohort_type cannot be directly set via API"""

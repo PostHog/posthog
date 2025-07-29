@@ -282,14 +282,34 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         return False
 
     @property
-    def is_behavioral_cohort(self) -> bool:
+    def has_behavioral_filters(self) -> bool:
         """Check if cohort has any behavioral filters (simple or complex)"""
         return any(prop.type == "behavioral" for prop in self.properties.flat)
 
     @property
-    def is_analytical_cohort(self) -> bool:
-        """Check if cohort has complex behavioral filters that require ClickHouse"""
+    def is_analytical(self) -> bool:
+        """
+        Check if cohort is analytical (requires ClickHouse for computation).
+
+        Cohorts are analytical if they have complex behavioral filters like:
+        - performed_event_first_time
+        - performed_event_regularly
+        - performed_event_sequence
+        - stopped_performing_event
+        - restarted_performing_event
+        """
         return self.has_complex_behavioral_filter
+
+    @property
+    def has_only_person_properties(self) -> bool:
+        """Check if cohort has only person properties (no behavioral, cohort, or other complex filters)"""
+        if not self.properties.flat:
+            return False
+
+        for prop in self.properties.flat:
+            if prop.type not in ["person"]:
+                return False
+        return True
 
     def determine_cohort_type(self) -> str:
         """Automatically determine cohort type based on its filters"""
@@ -298,15 +318,18 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             return "behavioral"
 
         # If cohort has complex behavioral filters, it must be analytical
-        if self.has_complex_behavioral_filter:
+        if self.is_analytical:
             return "analytical"
 
         # If cohort has simple behavioral filters, it can be behavioral
-        if self.is_behavioral_cohort:
+        if self.has_behavioral_filters:
             return "behavioral"
 
-        # Cohorts with only person properties can be behavioral
-        # But default to analytical for backward compatibility
+        # Person-only property cohorts should be behavioral (can be used in feature flags)
+        if self.has_only_person_properties:
+            return "behavioral"
+
+        # All other cohorts default to analytical
         return "analytical"
 
     def update_cohort_type(self) -> None:
