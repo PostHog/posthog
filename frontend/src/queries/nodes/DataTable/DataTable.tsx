@@ -207,21 +207,11 @@ export function DataTable({
         ? columnsInResponse ?? columnsInQuery
         : columnsInQuery
     const columnsInLemonTable = allColumns.filter((colName) => {
-        const columns = context?.columns
-        if (!columns) {
-            throw new Error()
-        }
-        const col = getContextColumn(colName, columns)
-
+        const col = getContextColumn(colName, context?.columns)
         return !col?.queryContextColumn?.hidden
     })
-    let rowFillFractionIndex = allColumns.findIndex((colName) => {
-        const columns = context?.columns
-        if (!columns) {
-            throw new Error()
-        }
-        const col = getContextColumn(colName, columns)
-
+    const rowFillFractionIndex = allColumns.findIndex((colName) => {
+        const col = getContextColumn(colName, context?.columns)
         return col?.queryContextColumn?.isRowFillFraction
     })
 
@@ -248,7 +238,7 @@ export function DataTable({
             }
             return rowProps ?? {}
         },
-        [context?.rowProps, rowFillFractionIndex]
+        [context?.rowProps, rowFillFractionIndex, context]
     )
 
     const groupTypes = isActorsQuery(query.source) ? personGroupTypes : eventGroupTypes
