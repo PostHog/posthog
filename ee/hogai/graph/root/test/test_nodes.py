@@ -954,7 +954,7 @@ Query results: 42 events
         # Create mock UI context
         ui_context = MaxUIContext(dashboards=[dashboard], insights=None)
 
-        result = self.mixin._format_ui_context({}, ui_context)
+        result = self.mixin._format_ui_context(ui_context, {})
 
         self.assertIn("Dashboard: Test Dashboard", result)
         self.assertIn("Description: Test dashboard description", result)
@@ -970,7 +970,7 @@ Query results: 42 events
         # Create mock UI context
         ui_context = MaxUIContext(dashboards=None, insights=None, events=[event1, event2], actions=None)
 
-        result = self.mixin._format_ui_context({}, ui_context)
+        result = self.mixin._format_ui_context(ui_context, {})
 
         self.assertIn('"page_view", "button_click"', result)
         self.assertIn("<events_context>", result)
@@ -983,7 +983,7 @@ Query results: 42 events
         # Create mock UI context
         ui_context = MaxUIContext(dashboards=None, insights=None, events=[event1, event2], actions=None)
 
-        result = self.mixin._format_ui_context({}, ui_context)
+        result = self.mixin._format_ui_context(ui_context, {})
 
         self.assertIn('"page_view: User viewed a page", "button_click: User clicked a button"', result)
         self.assertIn("<events_context>", result)
@@ -996,7 +996,7 @@ Query results: 42 events
         # Create mock UI context
         ui_context = MaxUIContext(dashboards=None, insights=None, events=None, actions=[action1, action2])
 
-        result = self.mixin._format_ui_context({}, ui_context)
+        result = self.mixin._format_ui_context(ui_context, {})
 
         self.assertIn('"Sign Up", "Purchase"', result)
         self.assertIn("<actions_context>", result)
@@ -1009,7 +1009,7 @@ Query results: 42 events
         # Create mock UI context
         ui_context = MaxUIContext(dashboards=None, insights=None, events=None, actions=[action1, action2])
 
-        result = self.mixin._format_ui_context({}, ui_context)
+        result = self.mixin._format_ui_context(ui_context, {})
 
         self.assertIn('"Sign Up: User creates account", "Purchase: User makes a purchase"', result)
         self.assertIn("<actions_context>", result)
@@ -1030,7 +1030,7 @@ Query results: 42 events
         # Create mock UI context
         ui_context = MaxUIContext(insights=[insight])
 
-        result = self.mixin._format_ui_context({}, ui_context)
+        result = self.mixin._format_ui_context(ui_context, {})
 
         self.assertIn("Insights", result)
         self.assertIn("Insight: Standalone Insight", result)
@@ -1043,7 +1043,7 @@ Query results: 42 events
 
         # Test with ui_context but no insights
         ui_context = MaxUIContext(insights=None)
-        result = self.mixin._format_ui_context({}, ui_context)
+        result = self.mixin._format_ui_context(ui_context, {})
         self.assertEqual(result, "")
 
     @patch("ee.hogai.graph.root.nodes.AssistantQueryExecutor")
@@ -1062,7 +1062,7 @@ Query results: 42 events
         # Create mock UI context
         ui_context = MaxUIContext(insights=[insight])
 
-        result = self.mixin._format_ui_context({}, ui_context)
+        result = self.mixin._format_ui_context(ui_context, {})
 
         self.assertIn("# Insights", result)
         self.assertIn("Test Insight", result)
@@ -1085,7 +1085,7 @@ Query results: 42 events
         # Create mock UI context
         ui_context = MaxUIContext(insights=[insight])
 
-        result = self.mixin._format_ui_context({}, ui_context)
+        result = self.mixin._format_ui_context(ui_context, {})
 
         # Should return empty string since the insight failed to run
         self.assertEqual(result, "")
