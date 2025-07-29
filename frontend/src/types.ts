@@ -1253,6 +1253,7 @@ export interface RecordingUniversalFilters {
     filter_test_accounts?: boolean
     filter_group: UniversalFiltersGroup
     order?: RecordingsQuery['order']
+    order_direction?: RecordingsQuery['order_direction']
 }
 
 export interface UniversalFiltersGroup {
@@ -5180,11 +5181,11 @@ export type CyclotronJobFilterPropertyFilter =
     | HogQLPropertyFilter
 
 export interface CyclotronJobFiltersType {
+    source?: 'events' | 'person-updates'
     events?: CyclotronJobFilterEvents[]
     actions?: CyclotronJobFilterActions[]
     properties?: CyclotronJobFilterPropertyFilter[]
     filter_test_accounts?: boolean
-    drop_events?: boolean
     bytecode?: any[]
     bytecode_error?: string
 }

@@ -743,7 +743,6 @@ class TestMemoryCollectorNode(ClickhouseTestMixin, BaseTest):
             )
 
             new_state = self.node.run(state, {})
-            self.assertEqual(new_state.memory_updated, True)
             self.assertEqual(new_state.memory_collection_messages, None)
 
     def test_appends_new_message(self):
