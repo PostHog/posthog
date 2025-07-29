@@ -477,6 +477,16 @@ export function createDefaultPropertyFilter(
         return hogQLProperty
     }
 
+    if (propertyType === PropertyFilterType.Flag) {
+        const flagProperty: FlagPropertyFilter = {
+            type: propertyType,
+            key: String(propertyKey),
+            value: true, // Default to true
+            operator: PropertyOperator.FlagEvaluatesTo,
+        }
+        return flagProperty
+    }
+
     const apiType = propertyFilterTypeToPropertyDefinitionType(propertyType) ?? PropertyDefinitionType.Event
 
     const propertyValueType = describeProperty(propertyKey, apiType, taxonomicGroup.groupTypeIndex)
