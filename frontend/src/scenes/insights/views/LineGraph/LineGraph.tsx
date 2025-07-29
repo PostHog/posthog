@@ -488,7 +488,12 @@ export function LineGraph_({
             hoverBorderWidth: isBar ? 0 : 2,
             hoverBorderRadius: isBar ? 0 : 2,
             type: (isHorizontal ? GraphType.Bar : type) as ChartType,
-            yAxisID: type === GraphType.Line && showMultipleYAxes && index > 0 ? `y${index}` : 'y',
+            yAxisID:
+                type === GraphType.Line && showMultipleYAxes && index > 0 && !dataset.yAxisID
+                    ? `y${index}`
+                    : dataset.yAxisID
+                    ? dataset.yAxisID
+                    : 'y',
         }
     }
 
@@ -723,6 +728,10 @@ export function LineGraph_({
                             const dataset = datasets[referenceDataPoint.datasetIndex]
                             const date = dataset?.days?.[referenceDataPoint.dataIndex]
                             const seriesData = createTooltipData(tooltip.dataPoints, (dp) => {
+                                if (tooltipConfig?.filter) {
+                                    return tooltipConfig.filter(dp)
+                                }
+
                                 const hasDotted =
                                     datasets.some((d) => d.dotted) &&
                                     dp.dataIndex - datasets?.[dp.datasetIndex]?.data?.length >=
@@ -926,7 +935,7 @@ export function LineGraph_({
                     },
                 },
                 ...generateYaxesForLineGraph(
-                    datasets.length,
+                    (showMultipleYAxes && new Set(datasets.map((d) => d.yAxisID)).size) || datasets.length,
                     seriesNonZeroMin,
                     goalLines,
                     goalLinesY,

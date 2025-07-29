@@ -200,6 +200,7 @@ export enum ProductKey {
     EXPERIMENTS = 'experiments',
     FEATURE_FLAGS = 'feature_flags',
     ANNOTATIONS = 'annotations',
+    COMMENTS = 'comments',
     HISTORY = 'history',
     HEATMAPS = 'heatmaps',
     INGESTION_WARNINGS = 'ingestion_warnings',
@@ -756,9 +757,9 @@ export interface ToolbarProps extends ToolbarParams {
     disableExternalStyles?: boolean
 }
 
-export type PathCleaningFilter = { alias?: string; regex?: string }
+export type PathCleaningFilter = { alias?: string; regex?: string; order?: number }
 
-export type PropertyFilterBaseValue = string | number | bigint
+export type PropertyFilterBaseValue = string | number | bigint | boolean
 export type PropertyFilterValue = PropertyFilterBaseValue | PropertyFilterBaseValue[] | null
 
 /** Sync with plugin-server/src/types.ts */
@@ -785,6 +786,7 @@ export enum PropertyOperator {
     In = 'in',
     NotIn = 'not_in',
     IsCleanedPathExact = 'is_cleaned_path_exact',
+    FlagEvaluatesTo = 'flag_evaluates_to',
 }
 
 export enum SavedInsightsTabs {
@@ -883,6 +885,8 @@ export enum PropertyFilterType {
     DataWarehousePersonProperty = 'data_warehouse_person_property',
     ErrorTrackingIssue = 'error_tracking_issue',
     RevenueAnalytics = 'revenue_analytics',
+    /** Feature flag dependency */
+    Flag = 'flag',
     Log = 'log',
 }
 
@@ -971,6 +975,16 @@ export interface FeaturePropertyFilter extends BasePropertyFilter {
     operator: PropertyOperator
 }
 
+export interface FlagPropertyFilter extends BasePropertyFilter {
+    type: PropertyFilterType.Flag
+    /** Only flag_evaluates_to operator is allowed for flag dependencies */
+    operator: PropertyOperator.FlagEvaluatesTo
+    /** The key should be the flag ID */
+    key: string
+    /** The value can be true, false, or a variant name */
+    value: boolean | string
+}
+
 export interface HogQLPropertyFilter extends BasePropertyFilter {
     type: PropertyFilterType.HogQL
     key: string
@@ -994,6 +1008,7 @@ export type AnyPropertyFilter =
     | LogEntryPropertyFilter
     | GroupPropertyFilter
     | FeaturePropertyFilter
+    | FlagPropertyFilter
     | HogQLPropertyFilter
     | EmptyPropertyFilter
     | DataWarehousePropertyFilter
@@ -2322,7 +2337,6 @@ export enum AnnotationScope {
     Dashboard = 'dashboard',
     Project = 'project',
     Organization = 'organization',
-    Recording = 'recording',
 }
 
 export interface RawAnnotationType {
@@ -2341,9 +2355,6 @@ export interface RawAnnotationType {
     dashboard_name?: DashboardBasicType['name'] | null
     deleted?: boolean
     creation_type?: 'USR' | 'GIT'
-    recording_id?: string | null
-    // convenience flag that indicates the content _should_ be a single emoji
-    is_emoji?: boolean
 }
 
 export interface AnnotationType extends Omit<RawAnnotationType, 'created_at' | 'date_marker'> {
@@ -3083,7 +3094,6 @@ export interface Survey {
     response_sampling_limit?: number | null
     response_sampling_daily_limits?: string[] | null
     enable_partial_responses?: boolean | null
-    is_publicly_shareable?: boolean | null
     _create_in_folder?: string | null
 }
 
@@ -3100,8 +3110,8 @@ export enum SurveyType {
     Popover = 'popover',
     Widget = 'widget', // feedback button survey
     FullScreen = 'full_screen',
-    Email = 'email',
     API = 'api',
+    ExternalSurvey = 'external_survey',
 }
 
 export enum SurveyPosition {
@@ -3264,6 +3274,12 @@ export interface MultivariateFlagOptions {
     variants: MultivariateFlagVariant[]
 }
 
+export enum FeatureFlagEvaluationRuntime {
+    SERVER = 'server',
+    CLIENT = 'client',
+    ALL = 'all',
+}
+
 export interface FeatureFlagFilters {
     groups: FeatureFlagGroupType[]
     multivariate?: MultivariateFlagOptions | null
@@ -3307,6 +3323,7 @@ export interface FeatureFlagType extends Omit<FeatureFlagBasicType, 'id' | 'team
     has_encrypted_payloads: boolean
     status: 'ACTIVE' | 'INACTIVE' | 'STALE' | 'DELETED' | 'UNKNOWN'
     _create_in_folder?: string | null
+    evaluation_runtime: FeatureFlagEvaluationRuntime
 }
 
 export interface OrganizationFeatureFlag {
@@ -3960,6 +3977,7 @@ export type GraphDataset = ChartDataset<ChartType> &
         personUrl?: string
         /** Action/event filter defition */
         action?: ActionFilter | null
+        yAxisID?: string
     }
 
 export type GraphPoint = InteractionItem & { dataset: GraphDataset }
@@ -4149,21 +4167,24 @@ export enum EventDefinitionType {
     EventPostHog = 'event_posthog',
 }
 
-export type IntegrationKind =
-    | 'slack'
-    | 'salesforce'
-    | 'hubspot'
-    | 'google-pubsub'
-    | 'google-cloud-storage'
-    | 'google-ads'
-    | 'linkedin-ads'
-    | 'snapchat'
-    | 'intercom'
-    | 'email'
-    | 'twilio'
-    | 'linear'
-    | 'github'
-    | 'meta-ads'
+export const INTEGRATION_KINDS = [
+    'slack',
+    'salesforce',
+    'hubspot',
+    'google-pubsub',
+    'google-cloud-storage',
+    'google-ads',
+    'linkedin-ads',
+    'snapchat',
+    'intercom',
+    'email',
+    'twilio',
+    'linear',
+    'github',
+    'meta-ads',
+] as const
+
+export type IntegrationKind = (typeof INTEGRATION_KINDS)[number]
 
 export interface IntegrationType {
     id: number
@@ -4183,6 +4204,12 @@ export interface SlackChannelType {
     is_ext_shared: boolean
     is_member: boolean
     is_private_without_access?: boolean
+}
+
+export interface TwilioPhoneNumberType {
+    sid: string
+    phone_number: string
+    friendly_name: string
 }
 export interface LinearTeamType {
     id: string
@@ -4441,6 +4468,8 @@ export enum ActivityScope {
     NOTEBOOK = 'Notebook',
     DASHBOARD = 'Dashboard',
     REPLAY = 'Replay',
+    // TODO: doh! we don't need replay and recording
+    RECORDING = 'recording',
     EXPERIMENT = 'Experiment',
     SURVEY = 'Survey',
     EARLY_ACCESS_FEATURE = 'EarlyAccessFeature',
@@ -4462,6 +4491,8 @@ export type CommentType = {
     scope: ActivityScope | string
     item_id?: string
     item_context: Record<string, any> | null
+    /** only on the type to support patching for soft delete */
+    deleted?: boolean
 }
 
 export type NotebookListItemType = {
@@ -5236,12 +5267,13 @@ export type HogFunctionSubTemplateType = Pick<
 
 export type HogFunctionTemplateType = Pick<
     HogFunctionType,
-    'id' | 'type' | 'name' | 'hog' | 'inputs_schema' | 'filters' | 'icon_url' | 'masking' | 'mappings'
+    'id' | 'type' | 'name' | 'inputs_schema' | 'filters' | 'icon_url' | 'masking' | 'mappings'
 > & {
     status: HogFunctionTemplateStatus
     free: boolean
     mapping_templates?: HogFunctionMappingTemplateType[]
     description?: string | JSX.Element
+    code: string
     code_language: 'javascript' | 'hog'
 }
 

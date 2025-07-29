@@ -1,4 +1,3 @@
-import ClickHouse from '@posthog/clickhouse'
 import {
     Element,
     PluginAttachment,
@@ -195,16 +194,15 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     POSTHOG_DB_PASSWORD: string
     POSTHOG_POSTGRES_HOST: string
     POSTHOG_POSTGRES_PORT: number
-    CLICKHOUSE_HOST: string
-    CLICKHOUSE_OFFLINE_CLUSTER_HOST: string | null
-    CLICKHOUSE_DATABASE: string
-    CLICKHOUSE_USER: string
-    CLICKHOUSE_PASSWORD: string | null
-    CLICKHOUSE_CA: string | null // ClickHouse CA certs
-    CLICKHOUSE_SECURE: boolean // whether to secure ClickHouse connection
-    CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: string // (advanced) topic to send events for clickhouse ingestion
-    CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: string // (advanced) topic to send heatmap data for clickhouse ingestion
+    CASSANDRA_HOST: string
+    CASSANDRA_PORT: number
+    CASSANDRA_KEYSPACE: string
+    CASSANDRA_USER: string | null
+    CASSANDRA_PASSWORD: string | null
+    WRITE_BEHAVIOURAL_COUNTERS_TO_CASSANDRA: boolean
     EXCEPTIONS_SYMBOLIFICATION_KAFKA_TOPIC: string // (advanced) topic to send exception event data for stack trace processing
+    CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: string
+    CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: string
     // Redis url pretty much only used locally / self hosted
     REDIS_URL: string
     // Redis params for the ingestion services
@@ -227,6 +225,7 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     CONSUMER_BATCH_SIZE: number // Primarily for kafka consumers the batch size to use
     CONSUMER_MAX_HEARTBEAT_INTERVAL_MS: number // Primarily for kafka consumers the max heartbeat interval to use after which it will be considered unhealthy
     CONSUMER_MAX_BACKGROUND_TASKS: number
+    CONSUMER_WAIT_FOR_BACKGROUND_TASKS_ON_REBALANCE: boolean
     CONSUMER_AUTO_CREATE_TOPICS: boolean
 
     // Kafka params - identical for client and producer
@@ -288,12 +287,6 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     PIPELINE_STEP_STALLED_LOG_TIMEOUT: number
     CAPTURE_CONFIG_REDIS_HOST: string | null // Redis cluster to use to coordinate with capture (overflow, routing)
     LAZY_LOADER_DEFAULT_BUFFER_MS: number
-    // dump profiles to disk, covering the first N seconds of runtime
-    STARTUP_PROFILE_DURATION_SECONDS: number
-    STARTUP_PROFILE_CPU: boolean
-    STARTUP_PROFILE_HEAP: boolean
-    STARTUP_PROFILE_HEAP_INTERVAL: number
-    STARTUP_PROFILE_HEAP_DEPTH: number
 
     // local directory might be a volume mount or a directory on disk (e.g. in local dev)
     SESSION_RECORDING_LOCAL_DIRECTORY: string
@@ -378,11 +371,10 @@ export interface Hub extends PluginsServerConfig {
     instanceId: UUID
     // what tasks this server will tackle - e.g. ingestion, scheduled plugins or others.
     capabilities: PluginServerCapabilities
-    // active connections to Postgres, Redis, ClickHouse, Kafka
+    // active connections to Postgres, Redis, Kafka
     db: DB
     postgres: PostgresRouter
     redisPool: GenericPool<Redis>
-    clickhouse: ClickHouse
     kafka: Kafka
     kafkaProducer: KafkaProducerWrapper
     objectStorage?: ObjectStorage
@@ -1156,11 +1148,6 @@ export enum TimestampFormat {
     ClickHouseSecondPrecision = 'clickhouse-second-precision',
     ClickHouse = 'clickhouse',
     ISO = 'iso',
-}
-
-export enum Database {
-    ClickHouse = 'clickhouse',
-    Postgres = 'postgres',
 }
 
 export interface PluginScheduleControl {

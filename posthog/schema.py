@@ -1021,6 +1021,14 @@ class Status(StrEnum):
     SUPPRESSED = "suppressed"
 
 
+class VolumeBucket(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    label: datetime
+    value: float
+
+
 class ErrorTrackingIssueAggregations(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1029,6 +1037,7 @@ class ErrorTrackingIssueAggregations(BaseModel):
     sessions: float
     users: float
     volumeRange: list[float]
+    volume_buckets: Optional[list[VolumeBucket]] = None
 
 
 class Type2(StrEnum):
@@ -1174,6 +1183,12 @@ class ExperimentSignificanceCode(StrEnum):
     LOW_WIN_PROBABILITY = "low_win_probability"
     HIGH_LOSS = "high_loss"
     HIGH_P_VALUE = "high_p_value"
+
+
+class ExperimentStatsValidationFailure(StrEnum):
+    NOT_ENOUGH_EXPOSURES = "not-enough-exposures"
+    BASELINE_MEAN_IS_ZERO = "baseline-mean-is-zero"
+    NOT_ENOUGH_METRIC_DATA = "not-enough-metric-data"
 
 
 class ExperimentVariantFunnelsBaseStats(BaseModel):
@@ -1332,6 +1347,19 @@ class FileSystemImport(BaseModel):
 class FilterLogicalOperator(StrEnum):
     AND_ = "AND"
     OR_ = "OR"
+
+
+class FlagPropertyFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    key: str = Field(..., description="The key should be the flag ID")
+    label: Optional[str] = None
+    operator: Literal["flag_evaluates_to"] = Field(
+        default="flag_evaluates_to", description="Only flag_evaluates_to operator is allowed for flag dependencies"
+    )
+    type: Literal["flag"] = Field(default="flag", description="Feature flag dependency")
+    value: Union[bool, str] = Field(..., description="The value can be true, false, or a variant name")
 
 
 class FunnelConversionWindowTimeUnit(StrEnum):
@@ -1736,6 +1764,7 @@ class NodeKind(StrEnum):
     RETENTION_QUERY = "RetentionQuery"
     PATHS_QUERY = "PathsQuery"
     STICKINESS_QUERY = "StickinessQuery"
+    STICKINESS_ACTORS_QUERY = "StickinessActorsQuery"
     LIFECYCLE_QUERY = "LifecycleQuery"
     INSIGHT_ACTORS_QUERY = "InsightActorsQuery"
     INSIGHT_ACTORS_QUERY_OPTIONS = "InsightActorsQueryOptions"
@@ -1784,6 +1813,7 @@ class PathCleaningFilter(BaseModel):
         extra="forbid",
     )
     alias: Optional[str] = None
+    order: Optional[float] = None
     regex: Optional[str] = None
 
 
@@ -1867,6 +1897,7 @@ class PropertyFilterType(StrEnum):
     DATA_WAREHOUSE_PERSON_PROPERTY = "data_warehouse_person_property"
     ERROR_TRACKING_ISSUE = "error_tracking_issue"
     REVENUE_ANALYTICS = "revenue_analytics"
+    FLAG = "flag"
     LOG = "log"
 
 
@@ -1905,6 +1936,7 @@ class PropertyOperator(StrEnum):
     IN_ = "in"
     NOT_IN = "not_in"
     IS_CLEANED_PATH_EXACT = "is_cleaned_path_exact"
+    FLAG_EVALUATES_TO = "flag_evaluates_to"
 
 
 class QueryIndexUsage(StrEnum):
@@ -2011,7 +2043,7 @@ class RecordingPropertyFilter(BaseModel):
     label: Optional[str] = None
     operator: PropertyOperator
     type: Literal["recording"] = "recording"
-    value: Optional[Union[list[Union[str, float]], Union[str, float]]] = None
+    value: Optional[Union[list[Union[str, float, bool]], Union[str, float, bool]]] = None
 
 
 class RefreshType(StrEnum):
@@ -2116,7 +2148,7 @@ class RevenueAnalyticsPropertyFilter(BaseModel):
     label: Optional[str] = None
     operator: PropertyOperator
     type: Literal["revenue_analytics"] = "revenue_analytics"
-    value: Optional[Union[list[Union[str, float]], Union[str, float]]] = None
+    value: Optional[Union[list[Union[str, float, bool]], Union[str, float, bool]]] = None
 
 
 class RevenueAnalyticsRevenueQueryResult(BaseModel):
@@ -2208,7 +2240,7 @@ class SessionPropertyFilter(BaseModel):
     label: Optional[str] = None
     operator: PropertyOperator
     type: Literal["session"] = "session"
-    value: Optional[Union[list[Union[str, float]], Union[str, float]]] = None
+    value: Optional[Union[list[Union[str, float, bool]], Union[str, float, bool]]] = None
 
 
 class SnapshotSource(StrEnum):
@@ -2222,15 +2254,12 @@ class Storage(StrEnum):
     OBJECT_STORAGE = "object_storage"
 
 
-class SourceFieldFileUploadConfig(BaseModel):
+class SourceFieldFileUploadJsonFormatConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    fileFormat: str
-    label: str
-    name: str
-    required: bool
-    type: Literal["file-upload"] = "file-upload"
+    format: Literal[".json"] = ".json"
+    keys: Union[str, list[str]]
 
 
 class Type4(StrEnum):
@@ -2264,6 +2293,21 @@ class SourceFieldOauthConfig(BaseModel):
     name: str
     required: bool
     type: Literal["oauth"] = "oauth"
+
+
+class SourceFieldSSHTunnelConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    label: str
+    name: str
+    type: Literal["ssh-tunnel"] = "ssh-tunnel"
+
+
+class Converter(StrEnum):
+    STR_TO_INT = "str_to_int"
+    STR_TO_BOOL = "str_to_bool"
+    STR_TO_OPTIONAL_INT = "str_to_optional_int"
 
 
 class SourceMap(BaseModel):
@@ -2391,8 +2435,8 @@ class SurveyType(StrEnum):
     POPOVER = "popover"
     WIDGET = "widget"
     FULL_SCREEN = "full_screen"
-    EMAIL = "email"
     API = "api"
+    EXTERNAL_SURVEY = "external_survey"
 
 
 class SurveyWidgetType(StrEnum):
@@ -3235,7 +3279,7 @@ class DataWarehousePersonPropertyFilter(BaseModel):
     label: Optional[str] = None
     operator: PropertyOperator
     type: Literal["data_warehouse_person_property"] = "data_warehouse_person_property"
-    value: Optional[Union[list[Union[str, float]], Union[str, float]]] = None
+    value: Optional[Union[list[Union[str, float, bool]], Union[str, float, bool]]] = None
 
 
 class DataWarehousePropertyFilter(BaseModel):
@@ -3246,7 +3290,7 @@ class DataWarehousePropertyFilter(BaseModel):
     label: Optional[str] = None
     operator: PropertyOperator
     type: Literal["data_warehouse"] = "data_warehouse"
-    value: Optional[Union[list[Union[str, float]], Union[str, float]]] = None
+    value: Optional[Union[list[Union[str, float, bool]], Union[str, float, bool]]] = None
 
 
 class DatabaseSchemaField(BaseModel):
@@ -3297,7 +3341,7 @@ class ElementPropertyFilter(BaseModel):
     label: Optional[str] = None
     operator: PropertyOperator
     type: Literal["element"] = "element"
-    value: Optional[Union[list[Union[str, float]], Union[str, float]]] = None
+    value: Optional[Union[list[Union[str, float, bool]], Union[str, float, bool]]] = None
 
 
 class ErrorTrackingExternalReferenceIntegration(BaseModel):
@@ -3325,7 +3369,7 @@ class ErrorTrackingIssueFilter(BaseModel):
     label: Optional[str] = None
     operator: PropertyOperator
     type: Literal["error_tracking_issue"] = "error_tracking_issue"
-    value: Optional[Union[list[Union[str, float]], Union[str, float]]] = None
+    value: Optional[Union[list[Union[str, float, bool]], Union[str, float, bool]]] = None
 
 
 class EventMetadataPropertyFilter(BaseModel):
@@ -3336,7 +3380,7 @@ class EventMetadataPropertyFilter(BaseModel):
     label: Optional[str] = None
     operator: PropertyOperator
     type: Literal["event_metadata"] = "event_metadata"
-    value: Optional[Union[list[Union[str, float]], Union[str, float]]] = None
+    value: Optional[Union[list[Union[str, float, bool]], Union[str, float, bool]]] = None
 
 
 class EventOddsRatioSerialized(BaseModel):
@@ -3358,7 +3402,7 @@ class EventPropertyFilter(BaseModel):
     label: Optional[str] = None
     operator: Optional[PropertyOperator] = PropertyOperator.EXACT
     type: Literal["event"] = Field(default="event", description="Event properties")
-    value: Optional[Union[list[Union[str, float]], Union[str, float]]] = None
+    value: Optional[Union[list[Union[str, float, bool]], Union[str, float, bool]]] = None
 
 
 class EventTaxonomyItem(BaseModel):
@@ -3437,6 +3481,7 @@ class ExperimentMetricBaseProperties(BaseModel):
     kind: Literal["ExperimentMetric"] = "ExperimentMetric"
     name: Optional[str] = None
     response: Optional[dict[str, Any]] = None
+    uuid: Optional[str] = None
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -3450,32 +3495,45 @@ class ExperimentStatsBase(BaseModel):
     sum_squares: float
 
 
+class ExperimentStatsBaseValidated(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    key: str
+    number_of_samples: int
+    sum: float
+    sum_squares: float
+    validation_failures: Optional[list[ExperimentStatsValidationFailure]] = None
+
+
 class ExperimentVariantResultBayesian(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    chance_to_win: float
-    credible_interval: list[float] = Field(..., max_length=2, min_length=2)
+    chance_to_win: Optional[float] = None
+    credible_interval: Optional[list[float]] = Field(default=None, max_length=2, min_length=2)
     key: str
     method: Literal["bayesian"] = "bayesian"
     number_of_samples: int
-    significant: bool
+    significant: Optional[bool] = None
     sum: float
     sum_squares: float
+    validation_failures: Optional[list[ExperimentStatsValidationFailure]] = None
 
 
 class ExperimentVariantResultFrequentist(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    confidence_interval: list[float] = Field(..., max_length=2, min_length=2)
+    confidence_interval: Optional[list[float]] = Field(default=None, max_length=2, min_length=2)
     key: str
     method: Literal["frequentist"] = "frequentist"
     number_of_samples: int
-    p_value: float
-    significant: bool
+    p_value: Optional[float] = None
+    significant: Optional[bool] = None
     sum: float
     sum_squares: float
+    validation_failures: Optional[list[ExperimentStatsValidationFailure]] = None
 
 
 class ExternalQueryError(BaseModel):
@@ -3494,7 +3552,7 @@ class FeaturePropertyFilter(BaseModel):
     label: Optional[str] = None
     operator: PropertyOperator
     type: Literal["feature"] = Field(default="feature", description='Event property with "$feature/" prepended')
-    value: Optional[Union[list[Union[str, float]], Union[str, float]]] = None
+    value: Optional[Union[list[Union[str, float, bool]], Union[str, float, bool]]] = None
 
 
 class FunnelCorrelationResult(BaseModel):
@@ -3542,7 +3600,7 @@ class GroupPropertyFilter(BaseModel):
     label: Optional[str] = None
     operator: PropertyOperator
     type: Literal["group"] = "group"
-    value: Optional[Union[list[Union[str, float]], Union[str, float]]] = None
+    value: Optional[Union[list[Union[str, float, bool]], Union[str, float, bool]]] = None
 
 
 class HogQLAutocompleteResponse(BaseModel):
@@ -3573,7 +3631,7 @@ class HogQLPropertyFilter(BaseModel):
     key: str
     label: Optional[str] = None
     type: Literal["hogql"] = "hogql"
-    value: Optional[Union[list[Union[str, float]], Union[str, float]]] = None
+    value: Optional[Union[list[Union[str, float, bool]], Union[str, float, bool]]] = None
 
 
 class HogQLQueryModifiers(BaseModel):
@@ -3677,7 +3735,7 @@ class LogEntryPropertyFilter(BaseModel):
     label: Optional[str] = None
     operator: PropertyOperator
     type: Literal["log_entry"] = "log_entry"
-    value: Optional[Union[list[Union[str, float]], Union[str, float]]] = None
+    value: Optional[Union[list[Union[str, float, bool]], Union[str, float, bool]]] = None
 
 
 class LogMessage(BaseModel):
@@ -3707,7 +3765,7 @@ class LogPropertyFilter(BaseModel):
     label: Optional[str] = None
     operator: PropertyOperator
     type: Literal["log"] = "log"
-    value: Optional[Union[list[Union[str, float]], Union[str, float]]] = None
+    value: Optional[Union[list[Union[str, float, bool]], Union[str, float, bool]]] = None
 
 
 class MarketingAnalyticsSchemaField(BaseModel):
@@ -3730,7 +3788,7 @@ class NewExperimentQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    baseline: ExperimentStatsBase
+    baseline: ExperimentStatsBaseValidated
     variant_results: Union[list[ExperimentVariantResultFrequentist], list[ExperimentVariantResultBayesian]]
 
 
@@ -3763,7 +3821,7 @@ class PersonPropertyFilter(BaseModel):
     label: Optional[str] = None
     operator: PropertyOperator
     type: Literal["person"] = Field(default="person", description="Person properties")
-    value: Optional[Union[list[Union[str, float]], Union[str, float]]] = None
+    value: Optional[Union[list[Union[str, float, bool]], Union[str, float, bool]]] = None
 
 
 class QueryResponseAlternative8(BaseModel):
@@ -4280,6 +4338,17 @@ class SessionsTimelineQueryResponse(BaseModel):
     )
 
 
+class SourceFieldFileUploadConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    fileFormat: SourceFieldFileUploadJsonFormatConfig
+    label: str
+    name: str
+    required: bool
+    type: Literal["file-upload"] = "file-upload"
+
+
 class StickinessCriteria(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -4508,6 +4577,7 @@ class TrendsFilter(BaseModel):
     aggregationAxisPostfix: Optional[str] = None
     aggregationAxisPrefix: Optional[str] = None
     breakdown_histogram_bin_count: Optional[float] = None
+    confidenceLevel: Optional[float] = None
     decimalPlaces: Optional[float] = None
     display: Optional[ChartDisplayType] = ChartDisplayType.ACTIONS_LINE_GRAPH
     formula: Optional[str] = None
@@ -4527,6 +4597,7 @@ class TrendsFilter(BaseModel):
         Union[dict[str, ResultCustomizationByValue], dict[str, ResultCustomizationByPosition]]
     ] = Field(default=None, description="Customizations for the appearance of result datasets.")
     showAlertThresholdLines: Optional[bool] = False
+    showConfidenceIntervals: Optional[bool] = None
     showLabelsOnSeries: Optional[bool] = None
     showLegend: Optional[bool] = False
     showMultipleYAxes: Optional[bool] = False
@@ -5705,7 +5776,7 @@ class CachedNewExperimentQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    baseline: ExperimentStatsBase
+    baseline: ExperimentStatsBaseValidated
     cache_key: str
     cache_target_age: Optional[datetime] = None
     calculation_trigger: Optional[str] = Field(
@@ -6550,6 +6621,7 @@ class ConversionGoalFilter1(BaseModel):
                 LogEntryPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
+                FlagPropertyFilter,
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
@@ -6598,6 +6670,7 @@ class ConversionGoalFilter1(BaseModel):
                 LogEntryPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
+                FlagPropertyFilter,
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
@@ -6633,6 +6706,7 @@ class ConversionGoalFilter2(BaseModel):
                 LogEntryPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
+                FlagPropertyFilter,
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
@@ -6680,6 +6754,7 @@ class ConversionGoalFilter2(BaseModel):
                 LogEntryPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
+                FlagPropertyFilter,
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
@@ -6717,6 +6792,7 @@ class ConversionGoalFilter3(BaseModel):
                 LogEntryPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
+                FlagPropertyFilter,
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
@@ -6765,6 +6841,7 @@ class ConversionGoalFilter3(BaseModel):
                 LogEntryPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
+                FlagPropertyFilter,
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
@@ -6802,6 +6879,7 @@ class DashboardFilter(BaseModel):
                 LogEntryPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
+                FlagPropertyFilter,
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
@@ -7240,6 +7318,7 @@ class DataWarehouseNode(BaseModel):
                 LogEntryPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
+                FlagPropertyFilter,
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
@@ -7288,6 +7367,7 @@ class DataWarehouseNode(BaseModel):
                 LogEntryPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
+                FlagPropertyFilter,
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
@@ -7348,6 +7428,7 @@ class EntityNode(BaseModel):
                 LogEntryPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
+                FlagPropertyFilter,
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
@@ -7394,6 +7475,7 @@ class EntityNode(BaseModel):
                 LogEntryPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
+                FlagPropertyFilter,
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
@@ -7492,6 +7574,7 @@ class ErrorTrackingSceneToolOutput(BaseModel):
                 LogEntryPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
+                FlagPropertyFilter,
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
@@ -7549,6 +7632,7 @@ class EventsNode(BaseModel):
                 LogEntryPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
+                FlagPropertyFilter,
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
@@ -7597,6 +7681,7 @@ class EventsNode(BaseModel):
                 LogEntryPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
+                FlagPropertyFilter,
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
@@ -7657,6 +7742,7 @@ class ExperimentDataWarehouseNode(BaseModel):
                 LogEntryPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
+                FlagPropertyFilter,
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
@@ -7703,6 +7789,7 @@ class ExperimentDataWarehouseNode(BaseModel):
                 LogEntryPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
+                FlagPropertyFilter,
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
@@ -7737,6 +7824,7 @@ class ExperimentEventExposureConfig(BaseModel):
             LogEntryPropertyFilter,
             GroupPropertyFilter,
             FeaturePropertyFilter,
+            FlagPropertyFilter,
             HogQLPropertyFilter,
             EmptyPropertyFilter,
             DataWarehousePropertyFilter,
@@ -7777,14 +7865,6 @@ class ExperimentExposureQuery(BaseModel):
     start_date: Optional[str] = None
     tags: Optional[QueryLogTags] = None
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
-
-
-class ExperimentMetricResult(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    baseline: ExperimentStatsBase
-    variants: Union[list[ExperimentVariantResultFrequentist], list[ExperimentVariantResultBayesian]]
 
 
 class FunnelCorrelationResponse(BaseModel):
@@ -7831,6 +7911,7 @@ class FunnelExclusionActionsNode(BaseModel):
                 LogEntryPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
+                FlagPropertyFilter,
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
@@ -7880,6 +7961,7 @@ class FunnelExclusionActionsNode(BaseModel):
                 LogEntryPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
+                FlagPropertyFilter,
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
@@ -7913,6 +7995,7 @@ class FunnelExclusionEventsNode(BaseModel):
                 LogEntryPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
+                FlagPropertyFilter,
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
@@ -7963,6 +8046,7 @@ class FunnelExclusionEventsNode(BaseModel):
                 LogEntryPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
+                FlagPropertyFilter,
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
@@ -8067,6 +8151,7 @@ class HogQLFilters(BaseModel):
                 LogEntryPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
+                FlagPropertyFilter,
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
@@ -8267,6 +8352,7 @@ class PersonsNode(BaseModel):
                 LogEntryPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
+                FlagPropertyFilter,
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
@@ -8299,6 +8385,7 @@ class PersonsNode(BaseModel):
                 LogEntryPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
+                FlagPropertyFilter,
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
@@ -8334,6 +8421,7 @@ class PropertyGroupFilterValue(BaseModel):
                 LogEntryPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
+                FlagPropertyFilter,
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
@@ -9603,6 +9691,7 @@ class RetentionEntity(BaseModel):
                 LogEntryPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
+                FlagPropertyFilter,
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
@@ -9981,6 +10070,7 @@ class TracesQuery(BaseModel):
                 LogEntryPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
+                FlagPropertyFilter,
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
@@ -10237,6 +10327,7 @@ class ActionsNode(BaseModel):
                 LogEntryPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
+                FlagPropertyFilter,
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
@@ -10284,6 +10375,7 @@ class ActionsNode(BaseModel):
                 LogEntryPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
+                FlagPropertyFilter,
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
@@ -10744,8 +10836,8 @@ class MarketingAnalyticsTableQuery(BaseModel):
     conversionGoal: Optional[Union[ActionConversionGoal, CustomEventConversionGoal]] = None
     dateRange: Optional[DateRange] = None
     doPathCleaning: Optional[bool] = None
-    dynamicConversionGoal: Optional[Union[ConversionGoalFilter1, ConversionGoalFilter2, ConversionGoalFilter3]] = Field(
-        default=None, description="Dynamic conversion goal that can be set in the UI without saving"
+    draftConversionGoal: Optional[Union[ConversionGoalFilter1, ConversionGoalFilter2, ConversionGoalFilter3]] = Field(
+        default=None, description="Draft conversion goal that can be set in the UI without saving"
     )
     filterTestAccounts: Optional[bool] = Field(default=None, description="Filter test accounts")
     includeRevenue: Optional[bool] = None
@@ -10755,7 +10847,7 @@ class MarketingAnalyticsTableQuery(BaseModel):
         default=None, description="Modifiers used when performing the query"
     )
     offset: Optional[int] = Field(default=None, description="Number of rows to skip before returning rows")
-    orderBy: Optional[list[list[Union[float, MarketingAnalyticsOrderByEnum]]]] = Field(
+    orderBy: Optional[list[list[Union[str, MarketingAnalyticsOrderByEnum]]]] = Field(
         default=None, description="Columns to order by - similar to EventsQuery format"
     )
     properties: list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]]
@@ -10850,6 +10942,7 @@ class RecordingsQuery(BaseModel):
                 LogEntryPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
+                FlagPropertyFilter,
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
@@ -10882,6 +10975,7 @@ class RecordingsQuery(BaseModel):
                 LogEntryPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
+                FlagPropertyFilter,
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
@@ -10955,6 +11049,7 @@ class StickinessQuery(BaseModel):
                     LogEntryPropertyFilter,
                     GroupPropertyFilter,
                     FeaturePropertyFilter,
+                    FlagPropertyFilter,
                     HogQLPropertyFilter,
                     EmptyPropertyFilter,
                     DataWarehousePropertyFilter,
@@ -11029,6 +11124,7 @@ class TrendsQuery(BaseModel):
                     LogEntryPropertyFilter,
                     GroupPropertyFilter,
                     FeaturePropertyFilter,
+                    FlagPropertyFilter,
                     HogQLPropertyFilter,
                     EmptyPropertyFilter,
                     DataWarehousePropertyFilter,
@@ -11159,6 +11255,7 @@ class CalendarHeatmapQuery(BaseModel):
                     LogEntryPropertyFilter,
                     GroupPropertyFilter,
                     FeaturePropertyFilter,
+                    FlagPropertyFilter,
                     HogQLPropertyFilter,
                     EmptyPropertyFilter,
                     DataWarehousePropertyFilter,
@@ -11289,6 +11386,7 @@ class ExperimentFunnelMetric(BaseModel):
     name: Optional[str] = None
     response: Optional[dict[str, Any]] = None
     series: list[Union[EventsNode, ActionsNode]]
+    uuid: Optional[str] = None
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -11305,6 +11403,7 @@ class ExperimentMeanMetric(BaseModel):
     response: Optional[dict[str, Any]] = None
     source: Union[EventsNode, ActionsNode, ExperimentDataWarehouseNode]
     upper_bound_percentile: Optional[float] = None
+    uuid: Optional[str] = None
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -11330,7 +11429,7 @@ class ExperimentQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    baseline: Optional[ExperimentStatsBase] = None
+    baseline: Optional[ExperimentStatsBaseValidated] = None
     credible_intervals: Optional[dict[str, list[float]]] = None
     insight: Optional[list[dict[str, Any]]] = None
     kind: Literal["ExperimentQuery"] = "ExperimentQuery"
@@ -11398,6 +11497,7 @@ class FunnelsQuery(BaseModel):
                     LogEntryPropertyFilter,
                     GroupPropertyFilter,
                     FeaturePropertyFilter,
+                    FlagPropertyFilter,
                     HogQLPropertyFilter,
                     EmptyPropertyFilter,
                     DataWarehousePropertyFilter,
@@ -11447,6 +11547,7 @@ class InsightsQueryBaseCalendarHeatmapResponse(BaseModel):
                     LogEntryPropertyFilter,
                     GroupPropertyFilter,
                     FeaturePropertyFilter,
+                    FlagPropertyFilter,
                     HogQLPropertyFilter,
                     EmptyPropertyFilter,
                     DataWarehousePropertyFilter,
@@ -11493,6 +11594,7 @@ class InsightsQueryBaseFunnelsQueryResponse(BaseModel):
                     LogEntryPropertyFilter,
                     GroupPropertyFilter,
                     FeaturePropertyFilter,
+                    FlagPropertyFilter,
                     HogQLPropertyFilter,
                     EmptyPropertyFilter,
                     DataWarehousePropertyFilter,
@@ -11539,6 +11641,7 @@ class InsightsQueryBaseLifecycleQueryResponse(BaseModel):
                     LogEntryPropertyFilter,
                     GroupPropertyFilter,
                     FeaturePropertyFilter,
+                    FlagPropertyFilter,
                     HogQLPropertyFilter,
                     EmptyPropertyFilter,
                     DataWarehousePropertyFilter,
@@ -11585,6 +11688,7 @@ class InsightsQueryBasePathsQueryResponse(BaseModel):
                     LogEntryPropertyFilter,
                     GroupPropertyFilter,
                     FeaturePropertyFilter,
+                    FlagPropertyFilter,
                     HogQLPropertyFilter,
                     EmptyPropertyFilter,
                     DataWarehousePropertyFilter,
@@ -11631,6 +11735,7 @@ class InsightsQueryBaseRetentionQueryResponse(BaseModel):
                     LogEntryPropertyFilter,
                     GroupPropertyFilter,
                     FeaturePropertyFilter,
+                    FlagPropertyFilter,
                     HogQLPropertyFilter,
                     EmptyPropertyFilter,
                     DataWarehousePropertyFilter,
@@ -11677,6 +11782,7 @@ class InsightsQueryBaseTrendsQueryResponse(BaseModel):
                     LogEntryPropertyFilter,
                     GroupPropertyFilter,
                     FeaturePropertyFilter,
+                    FlagPropertyFilter,
                     HogQLPropertyFilter,
                     EmptyPropertyFilter,
                     DataWarehousePropertyFilter,
@@ -11746,6 +11852,7 @@ class LifecycleQuery(BaseModel):
                     LogEntryPropertyFilter,
                     GroupPropertyFilter,
                     FeaturePropertyFilter,
+                    FlagPropertyFilter,
                     HogQLPropertyFilter,
                     EmptyPropertyFilter,
                     DataWarehousePropertyFilter,
@@ -11825,7 +11932,7 @@ class QueryResponseAlternative16(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    baseline: Optional[ExperimentStatsBase] = None
+    baseline: Optional[ExperimentStatsBaseValidated] = None
     credible_intervals: Optional[dict[str, list[float]]] = None
     insight: Optional[list[dict[str, Any]]] = None
     kind: Literal["ExperimentQuery"] = "ExperimentQuery"
@@ -11903,6 +12010,7 @@ class RetentionQuery(BaseModel):
                     LogEntryPropertyFilter,
                     GroupPropertyFilter,
                     FeaturePropertyFilter,
+                    FlagPropertyFilter,
                     HogQLPropertyFilter,
                     EmptyPropertyFilter,
                     DataWarehousePropertyFilter,
@@ -11919,6 +12027,25 @@ class RetentionQuery(BaseModel):
     retentionFilter: RetentionFilter = Field(..., description="Properties specific to the retention insight")
     samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
     tags: Optional[QueryLogTags] = Field(default=None, description="Tags that will be added to the Query log comment")
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
+
+
+class StickinessActorsQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    compare: Optional[Compare] = None
+    day: Optional[Union[str, int]] = None
+    includeRecordings: Optional[bool] = None
+    kind: Literal["StickinessActorsQuery"] = "StickinessActorsQuery"
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    operator: Optional[StickinessOperator] = None
+    response: Optional[ActorsQueryResponse] = None
+    series: Optional[int] = None
+    source: StickinessQuery
+    tags: Optional[QueryLogTags] = None
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -11969,7 +12096,7 @@ class CachedExperimentQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    baseline: Optional[ExperimentStatsBase] = None
+    baseline: Optional[ExperimentStatsBaseValidated] = None
     cache_key: str
     cache_target_age: Optional[datetime] = None
     calculation_trigger: Optional[str] = Field(
@@ -12171,6 +12298,7 @@ class PathsQuery(BaseModel):
                     LogEntryPropertyFilter,
                     GroupPropertyFilter,
                     FeaturePropertyFilter,
+                    FlagPropertyFilter,
                     HogQLPropertyFilter,
                     EmptyPropertyFilter,
                     DataWarehousePropertyFilter,
@@ -12421,32 +12549,6 @@ class InsightVizNode(BaseModel):
     vizSpecificOptions: Optional[VizSpecificOptions] = None
 
 
-class StickinessActorsQuery(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    breakdown: Optional[Union[str, list[str], int]] = None
-    compare: Optional[Compare] = None
-    day: Optional[Union[str, int]] = None
-    includeRecordings: Optional[bool] = None
-    interval: Optional[int] = Field(
-        default=None, description="An interval selected out of available intervals in source query."
-    )
-    kind: Literal["InsightActorsQuery"] = "InsightActorsQuery"
-    modifiers: Optional[HogQLQueryModifiers] = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
-    operator: Optional[StickinessOperator] = None
-    response: Optional[ActorsQueryResponse] = None
-    series: Optional[int] = None
-    source: Union[
-        TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery, CalendarHeatmapQuery
-    ] = Field(..., discriminator="kind")
-    status: Optional[str] = None
-    tags: Optional[QueryLogTags] = None
-    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
-
-
 class WebVitalsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -12505,6 +12607,7 @@ class FunnelCorrelationActorsQuery(BaseModel):
                 LogEntryPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
+                FlagPropertyFilter,
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
@@ -12586,6 +12689,7 @@ class SessionBatchEventsQuery(BaseModel):
                     LogEntryPropertyFilter,
                     GroupPropertyFilter,
                     FeaturePropertyFilter,
+                    FlagPropertyFilter,
                     HogQLPropertyFilter,
                     EmptyPropertyFilter,
                     DataWarehousePropertyFilter,
@@ -12624,6 +12728,7 @@ class SessionBatchEventsQuery(BaseModel):
                 LogEntryPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
+                FlagPropertyFilter,
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
@@ -12712,6 +12817,7 @@ class EventsQuery(BaseModel):
                     LogEntryPropertyFilter,
                     GroupPropertyFilter,
                     FeaturePropertyFilter,
+                    FlagPropertyFilter,
                     HogQLPropertyFilter,
                     EmptyPropertyFilter,
                     DataWarehousePropertyFilter,
@@ -12747,6 +12853,7 @@ class EventsQuery(BaseModel):
                 LogEntryPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
+                FlagPropertyFilter,
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
@@ -12791,6 +12898,9 @@ class DataTableNode(BaseModel):
         default=None, description="Columns that aren't shown in the table, even if in columns or returned data"
     )
     kind: Literal["DataTableNode"] = "DataTableNode"
+    pinnedColumns: Optional[list[str]] = Field(
+        default=None, description="Columns that are sticky when scrolling horizontally"
+    )
     propertiesViaUrl: Optional[bool] = Field(default=None, description="Link properties via the URL (default: false)")
     response: Optional[
         Union[
@@ -13494,6 +13604,7 @@ class SourceConfig(BaseModel):
             SourceFieldSelectConfig,
             SourceFieldOauthConfig,
             SourceFieldFileUploadConfig,
+            SourceFieldSSHTunnelConfig,
         ]
     ]
     label: Optional[str] = None
@@ -13513,6 +13624,7 @@ class Option(BaseModel):
                 SourceFieldSelectConfig,
                 SourceFieldOauthConfig,
                 SourceFieldFileUploadConfig,
+                SourceFieldSSHTunnelConfig,
             ]
         ]
     ] = None
@@ -13524,6 +13636,7 @@ class SourceFieldSelectConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    converter: Optional[Converter] = None
     defaultValue: str
     label: str
     name: str
@@ -13545,6 +13658,7 @@ class SourceFieldSwitchGroupConfig(BaseModel):
             SourceFieldSelectConfig,
             SourceFieldOauthConfig,
             SourceFieldFileUploadConfig,
+            SourceFieldSSHTunnelConfig,
         ]
     ]
     label: str

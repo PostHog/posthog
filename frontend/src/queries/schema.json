@@ -553,6 +553,9 @@
                     "$ref": "#/definitions/FeaturePropertyFilter"
                 },
                 {
+                    "$ref": "#/definitions/FlagPropertyFilter"
+                },
+                {
                     "$ref": "#/definitions/HogQLPropertyFilter"
                 },
                 {
@@ -3211,7 +3214,7 @@
             "additionalProperties": false,
             "properties": {
                 "baseline": {
-                    "$ref": "#/definitions/ExperimentStatsBase"
+                    "$ref": "#/definitions/ExperimentStatsBaseValidated"
                 },
                 "cache_key": {
                     "type": "string"
@@ -4278,7 +4281,7 @@
             "additionalProperties": false,
             "properties": {
                 "baseline": {
-                    "$ref": "#/definitions/ExperimentStatsBase"
+                    "$ref": "#/definitions/ExperimentStatsBaseValidated"
                 },
                 "cache_key": {
                     "type": "string"
@@ -7276,6 +7279,13 @@
                     "const": "DataTableNode",
                     "type": "string"
                 },
+                "pinnedColumns": {
+                    "description": "Columns that are sticky when scrolling horizontally",
+                    "items": {
+                        "$ref": "#/definitions/HogQLExpression"
+                    },
+                    "type": "array"
+                },
                 "propertiesViaUrl": {
                     "description": "Link properties via the URL (default: false)",
                     "type": "boolean"
@@ -9505,6 +9515,23 @@
                         "type": "number"
                     },
                     "type": "array"
+                },
+                "volume_buckets": {
+                    "items": {
+                        "additionalProperties": false,
+                        "properties": {
+                            "label": {
+                                "format": "date-time",
+                                "type": "string"
+                            },
+                            "value": {
+                                "type": "number"
+                            }
+                        },
+                        "required": ["label", "value"],
+                        "type": "object"
+                    },
+                    "type": "array"
                 }
             },
             "required": ["occurrences", "sessions", "users", "volumeRange"],
@@ -10570,6 +10597,9 @@
                     },
                     "type": "array"
                 },
+                "uuid": {
+                    "type": "string"
+                },
                 "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
@@ -10776,6 +10806,9 @@
                 "upper_bound_percentile": {
                     "type": "number"
                 },
+                "uuid": {
+                    "type": "string"
+                },
                 "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
@@ -10833,6 +10866,9 @@
                 "response": {
                     "type": "object"
                 },
+                "uuid": {
+                    "type": "string"
+                },
                 "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
@@ -10855,32 +10891,6 @@
                     "type": "number"
                 }
             },
-            "type": "object"
-        },
-        "ExperimentMetricResult": {
-            "additionalProperties": false,
-            "properties": {
-                "baseline": {
-                    "$ref": "#/definitions/ExperimentStatsBase"
-                },
-                "variants": {
-                    "anyOf": [
-                        {
-                            "items": {
-                                "$ref": "#/definitions/ExperimentVariantResultFrequentist"
-                            },
-                            "type": "array"
-                        },
-                        {
-                            "items": {
-                                "$ref": "#/definitions/ExperimentVariantResultBayesian"
-                            },
-                            "type": "array"
-                        }
-                    ]
-                }
-            },
-            "required": ["baseline", "variants"],
             "type": "object"
         },
         "ExperimentMetricSource": {
@@ -10948,7 +10958,7 @@
             "additionalProperties": false,
             "properties": {
                 "baseline": {
-                    "$ref": "#/definitions/ExperimentStatsBase"
+                    "$ref": "#/definitions/ExperimentStatsBaseValidated"
                 },
                 "credible_intervals": {
                     "additionalProperties": {
@@ -11049,6 +11059,35 @@
             },
             "required": ["key", "number_of_samples", "sum", "sum_squares"],
             "type": "object"
+        },
+        "ExperimentStatsBaseValidated": {
+            "additionalProperties": false,
+            "properties": {
+                "key": {
+                    "type": "string"
+                },
+                "number_of_samples": {
+                    "$ref": "#/definitions/integer"
+                },
+                "sum": {
+                    "type": "number"
+                },
+                "sum_squares": {
+                    "type": "number"
+                },
+                "validation_failures": {
+                    "items": {
+                        "$ref": "#/definitions/ExperimentStatsValidationFailure"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["key", "number_of_samples", "sum", "sum_squares"],
+            "type": "object"
+        },
+        "ExperimentStatsValidationFailure": {
+            "enum": ["not-enough-exposures", "baseline-mean-is-zero", "not-enough-metric-data"],
+            "type": "string"
         },
         "ExperimentTrendsQuery": {
             "additionalProperties": false,
@@ -11202,18 +11241,15 @@
                 },
                 "sum_squares": {
                     "type": "number"
+                },
+                "validation_failures": {
+                    "items": {
+                        "$ref": "#/definitions/ExperimentStatsValidationFailure"
+                    },
+                    "type": "array"
                 }
             },
-            "required": [
-                "chance_to_win",
-                "credible_interval",
-                "key",
-                "method",
-                "number_of_samples",
-                "significant",
-                "sum",
-                "sum_squares"
-            ],
+            "required": ["key", "method", "number_of_samples", "sum", "sum_squares"],
             "type": "object"
         },
         "ExperimentVariantResultFrequentist": {
@@ -11248,18 +11284,15 @@
                 },
                 "sum_squares": {
                     "type": "number"
+                },
+                "validation_failures": {
+                    "items": {
+                        "$ref": "#/definitions/ExperimentStatsValidationFailure"
+                    },
+                    "type": "array"
                 }
             },
-            "required": [
-                "confidence_interval",
-                "key",
-                "method",
-                "number_of_samples",
-                "p_value",
-                "significant",
-                "sum",
-                "sum_squares"
-            ],
+            "required": ["key", "method", "number_of_samples", "sum", "sum_squares"],
             "type": "object"
         },
         "ExperimentVariantTrendsBaseStats": {
@@ -11536,6 +11569,34 @@
         "FilterLogicalOperator": {
             "enum": ["AND", "OR"],
             "type": "string"
+        },
+        "FlagPropertyFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "key": {
+                    "description": "The key should be the flag ID",
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "operator": {
+                    "const": "flag_evaluates_to",
+                    "description": "Only flag_evaluates_to operator is allowed for flag dependencies",
+                    "type": "string"
+                },
+                "type": {
+                    "const": "flag",
+                    "description": "Feature flag dependency",
+                    "type": "string"
+                },
+                "value": {
+                    "description": "The value can be true, false, or a variant name",
+                    "type": ["boolean", "string"]
+                }
+            },
+            "required": ["key", "operator", "type", "value"],
+            "type": "object"
         },
         "FunnelConversionWindowTimeUnit": {
             "enum": ["second", "minute", "hour", "day", "week", "month"],
@@ -14570,7 +14631,7 @@
         "MarketingAnalyticsOrderBy": {
             "items": [
                 {
-                    "type": "number"
+                    "type": "string"
                 },
                 {
                     "enum": ["ASC", "DESC"],
@@ -14623,7 +14684,7 @@
                 "doPathCleaning": {
                     "type": "boolean"
                 },
-                "dynamicConversionGoal": {
+                "draftConversionGoal": {
                     "anyOf": [
                         {
                             "$ref": "#/definitions/ConversionGoalFilter"
@@ -14632,7 +14693,7 @@
                             "type": "null"
                         }
                     ],
-                    "description": "Dynamic conversion goal that can be set in the UI without saving"
+                    "description": "Draft conversion goal that can be set in the UI without saving"
                 },
                 "filterTestAccounts": {
                     "description": "Filter test accounts",
@@ -15067,7 +15128,7 @@
             "additionalProperties": false,
             "properties": {
                 "baseline": {
-                    "$ref": "#/definitions/ExperimentStatsBase"
+                    "$ref": "#/definitions/ExperimentStatsBaseValidated"
                 },
                 "variant_results": {
                     "anyOf": [
@@ -15124,6 +15185,7 @@
                 "RetentionQuery",
                 "PathsQuery",
                 "StickinessQuery",
+                "StickinessActorsQuery",
                 "LifecycleQuery",
                 "InsightActorsQuery",
                 "InsightActorsQueryOptions",
@@ -15178,6 +15240,9 @@
             "properties": {
                 "alias": {
                     "type": "string"
+                },
+                "order": {
+                    "type": "number"
                 },
                 "regex": {
                     "type": "string"
@@ -15604,7 +15669,7 @@
             "type": "object"
         },
         "PropertyFilterBaseValue": {
-            "type": ["string", "number"]
+            "type": ["string", "number", "boolean"]
         },
         "PropertyFilterType": {
             "enum": [
@@ -15624,6 +15689,7 @@
                 "data_warehouse_person_property",
                 "error_tracking_issue",
                 "revenue_analytics",
+                "flag",
                 "log"
             ],
             "type": "string"
@@ -15711,7 +15777,8 @@
                 "max",
                 "in",
                 "not_in",
-                "is_cleaned_path_exact"
+                "is_cleaned_path_exact",
+                "flag_evaluates_to"
             ],
             "type": "string"
         },
@@ -16583,7 +16650,7 @@
                     "additionalProperties": false,
                     "properties": {
                         "baseline": {
-                            "$ref": "#/definitions/ExperimentStatsBase"
+                            "$ref": "#/definitions/ExperimentStatsBaseValidated"
                         },
                         "credible_intervals": {
                             "additionalProperties": {
@@ -21652,6 +21719,9 @@
                 },
                 {
                     "$ref": "#/definitions/SourceFieldFileUploadConfig"
+                },
+                {
+                    "$ref": "#/definitions/SourceFieldSSHTunnelConfig"
                 }
             ]
         },
@@ -21659,7 +21729,7 @@
             "additionalProperties": false,
             "properties": {
                 "fileFormat": {
-                    "type": "string"
+                    "$ref": "#/definitions/SourceFieldFileUploadJsonFormatConfig"
                 },
                 "label": {
                     "type": "string"
@@ -21676,6 +21746,31 @@
                 }
             },
             "required": ["type", "name", "label", "fileFormat", "required"],
+            "type": "object"
+        },
+        "SourceFieldFileUploadJsonFormatConfig": {
+            "additionalProperties": false,
+            "properties": {
+                "format": {
+                    "const": ".json",
+                    "type": "string"
+                },
+                "keys": {
+                    "anyOf": [
+                        {
+                            "const": "*",
+                            "type": "string"
+                        },
+                        {
+                            "items": {
+                                "type": "string"
+                            },
+                            "type": "array"
+                        }
+                    ]
+                }
+            },
+            "required": ["format", "keys"],
             "type": "object"
         },
         "SourceFieldInputConfig": {
@@ -21724,9 +21819,30 @@
             "required": ["type", "name", "label", "required", "kind"],
             "type": "object"
         },
+        "SourceFieldSSHTunnelConfig": {
+            "additionalProperties": false,
+            "properties": {
+                "label": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "type": {
+                    "const": "ssh-tunnel",
+                    "type": "string"
+                }
+            },
+            "required": ["type", "label", "name"],
+            "type": "object"
+        },
         "SourceFieldSelectConfig": {
             "additionalProperties": false,
             "properties": {
+                "converter": {
+                    "enum": ["str_to_int", "str_to_bool", "str_to_optional_int"],
+                    "type": "string"
+                },
                 "defaultValue": {
                     "type": "string"
                 },
@@ -21832,22 +21948,6 @@
         "StickinessActorsQuery": {
             "additionalProperties": false,
             "properties": {
-                "breakdown": {
-                    "anyOf": [
-                        {
-                            "type": "string"
-                        },
-                        {
-                            "$ref": "#/definitions/BreakdownValueInt"
-                        },
-                        {
-                            "items": {
-                                "type": "string"
-                            },
-                            "type": "array"
-                        }
-                    ]
-                },
                 "compare": {
                     "enum": ["current", "previous"],
                     "type": "string"
@@ -21865,12 +21965,8 @@
                 "includeRecordings": {
                     "type": "boolean"
                 },
-                "interval": {
-                    "$ref": "#/definitions/integer",
-                    "description": "An interval selected out of available intervals in source query."
-                },
                 "kind": {
-                    "const": "InsightActorsQuery",
+                    "const": "StickinessActorsQuery",
                     "type": "string"
                 },
                 "modifiers": {
@@ -21887,10 +21983,7 @@
                     "$ref": "#/definitions/integer"
                 },
                 "source": {
-                    "$ref": "#/definitions/InsightQuerySource"
-                },
-                "status": {
-                    "type": "string"
+                    "$ref": "#/definitions/StickinessQuery"
                 },
                 "tags": {
                     "$ref": "#/definitions/QueryLogTags"
@@ -22426,7 +22519,7 @@
             "type": "string"
         },
         "SurveyType": {
-            "enum": ["popover", "widget", "full_screen", "email", "api"],
+            "enum": ["popover", "widget", "full_screen", "api", "external_survey"],
             "type": "string"
         },
         "SurveyWidgetType": {
@@ -22828,6 +22921,9 @@
                 "breakdown_histogram_bin_count": {
                     "type": "number"
                 },
+                "confidenceLevel": {
+                    "type": "number"
+                },
                 "decimalPlaces": {
                     "type": "number"
                 },
@@ -22896,6 +22992,9 @@
                 },
                 "showAlertThresholdLines": {
                     "default": false,
+                    "type": "boolean"
+                },
+                "showConfidenceIntervals": {
                     "type": "boolean"
                 },
                 "showLabelsOnSeries": {
