@@ -143,8 +143,6 @@ async def enrich_chunk_activity(inputs: EnrichChunkInputs) -> EnrichChunkResult:
 async def cache_all_accounts_activity() -> dict[str, typing.Any]:
     """Cache all Salesforce accounts in Redis for fast chunk retrieval."""
     logger = get_internal_logger()
-
-    # Get workflow_id from Temporal context (standard PostHog pattern)
     workflow_id = activity.info().workflow_id
 
     try:
@@ -152,36 +150,17 @@ async def cache_all_accounts_activity() -> dict[str, typing.Any]:
 
         # Import here to avoid circular imports
         from ee.billing.salesforce_enrichment.salesforce_client import SalesforceClient
-        from ee.billing.salesforce_enrichment.redis_cache import store_accounts_in_redis
+        from ee.billing.salesforce_enrichment.redis_cache import store_accounts_in_redis, get_cached_accounts_count
 
-        logger.info("🔄 REDIS CACHING: Starting to cache all Salesforce accounts", workflow_id=workflow_id)
+        logger.info("Starting to cache Salesforce accounts", workflow_id=workflow_id)
 
-        # Check if global cache already exists
-        from ee.billing.salesforce_enrichment.redis_cache import get_accounts_from_redis
+        # Simple cache check - if cache exists, return the total count
+        cached_count = await get_cached_accounts_count()
+        if cached_count is not None:
+            logger.info("Cache exists, skipping Salesforce query", workflow_id=workflow_id, cached_total=cached_count)
+            return {"success": True, "total_accounts": cached_count, "cache_reused": True}
 
-        try:
-            # Quick check for existing global cache (get small sample to check total count)
-            test_accounts = await get_accounts_from_redis(0, 5)
-            if test_accounts is not None:
-                # Get the total count from the cache by checking a larger range
-                full_check = await get_accounts_from_redis(0, 100000)  # Large enough to get all
-                total_count = len(full_check) if full_check else 0
-                logger.info(
-                    "✅ GLOBAL CACHE EXISTS: Skipping Salesforce query",
-                    workflow_id=workflow_id,
-                    cached_total=total_count,
-                )
-                return {
-                    "success": True,
-                    "total_accounts": total_count,
-                    "workflow_id": workflow_id,
-                    "cache_reused": True,
-                }
-        except Exception as e:
-            logger.info("🔍 Global cache check failed, proceeding with fresh query", error=str(e))
-            # Don't capture_exception here - cache check failures are expected
-
-        # Query all accounts (same query as current implementation)
+        # Query all accounts
         sf_start = time.time()
         sf = SalesforceClient()
 
@@ -192,44 +171,30 @@ async def cache_all_accounts_activity() -> dict[str, typing.Any]:
             ORDER BY CreatedDate DESC
         """
 
-        # Get all accounts
         accounts_result = sf.query_all(query)
         all_accounts = accounts_result["records"]
         total_count = len(all_accounts)
         sf_time = time.time() - sf_start
 
-        logger.info(
-            "📊 SALESFORCE: Fetched accounts, now storing in Redis",
-            total_count=total_count,
-            sf_time=round(sf_time, 2),
-        )
-
-        # Store in Redis with compression
+        # Store in Redis
         redis_start = time.time()
         await store_accounts_in_redis(all_accounts)
         redis_time = time.time() - redis_start
 
         logger.info(
-            "✅ REDIS CACHE: Successfully stored accounts",
+            "Successfully cached accounts",
             workflow_id=workflow_id,
             total_count=total_count,
+            sf_time=round(sf_time, 2),
             redis_time=round(redis_time, 2),
         )
 
-        return {
-            "success": True,
-            "total_accounts": total_count,
-            "workflow_id": workflow_id,
-        }
+        return {"success": True, "total_accounts": total_count}
 
     except Exception as e:
-        logger.exception("Failed to cache accounts in Redis", workflow_id=workflow_id, error=str(e))
+        logger.exception("Failed to cache accounts", workflow_id=workflow_id, error=str(e))
         capture_exception(e)
-        return {
-            "success": False,
-            "error": str(e),
-            "workflow_id": workflow_id,
-        }
+        return {"success": False, "error": str(e)}
 
 
 @activity.defn
@@ -263,102 +228,6 @@ async def get_total_account_count_activity() -> int:
         logger.exception("Failed to get total account count", error=str(e))
         capture_exception(e)
         return 0  # Return 0 on error, will disable chunk estimation
-
-
-@workflow.defn(name="salesforce-enrichment")
-class SalesforceEnrichmentWorkflow(PostHogWorkflow):
-    """Workflow to enrich Salesforce accounts with Harmonic data in chunks."""
-
-    @staticmethod
-    def parse_inputs(inputs: list[str]) -> SalesforceEnrichmentInputs:
-        loaded = json.loads(inputs[0])
-        return SalesforceEnrichmentInputs(**loaded)
-
-    @workflow.run
-    async def run(self, inputs: SalesforceEnrichmentInputs) -> dict[str, typing.Any]:
-        """Run the Salesforce enrichment workflow."""
-
-        # Cache all accounts in Redis for fast chunk retrieval
-        cache_result = await workflow.execute_activity(
-            cache_all_accounts_activity,
-            start_to_close_timeout=dt.timedelta(minutes=10),  # Allow time for large query
-            retry_policy=RetryPolicy(maximum_attempts=2),
-        )
-
-        if not cache_result.get("success"):
-            # If caching fails, fall back to traditional chunk queries
-            total_accounts = await workflow.execute_activity(
-                get_total_account_count_activity,
-                start_to_close_timeout=dt.timedelta(minutes=5),
-                retry_policy=RetryPolicy(maximum_attempts=2),
-            )
-        else:
-            # Use cached count
-            total_accounts = cache_result.get("total_accounts", 0)
-
-        # Ensure total_accounts is always an integer (handle legacy string values)
-        if isinstance(total_accounts, str):
-            try:
-                total_accounts = int(total_accounts) if total_accounts.isdigit() else 0
-            except (ValueError, AttributeError):
-                total_accounts = 0
-
-        # Calculate estimated total chunks
-        estimated_total_chunks = math.ceil(total_accounts / inputs.chunk_size) if total_accounts > 0 else None
-
-        chunk_number = 0
-        total_processed = 0
-        total_enriched = 0
-        total_updated = 0
-        all_errors: list[str] = []
-
-        while True:
-            # Check if we've hit the max chunks limit (for testing)
-            if inputs.max_chunks is not None and chunk_number >= inputs.max_chunks:
-                break
-
-            # Prepare chunk inputs
-            chunk_inputs = EnrichChunkInputs(
-                chunk_number=chunk_number,
-                chunk_size=inputs.chunk_size,
-                estimated_total_chunks=estimated_total_chunks,
-            )
-
-            # Execute the chunk enrichment activity
-            chunk_result = await workflow.execute_activity(
-                enrich_chunk_activity,
-                chunk_inputs,
-                start_to_close_timeout=dt.timedelta(minutes=30),
-                retry_policy=RetryPolicy(
-                    initial_interval=dt.timedelta(seconds=10),
-                    maximum_interval=dt.timedelta(minutes=2),
-                    maximum_attempts=3,
-                    non_retryable_error_types=["ValueError", "KeyError"],
-                ),
-            )
-
-            # Accumulate results
-            total_processed += chunk_result.records_processed
-            total_enriched += chunk_result.records_enriched
-            total_updated += chunk_result.records_updated
-            all_errors.extend(chunk_result.errors)
-
-            # If we got fewer raw accounts than the chunk size, we're done
-            if chunk_result.total_accounts_in_chunk < inputs.chunk_size:
-                break
-
-            # Move to next chunk
-            chunk_number += 1
-
-        # Return final results
-        return {
-            "chunks_processed": chunk_number,
-            "total_processed": total_processed,
-            "total_enriched": total_enriched,
-            "total_updated": total_updated,
-            "error_count": len(all_errors),
-            "errors": all_errors[:10],  # Include first 10 errors for debugging
-        }
 
 
 @workflow.defn(name="salesforce-enrichment-async")

@@ -68,3 +68,25 @@ async def get_accounts_from_redis(
     except Exception as e:
         capture_exception(e)
         return None
+
+
+async def get_cached_accounts_count() -> Optional[int]:
+    """Get the total count of cached accounts without fetching the data.
+
+    Returns:
+        Total number of cached accounts, or None if cache miss/error
+    """
+    try:
+        redis_client = get_async_client()
+        raw_redis_data = await redis_client.get(SALESFORCE_ACCOUNTS_CACHE_KEY)
+
+        if not raw_redis_data:
+            return None
+
+        accounts_json = _decompress_redis_data(raw_redis_data)
+        all_accounts = json.loads(accounts_json)
+        return len(all_accounts)
+
+    except Exception as e:
+        capture_exception(e)
+        return None

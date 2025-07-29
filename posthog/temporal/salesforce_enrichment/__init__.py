@@ -1,5 +1,4 @@
 from posthog.temporal.salesforce_enrichment.workflow import (
-    SalesforceEnrichmentWorkflow,
     SalesforceEnrichmentAsyncWorkflow,
     enrich_chunk_activity,
     get_total_account_count_activity,
@@ -7,7 +6,6 @@ from posthog.temporal.salesforce_enrichment.workflow import (
 )
 
 WORKFLOWS = [
-    SalesforceEnrichmentWorkflow,
     SalesforceEnrichmentAsyncWorkflow,
 ]
 
