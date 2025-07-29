@@ -1462,7 +1462,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest, FloatAwareT
             "context.columns.total_conversions",
             "context.columns.unique_conversions",
             "context.columns.conversion_rate",
-            "context.columns.fill_fraction",
+            "context.columns.ui_fill_fraction",
             "context.columns.cross_sell",
         ] == response.columns
 
@@ -1501,7 +1501,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest, FloatAwareT
             "context.columns.total_conversions",
             "context.columns.unique_conversions",
             "context.columns.conversion_rate",
-            "context.columns.fill_fraction",
+            "context.columns.ui_fill_fraction",
             "context.columns.cross_sell",
         ] == response.columns
 
@@ -1528,7 +1528,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest, FloatAwareT
             "context.columns.total_conversions",
             "context.columns.unique_conversions",
             "context.columns.conversion_rate",
-            "context.columns.fill_fraction",
+            "context.columns.ui_fill_fraction",
             "context.columns.cross_sell",
         ] == response.columns
 
@@ -1565,7 +1565,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest, FloatAwareT
             "context.columns.total_conversions",
             "context.columns.unique_conversions",
             "context.columns.conversion_rate",
-            "context.columns.fill_fraction",
+            "context.columns.ui_fill_fraction",
             "context.columns.cross_sell",
         ] == response.columns
 
@@ -1604,7 +1604,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest, FloatAwareT
             "context.columns.total_conversions",
             "context.columns.unique_conversions",
             "context.columns.conversion_rate",
-            "context.columns.fill_fraction",
+            "context.columns.ui_fill_fraction",
             "context.columns.cross_sell",
         ] == response.columns
 
@@ -1659,7 +1659,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest, FloatAwareT
             "context.columns.total_conversions",
             "context.columns.unique_conversions",
             "context.columns.conversion_rate",
-            "context.columns.fill_fraction",
+            "context.columns.ui_fill_fraction",
             "context.columns.cross_sell",
         ] == response.columns
 

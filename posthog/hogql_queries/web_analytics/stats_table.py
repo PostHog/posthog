@@ -147,7 +147,6 @@ SELECT
     tuple(bounce.bounce_rate, bounce.previous_bounce_rate) AS "context.columns.bounce_rate",
     tuple(scroll.average_scroll_percentage, scroll.previous_average_scroll_percentage) AS "context.columns.average_scroll_percentage",
     tuple(scroll.scroll_gt80_percentage, scroll.previous_scroll_gt80_percentage) AS "context.columns.scroll_gt80_percentage",
-    "context.columns.visitors".1 / sum("context.columns.visitors".1) OVER () AS "context.columns.visitor_fraction",
 FROM (
     SELECT
         breakdown_value,
@@ -250,6 +249,10 @@ ON counts.breakdown_value = scroll.breakdown_value
         columns = [select.alias for select in query.select if isinstance(select, ast.Alias)]
         query.order_by = self._order_by(columns)
 
+        fill_fraction = self._fill_fraction(query.order_by)
+        if fill_fraction:
+            query.select.append(fill_fraction)
+
         return query
 
     def to_path_bounce_query(self) -> ast.SelectQuery:
@@ -264,7 +267,6 @@ SELECT
     tuple(counts.visitors, counts.previous_visitors) AS "context.columns.visitors",
     tuple(counts.views, counts.previous_views) AS "context.columns.views",
     tuple(bounce.bounce_rate, bounce.previous_bounce_rate) AS "context.columns.bounce_rate",
-    "context.columns.visitors".1 / sum("context.columns.visitors".1) OVER () AS "context.columns.visitor_fraction",
 FROM (
     SELECT
         breakdown_value,
@@ -334,6 +336,10 @@ ON counts.breakdown_value = bounce.breakdown_value
         # Compute query order based on the columns we're selecting
         columns = [select.alias for select in query.select if isinstance(select, ast.Alias)]
         query.order_by = self._order_by(columns)
+
+        fill_fraction = self._fill_fraction(query.order_by)
+        if fill_fraction:
+            query.select.append(fill_fraction)
 
         return query
 
@@ -486,21 +492,7 @@ GROUP BY session_id, breakdown_value
         )
 
         if col_name:
-            # these columns should use fraction of the max value as the fill fraction
-            if col_name in [
-                "context.columns.bounce_rate",
-                "context.columns.average_scroll_percentage",
-                "context.columns.scroll_gt80_percentage",
-                "context.columns.conversion_rate",
-            ]:
-                return ast.Alias(
-                    alias="context.columns.fill_fraction",
-                    expr=parse_expr(
-                        "{col}.1 / max({col}.1) OVER ()",
-                        placeholders={"col": ast.Field(chain=[col_name])},
-                    ),
-                )
-            # these columns should use the fraction of the sum
+            # for these columns, use the fraction of the overall total belonging to this row
             if col_name in [
                 "context.columns.visitors",
                 "context.columns.views",
@@ -512,15 +504,29 @@ GROUP BY session_id, breakdown_value
                 "context.columns.errors",
             ]:
                 return ast.Alias(
-                    alias="context.columns.fill_fraction",
+                    alias="context.columns.ui_fill_fraction",
                     expr=parse_expr(
                         "{col}.1 / sum({col}.1) OVER ()",
                         placeholders={"col": ast.Field(chain=[col_name])},
                     ),
                 )
+            # these columns are fractions already, use them directly
+            if col_name in [
+                "context.columns.bounce_rate",
+                "context.columns.average_scroll_percentage",
+                "context.columns.scroll_gt80_percentage",
+                "context.columns.conversion_rate",
+            ]:
+                return ast.Alias(
+                    alias="context.columns.ui_fill_fraction",
+                    expr=parse_expr(
+                        "{col}.1",
+                        placeholders={"col": ast.Field(chain=[col_name])},
+                    ),
+                )
         # use visitors as a fallback
         return ast.Alias(
-            alias="context.columns.fill_fraction",
+            alias="context.columns.ui_fill_fraction",
             expr=parse_expr(
                 """ "context.columns.visitors".1 / sum("context.columns.visitors".1) OVER ()""",
                 placeholders={"col": ast.Field(chain=[col_name])},

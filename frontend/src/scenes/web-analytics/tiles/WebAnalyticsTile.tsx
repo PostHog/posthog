@@ -432,7 +432,7 @@ export const webAnalyticsDataTableQueryContext: QueryContext = {
             },
             align: 'right',
         },
-        fill_fraction: {
+        ui_fill_fraction: {
             hidden: true,
             isRowFillFraction: true,
         },
