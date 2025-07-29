@@ -184,6 +184,35 @@ def WEB_BOUNCES_HOURLY_SQL():
     )
 
 
+def HISTORICAL_HOURLY_TABLE_TEMPLATE(table_name, columns, order_by):
+    engine = MergeTreeEngine(table_name, replication_scheme=ReplicationScheme.REPLICATED)
+
+    return f"""
+    CREATE TABLE IF NOT EXISTS {table_name} {ON_CLUSTER_CLAUSE(on_cluster=True)}
+    (
+        period_bucket DateTime,
+        team_id UInt64,
+        host String,
+        device_type String,
+        {columns}
+    ) ENGINE = {engine}
+    PARTITION BY toYYYYMMDD(period_bucket)
+    ORDER BY {order_by}
+    """
+
+
+def WEB_STATS_HOURLY_HISTORICAL_SQL(table_name="web_stats_hourly_historical"):
+    return HISTORICAL_HOURLY_TABLE_TEMPLATE(
+        table_name, WEB_STATS_COLUMNS, WEB_STATS_ORDER_BY_FUNC("period_bucket")
+    )
+
+
+def WEB_BOUNCES_HOURLY_HISTORICAL_SQL(table_name="web_bounces_hourly_historical"):
+    return HISTORICAL_HOURLY_TABLE_TEMPLATE(
+        table_name, WEB_BOUNCES_COLUMNS, WEB_BOUNCES_ORDER_BY_FUNC("period_bucket")
+    )
+
+
 def format_team_ids(team_ids):
     return ", ".join(str(team_id) for team_id in team_ids)
 
@@ -660,9 +689,26 @@ def create_combined_view_sql(table_prefix):
     """
 
 
+def create_hourly_combined_view_sql(table_prefix):
+    return f"""
+    CREATE OR REPLACE VIEW {table_prefix}_hourly_combined AS
+    SELECT * FROM {table_prefix}_hourly_historical WHERE period_bucket < toStartOfDay(now(), 'UTC')
+    UNION ALL
+    SELECT * FROM {table_prefix}_hourly WHERE period_bucket >= toStartOfDay(now(), 'UTC')
+    """
+
+
 def WEB_STATS_COMBINED_VIEW_SQL():
     return create_combined_view_sql("web_stats")
 
 
 def WEB_BOUNCES_COMBINED_VIEW_SQL():
     return create_combined_view_sql("web_bounces")
+
+
+def WEB_STATS_HOURLY_COMBINED_VIEW_SQL():
+    return create_hourly_combined_view_sql("web_stats")
+
+
+def WEB_BOUNCES_HOURLY_COMBINED_VIEW_SQL():
+    return create_hourly_combined_view_sql("web_bounces")
