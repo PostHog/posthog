@@ -10,6 +10,7 @@ from django.utils.timezone import now
 from django.views.decorators.clickjacking import xframe_options_exempt
 from loginas.utils import is_impersonated_session
 from rest_framework import mixins, response, serializers, viewsets
+from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.permissions import SAFE_METHODS
 from rest_framework.request import Request
@@ -92,6 +93,7 @@ class SharingConfigurationSerializer(serializers.ModelSerializer):
 
 class SharingConfigurationViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.GenericViewSet):
     scope_object = "sharing_configuration"
+    scope_object_write_actions = ["create", "update", "partial_update", "patch", "destroy", "refresh"]
     pagination_class = None
     queryset = SharingConfiguration.objects.select_related("dashboard", "insight", "recording")
     serializer_class = SharingConfigurationSerializer
@@ -140,6 +142,7 @@ class SharingConfigurationViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin,
             "insight": insight,
             "dashboard": dashboard,
             "recording": recording,
+            "expires_at": None,
         }
 
         try:
@@ -209,6 +212,35 @@ class SharingConfigurationViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin,
 
         return response.Response(serializer.data)
 
+    @action(methods=["POST"], detail=False)
+    def refresh(self, request: Request, *args: Any, **kwargs: Any) -> response.Response:
+        context = self.get_serializer_context()
+        instance = self._get_sharing_configuration(context)
+
+        check_can_edit_sharing_configuration(self, request, instance)
+
+        # Create new sharing configuration and expire the old one
+        new_instance = instance.rotate_access_token()
+
+        if context.get("insight"):
+            name = new_instance.insight.name or new_instance.insight.derived_name
+            log_activity(
+                organization_id=None,
+                team_id=self.team_id,
+                user=cast(User, self.request.user),
+                was_impersonated=is_impersonated_session(self.request),
+                item_id=new_instance.insight.pk,
+                scope="Insight",
+                activity="access token refreshed",
+                detail=Detail(
+                    name=str(name) if name else None,
+                    short_id=str(new_instance.insight.short_id),
+                ),
+            )
+
+        serializer = self.get_serializer(new_instance)
+        return response.Response(serializer.data)
+
 
 def custom_404_response(request):
     """Returns a custom 404 page."""
@@ -238,15 +270,18 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
         # Path based access (SharingConfiguration only)
         access_token = self.kwargs.get("access_token", "").split(".")[0]
         if access_token:
-            sharing_configuration = None
-            try:
-                sharing_configuration = SharingConfiguration.objects.select_related(
-                    "dashboard", "insight", "recording"
-                ).get(access_token=access_token)
-            except SharingConfiguration.DoesNotExist:
-                raise NotFound()
+            # Find non-expired configuration (expires_at is NULL for active, or in the future for grace period)
+            sharing_configuration = (
+                SharingConfiguration.objects.select_related("dashboard", "insight", "recording")
+                .filter(
+                    access_token=access_token,
+                    enabled=True,
+                )
+                .filter(Q(expires_at__isnull=True) | Q(expires_at__gt=now()))
+                .first()
+            )
 
-            if sharing_configuration and sharing_configuration.enabled:
+            if sharing_configuration:
                 return sharing_configuration
 
         return None

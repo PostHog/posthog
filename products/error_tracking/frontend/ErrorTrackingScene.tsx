@@ -92,7 +92,7 @@ const VolumeColumn: QueryContextColumnComponent = (props) => {
     if (!record.aggregations) {
         throw new Error('No aggregations found')
     }
-    const data = useSparklineData(record.aggregations.volumeRange, dateRange, ERROR_TRACKING_LISTING_RESOLUTION)
+    const data = useSparklineData(record.aggregations, dateRange, ERROR_TRACKING_LISTING_RESOLUTION)
     return (
         <div className="flex justify-end">
             <OccurrenceSparkline className="h-8" data={data} displayXAxis={false} />

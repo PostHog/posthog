@@ -37,6 +37,7 @@ import {
     CohortType,
     DashboardBasicType,
     EarlyAccessFeatureType,
+    FeatureFlagEvaluationRuntime,
     FeatureFlagGroupType,
     FeatureFlagRollbackConditions,
     FeatureFlagStatusResponse,
@@ -113,6 +114,7 @@ export const NEW_FLAG: FeatureFlagType = {
     status: 'ACTIVE',
     version: 0,
     last_modified_by: null,
+    evaluation_runtime: FeatureFlagEvaluationRuntime.ALL,
 }
 const NEW_VARIANT = {
     key: '',
@@ -849,7 +851,15 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                             },
                         ],
                     }
-                    return await api.surveys.create(newSurvey as NewSurvey)
+                    const response = await api.surveys.create(newSurvey as NewSurvey)
+                    actions.addProductIntent({
+                        product_type: ProductKey.SURVEYS,
+                        intent_context: ProductIntentContext.SURVEY_CREATED,
+                        metadata: {
+                            survey_id: response.id,
+                        },
+                    })
+                    return response
                 },
             },
         ],

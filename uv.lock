@@ -520,7 +520,7 @@ wheels = [
 
 [[package]]
 name = "braintrust"
-version = "0.1.1"
+version = "0.2.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "chevron" },
@@ -533,9 +533,9 @@ dependencies = [
     { name = "tqdm" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/29/75/eb3e1c3d1ca3d85329b351044246da3813868551d3da0662050000243291/braintrust-0.1.1.tar.gz", hash = "sha256:20025da0a3e7c9c3a33c26f8fef19ffe73b6b7885bfb0d80d64153d769c7ee88", size = 121612, upload-time = "2025-05-21T02:36:05.118Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/ca/2d/c1edc49d8ea3548552a844251de01946e566621b2f6a42af284a058c360d/braintrust-0.2.0.tar.gz", hash = "sha256:fd45665b9521276d581c12a947bf9033a51c5365c986454df6332e01729da270", size = 145441, upload-time = "2025-07-25T05:34:44.555Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/9c/62/9d35508f0a9b3ae80770596ea983c6c01a317270ef7c0539ded76ebab2c2/braintrust-0.1.1-py3-none-any.whl", hash = "sha256:816e81f419c1db68b673f562aa3124857e3354e8d5201f7df396743da2a1be8a", size = 143690, upload-time = "2025-05-21T02:36:03.288Z" },
+    { url = "https://files.pythonhosted.org/packages/6a/60/83fb8bcc84f7fe408b7373c520187e777859c79bc6aa9ad5d1eb7d4b4c8a/braintrust-0.2.0-py3-none-any.whl", hash = "sha256:dffc74fe85f9c855461712210a852c543d8573767544403b3f73fbc0e645f5a2", size = 171651, upload-time = "2025-07-25T05:34:43.249Z" },
 ]
 
 [[package]]
@@ -4117,7 +4117,7 @@ requires-dist = [
     { name = "pdpyras", specifier = "==5.2.0" },
     { name = "phonenumberslite", specifier = "==8.13.6" },
     { name = "pillow", specifier = "==10.2.0" },
-    { name = "posthoganalytics", specifier = ">=6.0.2" },
+    { name = "posthoganalytics", specifier = ">=6.3.1" },
     { name = "psutil", specifier = "==6.0.0" },
     { name = "psycopg", extras = ["binary"], specifier = "==3.2.4" },
     { name = "psycopg2-binary", specifier = "==2.9.7" },
@@ -4181,7 +4181,7 @@ dev = [
     { name = "autoevals", specifier = "==0.0.129" },
     { name = "black", specifier = "~=23.9.1" },
     { name = "boto3-stubs", extras = ["s3"], specifier = ">=1.34.84" },
-    { name = "braintrust", specifier = "==0.1.1" },
+    { name = "braintrust", specifier = "==0.2.0" },
     { name = "braintrust-langchain", specifier = "==0.0.2" },
     { name = "datamodel-code-generator", specifier = "==0.28.5" },
     { name = "django-linear-migrations", specifier = "==2.16.*" },
@@ -4239,7 +4239,7 @@ dev = [
 
 [[package]]
 name = "posthoganalytics"
-version = "6.0.2"
+version = "6.3.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "backoff" },
@@ -4249,9 +4249,9 @@ dependencies = [
     { name = "six" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/7b/c7/95775c4287829c7825f650340b6b3934e797bce012bf93dcdda5fdbcccdf/posthoganalytics-6.0.2.tar.gz", hash = "sha256:c531f32e9bce45fd16f74562f35847cd9973a6cb0fc58f3d6fa54fc8c56fd3af", size = 88538, upload-time = "2025-07-02T19:21:53.974Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/90/c7/445cbfb04857b70dd622851edf6dd3cb16840600670932c4f17db6359150/posthoganalytics-6.3.1.tar.gz", hash = "sha256:30ca703d6089bc6ac6e65d7d752a0c028fa2cddad3bbc053f22a527b65de5bd8", size = 98353, upload-time = "2025-07-23T09:52:24.802Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/bb/9b/aad4dab7addb34c57c0f19b566d70086c86da27d02ab1f740e4edc8e3c8c/posthoganalytics-6.0.2-py3-none-any.whl", hash = "sha256:7d847dfd6077ef88a97caad27023c7c94e442b8ba0e0cc590db7953b2c6f82e9", size = 106106, upload-time = "2025-07-02T19:21:52.409Z" },
+    { url = "https://files.pythonhosted.org/packages/f9/7a/8299c8be23cbe1951ea901c4ed8bc2b36f1c02403d69eab6418672399f3e/posthoganalytics-6.3.1-py3-none-any.whl", hash = "sha256:5505f076abe2f8836df6584d5245182cd0cdf13a5ac2ed45c1d3f5614cbb38a6", size = 116503, upload-time = "2025-07-23T09:52:23.776Z" },
 ]
 
 [[package]]

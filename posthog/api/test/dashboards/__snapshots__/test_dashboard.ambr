@@ -630,7 +630,8 @@
          "posthog_sharingconfiguration"."recording_id",
          "posthog_sharingconfiguration"."created_at",
          "posthog_sharingconfiguration"."enabled",
-         "posthog_sharingconfiguration"."access_token"
+         "posthog_sharingconfiguration"."access_token",
+         "posthog_sharingconfiguration"."expires_at"
   FROM "posthog_sharingconfiguration"
   WHERE "posthog_sharingconfiguration"."dashboard_id" IN (1,
                                                           2,
@@ -660,6 +661,7 @@
          "posthog_dashboarditem"."filters",
          "posthog_dashboarditem"."filters_hash",
          "posthog_dashboarditem"."query",
+         "posthog_dashboarditem"."query_metadata",
          "posthog_dashboarditem"."order",
          "posthog_dashboarditem"."deleted",
          "posthog_dashboarditem"."saved",
@@ -1192,6 +1194,7 @@
          "posthog_dashboarditem"."filters",
          "posthog_dashboarditem"."filters_hash",
          "posthog_dashboarditem"."query",
+         "posthog_dashboarditem"."query_metadata",
          "posthog_dashboarditem"."order",
          "posthog_dashboarditem"."deleted",
          "posthog_dashboarditem"."saved",
@@ -2190,6 +2193,7 @@
          "posthog_dashboarditem"."filters",
          "posthog_dashboarditem"."filters_hash",
          "posthog_dashboarditem"."query",
+         "posthog_dashboarditem"."query_metadata",
          "posthog_dashboarditem"."order",
          "posthog_dashboarditem"."deleted",
          "posthog_dashboarditem"."saved",
@@ -2993,7 +2997,8 @@
          "posthog_sharingconfiguration"."recording_id",
          "posthog_sharingconfiguration"."created_at",
          "posthog_sharingconfiguration"."enabled",
-         "posthog_sharingconfiguration"."access_token"
+         "posthog_sharingconfiguration"."access_token",
+         "posthog_sharingconfiguration"."expires_at"
   FROM "posthog_sharingconfiguration"
   WHERE "posthog_sharingconfiguration"."dashboard_id" IN (1,
                                                           2,
@@ -3309,6 +3314,7 @@
          "posthog_dashboarditem"."filters",
          "posthog_dashboarditem"."filters_hash",
          "posthog_dashboarditem"."query",
+         "posthog_dashboarditem"."query_metadata",
          "posthog_dashboarditem"."order",
          "posthog_dashboarditem"."deleted",
          "posthog_dashboarditem"."saved",
@@ -3760,6 +3766,7 @@
          "posthog_dashboarditem"."filters",
          "posthog_dashboarditem"."filters_hash",
          "posthog_dashboarditem"."query",
+         "posthog_dashboarditem"."query_metadata",
          "posthog_dashboarditem"."order",
          "posthog_dashboarditem"."deleted",
          "posthog_dashboarditem"."saved",
@@ -4094,7 +4101,8 @@
          "posthog_sharingconfiguration"."recording_id",
          "posthog_sharingconfiguration"."created_at",
          "posthog_sharingconfiguration"."enabled",
-         "posthog_sharingconfiguration"."access_token"
+         "posthog_sharingconfiguration"."access_token",
+         "posthog_sharingconfiguration"."expires_at"
   FROM "posthog_sharingconfiguration"
   WHERE "posthog_sharingconfiguration"."dashboard_id" = 99999
   '''
@@ -4109,6 +4117,7 @@
          "posthog_dashboarditem"."filters",
          "posthog_dashboarditem"."filters_hash",
          "posthog_dashboarditem"."query",
+         "posthog_dashboarditem"."query_metadata",
          "posthog_dashboarditem"."order",
          "posthog_dashboarditem"."deleted",
          "posthog_dashboarditem"."saved",
@@ -5034,6 +5043,7 @@
          "posthog_dashboarditem"."filters",
          "posthog_dashboarditem"."filters_hash",
          "posthog_dashboarditem"."query",
+         "posthog_dashboarditem"."query_metadata",
          "posthog_dashboarditem"."order",
          "posthog_dashboarditem"."deleted",
          "posthog_dashboarditem"."saved",
@@ -5369,6 +5379,7 @@
          "posthog_dashboarditem"."filters",
          "posthog_dashboarditem"."filters_hash",
          "posthog_dashboarditem"."query",
+         "posthog_dashboarditem"."query_metadata",
          "posthog_dashboarditem"."order",
          "posthog_dashboarditem"."deleted",
          "posthog_dashboarditem"."saved",
@@ -5548,7 +5559,8 @@
          "posthog_sharingconfiguration"."recording_id",
          "posthog_sharingconfiguration"."created_at",
          "posthog_sharingconfiguration"."enabled",
-         "posthog_sharingconfiguration"."access_token"
+         "posthog_sharingconfiguration"."access_token",
+         "posthog_sharingconfiguration"."expires_at"
   FROM "posthog_sharingconfiguration"
   WHERE "posthog_sharingconfiguration"."dashboard_id" = 99999
   '''
@@ -6127,7 +6139,8 @@
          "posthog_sharingconfiguration"."recording_id",
          "posthog_sharingconfiguration"."created_at",
          "posthog_sharingconfiguration"."enabled",
-         "posthog_sharingconfiguration"."access_token"
+         "posthog_sharingconfiguration"."access_token",
+         "posthog_sharingconfiguration"."expires_at"
   FROM "posthog_sharingconfiguration"
   WHERE "posthog_sharingconfiguration"."dashboard_id" IN (1,
                                                           2,
@@ -6157,6 +6170,7 @@
          "posthog_dashboarditem"."filters",
          "posthog_dashboarditem"."filters_hash",
          "posthog_dashboarditem"."query",
+         "posthog_dashboarditem"."query_metadata",
          "posthog_dashboarditem"."order",
          "posthog_dashboarditem"."deleted",
          "posthog_dashboarditem"."saved",
@@ -6447,6 +6461,7 @@
          "posthog_dashboarditem"."filters",
          "posthog_dashboarditem"."filters_hash",
          "posthog_dashboarditem"."query",
+         "posthog_dashboarditem"."query_metadata",
          "posthog_dashboarditem"."order",
          "posthog_dashboarditem"."deleted",
          "posthog_dashboarditem"."saved",
@@ -6842,6 +6857,7 @@
          "posthog_dashboarditem"."filters",
          "posthog_dashboarditem"."filters_hash",
          "posthog_dashboarditem"."query",
+         "posthog_dashboarditem"."query_metadata",
          "posthog_dashboarditem"."order",
          "posthog_dashboarditem"."deleted",
          "posthog_dashboarditem"."saved",
@@ -7747,7 +7763,8 @@
          "posthog_sharingconfiguration"."recording_id",
          "posthog_sharingconfiguration"."created_at",
          "posthog_sharingconfiguration"."enabled",
-         "posthog_sharingconfiguration"."access_token"
+         "posthog_sharingconfiguration"."access_token",
+         "posthog_sharingconfiguration"."expires_at"
   FROM "posthog_sharingconfiguration"
   WHERE "posthog_sharingconfiguration"."dashboard_id" = 99999
   '''
@@ -7900,7 +7917,8 @@
          "posthog_sharingconfiguration"."recording_id",
          "posthog_sharingconfiguration"."created_at",
          "posthog_sharingconfiguration"."enabled",
-         "posthog_sharingconfiguration"."access_token"
+         "posthog_sharingconfiguration"."access_token",
+         "posthog_sharingconfiguration"."expires_at"
   FROM "posthog_sharingconfiguration"
   WHERE "posthog_sharingconfiguration"."dashboard_id" = 99999
   '''
@@ -7942,6 +7960,7 @@
          "posthog_dashboarditem"."filters",
          "posthog_dashboarditem"."filters_hash",
          "posthog_dashboarditem"."query",
+         "posthog_dashboarditem"."query_metadata",
          "posthog_dashboarditem"."order",
          "posthog_dashboarditem"."deleted",
          "posthog_dashboarditem"."saved",
@@ -8646,6 +8665,7 @@
          "posthog_dashboarditem"."filters",
          "posthog_dashboarditem"."filters_hash",
          "posthog_dashboarditem"."query",
+         "posthog_dashboarditem"."query_metadata",
          "posthog_dashboarditem"."order",
          "posthog_dashboarditem"."deleted",
          "posthog_dashboarditem"."saved",
@@ -8994,6 +9014,7 @@
          "posthog_dashboarditem"."filters",
          "posthog_dashboarditem"."filters_hash",
          "posthog_dashboarditem"."query",
+         "posthog_dashboarditem"."query_metadata",
          "posthog_dashboarditem"."order",
          "posthog_dashboarditem"."deleted",
          "posthog_dashboarditem"."saved",
@@ -9325,6 +9346,7 @@
          "posthog_dashboarditem"."filters",
          "posthog_dashboarditem"."filters_hash",
          "posthog_dashboarditem"."query",
+         "posthog_dashboarditem"."query_metadata",
          "posthog_dashboarditem"."order",
          "posthog_dashboarditem"."deleted",
          "posthog_dashboarditem"."saved",
@@ -10265,6 +10287,7 @@
          "posthog_dashboarditem"."filters",
          "posthog_dashboarditem"."filters_hash",
          "posthog_dashboarditem"."query",
+         "posthog_dashboarditem"."query_metadata",
          "posthog_dashboarditem"."order",
          "posthog_dashboarditem"."deleted",
          "posthog_dashboarditem"."saved",
@@ -10611,6 +10634,7 @@
          "posthog_dashboarditem"."filters",
          "posthog_dashboarditem"."filters_hash",
          "posthog_dashboarditem"."query",
+         "posthog_dashboarditem"."query_metadata",
          "posthog_dashboarditem"."order",
          "posthog_dashboarditem"."deleted",
          "posthog_dashboarditem"."saved",
@@ -11301,7 +11325,8 @@
          "posthog_sharingconfiguration"."recording_id",
          "posthog_sharingconfiguration"."created_at",
          "posthog_sharingconfiguration"."enabled",
-         "posthog_sharingconfiguration"."access_token"
+         "posthog_sharingconfiguration"."access_token",
+         "posthog_sharingconfiguration"."expires_at"
   FROM "posthog_sharingconfiguration"
   WHERE "posthog_sharingconfiguration"."dashboard_id" IN (1,
                                                           2,
@@ -11331,6 +11356,7 @@
          "posthog_dashboarditem"."filters",
          "posthog_dashboarditem"."filters_hash",
          "posthog_dashboarditem"."query",
+         "posthog_dashboarditem"."query_metadata",
          "posthog_dashboarditem"."order",
          "posthog_dashboarditem"."deleted",
          "posthog_dashboarditem"."saved",
@@ -11701,6 +11727,7 @@
          "posthog_dashboarditem"."filters",
          "posthog_dashboarditem"."filters_hash",
          "posthog_dashboarditem"."query",
+         "posthog_dashboarditem"."query_metadata",
          "posthog_dashboarditem"."order",
          "posthog_dashboarditem"."deleted",
          "posthog_dashboarditem"."saved",
@@ -12357,7 +12384,8 @@
          "posthog_sharingconfiguration"."recording_id",
          "posthog_sharingconfiguration"."created_at",
          "posthog_sharingconfiguration"."enabled",
-         "posthog_sharingconfiguration"."access_token"
+         "posthog_sharingconfiguration"."access_token",
+         "posthog_sharingconfiguration"."expires_at"
   FROM "posthog_sharingconfiguration"
   WHERE "posthog_sharingconfiguration"."dashboard_id" = 99999
   '''
@@ -12464,7 +12492,8 @@
          "posthog_sharingconfiguration"."recording_id",
          "posthog_sharingconfiguration"."created_at",
          "posthog_sharingconfiguration"."enabled",
-         "posthog_sharingconfiguration"."access_token"
+         "posthog_sharingconfiguration"."access_token",
+         "posthog_sharingconfiguration"."expires_at"
   FROM "posthog_sharingconfiguration"
   WHERE "posthog_sharingconfiguration"."dashboard_id" = 99999
   '''
@@ -12506,6 +12535,7 @@
          "posthog_dashboarditem"."filters",
          "posthog_dashboarditem"."filters_hash",
          "posthog_dashboarditem"."query",
+         "posthog_dashboarditem"."query_metadata",
          "posthog_dashboarditem"."order",
          "posthog_dashboarditem"."deleted",
          "posthog_dashboarditem"."saved",
@@ -13153,7 +13183,8 @@
          "posthog_sharingconfiguration"."recording_id",
          "posthog_sharingconfiguration"."created_at",
          "posthog_sharingconfiguration"."enabled",
-         "posthog_sharingconfiguration"."access_token"
+         "posthog_sharingconfiguration"."access_token",
+         "posthog_sharingconfiguration"."expires_at"
   FROM "posthog_sharingconfiguration"
   WHERE "posthog_sharingconfiguration"."dashboard_id" = 99999
   '''
@@ -13306,7 +13337,8 @@
          "posthog_sharingconfiguration"."recording_id",
          "posthog_sharingconfiguration"."created_at",
          "posthog_sharingconfiguration"."enabled",
-         "posthog_sharingconfiguration"."access_token"
+         "posthog_sharingconfiguration"."access_token",
+         "posthog_sharingconfiguration"."expires_at"
   FROM "posthog_sharingconfiguration"
   WHERE "posthog_sharingconfiguration"."dashboard_id" = 99999
   '''
@@ -13348,6 +13380,7 @@
          "posthog_dashboarditem"."filters",
          "posthog_dashboarditem"."filters_hash",
          "posthog_dashboarditem"."query",
+         "posthog_dashboarditem"."query_metadata",
          "posthog_dashboarditem"."order",
          "posthog_dashboarditem"."deleted",
          "posthog_dashboarditem"."saved",
@@ -13930,7 +13963,8 @@
          "posthog_sharingconfiguration"."recording_id",
          "posthog_sharingconfiguration"."created_at",
          "posthog_sharingconfiguration"."enabled",
-         "posthog_sharingconfiguration"."access_token"
+         "posthog_sharingconfiguration"."access_token",
+         "posthog_sharingconfiguration"."expires_at"
   FROM "posthog_sharingconfiguration"
   WHERE "posthog_sharingconfiguration"."dashboard_id" IN (1,
                                                           2,

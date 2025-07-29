@@ -28,14 +28,6 @@ export const TwilioSetupModal = (props: TwilioSetupModalLogicProps): JSX.Element
                     <LemonField name="authToken" label="Auth token">
                         <LemonInput type="password" />
                     </LemonField>
-                    <LemonField
-                        name="phoneNumber"
-                        label="Phone Number"
-                        info="Must be an SMS/MMS enabled phone number owned by your Twilio account"
-                        help="Must be E.164 format, e.g. +1234567890"
-                    >
-                        <LemonInput placeholder="+1234567890" />
-                    </LemonField>
                     <div className="flex justify-end">
                         <LemonButton
                             type="primary"

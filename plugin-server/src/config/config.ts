@@ -38,13 +38,12 @@ export function getDefaultConfig(): PluginsServerConfig {
         POSTHOG_DB_PASSWORD: '',
         POSTHOG_POSTGRES_HOST: 'localhost',
         POSTHOG_POSTGRES_PORT: 5432,
-        CLICKHOUSE_HOST: 'localhost',
-        CLICKHOUSE_OFFLINE_CLUSTER_HOST: null,
-        CLICKHOUSE_DATABASE: isTestEnv() ? 'posthog_test' : 'default',
-        CLICKHOUSE_USER: 'default',
-        CLICKHOUSE_PASSWORD: null,
-        CLICKHOUSE_CA: null,
-        CLICKHOUSE_SECURE: false,
+        CASSANDRA_HOST: 'localhost',
+        CASSANDRA_PORT: 9042,
+        CASSANDRA_KEYSPACE: isTestEnv() ? 'test_posthog' : 'posthog',
+        CASSANDRA_USER: null,
+        CASSANDRA_PASSWORD: null,
+        WRITE_BEHAVIOURAL_COUNTERS_TO_CASSANDRA: false,
         EVENT_OVERFLOW_BUCKET_CAPACITY: 1000,
         EVENT_OVERFLOW_BUCKET_REPLENISH_RATE: 1.0,
         KAFKA_BATCH_START_LOGGING_ENABLED: false,
@@ -52,6 +51,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         CONSUMER_BATCH_SIZE: 500,
         CONSUMER_MAX_HEARTBEAT_INTERVAL_MS: 30_000,
         CONSUMER_MAX_BACKGROUND_TASKS: 1,
+        CONSUMER_WAIT_FOR_BACKGROUND_TASKS_ON_REBALANCE: false,
         CONSUMER_AUTO_CREATE_TOPICS: true,
         KAFKA_HOSTS: 'kafka:9092', // KEEP IN SYNC WITH posthog/settings/data_stores.py
         KAFKA_CLIENT_CERT_B64: undefined,
@@ -130,12 +130,6 @@ export function getDefaultConfig(): PluginsServerConfig {
         POSTHOG_API_KEY: '',
         POSTHOG_HOST_URL: 'http://localhost:8010',
 
-        STARTUP_PROFILE_DURATION_SECONDS: 300, // 5 minutes
-        STARTUP_PROFILE_CPU: false,
-        STARTUP_PROFILE_HEAP: false,
-        STARTUP_PROFILE_HEAP_INTERVAL: 512 * 1024, // default v8 value
-        STARTUP_PROFILE_HEAP_DEPTH: 16, // default v8 value
-
         SESSION_RECORDING_LOCAL_DIRECTORY: '.tmp/sessions',
         // NOTE: 10 minutes
         SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS: 60 * 10,
@@ -180,6 +174,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         CDP_REDIS_PORT: 6479,
         CDP_CYCLOTRON_BATCH_DELAY_MS: 50,
         CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN: '',
+        CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_KIND: 'hog',
         CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE: 'kafka',
         CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_MAPPING: '*:kafka',
         CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_TEAM_MAPPING: '',
@@ -269,6 +264,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         PERSON_BATCH_WRITING_MAX_CONCURRENT_UPDATES: 10,
         PERSON_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES: 5,
         PERSON_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS: 50,
+        PERSON_UPDATE_CALCULATE_PROPERTIES_SIZE: 0,
         PERSON_CACHE_ENABLED_FOR_UPDATES: true,
         PERSON_CACHE_ENABLED_FOR_CHECKS: true,
         GROUP_BATCH_WRITING_ENABLED: false,

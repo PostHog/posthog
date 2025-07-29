@@ -1134,6 +1134,7 @@ class TestSurvey(APIBaseTest):
                         "ensure_experience_continuity": False,
                         "has_encrypted_payloads": False,
                         "version": ANY,  # Add version field with ANY matcher
+                        "evaluation_runtime": "all",
                     },
                     "linked_flag": None,
                     "linked_flag_id": None,
@@ -2288,32 +2289,6 @@ class TestSurveyQuestionValidationWithEnterpriseFeatures(APIBaseTest):
         assert response_data["questions"][0]["descriptionContentType"] == "html"
         assert response_data["questions"][0]["description"] == "<b>This is a description</b>"
 
-    def test_create_survey_with_html_without_feature_flag(self):
-        # Remove the SURVEYS_TEXT_HTML feature
-        self.organization.available_product_features = []
-        self.organization.save()
-
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/surveys/",
-            data={
-                "name": "Notebooks beta release survey",
-                "description": "Get feedback on the new notebooks feature",
-                "type": "popover",
-                "questions": [
-                    {
-                        "type": "open",
-                        "question": "What's a survey?",
-                        "description": "<b>This is a description</b>",
-                        "descriptionContentType": "html",
-                    }
-                ],
-            },
-            format="json",
-        )
-        response_data = response.json()
-        assert response.status_code == status.HTTP_400_BAD_REQUEST, response_data
-        assert response_data["detail"] == "You need to upgrade to PostHog Enterprise to use HTML in survey questions"
-
     def test_create_survey_with_valid_thank_you_description_content_type_html(self):
         response = self.client.post(
             f"/api/projects/{self.team.id}/surveys/",
@@ -2335,8 +2310,7 @@ class TestSurveyQuestionValidationWithEnterpriseFeatures(APIBaseTest):
         assert response_data["appearance"]["thankYouMessageDescriptionContentType"] == "html"
         assert response_data["appearance"]["thankYouMessageDescription"] == "<b>This is a thank you message</b>"
 
-    def test_create_survey_with_html_thank_you_without_feature_flag(self):
-        # Remove the SURVEYS_TEXT_HTML feature
+    def test_create_survey_with_white_label(self):
         self.organization.available_product_features = []
         self.organization.save()
 
@@ -2350,16 +2324,14 @@ class TestSurveyQuestionValidationWithEnterpriseFeatures(APIBaseTest):
                     "thankYouMessageHeader": "Thanks for your feedback!",
                     "thankYouMessageDescription": "<b>This is a thank you message</b>",
                     "thankYouMessageDescriptionContentType": "html",
+                    "whiteLabel": True,
                 },
             },
             format="json",
         )
         response_data = response.json()
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response_data
-        assert (
-            response_data["detail"]
-            == "You need to upgrade to PostHog Enterprise to use HTML in survey thank you message"
-        )
+        assert response_data["detail"] == "You need to upgrade to PostHog Enterprise to use white labelling"
 
 
 class TestSurveyWithActions(APIBaseTest):

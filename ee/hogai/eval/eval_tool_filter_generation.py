@@ -1,27 +1,30 @@
-import pytest
 import logging
+
+import pytest
 from braintrust import EvalCase, Score
 from braintrust_core.score import Scorer
 
-from posthog.schema import (
-    MaxRecordingUniversalFilters,
-    FilterLogicalOperator,
-    RecordingOrder,
-    RecordingDurationFilter,
-    DurationType,
-    PropertyOperator,
-    MaxOuterUniversalFiltersGroup,
-    MaxInnerUniversalFiltersGroup,
-)
+from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
 from ee.hogai.graph.filter_options.graph import FilterOptionsGraph
 from ee.models.assistant import Conversation
-from .conftest import MaxEval
-from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
-from products.replay.backend.max_tools import (
-    PRODUCT_DESCRIPTION_PROMPT,
-    SESSION_REPLAY_RESPONSE_FORMATS_PROMPT,
-    SESSION_REPLAY_EXAMPLES_PROMPT,
+from posthog.schema import (
+    DurationType,
+    FilterLogicalOperator,
+    MaxInnerUniversalFiltersGroup,
+    MaxOuterUniversalFiltersGroup,
+    MaxRecordingUniversalFilters,
+    PropertyOperator,
+    RecordingDurationFilter,
+    RecordingOrder,
 )
+from products.replay.backend.max_tools import (
+    MULTIPLE_FILTERS_PROMPT,
+    PRODUCT_DESCRIPTION_PROMPT,
+    SESSION_REPLAY_EXAMPLES_PROMPT,
+    SESSION_REPLAY_RESPONSE_FORMATS_PROMPT,
+)
+
+from .conftest import MaxEval
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +49,7 @@ def call_search_session_recordings(demo_org_team_user):
         "product_description_prompt": PRODUCT_DESCRIPTION_PROMPT,
         "response_formats_prompt": SESSION_REPLAY_RESPONSE_FORMATS_PROMPT,
         "examples_prompt": SESSION_REPLAY_EXAMPLES_PROMPT,
+        "multiple_filters_prompt": MULTIPLE_FILTERS_PROMPT,
     }
     graph = FilterOptionsGraph(
         demo_org_team_user[1], demo_org_team_user[2], injected_prompts=injected_prompts
@@ -140,7 +144,7 @@ class FilterGenerationCorrectness(Scorer):
 
 
 @pytest.mark.django_db
-async def eval_tool_search_session_recordings(call_search_session_recordings):
+async def eval_tool_search_session_recordings(call_search_session_recordings, pytestconfig):
     await MaxEval(
         experiment_name="tool_search_session_recordings",
         task=call_search_session_recordings,
@@ -148,7 +152,63 @@ async def eval_tool_search_session_recordings(call_search_session_recordings):
         data=[
             # Test basic filter generation for mobile devices
             EvalCase(
-                input="Show me recordings from mobile devices",
+                input="show me recordings of users that were using a mobile device (use events)",
+                expected=MaxRecordingUniversalFilters(
+                    **{
+                        "date_from": "-7d",
+                        "date_to": None,
+                        "duration": [{"key": "duration", "type": "recording", "value": 60, "operator": "gt"}],
+                        "filter_group": {
+                            "type": "AND",
+                            "values": [
+                                {
+                                    "type": "AND",
+                                    "values": [
+                                        {
+                                            "key": "$device_type",
+                                            "type": "event",
+                                            "value": ["Mobile"],
+                                            "operator": "exact",
+                                        }
+                                    ],
+                                }
+                            ],
+                        },
+                        "filter_test_accounts": True,
+                        "order": "start_time",
+                    }
+                ),
+            ),
+            EvalCase(
+                input="Show me recordings from chrome browsers",
+                expected=MaxRecordingUniversalFilters(
+                    **{
+                        "date_from": "-7d",
+                        "date_to": None,
+                        "duration": [{"key": "duration", "type": "recording", "value": 60, "operator": "gt"}],
+                        "filter_group": {
+                            "type": "AND",
+                            "values": [
+                                {
+                                    "type": "AND",
+                                    "values": [
+                                        {
+                                            "key": "$browser",
+                                            "type": "event",
+                                            "value": ["Chrome"],
+                                            "operator": "exact",
+                                        }
+                                    ],
+                                }
+                            ],
+                        },
+                        "filter_test_accounts": True,
+                        "order": "start_time",
+                    }
+                ),
+            ),
+            EvalCase(
+                input="show me recordings of users who signed up on mobile",
                 expected=MaxRecordingUniversalFilters(
                     **{
                         "date_from": "-7d",
@@ -177,8 +237,8 @@ async def eval_tool_search_session_recordings(call_search_session_recordings):
             ),
             # Test date range filtering
             EvalCase(
-                input="Show recordings from the last 24 hours",
-                expected=MaxRecordingUniversalFilters(**{**DUMMY_CURRENT_FILTERS, "date_from": "-1d"}),
+                input="Show recordings from the last 2 hours",
+                expected=MaxRecordingUniversalFilters(**{**DUMMY_CURRENT_FILTERS, "date_from": "-2h"}),
             ),
             # Test location filtering
             EvalCase(
@@ -207,7 +267,7 @@ async def eval_tool_search_session_recordings(call_search_session_recordings):
             ),
             # Test browser-specific filtering
             EvalCase(
-                input="Show recordings from Chrome users",
+                input="Show recordings from users that were using a browser in English",
                 expected=MaxRecordingUniversalFilters(
                     **{
                         **DUMMY_CURRENT_FILTERS,
@@ -217,7 +277,12 @@ async def eval_tool_search_session_recordings(call_search_session_recordings):
                                 {
                                     "type": "AND",
                                     "values": [
-                                        {"key": "$browser", "type": "event", "value": ["Chrome"], "operator": "exact"}
+                                        {
+                                            "key": "$browser_language",
+                                            "type": "person",
+                                            "value": ["EN-en"],
+                                            "operator": "exact",
+                                        }
                                     ],
                                 }
                             ],
@@ -226,4 +291,5 @@ async def eval_tool_search_session_recordings(call_search_session_recordings):
                 ),
             ),
         ],
+        pytestconfig=pytestconfig,
     )

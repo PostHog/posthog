@@ -184,7 +184,7 @@ pub struct Config {
     #[envconfig(from = "OTEL_EXPORTER_OTLP_ENDPOINT")]
     pub otel_url: Option<String>,
 
-    #[envconfig(from = "OTEL_TRACES_SAMPLER_ARG", default = "0.01")]
+    #[envconfig(from = "OTEL_TRACES_SAMPLER_ARG", default = "0.001")]
     pub otel_sampling_rate: f64,
 
     #[envconfig(from = "OTEL_SERVICE_NAME", default = "posthog-feature-flags")]

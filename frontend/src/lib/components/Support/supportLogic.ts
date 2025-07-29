@@ -18,6 +18,7 @@ import {
     OrganizationBasicType,
     Region,
     SidePanelTab,
+    StartupProgramLabel,
     TeamPublicType,
     UserType,
 } from '~/types'
@@ -486,7 +487,7 @@ export const supportLogic = kea<supportLogicType>([
                 kind,
                 target_area: area,
                 severity_level: severity_level ?? null,
-                message: message ?? '',
+                message: message ?? values.sendSupportRequest.message ?? '',
             })
 
             if (isEmailFormOpen === 'true' || isEmailFormOpen === true) {
@@ -560,6 +561,13 @@ export const supportLogic = kea<supportLogicType>([
                         planLevelTag = 'plan_free'
                         break
                 }
+            }
+
+            const startupProgramLabel = billing?.startup_program_label
+            if (startupProgramLabel === StartupProgramLabel.YC) {
+                planLevelTag = 'plan_yc'
+            } else if (startupProgramLabel === StartupProgramLabel.Startup) {
+                planLevelTag = 'plan_startup'
             }
 
             const { accountOwner } = billingLogic.values
@@ -734,8 +742,7 @@ export const supportLogic = kea<supportLogicType>([
         },
 
         closeSupportForm: () => {
-            // Reset the form when closing so Cancel button clears the data
-            actions.resetSendSupportRequest()
+            // Form is only reset by explicit Cancel button or successful submission
             props.onClose?.()
         },
 
