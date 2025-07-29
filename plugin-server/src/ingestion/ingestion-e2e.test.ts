@@ -149,7 +149,7 @@ const testWithTeamIngester = (
     config: { teamOverrides?: Partial<Team>; pluginServerConfig?: Partial<PluginsServerConfig> } = {},
     testFn: (ingester: IngestionConsumer, hub: Hub, team: Team) => Promise<void>
 ) => {
-    test.concurrent(name, async () => {
+    test(name, async () => {
         const hub = await createHub({
             PLUGINS_DEFAULT_LOG_LEVEL: 0,
             APP_METRICS_FLUSH_FREQUENCY_MS: 0,
@@ -209,8 +209,10 @@ const testWithTeamIngester = (
 }
 
 describe('Event Pipeline E2E tests', () => {
-    const clickhouse = Clickhouse.create()
+    let clickhouse: Clickhouse
     beforeAll(async () => {
+        console.log('Creating Clickhouse client')
+        clickhouse = Clickhouse.create()
         await resetKafka()
         await resetTestDatabase()
         await clickhouse.resetTestDatabase()
@@ -1093,35 +1095,105 @@ describe('Event Pipeline E2E tests', () => {
     }
 
     const fetchEvents = async (hub: Hub, teamId: number) => {
-        // Force ClickHouse to merge parts to ensure FINAL consistency
-        await clickhouse.exec(`OPTIMIZE TABLE person_distinct_id_overrides FINAL`)
+        // Force ClickHouse to merge parts to ensure FINAL consistency with retry logic
+        await retryClickHouseOperation(
+            () => clickhouse.exec(`OPTIMIZE TABLE person_distinct_id_overrides FINAL`),
+            'OPTIMIZE TABLE person_distinct_id_overrides FINAL',
+            3, // max retries
+            false // non-fatal operation
+        )
 
-        const queryResult = (await clickhouse.query(`
-            SELECT *,
-                   if(notEmpty(overrides.person_id), overrides.person_id, e.person_id) as person_id
-            FROM events e
-            FINAL
-            LEFT OUTER JOIN (
-                SELECT
-                    distinct_id,
-                    argMax(person_id, version) as person_id
-                  FROM person_distinct_id_overrides
-                  FINAL
-                  WHERE team_id = ${teamId}
-                  GROUP BY distinct_id
-            ) AS overrides USING distinct_id
-            WHERE team_id = ${teamId}
-            ORDER BY timestamp ASC
-        `)) as unknown as RawClickHouseEvent[]
+        // Query events with retry logic for connection stability
+        const queryResult = (await retryClickHouseOperation(
+            () =>
+                clickhouse.query(`
+                SELECT *,
+                       if(notEmpty(overrides.person_id), overrides.person_id, e.person_id) as person_id
+                FROM events e
+                FINAL
+                LEFT OUTER JOIN (
+                    SELECT
+                        distinct_id,
+                        argMax(person_id, version) as person_id
+                      FROM person_distinct_id_overrides
+                      FINAL
+                      WHERE team_id = ${teamId}
+                      GROUP BY distinct_id
+                ) AS overrides USING distinct_id
+                WHERE team_id = ${teamId}
+                ORDER BY timestamp ASC
+            `),
+            'fetchEvents query',
+            3, // max retries
+            true // fatal operation
+        )) as unknown as RawClickHouseEvent[]
+
         return queryResult.map(parseRawClickHouseEvent)
     }
 
+    // Utility function for retrying ClickHouse operations with exponential backoff
+    const retryClickHouseOperation = async <T>(
+        operation: () => Promise<T>,
+        operationName: string,
+        maxRetries: number = 3,
+        throwOnFailure: boolean = true
+    ): Promise<T | null> => {
+        let lastError: Error | null = null
+
+        for (let attempt = 1; attempt <= maxRetries; attempt++) {
+            try {
+                return await operation()
+            } catch (error: any) {
+                lastError = error
+
+                const isSocketError =
+                    error?.message?.includes('socket hang up') ||
+                    error?.message?.includes('ECONNRESET') ||
+                    error?.message?.includes('ETIMEDOUT')
+
+                if (isSocketError && attempt < maxRetries) {
+                    const backoffMs = Math.min(1000 * Math.pow(2, attempt - 1), 10000) // Exponential backoff, max 10s
+                    console.warn(
+                        `[DEBUG] ClickHouse ${operationName} failed (attempt ${attempt}/${maxRetries}), retrying in ${backoffMs}ms:`,
+                        error?.message
+                    )
+                    await new Promise((resolve) => setTimeout(resolve, backoffMs))
+                    continue
+                }
+
+                console.warn(
+                    `[DEBUG] ClickHouse ${operationName} failed (attempt ${attempt}/${maxRetries}):`,
+                    error?.message
+                )
+                break
+            }
+        }
+
+        if (throwOnFailure && lastError) {
+            throw lastError
+        } else if (lastError) {
+            console.warn(
+                `[DEBUG] ClickHouse ${operationName} failed after all retries (non-fatal):`,
+                lastError?.message
+            )
+            return null
+        }
+
+        return null
+    }
+
     const fetchIngestionWarnings = async (hub: Hub, teamId: number) => {
-        const queryResult = await clickhouse.query(`
-            SELECT *
-            FROM ingestion_warnings_mv
-            WHERE team_id = ${teamId}
-        `)
+        const queryResult = (await retryClickHouseOperation(
+            () =>
+                clickhouse.query(`
+                SELECT *
+                FROM ingestion_warnings
+                WHERE team_id = ${teamId}
+            `),
+            'fetchIngestionWarnings query',
+            3, // max retries
+            true // fatal operation
+        )) as any[]
 
         return queryResult.map((warning: any) => ({ ...warning, details: parseJSON(warning.details) }))
     }
