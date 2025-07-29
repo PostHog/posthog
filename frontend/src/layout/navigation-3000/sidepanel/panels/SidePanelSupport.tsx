@@ -52,8 +52,6 @@ const SupportResponseTimesTable = ({
     const { supportPlans, billingPlan } = useValues(billingLogic)
     const { user } = useValues(userLogic)
 
-    const platformAndSupportProduct = billing?.products?.find((p) => p.type === 'platform_and_support')
-
     const knownEnterpriseOrgIds = ['018713f3-8d56-0000-32fa-75ce97e6662f']
     const isKnownEnterpriseOrg = knownEnterpriseOrgIds.includes(user?.organization?.id || '')
 
@@ -79,18 +77,7 @@ const SupportResponseTimesTable = ({
         } else if (hasBoostTrial) {
             return 'boost_trial'
         } else if (billingPlan) {
-            switch (billingPlan) {
-                case BillingPlan.Scale:
-                    return 'scale'
-                case BillingPlan.Boost:
-                    return 'boost'
-                case BillingPlan.Teams:
-                    return 'teams'
-                case BillingPlan.Paid:
-                    return 'paid'
-                case BillingPlan.Free:
-                    return 'free'
-            }
+            return billingPlan
         }
         return 'free'
     }
@@ -119,17 +106,17 @@ const SupportResponseTimesTable = ({
             plan_key: 'paid',
         },
         {
+            name: 'Boost',
+            current_plan: currentPlan === 'boost',
+            features: [getResponseTimeFeature('Boost') || { note: '1 business day' }],
+            plan_key: 'boost',
+        },
+        {
             name: 'Teams',
             current_plan: currentPlan === 'teams',
             features: [{ note: '1 business day' }],
             plan_key: 'teams',
             legacy_product: true,
-        },
-        {
-            name: 'Boost',
-            current_plan: currentPlan === 'boost',
-            features: [getResponseTimeFeature('Boost') || { note: '1 business day' }],
-            plan_key: 'boost',
         },
         {
             name: 'Scale',
@@ -146,10 +133,10 @@ const SupportResponseTimesTable = ({
     ]
 
     const filteredPlansToDisplay = plansToDisplay.filter((plan) => {
-        if (plan.plan_key === 'free' || plan.plan_key === 'paid') {
-            return true
+        if (plan.plan_key === 'teams') {
+            return plan.current_plan
         }
-        return plan.current_plan || platformAndSupportProduct
+        return true
     })
 
     return (
@@ -167,11 +154,11 @@ const SupportResponseTimesTable = ({
                         >
                             <span className={`${isCompact ? '' : 'text-sm'}`}>
                                 {plan.name}
-                                {isBold && ' '}
-                                {isBold && <span className="text-muted text-xs font-normal">(your plan)</span>}
                                 {plan.legacy_product && (
                                     <span className="text-muted text-xs font-normal"> (legacy)</span>
                                 )}
+                                {isBold && ' '}
+                                {isBold && <span className="text-muted text-xs font-normal">(your plan)</span>}
                             </span>
                         </div>
                         <div
