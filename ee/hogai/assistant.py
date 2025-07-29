@@ -267,7 +267,16 @@ class Assistant:
 
                 if not isinstance(e, GenerationCanceled):
                     logger.exception("Error in assistant stream", error=e)
-                    posthoganalytics.capture_exception(e)
+                    posthoganalytics.capture_exception(
+                        e,
+                        distinct_id=self._user.distinct_id if self._user else None,
+                        properties={
+                            "$session_id": self._session_id,
+                            "$ai_trace_id": self._trace_id,
+                            "thread_id": self._conversation.id,
+                            "tag": "max_ai",
+                        },
+                    )
 
                     # This is an unhandled error, so we just stop further generation at this point
                     snapshot = await self._graph.aget_state(config)
@@ -288,6 +297,7 @@ class Assistant:
             "configurable": {
                 "thread_id": self._conversation.id,
                 "trace_id": self._trace_id,
+                "session_id": self._session_id,
                 "distinct_id": self._user.distinct_id if self._user else None,
                 "contextual_tools": self._contextual_tools,
                 "team": self._team,

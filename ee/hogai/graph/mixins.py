@@ -1,8 +1,10 @@
 import datetime
 from abc import ABC
+from typing import Any
 from uuid import UUID
 
 from django.utils import timezone
+from langchain_core.runnables import RunnableConfig
 
 from ee.models import Conversation, CoreMemory
 from posthog.models import Team
@@ -77,3 +79,36 @@ class AssistantContextMixin(ABC):
         Returns the timezone of the project, e.g. "PST" or "UTC".
         """
         return self._team.timezone_info.tzname(self._utc_now_datetime)
+
+    def _get_debug_props(self, config: RunnableConfig) -> dict[str, Any]:
+        """Properties to be sent to PostHog SDK (error tracking, etc)."""
+        return {
+            "$session_id": self._get_session_id(config),
+            "$ai_trace_id": self._get_trace_id(config),
+            "thread_id": self._get_thread_id(config),
+            "tag": "max_ai",
+        }
+
+    def _get_user_distinct_id(self, config: RunnableConfig) -> Any | None:
+        """
+        Extracts the user distinct ID from the runnable config.
+        """
+        return (config.get("configurable") or {}).get("distinct_id") or None
+
+    def _get_trace_id(self, config: RunnableConfig) -> Any | None:
+        """
+        Extracts the trace ID from the runnable config.
+        """
+        return (config.get("configurable") or {}).get("trace_id") or None
+
+    def _get_session_id(self, config: RunnableConfig) -> Any | None:
+        """
+        Extracts the session ID from the runnable config.
+        """
+        return (config.get("configurable") or {}).get("session_id") or None
+
+    def _get_thread_id(self, config: RunnableConfig) -> Any | None:
+        """
+        Extracts the thread ID from the runnable config.
+        """
+        return (config.get("configurable") or {}).get("thread_id") or None
