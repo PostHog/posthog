@@ -823,6 +823,8 @@ export interface DataTableNode
     columns?: HogQLExpression[]
     /** Columns that aren't shown in the table, even if in columns or returned data */
     hiddenColumns?: HogQLExpression[]
+    /** Columns that are sticky when scrolling horizontally */
+    pinnedColumns?: HogQLExpression[]
 }
 
 export interface GoalLine {
@@ -2095,6 +2097,7 @@ export interface ErrorTrackingIssueAggregations {
     sessions: number
     users: number
     volumeRange: number[]
+    volume_buckets?: { label: Date; value: number }[]
 }
 
 export type ErrorTrackingExternalReferenceIntegration = Pick<IntegrationType, 'id' | 'kind' | 'display_name'>
@@ -2398,6 +2401,7 @@ export const enum ExperimentMetricType {
 
 export interface ExperimentMetricBaseProperties extends Node {
     kind: NodeKind.ExperimentMetric
+    uuid?: string
     name?: string
     conversion_window?: integer
     conversion_window_unit?: FunnelConversionWindowTimeUnit
@@ -3365,7 +3369,7 @@ export interface WebPageURLSearchQueryResponse extends AnalyticsQueryResponseBas
 
 export type CachedWebPageURLSearchQueryResponse = CachedQueryResponse<WebPageURLSearchQueryResponse>
 
-export type MarketingAnalyticsOrderBy = [number, 'ASC' | 'DESC']
+export type MarketingAnalyticsOrderBy = [string, 'ASC' | 'DESC']
 
 export interface MarketingAnalyticsTableQuery
     extends Omit<WebAnalyticsQueryBase<MarketingAnalyticsTableQueryResponse>, 'orderBy'> {

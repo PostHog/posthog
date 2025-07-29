@@ -1,6 +1,12 @@
 import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
 
-import { generateDateRangeLabel, generateSparklineLabels, mergeIssues, resolveDate, resolveDateRange } from './utils'
+import {
+    generateDateRangeLabel,
+    generateSparklineLabels,
+    mergeIssues,
+    resolveDateFrom,
+    resolveDateRange,
+} from './utils'
 import { dayjs } from 'lib/dayjs'
 
 describe('mergeIssues', () => {
@@ -135,7 +141,7 @@ describe('generate sparkline labels', () => {
     })
 
     it('test date resolution', async () => {
-        const resolvedDate = resolveDate(dayjs(), 'yStart')
+        const resolvedDate = resolveDateFrom(dayjs(), 'yStart')
         expect(resolvedDate.toISOString()).toEqual('2023-01-01T00:00:00.000Z')
     })
 

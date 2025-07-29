@@ -45,6 +45,8 @@ def sync_new_schemas_activity(inputs: SyncNewSchemasActivityInputs) -> None:
         schemas = new_source.get_schemas(config, inputs.team_id)
 
         schemas_to_sync = [s.name for s in schemas]
+    else:
+        raise ValueError(f"Source type missing from SourceRegistry: {source.source_type}")
 
     # TODO: this could cause a race condition where each schema worker creates the missing schema
 
