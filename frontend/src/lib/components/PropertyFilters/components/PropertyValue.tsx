@@ -145,15 +145,6 @@ export function PropertyValue({
         (label) => String(formatPropertyValueForDisplay(propertyKey, label, propertyDefinitionType, groupTypeIndex))
     )
 
-    // For flag dependencies, we need to preserve the original typed values
-    const typedValues = isFlagDependencyProperty
-        ? value === null || value === undefined
-            ? []
-            : Array.isArray(value)
-            ? value
-            : [value]
-        : formattedValues
-
     if (!editable) {
         return <>{formattedValues.join(' or ')}</>
     }
@@ -227,7 +218,7 @@ export function PropertyValue({
             className={inputClassName}
             data-attr="prop-val"
             loading={propertyOptions?.status === 'loading'}
-            value={isFlagDependencyProperty ? typedValues : formattedValues}
+            value={formattedValues}
             mode={isMultiSelect ? 'multiple' : 'single'}
             allowCustomValues={propertyOptions?.allowCustomValues ?? true}
             onChange={(nextVal) => (isMultiSelect ? setValue(nextVal) : setValue(nextVal[0]))}
@@ -247,9 +238,10 @@ export function PropertyValue({
                 return {
                     key: name,
                     label: name,
+                    value: isFlagDependencyProperty ? _name : undefined, // Preserve original type for flags
                     labelComponent: (
                         <span key={name} data-attr={'prop-val-' + index} className="ph-no-capture" title={name}>
-                            {formatLabelContent(name)}
+                            {formatLabelContent(isFlagDependencyProperty ? _name : name)}
                         </span>
                     ),
                 }
