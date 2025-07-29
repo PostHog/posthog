@@ -9,7 +9,7 @@ import { useActions, useValues } from 'kea'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { DurationPicker } from 'lib/components/DurationPicker/DurationPicker'
 import { PropertyFilterDatePicker } from 'lib/components/PropertyFilters/components/PropertyFilterDatePicker'
-import { isFlagPropertyFilter, propertyFilterTypeToPropertyDefinitionType } from 'lib/components/PropertyFilters/utils'
+import { propertyFilterTypeToPropertyDefinitionType } from 'lib/components/PropertyFilters/utils'
 import { dayjs } from 'lib/dayjs'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { formatDate, isOperatorDate, isOperatorFlag, isOperatorMulti, toString } from 'lib/utils'
@@ -61,6 +61,7 @@ export function PropertyValue({
     const { formatPropertyValueForDisplay, describeProperty, options } = useValues(propertyDefinitionsModel)
     const { loadPropertyValues } = useActions(propertyDefinitionsModel)
     const propertyOptions = options[propertyKey]
+    const isFlagDependencyProperty = type === PropertyFilterType.Flag
 
     const isMultiSelect = operator && isOperatorMulti(operator)
     const isDateTimeProperty = operator && isOperatorDate(operator)
@@ -206,7 +207,7 @@ export function PropertyValue({
         if (name === '') {
             return <i>(empty string)</i>
         }
-        if (isFlagPropertyFilter(value) && typeof value === 'boolean') {
+        if (isFlagDependencyProperty && typeof value === 'boolean') {
             return <code>{name}</code>
         }
         return <>{formatPropertyValueForDisplay(propertyKey, name, propertyDefinitionType, groupTypeIndex)}</>
