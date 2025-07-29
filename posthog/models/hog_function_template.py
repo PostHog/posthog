@@ -50,8 +50,10 @@ class HogFunctionTemplate(UUIDModel):
     masking = models.JSONField(blank=True, null=True)
 
     # Template Relationships
-    mappings = models.JSONField(blank=True, null=True)
     mapping_templates = models.JSONField(blank=True, null=True)
+
+    # DEPRECATED: Templates only have mapping templates - to be removed in the future
+    mappings = models.JSONField(blank=True, null=True)
 
     # Metadata
     created_at = models.DateTimeField(auto_now_add=True)
@@ -82,7 +84,6 @@ class HogFunctionTemplate(UUIDModel):
             "code_language": self.code_language,
             "inputs_schema": self.inputs_schema,
             "status": self.status,
-            "mappings": self.mappings,
             "mapping_templates": self.mapping_templates,
             "filters": self.filters,
             "icon_url": self.icon_url,
