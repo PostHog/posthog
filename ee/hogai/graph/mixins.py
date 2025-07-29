@@ -82,12 +82,15 @@ class AssistantContextMixin(ABC):
 
     def _get_debug_props(self, config: RunnableConfig) -> dict[str, Any]:
         """Properties to be sent to PostHog SDK (error tracking, etc)."""
-        return {
+        metadata = (config.get("configurable") or {}).get("sdk_metadata")
+        debug_props = {
             "$session_id": self._get_session_id(config),
             "$ai_trace_id": self._get_trace_id(config),
             "thread_id": self._get_thread_id(config),
-            "tag": "max_ai",
         }
+        if metadata:
+            debug_props.update(metadata)
+        return debug_props
 
     def _get_user_distinct_id(self, config: RunnableConfig) -> Any | None:
         """

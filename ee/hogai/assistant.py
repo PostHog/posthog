@@ -165,6 +165,7 @@ class Assistant:
                     "conversation_id": str(self._conversation.id),
                     "is_first_conversation": is_new_conversation,
                     "$session_id": self._session_id,
+                    "assistant_mode": mode.value,
                 },
                 trace_id=trace_id,
             )
@@ -302,6 +303,11 @@ class Assistant:
                 "contextual_tools": self._contextual_tools,
                 "team": self._team,
                 "user": self._user,
+                # Metadata to be sent to PostHog SDK (error tracking, etc).
+                "sdk_metadata": {
+                    "assistant_mode": self._mode.value,
+                    "tag": "max_ai",
+                },
             },
         }
         return config
