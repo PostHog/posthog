@@ -2083,6 +2083,7 @@ export interface ErrorTrackingIssueAggregations {
     sessions: number
     users: number
     volumeRange: number[]
+    volume_buckets?: { label: Date; value: number }[]
 }
 
 export type ErrorTrackingExternalReferenceIntegration = Pick<IntegrationType, 'id' | 'kind' | 'display_name'>
@@ -2386,6 +2387,7 @@ export const enum ExperimentMetricType {
 
 export interface ExperimentMetricBaseProperties extends Node {
     kind: NodeKind.ExperimentMetric
+    uuid?: string
     name?: string
     conversion_window?: integer
     conversion_window_unit?: FunnelConversionWindowTimeUnit

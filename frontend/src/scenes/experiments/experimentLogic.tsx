@@ -7,7 +7,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { hasFormErrors, toParams } from 'lib/utils'
+import { hasFormErrors, toParams, uuid } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { ProductIntentContext } from 'lib/utils/product-intents'
 import { addProjectIdIfMissing } from 'lib/utils/router-utils'
@@ -689,7 +689,7 @@ export const experimentLogic = kea<experimentLogicType>([
                         ? `${getDefaultMetricTitle(originalMetric)} (copy)`
                         : undefined
 
-                    const newMetric = { ...originalMetric, id: undefined, name }
+                    const newMetric = { ...originalMetric, uuid: uuid(), name }
                     metrics.splice(metricIndex + 1, 0, newMetric)
 
                     return {

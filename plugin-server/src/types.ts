@@ -288,12 +288,6 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     PIPELINE_STEP_STALLED_LOG_TIMEOUT: number
     CAPTURE_CONFIG_REDIS_HOST: string | null // Redis cluster to use to coordinate with capture (overflow, routing)
     LAZY_LOADER_DEFAULT_BUFFER_MS: number
-    // dump profiles to disk, covering the first N seconds of runtime
-    STARTUP_PROFILE_DURATION_SECONDS: number
-    STARTUP_PROFILE_CPU: boolean
-    STARTUP_PROFILE_HEAP: boolean
-    STARTUP_PROFILE_HEAP_INTERVAL: number
-    STARTUP_PROFILE_HEAP_DEPTH: number
 
     // local directory might be a volume mount or a directory on disk (e.g. in local dev)
     SESSION_RECORDING_LOCAL_DIRECTORY: string
