@@ -62,6 +62,9 @@ class HogFunctionTemplateDC:
     masking: Optional[dict] = None
     icon_url: Optional[str] = None
 
+    def to_dict(self) -> dict:
+        return dataclasses.asdict(self)
+
 
 class HogFunctionTemplateMigrator:
     plugin_url: str

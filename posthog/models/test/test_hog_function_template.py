@@ -95,10 +95,10 @@ class TestHogFunctionTemplate(TestCase):
 
     def test_update_existing_template(self):
         """Test updating an existing template with new content"""
-        from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC as HogFunctionTemplateDTO
+        from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
 
         # First create a simple template
-        original_dto = HogFunctionTemplateDTO(
+        original_dto = HogFunctionTemplateDC(
             id="update-test",
             name="Original Template",
             code="return event",
@@ -116,7 +116,7 @@ class TestHogFunctionTemplate(TestCase):
         original_sha = original_template.sha
 
         # Now create an updated sha of the same template
-        updated_dto = HogFunctionTemplateDTO(
+        updated_dto = HogFunctionTemplateDC(
             id="update-test",  # Same ID
             name="Updated Template",  # Changed
             code="return {...event, updated: true}",  # Changed
@@ -240,7 +240,7 @@ class TestHogFunctionTemplate(TestCase):
     def test_sha_versioning(self):
         """Test template sha versioning system including status and related fields"""
         from posthog.cdp.templates.hog_function_template import (
-            HogFunctionTemplateDC as HogFunctionTemplateDTO,
+            HogFunctionTemplateDC,
             HogFunctionMapping,
             HogFunctionMappingTemplate,
         )
@@ -266,7 +266,7 @@ class TestHogFunctionTemplate(TestCase):
         self.assertNotEqual(sha1, sha3)
 
         # Test 2: Status change creates new sha
-        template_alpha = HogFunctionTemplateDTO(
+        template_alpha = HogFunctionTemplateDC(
             id="test-status-template",
             name="Test Template",
             code="return event",
@@ -278,7 +278,7 @@ class TestHogFunctionTemplate(TestCase):
             code_language="hog",
         )
 
-        template_beta = HogFunctionTemplateDTO(
+        template_beta = HogFunctionTemplateDC(
             id="test-status-template",
             name="Test Template",
             code="return event",
@@ -304,7 +304,7 @@ class TestHogFunctionTemplate(TestCase):
         self.assertEqual(templates.count(), 1)
 
         # Test 3: Changes to related fields create new shas
-        base_template = HogFunctionTemplateDTO(
+        base_template = HogFunctionTemplateDC(
             id="advanced-template",
             name="Advanced Template",
             code="return event",
@@ -317,7 +317,7 @@ class TestHogFunctionTemplate(TestCase):
         )
 
         # Create template with mappings
-        template_with_mappings = HogFunctionTemplateDTO(
+        template_with_mappings = HogFunctionTemplateDC(
             id="advanced-template",
             name="Advanced Template",
             code="return event",
@@ -344,7 +344,7 @@ class TestHogFunctionTemplate(TestCase):
         self.assertEqual(templates.count(), 1)
 
         # Create template with filters
-        template_with_filters = HogFunctionTemplateDTO(
+        template_with_filters = HogFunctionTemplateDC(
             id="advanced-template",
             name="Advanced Template",
             code="return event",
@@ -363,7 +363,7 @@ class TestHogFunctionTemplate(TestCase):
         self.assertNotEqual(db_mappings.sha, db_filters.sha, "Adding filters should change sha")
 
         # Create template with mapping_templates
-        template_with_mapping_templates = HogFunctionTemplateDTO(
+        template_with_mapping_templates = HogFunctionTemplateDC(
             id="advanced-template",
             name="Advanced Template",
             code="return event",
