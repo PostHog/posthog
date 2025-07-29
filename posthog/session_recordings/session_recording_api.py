@@ -413,8 +413,8 @@ class SourceVaryingSnapshotThrottle(PersonalApiKeyRateThrottle):
         num_requests, duration = self.parse_rate(self.get_rate())
 
         divisors = {
-            "realtime": 4,
-            "blob": 2,
+            "realtime": 8,
+            "blob": 4,
             "blob_v2": 1,
         }
 
@@ -448,6 +448,11 @@ def query_as_params_to_dict(params_dict: dict) -> dict:
         except JSONDecodeError:
             converted[key] = params_dict[key]
 
+    # we used to accept this value,
+    # but very unlikely to receive it now
+    # it's safe to pop
+    # to make sure any old URLs or filters don't error
+    # if they still include it
     converted.pop("as_query", None)
 
     return converted

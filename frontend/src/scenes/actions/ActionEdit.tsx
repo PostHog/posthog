@@ -221,6 +221,7 @@ export function ActionEdit({ action: loadedAction, id }: ActionEditLogicProps): 
                             onSave={(value) => {
                                 setActionValue('name', value)
                             }}
+                            isLoading={actionLoading}
                         />
 
                         <SceneDescription
@@ -228,6 +229,7 @@ export function ActionEdit({ action: loadedAction, id }: ActionEditLogicProps): 
                             onSave={(value) => setActionValue('description', value)}
                             dataAttrKey={RESOURCE_TYPE}
                             optional
+                            isLoading={actionLoading}
                         />
 
                         <SceneTags

@@ -26,7 +26,7 @@ from django.shortcuts import render
 from ee.surveys.summaries.summarize_surveys import summarize_survey_responses
 from posthog.api.action import ActionSerializer, ActionStepJSONSerializer
 from posthog.api.feature_flag import (
-    BEHAVIOURAL_COHORT_FOUND_ERROR_CODE,
+    ANALYTICAL_COHORT_FOUND_ERROR_CODE,
     FeatureFlagSerializer,
     MinimalFeatureFlagSerializer,
 )
@@ -1489,13 +1489,13 @@ def create_flag_with_survey_errors():
         matching_errors = [
             detail
             for detail in error_details.get("filters", [{}])
-            if detail.get("code") == BEHAVIOURAL_COHORT_FOUND_ERROR_CODE
+            if detail.get("code") == ANALYTICAL_COHORT_FOUND_ERROR_CODE
         ]
         if matching_errors:
             original_detail = matching_errors[0].get("message")
             raise serializers.ValidationError(
                 detail=original_detail.replace("feature flags", "surveys"),
-                code=BEHAVIOURAL_COHORT_FOUND_ERROR_CODE,
+                code=ANALYTICAL_COHORT_FOUND_ERROR_CODE,
             )
         raise
 

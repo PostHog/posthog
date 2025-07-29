@@ -14,18 +14,18 @@ import {
 } from 'kea'
 import type { notebookNodeLogicType } from './notebookNodeLogicType'
 import { notebookLogicType } from '../Notebook/notebookLogicType'
+import posthog from 'posthog-js'
+import { NotebookNodeMessages, NotebookNodeMessagesListeners } from './messaging/notebook-node-messages'
+import { JSONContent, RichContentNode } from 'lib/components/RichContentEditor/types'
 import {
     CustomNotebookNodeAttributes,
-    JSONContent,
-    Node,
     NotebookNodeAction,
     NotebookNodeAttributeProperties,
     NotebookNodeAttributes,
+    NotebookNodeResource,
     NotebookNodeSettings,
-} from '../Notebook/utils'
-import { NotebookNodeResource, NotebookNodeType } from '~/types'
-import posthog from 'posthog-js'
-import { NotebookNodeMessages, NotebookNodeMessagesListeners } from './messaging/notebook-node-messages'
+    NotebookNodeType,
+} from '../types'
 
 export type NotebookNodeLogicProps = {
     nodeType: NotebookNodeType
@@ -54,8 +54,8 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
             sessionRecordingId,
         }),
         insertOrSelectNextLine: true,
-        setPreviousNode: (node: Node | null) => ({ node }),
-        setNextNode: (node: Node | null) => ({ node }),
+        setPreviousNode: (node: RichContentNode | null) => ({ node }),
+        setNextNode: (node: RichContentNode | null) => ({ node }),
         deleteNode: true,
         selectNode: true,
         toggleEditing: (visible?: boolean) => ({ visible }),
@@ -95,13 +95,13 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
             },
         ],
         previousNode: [
-            null as Node | null,
+            null as RichContentNode | null,
             {
                 setPreviousNode: (_, { node }) => node,
             },
         ],
         nextNode: [
-            null as Node | null,
+            null as RichContentNode | null,
             {
                 setNextNode: (_, { node }) => node,
             },
