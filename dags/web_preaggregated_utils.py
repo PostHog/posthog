@@ -1,7 +1,7 @@
-from datetime import datetime, timedelta
 import os
-
 import dagster
+from datetime import datetime, timedelta
+from functools import partial
 from posthog.clickhouse.cluster import ClickhouseCluster
 from posthog.settings.base_variables import DEBUG
 from typing import Optional
@@ -76,10 +76,12 @@ def drop_partitions_for_date_range(
 
     while current_date < end_date_obj:
         partition_id = current_date.strftime("%Y%m%d")
+
+        def drop_partition(client, pid):
+            return client.execute(f"ALTER TABLE {table_name} DROP PARTITION '{pid}'")
+
         try:
-            cluster.any_host(
-                lambda client, pid=partition_id: client.execute(f"ALTER TABLE {table_name} DROP PARTITION '{pid}'")
-            ).result()
+            cluster.any_host(partial(drop_partition, pid=partition_id)).result()
             context.log.info(f"Dropped partition {partition_id} from {table_name}")
         except Exception as e:
             context.log.info(f"Partition {partition_id} doesn't exist or couldn't be dropped: {e}")
