@@ -1,7 +1,7 @@
 import { LemonDropdown } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { capitalizeFirstLetter, percentage } from 'lib/utils'
-import { useRef } from 'react'
+import { useRef, useState, useEffect } from 'react'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { Noun } from '~/models/groupsModel'
@@ -45,9 +45,49 @@ export function Bar({
     const { getFunnelsColor } = useValues(funnelDataLogic(insightProps))
 
     const barRef = useRef<HTMLDivElement | null>(null)
+    const [labelVisible, setLabelVisible] = useState(true)
+    const MINIMUM_SPACE_FOR_LABEL = 60 // pixels
     const cursorType = !disabled ? 'pointer' : ''
     const hasBreakdownSum = isBreakdown && typeof breakdownSumPercentage === 'number'
-    const shouldShowLabel = !isBreakdown || hasBreakdownSum
+    const shouldShowLabel = (!isBreakdown || hasBreakdownSum) && labelVisible
+
+    function checkLabelVisibility(): void {
+        if (!hasBreakdownSum) {
+            // For non-breakdowns, always show label
+            setLabelVisible(true)
+            return
+        }
+
+        const parentElement = barRef.current?.parentElement
+        if (!parentElement) {
+            return
+        }
+
+        const totalWidth = parentElement.clientWidth
+        const usedPercentage = breakdownSumPercentage || 0
+        const remainingWidth = totalWidth * (1 - usedPercentage)
+
+        setLabelVisible(remainingWidth >= MINIMUM_SPACE_FOR_LABEL)
+    }
+
+    useEffect(() => {
+        checkLabelVisibility()
+
+        const parentElement = barRef.current?.parentElement
+        if (!parentElement) {
+            return
+        }
+
+        const resizeObserver = new ResizeObserver(() => {
+            checkLabelVisibility()
+        })
+
+        resizeObserver.observe(parentElement)
+
+        return () => {
+            resizeObserver.disconnect()
+        }
+    }, [hasBreakdownSum, breakdownSumPercentage, checkLabelVisibility])
 
     if (!conversionPercentage) {
         return null
