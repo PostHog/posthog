@@ -81,7 +81,7 @@ export function SharingModalContent({
         iframeProperties,
         shareLink,
     } = useValues(sharingLogic(logicProps))
-    const { setIsEnabled, togglePreview, setEmbedConfigValue } = useActions(sharingLogic(logicProps))
+    const { setIsEnabled, togglePreview, setSharingSettingsValue } = useActions(sharingLogic(logicProps))
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
     const { preflight } = useValues(preflightLogic)
     const siteUrl = preflight?.site_url || window.location.origin
@@ -174,7 +174,7 @@ export function SharingModalContent({
                                 <Form
                                     logic={sharingLogic}
                                     props={logicProps}
-                                    formKey="embedConfig"
+                                    formKey="sharingSettings"
                                     className="deprecated-space-y-2"
                                 >
                                     <div className="grid grid-cols-2 gap-2 grid-flow *:odd:last:col-span-2">
@@ -208,8 +208,8 @@ export function SharingModalContent({
                                                     }
                                                     onChange={() =>
                                                         guardAvailableFeature(AvailableFeature.WHITE_LABELLING, () => {
-                                                            // setEmbedConfigValue is used to update the form state and report the event
-                                                            setEmbedConfigValue('whitelabel', !value)
+                                                            // setSharingSettingsValue is used to update the form state and report the event
+                                                            setSharingSettingsValue('whitelabel', !value)
                                                         })
                                                     }
                                                     checked={!value}

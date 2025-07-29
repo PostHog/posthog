@@ -93,7 +93,7 @@ export const sharingLogic = kea<sharingLogicType>([
                 dashboardsModel.actions.loadDashboards()
             }
         },
-        setEmbedConfigValue: ({ name, value }) => {
+        setSharingSettingsValue: ({ name, value }) => {
             if (name === 'whitelabel' && props.dashboardId) {
                 eventUsageLogic.actions.reportDashboardWhitelabelToggled(value)
             }
@@ -114,23 +114,20 @@ export const sharingLogic = kea<sharingLogicType>([
         },
         loadSharingConfigurationSuccess: (result) => {
             if (result) {
-                // Load sharing settings and iframe config from settings into the form
+                // Load sharing settings from API into the form
+                const savedSettings = result.sharingConfiguration?.settings || {}
                 const formValues = {
-                    ...defaultIframeConfig,
                     ...defaultSharingSettings,
-                    ...result.sharingConfiguration?.settings,
+                    ...savedSettings,
                 }
-                actions.setEmbedConfigValues(formValues)
+                actions.setSharingSettingsValues(formValues)
             }
         },
     })),
 
     forms({
-        embedConfig: {
-            defaults: {
-                ...defaultIframeConfig,
-                ...defaultSharingSettings,
-            },
+        sharingSettings: {
+            defaults: defaultSharingSettings,
         },
     }),
     selectors({
@@ -139,14 +136,6 @@ export const sharingLogic = kea<sharingLogicType>([
         whitelabelAvailable: [
             () => [userLogic.selectors.hasAvailableFeature],
             (hasAvailableFeature) => hasAvailableFeature(AvailableFeature.WHITE_LABELLING),
-        ],
-
-        currentEmbedConfig: [
-            (s) => [s.embedConfig],
-            (embedConfig) => ({
-                ...defaultIframeConfig,
-                ...embedConfig,
-            }),
         ],
 
         params: [
@@ -169,10 +158,10 @@ export const sharingLogic = kea<sharingLogicType>([
         ],
 
         iframeProperties: [
-            (s) => [s.embedLink, s.currentEmbedConfig, s.iframeKey],
-            (embedLink, { width, height }, iframeKey) => ({
-                width,
-                height,
+            (s) => [s.embedLink, s.iframeKey],
+            (embedLink, iframeKey) => ({
+                width: defaultIframeConfig.width,
+                height: defaultIframeConfig.height,
                 frameBorder: 0,
                 allowfullscreen: true,
                 src: embedLink,
