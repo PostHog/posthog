@@ -64,7 +64,6 @@ async def enrich_chunk_activity(inputs: EnrichChunkInputs) -> dict[str, typing.A
                 estimated_total_chunks=inputs.estimated_total_chunks,
             )
 
-            logger.info("Completed Salesforce enrichment chunk", **result)
             return result
 
         except Exception as e:
@@ -87,14 +86,14 @@ async def enrich_chunk_activity(inputs: EnrichChunkInputs) -> dict[str, typing.A
 
 @activity.defn
 async def cache_all_accounts_activity() -> dict[str, typing.Any]:
-    """Cache all Salesforce accounts in Redis for fast chunk retrieval."""
+    """Cache all Salesforce accounts in Redis for fast chunk retrieval.
+
+    Returns dict with total_accounts count. Reuses existing cache if available."""
     logger = get_internal_logger()
     workflow_id = activity.info().workflow_id
 
     try:
         close_old_connections()
-
-        logger.info("Starting to cache Salesforce accounts", workflow_id=workflow_id)
 
         # Exit early if cache exists
         cached_count = await get_cached_accounts_count()

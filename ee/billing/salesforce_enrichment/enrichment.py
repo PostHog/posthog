@@ -221,10 +221,7 @@ def bulk_update_salesforce_accounts(sf, update_records):
     logger = get_internal_logger()
 
     if not update_records:
-        logger.info("No records to update")
         return
-
-    logger.info("Starting optimized bulk update", total_records=len(update_records))
 
     # Split records into batches of 200 (Salesforce sObject Collections API limit)
     batches = [
@@ -236,8 +233,6 @@ def bulk_update_salesforce_accounts(sf, update_records):
     total_errors = 0
 
     for batch_idx, batch in enumerate(batches):
-        logger.info("Processing batch", batch_number=batch_idx + 1, total_batches=len(batches), batch_size=len(batch))
-
         try:
             records_with_attributes = [{**record, "attributes": {"type": "Account"}} for record in batch]
 
@@ -271,14 +266,6 @@ def bulk_update_salesforce_accounts(sf, update_records):
 
             total_success += batch_success
             total_errors += batch_errors
-
-            if batch_errors > 0:
-                logger.warning(
-                    "Batch completed with errors",
-                    batch_number=batch_idx + 1,
-                    success_count=batch_success,
-                    error_count=batch_errors,
-                )
 
         except Exception as e:
             logger.exception("Batch processing failed", batch_number=batch_idx + 1, error=str(e))
@@ -319,7 +306,6 @@ async def query_salesforce_accounts_chunk_async(sf, offset=0, limit=5000):
         logger.warning("Redis cache error", error=str(e), cache_time=round(cache_time, 3))
 
     # Fallback to Salesforce query
-    sf_start = time.time()
     query = """
         SELECT Id, Name, Website, CreatedDate
         FROM Account
@@ -329,8 +315,6 @@ async def query_salesforce_accounts_chunk_async(sf, offset=0, limit=5000):
 
     try:
         accounts = sf.query_all(query)
-        sf_time = time.time() - sf_start
-        logger.info("Salesforce query complete", total_accounts=accounts["totalSize"], query_time=round(sf_time, 2))
 
         start_idx = offset
         end_idx = min(offset + limit, len(accounts["records"]))
@@ -357,9 +341,12 @@ def _build_result(
     errors: list[str] | None = None,
     error: str | None = None,
 ) -> dict[str, Any]:
-    """Build consistent result object for chunk processing."""
+    """Build consistent result object for chunk processing.
+
+    Note: total_accounts_in_chunk is needed for workflow stopping logic.
+    """
     success_rate = round(records_enriched / records_processed * 100, 1) if records_processed > 0 else 0
-    result = {
+    return {
         "chunk_number": chunk_number,
         "records_processed": records_processed,
         "records_enriched": records_enriched,
@@ -369,10 +356,6 @@ def _build_result(
         "total_accounts_in_chunk": total_accounts_in_chunk,
         "errors": errors or ([error] if error else []),
     }
-    # Keep legacy error field for compatibility during transition
-    if error:
-        result["error"] = error
-    return result
 
 
 async def enrich_accounts_chunked_async(
@@ -388,12 +371,13 @@ async def enrich_accounts_chunked_async(
     3. Updates Salesforce in batches of 200 using sObject Collections
 
     Args:
-        chunk_number: Starting chunk (0-based)
+        chunk_number: Zero-based chunk index
         chunk_size: Accounts per chunk (default: 5000)
         estimated_total_chunks: For progress logging
 
     Returns:
-        Dict with total_processed, total_enriched, total_updated, success_rate
+        Dict with total_accounts_in_chunk (critical for workflow control), records_processed,
+        records_enriched, records_updated, success_rate, errors
     """
     logger = get_internal_logger()
     start_time = time.time()
@@ -402,7 +386,6 @@ async def enrich_accounts_chunked_async(
     log_context = {"chunk_number": chunk_number, "chunk_size": chunk_size}
     if estimated_total_chunks:
         log_context["estimated_total_chunks"] = estimated_total_chunks
-    logger.info("Starting chunk processing", **log_context)
 
     # Initialize Salesforce client
     try:
@@ -416,7 +399,6 @@ async def enrich_accounts_chunked_async(
     try:
         accounts = await query_salesforce_accounts_chunk_async(sf, offset, chunk_size)
         if not accounts:
-            logger.info("No accounts found in chunk", **log_context)
             return _build_result(chunk_number, start_time)
     except Exception as e:
         logger.exception("Failed to query accounts", error=str(e))
@@ -443,8 +425,7 @@ async def enrich_accounts_chunked_async(
         account_data.append({"account_id": account_id, "domain": domain, "account": account})
 
     if not account_data:
-        logger.info("No business domains to process", **log_context)
-        return _build_result(chunk_number, start_time)
+        return _build_result(chunk_number, start_time, total_accounts_in_chunk=len(accounts))
 
     total_enriched = 0
     total_failed = 0
@@ -474,7 +455,7 @@ async def enrich_accounts_chunked_async(
 
                     if harmonic_data:
                         total_enriched += 1
-                        # Prepare update data
+                        # Prepare update_data
                         update_data = prepare_salesforce_update_data(account_id, harmonic_data)
                         if update_data:
                             update_records.append(update_data)
@@ -498,5 +479,6 @@ async def enrich_accounts_chunked_async(
         total_accounts_in_chunk=len(accounts),
     )
 
-    logger.info("Chunk completed", **{**log_context, **result})
+    if result["records_processed"] > 0 or result["errors"]:
+        logger.info("Chunk completed", **{**log_context, **result})
     return result

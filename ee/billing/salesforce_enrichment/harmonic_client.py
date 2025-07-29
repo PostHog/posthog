@@ -132,7 +132,7 @@ class AsyncHarmonicClient:
         Returns:
             Company data dict or None if not found
         """
-        async with self.semaphore:  # Limit concurrent requests
+        async with self.semaphore:
             domain = self._clean_domain(domain)
 
             # Try domain variations
@@ -180,10 +180,10 @@ class AsyncHarmonicClient:
 
         tasks = [self.enrich_company_by_domain(domain) for domain in domains]
 
-        results = await asyncio.gather(*tasks, return_exceptions=True)
+        results: list[dict[str, Any] | BaseException | None] = await asyncio.gather(*tasks, return_exceptions=True)
 
         for result in results:
-            if isinstance(result, Exception):
+            if isinstance(result, BaseException):
                 capture_exception(result)
 
-        return [None if isinstance(result, Exception) else result for result in results]
+        return [None if isinstance(result, BaseException) else result for result in results]
