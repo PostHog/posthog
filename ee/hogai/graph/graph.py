@@ -233,6 +233,7 @@ class AssistantGraph(BaseAssistantGraph[AssistantState]):
             "root": AssistantNodeName.ROOT,
             "end": AssistantNodeName.END,
             "insights_search": AssistantNodeName.INSIGHTS_SEARCH,
+            "session_summarization": AssistantNodeName.SESSION_SUMMARIZATION,
         }
         root_node = RootNode(self._team, self._user)
         builder.add_node(AssistantNodeName.ROOT, root_node)
@@ -384,17 +385,21 @@ class AssistantGraph(BaseAssistantGraph[AssistantState]):
             path_map=cast(dict[Hashable, str], path_map),
         )
         return self
-    
+
     def add_session_summarization(self, end_node: AssistantNodeName = AssistantNodeName.END):
-        # TODO: Finish implementation of this node
         builder = self._graph
         path_map = {
             "end": end_node,
             "root": AssistantNodeName.ROOT,
         }
+
         session_summarization_node = SessionSummarizationNode(self._team, self._user)
         builder.add_node(AssistantNodeName.SESSION_SUMMARIZATION, session_summarization_node)
-        builder.add_edge(AssistantNodeName.SESSION_SUMMARIZATION, end_node)
+        builder.add_conditional_edges(
+            AssistantNodeName.SESSION_SUMMARIZATION,
+            session_summarization_node.router,
+            path_map=cast(dict[Hashable, str], path_map),
+        )
         return self
 
     def compile_full_graph(self, checkpointer: DjangoCheckpointer | None = None):
@@ -407,5 +412,6 @@ class AssistantGraph(BaseAssistantGraph[AssistantState]):
             .add_insights()
             .add_inkeep_docs()
             .add_insights_search()
+            .add_session_summarization()
             .compile(checkpointer=checkpointer)
         )

@@ -64,7 +64,9 @@ MAX_SUPPORTED_QUERY_KIND_TO_MODEL: dict[str, type[SupportedQueryTypes]] = {
 SLASH_COMMAND_INIT = "/init"
 
 
-RouteName = Literal["insights", "root", "end", "search_documentation", "memory_onboarding", "insights_search"]
+RouteName = Literal[
+    "insights", "root", "end", "search_documentation", "memory_onboarding", "insights_search", "session_summarization"
+]
 
 
 RootMessageUnion = HumanMessage | AssistantMessage | FailureMessage | AssistantToolCallMessage
@@ -372,7 +374,7 @@ class RootNode(RootNodeUIContextMixin):
             get_contextual_tool_class,
             search_documentation,
             search_insights,
-            summarize_session
+            summarize_session,
         )
 
         available_tools: list[type[BaseModel]] = [search_insights, summarize_session]
