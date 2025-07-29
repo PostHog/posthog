@@ -946,6 +946,8 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             actions.updateState()
         },
         saveDraft: async ({ activeTab, queryInput, viewId }) => {
+            const latestActiveTab = values.allTabs.find((tab) => tab.uri.toString() === activeTab.uri.toString())
+
             actions.saveAsDraft(
                 {
                     kind: NodeKind.HogQLQuery,
@@ -963,7 +965,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                     actions.setTabs(newTabs)
                     actions.updateState()
                 },
-                activeTab.view?.latest_history_id
+                latestActiveTab?.view?.latest_history_id
             )
         },
         updateState: async ({ skipBreakpoint }, breakpoint) => {
