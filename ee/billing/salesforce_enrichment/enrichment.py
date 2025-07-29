@@ -3,6 +3,8 @@ from datetime import datetime
 from typing import Any
 from urllib.parse import urlparse
 
+import posthoganalytics
+
 from posthog.temporal.common.logger import get_internal_logger
 from posthog.exceptions_capture import capture_exception
 
@@ -486,4 +488,18 @@ async def enrich_accounts_chunked_async(
 
     if result["records_processed"] > 0 or result["errors"]:
         logger.info("Chunk completed", **{**log_context, **result})
+
+        try:
+            posthoganalytics.capture(
+                distinct_id="internal_billing_events",
+                event="salesforce_enrichment_chunk_completed",
+                properties={
+                    **log_context,
+                    **result,
+                    "errors_count": len(result.get("errors", [])),
+                },
+            )
+        except Exception:
+            pass
+
     return result
