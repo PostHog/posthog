@@ -1,6 +1,7 @@
 import { getSeriesColor } from 'lib/colors'
 import { EXPERIMENT_DEFAULT_DURATION, FunnelLayout } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
+import { uuid } from 'lib/utils'
 
 import merge from 'lodash.merge'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
@@ -361,6 +362,7 @@ export function getDefaultFunnelsMetric(): ExperimentFunnelsQuery {
 export function getDefaultFunnelMetric(): ExperimentMetric {
     return {
         kind: NodeKind.ExperimentMetric,
+        uuid: uuid(),
         metric_type: ExperimentMetricType.FUNNEL,
         series: [
             {
@@ -378,6 +380,7 @@ export function getDefaultFunnelMetric(): ExperimentMetric {
 export function getDefaultCountMetric(): ExperimentMetric {
     return {
         kind: NodeKind.ExperimentMetric,
+        uuid: uuid(),
         metric_type: ExperimentMetricType.MEAN,
         source: {
             kind: NodeKind.EventsNode,

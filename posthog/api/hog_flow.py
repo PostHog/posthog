@@ -64,9 +64,8 @@ class HogFlowActionSerializer(serializers.Serializer):
     def validate(self, data):
         if "function" in data.get("type", ""):
             template_id = data.get("config", {}).get("template_id", "")
-            try:
-                template = HogFunctionTemplate.objects.get(template_id=template_id)
-            except HogFunctionTemplate.DoesNotExist:
+            template = HogFunctionTemplate.get_template(template_id)
+            if not template:
                 raise serializers.ValidationError({"template_id": "Template not found"})
 
             input_schema = template.inputs_schema
