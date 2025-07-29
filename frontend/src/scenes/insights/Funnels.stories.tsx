@@ -82,14 +82,24 @@ export const FunnelTopToBottomBreakdown: Story = createInsightStory(
     require('../../mocks/fixtures/api/projects/team_id/insights/funnelTopToBottomBreakdown.json')
 )
 FunnelTopToBottomBreakdown.parameters = {
-    testOptions: { waitForSelector: ['[data-attr=funnel-bar-horizontal] .funnel-bar-percentage', '.PayGateMini'] },
+    testOptions: {
+        waitForSelector: [
+            '[data-attr=funnel-bar-horizontal] .funnel-bar-empty-space .funnel-bar-percentage',
+            '.PayGateMini',
+        ],
+    },
 }
 export const FunnelTopToBottomBreakdownEdit: Story = createInsightStory(
     require('../../mocks/fixtures/api/projects/team_id/insights/funnelTopToBottomBreakdown.json'),
     'edit'
 )
 FunnelTopToBottomBreakdownEdit.parameters = {
-    testOptions: { waitForSelector: ['[data-attr=funnel-bar-horizontal] .funnel-bar-percentage', '.PayGateMini'] },
+    testOptions: {
+        waitForSelector: [
+            '[data-attr=funnel-bar-horizontal] .funnel-bar-empty-space .funnel-bar-percentage',
+            '.PayGateMini',
+        ],
+    },
 }
 export const FunnelHistoricalTrends: Story = createInsightStory(
     require('../../mocks/fixtures/api/projects/team_id/insights/funnelHistoricalTrends.json')
