@@ -323,7 +323,7 @@ export function DataTable({
                                         const orderBy =
                                             query.source.kind === NodeKind.MarketingAnalyticsTableQuery
                                                 ? createMarketingAnalyticsOrderBy(key, 'DESC')
-                                                : [`${key} DESC`]
+                                                : [`${key}\n DESC`]
                                         setQuery?.({
                                             ...query,
                                             source: {
