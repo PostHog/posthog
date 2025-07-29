@@ -246,11 +246,15 @@ const YSeriesDisplayTab = ({ ySeriesLogicProps }: { ySeriesLogicProps: YSeriesLo
                                     selectedColor={value}
                                     onSelectColor={(color) => {
                                         onChange(color)
-                                        updateSeriesIndex(ySeriesLogicProps.seriesIndex, ySeriesLogicProps.series.column.name, {
-                                            display: {
-                                                color: color,
-                                            },
-                                        })
+                                        updateSeriesIndex(
+                                            ySeriesLogicProps.seriesIndex,
+                                            ySeriesLogicProps.series.column.name,
+                                            {
+                                                display: {
+                                                    color: color,
+                                                },
+                                            }
+                                        )
                                     }}
                                     colors={getSeriesColorPalette()}
                                     showCustomColor
@@ -317,11 +321,15 @@ const YSeriesDisplayTab = ({ ySeriesLogicProps }: { ySeriesLogicProps: YSeriesLo
                                 ]}
                                 onChange={(newValue) => {
                                     onChange(newValue)
-                                    updateSeriesIndex(ySeriesLogicProps.seriesIndex, ySeriesLogicProps.series.column.name, {
-                                        display: {
-                                            displayType: newValue as 'auto' | 'line' | 'bar',
-                                        },
-                                    })
+                                    updateSeriesIndex(
+                                        ySeriesLogicProps.seriesIndex,
+                                        ySeriesLogicProps.series.column.name,
+                                        {
+                                            display: {
+                                                displayType: newValue as 'auto' | 'line' | 'bar',
+                                            },
+                                        }
+                                    )
                                 }}
                             />
                         )}
