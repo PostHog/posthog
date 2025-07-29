@@ -119,6 +119,8 @@ $glyph_height: 23px; // Based on .funnel-step-glyph
         border-radius: var(--radius);
 
         .funnel-bar {
+            // Enable container queries on individual bars
+            container-type: inline-size;
             position: relative;
             height: 100%;
             background: var(--accent);
@@ -139,19 +141,28 @@ $glyph_height: 23px; // Based on .funnel-step-glyph
             .funnel-bar-percentage {
                 position: absolute;
                 top: 8px;
+
+                // Default for very small bars: position outside
+                left: calc(100% + #{$label_position_offset});
                 font-weight: bold;
                 line-height: 16px;
-                color: #fff;
+                color: var(--text-3000);
+                white-space: nowrap;
 
-                &.inside {
+                // When bar is wide enough (approx 60px), position inside
+                @container (min-width: 60px) {
                     right: $label_position_offset;
-                }
-
-                &.outside {
-                    left: calc(100% + #{$label_position_offset});
-                    color: var(--text-3000);
+                    left: auto;
+                    color: #fff;
                 }
             }
+        }
+
+        // For breakdown funnels, always position labels outside
+        &.breakdown .funnel-bar .funnel-bar-percentage {
+            right: auto;
+            left: calc(100% + #{$label_position_offset});
+            color: var(--text-3000);
         }
     }
 }
