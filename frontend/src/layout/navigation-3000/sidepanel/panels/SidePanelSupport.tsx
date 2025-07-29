@@ -96,20 +96,20 @@ const SupportResponseTimesTable = ({
             name: 'Free',
             current_plan: currentPlan === 'free',
             features: [{ note: 'Community support only' }],
-            plan_key: 'free',
+            plan_key: BillingPlan.Free,
             link: 'https://posthog.com/questions',
         },
         {
             name: 'Pay-as-you-go',
             current_plan: currentPlan === 'paid',
             features: [{ note: '72 hours' }],
-            plan_key: 'paid',
+            plan_key: BillingPlan.Paid,
         },
         {
             name: 'Boost',
             current_plan: currentPlan === 'boost',
             features: [getResponseTimeFeature('Boost') || { note: '1 business day' }],
-            plan_key: 'boost',
+            plan_key: BillingPlan.Boost,
         },
         ...(billingPlan === BillingPlan.Teams
             ? [
@@ -117,7 +117,7 @@ const SupportResponseTimesTable = ({
                       name: 'Teams',
                       current_plan: currentPlan === 'teams',
                       features: [{ note: '1 business day' }],
-                      plan_key: 'teams',
+                      plan_key: BillingPlan.Teams,
                       legacy_product: true,
                   },
               ]
@@ -126,13 +126,13 @@ const SupportResponseTimesTable = ({
             name: 'Scale',
             current_plan: currentPlan === 'scale',
             features: [getResponseTimeFeature('Scale') || { note: '1 business day' }],
-            plan_key: 'scale',
+            plan_key: BillingPlan.Scale,
         },
         {
             name: 'Enterprise',
             current_plan: currentPlan === 'enterprise',
             features: [getResponseTimeFeature('Enterprise') || { note: '1 business day' }],
-            plan_key: 'enterprise',
+            plan_key: BillingPlan.Enterprise,
         },
     ]
 
