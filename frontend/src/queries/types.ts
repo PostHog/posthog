@@ -64,4 +64,6 @@ export interface QueryContextColumn {
     render?: QueryContextColumnComponent
     align?: 'left' | 'right' | 'center' // default is left
     width?: string
+    hidden?: boolean // don't show this column in the table
+    isRowFillFraction?: boolean // if true, this row will be filled with a background color based on the value (from 0 to 1)
 }
