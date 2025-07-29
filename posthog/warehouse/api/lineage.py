@@ -102,7 +102,8 @@ def get_upstream_dag(team_id: int, model_id: str) -> dict[str, list[Any]]:
                     except ValueError:
                         continue
 
-        all_dependencies = external_tables + saved_query_names
+        #  Deduplicate dependencies, these would be materialized views since they are both external and in the model paths
+        all_dependencies = list(dict.fromkeys(external_tables + saved_query_names))
 
         unseen_dependencies = [dep for dep in all_dependencies if dep not in seen_nodes]
         if unseen_dependencies:
