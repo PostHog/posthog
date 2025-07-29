@@ -11,7 +11,7 @@ class DataWarehouseSavedQueryDraftSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = DataWarehouseSavedQueryDraft
-        fields = ["id", "created_at", "updated_at", "query", "saved_query_id", "name"]
+        fields = ["id", "created_at", "updated_at", "query", "saved_query_id", "name", "edited_history_id"]
         read_only_fields = ["id", "created_at", "updated_at", "name"]
 
     def create(self, validated_data):

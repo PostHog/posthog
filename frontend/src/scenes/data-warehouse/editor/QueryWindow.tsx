@@ -40,8 +40,7 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
         originalQueryInput,
         suggestedQueryInput,
         isDraft,
-        currentDraftId,
-        inProgressDraftEdits,
+        currentDraft,
     } = useValues(multitabEditorLogic)
 
     const { activePanelIdentifier } = useValues(panelLayoutLogic)
@@ -146,7 +145,8 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
                                             query: queryInput,
                                         },
                                         editingView.id,
-                                        currentDraftId || undefined
+                                        currentDraft?.id || undefined,
+                                        editingView.latest_history_id
                                     )
                                 }
                             }}
@@ -158,8 +158,8 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
                             size="xsmall"
                             id="sql-editor-query-window-publish-draft"
                             onClick={() => {
-                                if (editingView && currentDraftId) {
-                                    publishDraft(currentDraftId, {
+                                if (editingView && currentDraft?.id) {
+                                    publishDraft(currentDraft.id, {
                                         id: editingView.id,
                                         query: {
                                             ...sourceQuery.source,
@@ -167,7 +167,7 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
                                         },
                                         types: response && 'types' in response ? response?.types ?? [] : [],
                                         shouldRematerialize: isMaterializedView,
-                                        edited_history_id: inProgressDraftEdits[currentDraftId],
+                                        edited_history_id: currentDraft.edited_history_id,
                                     })
                                 }
                             }}

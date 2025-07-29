@@ -4568,6 +4568,7 @@ export interface DataWarehouseSavedQueryDraft {
     created_at: string
     updated_at: string
     name: string
+    edited_history_id?: string
 }
 
 export interface DataWarehouseViewLink {

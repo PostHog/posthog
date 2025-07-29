@@ -24,3 +24,7 @@ class DataWarehouseSavedQueryDraft(CreatedMetaFields, UpdatedMetaFields, UUIDMod
         blank=True,
         help_text="Original saved query this draft is editing (optional)",
     )
+
+    edited_history_id = models.CharField(
+        max_length=255, null=True, blank=True, help_text="view history id that the draft branched from"
+    )

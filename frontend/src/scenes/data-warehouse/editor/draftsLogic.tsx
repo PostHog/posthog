@@ -16,14 +16,21 @@ export const draftsLogic = kea<draftsLogicType>([
         saveAsDraft: (
             query: HogQLQuery,
             viewId: string,
-            successCallback?: (draft: DataWarehouseSavedQueryDraft) => void
+            successCallback?: (draft: DataWarehouseSavedQueryDraft) => void,
+            editedHistoryId?: string
         ) => ({
             query,
             viewId,
             successCallback,
+            editedHistoryId,
         }),
         updateDraft: (draft: DataWarehouseSavedQueryDraft) => ({ draft }),
-        saveOrUpdateDraft: (query: HogQLQuery, viewId: string, draftId?: string) => ({ query, viewId, draftId }),
+        saveOrUpdateDraft: (query: HogQLQuery, viewId: string, draftId?: string, editedHistoryId?: string) => ({
+            query,
+            viewId,
+            draftId,
+            editedHistoryId,
+        }),
         deleteDraft: (draftId: string, successCallback?: () => void) => ({ draftId, successCallback }),
         setDrafts: (drafts: DataWarehouseSavedQueryDraft[]) => ({ drafts }),
     }),
@@ -48,10 +55,11 @@ export const draftsLogic = kea<draftsLogicType>([
         ],
     }),
     listeners(({ values, actions }) => ({
-        saveAsDraft: async ({ query, viewId, successCallback }) => {
+        saveAsDraft: async ({ query, viewId, successCallback, editedHistoryId }) => {
             const draft = await api.dataWarehouseSavedQueryDrafts.create({
                 query,
                 saved_query_id: viewId,
+                edited_history_id: editedHistoryId,
             })
             lemonToast.success('Draft saved')
             successCallback && successCallback(draft)
@@ -83,10 +91,12 @@ export const draftsLogic = kea<draftsLogicType>([
             query,
             viewId,
             draftId,
+            editedHistoryId,
         }: {
             query: HogQLQuery
             viewId: string
             draftId?: string
+            editedHistoryId?: string
         }) => {
             try {
                 if (draftId) {
@@ -107,7 +117,7 @@ export const draftsLogic = kea<draftsLogicType>([
                         })
                         lemonToast.success('Draft updated')
                     } else {
-                        actions.saveAsDraft(query, viewId)
+                        actions.saveAsDraft(query, viewId, undefined, editedHistoryId)
                         lemonToast.success('Draft saved')
                     }
                 }

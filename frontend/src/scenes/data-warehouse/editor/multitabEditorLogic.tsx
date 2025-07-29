@@ -71,8 +71,6 @@ export const deprecatedInProgressViewEditStateKey = (key: string | number): stri
     `data-warehouse.editor.multitabEditorLogic.${key}.inProgressViewEdits`
 export const inProgressViewEditStateKey = (key: string | number): string => `${key}/inProgressViewEdits`
 
-export const inProgressDraftEditStateKey = (key: string | number): string => `${key}/inProgressDraftEdits`
-
 export const NEW_QUERY = 'Untitled'
 
 const getNextUntitledNumber = (tabs: QueryTab[]): number => {
@@ -832,15 +830,11 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 deprecatedInProgressViewEditStateKey(props.key),
                 inProgressViewEditStateKey(props.key)
             )
-            const inProgressDraftEdit = await getStorageItem(inProgressDraftEditStateKey(props.key))
 
             const allTabsParsed = allTabs && allTabs !== 'undefined' ? JSON.parse(allTabs) : []
             const inProgressViewEditParsed =
                 inProgressViewEdit && inProgressViewEdit !== 'undefined' ? JSON.parse(inProgressViewEdit) : {}
-            const inProgressDraftEditParsed =
-                inProgressDraftEdit && inProgressDraftEdit !== 'undefined' ? JSON.parse(inProgressDraftEdit) : {}
             actions.setInProgressViewEdits(inProgressViewEditParsed)
-            actions.setInProgressDraftEdits(inProgressDraftEditParsed)
 
             const mountedCodeEditorLogic =
                 codeEditorLogic.findMounted() ||
@@ -962,11 +956,9 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                     })
 
                     actions.setTabs(newTabs)
-                    if (activeTab.view && activeTab.view.latest_history_id) {
-                        actions.setInProgressDraftEdit(draft.id, activeTab.view.latest_history_id)
-                    }
                     actions.updateState()
-                }
+                },
+                activeTab.view?.latest_history_id
             )
         },
         updateState: async ({ skipBreakpoint }, breakpoint) => {
@@ -990,7 +982,6 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
 
             actions.setLocalState(allTabsStateKey(props.key), JSON.stringify(values.allTabs))
             actions.setLocalState(inProgressViewEditStateKey(props.key), JSON.stringify(values.inProgressViewEdits))
-            actions.setLocalState(inProgressDraftEditStateKey(props.key), JSON.stringify(values.inProgressDraftEdits))
         },
         runQuery: ({ queryOverride, switchTab }) => {
             const query = queryOverride || values.queryInput
@@ -1480,11 +1471,11 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 return currentTab ? !!currentTab.draft?.id : false
             },
         ],
-        currentDraftId: [
+        currentDraft: [
             (s) => [s.activeModelUri, s.allTabs],
             (activeModelUri, allTabs) => {
                 const currentTab = allTabs.find((tab) => tab.uri.toString() === activeModelUri?.uri.toString())
-                return currentTab ? currentTab.draft?.id : null
+                return currentTab ? currentTab.draft : null
             },
         ],
     }),
