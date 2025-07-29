@@ -132,7 +132,11 @@ export function FunnelBarHorizontal({
                                             flex: `${1 - breakdownSum / basisStep.count} 1 0`,
                                             cursor: `${!inCardView ? 'pointer' : ''}`,
                                         }}
-                                    />
+                                    >
+                                        <div className="funnel-bar-percentage">
+                                            {percentage(breakdownSum / basisStep.count, 1, true)}
+                                        </div>
+                                    </div>
                                 </>
                             ) : (
                                 <>

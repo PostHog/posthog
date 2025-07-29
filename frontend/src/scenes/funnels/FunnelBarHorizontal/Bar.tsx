@@ -70,15 +70,11 @@ export function Bar({
             <div
                 className={`funnel-bar ${getSeriesPositionName(breakdownIndex, breakdownMaxIndex)}`}
                 // eslint-disable-next-line react/forbid-dom-props
-                style={
-                    {
-                        flex: `${conversionPercentage} 1 0`,
-                        cursor: cursorType,
-                        backgroundColor: getFunnelsColor(step),
-                        // Pass breakdown sum as CSS variable for last bar
-                        ...(hasBreakdownSum && { '--breakdown-sum': breakdownSumPercentage }),
-                    } as React.CSSProperties
-                }
+                style={{
+                    flex: `${conversionPercentage} 1 0`,
+                    cursor: cursorType,
+                    backgroundColor: getFunnelsColor(step),
+                }}
                 onClick={() => {
                     if (!disabled && onBarClick) {
                         onBarClick()
