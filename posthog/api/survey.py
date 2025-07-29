@@ -1454,7 +1454,7 @@ def public_survey_page(request, survey_id: str):
     if hasattr(survey.team, "ui_host") and survey.team.ui_host:
         project_config["ui_host"] = survey.team.ui_host
 
-    serializer = SurveySerializer(survey)
+    serializer = SurveyAPISerializer(survey)
     survey_data = serializer.data
     context = {
         "name": survey.name,
