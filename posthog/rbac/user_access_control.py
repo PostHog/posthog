@@ -174,6 +174,10 @@ class UserAccessControl:
 
         return self._organization.is_feature_available(AvailableFeature.ADVANCED_PERMISSIONS)
 
+    # ------------------------------------------------------------
+    # Access control helpers
+    # ------------------------------------------------------------
+
     def _filter_options(self, filters: dict[str, Any]) -> Q:
         """
         Adds the 3 main filter options to the query
@@ -257,6 +261,10 @@ class UserAccessControl:
 
             self._cache[key] = matching_access_controls
 
+    # ------------------------------------------------------------
+    # Preloading access controls
+    # ------------------------------------------------------------
+
     def preload_object_access_controls(self, objects: list[Model]) -> None:
         """
         Preload access controls for a list of objects
@@ -303,7 +311,10 @@ class UserAccessControl:
         access_controls = list(AccessControl.objects.filter(q))
         self._fill_filters_cache(filter_groups, access_controls)
 
+    # ------------------------------------------------------------
     # Object level - checking conditions for specific items
+    # ------------------------------------------------------------
+
     def access_level_for_object(
         self, obj: Model, resource: Optional[APIScopeObject] = None, explicit=False
     ) -> Optional[AccessControlLevel]:
@@ -349,9 +360,7 @@ class UserAccessControl:
             key=lambda access_control: ordered_access_levels(resource).index(access_control.access_level),
         ).access_level
 
-    def check_access_level_for_object(
-        self, obj: Model, required_level: AccessControlLevel, explicit=False
-    ) -> Optional[bool]:
+    def check_access_level_for_object(self, obj: Model, required_level: AccessControlLevel, explicit=False) -> bool:
         """
         Entry point for all permissions around a specific object.
         If any of the access controls have the same or higher level than the requested level, return True.
@@ -372,7 +381,7 @@ class UserAccessControl:
         # If no access control exists
         return access_level_satisfied_for_resource(resource, access_level, required_level)
 
-    def check_can_modify_access_levels_for_object(self, obj: Model) -> Optional[bool]:
+    def check_can_modify_access_levels_for_object(self, obj: Model) -> bool:
         """
         Special case for checking if the user can modify the access levels for an object.
         Unlike check_access_level_for_object, this requires that one of these conditions is true:
@@ -453,7 +462,10 @@ class UserAccessControl:
         # Default access
         return AccessSource.DEFAULT
 
+    # ------------------------------------------------------------
     # Object level (specific) - checking conditions for specific items with a member or role
+    # ------------------------------------------------------------
+
     def specific_access_level_for_object(self, obj: Model, explicit=False) -> Optional[AccessControlLevel]:
         """
         This is different than access_level_for_object, it's only looking at access levels that have
@@ -500,7 +512,10 @@ class UserAccessControl:
             key=lambda access_control: ordered_access_levels(resource).index(access_control.access_level),
         ).access_level
 
+    # ------------------------------------------------------------
     # Resource level - checking conditions for the resource type
+    # ------------------------------------------------------------
+
     def access_level_for_resource(self, resource: APIScopeObject) -> Optional[AccessControlLevel]:
         """
         Access levels are strings - the order of which is determined at run time.
@@ -548,6 +563,10 @@ class UserAccessControl:
             return False
 
         return access_level_satisfied_for_resource(resource, access_level, required_level)
+
+    # ------------------------------------------------------------
+    # Filtering querysets
+    # ------------------------------------------------------------
 
     def filter_queryset_by_access_level(self, queryset: QuerySet, include_all_if_admin=False) -> QuerySet:
         # Find all items related to the queryset model that have access controls such that the effective level for the user is "none"
@@ -658,6 +677,10 @@ class UserAccessControl:
         queryset = queryset.exclude(Q(effective_access_level="none") & Q(is_project_admin=False) & ~Q(created_by=user))
 
         return queryset
+
+    # ------------------------------------------------------------
+    # User access level
+    # ------------------------------------------------------------
 
     def get_user_access_level(self, obj: Model, explicit=False) -> Optional[AccessControlLevel]:
         resource = model_to_resource(obj)
