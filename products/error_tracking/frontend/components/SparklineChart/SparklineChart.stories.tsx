@@ -1,8 +1,8 @@
 import { action } from '@storybook/addon-actions'
 import { Meta, StoryObj } from '@storybook/react'
 import * as d3 from 'd3'
+import { dayjs } from 'lib/dayjs'
 
-import { generateSparklineLabels } from '../../utils'
 import { SparklineChart, SparklineEvent, SparklineOptions } from './SparklineChart'
 
 const meta: Meta = {
@@ -74,17 +74,13 @@ function buildData(
     maxDate: string = '2022-02-01'
 ): Array<{ value: number; date: Date }> {
     const generator = d3.randomLcg(42) // Initialize a random generator with seed
-    const ranges = generateSparklineLabels(
-        {
-            date_from: minDate,
-            date_to: maxDate,
-        },
-        resolution
-    )
+    const dayJsStart = dayjs(minDate)
+    const dayJsEnd = dayjs(maxDate)
+    const binSize = dayJsEnd.diff(dayJsStart, 'day') / resolution
     return new Array(resolution).fill(0).map((_, index) => {
         return {
             value: Math.floor(generator() * (maxValue - minValue) + minValue),
-            date: ranges[index].toDate(),
+            date: dayJsStart.add(index * binSize, 'day').toDate(),
         }
     })
 }

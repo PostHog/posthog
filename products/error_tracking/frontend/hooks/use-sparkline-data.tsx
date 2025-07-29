@@ -5,8 +5,7 @@ import { DateRange, ErrorTrackingIssueAggregations } from '~/queries/schema/sche
 
 import { SparklineData } from '../components/SparklineChart/SparklineChart'
 import { errorTrackingIssueSceneLogic } from '../errorTrackingIssueSceneLogic'
-import { ERROR_TRACKING_DETAILS_RESOLUTION, generateSparklineLabels } from '../utils'
-import { Dayjs } from 'lib/dayjs'
+import { ERROR_TRACKING_DETAILS_RESOLUTION } from '../utils'
 
 type NotUndefined<T> = T extends undefined ? never : T
 
@@ -19,16 +18,6 @@ function generateDataFromVolumeBuckets(
     }))
 }
 
-function generateDataFromVolumeRange(
-    volumeRange: ErrorTrackingIssueAggregations['volumeRange'],
-    labels: Dayjs[]
-): SparklineData {
-    return volumeRange.map((value, index) => ({
-        value,
-        date: labels[index].toDate(),
-    }))
-}
-
 export function useSparklineData(
     aggregations: ErrorTrackingIssueAggregations | undefined,
     dateRange: DateRange,
@@ -38,14 +27,7 @@ export function useSparklineData(
         if (aggregations?.volume_buckets) {
             return generateDataFromVolumeBuckets(aggregations.volume_buckets)
         }
-        const labels = generateSparklineLabels(dateRange, volumeResolution)
-        if (aggregations?.volumeRange) {
-            return generateDataFromVolumeRange(aggregations.volumeRange, labels)
-        }
-        return labels.map((label) => ({
-            value: 0,
-            date: label.toDate(),
-        }))
+        return new Array(volumeResolution).fill({ value: 0, date: new Date() })
     }, [aggregations, dateRange, volumeResolution])
 }
 

@@ -1036,8 +1036,8 @@ class ErrorTrackingIssueAggregations(BaseModel):
     occurrences: float
     sessions: float
     users: float
-    volumeRange: list[float]
-    volume_buckets: Optional[list[VolumeBucket]] = None
+    volumeRange: Optional[list[float]] = None
+    volume_buckets: list[VolumeBucket]
 
 
 class Type2(StrEnum):

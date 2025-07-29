@@ -2082,8 +2082,8 @@ export interface ErrorTrackingIssueAggregations {
     occurrences: number
     sessions: number
     users: number
-    volumeRange: number[]
-    volume_buckets?: { label: Date; value: number }[]
+    volumeRange?: number[] // Deprecated
+    volume_buckets: { label: Date; value: number }[]
 }
 
 export type ErrorTrackingExternalReferenceIntegration = Pick<IntegrationType, 'id' | 'kind' | 'display_name'>

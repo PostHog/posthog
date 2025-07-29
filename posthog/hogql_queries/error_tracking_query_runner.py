@@ -66,7 +66,7 @@ class ErrorTrackingQueryRunner(QueryRunner):
         This is used to convert the date range from the query into a datetime object.
         """
         if date == "all" or date is None:
-            return datetime.datetime.now(tz=ZoneInfo("UTC")) - datetime.timedelta(weeks=52 * 4)  # 4 years ago
+            return datetime.datetime.now(tz=ZoneInfo("UTC")) - datetime.timedelta(days=365 * 4)  # 4 years ago
 
         return relative_date_parse(date, now=datetime.datetime.now(tz=ZoneInfo("UTC")), timezone_info=ZoneInfo("UTC"))
 

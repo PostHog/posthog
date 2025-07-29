@@ -1,13 +1,6 @@
 import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
 
-import {
-    generateDateRangeLabel,
-    generateSparklineLabels,
-    mergeIssues,
-    resolveDateFrom,
-    resolveDateRange,
-} from './utils'
-import { dayjs } from 'lib/dayjs'
+import { generateDateRangeLabel, mergeIssues } from './utils'
 
 describe('mergeIssues', () => {
     it('arbitrary values', async () => {
@@ -112,37 +105,6 @@ describe('mergeIssues', () => {
 describe('generate sparkline labels', () => {
     beforeAll(() => {
         jest.useFakeTimers().setSystemTime(new Date('2023-01-10 17:22:08'))
-    })
-
-    it('generate labels from with hour resolution', async () => {
-        const labels = generateSparklineLabels(
-            {
-                date_from: '2025-01-01',
-                date_to: '2025-01-02',
-            },
-            4
-        ).map((label) => label.toISOString())
-        expect(labels).toEqual([
-            '2025-01-01T00:00:00.000Z',
-            '2025-01-01T06:00:00.000Z',
-            '2025-01-01T12:00:00.000Z',
-            '2025-01-01T18:00:00.000Z',
-        ])
-    })
-
-    it('test date range resolution', async () => {
-        const range = {
-            date_from: '-7d',
-            date_to: '-1d',
-        }
-        const resolvedRange = resolveDateRange(range)
-        expect(resolvedRange.date_from.toISOString()).toEqual('2023-01-03T17:22:08.000Z')
-        expect(resolvedRange.date_to.toISOString()).toEqual('2023-01-09T17:22:08.000Z')
-    })
-
-    it('test date resolution', async () => {
-        const resolvedDate = resolveDateFrom(dayjs(), 'yStart')
-        expect(resolvedDate.toISOString()).toEqual('2023-01-01T00:00:00.000Z')
     })
 
     it('test date range label generation', async () => {

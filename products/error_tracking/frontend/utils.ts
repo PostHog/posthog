@@ -2,7 +2,7 @@ import equal from 'fast-deep-equal'
 import { LogicWrapper } from 'kea'
 import { routerType } from 'kea-router/lib/routerType'
 import { ErrorTrackingException } from 'lib/components/Errors/types'
-import { Dayjs, dayjs, QUnitType } from 'lib/dayjs'
+import { Dayjs, dayjs } from 'lib/dayjs'
 import { componentsToDayJs, dateStringToComponents, isStringDateRegex } from 'lib/utils'
 import { MouseEvent } from 'react'
 import { Params } from 'scenes/sceneTypes'
@@ -79,74 +79,6 @@ export const mergeIssues = (
 
 export function isThirdPartyScriptError(value: ErrorTrackingException['value']): boolean {
     return value === THIRD_PARTY_SCRIPT_ERROR
-}
-
-export function generateSparklineLabels(range: DateRange, resolution: number): Dayjs[] {
-    const { date_from, date_to } = ResolvedDateRange.fromDateRange(range)
-    const bin_size = Math.floor(date_to.diff(date_from, 'milliseconds') / resolution)
-    const labels = Array.from({ length: resolution }, (_, i) => {
-        return date_from.add(i * bin_size, 'milliseconds')
-    })
-    return labels
-}
-
-export type DateRangePrecision = { unit: QUnitType; value: number }
-
-export class ResolvedDateRange {
-    date_from: Dayjs
-    date_to: Dayjs
-
-    constructor(date_from: Dayjs, date_to: Dayjs) {
-        this.date_from = date_from
-        this.date_to = date_to
-    }
-
-    toDateRange(): DateRange {
-        return {
-            date_from: this.date_from.toISOString(),
-            date_to: this.date_to.toISOString(),
-        }
-    }
-
-    static fromDateRange(dateRange: DateRange): ResolvedDateRange {
-        return new ResolvedDateRange(
-            resolveDateFrom(dayjs.utc(), dateRange.date_from),
-            resolveDateTo(dayjs.utc(), dateRange.date_to)
-        )
-    }
-}
-
-// Converts relative date range to absolute date range
-export function resolveDateRange(dateRange: DateRange): ResolvedDateRange {
-    return ResolvedDateRange.fromDateRange(dateRange)
-}
-
-// Converts relative date to absolute date.
-// Keep in sync with posthog/hogql_queries/error_tracking_query_runner.py
-export function resolveDateFrom(offset: Dayjs, date?: string | null): Dayjs {
-    if (!date) {
-        return offset.subtract(4, 'years')
-    }
-    const parsedDate = datetimeStringToDayJs(date, offset)
-    if (parsedDate) {
-        return parsedDate
-    }
-    throw new Error(`Invalid DateRange (from): ${date}`)
-}
-
-// Converts relative date to absolute date.
-export function resolveDateTo(offset: Dayjs, date?: string | null): Dayjs {
-    if (!date) {
-        return offset
-    }
-    if (date == 'all') {
-        throw new Error('Invalid date: all')
-    }
-    const parsedDate = datetimeStringToDayJs(date, offset)
-    if (parsedDate) {
-        return parsedDate
-    }
-    throw new Error(`Invalid DateRange (to): ${date}`)
 }
 
 const customOptions: Record<string, string> = {
