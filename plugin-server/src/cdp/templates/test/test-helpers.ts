@@ -277,7 +277,15 @@ export class TemplateTester {
             body: response.body,
         })
 
-        return this.executor.execute(modifiedInvocation)
+        const result = await this.executor.execute(modifiedInvocation)
+
+        result.logs.forEach((x) => {
+            if (typeof x.message === 'string' && x.message.includes('Function completed in')) {
+                x.message = 'Function completed in [REPLACED]'
+            }
+        })
+
+        return result
     }
 }
 

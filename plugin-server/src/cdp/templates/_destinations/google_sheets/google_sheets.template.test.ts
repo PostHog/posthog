@@ -1,101 +1,106 @@
-import { SAMPLE_GLOBALS } from '~/cdp/_tests/fixtures'
+import { DateTime } from 'luxon'
 
-import { NATIVE_HOG_FUNCTIONS_BY_ID } from '../../index'
-import { DestinationTester, generateTestData } from '../../test/test-helpers'
+import { TemplateTester } from '../../test/test-helpers'
+import { template } from './google_sheets.template'
 
-const template = NATIVE_HOG_FUNCTIONS_BY_ID['native-google-sheets']
+const defaultInputs = {
+    oauth: {
+        access_token: 'access-token',
+    },
+    spreadsheet_id: 'spreadsheet-id',
+}
 
-describe(`${template.name} template`, () => {
-    const tester = new DestinationTester(template!)
+const defaultGlobals = {
+    event: {
+        event: 'event-name',
+        timestamp: '2024-01-01T00:00:00Z',
+    },
+}
 
-    beforeEach(() => {
-        tester.beforeEach()
+describe('google sheets template', () => {
+    const tester = new TemplateTester(template)
+
+    beforeEach(async () => {
+        await tester.beforeEach()
+        const fixedTime = DateTime.fromISO('2025-01-01T00:00:00Z').toJSDate()
+        jest.spyOn(Date, 'now').mockReturnValue(fixedTime.getTime())
     })
 
-    afterEach(() => {
-        tester.afterEach()
-    })
+    it('should invoke the function', async () => {
+        const response = await tester.invoke(defaultInputs, defaultGlobals)
 
-    it('should work with default mapping', async () => {
-        const mockRequest = jest.fn().mockResolvedValue({
-            status: 200,
-            json: () => Promise.resolve({ message: 'Success' }),
-            text: () => Promise.resolve(JSON.stringify({ message: 'Success' })),
-            headers: {},
-        })
-
-        const payload = {
-            oauth: {
-                access_token: '1234567890',
-            },
-            spreadsheet_id: 'spreadsheet-id',
-            spreadsheet_name: 'Sheet1',
-            fields: {
-                event_name: '{event.event}',
-                timestamp: '{event.timestamp}',
-            },
-            data_format: 'RAW',
-        }
-
-        await template.perform(mockRequest, { payload })
-
-        expect(mockRequest).toHaveBeenCalledTimes(1)
-        expect(mockRequest).toHaveBeenCalledWith(
-            'https://sheets.googleapis.com/v4/spreadsheets/spreadsheet-id/values/Sheet1:append?valueInputOption=RAW',
+        expect(response.logs).toMatchInlineSnapshot(`[]`)
+        expect(response.error).toMatchInlineSnapshot(`undefined`)
+        expect(response.finished).toEqual(false)
+        expect(response.invocation.queueParameters).toMatchInlineSnapshot(`
             {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', Authorization: 'Bearer 1234567890' },
-                json: {
-                    values: [['{event.event}', '{event.timestamp}']],
-                },
+              "body": "{"data":{"range":"Sheet1!A1:A","values":[["timestamp","event_name"]]},"valueInputOption":"RAW"}",
+              "headers": {
+                "Authorization": "Bearer access-token",
+                "Content-Type": "application/json",
+              },
+              "method": "POST",
+              "type": "fetch",
+              "url": "https://sheets.googleapis.com/v4/spreadsheets/spreadsheet-id/values:batchUpdate",
             }
-        )
-    })
+        `)
 
-    it('should handle a failing request', async () => {
-        const inputs = generateTestData(template.id, template.inputs_schema)
-
-        tester.mockFetchResponse({
-            status: 400,
-            body: { status: 'ERROR' },
-            headers: { 'content-type': 'application/json' },
+        const fetchResponse = await tester.invokeFetchResponse(response.invocation, {
+            status: 200,
+            body: { status: 'OK' },
         })
 
-        const response = await tester.invoke(SAMPLE_GLOBALS, { ...inputs, debug_mode: true })
+        expect(fetchResponse.logs).toMatchInlineSnapshot(`[]`)
+        expect(fetchResponse.error).toMatchInlineSnapshot(`undefined`)
+        expect(fetchResponse.finished).toEqual(false)
+        expect(fetchResponse.invocation.queueParameters).toMatchInlineSnapshot(`
+            {
+              "body": "{"values":[["2024-01-01T00:00:00Z","event-name"]]}",
+              "headers": {
+                "Authorization": "Bearer access-token",
+                "Content-Type": "application/json",
+              },
+              "method": "POST",
+              "type": "fetch",
+              "url": "https://sheets.googleapis.com/v4/spreadsheets/spreadsheet-id/values/Sheet1:append?valueInputOption=RAW",
+            }
+        `)
 
-        expect(response.logs).toMatchInlineSnapshot(`
+        const continuationResponse = await tester.invokeFetchResponse(fetchResponse.invocation, {
+            status: 200,
+            body: { status: 'OK' },
+        })
+
+        expect(continuationResponse.logs).toMatchInlineSnapshot(`
             [
               {
                 "level": "debug",
-                "message": "config, {"spreadsheet_name":"Sheet1","data_format":"RAW","fields":{"timestamp":"","event_name":"test"},"debug_mode":true,"oauth":"5#$gnF#z","spreadsheet_id":"5#$gnF#z"}",
-                "timestamp": "2025-01-01T00:00:00.000Z",
-              },
-              {
-                "level": "debug",
-                "message": "endpoint, https://sheets.googleapis.com/v4/spreadsheets/5#$gnF#z/values/Sheet1:append?valueInputOption=RAW",
-                "timestamp": "2025-01-01T00:00:00.000Z",
-              },
-              {
-                "level": "debug",
-                "message": "options, {"method":"POST","headers":{"Content-Type":"application/json","Authorization":"Bearer undefined"},"json":{"values":[["","test"]]}}",
-                "timestamp": "2025-01-01T00:00:00.000Z",
-              },
-              {
-                "level": "debug",
-                "message": "fetchOptions, {"method":"POST","headers":{"User-Agent":"PostHog.com/1.0","Content-Type":"application/json","Authorization":"Bearer undefined"},"body":"{\\"values\\":[[\\"\\",\\"test\\"]]}"}",
-                "timestamp": "2025-01-01T00:00:00.000Z",
-              },
-              {
-                "level": "warn",
-                "message": "HTTP request failed with status 400 ({"status":"ERROR"}). ",
-                "timestamp": "2025-01-01T00:00:00.000Z",
-              },
-              {
-                "level": "error",
-                "message": "Function failed: Error executing function on event uuid: Request failed with status 400 ({"status":"ERROR"})",
-                "timestamp": "2025-01-01T00:00:00.000Z",
+                "message": "Function completed in [REPLACED]",
+                "timestamp": "2025-01-01T01:00:00.000+01:00",
               },
             ]
         `)
+        expect(continuationResponse.error).toMatchInlineSnapshot(`undefined`)
+        expect(continuationResponse.finished).toEqual(true)
+        expect(continuationResponse.invocation.queueParameters).toMatchInlineSnapshot(`undefined`)
+    })
+
+    it('should throw an error if the update fails', async () => {
+        let response = await tester.invoke(defaultInputs, defaultGlobals)
+
+        response = await tester.invokeFetchResponse(response.invocation, {
+            status: 400,
+            body: { message: 'Bad Request' },
+        })
+
+        expect(response.error).toMatchInlineSnapshot(
+            `"Error from sheets.googleapis.com (status 400): {'message': 'Bad Request'}"`
+        )
+        expect(response.logs.filter((l) => l.level === 'error').map((l) => l.message)).toMatchInlineSnapshot(`
+            [
+              "Error executing function on event event-id: Error('Error from sheets.googleapis.com (status 400): {\\'message\\': \\'Bad Request\\'}')",
+            ]
+        `)
+        expect(response.finished).toEqual(true)
     })
 })
