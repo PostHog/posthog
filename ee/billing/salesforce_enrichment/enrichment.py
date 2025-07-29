@@ -350,23 +350,26 @@ async def query_salesforce_accounts_chunk_async(sf, offset=0, limit=5000):
 def _build_result(
     chunk_number: int,
     start_time: float,
-    total_processed: int = 0,
-    total_enriched: int = 0,
+    records_processed: int = 0,
+    records_enriched: int = 0,
     records_updated: int = 0,
     total_accounts_in_chunk: int = 0,
+    errors: list[str] | None = None,
     error: str | None = None,
 ) -> dict[str, Any]:
     """Build consistent result object for chunk processing."""
-    success_rate = round(total_enriched / total_processed * 100, 1) if total_processed > 0 else 0
+    success_rate = round(records_enriched / records_processed * 100, 1) if records_processed > 0 else 0
     result = {
         "chunk_number": chunk_number,
-        "total_processed": total_processed,
-        "total_enriched": total_enriched,
+        "records_processed": records_processed,
+        "records_enriched": records_enriched,
         "records_updated": records_updated,
         "success_rate": success_rate,
         "total_time": round(time.time() - start_time, 2),
         "total_accounts_in_chunk": total_accounts_in_chunk,
+        "errors": errors or ([error] if error else []),
     }
+    # Keep legacy error field for compatibility during transition
     if error:
         result["error"] = error
     return result
@@ -489,8 +492,8 @@ async def enrich_accounts_chunked_async(
     result = _build_result(
         chunk_number=chunk_number,
         start_time=start_time,
-        total_processed=len(account_data),
-        total_enriched=total_enriched,
+        records_processed=len(account_data),
+        records_enriched=total_enriched,
         records_updated=len(update_records),
         total_accounts_in_chunk=len(accounts),
     )

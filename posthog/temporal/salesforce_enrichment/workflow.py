@@ -21,13 +21,6 @@ class SalesforceEnrichmentInputs:
     chunk_size: int = 1000
     max_chunks: int | None = None  # Optional limit for testing
 
-    @property
-    def properties_to_log(self) -> dict[str, typing.Any]:
-        return {
-            "chunk_size": self.chunk_size,
-            "max_chunks": self.max_chunks,
-        }
-
 
 @dataclasses.dataclass
 class EnrichChunkInputs:
@@ -37,42 +30,12 @@ class EnrichChunkInputs:
     chunk_size: int
     estimated_total_chunks: int | None = None  # For progress display
 
-    @property
-    def properties_to_log(self) -> dict[str, typing.Any]:
-        return {
-            "chunk_number": self.chunk_number,
-            "chunk_size": self.chunk_size,
-            "estimated_total_chunks": self.estimated_total_chunks,
-        }
-
-
-@dataclasses.dataclass
-class EnrichChunkResult:
-    """Result from enriching a single chunk."""
-
-    total_accounts_in_chunk: int  # Raw account count for stopping logic
-    records_processed: int  # Business domains processed
-    records_enriched: int
-    records_updated: int
-    errors: list[str]
-
-    @property
-    def properties_to_log(self) -> dict[str, typing.Any]:
-        return {
-            "total_accounts_in_chunk": self.total_accounts_in_chunk,
-            "records_processed": self.records_processed,
-            "records_enriched": self.records_enriched,
-            "records_updated": self.records_updated,
-            "error_count": len(self.errors),
-        }
-
 
 @activity.defn
-async def enrich_chunk_activity(inputs: EnrichChunkInputs) -> EnrichChunkResult:
+async def enrich_chunk_activity(inputs: EnrichChunkInputs) -> dict[str, typing.Any]:
     """Activity to enrich a single chunk of Salesforce accounts with concurrent API calls."""
 
     from posthog.temporal.common.heartbeat import Heartbeater
-    from posthog.exceptions_capture import capture_exception
 
     async with Heartbeater():
         logger = get_internal_logger()
@@ -88,38 +51,15 @@ async def enrich_chunk_activity(inputs: EnrichChunkInputs) -> EnrichChunkResult:
             # Import here to avoid circular imports
             from ee.billing.salesforce_enrichment.enrichment import enrich_accounts_chunked_async
 
-            # Call the async business logic with concurrent API calls
+            # Call the async business logic - it returns dict with correct field names
             result = await enrich_accounts_chunked_async(
                 chunk_number=inputs.chunk_number,
                 chunk_size=inputs.chunk_size,
                 estimated_total_chunks=inputs.estimated_total_chunks,
             )
 
-            # Handle error case
-            if "error" in result:
-                return EnrichChunkResult(
-                    total_accounts_in_chunk=0,
-                    records_processed=0,
-                    records_enriched=0,
-                    records_updated=0,
-                    errors=[result["error"]],
-                )
-
-            # Transform result to match our dataclass
-            chunk_result = EnrichChunkResult(
-                total_accounts_in_chunk=result.get("total_accounts_in_chunk", 0),
-                records_processed=result.get("total_processed", 0),
-                records_enriched=result.get("total_enriched", 0),
-                records_updated=result.get("records_updated", 0),
-                errors=[],  # No errors if we got here
-            )
-
-            logger.info(
-                "Completed Salesforce enrichment chunk",
-                **chunk_result.properties_to_log,
-            )
-
-            return chunk_result
+            logger.info("Completed Salesforce enrichment chunk", **result)
+            return result
 
         except Exception as e:
             logger.exception(
@@ -130,13 +70,13 @@ async def enrich_chunk_activity(inputs: EnrichChunkInputs) -> EnrichChunkResult:
             )
             capture_exception(e)
 
-            return EnrichChunkResult(
-                total_accounts_in_chunk=0,
-                records_processed=0,
-                records_enriched=0,
-                records_updated=0,
-                errors=[str(e)],
-            )
+            return {
+                "total_accounts_in_chunk": 0,
+                "records_processed": 0,
+                "records_enriched": 0,
+                "records_updated": 0,
+                "errors": [str(e)],
+            }
 
 
 @activity.defn
@@ -303,13 +243,13 @@ class SalesforceEnrichmentAsyncWorkflow(PostHogWorkflow):
             )
 
             # Accumulate results
-            total_processed += chunk_result.records_processed
-            total_enriched += chunk_result.records_enriched
-            total_updated += chunk_result.records_updated
-            all_errors.extend(chunk_result.errors)
+            total_processed += chunk_result.get("records_processed", 0)
+            total_enriched += chunk_result.get("records_enriched", 0)
+            total_updated += chunk_result.get("records_updated", 0)
+            all_errors.extend(chunk_result.get("errors", []))
 
             # If we got fewer raw accounts than the chunk size, we're done
-            if chunk_result.total_accounts_in_chunk < inputs.chunk_size:
+            if chunk_result.get("total_accounts_in_chunk", 0) < inputs.chunk_size:
                 break
 
             # Move to next chunk
