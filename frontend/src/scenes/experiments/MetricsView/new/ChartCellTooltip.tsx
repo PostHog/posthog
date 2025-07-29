@@ -65,7 +65,29 @@ export function ChartCellTooltip({ variantResult, children }: ChartCellTooltipPr
                     }}
                 >
                     <div className="flex flex-col gap-1">
-                        <div className="font-semibold">{variantResult.key}</div>
+                        <div className="flex justify-between items-center">
+                            <div className="font-semibold">{variantResult.key}</div>
+                            {variantResult.key !== 'control' && (
+                                <div className={`font-semibold text-xs px-2 py-1 rounded ${
+                                    !variantResult.significant 
+                                        ? 'text-muted' 
+                                        : (() => {
+                                            const interval = getVariantInterval(variantResult)
+                                            const deltaPercent = interval ? ((interval[0] + interval[1]) / 2) * 100 : 0
+                                            return deltaPercent > 0 ? 'text-success' : 'text-danger'
+                                        })()
+                                }`}>
+                                    {!variantResult.significant 
+                                        ? 'Not significant' 
+                                        : (() => {
+                                            const interval = getVariantInterval(variantResult)
+                                            const deltaPercent = interval ? ((interval[0] + interval[1]) / 2) * 100 : 0
+                                            return deltaPercent > 0 ? 'Won' : 'Lost'
+                                        })()
+                                    }
+                                </div>
+                            )}
+                        </div>
 
                         <div className="flex justify-between items-center">
                             <span className="text-muted-alt font-semibold">Samples:</span>
@@ -89,14 +111,6 @@ export function ChartCellTooltip({ variantResult, children }: ChartCellTooltipPr
                             </div>
                         )}
 
-                        <div className="flex justify-between items-center">
-                            <span className="text-muted-alt font-semibold">Significant:</span>
-                            <span
-                                className={`font-semibold ${variantResult.significant ? 'text-success' : 'text-muted'}`}
-                            >
-                                {variantResult.significant ? 'Yes' : 'No'}
-                            </span>
-                        </div>
 
                         <div className="flex justify-between items-center">
                             <span className="text-muted-alt font-semibold">Delta:</span>
