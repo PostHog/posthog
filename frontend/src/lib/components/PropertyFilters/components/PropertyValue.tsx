@@ -90,16 +90,16 @@ export function PropertyValue({
     const setValue = (newValue: PropertyValueProps['value']): void => onSet(newValue)
 
     useEffect(() => {
-        if (preloadValues) {
+        if (preloadValues && propertyOptions?.status !== 'loading' && propertyOptions?.status !== 'loaded') {
             load('')
         }
-    }, [preloadValues, load])
+    }, [preloadValues, load, propertyOptions?.status])
 
     useEffect(() => {
-        if (!isDateTimeProperty) {
+        if (!isDateTimeProperty && propertyOptions?.status !== 'loading' && propertyOptions?.status !== 'loaded') {
             load('')
         }
-    }, [propertyKey, isDateTimeProperty, load])
+    }, [propertyKey, isDateTimeProperty, load, propertyOptions?.status])
 
     const displayOptions = propertyOptions?.values || []
 
