@@ -197,7 +197,7 @@ export function LemonInputSelect<T = string>({
         // The below is a side effect (boo!) - but it's fine, since it's idempotent
         fuseRef.current.setCollection(Array.from(allOptionsMap.values()))
         return allOptionsMap
-    }, [optionsKey, valuesKey, optionMaps])
+    }, [optionsKey, valuesKey, optionMaps, options, stringKeys])
 
     const visibleOptions = useMemo(() => {
         const ret: LemonInputSelectOption<T>[] = []
@@ -240,7 +240,19 @@ export function LemonInputSelect<T = string>({
         }
 
         return ret
-    }, [allOptionsMap, allowCustomValues, inputValue, mode, stringKeys, getDisplayLabel, getStringKey])
+    }, [
+        allOptionsMap,
+        allowCustomValues,
+        inputValue,
+        mode,
+        stringKeys,
+        getDisplayLabel,
+        getStringKey,
+        values,
+        disableFiltering,
+        values.length,
+        virtualized,
+    ])
 
     // Reset the selected index when the visible options change
     useEffect(() => {
@@ -419,7 +431,18 @@ export function LemonInputSelect<T = string>({
                 />
             </PopoverReferenceContext.Provider>
         )
-    }, [allOptionsMap, allowCustomValues, itemBeingEditedIndex, getStringKey])
+    }, [
+        allOptionsMap,
+        allowCustomValues,
+        itemBeingEditedIndex,
+        getStringKey,
+        displayMode,
+        values,
+        values.length,
+        mode,
+        options,
+        _onActionItem,
+    ])
 
     const valuesAndEditButtonSuffix = useMemo(() => {
         // The edit button only applies to single-select mode with custom values allowed, when in no-input state
@@ -456,7 +479,19 @@ export function LemonInputSelect<T = string>({
                 )}
             </PopoverReferenceContext.Provider>
         )
-    }, [mode, values, allowCustomValues, itemBeingEditedIndex, inputValue, getStringKey])
+    }, [
+        mode,
+        values,
+        allowCustomValues,
+        itemBeingEditedIndex,
+        inputValue,
+        getStringKey,
+        _onActionItem,
+        displayMode,
+        _onFocus,
+        options,
+        setInputValue,
+    ])
 
     // Positioned like a placeholder but rendered via the suffix since the actual placeholder has to be a string
     const countPlaceholder = useMemo(() => {
