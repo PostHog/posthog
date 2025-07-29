@@ -25,7 +25,6 @@ EXPECTED_FIRST_RESULT = {
     "category": template_slack.category,
     "filters": template_slack.filters,
     "masking": template_slack.masking,
-    "mappings": template_slack.mappings,
     "mapping_templates": template_slack.mapping_templates,
     "icon_url": template_slack.icon_url,
 }

@@ -1,6 +1,9 @@
 import dataclasses
 from typing import Literal, Optional, TYPE_CHECKING
 
+from posthog.api.hog_function_template import HogFunctionTemplateSerializer
+from posthog.models.hog_function_template import HogFunctionTemplate
+
 
 if TYPE_CHECKING:
     from posthog.models.plugin import PluginConfig
@@ -64,13 +67,6 @@ class HogFunctionTemplateDC:
     def to_dict(self) -> dict:
         obj = dataclasses.asdict(self)
 
-        # # Convert collections to JSON
-        # if obj.get("mappings"):
-        #     obj["mappings"] = [dataclasses.asdict(mapping) for mapping in obj["mappings"]]
-
-        # if obj.get("mapping_templates"):
-        #     obj["mapping_templates"] = [dataclasses.asdict(template) for template in obj["mapping_templates"]]
-
         return obj
 
 
@@ -81,3 +77,17 @@ class HogFunctionTemplateMigrator:
     def migrate(cls, obj: PluginConfig) -> dict:
         # Return a dict for the template of a new HogFunction
         raise NotImplementedError()
+
+
+def sync_template_to_db(template_data: dict | HogFunctionTemplateDC) -> HogFunctionTemplate:
+    if isinstance(template_data, HogFunctionTemplateDC):
+        template_data = template_data.to_dict()
+
+    template = HogFunctionTemplate.get_template(template_data["id"])
+    if template:
+        serializer = HogFunctionTemplateSerializer(template, data=template_data)
+    else:
+        serializer = HogFunctionTemplateSerializer(data=template_data)
+
+    serializer.is_valid(raise_exception=True)
+    return serializer.save()

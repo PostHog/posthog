@@ -3,6 +3,7 @@ import structlog
 import time
 from django.conf import settings
 from posthog.cdp.templates import HOG_FUNCTION_TEMPLATES
+from posthog.cdp.templates.hog_function_template import sync_template_to_db
 from posthog.models.hog_function_template import HogFunctionTemplate
 from posthog.plugins.plugin_server_api import get_hog_function_templates
 from posthog.api.hog_function_template import HogFunctionTemplateSerializer
@@ -79,14 +80,7 @@ class Command(BaseCommand):
 
         for template_data in all_templates:
             try:
-                template = HogFunctionTemplate.get_template(template_data["id"])
-                if template:
-                    serializer = HogFunctionTemplateSerializer(template, data=template_data)
-                else:
-                    serializer = HogFunctionTemplateSerializer(data=template_data)
-
-                serializer.is_valid(raise_exception=True)
-                serializer.save()
+                sync_template_to_db(template_data)
 
                 updated_count += 1
             except Exception as e:
@@ -108,3 +102,10 @@ class Command(BaseCommand):
                 f"Errors: {error_count}"
             )
         )
+
+
+# python manage.py shell
+# from posthog.models.hog_function_template import HogFunctionTemplate
+# templates = HogFunctionTemplate.objects.filter(sha="")
+# print(templates.count())
+# templates.delete()

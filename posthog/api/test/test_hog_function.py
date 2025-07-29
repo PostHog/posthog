@@ -9,7 +9,7 @@ from rest_framework import status
 
 from common.hogvm.python.operation import HOGQL_BYTECODE_VERSION, Operation
 from posthog.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
-from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
+from posthog.cdp.templates.hog_function_template import sync_template_to_db
 from posthog.constants import AvailableFeature
 from posthog.models.action.action import Action
 from posthog.models.hog_functions.hog_function import DEFAULT_STATE, HogFunction
@@ -78,17 +78,12 @@ def get_db_field_value(field, model_id):
     return cursor.fetchone()[0]
 
 
-def _create_template_from_mock(template_data):
-    template = HogFunctionTemplateDC(**template_data)
-    return HogFunctionTemplate.create_from_dataclass(template)
-
-
 class TestHogFunctionAPIWithoutAvailableFeature(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     def setUp(self):
         super().setUp()
         # Create slack template in DB
-        HogFunctionTemplate.create_from_dataclass(template_slack)
-        _create_template_from_mock(webhook_template)
+        sync_template_to_db(template_slack)
+        sync_template_to_db(webhook_template)
 
     def _create_slack_function(self, data: Optional[dict] = None):
         payload = {
@@ -230,9 +225,9 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.organization.save()
 
         # Create slack template in DB
-        HogFunctionTemplate.create_from_dataclass(template_slack)
-        _create_template_from_mock(webhook_template)
-        _create_template_from_mock(geoip_template)
+        sync_template_to_db(template_slack)
+        sync_template_to_db(webhook_template)
+        sync_template_to_db(geoip_template)
 
         # Create the action referenced in EXAMPLE_FULL
         if not Action.objects.filter(id=9, team=self.team).exists():

@@ -1,4 +1,3 @@
-from posthog.api.hog_function import HogFunctionSerializer
 from posthog.management.commands.sync_hog_function_templates import TYPES_WITH_JAVASCRIPT_SOURCE
 import pytest
 from unittest.mock import patch, MagicMock
