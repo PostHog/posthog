@@ -19,26 +19,26 @@ procs:
             POSTHOG_USE_VITE: '1'
 
     temporal-worker-general-purpose:
-        shell: 'bin/check_kafka_clickhouse_up && bin/check_temporal_up && python manage.py start_temporal_worker --task-queue general-purpose-task-queue'
+        shell: 'bin/check_kafka_clickhouse_up && bin/check_temporal_up && ./bin/watch-temporal-worker python manage.py start_temporal_worker --task-queue general-purpose-task-queue'
 
     temporal-worker-batch-exports:
         # added a sleep to give the docker stuff time to start
-        shell: 'bin/check_kafka_clickhouse_up && bin/check_temporal_up && python manage.py start_temporal_worker --task-queue batch-exports-task-queue --metrics-port 8002'
+        shell: 'bin/check_kafka_clickhouse_up && bin/check_temporal_up && ./bin/watch-temporal-worker python manage.py start_temporal_worker --task-queue batch-exports-task-queue --metrics-port 8002'
         env:
             TEMPORAL_USE_EXTERNAL_LOGGER: 'true'
 
     temporal-worker-data-warehouse:
-        shell: 'bin/check_kafka_clickhouse_up && bin/check_temporal_up && python manage.py start_temporal_worker --task-queue data-warehouse-task-queue --metrics-port 8003'
+        shell: 'bin/check_kafka_clickhouse_up && bin/check_temporal_up && ./bin/watch-temporal-worker python manage.py start_temporal_worker --task-queue data-warehouse-task-queue --metrics-port 8003'
 
     temporal-worker-data-warehouse-compaction:
-        shell: 'bin/check_kafka_clickhouse_up && bin/check_temporal_up && python manage.py start_temporal_worker --task-queue data-warehouse-compaction-task-queue --metrics-port 8004'
+        shell: 'bin/check_kafka_clickhouse_up && bin/check_temporal_up && ./bin/watch-temporal-worker python manage.py start_temporal_worker --task-queue data-warehouse-compaction-task-queue --metrics-port 8004'
 
     temporal-worker-data-modeling:
-        shell: 'bin/check_kafka_clickhouse_up && bin/check_temporal_up && python manage.py start_temporal_worker --task-queue data-modeling-task-queue --metrics-port 8005'
+        shell: 'bin/check_kafka_clickhouse_up && bin/check_temporal_up &&./bin/watch-temporal-worker python manage.py start_temporal_worker --task-queue data-modeling-task-queue --metrics-port 8005'
 
     temporal-worker-max-ai:
         # added a sleep to give the docker stuff time to start
-        shell: 'bin/check_kafka_clickhouse_up && bin/check_temporal_up && python manage.py start_temporal_worker --task-queue max-ai-task-queue --metrics-port 8006'
+        shell: 'bin/check_kafka_clickhouse_up && bin/check_temporal_up && ./bin/watch-temporal-worker python manage.py start_temporal_worker --task-queue max-ai-task-queue --metrics-port 8006'
 
     dagster:
         shell: |-

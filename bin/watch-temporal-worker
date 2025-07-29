@@ -1,0 +1,206 @@
+#!/usr/bin/env python3
+"""
+File watcher script for temporal workers that restarts the worker when Python files change.
+"""
+
+import logging
+import sys
+import time
+import signal
+import subprocess
+import threading
+from pathlib import Path
+from typing import Optional
+
+
+# Configure logging to output to console
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[logging.StreamHandler(sys.stdout)]
+)
+logger = logging.getLogger(__name__)
+
+
+class FileWatcher:
+    def __init__(self, paths_to_watch: list[str], extensions: set[str] | None = None):
+        self.paths_to_watch = [Path(p).resolve() for p in paths_to_watch]
+        self.extensions = extensions or {'.py'}
+        self.file_mtimes: dict[Path, float] = {}
+        self.running = True
+
+    def get_files_to_watch(self) -> set[Path]:
+        """Get all files to watch from the specified paths."""
+        files = set()
+        for path in self.paths_to_watch:
+            if path.is_file() and path.suffix in self.extensions:
+                files.add(path)
+            elif path.is_dir():
+                for ext in self.extensions:
+                    files.update(path.rglob(f'*{ext}'))
+        return files
+
+    def check_for_changes(self) -> bool:
+        """Check if any watched files have changed."""
+        files = self.get_files_to_watch()
+        changed = False
+
+        for file_path in files:
+            try:
+                current_mtime = file_path.stat().st_mtime
+                if file_path not in self.file_mtimes:
+                    self.file_mtimes[file_path] = current_mtime
+                elif self.file_mtimes[file_path] != current_mtime:
+                    logger.info(f"File changed: {file_path}")
+                    self.file_mtimes[file_path] = current_mtime
+                    changed = True
+            except (OSError, FileNotFoundError):
+                # File might have been deleted, skip it
+                if file_path in self.file_mtimes:
+                    del self.file_mtimes[file_path]
+                    changed = True
+
+        # Remove deleted files from tracking
+        existing_files = files
+        deleted_files = set(self.file_mtimes.keys()) - existing_files
+        for deleted_file in deleted_files:
+            logger.info(f"File deleted: {deleted_file}")
+            del self.file_mtimes[deleted_file]
+            changed = True
+
+        return changed
+
+    def stop(self):
+        """Stop watching files."""
+        self.running = False
+
+
+class TemporalWorkerRunner:
+    def __init__(self, command_args: list[str]):
+        self.command_args = command_args
+        self.process: Optional[subprocess.Popen] = None
+        self.watcher: Optional[FileWatcher] = None
+        self.restart_count = 0
+        self.last_restart_time = 0
+
+    def setup_watcher(self):
+        """Setup file watcher for relevant paths."""
+        # Watch the main posthog directory and ee directory for Python files
+        paths_to_watch = [
+            'posthog',
+            'ee',
+        ]
+
+        # Filter to only existing paths
+        existing_paths = [p for p in paths_to_watch if Path(p).exists()]
+
+        self.watcher = FileWatcher(existing_paths, {'.py'})
+
+    def start_worker(self):
+        """Start the temporal worker process."""
+        if self.process:
+            self.stop_worker()
+
+        logger.info(f"Starting temporal worker: {' '.join(self.command_args)}")
+        self.last_restart_time = time.time()
+        self.process = subprocess.Popen(
+            self.command_args,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            universal_newlines=True,
+            bufsize=1
+        )
+
+        # Start a thread to handle process output
+        def handle_output():
+            if self.process and self.process.stdout:
+                for line in iter(self.process.stdout.readline, ''):
+                    if line.strip():
+                        logger.info(f"[WORKER] {line.rstrip()}")
+
+        output_thread = threading.Thread(target=handle_output, daemon=True)
+        output_thread.start()
+
+    def stop_worker(self):
+        """Stop the temporal worker process."""
+        if self.process:
+            logger.info("Stopping temporal worker...")
+            try:
+                # Send SIGTERM first
+                self.process.terminate()
+
+                # Wait up to 5 seconds for graceful shutdown
+                try:
+                    self.process.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    # Force kill if it doesn't stop gracefully
+                    logger.info("Force killing temporal worker...")
+                    self.process.kill()
+                    self.process.wait()
+
+            except ProcessLookupError:
+                # Process already dead
+                pass
+            finally:
+                self.process = None
+
+    def run(self):
+        """Main run loop with file watching."""
+        self.setup_watcher()
+
+        # Handle signals for clean shutdown
+        def signal_handler(signum, frame):
+            logger.info(f"\nReceived signal {signum}, shutting down...")
+            self.stop_worker()
+            if self.watcher:
+                self.watcher.stop()
+            sys.exit(0)
+
+        signal.signal(signal.SIGINT, signal_handler)
+        signal.signal(signal.SIGTERM, signal_handler)
+
+        # Start the worker initially
+        self.start_worker()
+
+        logger.info("Watching for file changes... Press Ctrl+C to stop.")
+
+        # Main watch loop
+        while self.watcher and self.watcher.running:
+            try:
+                if self.watcher.check_for_changes():
+                    logger.info("Files changed, restarting worker...")
+                    self.start_worker()
+
+                # Check if worker process died unexpectedly
+                if self.process and self.process.poll() is not None:
+                    current_time = time.time()
+                    # Only restart if the process ran for more than 5 seconds
+                    # This prevents restart loops for commands that exit immediately
+                    if current_time - self.last_restart_time > 5:
+                        logger.info("Worker process died unexpectedly, restarting...")
+                        self.start_worker()
+                    else:
+                        logger.info("Worker process exited quickly, stopping auto-restart to prevent loops")
+                        break
+
+                time.sleep(1)  # Check every second
+
+            except KeyboardInterrupt:
+                break
+
+        self.stop_worker()
+
+
+def main():
+    if len(sys.argv) < 2:
+        logger.info("Usage: watch-temporal-worker <command> [args...]")
+        logger.info("Example: watch-temporal-worker python manage.py start_temporal_worker --task-queue general-purpose-task-queue")
+        sys.exit(1)
+
+    command_args = sys.argv[1:]
+    runner = TemporalWorkerRunner(command_args)
+    runner.run()
+
+
+if __name__ == "__main__":
+    main()
