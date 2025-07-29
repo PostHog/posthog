@@ -2,7 +2,7 @@ import { IconTrending } from '@posthog/icons'
 import { IconTrendingDown } from 'lib/lemon-ui/icons'
 import { humanFriendlyNumber } from 'lib/utils'
 import { useState } from 'react'
-import { ExperimentMetric, NewExperimentQueryResponse } from '~/queries/schema/schema-general'
+import { ExperimentMetric, NewExperimentQueryResponse, ExperimentMetricType } from '~/queries/schema/schema-general'
 import { Experiment, InsightType } from '~/types'
 import { ChartEmptyState } from '../shared/ChartEmptyState'
 import { ChartLoadingState } from '../shared/ChartLoadingState'
@@ -10,6 +10,7 @@ import { useChartColors } from '../shared/colors'
 import { MetricHeader } from '../shared/MetricHeader'
 import { formatPercentageChange, getNiceTickValues } from '../shared/utils'
 import { ChartCell } from './ChartCell'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import {
     CELL_HEIGHT,
     CHART_CELL_VIEW_BOX_HEIGHT,
@@ -68,6 +69,17 @@ export function MetricRowGroup({
         return metric && 'metric_type' in metric && metric.metric_type === 'mean'
             ? primaryValue.toFixed(2)
             : `${(primaryValue * 100).toFixed(2)}%`
+    }
+
+    // Helper function to get tooltip content for value cells
+    const getValueTooltipContent = (): string => {
+        if (!metric || !('metric_type' in metric)) {
+            return ''
+        }
+
+        return metric.metric_type === ExperimentMetricType.MEAN
+            ? 'sum(value) / # number of exposures'
+            : '# conversions / # number of exposures'
     }
 
     // Handle loading or error states
@@ -170,13 +182,15 @@ export function MetricRowGroup({
                     } ${variantResults.length === 0 ? 'border-b' : ''}`}
                     style={{ height: `${CELL_HEIGHT}px`, maxHeight: `${CELL_HEIGHT}px` }}
                 >
-                    <div className="text-sm">
-                        <div className="text-text-primary">{formatData(baselineResult)}</div>
-                        <div className="text-xs text-muted">
-                            {humanFriendlyNumber(baselineResult.sum)} /{' '}
-                            {humanFriendlyNumber(baselineResult.number_of_samples || 0)}
+                    <Tooltip title={getValueTooltipContent()}>
+                        <div className="text-sm">
+                            <div className="text-text-primary">{formatData(baselineResult)}</div>
+                            <div className="text-xs text-muted">
+                                {humanFriendlyNumber(baselineResult.sum)} /{' '}
+                                {humanFriendlyNumber(baselineResult.number_of_samples || 0)}
+                            </div>
                         </div>
-                    </div>
+                    </Tooltip>
                 </td>
 
                 {/* Change (empty for baseline) */}
@@ -275,13 +289,15 @@ export function MetricRowGroup({
                             } ${isLastRow ? 'border-b' : ''}`}
                             style={{ height: `${CELL_HEIGHT}px`, maxHeight: `${CELL_HEIGHT}px` }}
                         >
-                            <div className="text-sm">
-                                <div className="text-text-primary">{formatData(variant)}</div>
-                                <div className="text-xs text-muted">
-                                    {humanFriendlyNumber(variant.sum)} /{' '}
-                                    {humanFriendlyNumber(variant.number_of_samples || 0)}
+                            <Tooltip title={getValueTooltipContent()}>
+                                <div className="text-sm">
+                                    <div className="text-text-primary">{formatData(variant)}</div>
+                                    <div className="text-xs text-muted">
+                                        {humanFriendlyNumber(variant.sum)} /{' '}
+                                        {humanFriendlyNumber(variant.number_of_samples || 0)}
+                                    </div>
                                 </div>
-                            </div>
+                            </Tooltip>
                         </td>
 
                         {/* Change */}
