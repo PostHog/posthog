@@ -2035,6 +2035,11 @@ class RecordingOrder(StrEnum):
     ACTIVITY_SCORE = "activity_score"
 
 
+class RecordingOrderDirection(StrEnum):
+    ASC = "ASC"
+    DESC = "DESC"
+
+
 class RecordingPropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2803,13 +2808,14 @@ class AssistantFunnelsFilter(BaseModel):
         default=[],
         description=(
             "Users may want to use exclusion events to filter out conversions in which a particular event occurred"
-            " between specific steps. These events must not be included in the main sequence. You must include start"
-            " and end indexes for each exclusion where the minimum index is one and the maximum index is the number of"
-            " steps in the funnel. For example, there is a sequence with three steps: sign up, finish onboarding,"
-            " purchase. If the user wants to exclude all conversions in which users left the page before finishing the"
-            " onboarding, the exclusion step would be the event `$pageleave` with start index 2 and end index 3. When"
-            " exclusion steps appear needed when you're planning the query, make sure to explicitly state this in the"
-            " plan."
+            " between specific steps. These events must not be included in the main sequence. This doesn't exclude"
+            " users who have completed the event before or after the funnel sequence, but often this is what users"
+            " want. (If not sure, worth clarifying.) You must include start and end indexes for each exclusion where"
+            " the minimum index is one and the maximum index is the number of steps in the funnel. For example, there"
+            " is a sequence with three steps: sign up, finish onboarding, purchase. If the user wants to exclude all"
+            " conversions in which users left the page before finishing the onboarding, the exclusion step would be the"
+            " event `$pageleave` with start index 2 and end index 3. When exclusion steps appear needed when you're"
+            " planning the query, make sure to explicitly state this in the plan."
         ),
     )
     funnelAggregateByHogQL: Optional[FunnelAggregateByHogQL] = Field(
@@ -2845,7 +2851,8 @@ class AssistantFunnelsFilter(BaseModel):
         default=14,
         description=(
             "Controls a time frame value for a conversion to be considered. Select a reasonable value based on the"
-            " user's query. Use in combination with `funnelWindowIntervalUnit`. The default value is 14 days."
+            " user's query. If needed, this can be practically unlimited by setting a large value, though it's rare to"
+            " need that. Use in combination with `funnelWindowIntervalUnit`. The default value is 14 days."
         ),
     )
     funnelWindowIntervalUnit: Optional[FunnelConversionWindowTimeUnit] = Field(
@@ -10961,6 +10968,15 @@ class RecordingsQuery(BaseModel):
     offset: Optional[int] = None
     operand: Optional[FilterLogicalOperator] = FilterLogicalOperator.AND_
     order: Optional[RecordingOrder] = RecordingOrder.START_TIME
+    order_direction: Optional[RecordingOrderDirection] = Field(
+        default=RecordingOrderDirection.DESC,
+        description=(
+            "Replay originally had all ordering as descending by specifying the field name, this runs counter to Django"
+            " behavior where the field name specifies ascending sorting (e.g. the_field_name) and -the_field_name would"
+            " indicate descending order to avoid invalidating or migrating all existing filters we keep DESC as the"
+            " default or allow specification of an explicit order direction here"
+        ),
+    )
     person_uuid: Optional[str] = None
     properties: Optional[
         list[

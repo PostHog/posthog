@@ -145,15 +145,7 @@ class HogFunction(FileSystemSyncMixin, UUIDModel):
         if not self.template_id:
             return None
 
-        try:
-            template = HogFunctionTemplate.objects.get(template_id=self.template_id)
-        except HogFunctionTemplate.DoesNotExist:
-            return None
-
-        if template:
-            return template
-
-        return None
+        return HogFunctionTemplate.get_template(self.template_id)
 
     @property
     def filter_action_ids(self) -> list[int]:
