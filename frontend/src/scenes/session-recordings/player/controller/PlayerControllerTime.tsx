@@ -40,7 +40,7 @@ function RelativeTimestampLabel({ size }: { size: 'small' | 'normal' }): JSX.Ele
     )
 }
 
-export function Timestamp({ size, noPadding = false }: { size: 'small' | 'normal'; noPadding: boolean }): JSX.Element {
+export function Timestamp({ size, noPadding }: { size: 'small' | 'normal'; noPadding?: boolean }): JSX.Element {
     const { logicProps, currentTimestamp, sessionPlayerData } = useValues(sessionRecordingPlayerLogic)
     const { isScrubbing, scrubbingTime } = useValues(seekbarLogic(logicProps))
     const { timestampFormat } = useValues(playerSettingsLogic)
