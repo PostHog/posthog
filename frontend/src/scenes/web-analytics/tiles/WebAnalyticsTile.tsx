@@ -474,7 +474,7 @@ export const WebStatsTrendTile = ({
                 query,
             },
         }
-    }, [onWorldMapClick, insightProps])
+    }, [onWorldMapClick, insightProps, query])
 
     return (
         <div className="border rounded bg-surface-primary flex-1 flex flex-col">
@@ -494,6 +494,7 @@ export const WebStatsTrendTile = ({
 export const MarketingAnalyticsTrendTile = ({
     query,
     showIntervalTile,
+    insightProps,
 }: QueryWithInsightProps<InsightVizNode> & { showIntervalTile?: boolean }): JSX.Element => {
     const { setInterval } = useActions(marketingAnalyticsLogic)
     const { dateFilter } = useValues(marketingAnalyticsLogic)
@@ -508,7 +509,7 @@ export const MarketingAnalyticsTrendTile = ({
                     </div>
                 </div>
             )}
-            <Query query={query} readOnly={true} />
+            <Query query={query} readOnly={true} context={{ insightProps: { ...insightProps, query } }} />
         </div>
     )
 }
@@ -570,7 +571,7 @@ export const WebStatsTableTile = ({
             insightProps,
             rowProps,
         }
-    }, [onClick, insightProps])
+    }, [onClick, insightProps, breakdownBy, key, type])
 
     return (
         <div className="border rounded bg-surface-primary flex-1 flex flex-col">

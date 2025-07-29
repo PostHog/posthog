@@ -1,192 +1,224 @@
-use axum::http::StatusCode;
-use axum_test_helper::TestClient;
-use base64::Engine;
-
-use capture::config::CaptureMode;
-use capture::integration_test_utils::{
-    gzip_compress, iso8601_str_to_unix_millis, load_request_payload, lz64_compress,
-    setup_capture_router, validate_capture_response, validate_single_replay_event_payload,
+#[path = "common/integration_utils.rs"]
+mod integration_utils;
+use integration_utils::{
+    base64_payload, execute_test, form_data_base64_payload, form_lz64_urlencoded_payload,
+    form_urlencoded_payload, gzipped_payload, lz64_payload, plain_json_payload, Method, TestCase,
     DEFAULT_TEST_TIME, SINGLE_REPLAY_EVENT_JSON,
 };
 
+use axum::http::StatusCode;
+use capture::config::CaptureMode;
+
 #[tokio::test]
-async fn simple_replay_event_payload() {
-    let title = "simple-replay-event-payload";
-    let raw_payload = load_request_payload(title, SINGLE_REPLAY_EVENT_JSON);
-
-    let (router, sink) = setup_capture_router(CaptureMode::Recordings, DEFAULT_TEST_TIME);
-    let client = TestClient::new(router);
-
-    let unix_millis_sent_at = iso8601_str_to_unix_millis(title, DEFAULT_TEST_TIME);
-    let req_path = format!("/s/?_={}", unix_millis_sent_at);
-    let req = client
-        .post(&req_path)
-        .body(raw_payload)
-        .header("Content-Type", "application/json")
-        .header("X-Forwarded-For", "127.0.0.1");
-    let res = req.send().await;
-
-    validate_capture_response(title, res).await;
-
-    // extract the processed events from the in-mem sink and validate contents
-    let got = sink.events();
-    validate_single_replay_event_payload(title, got);
+async fn test_s_endpoint_get() {
+    // GET request with payload in the "data" URL query param
+    for unit in get_cases() {
+        execute_test(&unit).await;
+    }
 }
 
 #[tokio::test]
-async fn base64_replay_event_payload() {
-    let title = "base64-replay-event-payload";
-    let raw_payload = load_request_payload(title, SINGLE_REPLAY_EVENT_JSON);
-    let base64_payload = base64::engine::general_purpose::STANDARD.encode(raw_payload);
-
-    let (router, _sink) = setup_capture_router(CaptureMode::Recordings, DEFAULT_TEST_TIME);
-    let client = TestClient::new(router);
-
-    let unix_millis_sent_at = iso8601_str_to_unix_millis(title, DEFAULT_TEST_TIME);
-    let req_path = format!("/s/?_={}&compression=base64", unix_millis_sent_at);
-    let req = client
-        .post(&req_path)
-        .body(base64_payload)
-        .header("Content-Type", "application/json")
-        .header("X-Forwarded-For", "127.0.0.1");
-    let res = req.send().await;
-
-    // we expect this to fail while /batch/, /s/, and /i/v0/e/
-    // are processed by handle_common
-    assert_eq!(
-        StatusCode::BAD_REQUEST,
-        res.status(),
-        "test {}: non-4xx response: {}",
-        title,
-        res.text().await
-    );
-
-    //validate_capture_response(title, res).await;
-
-    // extract the processed events from the in-mem sink and validate contents
-    //let got = sink.events();
-    //validate_batch_events_payload(title, got);
+async fn test_s_endpoint_post() {
+    // POST request with the payload in the body
+    for unit in post_cases() {
+        execute_test(&unit).await;
+    }
 }
 
 #[tokio::test]
-async fn gzipped_replay_event_payload() {
-    let title = "gzipped-replay-event-payload";
-    let raw_payload = load_request_payload(title, SINGLE_REPLAY_EVENT_JSON);
-    let gzipped_payload = gzip_compress(title, raw_payload);
+async fn test_s_endpoint_get_with_body() {
+    // GET requests with a body payload are treated identically to POST requests
+    let mut get_with_body_cases = post_cases();
 
-    let (router, sink) = setup_capture_router(CaptureMode::Recordings, DEFAULT_TEST_TIME);
-    let client = TestClient::new(router);
-
-    let unix_millis_sent_at = iso8601_str_to_unix_millis(title, DEFAULT_TEST_TIME);
-    let req_path = format!("/s?_={}&compression=gzip", unix_millis_sent_at);
-    let req = client
-        .post(&req_path)
-        .body(gzipped_payload)
-        .header("Content-Type", "application/json")
-        .header("X-Forwarded-For", "127.0.0.1");
-    let res = req.send().await;
-
-    validate_capture_response(title, res).await;
-
-    // extract the processed events from the in-mem sink and validate contents
-    let got = sink.events();
-    validate_single_replay_event_payload(title, got);
+    get_with_body_cases
+        .iter_mut()
+        .for_each(|tc: &mut TestCase| {
+            tc.method = Method::GetWithBody;
+            tc.title = tc.title.replace("post-", "get_with_body-");
+        });
+    for unit in get_with_body_cases {
+        execute_test(&unit).await;
+    }
 }
 
-#[tokio::test]
-async fn gzipped_no_hint_replay_event_payload() {
-    let title = "gzipped-no-hint-replay-event-payload";
-    let raw_payload = load_request_payload(title, SINGLE_REPLAY_EVENT_JSON);
-    let gzipped_payload = gzip_compress(title, raw_payload);
+fn post_cases() -> Vec<TestCase> {
+    let units = vec![
+        // single event payload tests
 
-    let (router, sink) = setup_capture_router(CaptureMode::Recordings, DEFAULT_TEST_TIME);
-    let client = TestClient::new(router);
+        // plain JSON POST body
+        TestCase::new(
+            // test case title
+            "post-simple-single-event-payload".to_string(),
+            // default fixed time for test Router & event handler
+            DEFAULT_TEST_TIME,
+            // capture-rs service mode
+            CaptureMode::Recordings,
+            // capture-rs target endpoint
+            "/s",
+            // JSON payload to use as input
+            SINGLE_REPLAY_EVENT_JSON,
+            // request submission type; one of POST or GET only for these integration tests
+            Method::Post,
+            // compression "hint" (as supplied by some SDKs)
+            None,
+            // $lib_version "hint" (as supplied by some SDKs outside of event props)
+            None,
+            // request Content-Type
+            "application/json",
+            // determine how to eval the response - do we expect to succeed or fail this call?
+            StatusCode::OK,
+            // type of pre-processing and formatting to apply to payload
+            Box::new(plain_json_payload),
+        ),
+        // plain base64'd JSON payload in POST body - NOT SUPPORTED in new capture atm
+        TestCase::new(
+            "post-base64-single-event-payload".to_string(),
+            DEFAULT_TEST_TIME,
+            CaptureMode::Recordings,
+            "/s",
+            SINGLE_REPLAY_EVENT_JSON,
+            Method::Post,
+            Some("base64"),
+            None,
+            "application/json",
+            StatusCode::BAD_REQUEST,
+            Box::new(base64_payload),
+        ),
+        // base64'd JSON payload w/o SDK encoding hint - NOT SUPPORTED by new capture atm
+        TestCase::new(
+            "post-base64-no-hint-single-event-payload".to_string(),
+            DEFAULT_TEST_TIME,
+            CaptureMode::Recordings,
+            "/s",
+            SINGLE_REPLAY_EVENT_JSON,
+            Method::Post,
+            None, // no compression hint; handling must auto-detect
+            None,
+            "text/plain",
+            StatusCode::BAD_REQUEST,
+            Box::new(base64_payload),
+        ),
+        // GZIP'd JSON single event payload
+        TestCase::new(
+            "post-gzip-single-event-payload".to_string(),
+            DEFAULT_TEST_TIME,
+            CaptureMode::Recordings,
+            "/s",
+            SINGLE_REPLAY_EVENT_JSON,
+            Method::Post,
+            Some("gzip"),
+            None,
+            "application/json",
+            StatusCode::OK,
+            Box::new(gzipped_payload),
+        ),
+        // GZIP'd single event JSON payload w/o SDK encoding hint
+        TestCase::new(
+            "post-gzip-no-hint-single-event-payload".to_string(),
+            DEFAULT_TEST_TIME,
+            CaptureMode::Recordings,
+            "/s",
+            SINGLE_REPLAY_EVENT_JSON,
+            Method::Post,
+            None, // no compression hint; handling must auto-detect
+            None,
+            "text/plain",
+            StatusCode::OK,
+            Box::new(gzipped_payload),
+        ),
+        TestCase::new(
+            "post-form-data-base64-event-payload".to_string(),
+            DEFAULT_TEST_TIME,
+            CaptureMode::Recordings,
+            "/s",
+            SINGLE_REPLAY_EVENT_JSON,
+            Method::Post,
+            None,
+            None,
+            "application/x-www-form-urlencoded",
+            StatusCode::OK,
+            Box::new(form_data_base64_payload),
+        ),
+        // single event JSON payload submitted as POST form
+        TestCase::new(
+            "post-form-urlencoded-event-payload".to_string(),
+            DEFAULT_TEST_TIME,
+            CaptureMode::Recordings,
+            "/s",
+            SINGLE_REPLAY_EVENT_JSON,
+            Method::Post,
+            None,
+            None,
+            "application/x-www-form-urlencoded",
+            StatusCode::BAD_REQUEST,
+            Box::new(form_urlencoded_payload),
+        ),
+        // single event JSON payload submitted as LZ64'd value in POST form
+        // NOT SUPPORTED by new capture atm
+        TestCase::new(
+            "post-form-lz64-urlencoded-event-payload".to_string(),
+            DEFAULT_TEST_TIME,
+            CaptureMode::Recordings,
+            "/s",
+            SINGLE_REPLAY_EVENT_JSON,
+            Method::Post,
+            Some("lz64"),
+            None,
+            "application/x-www-form-urlencoded",
+            StatusCode::BAD_REQUEST,
+            Box::new(form_lz64_urlencoded_payload),
+        ),
+    ];
 
-    // note: without a "compression" GET query param or POST form, we must auto-detect GZIP compression
-    let unix_millis_sent_at = iso8601_str_to_unix_millis(title, DEFAULT_TEST_TIME);
-    let req_path = format!("/s/?_={}", unix_millis_sent_at);
-    let req = client
-        .post(&req_path)
-        .body(gzipped_payload)
-        .header("Content-Type", "text/plain")
-        .header("X-Forwarded-For", "127.0.0.1");
-    let res = req.send().await;
-
-    validate_capture_response(title, res).await;
-
-    // extract the processed events from the in-mem sink and validate contents
-    let got = sink.events();
-    validate_single_replay_event_payload(title, got);
+    units
 }
 
-#[tokio::test]
-async fn post_form_base64_urlencoded_replay_event_payload() {
-    let title = "post-form-urlencoded-replay-event-payload";
-    let raw_payload = load_request_payload(title, SINGLE_REPLAY_EVENT_JSON);
-    let err_msg = format!(
-        "failed to serialize payload to base64 + urlencoded form in case: {}",
-        title
-    );
-    // the "new" capture endpoints like /batch/ expect base64 encoded form payloads only
-    let base64_payload = base64::engine::general_purpose::STANDARD.encode(raw_payload);
-    let form_payload =
-        serde_urlencoded::to_string([("data", base64_payload.as_str())]).expect(&err_msg);
+// NOT SUPPORTED by new capture atm
+fn get_cases() -> Vec<TestCase> {
+    let units = vec![
+        // plain base64'd JSON payload in urlencoded "data" GET param
+        TestCase::new(
+            "get-base64-urlencoded-single-event-payload".to_string(),
+            DEFAULT_TEST_TIME,
+            CaptureMode::Recordings,
+            "/s",
+            SINGLE_REPLAY_EVENT_JSON,
+            Method::Get,
+            Some("base64"),
+            None,
+            "text/plain",
+            StatusCode::BAD_REQUEST,
+            Box::new(base64_payload),
+        ),
+        // single event JSON payload submitted in urlencoded "data" GET param
+        TestCase::new(
+            "get-urlencoded-event-payload".to_string(),
+            DEFAULT_TEST_TIME,
+            CaptureMode::Recordings,
+            "/s",
+            SINGLE_REPLAY_EVENT_JSON,
+            Method::Get,
+            None,
+            None,
+            "text/plain",
+            StatusCode::BAD_REQUEST,
+            Box::new(plain_json_payload),
+        ),
+        // single event JSON payload submitted as LZ64'd value in urlencoded "data" GET param
+        TestCase::new(
+            "get-lz64-urlencoded-event-payload".to_string(),
+            DEFAULT_TEST_TIME,
+            CaptureMode::Recordings,
+            "/s",
+            SINGLE_REPLAY_EVENT_JSON,
+            Method::Get,
+            Some("lz64"),
+            None,
+            "text/plain",
+            StatusCode::BAD_REQUEST,
+            Box::new(lz64_payload),
+        ),
+    ];
 
-    let (router, sink) = setup_capture_router(CaptureMode::Recordings, DEFAULT_TEST_TIME);
-    let client = TestClient::new(router);
-
-    let unix_millis_sent_at = iso8601_str_to_unix_millis(title, DEFAULT_TEST_TIME);
-    let req_path = format!("/s/?_={}", unix_millis_sent_at);
-    let req = client
-        .post(&req_path)
-        .body(form_payload)
-        .header("Content-Type", "application/x-www-form-urlencoded")
-        .header("X-Forwarded-For", "127.0.0.1");
-    let res = req.send().await;
-
-    validate_capture_response(title, res).await;
-
-    // extract the processed events from the in-mem sink and validate contents
-    let got = sink.events();
-    validate_single_replay_event_payload(title, got);
-}
-
-#[tokio::test]
-async fn post_form_lz64_replay_event_payload() {
-    let title = "post-form-lz64-replay-event-payload";
-    let raw_payload = load_request_payload(title, SINGLE_REPLAY_EVENT_JSON);
-    let lz64_payload = lz64_compress(title, raw_payload);
-    let err_msg = format!(
-        "failed to serialize LZ64 payload to urlencoded form in case: {}",
-        title
-    );
-    let form_payload = serde_urlencoded::to_string([("data", lz64_payload)]).expect(&err_msg);
-
-    let (router, _sink) = setup_capture_router(CaptureMode::Recordings, DEFAULT_TEST_TIME);
-    let client = TestClient::new(router);
-
-    let unix_millis_sent_at = iso8601_str_to_unix_millis(title, DEFAULT_TEST_TIME);
-    let req_path = format!("/s/?_={}&compression=lz64", unix_millis_sent_at);
-    let req = client
-        .post(&req_path)
-        .body(form_payload)
-        .header("Content-Type", "application/x-www-form-urlencoded")
-        .header("X-Forwarded-For", "127.0.0.1");
-    let res = req.send().await;
-
-    // we expect this to fail while /batch/, /s/, and /i/v0/e/
-    // are processed by handle_common, w/o LZ64 support
-    assert_eq!(
-        StatusCode::BAD_REQUEST,
-        res.status(),
-        "test {}: non-4xx response: {}",
-        title,
-        res.text().await
-    );
-
-    //validate_capture_response(title, res).await;
-
-    // extract the processed events from the in-mem sink and validate contents
-    //let got = sink.events();
-    //validate_batch_events_payload(title, got);
+    units
 }

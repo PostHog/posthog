@@ -16,7 +16,7 @@ import {
     UniversalFiltersGroup,
 } from '~/types'
 
-import { resolveDateRange, SEARCHABLE_EXCEPTION_PROPERTIES } from './utils'
+import { SEARCHABLE_EXCEPTION_PROPERTIES } from './utils'
 
 export const errorTrackingQuery = ({
     orderBy,
@@ -44,7 +44,7 @@ export const errorTrackingQuery = ({
             kind: NodeKind.ErrorTrackingQuery,
             orderBy,
             status,
-            dateRange: resolveDateRange(dateRange, { value: 10, unit: 'minutes' }).toDateRange(),
+            dateRange,
             assignee,
             volumeResolution,
             filterGroup: filterGroup as PropertyGroupFilter,
@@ -88,7 +88,7 @@ export const errorTrackingIssueQuery = ({
     return setLatestVersionsOnQuery<ErrorTrackingQuery>({
         kind: NodeKind.ErrorTrackingQuery,
         issueId,
-        dateRange: resolveDateRange(dateRange, { value: 10, unit: 'minutes' }).toDateRange(),
+        dateRange,
         filterGroup: filterGroup as PropertyGroupFilter,
         filterTestAccounts,
         searchQuery,
@@ -120,9 +120,6 @@ export const errorTrackingIssueEventsQuery = ({
     if (!issueId) {
         throw new Error('issue id is required')
     }
-    if (!dateRange.date_from) {
-        throw new Error('date_from is required')
-    }
 
     const group = filterGroup.values[0] as UniversalFiltersGroup
     const properties = [...group.values] as AnyPropertyFilter[]
@@ -149,8 +146,8 @@ export const errorTrackingIssueEventsQuery = ({
         where,
         properties,
         filterTestAccounts: filterTestAccounts,
-        after: dateRange.date_from,
-        before: dateRange.date_to || undefined,
+        after: dateRange.date_from ?? undefined,
+        before: dateRange.date_to ?? undefined,
     }
 
     return eventsQuery
