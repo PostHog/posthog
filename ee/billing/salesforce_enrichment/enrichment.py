@@ -1,81 +1,38 @@
-import sys
 import time
 from datetime import datetime
+from typing import Any
 from urllib.parse import urlparse
 
 from posthog.temporal.common.logger import get_internal_logger
-from .harmonic_client import HarmonicClient
+from posthog.exceptions_capture import capture_exception
+
+from .constants import (
+    HARMONIC_BATCH_SIZE,
+    SALESFORCE_UPDATE_BATCH_SIZE,
+    HARMONIC_DEFAULT_MAX_CONCURRENT_REQUESTS,
+    PERSONAL_EMAIL_DOMAINS,
+    METRIC_PERIODS,
+)
+from .harmonic_client import AsyncHarmonicClient
+from .redis_cache import get_accounts_from_redis
 from .salesforce_client import SalesforceClient
 
-# List of common personal email domains
-PERSONAL_EMAIL_DOMAINS = {
-    "gmail.com",
-    "yahoo.com",
-    "hotmail.com",
-    "outlook.com",
-    "aol.com",
-    "icloud.com",
-    "protonmail.com",
-    "zoho.com",
-    "yandex.com",
-    "live.com",
-    "msn.com",
-    "me.com",
-    "mac.com",
-    "gmx.com",
-    "yahoo.co.uk",
-    "yahoo.co.jp",
-    "yahoo.co.in",
-    "yahoo.com.au",
-    "yahoo.com.sg",
-    "yahoo.com.ph",
-    "yahoo.com.my",
-    "yahoo.com.hk",
-    "yahoo.com.tw",
-    "yahoo.com.vn",
-    "yahoo.com.br",
-    "yahoo.com.ar",
-    "yahoo.com.mx",
-    "yahoo.com.tr",
-    "yahoo.com.ua",
-    "yahoo.com.eg",
-    "yahoo.com.sa",
-    "yahoo.com.ae",
-    "yahoo.com.kr",
-    "yahoo.com.cn",
-    "yahoo.com.ru",
-    "yahoo.com.id",
-    "yahoo.com.th",
-    "yahoo.com.ve",
-    "yahoo.com.pe",
-    "yahoo.com.cl",
-    "yahoo.com.co",
-    "yahoo.com.ec",
-    "yahoo.com.uy",
-    "yahoo.com.py",
-    "yahoo.com.bo",
-    "yahoo.com.do",
-    "yahoo.com.pr",
-    "yahoo.com.gt",
-    "yahoo.com.sv",
-    "yahoo.com.hn",
-    "yahoo.com.ni",
-    "yahoo.com.cr",
-    "yahoo.com.pa",
-}
 
-
-def is_personal_domain(domain):
-    """Check if a domain is a personal email domain."""
+def is_excluded_domain(domain: str | None) -> bool:
+    """Check if domain should be excluded from enrichment (personal email domains, etc)."""
     if not domain:
         return True
 
-    # Clean the domain first
-    domain = domain.lower().strip()
-    if domain.startswith("www."):
-        domain = domain.replace("www.", "", 1)
+    domain = domain.lower().strip().removeprefix("www.")
 
-    # Extract the main domain (last two parts)
+    if not domain:
+        return True
+
+    # Check full domain first (handles yahoo.co.uk, yahoo.com.au, etc.)
+    if domain in PERSONAL_EMAIL_DOMAINS:
+        return True
+
+    # Fall back to main domain (last two parts) for standard domains
     parts = domain.split(".")
     if len(parts) >= 2:
         main_domain = ".".join(parts[-2:])
@@ -84,8 +41,15 @@ def is_personal_domain(domain):
     return False
 
 
-def transform_harmonic_data(company_data):
-    """Transform raw Harmonic GraphQL response to expected format."""
+def transform_harmonic_data(company_data: dict[str, Any]) -> dict[str, Any] | None:
+    """Transform Harmonic API response into Salesforce field format.
+
+    Args:
+        company_data: Raw GraphQL response from Harmonic API
+
+    Returns:
+        Dict with funding, company_info, and metrics for Salesforce update
+    """
     if not company_data or not isinstance(company_data, dict):
         return None
 
@@ -99,14 +63,11 @@ def transform_harmonic_data(company_data):
             "type": company_data.get("companyType"),
             "website": website_data.get("url") if isinstance(website_data, dict) else None,
             "description": company_data.get("description"),
-            "location": None,  # Location is null in the response
             "founding_date": founding_data.get("date") if isinstance(founding_data, dict) else None,
         },
         "funding": company_data.get("funding", {}),
         "metrics": {},
     }
-
-    # Remove debug logging to keep output concise
 
     # Transform metrics data
     traction_metrics = company_data.get("tractionMetrics", {})
@@ -120,12 +81,8 @@ def transform_harmonic_data(company_data):
             # Process historical data
             historical_data = metric_data.get("metrics", [])
 
-            # We need to find the value closest to each target period
-            # Target days for each period (looking back from today)
-            target_days = {"14d": 14, "30d": 30, "90d": 90, "180d": 180, "365d": 365}
-
             # Initialize best matches for each period
-            best_matches = {}
+            best_matches: dict[str, dict[str, int | float]] = {}
 
             for metric in historical_data:
                 if not metric.get("timestamp") or metric.get("metricValue") is None:
@@ -136,7 +93,7 @@ def transform_harmonic_data(company_data):
                 days_ago = (datetime.now().date() - metric_date.date()).days
 
                 # For each target period, find the closest match
-                for period, target in target_days.items():
+                for period, target in METRIC_PERIODS.items():
                     # Skip if this metric is too recent for this period
                     if days_ago < target - 7:  # Allow 7 days tolerance before target
                         continue
@@ -170,8 +127,16 @@ def transform_harmonic_data(company_data):
     return transformed_data
 
 
-def prepare_salesforce_update_data(account_id, harmonic_data):
-    """Prepare Salesforce update data for bulk update."""
+def prepare_salesforce_update_data(account_id: str, harmonic_data: dict[str, Any]) -> dict[str, Any] | None:
+    """Convert enriched data to Salesforce field mappings for bulk update.
+
+    Args:
+        account_id: Salesforce Account.Id
+        harmonic_data: Output from transform_harmonic_data()
+
+    Returns:
+        Dict ready for Salesforce sObject Collections API
+    """
     if not harmonic_data:
         return None
 
@@ -231,7 +196,12 @@ def prepare_salesforce_update_data(account_id, harmonic_data):
 
 
 def bulk_update_salesforce_accounts(sf, update_records):
-    """Update Salesforce accounts using sObject Collections for optimal bulk updates."""
+    """Update Salesforce accounts in batches of 200 using sObject Collections API.
+
+    Args:
+        sf: simple_salesforce.Salesforce client
+        update_records: List of dicts with Id + field updates
+    """
     logger = get_internal_logger()
 
     if not update_records:
@@ -240,8 +210,8 @@ def bulk_update_salesforce_accounts(sf, update_records):
 
     logger.info("Starting optimized bulk update", total_records=len(update_records))
 
-    # Split into batches of 200 (sObject Collections limit - 8x more efficient than Composite API)
-    batch_size = 200
+    # Split into batches using sObject Collections limit (8x more efficient than Composite API)
+    batch_size = SALESFORCE_UPDATE_BATCH_SIZE
     batches = [update_records[i : i + batch_size] for i in range(0, len(update_records), batch_size)]
 
     total_success = 0
@@ -299,6 +269,7 @@ def bulk_update_salesforce_accounts(sf, update_records):
 
         except Exception as e:
             logger.exception("Batch processing failed", batch_number=batch_num, error=str(e))
+            capture_exception(e)
             total_errors += len(batch)
 
     success_rate = (total_success / len(update_records) * 100) if len(update_records) > 0 else 0
@@ -310,20 +281,31 @@ def bulk_update_salesforce_accounts(sf, update_records):
     )
 
 
-def query_salesforce_accounts_chunk(sf, offset=0, limit=5000, workflow_id=None):
+async def query_salesforce_accounts_chunk_async(sf, offset=0, limit=5000):
     """
-    Query Salesforce accounts in chunks with Redis cache-first approach.
+    Async version of Salesforce account querying with Redis cache-first approach.
 
     Args:
-        sf: Salesforce client
+        sf: Salesforce client (sync)
         offset: Starting index for pagination
         limit: Number of accounts to retrieve
-        workflow_id: Optional workflow ID for Redis cache retrieval
     """
+    logger = get_internal_logger()
 
-    # Redis cache not available in sync context, fallback to Salesforce
+    # Try Redis cache first
+    cache_start = time.time()
+    try:
+        cached_accounts = await get_accounts_from_redis(offset, limit)
+        cache_time = time.time() - cache_start
 
-    # Fallback to traditional Salesforce query
+        if cached_accounts is not None:
+            logger.info("Redis cache hit", accounts_count=len(cached_accounts), cache_time=round(cache_time, 3))
+            return cached_accounts
+    except Exception as e:
+        cache_time = time.time() - cache_start
+        logger.warning("Redis cache error", error=str(e), cache_time=round(cache_time, 3))
+
+    # Fallback to Salesforce query
     sf_start = time.time()
     query = """
         SELECT Id, Name, Website, CreatedDate
@@ -335,7 +317,8 @@ def query_salesforce_accounts_chunk(sf, offset=0, limit=5000, workflow_id=None):
     try:
         # Use query_all to get all accounts
         accounts = sf.query_all(query)
-        time.time() - sf_start
+        sf_time = time.time() - sf_start
+        logger.info("Salesforce query complete", total_accounts=accounts["totalSize"], query_time=round(sf_time, 2))
 
         # Paginate in memory
         start_idx = offset
@@ -347,98 +330,189 @@ def query_salesforce_accounts_chunk(sf, offset=0, limit=5000, workflow_id=None):
         chunk_records = accounts["records"][start_idx:end_idx]
 
         return chunk_records
-    except Exception:
+    except Exception as e:
+        logger.exception("Salesforce query failed", error=str(e))
+        capture_exception(e)
         return []
 
 
-def enrich_accounts_chunked(
+async def enrich_accounts_chunked_async(
     chunk_number: int = 0,
     chunk_size: int = 5000,
     estimated_total_chunks: int | None = None,
-    workflow_id: str | None = None,
-):
-    get_internal_logger()
-    """
-    Enrich Salesforce accounts with Harmonic data.
+) -> dict[str, Any]:
+    """Enrich Salesforce accounts with Harmonic data using concurrent API calls.
+
+    Main workflow function that:
+    1. Queries chunk of Salesforce accounts (with global Redis caching)
+    2. Enriches business domains with Harmonic API (5 concurrent requests)
+    3. Updates Salesforce in batches of 200 using sObject Collections
 
     Args:
-        chunk_number: Which chunk to process (0-based index)
-        chunk_size: Number of accounts per chunk
+        chunk_number: Starting chunk (0-based)
+        chunk_size: Accounts per chunk (default: 5000)
+        estimated_total_chunks: For progress logging
 
     Returns:
-        dict: Results with statistics
+        Dict with total_processed, total_enriched, total_updated, success_rate
     """
+    logger = get_internal_logger()
     start_time = time.time()
     offset = chunk_number * chunk_size
 
     # Display chunk progress with estimated total
     if estimated_total_chunks:
-        pass
+        logger.info(
+            "Starting async chunk",
+            chunk_number=chunk_number,
+            estimated_total_chunks=estimated_total_chunks,
+            offset=offset,
+            end_offset=offset + chunk_size - 1,
+        )
     else:
-        pass
+        logger.info(
+            "Starting async chunk", chunk_number=chunk_number, offset=offset, end_offset=offset + chunk_size - 1
+        )
 
-    # Initialize Salesforce client
-    time.time()
+    # Initialize Salesforce client (still sync)
+    sf_start = time.time()
     try:
-        sf_client = SalesforceClient()
-        sf = sf_client.client  # Get the underlying simple-salesforce client
-    except Exception:
-        return
+        sf = SalesforceClient()
+        logger.info("Connected to Salesforce", connection_time=round(time.time() - sf_start, 2))
+    except Exception as e:
+        logger.exception("Failed to connect to Salesforce", error=str(e))
+        capture_exception(e)
+        return {
+            "chunk_number": chunk_number,
+            "chunk_size": chunk_size,
+            "total_accounts_in_chunk": 0,
+            "total_processed": 0,
+            "total_enriched": 0,
+            "records_updated": 0,
+            "success_rate": 0,
+            "error": str(e),
+        }
 
-    # Initialize Harmonic client
-    time.time()
+    # Query accounts
+    query_start = time.time()
     try:
-        harmonic_client = HarmonicClient()
-    except Exception:
-        return
-
-    try:
-        # Query accounts in this chunk (with Redis cache-first approach)
-        query_start = time.time()
-        accounts = query_salesforce_accounts_chunk(sf, offset, chunk_size, workflow_id)
-        query_time = time.time() - query_start
+        accounts = await query_salesforce_accounts_chunk_async(sf, offset, chunk_size)
         if not accounts:
-            return
+            logger.info("No accounts found in this chunk")
+            return {
+                "chunk_number": chunk_number,
+                "chunk_size": chunk_size,
+                "total_accounts_in_chunk": 0,
+                "total_processed": 0,
+                "total_enriched": 0,
+                "records_updated": 0,
+                "success_rate": 0,
+                "timing": {"total_time": time.time() - start_time},
+            }
 
-        # Track statistics
-        total_processed = 0
-        total_enriched = 0
-        total_failed = 0
-        update_records = []
-        enrichment_time = 0
+        logger.info(
+            "Found accounts to process",
+            total_accounts=len(accounts),
+            chunk_number=chunk_number,
+            query_time=round(time.time() - query_start, 2),
+        )
+    except Exception as e:
+        logger.exception("Failed to query accounts", error=str(e))
+        capture_exception(e)
+        return {
+            "chunk_number": chunk_number,
+            "chunk_size": chunk_size,
+            "total_accounts_in_chunk": 0,
+            "total_processed": 0,
+            "total_enriched": 0,
+            "records_updated": 0,
+            "success_rate": 0,
+            "error": str(e),
+        }
 
-        # Process each account and collect data
-        processing_start = time.time()
-        for i, account in enumerate(accounts):
-            account_id = account["Id"]
-            website = account["Website"]
+    # Prepare account data for async processing
+    processing_start = time.time()
+    enrichment_time = 0.0
 
-            # Progress indicator every 10 accounts
-            if (i + 1) % 10 == 0:
-                pass
+    # Extract domains and prepare account info
+    account_data = []
+    for account in accounts:
+        account_id = account["Id"]
+        website = account["Website"]
 
-            try:
-                parsed = urlparse(website if website.startswith(("http://", "https://")) else f"https://{website}")
-                domain = parsed.netloc
-            except Exception:
-                continue
+        try:
+            parsed = urlparse(website if website.startswith(("http://", "https://")) else f"https://{website}")
+            domain = parsed.netloc
+        except Exception:
+            continue
 
-            # Skip personal domains
-            if is_personal_domain(domain):
-                continue
+        # Skip excluded domains
+        if is_excluded_domain(domain):
+            continue
 
-            total_processed += 1
+        account_data.append({"account_id": account_id, "domain": domain, "account": account})
 
-            # Get enrichment data from Harmonic
-            try:
-                api_start = time.time()
-                company_data = harmonic_client.enrich_company_by_domain(domain)
-                api_time = time.time() - api_start
-                enrichment_time += api_time
+    logger.info(
+        "Processing business domains",
+        business_domains=len(account_data),
+        total_accounts=len(accounts),
+        filter_ratio=round(len(account_data) / len(accounts) * 100, 1),
+    )
 
-                if company_data:
-                    # Transform the raw GraphQL response to expected format
-                    harmonic_data = transform_harmonic_data(company_data)
+    if not account_data:
+        logger.info("No business domains to process")
+        return {
+            "chunk_number": chunk_number,
+            "chunk_size": chunk_size,
+            "total_accounts_in_chunk": len(accounts),
+            "total_processed": 0,
+            "total_enriched": 0,
+            "records_updated": 0,
+            "success_rate": 0,
+            "timing": {"total_time": time.time() - start_time},
+        }
+
+    # Process in batches with controlled concurrent requests
+    batch_size = HARMONIC_BATCH_SIZE
+    total_enriched = 0
+    total_failed = 0
+    update_records = []
+
+    # Use async harmonic client
+    async with AsyncHarmonicClient(max_concurrent_requests=HARMONIC_DEFAULT_MAX_CONCURRENT_REQUESTS) as harmonic_client:
+        logger.info("Connected to Harmonic async client", concurrent_requests=HARMONIC_DEFAULT_MAX_CONCURRENT_REQUESTS)
+
+        # Process accounts in batches
+        for batch_start in range(0, len(account_data), batch_size):
+            batch_end = min(batch_start + batch_size, len(account_data))
+            batch = account_data[batch_start:batch_end]
+
+            batch_num = batch_start // batch_size + 1
+            total_batches = (len(account_data) + batch_size - 1) // batch_size
+            logger.info(
+                "Processing batch",
+                batch_number=batch_num,
+                total_batches=total_batches,
+                batch_size=len(batch),
+                chunk_number=chunk_number,
+            )
+
+            # Extract domains for this batch
+            batch_domains = [item["domain"] for item in batch]
+
+            # Make concurrent Harmonic API calls
+            batch_start_time = time.time()
+            harmonic_results = await harmonic_client.enrich_companies_batch(batch_domains)
+            batch_api_time = time.time() - batch_start_time
+            enrichment_time += batch_api_time
+
+            # Process results
+            for account_info, harmonic_result in zip(batch, harmonic_results):
+                account_id = account_info["account_id"]
+
+                if harmonic_result:
+                    # Transform the raw GraphQL response
+                    harmonic_data = transform_harmonic_data(harmonic_result)
 
                     if harmonic_data:
                         total_enriched += 1
@@ -452,58 +526,71 @@ def enrich_accounts_chunked(
                         total_failed += 1
                 else:
                     total_failed += 1
-            except Exception:
-                total_failed += 1
 
-            # Print progress stats every 200 accounts
-            if (i + 1) % 200 == 0:
-                elapsed = time.time() - processing_start
-                avg_time = elapsed / (i + 1)
-                remaining = len(accounts) - (i + 1)
-                remaining * avg_time
-                (total_enriched / total_processed * 100) if total_processed > 0 else 0
+            # Progress update
+            processed_so_far = min(batch_end, len(account_data))
+            success_rate = (total_enriched / processed_so_far * 100) if processed_so_far > 0 else 0
+            avg_time_per_batch = enrichment_time / ((batch_start // batch_size) + 1)
+            remaining_batches = ((len(account_data) - processed_so_far) + batch_size - 1) // batch_size
+            eta = remaining_batches * avg_time_per_batch
 
-        # Perform batch update
-        if update_records:
-            update_start = time.time()
-            bulk_update_salesforce_accounts(sf, update_records)
-            update_time = time.time() - update_start
-        else:
-            update_time = 0
+            logger.info(
+                "Chunk progress",
+                chunk_number=chunk_number,
+                processed=processed_so_far,
+                total=len(account_data),
+                enriched=total_enriched,
+                success_rate=round(success_rate, 1),
+                batch_time=round(batch_api_time, 2),
+                eta_minutes=round(eta / 60, 1),
+            )
 
-        # Print final statistics with timing
-        total_time = time.time() - start_time
-        processing_time = time.time() - processing_start
-        avg_enrichment_time = enrichment_time / total_processed if total_processed > 0 else 0
+    # Perform batch update
+    if update_records:
+        logger.info("Starting batch update", total_records=len(update_records))
+        update_start = time.time()
+        bulk_update_salesforce_accounts(sf, update_records)
+        update_time = time.time() - update_start
+    else:
+        logger.info("No records to update")
+        update_time = 0
 
-        # Return results dictionary
-        return {
-            "chunk_number": chunk_number,
-            "chunk_size": chunk_size,
-            "total_accounts_in_chunk": len(accounts),
-            "total_processed": total_processed,
-            "total_enriched": total_enriched,
-            "records_updated": len(update_records),
-            "success_rate": round(total_enriched / total_processed * 100, 1) if total_processed > 0 else 0,
-            "timing": {
-                "total_time": round(total_time, 2),
-                "salesforce_query_time": round(query_time, 2),
-                "processing_time": round(processing_time, 2),
-                "enrichment_time": round(enrichment_time, 2),
-                "avg_enrichment_time": round(avg_enrichment_time, 2),
-                "update_time": round(update_time, 2),
-            },
-        }
+    # Print final statistics
+    total_time = time.time() - start_time
+    processing_time = time.time() - processing_start
+    avg_enrichment_time = enrichment_time / len(account_data) if len(account_data) > 0 else 0
 
-    except Exception as e:
-        return {"chunk_number": chunk_number, "chunk_size": chunk_size, "error": str(e), "success_rate": 0}
+    logger.info(
+        "Async chunk summary",
+        chunk_number=chunk_number,
+        total_processed=len(account_data),
+        total_enriched=total_enriched,
+        failed_enrichments=total_failed,
+        success_rate=round(total_enriched / len(account_data) * 100, 1) if len(account_data) > 0 else 0,
+        records_updated=len(update_records),
+        timing={
+            "total_time": round(total_time, 2),
+            "processing_time": round(processing_time, 2),
+            "enrichment_time": round(enrichment_time, 2),
+            "avg_enrichment_time": round(avg_enrichment_time, 2),
+            "update_time": round(update_time, 2),
+        },
+    )
 
-
-if __name__ == "__main__":
-    # Simple argument parsing
-    chunk_number = int(sys.argv[1]) if len(sys.argv) > 1 else 0
-    chunk_size = int(sys.argv[2]) if len(sys.argv) > 2 else 5000
-
-    result = enrich_accounts_chunked(chunk_number, chunk_size)
-    if result:
-        pass
+    # Return results dictionary
+    return {
+        "chunk_number": chunk_number,
+        "chunk_size": chunk_size,
+        "total_accounts_in_chunk": len(accounts),
+        "total_processed": len(account_data),
+        "total_enriched": total_enriched,
+        "records_updated": len(update_records),
+        "success_rate": round(total_enriched / len(account_data) * 100, 1) if len(account_data) > 0 else 0,
+        "timing": {
+            "total_time": round(total_time, 2),
+            "processing_time": round(processing_time, 2),
+            "enrichment_time": round(enrichment_time, 2),
+            "avg_enrichment_time": round(avg_enrichment_time, 2),
+            "update_time": round(update_time, 2),
+        },
+    }

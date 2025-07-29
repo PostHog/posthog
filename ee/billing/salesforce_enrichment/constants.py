@@ -1,0 +1,67 @@
+REDIS_TTL_SECONDS: int = 12 * 60 * 60  # 12h
+SALESFORCE_ACCOUNTS_CACHE_KEY: str = "salesforce-enrichment:global:all_accounts"
+HARMONIC_DEFAULT_MAX_CONCURRENT_REQUESTS: int = 5  # rate limit: 10/s
+HARMONIC_REQUEST_TIMEOUT_SECONDS: int = 30
+HARMONIC_BATCH_SIZE: int = 100
+SALESFORCE_UPDATE_BATCH_SIZE: int = 200  # Max records per sObject Collections API call
+
+# Metric time periods for historical data (in days)
+METRIC_PERIODS = {"14d": 14, "30d": 30, "90d": 90, "180d": 180, "365d": 365}
+
+# Common personal email domains to filter out
+PERSONAL_EMAIL_DOMAINS = {
+    "gmail.com",
+    "yahoo.com",
+    "hotmail.com",
+    "outlook.com",
+    "aol.com",
+    "icloud.com",
+    "protonmail.com",
+    "zoho.com",
+    "yandex.com",
+    "live.com",
+    "msn.com",
+    "me.com",
+    "mac.com",
+    "gmx.com",
+    # Additional yahoo domains
+    "yahoo.co.uk",
+    "yahoo.co.jp",
+    "yahoo.co.in",
+    "yahoo.com.au",
+    "yahoo.com.sg",
+    "yahoo.com.ph",
+    "yahoo.com.my",
+    "yahoo.com.hk",
+    "yahoo.com.tw",
+    "yahoo.com.vn",
+    "yahoo.com.br",
+    "yahoo.com.ar",
+    "yahoo.com.mx",
+    "yahoo.com.tr",
+    "yahoo.com.ua",
+    "yahoo.com.eg",
+    "yahoo.com.sa",
+    "yahoo.com.ae",
+    "yahoo.com.kr",
+    "yahoo.com.cn",
+    "yahoo.com.ru",
+    "yahoo.com.id",
+    "yahoo.com.th",
+    "yahoo.com.ve",
+    "yahoo.com.pe",
+    "yahoo.com.cl",
+    "yahoo.com.co",
+    "yahoo.com.ec",
+    "yahoo.com.uy",
+    "yahoo.com.py",
+    "yahoo.com.bo",
+    "yahoo.com.do",
+    "yahoo.com.pr",
+    "yahoo.com.gt",
+    "yahoo.com.sv",
+    "yahoo.com.hn",
+    "yahoo.com.ni",
+    "yahoo.com.cr",
+    "yahoo.com.pa",
+}
