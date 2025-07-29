@@ -1086,7 +1086,7 @@
                 },
                 "exclusions": {
                     "default": [],
-                    "description": "Users may want to use exclusion events to filter out conversions in which a particular event occurred between specific steps. These events must not be included in the main sequence. You must include start and end indexes for each exclusion where the minimum index is one and the maximum index is the number of steps in the funnel. For example, there is a sequence with three steps: sign up, finish onboarding, purchase. If the user wants to exclude all conversions in which users left the page before finishing the onboarding, the exclusion step would be the event `$pageleave` with start index 2 and end index 3. When exclusion steps appear needed when you're planning the query, make sure to explicitly state this in the plan.",
+                    "description": "Users may want to use exclusion events to filter out conversions in which a particular event occurred between specific steps. These events must not be included in the main sequence. This doesn't exclude users who have completed the event before or after the funnel sequence, but often this is what users want. (If not sure, worth clarifying.) You must include start and end indexes for each exclusion where the minimum index is one and the maximum index is the number of steps in the funnel. For example, there is a sequence with three steps: sign up, finish onboarding, purchase. If the user wants to exclude all conversions in which users left the page before finishing the onboarding, the exclusion step would be the event `$pageleave` with start index 2 and end index 3. When exclusion steps appear needed when you're planning the query, make sure to explicitly state this in the plan.",
                     "items": {
                         "$ref": "#/definitions/AssistantFunnelsExclusionEventsNode"
                     },
@@ -1116,7 +1116,7 @@
                 "funnelWindowInterval": {
                     "$ref": "#/definitions/integer",
                     "default": 14,
-                    "description": "Controls a time frame value for a conversion to be considered. Select a reasonable value based on the user's query. Use in combination with `funnelWindowIntervalUnit`. The default value is 14 days."
+                    "description": "Controls a time frame value for a conversion to be considered. Select a reasonable value based on the user's query. If needed, this can be practically unlimited by setting a large value, though it's rare to need that. Use in combination with `funnelWindowIntervalUnit`. The default value is 14 days."
                 },
                 "funnelWindowIntervalUnit": {
                     "$ref": "#/definitions/FunnelConversionWindowTimeUnit",
@@ -1242,27 +1242,7 @@
                             "description": "`icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern."
                         },
                         "type": {
-                            "anyOf": [
-                                {
-                                    "const": "event",
-                                    "description": "Event properties",
-                                    "type": "string"
-                                },
-                                {
-                                    "const": "person",
-                                    "description": "Person properties",
-                                    "type": "string"
-                                },
-                                {
-                                    "const": "session",
-                                    "type": "string"
-                                },
-                                {
-                                    "const": "feature",
-                                    "description": "Event property with \"$feature/\" prepended",
-                                    "type": "string"
-                                }
-                            ]
+                            "$ref": "#/definitions/AssistantGenericPropertyFilterType"
                         },
                         "value": {
                             "description": "Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties.",
@@ -1283,27 +1263,7 @@
                             "$ref": "#/definitions/AssistantNumericValuePropertyFilterOperator"
                         },
                         "type": {
-                            "anyOf": [
-                                {
-                                    "const": "event",
-                                    "description": "Event properties",
-                                    "type": "string"
-                                },
-                                {
-                                    "const": "person",
-                                    "description": "Person properties",
-                                    "type": "string"
-                                },
-                                {
-                                    "const": "session",
-                                    "type": "string"
-                                },
-                                {
-                                    "const": "feature",
-                                    "description": "Event property with \"$feature/\" prepended",
-                                    "type": "string"
-                                }
-                            ]
+                            "$ref": "#/definitions/AssistantGenericPropertyFilterType"
                         },
                         "value": {
                             "type": "number"
@@ -1324,27 +1284,7 @@
                             "description": "`exact` - exact match of any of the values. `is_not` - does not match any of the values."
                         },
                         "type": {
-                            "anyOf": [
-                                {
-                                    "const": "event",
-                                    "description": "Event properties",
-                                    "type": "string"
-                                },
-                                {
-                                    "const": "person",
-                                    "description": "Person properties",
-                                    "type": "string"
-                                },
-                                {
-                                    "const": "session",
-                                    "type": "string"
-                                },
-                                {
-                                    "const": "feature",
-                                    "description": "Event property with \"$feature/\" prepended",
-                                    "type": "string"
-                                }
-                            ]
+                            "$ref": "#/definitions/AssistantGenericPropertyFilterType"
                         },
                         "value": {
                             "description": "Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string \"true\" or \"false\".",
@@ -1368,27 +1308,7 @@
                             "$ref": "#/definitions/AssistantDateTimePropertyFilterOperator"
                         },
                         "type": {
-                            "anyOf": [
-                                {
-                                    "const": "event",
-                                    "description": "Event properties",
-                                    "type": "string"
-                                },
-                                {
-                                    "const": "person",
-                                    "description": "Person properties",
-                                    "type": "string"
-                                },
-                                {
-                                    "const": "session",
-                                    "type": "string"
-                                },
-                                {
-                                    "const": "feature",
-                                    "description": "Event property with \"$feature/\" prepended",
-                                    "type": "string"
-                                }
-                            ]
+                            "$ref": "#/definitions/AssistantGenericPropertyFilterType"
                         },
                         "value": {
                             "description": "Value must be a date in ISO 8601 format.",
@@ -1410,33 +1330,17 @@
                             "description": "`is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected."
                         },
                         "type": {
-                            "anyOf": [
-                                {
-                                    "const": "event",
-                                    "description": "Event properties",
-                                    "type": "string"
-                                },
-                                {
-                                    "const": "person",
-                                    "description": "Person properties",
-                                    "type": "string"
-                                },
-                                {
-                                    "const": "session",
-                                    "type": "string"
-                                },
-                                {
-                                    "const": "feature",
-                                    "description": "Event property with \"$feature/\" prepended",
-                                    "type": "string"
-                                }
-                            ]
+                            "$ref": "#/definitions/AssistantGenericPropertyFilterType"
                         }
                     },
                     "required": ["key", "operator", "type"],
                     "type": "object"
                 }
             ]
+        },
+        "AssistantGenericPropertyFilterType": {
+            "enum": ["event", "person", "session", "feature"],
+            "type": "string"
         },
         "AssistantGroupMultipleBreakdownFilter": {
             "additionalProperties": false,
@@ -2022,9 +1926,6 @@
                 "math_property": {
                     "type": "string"
                 },
-                "math_property_revenue_currency": {
-                    "$ref": "#/definitions/RevenueCurrencyPropertyConfig"
-                },
                 "math_property_type": {
                     "type": "string"
                 },
@@ -2136,9 +2037,6 @@
                 },
                 "math_property": {
                     "type": "string"
-                },
-                "math_property_revenue_currency": {
-                    "$ref": "#/definitions/RevenueCurrencyPropertyConfig"
                 },
                 "math_property_type": {
                     "type": "string"
@@ -9521,7 +9419,6 @@
                         "additionalProperties": false,
                         "properties": {
                             "label": {
-                                "format": "date-time",
                                 "type": "string"
                             },
                             "value": {
@@ -9534,7 +9431,7 @@
                     "type": "array"
                 }
             },
-            "required": ["occurrences", "sessions", "users", "volumeRange"],
+            "required": ["occurrences", "sessions", "users", "volume_buckets"],
             "type": "object"
         },
         "ErrorTrackingIssueAssignee": {
@@ -19487,6 +19384,10 @@
             ],
             "type": "string"
         },
+        "RecordingOrderDirection": {
+            "enum": ["ASC", "DESC"],
+            "type": "string"
+        },
         "RecordingPropertyFilter": {
             "additionalProperties": false,
             "properties": {
@@ -19586,6 +19487,11 @@
                 "order": {
                     "$ref": "#/definitions/RecordingOrder",
                     "default": "start_time"
+                },
+                "order_direction": {
+                    "$ref": "#/definitions/RecordingOrderDirection",
+                    "default": "DESC",
+                    "description": "Replay originally had all ordering as descending by specifying the field name, this runs counter to Django behavior where the field name specifies ascending sorting (e.g. the_field_name) and -the_field_name would indicate descending order to avoid invalidating or migrating all existing filters we keep DESC as the default or allow specification of an explicit order direction here"
                 },
                 "person_uuid": {
                     "type": "string"

@@ -6,11 +6,11 @@ from ee.api.hooks import valid_domain, create_zapier_hog_function
 from ee.api.test.base import APILicensedTest
 from ee.models.hook import Hook
 from common.hogvm.python.operation import HOGQL_BYTECODE_VERSION
+from posthog.cdp.templates.hog_function_template import sync_template_to_db
 from posthog.models.action.action import Action
 from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.test.base import ClickhouseTestMixin
 from posthog.cdp.templates.zapier.template_zapier import template as template_zapier
-from posthog.models.hog_function_template import HogFunctionTemplate
 
 
 class TestHooksAPI(ClickhouseTestMixin, APILicensedTest):
@@ -28,7 +28,7 @@ class TestHooksAPI(ClickhouseTestMixin, APILicensedTest):
                 }
             ],
         )
-        HogFunctionTemplate.create_from_dataclass(template_zapier)
+        sync_template_to_db(template_zapier)
 
     def test_delete_hook(self):
         hook_id = "abc123"
@@ -70,6 +70,7 @@ class TestHooksAPI(ClickhouseTestMixin, APILicensedTest):
         assert hog_function.description == template_zapier.description
 
         assert hog_function.filters == {
+            "source": "events",
             "actions": [{"id": str(self.action.id), "name": "", "type": "actions", "order": 0}],
             "bytecode": ["_H", HOGQL_BYTECODE_VERSION, 32, "$pageview", 32, "event", 1, 1, 11, 3, 1, 4, 1],
         }

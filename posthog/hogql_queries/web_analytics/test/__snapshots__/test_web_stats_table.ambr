@@ -14,7 +14,8 @@
   '''
   SELECT breakdown_value AS `context.columns.breakdown_value`,
          tuple(uniq(filtered_person_id), NULL) AS `context.columns.visitors`,
-         tuple(sum(filtered_pageview_count), NULL) AS `context.columns.views`
+         tuple(sum(filtered_pageview_count), NULL) AS `context.columns.views`,
+         divide(`context.columns.visitors`.1, sum(`context.columns.visitors`.1) OVER ()) AS `context.columns.ui_fill_fraction`
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
@@ -75,7 +76,8 @@
   SELECT counts.breakdown_value AS `context.columns.breakdown_value`,
          tuple(counts.visitors, counts.previous_visitors) AS `context.columns.visitors`,
          tuple(counts.views, counts.previous_views) AS `context.columns.views`,
-         tuple(bounce.bounce_rate, bounce.previous_bounce_rate) AS `context.columns.bounce_rate`
+         tuple(bounce.bounce_rate, bounce.previous_bounce_rate) AS `context.columns.bounce_rate`,
+         divide(`context.columns.visitors`.1, sum(`context.columns.visitors`.1) OVER ()) AS `context.columns.ui_fill_fraction`
   FROM
     (SELECT breakdown_value AS breakdown_value,
             uniqIf(filtered_person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-02 12:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))), 0))) AS visitors,
@@ -164,7 +166,8 @@
   SELECT counts.breakdown_value AS `context.columns.breakdown_value`,
          tuple(counts.visitors, counts.previous_visitors) AS `context.columns.visitors`,
          tuple(counts.views, counts.previous_views) AS `context.columns.views`,
-         tuple(bounce.bounce_rate, bounce.previous_bounce_rate) AS `context.columns.bounce_rate`
+         tuple(bounce.bounce_rate, bounce.previous_bounce_rate) AS `context.columns.bounce_rate`,
+         divide(`context.columns.visitors`.1, sum(`context.columns.visitors`.1) OVER ()) AS `context.columns.ui_fill_fraction`
   FROM
     (SELECT breakdown_value AS breakdown_value,
             uniqIf(filtered_person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-02 12:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))), 0))) AS visitors,
@@ -253,7 +256,8 @@
   SELECT counts.breakdown_value AS `context.columns.breakdown_value`,
          tuple(counts.visitors, counts.previous_visitors) AS `context.columns.visitors`,
          tuple(counts.views, counts.previous_views) AS `context.columns.views`,
-         tuple(bounce.bounce_rate, bounce.previous_bounce_rate) AS `context.columns.bounce_rate`
+         tuple(bounce.bounce_rate, bounce.previous_bounce_rate) AS `context.columns.bounce_rate`,
+         divide(`context.columns.visitors`.1, sum(`context.columns.visitors`.1) OVER ()) AS `context.columns.ui_fill_fraction`
   FROM
     (SELECT breakdown_value AS breakdown_value,
             uniqIf(filtered_person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-02 12:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))), 0))) AS visitors,
@@ -342,7 +346,8 @@
   SELECT counts.breakdown_value AS `context.columns.breakdown_value`,
          tuple(counts.visitors, counts.previous_visitors) AS `context.columns.visitors`,
          tuple(counts.views, counts.previous_views) AS `context.columns.views`,
-         tuple(bounce.bounce_rate, bounce.previous_bounce_rate) AS `context.columns.bounce_rate`
+         tuple(bounce.bounce_rate, bounce.previous_bounce_rate) AS `context.columns.bounce_rate`,
+         divide(`context.columns.visitors`.1, sum(`context.columns.visitors`.1) OVER ()) AS `context.columns.ui_fill_fraction`
   FROM
     (SELECT breakdown_value AS breakdown_value,
             uniqIf(filtered_person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-02 12:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))), 0))) AS visitors,
@@ -431,7 +436,8 @@
   SELECT counts.breakdown_value AS `context.columns.breakdown_value`,
          tuple(counts.visitors, counts.previous_visitors) AS `context.columns.visitors`,
          tuple(counts.views, counts.previous_views) AS `context.columns.views`,
-         tuple(bounce.bounce_rate, bounce.previous_bounce_rate) AS `context.columns.bounce_rate`
+         tuple(bounce.bounce_rate, bounce.previous_bounce_rate) AS `context.columns.bounce_rate`,
+         divide(`context.columns.visitors`.1, sum(`context.columns.visitors`.1) OVER ()) AS `context.columns.ui_fill_fraction`
   FROM
     (SELECT breakdown_value AS breakdown_value,
             uniqIf(filtered_person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-02 12:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))), 0))) AS visitors,
@@ -508,7 +514,8 @@
   '''
   SELECT breakdown_value AS `context.columns.breakdown_value`,
          tuple(uniq(filtered_person_id), NULL) AS `context.columns.visitors`,
-         tuple(sum(filtered_pageview_count), NULL) AS `context.columns.views`
+         tuple(sum(filtered_pageview_count), NULL) AS `context.columns.views`,
+         divide(`context.columns.visitors`.1, sum(`context.columns.visitors`.1) OVER ()) AS `context.columns.ui_fill_fraction`
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
@@ -580,7 +587,8 @@
   /* cohort_calculation: */
   SELECT breakdown_value AS `context.columns.breakdown_value`,
          tuple(uniq(filtered_person_id), NULL) AS `context.columns.visitors`,
-         tuple(sum(filtered_pageview_count), NULL) AS `context.columns.views`
+         tuple(sum(filtered_pageview_count), NULL) AS `context.columns.views`,
+         divide(`context.columns.visitors`.1, sum(`context.columns.visitors`.1) OVER ()) AS `context.columns.ui_fill_fraction`
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
@@ -685,7 +693,8 @@
   '''
   SELECT breakdown_value AS `context.columns.breakdown_value`,
          tuple(uniqIf(filtered_person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-06 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-13 23:59:59', 'UTC'))), 0))), uniqIf(filtered_person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-05 23:59:59', 'UTC'))), 0)))) AS `context.columns.visitors`,
-         tuple(sumIf(filtered_pageview_count, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-06 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-13 23:59:59', 'UTC'))), 0))), sumIf(filtered_pageview_count, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-05 23:59:59', 'UTC'))), 0)))) AS `context.columns.views`
+         tuple(sumIf(filtered_pageview_count, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-06 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-13 23:59:59', 'UTC'))), 0))), sumIf(filtered_pageview_count, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-05 23:59:59', 'UTC'))), 0)))) AS `context.columns.views`,
+         divide(`context.columns.visitors`.1, sum(`context.columns.visitors`.1) OVER ()) AS `context.columns.ui_fill_fraction`
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
@@ -736,7 +745,8 @@
          tuple(uniq(filtered_person_id), NULL) AS `context.columns.visitors`,
          tuple(sum(conversion_count), NULL) AS `context.columns.total_conversions`,
          tuple(uniq(conversion_person_id), NULL) AS `context.columns.unique_conversions`,
-         tuple(if(ifNull(equals(`context.columns.visitors`.1, 0), 0), NULL, divide(`context.columns.unique_conversions`.1, `context.columns.visitors`.1)), if(ifNull(equals(`context.columns.visitors`.2, 0), 0), NULL, divide(`context.columns.unique_conversions`.2, `context.columns.visitors`.2))) AS `context.columns.conversion_rate`
+         tuple(if(ifNull(equals(`context.columns.visitors`.1, 0), 0), NULL, divide(`context.columns.unique_conversions`.1, `context.columns.visitors`.1)), if(ifNull(equals(`context.columns.visitors`.2, 0), 0), NULL, divide(`context.columns.unique_conversions`.2, `context.columns.visitors`.2))) AS `context.columns.conversion_rate`,
+         divide(`context.columns.unique_conversions`.1, sum(`context.columns.unique_conversions`.1) OVER ()) AS `context.columns.ui_fill_fraction`
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
@@ -770,8 +780,9 @@
      GROUP BY session_id,
               breakdown_value)
   GROUP BY `context.columns.breakdown_value`
-  ORDER BY `context.columns.visitors` DESC,
+  ORDER BY `context.columns.unique_conversions` DESC,
            `context.columns.total_conversions` DESC,
+           `context.columns.visitors` DESC,
            `context.columns.breakdown_value` ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -792,7 +803,8 @@
          tuple(uniq(filtered_person_id), NULL) AS `context.columns.visitors`,
          tuple(sum(conversion_count), NULL) AS `context.columns.total_conversions`,
          tuple(uniq(conversion_person_id), NULL) AS `context.columns.unique_conversions`,
-         tuple(if(ifNull(equals(`context.columns.visitors`.1, 0), 0), NULL, divide(`context.columns.unique_conversions`.1, `context.columns.visitors`.1)), if(ifNull(equals(`context.columns.visitors`.2, 0), 0), NULL, divide(`context.columns.unique_conversions`.2, `context.columns.visitors`.2))) AS `context.columns.conversion_rate`
+         tuple(if(ifNull(equals(`context.columns.visitors`.1, 0), 0), NULL, divide(`context.columns.unique_conversions`.1, `context.columns.visitors`.1)), if(ifNull(equals(`context.columns.visitors`.2, 0), 0), NULL, divide(`context.columns.unique_conversions`.2, `context.columns.visitors`.2))) AS `context.columns.conversion_rate`,
+         divide(`context.columns.unique_conversions`.1, sum(`context.columns.unique_conversions`.1) OVER ()) AS `context.columns.ui_fill_fraction`
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
@@ -824,8 +836,9 @@
      GROUP BY session_id,
               breakdown_value)
   GROUP BY `context.columns.breakdown_value`
-  ORDER BY `context.columns.visitors` DESC,
+  ORDER BY `context.columns.unique_conversions` DESC,
            `context.columns.total_conversions` DESC,
+           `context.columns.visitors` DESC,
            `context.columns.breakdown_value` ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -846,7 +859,8 @@
          tuple(uniq(filtered_person_id), NULL) AS `context.columns.visitors`,
          tuple(sum(conversion_count), NULL) AS `context.columns.total_conversions`,
          tuple(uniq(conversion_person_id), NULL) AS `context.columns.unique_conversions`,
-         tuple(if(ifNull(equals(`context.columns.visitors`.1, 0), 0), NULL, divide(`context.columns.unique_conversions`.1, `context.columns.visitors`.1)), if(ifNull(equals(`context.columns.visitors`.2, 0), 0), NULL, divide(`context.columns.unique_conversions`.2, `context.columns.visitors`.2))) AS `context.columns.conversion_rate`
+         tuple(if(ifNull(equals(`context.columns.visitors`.1, 0), 0), NULL, divide(`context.columns.unique_conversions`.1, `context.columns.visitors`.1)), if(ifNull(equals(`context.columns.visitors`.2, 0), 0), NULL, divide(`context.columns.unique_conversions`.2, `context.columns.visitors`.2))) AS `context.columns.conversion_rate`,
+         divide(`context.columns.unique_conversions`.1, sum(`context.columns.unique_conversions`.1) OVER ()) AS `context.columns.ui_fill_fraction`
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
@@ -878,8 +892,9 @@
      GROUP BY session_id,
               breakdown_value)
   GROUP BY `context.columns.breakdown_value`
-  ORDER BY `context.columns.visitors` DESC,
+  ORDER BY `context.columns.unique_conversions` DESC,
            `context.columns.total_conversions` DESC,
+           `context.columns.visitors` DESC,
            `context.columns.breakdown_value` ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -900,7 +915,8 @@
          tuple(uniq(filtered_person_id), NULL) AS `context.columns.visitors`,
          tuple(sum(conversion_count), NULL) AS `context.columns.total_conversions`,
          tuple(uniq(conversion_person_id), NULL) AS `context.columns.unique_conversions`,
-         tuple(if(ifNull(equals(`context.columns.visitors`.1, 0), 0), NULL, divide(`context.columns.unique_conversions`.1, `context.columns.visitors`.1)), if(ifNull(equals(`context.columns.visitors`.2, 0), 0), NULL, divide(`context.columns.unique_conversions`.2, `context.columns.visitors`.2))) AS `context.columns.conversion_rate`
+         tuple(if(ifNull(equals(`context.columns.visitors`.1, 0), 0), NULL, divide(`context.columns.unique_conversions`.1, `context.columns.visitors`.1)), if(ifNull(equals(`context.columns.visitors`.2, 0), 0), NULL, divide(`context.columns.unique_conversions`.2, `context.columns.visitors`.2))) AS `context.columns.conversion_rate`,
+         divide(`context.columns.unique_conversions`.1, sum(`context.columns.unique_conversions`.1) OVER ()) AS `context.columns.ui_fill_fraction`
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
@@ -932,8 +948,9 @@
      GROUP BY session_id,
               breakdown_value)
   GROUP BY `context.columns.breakdown_value`
-  ORDER BY `context.columns.visitors` DESC,
+  ORDER BY `context.columns.unique_conversions` DESC,
            `context.columns.total_conversions` DESC,
+           `context.columns.visitors` DESC,
            `context.columns.breakdown_value` ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -954,7 +971,8 @@
          tuple(uniq(filtered_person_id), NULL) AS `context.columns.visitors`,
          tuple(sum(conversion_count), NULL) AS `context.columns.total_conversions`,
          tuple(uniq(conversion_person_id), NULL) AS `context.columns.unique_conversions`,
-         tuple(if(ifNull(equals(`context.columns.visitors`.1, 0), 0), NULL, divide(`context.columns.unique_conversions`.1, `context.columns.visitors`.1)), if(ifNull(equals(`context.columns.visitors`.2, 0), 0), NULL, divide(`context.columns.unique_conversions`.2, `context.columns.visitors`.2))) AS `context.columns.conversion_rate`
+         tuple(if(ifNull(equals(`context.columns.visitors`.1, 0), 0), NULL, divide(`context.columns.unique_conversions`.1, `context.columns.visitors`.1)), if(ifNull(equals(`context.columns.visitors`.2, 0), 0), NULL, divide(`context.columns.unique_conversions`.2, `context.columns.visitors`.2))) AS `context.columns.conversion_rate`,
+         divide(`context.columns.unique_conversions`.1, sum(`context.columns.unique_conversions`.1) OVER ()) AS `context.columns.ui_fill_fraction`
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
@@ -988,8 +1006,9 @@
      GROUP BY session_id,
               breakdown_value)
   GROUP BY `context.columns.breakdown_value`
-  ORDER BY `context.columns.visitors` DESC,
+  ORDER BY `context.columns.unique_conversions` DESC,
            `context.columns.total_conversions` DESC,
+           `context.columns.visitors` DESC,
            `context.columns.breakdown_value` ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -1010,7 +1029,8 @@
          tuple(uniq(filtered_person_id), NULL) AS `context.columns.visitors`,
          tuple(sum(conversion_count), NULL) AS `context.columns.total_conversions`,
          tuple(uniq(conversion_person_id), NULL) AS `context.columns.unique_conversions`,
-         tuple(if(ifNull(equals(`context.columns.visitors`.1, 0), 0), NULL, divide(`context.columns.unique_conversions`.1, `context.columns.visitors`.1)), if(ifNull(equals(`context.columns.visitors`.2, 0), 0), NULL, divide(`context.columns.unique_conversions`.2, `context.columns.visitors`.2))) AS `context.columns.conversion_rate`
+         tuple(if(ifNull(equals(`context.columns.visitors`.1, 0), 0), NULL, divide(`context.columns.unique_conversions`.1, `context.columns.visitors`.1)), if(ifNull(equals(`context.columns.visitors`.2, 0), 0), NULL, divide(`context.columns.unique_conversions`.2, `context.columns.visitors`.2))) AS `context.columns.conversion_rate`,
+         divide(`context.columns.unique_conversions`.1, sum(`context.columns.unique_conversions`.1) OVER ()) AS `context.columns.ui_fill_fraction`
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
@@ -1044,8 +1064,9 @@
      GROUP BY session_id,
               breakdown_value)
   GROUP BY `context.columns.breakdown_value`
-  ORDER BY `context.columns.visitors` DESC,
+  ORDER BY `context.columns.unique_conversions` DESC,
            `context.columns.total_conversions` DESC,
+           `context.columns.visitors` DESC,
            `context.columns.breakdown_value` ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -1066,7 +1087,8 @@
          tuple(uniq(filtered_person_id), NULL) AS `context.columns.visitors`,
          tuple(sum(conversion_count), NULL) AS `context.columns.total_conversions`,
          tuple(uniq(conversion_person_id), NULL) AS `context.columns.unique_conversions`,
-         tuple(if(ifNull(equals(`context.columns.visitors`.1, 0), 0), NULL, divide(`context.columns.unique_conversions`.1, `context.columns.visitors`.1)), if(ifNull(equals(`context.columns.visitors`.2, 0), 0), NULL, divide(`context.columns.unique_conversions`.2, `context.columns.visitors`.2))) AS `context.columns.conversion_rate`
+         tuple(if(ifNull(equals(`context.columns.visitors`.1, 0), 0), NULL, divide(`context.columns.unique_conversions`.1, `context.columns.visitors`.1)), if(ifNull(equals(`context.columns.visitors`.2, 0), 0), NULL, divide(`context.columns.unique_conversions`.2, `context.columns.visitors`.2))) AS `context.columns.conversion_rate`,
+         divide(`context.columns.unique_conversions`.1, sum(`context.columns.unique_conversions`.1) OVER ()) AS `context.columns.ui_fill_fraction`
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
@@ -1100,8 +1122,9 @@
      GROUP BY session_id,
               breakdown_value)
   GROUP BY `context.columns.breakdown_value`
-  ORDER BY `context.columns.visitors` DESC,
+  ORDER BY `context.columns.unique_conversions` DESC,
            `context.columns.total_conversions` DESC,
+           `context.columns.visitors` DESC,
            `context.columns.breakdown_value` ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -1120,7 +1143,8 @@
   '''
   SELECT breakdown_value AS `context.columns.breakdown_value`,
          tuple(uniq(filtered_person_id), NULL) AS `context.columns.visitors`,
-         tuple(sum(filtered_pageview_count), NULL) AS `context.columns.views`
+         tuple(sum(filtered_pageview_count), NULL) AS `context.columns.views`,
+         divide(`context.columns.visitors`.1, sum(`context.columns.visitors`.1) OVER ()) AS `context.columns.ui_fill_fraction`
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
@@ -1181,7 +1205,8 @@
   SELECT breakdown_value AS `context.columns.breakdown_value`,
          tuple(uniq(filtered_person_id), NULL) AS `context.columns.visitors`,
          tuple(sum(filtered_pageview_count), NULL) AS `context.columns.views`,
-         tuple(avg(is_bounce), NULL) AS `context.columns.bounce_rate`
+         tuple(avg(is_bounce), NULL) AS `context.columns.bounce_rate`,
+         divide(`context.columns.visitors`.1, sum(`context.columns.visitors`.1) OVER ()) AS `context.columns.ui_fill_fraction`
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
@@ -1243,7 +1268,8 @@
   SELECT breakdown_value AS `context.columns.breakdown_value`,
          tuple(uniq(filtered_person_id), NULL) AS `context.columns.visitors`,
          tuple(sum(filtered_pageview_count), NULL) AS `context.columns.views`,
-         tuple(avg(is_bounce), NULL) AS `context.columns.bounce_rate`
+         tuple(avg(is_bounce), NULL) AS `context.columns.bounce_rate`,
+         divide(`context.columns.visitors`.1, sum(`context.columns.visitors`.1) OVER ()) AS `context.columns.ui_fill_fraction`
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
@@ -1305,7 +1331,8 @@
   SELECT breakdown_value AS `context.columns.breakdown_value`,
          tuple(uniq(filtered_person_id), NULL) AS `context.columns.visitors`,
          tuple(sum(filtered_pageview_count), NULL) AS `context.columns.views`,
-         tuple(avg(is_bounce), NULL) AS `context.columns.bounce_rate`
+         tuple(avg(is_bounce), NULL) AS `context.columns.bounce_rate`,
+         divide(`context.columns.visitors`.1, sum(`context.columns.visitors`.1) OVER ()) AS `context.columns.ui_fill_fraction`
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
@@ -1367,7 +1394,8 @@
   SELECT breakdown_value AS `context.columns.breakdown_value`,
          tuple(uniq(filtered_person_id), NULL) AS `context.columns.visitors`,
          tuple(sum(filtered_pageview_count), NULL) AS `context.columns.views`,
-         tuple(avg(is_bounce), NULL) AS `context.columns.bounce_rate`
+         tuple(avg(is_bounce), NULL) AS `context.columns.bounce_rate`,
+         divide(`context.columns.visitors`.1, sum(`context.columns.visitors`.1) OVER ()) AS `context.columns.ui_fill_fraction`
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
@@ -1417,7 +1445,8 @@
   '''
   SELECT breakdown_value AS `context.columns.breakdown_value`,
          tuple(uniq(filtered_person_id), NULL) AS `context.columns.visitors`,
-         tuple(sum(filtered_pageview_count), NULL) AS `context.columns.views`
+         tuple(sum(filtered_pageview_count), NULL) AS `context.columns.views`,
+         divide(`context.columns.visitors`.1, sum(`context.columns.visitors`.1) OVER ()) AS `context.columns.ui_fill_fraction`
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
@@ -1476,7 +1505,8 @@
   '''
   SELECT breakdown_value AS `context.columns.breakdown_value`,
          tuple(uniq(filtered_person_id), NULL) AS `context.columns.visitors`,
-         tuple(sum(filtered_pageview_count), NULL) AS `context.columns.views`
+         tuple(sum(filtered_pageview_count), NULL) AS `context.columns.views`,
+         divide(`context.columns.visitors`.1, sum(`context.columns.visitors`.1) OVER ()) AS `context.columns.ui_fill_fraction`
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
@@ -1525,7 +1555,8 @@
   '''
   SELECT breakdown_value AS `context.columns.breakdown_value`,
          tuple(uniq(filtered_person_id), NULL) AS `context.columns.visitors`,
-         tuple(sum(filtered_pageview_count), NULL) AS `context.columns.views`
+         tuple(sum(filtered_pageview_count), NULL) AS `context.columns.views`,
+         divide(`context.columns.visitors`.1, sum(`context.columns.visitors`.1) OVER ()) AS `context.columns.ui_fill_fraction`
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
@@ -1585,7 +1616,8 @@
   '''
   SELECT breakdown_value AS `context.columns.breakdown_value`,
          tuple(uniq(filtered_person_id), NULL) AS `context.columns.visitors`,
-         tuple(sum(filtered_pageview_count), NULL) AS `context.columns.views`
+         tuple(sum(filtered_pageview_count), NULL) AS `context.columns.views`,
+         divide(`context.columns.visitors`.1, sum(`context.columns.visitors`.1) OVER ()) AS `context.columns.ui_fill_fraction`
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
@@ -1647,7 +1679,8 @@
   SELECT arrayElement(splitByChar('-', assumeNotNull(breakdown_value), 2), 1) AS `context.columns.breakdown_value`,
          tuple(uniq(filtered_person_id), NULL) AS `context.columns.visitors`,
          tuple(sum(filtered_pageview_count), NULL) AS `context.columns.views`,
-         arrayElement(topK(1)(arrayElement(splitByChar('-', assumeNotNull(breakdown_value), 2), 2)), 1) AS `context.columns.aggregation_value`
+         arrayElement(topK(1)(arrayElement(splitByChar('-', assumeNotNull(breakdown_value), 2), 2)), 1) AS `context.columns.aggregation_value`,
+         divide(`context.columns.visitors`.1, sum(`context.columns.visitors`.1) OVER ()) AS `context.columns.ui_fill_fraction`
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
@@ -1717,7 +1750,8 @@
   '''
   SELECT breakdown_value AS `context.columns.breakdown_value`,
          tuple(uniq(filtered_person_id), NULL) AS `context.columns.visitors`,
-         tuple(sum(filtered_pageview_count), NULL) AS `context.columns.views`
+         tuple(sum(filtered_pageview_count), NULL) AS `context.columns.views`,
+         divide(`context.columns.visitors`.1, sum(`context.columns.visitors`.1) OVER ()) AS `context.columns.ui_fill_fraction`
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
@@ -1777,7 +1811,8 @@
   '''
   SELECT breakdown_value AS `context.columns.breakdown_value`,
          tuple(uniq(filtered_person_id), NULL) AS `context.columns.visitors`,
-         tuple(sum(filtered_pageview_count), NULL) AS `context.columns.views`
+         tuple(sum(filtered_pageview_count), NULL) AS `context.columns.views`,
+         divide(`context.columns.visitors`.1, sum(`context.columns.visitors`.1) OVER ()) AS `context.columns.ui_fill_fraction`
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
@@ -1826,7 +1861,8 @@
   '''
   SELECT breakdown_value AS `context.columns.breakdown_value`,
          tuple(uniq(filtered_person_id), NULL) AS `context.columns.visitors`,
-         tuple(sum(filtered_pageview_count), NULL) AS `context.columns.views`
+         tuple(sum(filtered_pageview_count), NULL) AS `context.columns.views`,
+         divide(`context.columns.visitors`.1, sum(`context.columns.visitors`.1) OVER ()) AS `context.columns.ui_fill_fraction`
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
@@ -1886,7 +1922,8 @@
   '''
   SELECT breakdown_value AS `context.columns.breakdown_value`,
          tuple(uniq(filtered_person_id), NULL) AS `context.columns.visitors`,
-         tuple(sum(filtered_pageview_count), NULL) AS `context.columns.views`
+         tuple(sum(filtered_pageview_count), NULL) AS `context.columns.views`,
+         divide(`context.columns.visitors`.1, sum(`context.columns.visitors`.1) OVER ()) AS `context.columns.ui_fill_fraction`
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
@@ -1947,7 +1984,8 @@
   '''
   SELECT breakdown_value AS `context.columns.breakdown_value`,
          tuple(uniq(filtered_person_id), NULL) AS `context.columns.visitors`,
-         tuple(sum(filtered_pageview_count), NULL) AS `context.columns.views`
+         tuple(sum(filtered_pageview_count), NULL) AS `context.columns.views`,
+         divide(`context.columns.visitors`.1, sum(`context.columns.visitors`.1) OVER ()) AS `context.columns.ui_fill_fraction`
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
@@ -2008,7 +2046,8 @@
   '''
   SELECT breakdown_value AS `context.columns.breakdown_value`,
          tuple(uniq(filtered_person_id), NULL) AS `context.columns.visitors`,
-         tuple(sum(filtered_pageview_count), NULL) AS `context.columns.views`
+         tuple(sum(filtered_pageview_count), NULL) AS `context.columns.views`,
+         divide(`context.columns.visitors`.1, sum(`context.columns.visitors`.1) OVER ()) AS `context.columns.ui_fill_fraction`
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
@@ -2068,7 +2107,8 @@
   '''
   SELECT breakdown_value AS `context.columns.breakdown_value`,
          tuple(uniq(filtered_person_id), NULL) AS `context.columns.visitors`,
-         tuple(sum(filtered_pageview_count), NULL) AS `context.columns.views`
+         tuple(sum(filtered_pageview_count), NULL) AS `context.columns.views`,
+         divide(`context.columns.visitors`.1, sum(`context.columns.visitors`.1) OVER ()) AS `context.columns.ui_fill_fraction`
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
@@ -2129,7 +2169,8 @@
   '''
   SELECT breakdown_value AS `context.columns.breakdown_value`,
          tuple(uniq(filtered_person_id), NULL) AS `context.columns.visitors`,
-         tuple(sum(filtered_pageview_count), NULL) AS `context.columns.views`
+         tuple(sum(filtered_pageview_count), NULL) AS `context.columns.views`,
+         divide(`context.columns.visitors`.1, sum(`context.columns.visitors`.1) OVER ()) AS `context.columns.ui_fill_fraction`
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
@@ -2189,7 +2230,8 @@
   '''
   SELECT breakdown_value AS `context.columns.breakdown_value`,
          tuple(uniq(filtered_person_id), NULL) AS `context.columns.visitors`,
-         tuple(sum(filtered_pageview_count), NULL) AS `context.columns.views`
+         tuple(sum(filtered_pageview_count), NULL) AS `context.columns.views`,
+         divide(`context.columns.visitors`.1, sum(`context.columns.visitors`.1) OVER ()) AS `context.columns.ui_fill_fraction`
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
@@ -2249,7 +2291,8 @@
   '''
   SELECT breakdown_value AS `context.columns.breakdown_value`,
          tuple(uniq(filtered_person_id), NULL) AS `context.columns.visitors`,
-         tuple(sum(filtered_pageview_count), NULL) AS `context.columns.views`
+         tuple(sum(filtered_pageview_count), NULL) AS `context.columns.views`,
+         divide(`context.columns.visitors`.1, sum(`context.columns.visitors`.1) OVER ()) AS `context.columns.ui_fill_fraction`
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
@@ -2310,7 +2353,8 @@
   '''
   SELECT breakdown_value AS `context.columns.breakdown_value`,
          tuple(uniq(filtered_person_id), NULL) AS `context.columns.visitors`,
-         tuple(sum(filtered_pageview_count), NULL) AS `context.columns.views`
+         tuple(sum(filtered_pageview_count), NULL) AS `context.columns.views`,
+         divide(`context.columns.visitors`.1, sum(`context.columns.visitors`.1) OVER ()) AS `context.columns.ui_fill_fraction`
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
@@ -2371,7 +2415,8 @@
   '''
   SELECT breakdown_value AS `context.columns.breakdown_value`,
          tuple(uniq(filtered_person_id), NULL) AS `context.columns.visitors`,
-         tuple(sum(filtered_pageview_count), NULL) AS `context.columns.views`
+         tuple(sum(filtered_pageview_count), NULL) AS `context.columns.views`,
+         divide(`context.columns.visitors`.1, sum(`context.columns.visitors`.1) OVER ()) AS `context.columns.ui_fill_fraction`
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
@@ -2432,7 +2477,8 @@
   '''
   SELECT breakdown_value AS `context.columns.breakdown_value`,
          tuple(uniq(filtered_person_id), NULL) AS `context.columns.visitors`,
-         tuple(sum(filtered_pageview_count), NULL) AS `context.columns.views`
+         tuple(sum(filtered_pageview_count), NULL) AS `context.columns.views`,
+         divide(`context.columns.visitors`.1, sum(`context.columns.visitors`.1) OVER ()) AS `context.columns.ui_fill_fraction`
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
@@ -2492,7 +2538,8 @@
   '''
   SELECT breakdown_value AS `context.columns.breakdown_value`,
          tuple(uniq(filtered_person_id), NULL) AS `context.columns.visitors`,
-         tuple(sum(filtered_pageview_count), NULL) AS `context.columns.views`
+         tuple(sum(filtered_pageview_count), NULL) AS `context.columns.views`,
+         divide(`context.columns.visitors`.1, sum(`context.columns.visitors`.1) OVER ()) AS `context.columns.ui_fill_fraction`
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
@@ -2552,7 +2599,8 @@
   '''
   SELECT breakdown_value AS `context.columns.breakdown_value`,
          tuple(uniq(filtered_person_id), NULL) AS `context.columns.visitors`,
-         tuple(sum(filtered_pageview_count), NULL) AS `context.columns.views`
+         tuple(sum(filtered_pageview_count), NULL) AS `context.columns.views`,
+         divide(`context.columns.visitors`.1, sum(`context.columns.visitors`.1) OVER ()) AS `context.columns.ui_fill_fraction`
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
@@ -2613,7 +2661,8 @@
   '''
   SELECT breakdown_value AS `context.columns.breakdown_value`,
          tuple(uniq(filtered_person_id), NULL) AS `context.columns.visitors`,
-         tuple(sum(filtered_pageview_count), NULL) AS `context.columns.views`
+         tuple(sum(filtered_pageview_count), NULL) AS `context.columns.views`,
+         divide(`context.columns.visitors`.1, sum(`context.columns.visitors`.1) OVER ()) AS `context.columns.ui_fill_fraction`
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
@@ -2674,7 +2723,8 @@
   SELECT counts.breakdown_value AS `context.columns.breakdown_value`,
          tuple(counts.visitors, counts.previous_visitors) AS `context.columns.visitors`,
          tuple(counts.views, counts.previous_views) AS `context.columns.views`,
-         tuple(bounce.bounce_rate, bounce.previous_bounce_rate) AS `context.columns.bounce_rate`
+         tuple(bounce.bounce_rate, bounce.previous_bounce_rate) AS `context.columns.bounce_rate`,
+         divide(`context.columns.visitors`.1, sum(`context.columns.visitors`.1) OVER ()) AS `context.columns.ui_fill_fraction`
   FROM
     (SELECT breakdown_value AS breakdown_value,
             uniqIf(filtered_person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2024-07-30 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2024-07-31 23:59:59', 'UTC'))), 0))) AS visitors,
@@ -2765,7 +2815,8 @@
          tuple(counts.views, counts.previous_views) AS `context.columns.views`,
          tuple(bounce.bounce_rate, bounce.previous_bounce_rate) AS `context.columns.bounce_rate`,
          tuple(scroll.average_scroll_percentage, scroll.previous_average_scroll_percentage) AS `context.columns.average_scroll_percentage`,
-         tuple(scroll.scroll_gt80_percentage, scroll.previous_scroll_gt80_percentage) AS `context.columns.scroll_gt80_percentage`
+         tuple(scroll.scroll_gt80_percentage, scroll.previous_scroll_gt80_percentage) AS `context.columns.scroll_gt80_percentage`,
+         divide(`context.columns.visitors`.1, sum(`context.columns.visitors`.1) OVER ()) AS `context.columns.ui_fill_fraction`
   FROM
     (SELECT breakdown_value AS breakdown_value,
             uniqIf(filtered_person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2024-07-30 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2024-07-31 23:59:59', 'UTC'))), 0))) AS visitors,
@@ -2881,7 +2932,8 @@
          tuple(counts.views, counts.previous_views) AS `context.columns.views`,
          tuple(bounce.bounce_rate, bounce.previous_bounce_rate) AS `context.columns.bounce_rate`,
          tuple(scroll.average_scroll_percentage, scroll.previous_average_scroll_percentage) AS `context.columns.average_scroll_percentage`,
-         tuple(scroll.scroll_gt80_percentage, scroll.previous_scroll_gt80_percentage) AS `context.columns.scroll_gt80_percentage`
+         tuple(scroll.scroll_gt80_percentage, scroll.previous_scroll_gt80_percentage) AS `context.columns.scroll_gt80_percentage`,
+         divide(`context.columns.visitors`.1, sum(`context.columns.visitors`.1) OVER ()) AS `context.columns.ui_fill_fraction`
   FROM
     (SELECT breakdown_value AS breakdown_value,
             uniqIf(filtered_person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-02 12:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))), 0))) AS visitors,
@@ -2997,7 +3049,8 @@
          tuple(counts.views, counts.previous_views) AS `context.columns.views`,
          tuple(bounce.bounce_rate, bounce.previous_bounce_rate) AS `context.columns.bounce_rate`,
          tuple(scroll.average_scroll_percentage, scroll.previous_average_scroll_percentage) AS `context.columns.average_scroll_percentage`,
-         tuple(scroll.scroll_gt80_percentage, scroll.previous_scroll_gt80_percentage) AS `context.columns.scroll_gt80_percentage`
+         tuple(scroll.scroll_gt80_percentage, scroll.previous_scroll_gt80_percentage) AS `context.columns.scroll_gt80_percentage`,
+         divide(`context.columns.visitors`.1, sum(`context.columns.visitors`.1) OVER ()) AS `context.columns.ui_fill_fraction`
   FROM
     (SELECT breakdown_value AS breakdown_value,
             uniqIf(filtered_person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-02 12:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))), 0))) AS visitors,
@@ -3113,7 +3166,8 @@
          tuple(counts.views, counts.previous_views) AS `context.columns.views`,
          tuple(bounce.bounce_rate, bounce.previous_bounce_rate) AS `context.columns.bounce_rate`,
          tuple(scroll.average_scroll_percentage, scroll.previous_average_scroll_percentage) AS `context.columns.average_scroll_percentage`,
-         tuple(scroll.scroll_gt80_percentage, scroll.previous_scroll_gt80_percentage) AS `context.columns.scroll_gt80_percentage`
+         tuple(scroll.scroll_gt80_percentage, scroll.previous_scroll_gt80_percentage) AS `context.columns.scroll_gt80_percentage`,
+         divide(`context.columns.visitors`.1, sum(`context.columns.visitors`.1) OVER ()) AS `context.columns.ui_fill_fraction`
   FROM
     (SELECT breakdown_value AS breakdown_value,
             uniqIf(filtered_person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-02 12:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))), 0))) AS visitors,
@@ -3229,7 +3283,8 @@
          tuple(counts.views, counts.previous_views) AS `context.columns.views`,
          tuple(bounce.bounce_rate, bounce.previous_bounce_rate) AS `context.columns.bounce_rate`,
          tuple(scroll.average_scroll_percentage, scroll.previous_average_scroll_percentage) AS `context.columns.average_scroll_percentage`,
-         tuple(scroll.scroll_gt80_percentage, scroll.previous_scroll_gt80_percentage) AS `context.columns.scroll_gt80_percentage`
+         tuple(scroll.scroll_gt80_percentage, scroll.previous_scroll_gt80_percentage) AS `context.columns.scroll_gt80_percentage`,
+         divide(`context.columns.visitors`.1, sum(`context.columns.visitors`.1) OVER ()) AS `context.columns.ui_fill_fraction`
   FROM
     (SELECT breakdown_value AS breakdown_value,
             uniqIf(filtered_person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-02 12:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))), 0))) AS visitors,
@@ -3343,7 +3398,8 @@
   SELECT counts.breakdown_value AS `context.columns.breakdown_value`,
          tuple(counts.visitors, counts.previous_visitors) AS `context.columns.visitors`,
          tuple(counts.views, counts.previous_views) AS `context.columns.views`,
-         tuple(bounce.bounce_rate, bounce.previous_bounce_rate) AS `context.columns.bounce_rate`
+         tuple(bounce.bounce_rate, bounce.previous_bounce_rate) AS `context.columns.bounce_rate`,
+         `context.columns.bounce_rate`.1 AS `context.columns.ui_fill_fraction`
   FROM
     (SELECT breakdown_value AS breakdown_value,
             uniqIf(filtered_person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-02 12:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))), 0))) AS visitors,
@@ -3433,7 +3489,8 @@
   SELECT counts.breakdown_value AS `context.columns.breakdown_value`,
          tuple(counts.visitors, counts.previous_visitors) AS `context.columns.visitors`,
          tuple(counts.views, counts.previous_views) AS `context.columns.views`,
-         tuple(bounce.bounce_rate, bounce.previous_bounce_rate) AS `context.columns.bounce_rate`
+         tuple(bounce.bounce_rate, bounce.previous_bounce_rate) AS `context.columns.bounce_rate`,
+         `context.columns.bounce_rate`.1 AS `context.columns.ui_fill_fraction`
   FROM
     (SELECT breakdown_value AS breakdown_value,
             uniqIf(filtered_person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-02 12:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))), 0))) AS visitors,
@@ -3513,7 +3570,8 @@
          tuple(uniq(filtered_person_id), NULL) AS `context.columns.visitors`,
          tuple(sum(conversion_count), NULL) AS `context.columns.total_conversions`,
          tuple(uniq(conversion_person_id), NULL) AS `context.columns.unique_conversions`,
-         tuple(if(ifNull(equals(`context.columns.visitors`.1, 0), 0), NULL, divide(`context.columns.unique_conversions`.1, `context.columns.visitors`.1)), if(ifNull(equals(`context.columns.visitors`.2, 0), 0), NULL, divide(`context.columns.unique_conversions`.2, `context.columns.visitors`.2))) AS `context.columns.conversion_rate`
+         tuple(if(ifNull(equals(`context.columns.visitors`.1, 0), 0), NULL, divide(`context.columns.unique_conversions`.1, `context.columns.visitors`.1)), if(ifNull(equals(`context.columns.visitors`.2, 0), 0), NULL, divide(`context.columns.unique_conversions`.2, `context.columns.visitors`.2))) AS `context.columns.conversion_rate`,
+         `context.columns.conversion_rate`.1 AS `context.columns.ui_fill_fraction`
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
@@ -3548,8 +3606,9 @@
               breakdown_value)
   GROUP BY `context.columns.breakdown_value`
   ORDER BY `context.columns.conversion_rate` ASC,
-           `context.columns.visitors` ASC,
+           `context.columns.unique_conversions` ASC,
            `context.columns.total_conversions` ASC,
+           `context.columns.visitors` ASC,
            `context.columns.breakdown_value` ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -3570,7 +3629,8 @@
          tuple(uniq(filtered_person_id), NULL) AS `context.columns.visitors`,
          tuple(sum(conversion_count), NULL) AS `context.columns.total_conversions`,
          tuple(uniq(conversion_person_id), NULL) AS `context.columns.unique_conversions`,
-         tuple(if(ifNull(equals(`context.columns.visitors`.1, 0), 0), NULL, divide(`context.columns.unique_conversions`.1, `context.columns.visitors`.1)), if(ifNull(equals(`context.columns.visitors`.2, 0), 0), NULL, divide(`context.columns.unique_conversions`.2, `context.columns.visitors`.2))) AS `context.columns.conversion_rate`
+         tuple(if(ifNull(equals(`context.columns.visitors`.1, 0), 0), NULL, divide(`context.columns.unique_conversions`.1, `context.columns.visitors`.1)), if(ifNull(equals(`context.columns.visitors`.2, 0), 0), NULL, divide(`context.columns.unique_conversions`.2, `context.columns.visitors`.2))) AS `context.columns.conversion_rate`,
+         `context.columns.conversion_rate`.1 AS `context.columns.ui_fill_fraction`
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
@@ -3605,8 +3665,9 @@
               breakdown_value)
   GROUP BY `context.columns.breakdown_value`
   ORDER BY `context.columns.conversion_rate` DESC,
-           `context.columns.visitors` DESC,
+           `context.columns.unique_conversions` DESC,
            `context.columns.total_conversions` DESC,
+           `context.columns.visitors` DESC,
            `context.columns.breakdown_value` ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -3639,7 +3700,8 @@
          tuple(counts.views, counts.previous_views) AS `context.columns.views`,
          tuple(bounce.bounce_rate, bounce.previous_bounce_rate) AS `context.columns.bounce_rate`,
          tuple(scroll.average_scroll_percentage, scroll.previous_average_scroll_percentage) AS `context.columns.average_scroll_percentage`,
-         tuple(scroll.scroll_gt80_percentage, scroll.previous_scroll_gt80_percentage) AS `context.columns.scroll_gt80_percentage`
+         tuple(scroll.scroll_gt80_percentage, scroll.previous_scroll_gt80_percentage) AS `context.columns.scroll_gt80_percentage`,
+         `context.columns.average_scroll_percentage`.1 AS `context.columns.ui_fill_fraction`
   FROM
     (SELECT breakdown_value AS breakdown_value,
             uniqIf(filtered_person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-02 12:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))), 0))) AS visitors,
@@ -3756,7 +3818,8 @@
          tuple(counts.views, counts.previous_views) AS `context.columns.views`,
          tuple(bounce.bounce_rate, bounce.previous_bounce_rate) AS `context.columns.bounce_rate`,
          tuple(scroll.average_scroll_percentage, scroll.previous_average_scroll_percentage) AS `context.columns.average_scroll_percentage`,
-         tuple(scroll.scroll_gt80_percentage, scroll.previous_scroll_gt80_percentage) AS `context.columns.scroll_gt80_percentage`
+         tuple(scroll.scroll_gt80_percentage, scroll.previous_scroll_gt80_percentage) AS `context.columns.scroll_gt80_percentage`,
+         `context.columns.average_scroll_percentage`.1 AS `context.columns.ui_fill_fraction`
   FROM
     (SELECT breakdown_value AS breakdown_value,
             uniqIf(filtered_person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-02 12:00:00', 'UTC'))), 0), ifNull(lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))), 0))) AS visitors,
@@ -3861,7 +3924,8 @@
          tuple(uniq(filtered_person_id), NULL) AS `context.columns.visitors`,
          tuple(sum(conversion_count), NULL) AS `context.columns.total_conversions`,
          tuple(uniq(conversion_person_id), NULL) AS `context.columns.unique_conversions`,
-         tuple(if(ifNull(equals(`context.columns.visitors`.1, 0), 0), NULL, divide(`context.columns.unique_conversions`.1, `context.columns.visitors`.1)), if(ifNull(equals(`context.columns.visitors`.2, 0), 0), NULL, divide(`context.columns.unique_conversions`.2, `context.columns.visitors`.2))) AS `context.columns.conversion_rate`
+         tuple(if(ifNull(equals(`context.columns.visitors`.1, 0), 0), NULL, divide(`context.columns.unique_conversions`.1, `context.columns.visitors`.1)), if(ifNull(equals(`context.columns.visitors`.2, 0), 0), NULL, divide(`context.columns.unique_conversions`.2, `context.columns.visitors`.2))) AS `context.columns.conversion_rate`,
+         divide(`context.columns.total_conversions`.1, sum(`context.columns.total_conversions`.1) OVER ()) AS `context.columns.ui_fill_fraction`
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
@@ -3896,6 +3960,7 @@
               breakdown_value)
   GROUP BY `context.columns.breakdown_value`
   ORDER BY `context.columns.total_conversions` ASC,
+           `context.columns.unique_conversions` ASC,
            `context.columns.visitors` ASC,
            `context.columns.breakdown_value` ASC
   LIMIT 101
@@ -3917,7 +3982,8 @@
          tuple(uniq(filtered_person_id), NULL) AS `context.columns.visitors`,
          tuple(sum(conversion_count), NULL) AS `context.columns.total_conversions`,
          tuple(uniq(conversion_person_id), NULL) AS `context.columns.unique_conversions`,
-         tuple(if(ifNull(equals(`context.columns.visitors`.1, 0), 0), NULL, divide(`context.columns.unique_conversions`.1, `context.columns.visitors`.1)), if(ifNull(equals(`context.columns.visitors`.2, 0), 0), NULL, divide(`context.columns.unique_conversions`.2, `context.columns.visitors`.2))) AS `context.columns.conversion_rate`
+         tuple(if(ifNull(equals(`context.columns.visitors`.1, 0), 0), NULL, divide(`context.columns.unique_conversions`.1, `context.columns.visitors`.1)), if(ifNull(equals(`context.columns.visitors`.2, 0), 0), NULL, divide(`context.columns.unique_conversions`.2, `context.columns.visitors`.2))) AS `context.columns.conversion_rate`,
+         divide(`context.columns.total_conversions`.1, sum(`context.columns.total_conversions`.1) OVER ()) AS `context.columns.ui_fill_fraction`
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
@@ -3952,6 +4018,7 @@
               breakdown_value)
   GROUP BY `context.columns.breakdown_value`
   ORDER BY `context.columns.total_conversions` DESC,
+           `context.columns.unique_conversions` DESC,
            `context.columns.visitors` DESC,
            `context.columns.breakdown_value` ASC
   LIMIT 101
@@ -3982,7 +4049,8 @@
   '''
   SELECT breakdown_value AS `context.columns.breakdown_value`,
          tuple(uniq(filtered_person_id), NULL) AS `context.columns.visitors`,
-         tuple(sum(filtered_pageview_count), NULL) AS `context.columns.views`
+         tuple(sum(filtered_pageview_count), NULL) AS `context.columns.views`,
+         divide(`context.columns.views`.1, sum(`context.columns.views`.1) OVER ()) AS `context.columns.ui_fill_fraction`
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
@@ -4042,7 +4110,8 @@
   '''
   SELECT breakdown_value AS `context.columns.breakdown_value`,
          tuple(uniq(filtered_person_id), NULL) AS `context.columns.visitors`,
-         tuple(sum(filtered_pageview_count), NULL) AS `context.columns.views`
+         tuple(sum(filtered_pageview_count), NULL) AS `context.columns.views`,
+         divide(`context.columns.views`.1, sum(`context.columns.views`.1) OVER ()) AS `context.columns.ui_fill_fraction`
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
@@ -4102,7 +4171,8 @@
   '''
   SELECT breakdown_value AS `context.columns.breakdown_value`,
          tuple(uniq(filtered_person_id), NULL) AS `context.columns.visitors`,
-         tuple(sum(filtered_pageview_count), NULL) AS `context.columns.views`
+         tuple(sum(filtered_pageview_count), NULL) AS `context.columns.views`,
+         divide(`context.columns.visitors`.1, sum(`context.columns.visitors`.1) OVER ()) AS `context.columns.ui_fill_fraction`
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
@@ -4162,7 +4232,8 @@
   '''
   SELECT breakdown_value AS `context.columns.breakdown_value`,
          tuple(uniq(filtered_person_id), NULL) AS `context.columns.visitors`,
-         tuple(sum(filtered_pageview_count), NULL) AS `context.columns.views`
+         tuple(sum(filtered_pageview_count), NULL) AS `context.columns.views`,
+         divide(`context.columns.visitors`.1, sum(`context.columns.visitors`.1) OVER ()) AS `context.columns.ui_fill_fraction`
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
@@ -4222,7 +4293,8 @@
   '''
   SELECT breakdown_value AS `context.columns.breakdown_value`,
          tuple(uniq(filtered_person_id), NULL) AS `context.columns.visitors`,
-         tuple(sum(filtered_pageview_count), NULL) AS `context.columns.views`
+         tuple(sum(filtered_pageview_count), NULL) AS `context.columns.views`,
+         divide(`context.columns.visitors`.1, sum(`context.columns.visitors`.1) OVER ()) AS `context.columns.ui_fill_fraction`
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
@@ -4275,7 +4347,8 @@
   '''
   SELECT breakdown_value AS `context.columns.breakdown_value`,
          tuple(uniq(filtered_person_id), NULL) AS `context.columns.visitors`,
-         tuple(sum(filtered_pageview_count), NULL) AS `context.columns.views`
+         tuple(sum(filtered_pageview_count), NULL) AS `context.columns.views`,
+         divide(`context.columns.visitors`.1, sum(`context.columns.visitors`.1) OVER ()) AS `context.columns.ui_fill_fraction`
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
@@ -4335,7 +4408,8 @@
   '''
   SELECT breakdown_value AS `context.columns.breakdown_value`,
          tuple(uniq(filtered_person_id), NULL) AS `context.columns.visitors`,
-         tuple(sum(filtered_pageview_count), NULL) AS `context.columns.views`
+         tuple(sum(filtered_pageview_count), NULL) AS `context.columns.views`,
+         divide(`context.columns.visitors`.1, sum(`context.columns.visitors`.1) OVER ()) AS `context.columns.ui_fill_fraction`
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
@@ -4395,7 +4469,8 @@
   '''
   SELECT breakdown_value AS `context.columns.breakdown_value`,
          tuple(uniq(filtered_person_id), NULL) AS `context.columns.visitors`,
-         tuple(sum(filtered_pageview_count), NULL) AS `context.columns.views`
+         tuple(sum(filtered_pageview_count), NULL) AS `context.columns.views`,
+         divide(`context.columns.visitors`.1, sum(`context.columns.visitors`.1) OVER ()) AS `context.columns.ui_fill_fraction`
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
@@ -4455,7 +4530,8 @@
   '''
   SELECT breakdown_value AS `context.columns.breakdown_value`,
          tuple(uniq(filtered_person_id), NULL) AS `context.columns.visitors`,
-         tuple(sum(filtered_pageview_count), NULL) AS `context.columns.views`
+         tuple(sum(filtered_pageview_count), NULL) AS `context.columns.views`,
+         divide(`context.columns.visitors`.1, sum(`context.columns.visitors`.1) OVER ()) AS `context.columns.ui_fill_fraction`
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
             count() AS filtered_pageview_count,
