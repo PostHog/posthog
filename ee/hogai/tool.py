@@ -42,6 +42,15 @@ class search_insights(BaseModel):
         description="IMPORTANT: Pass the user's COMPLETE, UNMODIFIED query exactly as they wrote it. Do NOT summarize, truncate, or extract keywords. For example, if the user says 'look for inkeep insights in all my insights', pass exactly 'look for inkeep insights in all my insights', not just 'inkeep' or 'inkeep insights'."
     )
 
+class summarize_session(BaseModel):
+    """
+    "Watch" the session and summarize it. Use this tool when users ask to summarize their session.
+    """
+
+    session_id: str = Field(
+        description="The ID of the session to summarize."
+    )
+
 
 class search_documentation(BaseModel):
     """

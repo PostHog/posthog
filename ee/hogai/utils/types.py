@@ -182,6 +182,10 @@ class _SharedAssistantState(BaseState):
     The user's search query for finding existing insights.
     """
     search_insights_query: Optional[str] = Field(default=None)
+    """
+    The ID of the session to summarize.
+    """
+    summarization_session_id: Optional[str] = Field(default=None)
 
 
 class AssistantState(_SharedAssistantState):

@@ -6,6 +6,7 @@ from langgraph.graph.state import StateGraph
 
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
 from ee.hogai.graph.query_planner.nodes import QueryPlannerNode, QueryPlannerToolsNode
+from ee.hogai.graph.session_summaries.nodes import SessionSummarizationNode
 from ee.hogai.graph.title_generator.nodes import TitleGeneratorNode
 from ee.hogai.utils.types import AssistantNodeName, AssistantState
 from posthog.models.team.team import Team
@@ -382,6 +383,18 @@ class AssistantGraph(BaseAssistantGraph[AssistantState]):
             insights_search_node.router,
             path_map=cast(dict[Hashable, str], path_map),
         )
+        return self
+    
+    def add_session_summarization(self, end_node: AssistantNodeName = AssistantNodeName.END):
+        # TODO: Finish implementation of this node
+        builder = self._graph
+        path_map = {
+            "end": end_node,
+            "root": AssistantNodeName.ROOT,
+        }
+        session_summarization_node = SessionSummarizationNode(self._team, self._user)
+        builder.add_node(AssistantNodeName.SESSION_SUMMARIZATION, session_summarization_node)
+        builder.add_edge(AssistantNodeName.SESSION_SUMMARIZATION, end_node)
         return self
 
     def compile_full_graph(self, checkpointer: DjangoCheckpointer | None = None):
