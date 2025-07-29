@@ -1,7 +1,7 @@
 import { LemonDropdown } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { capitalizeFirstLetter, percentage } from 'lib/utils'
-import { useRef, useState, useEffect } from 'react'
+import { useRef, useState, useEffect, useCallback } from 'react'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { Noun } from '~/models/groupsModel'
@@ -51,7 +51,7 @@ export function Bar({
     const hasBreakdownSum = isBreakdown && typeof breakdownSumPercentage === 'number'
     const shouldShowLabel = (!isBreakdown || hasBreakdownSum) && labelVisible
 
-    function checkLabelVisibility(): void {
+    const checkLabelVisibility = useCallback((): void => {
         if (!hasBreakdownSum) {
             // For non-breakdowns, always show label
             setLabelVisible(true)
@@ -68,26 +68,27 @@ export function Bar({
         const remainingWidth = totalWidth * (1 - usedPercentage)
 
         setLabelVisible(remainingWidth >= MINIMUM_SPACE_FOR_LABEL)
-    }
+    }, [hasBreakdownSum, breakdownSumPercentage])
 
     useEffect(() => {
         checkLabelVisibility()
+
+        if (!hasBreakdownSum) {
+            return
+        }
 
         const parentElement = barRef.current?.parentElement
         if (!parentElement) {
             return
         }
 
-        const resizeObserver = new ResizeObserver(() => {
-            checkLabelVisibility()
-        })
-
+        const resizeObserver = new ResizeObserver(checkLabelVisibility)
         resizeObserver.observe(parentElement)
 
         return () => {
             resizeObserver.disconnect()
         }
-    }, [hasBreakdownSum, breakdownSumPercentage, checkLabelVisibility])
+    }, [checkLabelVisibility, hasBreakdownSum])
 
     if (!conversionPercentage) {
         return null
