@@ -254,7 +254,7 @@ const createTopLevelFolderNode = (
 
     return {
         id: isSearch ? `search-${type}` : type,
-        name: type === 'sources' ? 'Sources' : type === 'views' ? 'Views' : 'Managed Views',
+        name: type === 'sources' ? 'Sources' : type === 'views' ? 'Views' : 'Managed views',
         type: 'node',
         icon: icon,
         record: {
