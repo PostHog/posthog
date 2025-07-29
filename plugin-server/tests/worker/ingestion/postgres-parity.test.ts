@@ -280,11 +280,11 @@ describe('postgres parity', () => {
         const anotherPersonKafkaMessages = result2.messages
 
         await hub.db.kafkaProducer.queueMessages(anotherPersonKafkaMessages)
+        await hub.db.kafkaProducer.flush()
 
         await clickhouse.delayUntilEventIngested(() => clickhouse.fetchPersons())
         const [postgresPerson] = await hub.db.fetchPersons()
 
-        await clickhouse.delayUntilEventIngested(() => clickhouse.fetchDistinctIds(postgresPerson), 1)
         await clickhouse.delayUntilEventIngested(() => clickhouse.fetchDistinctIds(postgresPerson), 1)
         const clickHouseDistinctIdValues = await clickhouse.fetchDistinctIdValues(postgresPerson)
         const postgresDistinctIdValues = await hub.db.fetchDistinctIdValues(postgresPerson)
@@ -374,6 +374,7 @@ describe('postgres parity', () => {
         const kafkaMessagesAnotherPerson = result2.messages
 
         await hub.db.kafkaProducer.queueMessages(kafkaMessagesAnotherPerson)
+        await hub.db.kafkaProducer.flush()
 
         await clickhouse.delayUntilEventIngested(() => clickhouse.fetchPersons())
         const [postgresPerson] = await hub.db.fetchPersons()
@@ -381,7 +382,6 @@ describe('postgres parity', () => {
         await clickhouse.delayUntilEventIngested(() => clickhouse.fetchDistinctIdValues(postgresPerson), 1)
 
         // move distinct ids from person to to anotherPerson
-
         const moveDistinctIdsResult = await personRepository.moveDistinctIds(person, anotherPerson)
         expect(moveDistinctIdsResult.success).toEqual(true)
 
