@@ -83,7 +83,7 @@ export function ActionsPie({ inSharedMode, showPersonsModal = true, context }: C
         if (indexedResults) {
             updateData()
         }
-    }, [indexedResults, hiddenLegendIndexes])
+    }, [indexedResults, hiddenLegendIndexes, updateData])
 
     let onClick: ((payload: GraphPointPayload) => void) | undefined = undefined
     if (onDataPointClick) {

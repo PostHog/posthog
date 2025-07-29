@@ -1,7 +1,7 @@
 import Redis from 'ioredis'
 import { Pool } from 'pg'
 
-import { MeasuringPersonsStoreForBatch } from '~/worker/ingestion/persons/measuring-person-store'
+import { BatchWritingPersonsStoreForBatch } from '~/worker/ingestion/persons/batch-writing-person-store'
 
 import { Hub } from '../../../src/types'
 import { DependencyUnavailableError } from '../../../src/utils/db/error'
@@ -64,7 +64,7 @@ describe('workerTasks.runEventPipeline()', () => {
             now: new Date().toISOString(),
             uuid: new UUIDT().toString(),
         }
-        const personsStoreForBatch = new MeasuringPersonsStoreForBatch(personRepository)
+        const personsStoreForBatch = new BatchWritingPersonsStoreForBatch(personRepository, hub.kafkaProducer)
         const groupStoreForBatch = new BatchWritingGroupStoreForBatch(hub.db)
         await expect(
             new EventPipelineRunner(hub, event, null, [], personsStoreForBatch, groupStoreForBatch).runEventPipeline(
