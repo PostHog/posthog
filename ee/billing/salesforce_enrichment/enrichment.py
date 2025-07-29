@@ -41,6 +41,76 @@ def is_excluded_domain(domain: str | None) -> bool:
     return False
 
 
+def _calculate_historical_matches(historical_data: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    """Calculate best historical matches for target periods from time-series data.
+
+    Args:
+        historical_data: List of metrics with timestamp and metricValue
+
+    Returns:
+        Dict mapping period -> {value, distance, days_ago, date}
+    """
+    best_matches: dict[str, dict[str, Any]] = {}
+
+    for metric in historical_data:
+        if not metric.get("timestamp") or metric.get("metricValue") is None:
+            continue
+
+        date_str = metric["timestamp"].split("T")[0]
+        metric_date = datetime.strptime(date_str, "%Y-%m-%d")
+        days_ago = (datetime.now().date() - metric_date.date()).days
+
+        # For each target period, find the closest match
+        for period, target in METRIC_PERIODS.items():
+            # Calculate how close this metric is to the target
+            distance = abs(days_ago - target)
+
+            # Skip if more than 16 days from target (monthly data tolerance)
+            if distance > 16:
+                continue
+
+            # Update if this is closer to the target than previous best
+            if period not in best_matches or distance < best_matches[period]["distance"]:
+                best_matches[period] = {
+                    "value": metric["metricValue"],
+                    "distance": distance,
+                    "days_ago": days_ago,
+                    "date": date_str,
+                }
+
+    return best_matches
+
+
+def _process_single_metric(metric_name: str, metric_data: dict[str, Any]) -> dict[str, Any] | None:
+    """Process a single metric from Harmonic API response.
+
+    Args:
+        metric_name: Name of the metric (e.g., 'headcount')
+        metric_data: Raw metric data from Harmonic API
+
+    Returns:
+        Processed metric with current_value and historical data, or None if invalid
+    """
+    if not metric_data or metric_data.get("latestMetricValue") is None:
+        return None
+
+    processed_metric = {
+        "current_value": metric_data["latestMetricValue"],
+        "historical": {},
+    }
+
+    # Process historical data if available
+    historical_data = metric_data.get("metrics", [])
+    if historical_data:
+        best_matches = _calculate_historical_matches(historical_data)
+
+        # Store the best matches in the processed metric
+        for period, match in best_matches.items():
+            processed_metric["historical"][period] = {"value": match["value"]}
+
+    return processed_metric
+
+
 def transform_harmonic_data(company_data: dict[str, Any]) -> dict[str, Any] | None:
     """Transform Harmonic API response into Salesforce field format.
 
@@ -53,7 +123,6 @@ def transform_harmonic_data(company_data: dict[str, Any]) -> dict[str, Any] | No
     if not company_data or not isinstance(company_data, dict):
         return None
 
-    # Transform the data into the expected format with safe access
     website_data = company_data.get("website") or {}
     founding_data = company_data.get("foundingDate") or {}
 
@@ -65,57 +134,17 @@ def transform_harmonic_data(company_data: dict[str, Any]) -> dict[str, Any] | No
             "description": company_data.get("description"),
             "founding_date": founding_data.get("date") if isinstance(founding_data, dict) else None,
         },
-        "funding": company_data.get("funding", {}),
+        "funding": company_data.get("funding", {}) if isinstance(company_data.get("funding"), dict) else {},
         "metrics": {},
     }
 
-    # Transform metrics data
-    traction_metrics = company_data.get("tractionMetrics", {})
+    traction_metrics = (
+        company_data.get("tractionMetrics", {}) if isinstance(company_data.get("tractionMetrics"), dict) else {}
+    )
     for metric_name, metric_data in traction_metrics.items():
-        if metric_data and metric_data.get("latestMetricValue") is not None:
-            transformed_data["metrics"][metric_name] = {
-                "current_value": metric_data["latestMetricValue"],
-                "historical": {},
-            }
-
-            # Process historical data
-            historical_data = metric_data.get("metrics", [])
-
-            # Initialize best matches for each period
-            best_matches: dict[str, dict[str, int | float]] = {}
-
-            for metric in historical_data:
-                if not metric.get("timestamp") or metric.get("metricValue") is None:
-                    continue
-
-                date_str = metric["timestamp"].split("T")[0]
-                metric_date = datetime.strptime(date_str, "%Y-%m-%d")
-                days_ago = (datetime.now().date() - metric_date.date()).days
-
-                # For each target period, find the closest match
-                for period, target in METRIC_PERIODS.items():
-                    # Calculate how close this metric is to the target
-                    distance = abs(days_ago - target)
-
-                    # Skip if more than 16 days from target (monthly data tolerance)
-                    if distance > 16:
-                        continue
-
-                    # Update if this is closer to the target than previous best
-                    if period not in best_matches or distance < best_matches[period]["distance"]:
-                        best_matches[period] = {
-                            "value": metric["metricValue"],
-                            "distance": distance,
-                            "days_ago": days_ago,
-                            "date": date_str,
-                        }
-
-            # Store the best matches in the transformed data
-            for period, match in best_matches.items():
-                historical_value = match["value"]
-                transformed_data["metrics"][metric_name].setdefault("historical", {})[period] = {
-                    "value": historical_value
-                }
+        processed_metric = _process_single_metric(metric_name, metric_data)
+        if processed_metric:
+            transformed_data["metrics"][metric_name] = processed_metric
 
     return transformed_data
 
@@ -133,21 +162,18 @@ def prepare_salesforce_update_data(account_id: str, harmonic_data: dict[str, Any
     if not harmonic_data:
         return None
 
-    # Get funding info, company info, and metrics
     funding = harmonic_data.get("funding", {})
     company_info = harmonic_data.get("company_info", {})
     metrics = harmonic_data.get("metrics", {})
 
     current_metrics = {metric_name: metric_data.get("current_value") for metric_name, metric_data in metrics.items()}
 
-    # Get historical data for specific periods
     def get_historical_value(metric_name, period):
         metric_data = metrics.get(metric_name, {})
         historical = metric_data.get("historical", {})
         period_data = historical.get(period, {})
         return period_data.get("value")
 
-    # Prepare update data
     update_data = {
         "Id": account_id,
         # Company Info
@@ -214,16 +240,15 @@ def bulk_update_salesforce_accounts(sf, update_records):
         logger.info("Processing batch", batch_number=batch_num, total_batches=len(batches), batch_size=len(batch))
 
         try:
-            # Use sObject Collections API for bulk updates (more efficient than Composite API)
-            # This allows up to 200 records per API call vs 25 for Composite API
-            # Using correct endpoint: composite/sobjects with PATCH method and attributes
+            # Use sObject Collections API for bulk updates
+            # This allows up to 200 records per API call
             records_with_attributes = [{**record, "attributes": {"type": "Account"}} for record in batch]
 
             response = sf.restful(
                 "composite/sobjects",
                 method="PATCH",
                 json={
-                    "allOrNone": False,  # Continue processing even if some records fail
+                    "allOrNone": False,
                     "records": records_with_attributes,
                 },
             )
