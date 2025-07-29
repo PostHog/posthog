@@ -111,7 +111,19 @@ export function HogFunctionFilters({
             )}
         >
             {showSourcePicker && (
-                <LemonField name="filters" label="Source">
+                <LemonField
+                    name="filters"
+                    label="Source"
+                    info={
+                        <>
+                            Select the source of events for the destination.
+                            <br />
+                            <b>Events</b> will trigger from the real-time stream of ingested events.
+                            <br />
+                            <b>Person updates</b> will trigger whenever a Person is created, updated or deleted.
+                        </>
+                    }
+                >
                     {({ value, onChange }) => {
                         return (
                             <LemonSelect

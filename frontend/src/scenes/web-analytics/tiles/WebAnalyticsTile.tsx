@@ -157,7 +157,7 @@ const BreakdownValueTitle: QueryContextColumnTitleComponent = (props) => {
         case WebStatsBreakdown.ScreenName:
             return <>Screen Name</>
         case WebStatsBreakdown.InitialChannelType:
-            return <>Initial Channel Type</>
+            return <>Channel Type</>
         case WebStatsBreakdown.InitialReferringDomain:
             return <>Referring Domain</>
         case WebStatsBreakdown.InitialUTMSource:
@@ -369,17 +369,17 @@ export const webAnalyticsDataTableQueryContext: QueryContext = {
             align: 'right',
         },
         total_conversions: {
-            renderTitle: SortableCell('Total Conversions', WebAnalyticsOrderByFields.TotalConversions),
+            renderTitle: SortableCell('Conversions', WebAnalyticsOrderByFields.TotalConversions),
             render: VariationCell(),
             align: 'right',
         },
         unique_conversions: {
-            renderTitle: SortableCell('Unique Conversions', WebAnalyticsOrderByFields.UniqueConversions),
+            renderTitle: SortableCell('Uniques', WebAnalyticsOrderByFields.UniqueConversions),
             render: VariationCell(),
             align: 'right',
         },
         conversion_rate: {
-            renderTitle: SortableCell('Conversion Rate', WebAnalyticsOrderByFields.ConversionRate),
+            renderTitle: SortableCell('CR', WebAnalyticsOrderByFields.ConversionRate),
             render: VariationCell({ isPercentage: true }),
             align: 'right',
         },
@@ -427,6 +427,10 @@ export const webAnalyticsDataTableQueryContext: QueryContext = {
                 )
             },
             align: 'right',
+        },
+        ui_fill_fraction: {
+            hidden: true,
+            isRowFillFraction: true,
         },
     },
 }
