@@ -26,6 +26,10 @@ let res := fetch(f'https://sheets.googleapis.com/v4/spreadsheets/{inputs.spreads
     }
 })
 
+if (res.status >= 400) {
+    throw Error(f'Error from sheets.googleapis.com (status {res.status}): {res.body}')
+}
+
 res := fetch(f'https://sheets.googleapis.com/v4/spreadsheets/{inputs.spreadsheet_id}/values/{inputs.spreadsheet_name}:append?valueInputOption={inputs.data_format}', {
     'method': 'POST',
     'headers': {
@@ -36,6 +40,10 @@ res := fetch(f'https://sheets.googleapis.com/v4/spreadsheets/{inputs.spreadsheet
         'values': [values(inputs.fields)]
     }
 })
+
+if (res.status >= 400) {
+    throw Error(f'Error from sheets.googleapis.com (status {res.status}): {res.body}')
+}
 `,
     inputs_schema: [
         {
