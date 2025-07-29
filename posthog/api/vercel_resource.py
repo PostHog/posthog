@@ -1,9 +1,10 @@
 from typing import Any
-from rest_framework import serializers, viewsets, permissions
+from rest_framework import serializers, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
-
 from rest_framework import mixins
+from posthog.auth import VercelAuthentication
+from posthog.api.vercel_installation import VercelInstallationPermission
 from posthog.models.vercel_resouce import VercelResource
 
 
@@ -18,7 +19,8 @@ class VercelResourceViewSet(
 ):
     serializer_class = VercelResourceSerializer
     lookup_field = "resource_id"
-    permission_classes = [permissions.AllowAny]
+    authentication_classes = [VercelAuthentication]
+    permission_classes = [VercelInstallationPermission]
 
     def get_queryset(self):
         installation_id = self.kwargs.get("installation_id")
