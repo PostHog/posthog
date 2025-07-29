@@ -13,6 +13,14 @@ from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.logger import get_internal_logger
 from posthog.exceptions_capture import capture_exception
 
+# Salesforce query to get all accounts with websites
+SALESFORCE_ACCOUNTS_QUERY = """
+    SELECT Id, Name, Website, CreatedDate
+    FROM Account
+    WHERE Website != null
+    ORDER BY CreatedDate DESC
+"""
+
 
 @dataclasses.dataclass
 class SalesforceEnrichmentInputs:
@@ -104,14 +112,7 @@ async def cache_all_accounts_activity() -> dict[str, typing.Any]:
         sf_start = time.time()
         sf = SalesforceClient()
 
-        query = """
-            SELECT Id, Name, Website, CreatedDate
-            FROM Account
-            WHERE Website != null
-            ORDER BY CreatedDate DESC
-        """
-
-        accounts_result = sf.query_all(query)
+        accounts_result = sf.query_all(SALESFORCE_ACCOUNTS_QUERY)
         all_accounts = accounts_result["records"]
         total_count = len(all_accounts)
         sf_time = time.time() - sf_start
@@ -137,39 +138,6 @@ async def cache_all_accounts_activity() -> dict[str, typing.Any]:
         return {"success": False, "error": str(e)}
 
 
-@activity.defn
-async def get_total_account_count_activity() -> int:
-    """Get the total count of accounts with websites for chunk estimation."""
-    logger = get_internal_logger()
-
-    try:
-        close_old_connections()
-
-        # Import here to avoid circular imports
-        from ee.billing.salesforce_enrichment.salesforce_client import SalesforceClient
-
-        # Quick query to get total count
-        sf = SalesforceClient()
-
-        # Count accounts with websites
-        count_query = """
-            SELECT COUNT(Id)
-            FROM Account
-            WHERE Website != null
-        """
-
-        result = sf.query(count_query)
-        total_count = result["totalSize"]
-
-        logger.info("Total accounts with websites", total_count=total_count)
-        return total_count
-
-    except Exception as e:
-        logger.exception("Failed to get total account count", error=str(e))
-        capture_exception(e)
-        return 0  # Return 0 on error, will disable chunk estimation
-
-
 @workflow.defn(name="salesforce-enrichment-async")
 class SalesforceEnrichmentAsyncWorkflow(PostHogWorkflow):
     """Async workflow to enrich Salesforce accounts with concurrent Harmonic API calls."""
@@ -191,22 +159,14 @@ class SalesforceEnrichmentAsyncWorkflow(PostHogWorkflow):
         )
 
         if not cache_result.get("success"):
-            # If caching fails, fall back to traditional chunk queries
-            total_accounts = await workflow.execute_activity(
-                get_total_account_count_activity,
-                start_to_close_timeout=dt.timedelta(minutes=5),
-                retry_policy=RetryPolicy(maximum_attempts=2),
-            )
+            # If caching fails, disable chunk estimation and process sequentially
+            total_accounts = 0
         else:
             # Use cached count
             total_accounts = cache_result.get("total_accounts", 0)
 
-        # Ensure total_accounts is always an integer (handle legacy string values)
-        if isinstance(total_accounts, str):
-            try:
-                total_accounts = int(total_accounts) if total_accounts.isdigit() else 0
-            except (ValueError, AttributeError):
-                total_accounts = 0
+        # Ensure total_accounts is always an integer
+        total_accounts = int(total_accounts) if total_accounts else 0
 
         # Calculate estimated total chunks
         estimated_total_chunks = math.ceil(total_accounts / inputs.chunk_size) if total_accounts > 0 else None
@@ -231,7 +191,7 @@ class SalesforceEnrichmentAsyncWorkflow(PostHogWorkflow):
 
             # Execute the chunk enrichment activity (with concurrent API calls)
             chunk_result = await workflow.execute_activity(
-                enrich_chunk_activity,  # Unified activity with concurrent processing
+                enrich_chunk_activity,
                 chunk_inputs,
                 start_to_close_timeout=dt.timedelta(minutes=30),
                 retry_policy=RetryPolicy(
