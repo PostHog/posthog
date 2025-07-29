@@ -489,7 +489,7 @@ class Assistant:
             return self._process_memory_initializer_chunk(langchain_message)
 
         # Extract and process content
-        message_content = extract_content_from_ai_message(langchain_message)
+        message_content = extract_content_from_ai_message(self._chunks)
         if not message_content:
             return None
 
