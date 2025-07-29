@@ -1046,8 +1046,8 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         ],
 
         sparklineQuery: [
-            (s) => [s.configuration, s.matchingFilters, s.type, s.sourceUsesEvents],
-            (configuration, matchingFilters, type, sourceUsesEvents): TrendsQuery | null => {
+            (s) => [s.configuration, s.matchingFilters, s.sourceUsesEvents],
+            (configuration, matchingFilters, sourceUsesEvents): TrendsQuery | null => {
                 if (!sourceUsesEvents) {
                     return null
                 }
