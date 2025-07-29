@@ -735,11 +735,46 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     filter_backends = [filters.SearchFilter]
     search_fields = ["name", "description"]
 
+    def _check_surveys_quota_limit(self):
+        """Check if the team is quota limited for surveys"""
+        from django.conf import settings
+
+        if settings.EE_AVAILABLE:
+            try:
+                from ee.billing.quota_limiting import (
+                    QuotaLimitingCaches,
+                    QuotaResource,
+                    list_limited_team_attributes,
+                )
+
+                limited_tokens_surveys = list_limited_team_attributes(
+                    QuotaResource.SURVEYS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+                )
+                return self.team.api_token in limited_tokens_surveys
+            except ImportError:
+                # EE not available, no quota limiting
+                pass
+        return False
+
     def get_serializer_class(self) -> type[serializers.Serializer]:
         if self.request.method == "POST" or self.request.method == "PATCH":
             return SurveySerializerCreateUpdateOnly
         else:
             return SurveySerializer
+
+    def create(self, request, *args, **kwargs):
+        """Override create to check quota limits"""
+        if self._check_surveys_quota_limit():
+            return Response(
+                {
+                    "type": "quota_limited",
+                    "detail": "You have exceeded your survey quota limit.",
+                    "code": "payment_required",
+                },
+                status=status.HTTP_402_PAYMENT_REQUIRED,
+            )
+
+        return super().create(request, *args, **kwargs)
 
     def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance = self.get_object()
@@ -1316,22 +1351,52 @@ def get_surveys_count(team: Team) -> int:
 
 
 def get_surveys_response(team: Team):
-    surveys = SurveyAPISerializer(
-        Survey.objects.filter(team__project_id=team.project_id)
-        .exclude(archived=True)
-        .select_related("linked_flag", "targeting_flag", "internal_targeting_flag")
-        .prefetch_related("actions"),
-        many=True,
-    ).data
+    from django.conf import settings
+
+    # Check if team is quota limited for surveys
+    surveys_quota_limited = False
+    if settings.EE_AVAILABLE:
+        try:
+            from ee.billing.quota_limiting import (
+                QuotaLimitingCaches,
+                QuotaResource,
+                list_limited_team_attributes,
+            )
+
+            limited_tokens_surveys = list_limited_team_attributes(
+                QuotaResource.SURVEYS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+            )
+            surveys_quota_limited = team.api_token in limited_tokens_surveys
+        except ImportError:
+            # EE not available, no quota limiting
+            pass
+
+    # If quota limited, return empty surveys
+    if surveys_quota_limited:
+        surveys = []
+    else:
+        surveys = SurveyAPISerializer(
+            Survey.objects.filter(team__project_id=team.project_id)
+            .exclude(archived=True)
+            .select_related("linked_flag", "targeting_flag", "internal_targeting_flag")
+            .prefetch_related("actions"),
+            many=True,
+        ).data
 
     serialized_survey_config: dict[str, Any] = {}
     if team.survey_config is not None:
         serialized_survey_config = SurveyConfigSerializer(team).data
 
-    return {
+    response = {
         "surveys": surveys,
         "survey_config": serialized_survey_config.get("survey_config", None),
     }
+
+    # Add quota limited indicator if surveys are quota limited
+    if surveys_quota_limited:
+        response["quotaLimited"] = ["surveys"]
+
+    return response
 
 
 @csrf_exempt

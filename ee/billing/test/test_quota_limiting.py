@@ -42,11 +42,13 @@ class TestQuotaLimiting(BaseTest):
         self.redis_client.delete(f"@posthog/quota-limits/recordings")
         self.redis_client.delete(f"@posthog/quota-limits/rows_synced")
         self.redis_client.delete(f"@posthog/quota-limits/api_queries_read_bytes")
+        self.redis_client.delete(f"@posthog/quota-limits/surveys")
         self.redis_client.delete(f"@posthog/quota-limiting-suspended/events")
         self.redis_client.delete(f"@posthog/quota-limiting-suspended/exceptions")
         self.redis_client.delete(f"@posthog/quota-limiting-suspended/recordings")
         self.redis_client.delete(f"@posthog/quota-limiting-suspended/rows_synced")
         self.redis_client.delete(f"@posthog/quota-limiting-suspended/api_queries_read_bytes")
+        self.redis_client.delete(f"@posthog/quota-limiting-suspended/surveys")
 
     @patch("posthoganalytics.capture")
     @patch("posthoganalytics.feature_enabled", return_value=True)
@@ -1388,3 +1390,68 @@ class TestQuotaLimiting(BaseTest):
             assert event[1]["properties"]["quota_limiting_suspended_until"] is None
             assert "organization" in event[1]["groups"]
             assert event[1]["groups"]["organization"] == str(self.organization.id)
+
+    @patch("posthoganalytics.capture")
+    @freeze_time("2021-01-25T23:59:59Z")
+    def test_quota_limiting_surveys(self, mock_capture) -> None:
+        """Test that surveys quota limiting works correctly"""
+        with self.settings(USE_TZ=False):
+            # Set up usage data with surveys over the limit
+            self.organization.usage = {
+                "surveys": {"usage": 95, "limit": 100, "todays_usage": 10},  # 105 total, over limit of 100
+                "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
+            }
+            self.organization.customer_trust_scores = {"surveys": 0}  # Low trust score
+            self.organization.save()
+
+            # Run quota limiting update
+            update_org_billing_quotas(self.organization)
+
+            # Verify team token was added to quota limited list
+            limited_tokens = list_limited_team_attributes(
+                QuotaResource.SURVEYS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+            )
+            assert self.team.api_token in limited_tokens
+
+            # Verify org usage was updated with quota_limited_until
+            self.organization.refresh_from_db()
+            assert self.organization.usage["surveys"].get("quota_limited_until") is not None
+
+            # Verify analytics event was captured
+            mock_capture.assert_called()
+
+            # Check that the correct properties were logged
+            org_action_call = None
+            for call in mock_capture.call_args_list:
+                if len(call) >= 2 and call[1]["event"] == "org_quota_limited_until":
+                    org_action_call = call
+                    break
+
+            assert org_action_call is not None
+            assert org_action_call[1]["properties"]["resource"] == "surveys"
+            assert org_action_call[1]["properties"]["current_usage"] == 105
+            assert org_action_call[1]["properties"]["event"] == "suspended"
+
+    @freeze_time("2021-01-25T23:59:59Z")
+    def test_quota_limiting_surveys_under_limit(self) -> None:
+        """Test that surveys under quota limit are not restricted"""
+        with self.settings(USE_TZ=False):
+            # Set up usage data with surveys under the limit
+            self.organization.usage = {
+                "surveys": {"usage": 80, "limit": 100, "todays_usage": 5},  # 85 total, under limit
+                "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
+            }
+            self.organization.save()
+
+            # Run quota limiting update
+            update_org_billing_quotas(self.organization)
+
+            # Verify team token was NOT added to quota limited list
+            limited_tokens = list_limited_team_attributes(
+                QuotaResource.SURVEYS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+            )
+            assert self.team.api_token not in limited_tokens
+
+            # Verify org usage does not have quota_limited_until
+            self.organization.refresh_from_db()
+            assert self.organization.usage["surveys"].get("quota_limited_until") is None

@@ -3527,3 +3527,91 @@ class TestSurveyStats(ClickhouseTestMixin, APIBaseTest):
 )
 def test_nh3_clean_configuration(test_input, expected):
     assert nh3_clean_with_allow_list(test_input).replace(" ", "") == expected.replace(" ", "")
+
+
+class TestSurveyQuotaLimiting(APIBaseTest):
+    def test_survey_creation_blocked_when_quota_limited(self):
+        # Mock quota limiting to return true for surveys
+        with patch("posthog.api.survey.settings.EE_AVAILABLE", True):
+            with patch("posthog.api.survey.list_limited_team_attributes", return_value=[self.team.api_token]):
+                response = self.client.post(
+                    f"/api/projects/{self.team.id}/surveys/",
+                    data={
+                        "name": "Test Survey",
+                        "description": "This should be blocked",
+                        "type": "popover",
+                        "questions": [
+                            {
+                                "type": "open",
+                                "question": "What do you think?",
+                            }
+                        ],
+                    },
+                    format="json",
+                )
+
+                assert response.status_code == status.HTTP_402_PAYMENT_REQUIRED
+                assert response.json()["type"] == "quota_limited"
+                assert "exceeded your survey quota limit" in response.json()["detail"]
+
+    def test_survey_creation_allowed_when_not_quota_limited(self):
+        # Mock quota limiting to return false for surveys
+        with patch("posthog.api.survey.settings.EE_AVAILABLE", True):
+            with patch("posthog.api.survey.list_limited_team_attributes", return_value=[]):
+                response = self.client.post(
+                    f"/api/projects/{self.team.id}/surveys/",
+                    data={
+                        "name": "Test Survey",
+                        "description": "This should be allowed",
+                        "type": "popover",
+                        "questions": [
+                            {
+                                "type": "open",
+                                "question": "What do you think?",
+                            }
+                        ],
+                    },
+                    format="json",
+                )
+
+                assert response.status_code == status.HTTP_201_CREATED
+                assert response.json()["name"] == "Test Survey"
+
+    def test_surveys_api_returns_empty_when_quota_limited(self):
+        # Create a survey first
+        Survey.objects.create(
+            team=self.team,
+            name="Test Survey",
+            type="popover",
+            questions=[{"type": "open", "question": "Test?"}],
+        )
+
+        # Mock quota limiting to return true for surveys
+        with patch("posthog.api.survey.settings.EE_AVAILABLE", True):
+            with patch("posthog.api.survey.list_limited_team_attributes", return_value=[self.team.api_token]):
+                response = self.client.get(f"/api/surveys?token={self.team.api_token}")
+
+                assert response.status_code == status.HTTP_200_OK
+                data = response.json()
+                assert data["surveys"] == []  # Empty due to quota limiting
+                assert data["quotaLimited"] == ["surveys"]
+
+    def test_surveys_api_returns_surveys_when_not_quota_limited(self):
+        # Create a survey first
+        Survey.objects.create(
+            team=self.team,
+            name="Test Survey",
+            type="popover",
+            questions=[{"type": "open", "question": "Test?"}],
+        )
+
+        # Mock quota limiting to return false for surveys
+        with patch("posthog.api.survey.settings.EE_AVAILABLE", True):
+            with patch("posthog.api.survey.list_limited_team_attributes", return_value=[]):
+                response = self.client.get(f"/api/surveys?token={self.team.api_token}")
+
+                assert response.status_code == status.HTTP_200_OK
+                data = response.json()
+                assert len(data["surveys"]) == 1
+                assert data["surveys"][0]["name"] == "Test Survey"
+                assert "quotaLimited" not in data
