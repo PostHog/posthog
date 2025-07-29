@@ -69,7 +69,7 @@ def create_example_inputs():
 
 
 class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
-    filters_context = {}
+    filters_context: dict = {}
 
     def setUp(self):
         super().setUp()

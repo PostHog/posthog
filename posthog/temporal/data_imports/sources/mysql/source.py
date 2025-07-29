@@ -136,19 +136,19 @@ class MySQLSource(BaseSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabas
         return True, None
 
     def source_for_pipeline(self, config: MySQLSourceConfig, inputs: SourceInputs) -> SourceResponse:
-        with self.with_ssh_tunnel(config) as (host, port):
-            return mysql_source(
-                host=host,
-                port=port,
-                user=config.user,
-                password=config.password,
-                database=config.database,
-                using_ssl=config.using_ssl,
-                schema=config.schema,
-                table_names=[inputs.schema_name],
-                should_use_incremental_field=inputs.should_use_incremental_field,
-                logger=inputs.logger,
-                incremental_field=inputs.incremental_field,
-                incremental_field_type=inputs.incremental_field_type,
-                db_incremental_field_last_value=inputs.db_incremental_field_last_value,
-            )
+        ssh_tunnel = self.make_ssh_tunnel_func(config)
+
+        return mysql_source(
+            tunnel=ssh_tunnel,
+            user=config.user,
+            password=config.password,
+            database=config.database,
+            using_ssl=config.using_ssl,
+            schema=config.schema,
+            table_names=[inputs.schema_name],
+            should_use_incremental_field=inputs.should_use_incremental_field,
+            logger=inputs.logger,
+            incremental_field=inputs.incremental_field,
+            incremental_field_type=inputs.incremental_field_type,
+            db_incremental_field_last_value=inputs.db_incremental_field_last_value,
+        )

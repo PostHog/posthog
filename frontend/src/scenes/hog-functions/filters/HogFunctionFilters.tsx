@@ -48,7 +48,13 @@ function sanitizeActionFilters(filters?: FilterType): Partial<CyclotronJobFilter
     return sanitized
 }
 
-export function HogFunctionFilters({ embedded = false }: { embedded?: boolean }): JSX.Element {
+export function HogFunctionFilters({
+    embedded = false,
+    showTriggerOptions = true,
+}: {
+    embedded?: boolean
+    showTriggerOptions?: boolean
+}): JSX.Element {
     const { groupsTaxonomicTypes } = useValues(groupsModel)
     const { configuration, type, useMapping, filtersContainPersonProperties, oldFilters, newFilters } =
         useValues(hogFunctionConfigurationLogic)
@@ -86,7 +92,7 @@ export function HogFunctionFilters({ embedded = false }: { embedded?: boolean })
         return types
     }, [isTransformation, groupsTaxonomicTypes])
 
-    const showMasking = type === 'destination' && !isLegacyPlugin
+    const showMasking = type === 'destination' && !isLegacyPlugin && showTriggerOptions
 
     if (type === 'internal_destination') {
         return <HogFunctionFiltersInternal />

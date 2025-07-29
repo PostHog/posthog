@@ -11,7 +11,7 @@ import { getPersonDisplayName } from '../utils'
 import { CdpEventsConsumer, counterParseError } from './cdp-events.consumer'
 
 export class CdpPersonUpdatesConsumer extends CdpEventsConsumer {
-    protected name = 'CdpPersonsConsumer'
+    protected name = 'CdpPersonUpdatesConsumer'
     protected hogTypes: HogFunctionTypeType[] = ['destination']
 
     constructor(hub: Hub) {

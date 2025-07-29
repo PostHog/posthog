@@ -16,6 +16,7 @@ import {
     AccessControlLevel,
     Experiment,
     ExperimentMetricMathType,
+    FeatureFlagEvaluationRuntime,
     FeatureFlagFilters,
     FeatureFlagType,
     PropertyFilterType,
@@ -641,6 +642,7 @@ describe('checkFeatureFlagEligibility', () => {
         has_encrypted_payloads: false,
         version: 0,
         last_modified_by: null,
+        evaluation_runtime: FeatureFlagEvaluationRuntime.ALL,
     }
     it('throws an error for a remote configuration feature flag', () => {
         const featureFlag = { ...baseFeatureFlag, is_remote_configuration: true }
