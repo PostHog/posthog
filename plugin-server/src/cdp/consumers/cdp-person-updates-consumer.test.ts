@@ -1,7 +1,5 @@
 import '../../../tests/helpers/mocks/producer.mock'
 
-import { DateTime } from 'luxon'
-
 import { forSnapshot } from '~/tests/helpers/snapshots'
 
 import { getFirstTeam, resetTestDatabase } from '../../../tests/helpers/sql'
@@ -11,7 +9,6 @@ import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../_tes
 import {
     createClickhousePerson,
     createHogFunction,
-    createInternalEvent,
     createKafkaMessage,
     insertHogFunction as _insertHogFunction,
 } from '../_tests/fixtures'
@@ -22,6 +19,7 @@ describe('CDP Person Updates Consumer', () => {
     let processor: CdpPersonUpdatesConsumer
     let hub: Hub
     let team: Team
+    let hogFunction: HogFunctionType
 
     const insertHogFunction = async (hogFunction: Partial<HogFunctionType>) => {
         const item = await _insertHogFunction(hub.postgres, team.id, hogFunction)
@@ -39,6 +37,16 @@ describe('CDP Person Updates Consumer', () => {
 
         processor = new CdpPersonUpdatesConsumer(hub)
         await processor.start()
+
+        hogFunction = createHogFunction({
+            ...HOG_EXAMPLES.simple_fetch,
+            ...HOG_INPUTS_EXAMPLES.simple_fetch,
+            ...HOG_FILTERS_EXAMPLES.no_filters,
+            type: 'destination',
+        })
+
+        hogFunction.filters = { ...hogFunction.filters, source: 'person-updates' }
+        await insertHogFunction(hogFunction)
     })
 
     afterEach(async () => {
@@ -51,18 +59,6 @@ describe('CDP Person Updates Consumer', () => {
     })
 
     describe('_handleKafkaBatch', () => {
-        beforeEach(async () => {
-            const hogFunction = createHogFunction({
-                ...HOG_EXAMPLES.simple_fetch,
-                ...HOG_INPUTS_EXAMPLES.simple_fetch,
-                ...HOG_FILTERS_EXAMPLES.no_filters,
-                type: 'destination',
-            })
-
-            hogFunction.filters!.source = 'person-updates'
-            await insertHogFunction(hogFunction)
-        })
-
         it('should ignore invalid message', async () => {
             const events = await processor._parseKafkaBatch([createKafkaMessage({})])
             expect(events).toHaveLength(0)
@@ -107,6 +103,25 @@ describe('CDP Person Updates Consumer', () => {
                       },
                     }
                 `)
+        })
+    })
+
+    describe('processing', () => {
+        it('should only run hog functions that are filtering for person updates', async () => {
+            const hogFunctionEvents = createHogFunction({
+                ...HOG_EXAMPLES.simple_fetch,
+                ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                ...HOG_FILTERS_EXAMPLES.no_filters,
+                type: 'destination',
+            })
+
+            await insertHogFunction(hogFunctionEvents)
+
+            const events = await processor._parseKafkaBatch([createKafkaMessage(createClickhousePerson(team.id, {}))])
+            const result = await processor.processBatch(events)
+
+            expect(result.invocations).toHaveLength(1)
+            expect(result.invocations[0].functionId).toEqual(hogFunction.id)
         })
     })
 })
