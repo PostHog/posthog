@@ -4,6 +4,7 @@ import { expectLogic } from 'kea-test-utils'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { useMocks } from '~/mocks/jest'
 import { AssistantMessageType } from '~/queries/schema/schema-assistant-messages'
+import { ConversationDetail, ConversationStatus } from '~/types'
 import { initKeaTests } from '~/test/init'
 
 import { maxContextLogic } from './maxContextLogic'
@@ -644,6 +645,138 @@ describe('maxThreadLogic', () => {
                     },
                 ],
             })
+        })
+    })
+
+    describe('threadRaw status fields', () => {
+        it('initializes threadRaw with status fields from conversation messages', async () => {
+            const conversationWithMessages = {
+                id: MOCK_CONVERSATION_ID,
+                status: ConversationStatus.Idle,
+                title: 'Test conversation',
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString(),
+                messages: [
+                    {
+                        type: AssistantMessageType.Human,
+                        content: 'Initial question',
+                        id: 'human-1',
+                    },
+                    {
+                        type: AssistantMessageType.Assistant,
+                        content: 'Initial response',
+                        id: 'assistant-1',
+                    },
+                ],
+            }
+
+            // Create logic with conversation containing messages
+            logic.unmount()
+            logic = maxThreadLogic({
+                conversationId: MOCK_CONVERSATION_ID,
+                conversation: conversationWithMessages,
+            })
+            logic.mount()
+
+            // Check that threadRaw has messages with status fields
+            expect(logic.values.threadRaw).toEqual([
+                {
+                    type: AssistantMessageType.Human,
+                    content: 'Initial question',
+                    id: 'human-1',
+                    status: 'completed',
+                },
+                {
+                    type: AssistantMessageType.Assistant,
+                    content: 'Initial response',
+                    id: 'assistant-1',
+                    status: 'completed',
+                },
+            ])
+        })
+
+        it('initializes threadRaw as empty array when conversation has no messages', async () => {
+            const conversationWithoutMessages = {
+                id: MOCK_CONVERSATION_ID,
+                status: ConversationStatus.Idle,
+                title: 'Empty conversation',
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString(),
+                messages: [],
+            }
+
+            // Create logic with conversation containing no messages
+            logic.unmount()
+            logic = maxThreadLogic({
+                conversationId: MOCK_CONVERSATION_ID,
+                conversation: conversationWithoutMessages,
+            })
+            logic.mount()
+
+            // Check that threadRaw is empty
+            expect(logic.values.threadRaw).toEqual([])
+        })
+
+        it('updates threadRaw with status fields when conversation prop changes with new messages', async () => {
+            // Start with empty conversation
+            const initialConversation = {
+                id: MOCK_CONVERSATION_ID,
+                status: ConversationStatus.Idle,
+                title: 'Test conversation',
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString(),
+                messages: [],
+            }
+
+            logic.unmount()
+            logic = maxThreadLogic({
+                conversationId: MOCK_CONVERSATION_ID,
+                conversation: initialConversation,
+            })
+            logic.mount()
+
+            // Verify initial state
+            expect(logic.values.threadRaw).toEqual([])
+
+            // Update conversation with new messages via prop change
+            const updatedConversation: ConversationDetail = {
+                ...initialConversation,
+                messages: [
+                    {
+                        type: AssistantMessageType.Human,
+                        content: 'New question',
+                        id: 'human-1',
+                    },
+                    {
+                        type: AssistantMessageType.Assistant,
+                        content: 'New response',
+                        id: 'assistant-1',
+                    },
+                ],
+            }
+
+            // Simulate prop change by creating new logic instance with updated conversation
+            logic = maxThreadLogic({
+                conversationId: MOCK_CONVERSATION_ID,
+                conversation: updatedConversation,
+            })
+            logic.mount()
+
+            // Check that threadRaw now has messages with status fields
+            expect(logic.values.threadRaw).toEqual([
+                {
+                    type: AssistantMessageType.Human,
+                    content: 'New question',
+                    id: 'human-1',
+                    status: 'completed',
+                },
+                {
+                    type: AssistantMessageType.Assistant,
+                    content: 'New response',
+                    id: 'assistant-1',
+                    status: 'completed',
+                },
+            ])
         })
     })
 })
