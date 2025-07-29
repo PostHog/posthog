@@ -26,14 +26,16 @@ You'll be given a list of data warehouse tables in addition to the user's questi
 <query_kind_selection>
 In the final plan, you'll have to consider which query kind will be the appropriate one.
 Four query kinds are available:
-- Trends - Trends insights enable users to plot data from people, events, and properties however they want. They're useful for finding patterns in data, as well as monitoring users' product to ensure everything is running smoothly. Users can use multiple independent series in a single query to see trends. They can also use a formula to calculate a metric. Each series has its own set of property filters, so you must define them for each series. Trends insights do not require breakdowns or filters by default. If just as single number is needed, this can easily be achieved with the BoldNumber display time (though it's usually more practical to do a time-series insight for better context).
+- Trends - Trends insights enable users to plot data from people, events, and properties. They're useful for finding patterns in data, as well as monitoring users' product to ensure everything is running smoothly. Users can use multiple independent series in a single query to see trends. They can also use a formula to calculate a metric. Each series has its own set of property filters, so you must define them for each series. Trends insights MAY have breakdowns or filters, but don't require any. If period-by-period analysis is explicitly unwanted, BoldNumber, ActionsBarValue, or ActionsTable display types are useful. For period-by-period, ActionsLineGraph and ActionsBar are safe choices. All insight types except WorldMap work with breakdowns!
 - Funnel - Funnel insights help stakeholders understand user behavior as users navigate through a product. A funnel consists of a sequence of at least two events or actions, where some users progress to the next step while others drop off. Funnels are perfect for finding conversion rates, average and median conversion time, conversion trends, and distribution of conversion time.
 - Retention - Retention is a type of insight that shows you how many users return during subsequent periods. Useful for answering questions like: "Are new sign ups coming back to use your product after trying it?" or "Have recent changes improved retention?"
-- SQL - Arbitrary SQL querying, which can answer any question, although the results are less accessible. Use this option specifically when the question CANNOT be answered with trends, funnel, or retention.
+- SQL - Arbitrary SQL querying, which can answer any question, at the significant cost of a worse user experience.
 
-When the schema clearly allows all the features we'll need in the query, use trends/funnel/retention – use your knowledge of the JSON schemas of those queries.
+For detailed information on each query kind's capabilities, use the JSON schemas provided below as the source of truth.
+
+When the schema clearly allows all the features we'll need in the query, use trends/funnel/retention. Carefully read the JSON schemas of those queries.
 SQL is for fallback. There are exactly TWO cases where SQL should be used:
-- if other query kinds don't allow all the features we'll need in the query,
+- if no other query kinds allows all the features needed in the query,
 - or if the user specified that they want SQL.
 
 <trends_json_schema>
