@@ -36,19 +36,14 @@ describe('PostgresPersonRepository', () => {
     // Helper function to create a person with all the necessary setup
     async function createTestPerson(teamId: number, distinctId: string, properties: Record<string, any> = {}) {
         const uuid = new UUIDT().toString()
-        const [createdPerson, kafkaMessages] = await repository.createPerson(
-            TIMESTAMP,
-            properties,
-            {},
-            {},
-            teamId,
-            null,
-            true,
-            uuid,
-            [{ distinctId }]
-        )
-        await hub.db.kafkaProducer.queueMessages(kafkaMessages)
-        return createdPerson
+        const result = await repository.createPerson(TIMESTAMP, properties, {}, {}, teamId, null, true, uuid, [
+            { distinctId },
+        ])
+        if (!result.success) {
+            throw new Error('Failed to create person')
+        }
+        await hub.db.kafkaProducer.queueMessages(result.messages)
+        return result.person
     }
 
     describe('fetchPerson()', () => {
@@ -186,17 +181,15 @@ describe('PostgresPersonRepository', () => {
             const uuid = new UUIDT().toString()
             const properties = { name: 'John Doe', email: 'john@example.com' }
 
-            const [person, kafkaMessages] = await repository.createPerson(
-                TIMESTAMP,
-                properties,
-                {},
-                {},
-                team.id,
-                null,
-                true,
-                uuid,
-                [{ distinctId: 'test-distinct-id' }]
-            )
+            const result = await repository.createPerson(TIMESTAMP, properties, {}, {}, team.id, null, true, uuid, [
+                { distinctId: 'test-distinct-id' },
+            ])
+
+            if (!result.success) {
+                throw new Error('Failed to create person')
+            }
+            const person = result.person
+            const kafkaMessages = result.messages
 
             expect(person).toEqual(
                 expect.objectContaining({
@@ -220,20 +213,15 @@ describe('PostgresPersonRepository', () => {
             const uuid = new UUIDT().toString()
             const properties = { name: 'Jane Doe' }
 
-            const [person, kafkaMessages] = await repository.createPerson(
-                TIMESTAMP,
-                properties,
-                {},
-                {},
-                team.id,
-                null,
-                false,
-                uuid,
-                [
-                    { distinctId: 'distinct-1', version: 0 },
-                    { distinctId: 'distinct-2', version: 1 },
-                ]
-            )
+            const result = await repository.createPerson(TIMESTAMP, properties, {}, {}, team.id, null, false, uuid, [
+                { distinctId: 'distinct-1', version: 0 },
+                { distinctId: 'distinct-2', version: 1 },
+            ])
+            if (!result.success) {
+                throw new Error('Failed to create person')
+            }
+            const person = result.person
+            const kafkaMessages = result.messages
 
             expect(person).toEqual(
                 expect.objectContaining({
@@ -258,16 +246,13 @@ describe('PostgresPersonRepository', () => {
             const uuid = new UUIDT().toString()
             const properties = { name: 'Anonymous' }
 
-            const [person, kafkaMessages] = await repository.createPerson(
-                TIMESTAMP,
-                properties,
-                {},
-                {},
-                team.id,
-                null,
-                false,
-                uuid
-            )
+            const result = await repository.createPerson(TIMESTAMP, properties, {}, {}, team.id, null, false, uuid)
+
+            if (!result.success) {
+                throw new Error('Failed to create person')
+            }
+            const person = result.person
+            const kafkaMessages = result.messages
 
             expect(person).toEqual(
                 expect.objectContaining({
@@ -292,7 +277,7 @@ describe('PostgresPersonRepository', () => {
             const uuid2 = new UUIDT().toString()
 
             // Create first person successfully
-            const [person1, kafkaMessages1] = await repository.createPerson(
+            const result1 = await repository.createPerson(
                 TIMESTAMP,
                 { name: 'First Person' },
                 {},
@@ -304,15 +289,32 @@ describe('PostgresPersonRepository', () => {
                 [{ distinctId }]
             )
 
+            if (!result1.success) {
+                throw new Error('Failed to create person')
+            }
+            const person1 = result1.person
+            const kafkaMessages1 = result1.messages
+
             expect(person1).toBeDefined()
             expect(kafkaMessages1).toHaveLength(2)
 
             // Try to create second person with same distinct ID - should fail
-            await expect(
-                repository.createPerson(TIMESTAMP, { name: 'Second Person' }, {}, {}, team.id, null, true, uuid2, [
-                    { distinctId },
-                ])
-            ).rejects.toThrow()
+            const createPersonResult = await repository.createPerson(
+                TIMESTAMP,
+                { name: 'Second Person' },
+                {},
+                {},
+                team.id,
+                null,
+                true,
+                uuid2,
+                [{ distinctId }]
+            )
+
+            expect(createPersonResult.success).toBe(false)
+            if (createPersonResult.success === false) {
+                expect(createPersonResult.error).toBe('CreationConflict')
+            }
 
             // Verify the first person still exists and can be fetched
             const fetchedPerson = await repository.fetchPerson(team.id, distinctId)
@@ -371,17 +373,13 @@ describe('PostgresPersonRepository', () => {
             const team = await getFirstTeam(hub)
             // Create person without distinct IDs to keep deletion process simpler
             const uuid = new UUIDT().toString()
-            const [person, kafkaMessages] = await repository.createPerson(
-                TIMESTAMP,
-                {},
-                {},
-                {},
-                team.id,
-                null,
-                true,
-                uuid,
-                []
-            )
+            const result = await repository.createPerson(TIMESTAMP, {}, {}, {}, team.id, null, true, uuid, [])
+            if (!result.success) {
+                throw new Error('Failed to create person')
+            }
+            const person = result.person
+            const kafkaMessages = result.messages
+
             await hub.db.kafkaProducer.queueMessages(kafkaMessages)
 
             const deleteMessages = await repository.deletePerson(person)
@@ -976,7 +974,7 @@ describe('PostgresPersonRepository', () => {
 
         beforeEach(async () => {
             team = await getFirstTeam(hub)
-            const [sourcePerson, kafkaMessagesSourcePerson] = await repository.createPerson(
+            const result = await repository.createPerson(
                 TIMESTAMP,
                 {},
                 {},
@@ -987,8 +985,13 @@ describe('PostgresPersonRepository', () => {
                 new UUIDT().toString(),
                 [{ distinctId: 'source_person' }]
             )
-            await hub.db.kafkaProducer.queueMessages(kafkaMessagesSourcePerson)
-            const [targetPerson, kafkaMessagesTargetPerson] = await repository.createPerson(
+            if (!result.success) {
+                throw new Error('Failed to create person')
+            }
+            const sourcePerson = result.person
+            const kafkaMessagesSourcePerson = result.messages
+
+            const result2 = await repository.createPerson(
                 TIMESTAMP,
                 {},
                 {},
@@ -999,7 +1002,12 @@ describe('PostgresPersonRepository', () => {
                 new UUIDT().toString(),
                 [{ distinctId: 'target_person' }]
             )
-            await hub.db.kafkaProducer.queueMessages(kafkaMessagesTargetPerson)
+            if (!result2.success) {
+                throw new Error('Failed to create person')
+            }
+            const targetPerson = result2.person
+
+            await hub.db.kafkaProducer.queueMessages(kafkaMessagesSourcePerson)
             sourcePersonID = sourcePerson.id
             targetPersonID = targetPerson.id
         })

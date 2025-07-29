@@ -41,7 +41,7 @@ export class PersonPropertyService {
     private async createOrGetPerson(): Promise<[InternalPerson, boolean]> {
         await this.capturePersonPropertiesSizeEstimate('createOrGetPerson')
 
-        let person = await this.context.personStore.fetchForUpdate(this.context.team.id, this.context.distinctId)
+        const person = await this.context.personStore.fetchForUpdate(this.context.team.id, this.context.distinctId)
         if (person) {
             return [person, false]
         }
@@ -53,7 +53,7 @@ export class PersonPropertyService {
             propertiesOnce = this.context.eventProperties['$set_once']
         }
 
-        person = await this.personCreateService.createPerson(
+        return await this.personCreateService.createPerson(
             this.context.timestamp,
             properties || {},
             propertiesOnce || {},
@@ -64,7 +64,6 @@ export class PersonPropertyService {
             this.context.event.uuid,
             [{ distinctId: this.context.distinctId }]
         )
-        return [person, true]
     }
 
     async updatePersonProperties(person: InternalPerson): Promise<[InternalPerson, Promise<void>]> {
