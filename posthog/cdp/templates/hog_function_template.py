@@ -64,11 +64,6 @@ class HogFunctionTemplateDC:
     masking: Optional[dict] = None
     icon_url: Optional[str] = None
 
-    def to_dict(self) -> dict:
-        obj = dataclasses.asdict(self)
-
-        return obj
-
 
 class HogFunctionTemplateMigrator:
     plugin_url: str
@@ -81,7 +76,7 @@ class HogFunctionTemplateMigrator:
 
 def sync_template_to_db(template_data: dict | HogFunctionTemplateDC) -> HogFunctionTemplate:
     if isinstance(template_data, HogFunctionTemplateDC):
-        template_data = template_data.to_dict()
+        template_data = dataclasses.asdict(template_data)
 
     template = HogFunctionTemplate.get_template(template_data["id"])
     if template:

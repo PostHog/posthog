@@ -1,5 +1,6 @@
 from ee.models.hook import Hook
 from common.hogvm.python.operation import HOGQL_BYTECODE_VERSION
+from posthog.cdp.templates.hog_function_template import sync_template_to_db
 from posthog.cdp.templates.zapier.template_zapier import template as template_zapier
 from posthog.management.commands.migrate_hooks import migrate_hooks
 from posthog.models.action.action import Action
@@ -30,7 +31,7 @@ class TestMigrateHooks(BaseTest):
             user_id=self.user.id,
         )
 
-        HogFunctionTemplate.create_from_dataclass(template_zapier)
+        sync_template_to_db(template_zapier)
 
     def test_dry_run(self):
         migrate_hooks(hook_ids=[], team_ids=[], dry_run=True)

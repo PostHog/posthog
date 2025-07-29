@@ -9,7 +9,7 @@ import STPyV8
 from common.hogvm.python.execute import execute_bytecode
 from common.hogvm.python.stl import now
 from posthog.cdp.site_functions import get_transpiled_function
-from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
+from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC, sync_template_to_db
 from posthog.cdp.validation import compile_hog
 from posthog.models import HogFunction
 from posthog.models.utils import uuid7
@@ -111,7 +111,7 @@ class BaseSiteDestinationFunctionTest(APIBaseTest):
     def setUp(self):
         super().setUp()
         # Create the template in the DB
-        HogFunctionTemplate.create_from_dataclass(self.template)
+        sync_template_to_db(self.template)
         self.organization.available_product_features = [{"name": "data_pipelines", "key": "data_pipelines"}]
         self.organization.save()
 

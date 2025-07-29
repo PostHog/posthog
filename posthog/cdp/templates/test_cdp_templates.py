@@ -1,3 +1,4 @@
+import dataclasses
 from posthog.cdp.templates import HOG_FUNCTION_TEMPLATES
 from posthog.cdp.templates.hog_function_template import sync_template_to_db
 from posthog.cdp.validation import compile_hog, InputsSchemaItemSerializer
@@ -21,7 +22,7 @@ class TestTemplatesGeneral(BaseTest):
                 assert bytecode[0] == "_H"
 
     def test_sync_template_to_db(self):
-        template_data = HOG_FUNCTION_TEMPLATES[0].to_dict()
+        template_data = HOG_FUNCTION_TEMPLATES[0]
         template = sync_template_to_db(template_data)
         assert template.template_id == template_data["id"]
         assert template.name == template_data["name"]
@@ -33,16 +34,19 @@ class TestTemplatesGeneral(BaseTest):
         assert template.filters == template_data["filters"]
 
     def test_sync_existing_template(self):
-        template_data = HOG_FUNCTION_TEMPLATES[0].to_dict()
+        template_data = HOG_FUNCTION_TEMPLATES[0]
+        template_id = template_data.id
         template = sync_template_to_db(template_data)
-        assert HogFunctionTemplate.objects.filter(template_id=template_data["id"]).count() == 1
+        assert HogFunctionTemplate.objects.filter(template_id=template_id).count() == 1
         assert template.sha == "ce801db1"
 
-        template = sync_template_to_db(template_data)
+        template_data_dict = dataclasses.asdict(template_data)
+        template = sync_template_to_db(template_data_dict)  # Test it as a dictionary
         assert template.sha == "ce801db1"
-        assert HogFunctionTemplate.objects.filter(template_id=template_data["id"]).count() == 1
+        assert HogFunctionTemplate.objects.filter(template_id=template_id).count() == 1
 
-        template_data["code"] = "return 1"
-        template = sync_template_to_db(template_data)
+        template_data_dict["code"] = "return 1"
+        template = sync_template_to_db(template_data_dict)
         assert template.sha == "7a3c3b98"
-        assert HogFunctionTemplate.objects.filter(template_id=template_data["id"]).count() == 1
+        assert template.code == "return 1"
+        assert HogFunctionTemplate.objects.filter(template_id=template_id).count() == 1

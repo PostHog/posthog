@@ -1,12 +1,11 @@
+import dataclasses
 from django.core.management.base import BaseCommand
 import structlog
 import time
 from django.conf import settings
 from posthog.cdp.templates import HOG_FUNCTION_TEMPLATES
 from posthog.cdp.templates.hog_function_template import sync_template_to_db
-from posthog.models.hog_function_template import HogFunctionTemplate
 from posthog.plugins.plugin_server_api import get_hog_function_templates
-from posthog.api.hog_function_template import HogFunctionTemplateSerializer
 from posthog.models.hog_functions.hog_function import HogFunctionType
 
 logger = structlog.get_logger(__name__)
@@ -58,7 +57,7 @@ class Command(BaseCommand):
                 continue
 
             total_templates += 1
-            all_templates.append(template_dc.to_dict())
+            all_templates.append(dataclasses.asdict(template_dc))
 
         # Process templates from Node.js
         try:
