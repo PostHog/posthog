@@ -600,14 +600,6 @@ export class KafkaConsumer {
         // Mark as stopping - this will also essentially stop the consumer loop
         this.isStopping = true
 
-        // Wait for background tasks to complete before disconnecting
-        logger.info('🔁', 'waiting_for_background_tasks_before_disconnect', {
-            backgroundTaskCount: this.backgroundTask.length,
-        })
-        await Promise.all(this.backgroundTask)
-
-        logger.info('🔁', 'background_tasks_completed_proceeding_with_disconnect')
-
         // Allow the in progress consumer loop to finish if possible
         if (this.consumerLoop) {
             await this.consumerLoop.catch((error) => {
