@@ -1,31 +1,42 @@
-import { NativeTemplate } from '~/cdp/types'
+import { HogFunctionTemplate } from '~/cdp/types'
 
-export const template: NativeTemplate = {
+export const template: HogFunctionTemplate = {
     free: false,
     status: 'beta',
     type: 'destination',
-    id: 'native-google-sheets',
+    id: 'template-google-sheets',
     name: 'Google Sheets',
     description: 'Update a Google Sheet with the incoming event data',
     icon_url: '/static/services/google-sheets.svg',
     category: ['Custom'],
-    perform: async (request, { payload }) => {
-        const { spreadsheet_id, spreadsheet_name, data_format, fields } = payload
-        const rowData = Object.values(fields)
-
-        const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheet_id}/values/${spreadsheet_name}:append?valueInputOption=${data_format}`
-
-        return await request(url, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                Authorization: `Bearer ${payload.oauth.access_token}`,
-            },
-            json: {
-                values: [rowData],
-            },
-        })
+    code_language: 'hog',
+    hog: `
+let res := fetch(f'https://sheets.googleapis.com/v4/spreadsheets/{inputs.spreadsheet_id}/values:batchUpdate', {
+    'method': 'POST',
+    'headers': {
+        'Content-Type': 'application/json',
+        'Authorization': f'Bearer {inputs.oauth.access_token}'
     },
+    'body': {
+        'data': {
+            'range': f'{inputs.spreadsheet_name}!A1:A',
+            'values': [keys(inputs.fields)]
+        },
+        'valueInputOption': inputs.data_format
+    }
+})
+
+res := fetch(f'https://sheets.googleapis.com/v4/spreadsheets/{inputs.spreadsheet_id}/values/{inputs.spreadsheet_name}:append?valueInputOption={inputs.data_format}', {
+    'method': 'POST',
+    'headers': {
+        'Content-Type': 'application/json',
+        'Authorization': f'Bearer {inputs.oauth.access_token}'
+    },
+    'body': {
+        'values': [values(inputs.fields)]
+    }
+})
+`,
     inputs_schema: [
         {
             key: 'oauth',
@@ -66,7 +77,7 @@ export const template: NativeTemplate = {
                     value: 'RAW',
                 },
                 {
-                    label: 'USER_ENTERED - The values will be parsed as if the user typed them into the UI. Numbers will stay as numbers, but strings may be converted to numbers, dates, etc. following the same rules that are applied when entering text into a cell via the Google Sheets UI.',
+                    label: 'USER_ENTERED - The values will be parsed as if the user typed them into the UI, following the same rules that are applied when entering text into a cell via the Google Sheets UI.',
                     value: 'USER_ENTERED',
                 },
             ],

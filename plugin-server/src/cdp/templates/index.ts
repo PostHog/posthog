@@ -32,6 +32,7 @@ export const HOG_FUNCTION_TEMPLATES_DESTINATIONS: HogFunctionTemplate[] = [
     linearTemplate,
     googleAdsTemplate,
     redditAdsTemplate,
+    googleSheetsTemplate,
 ]
 
 export const HOG_FUNCTION_TEMPLATES_TRANSFORMATIONS: HogFunctionTemplate[] = [
@@ -48,10 +49,7 @@ export const HOG_FUNCTION_TEMPLATES_TRANSFORMATIONS: HogFunctionTemplate[] = [
     urlNormalizationTemplate,
 ]
 
-export const NATIVE_HOG_FUNCTIONS: (HogFunctionTemplate & NativeTemplate)[] = [
-    nativeWebhookTemplate,
-    googleSheetsTemplate,
-].map((plugin) => ({
+export const NATIVE_HOG_FUNCTIONS: (HogFunctionTemplate & NativeTemplate)[] = [nativeWebhookTemplate].map((plugin) => ({
     ...plugin,
     code_language: 'javascript',
     hog: 'return event;',
