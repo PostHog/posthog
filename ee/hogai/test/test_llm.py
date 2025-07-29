@@ -1,6 +1,5 @@
 from datetime import datetime
 from unittest.mock import patch
-import os
 
 from langchain_core.messages import SystemMessage, HumanMessage
 from langchain_core.outputs import LLMResult, Generation
@@ -9,12 +8,10 @@ from ee.hogai.llm import MaxChatOpenAI
 from posthog.test.base import NonAtomicBaseTest
 
 
+@patch.dict("os.environ", {"OPENAI_API_KEY": "test-api-key"})
 class TestMaxChatOpenAI(NonAtomicBaseTest):
     def setUp(self):
         super().setUp()
-        # Set a dummy OpenAI API key - required by parent ChatOpenAI class even when mocking
-        os.environ["OPENAI_API_KEY"] = "test-api-key"
-
         # Setup test data
         self.team.timezone = "America/New_York"
         self.team.name = "Test Project"
@@ -22,11 +19,6 @@ class TestMaxChatOpenAI(NonAtomicBaseTest):
         self.user.first_name = "John"
         self.user.last_name = "Doe"
         self.user.email = "john@example.com"
-
-    def tearDown(self):
-        if "OPENAI_API_KEY" in os.environ:
-            del os.environ["OPENAI_API_KEY"]
-        super().tearDown()
 
     def test_initialization_and_context_variables(self):
         """Test initialization and context variable extraction."""
