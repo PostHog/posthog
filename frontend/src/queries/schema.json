@@ -553,6 +553,9 @@
                     "$ref": "#/definitions/FeaturePropertyFilter"
                 },
                 {
+                    "$ref": "#/definitions/FlagPropertyFilter"
+                },
+                {
                     "$ref": "#/definitions/HogQLPropertyFilter"
                 },
                 {
@@ -11541,6 +11544,34 @@
             "enum": ["AND", "OR"],
             "type": "string"
         },
+        "FlagPropertyFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "key": {
+                    "description": "The key should be the flag ID",
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "operator": {
+                    "const": "flag_evaluates_to",
+                    "description": "Only flag_evaluates_to operator is allowed for flag dependencies",
+                    "type": "string"
+                },
+                "type": {
+                    "const": "flag",
+                    "description": "Feature flag dependency",
+                    "type": "string"
+                },
+                "value": {
+                    "description": "The value can be true, false, or a variant name",
+                    "type": ["boolean", "string"]
+                }
+            },
+            "required": ["key", "operator", "type", "value"],
+            "type": "object"
+        },
         "FunnelConversionWindowTimeUnit": {
             "enum": ["second", "minute", "hour", "day", "week", "month"],
             "type": "string"
@@ -15612,7 +15643,7 @@
             "type": "object"
         },
         "PropertyFilterBaseValue": {
-            "type": ["string", "number"]
+            "type": ["string", "number", "boolean"]
         },
         "PropertyFilterType": {
             "enum": [
@@ -15632,6 +15663,7 @@
                 "data_warehouse_person_property",
                 "error_tracking_issue",
                 "revenue_analytics",
+                "flag",
                 "log"
             ],
             "type": "string"
@@ -15719,7 +15751,8 @@
                 "max",
                 "in",
                 "not_in",
-                "is_cleaned_path_exact"
+                "is_cleaned_path_exact",
+                "flag_evaluates_to"
             ],
             "type": "string"
         },

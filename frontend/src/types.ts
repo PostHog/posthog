@@ -759,7 +759,7 @@ export interface ToolbarProps extends ToolbarParams {
 
 export type PathCleaningFilter = { alias?: string; regex?: string; order?: number }
 
-export type PropertyFilterBaseValue = string | number | bigint
+export type PropertyFilterBaseValue = string | number | bigint | boolean
 export type PropertyFilterValue = PropertyFilterBaseValue | PropertyFilterBaseValue[] | null
 
 /** Sync with plugin-server/src/types.ts */
@@ -786,6 +786,7 @@ export enum PropertyOperator {
     In = 'in',
     NotIn = 'not_in',
     IsCleanedPathExact = 'is_cleaned_path_exact',
+    FlagEvaluatesTo = 'flag_evaluates_to',
 }
 
 export enum SavedInsightsTabs {
@@ -884,6 +885,8 @@ export enum PropertyFilterType {
     DataWarehousePersonProperty = 'data_warehouse_person_property',
     ErrorTrackingIssue = 'error_tracking_issue',
     RevenueAnalytics = 'revenue_analytics',
+    /** Feature flag dependency */
+    Flag = 'flag',
     Log = 'log',
 }
 
@@ -972,6 +975,16 @@ export interface FeaturePropertyFilter extends BasePropertyFilter {
     operator: PropertyOperator
 }
 
+export interface FlagPropertyFilter extends BasePropertyFilter {
+    type: PropertyFilterType.Flag
+    /** Only flag_evaluates_to operator is allowed for flag dependencies */
+    operator: PropertyOperator.FlagEvaluatesTo
+    /** The key should be the flag ID */
+    key: string
+    /** The value can be true, false, or a variant name */
+    value: boolean | string
+}
+
 export interface HogQLPropertyFilter extends BasePropertyFilter {
     type: PropertyFilterType.HogQL
     key: string
@@ -995,6 +1008,7 @@ export type AnyPropertyFilter =
     | LogEntryPropertyFilter
     | GroupPropertyFilter
     | FeaturePropertyFilter
+    | FlagPropertyFilter
     | HogQLPropertyFilter
     | EmptyPropertyFilter
     | DataWarehousePropertyFilter
