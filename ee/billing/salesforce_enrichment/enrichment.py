@@ -94,12 +94,12 @@ def transform_harmonic_data(company_data: dict[str, Any]) -> dict[str, Any] | No
 
                 # For each target period, find the closest match
                 for period, target in METRIC_PERIODS.items():
-                    # Skip if this metric is too recent for this period
-                    if days_ago < target - 7:  # Allow 7 days tolerance before target
-                        continue
-
                     # Calculate how close this metric is to the target
                     distance = abs(days_ago - target)
+
+                    # Skip if more than 16 days from target (monthly data tolerance)
+                    if distance > 16:
+                        continue
 
                     # Update if this is closer to the target than previous best
                     if period not in best_matches or distance < best_matches[period]["distance"]:
@@ -111,17 +111,10 @@ def transform_harmonic_data(company_data: dict[str, Any]) -> dict[str, Any] | No
                         }
 
             # Store the best matches in the transformed data
-            current_value = transformed_data["metrics"][metric_name]["current_value"]
             for period, match in best_matches.items():
                 historical_value = match["value"]
                 transformed_data["metrics"][metric_name].setdefault("historical", {})[period] = {
-                    "value": historical_value,
-                    "change": current_value - historical_value,
-                    "percent_change": (
-                        round((current_value - historical_value) / historical_value * 100, 2)
-                        if historical_value != 0
-                        else 0
-                    ),
+                    "value": historical_value
                 }
 
     return transformed_data
