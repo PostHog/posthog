@@ -2083,6 +2083,7 @@ export interface ErrorTrackingIssueAggregations {
     sessions: number
     users: number
     volumeRange: number[]
+    volume_buckets?: { label: Date; value: number }[]
 }
 
 export type ErrorTrackingExternalReferenceIntegration = Pick<IntegrationType, 'id' | 'kind' | 'display_name'>
