@@ -640,7 +640,7 @@ pub fn create_test_flag_that_depends_on_flag(
         PropertyFilter {
             key: depends_on_flag_id.to_string(),
             value: Some(json!(depends_on_flag_value)),
-            operator: Some(OperatorType::Exact),
+            operator: Some(OperatorType::FlagEvaluatesTo),
             prop_type: PropertyType::Flag,
             group_type_index: None,
             negation: None,

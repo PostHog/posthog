@@ -12,17 +12,6 @@ interface ModelRow {
     }
 }
 
-const supportedProviderList = [
-    'openai',
-    'anthropic',
-    'google',
-    'deepseek',
-    'perplexity',
-    'cohere',
-    'mistralai',
-    'meta-llama',
-]
-
 const PATH_TO_PROVIDERS = path.join(__dirname, '../providers')
 
 const main = async () => {
@@ -54,9 +43,7 @@ const main = async () => {
             continue
         }
         const [provider, ...modelParts] = model.id.split('/')
-        if (!supportedProviderList.includes(provider)) {
-            continue
-        }
+
         if (!providerModels.has(provider)) {
             providerModels.set(provider, [])
         }

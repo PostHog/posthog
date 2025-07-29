@@ -44,7 +44,7 @@ def call_root(demo_org_team_user):
 
 
 @pytest.mark.django_db
-async def eval_root(call_root):
+async def eval_root(call_root, pytestconfig):
     await MaxEval(
         experiment_name="root",
         task=call_root,
@@ -180,4 +180,5 @@ async def eval_root(call_root):
                 expected=None,
             ),
         ],
+        pytestconfig=pytestconfig,
     )

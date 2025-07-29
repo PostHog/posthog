@@ -553,6 +553,9 @@
                     "$ref": "#/definitions/FeaturePropertyFilter"
                 },
                 {
+                    "$ref": "#/definitions/FlagPropertyFilter"
+                },
+                {
                     "$ref": "#/definitions/HogQLPropertyFilter"
                 },
                 {
@@ -1083,7 +1086,7 @@
                 },
                 "exclusions": {
                     "default": [],
-                    "description": "Users may want to use exclusion events to filter out conversions in which a particular event occurred between specific steps. These events must not be included in the main sequence. You must include start and end indexes for each exclusion where the minimum index is one and the maximum index is the number of steps in the funnel. For example, there is a sequence with three steps: sign up, finish onboarding, purchase. If the user wants to exclude all conversions in which users left the page before finishing the onboarding, the exclusion step would be the event `$pageleave` with start index 2 and end index 3. When exclusion steps appear needed when you're planning the query, make sure to explicitly state this in the plan.",
+                    "description": "Users may want to use exclusion events to filter out conversions in which a particular event occurred between specific steps. These events must not be included in the main sequence. This doesn't exclude users who have completed the event before or after the funnel sequence, but often this is what users want. (If not sure, worth clarifying.) You must include start and end indexes for each exclusion where the minimum index is one and the maximum index is the number of steps in the funnel. For example, there is a sequence with three steps: sign up, finish onboarding, purchase. If the user wants to exclude all conversions in which users left the page before finishing the onboarding, the exclusion step would be the event `$pageleave` with start index 2 and end index 3. When exclusion steps appear needed when you're planning the query, make sure to explicitly state this in the plan.",
                     "items": {
                         "$ref": "#/definitions/AssistantFunnelsExclusionEventsNode"
                     },
@@ -1113,7 +1116,7 @@
                 "funnelWindowInterval": {
                     "$ref": "#/definitions/integer",
                     "default": 14,
-                    "description": "Controls a time frame value for a conversion to be considered. Select a reasonable value based on the user's query. Use in combination with `funnelWindowIntervalUnit`. The default value is 14 days."
+                    "description": "Controls a time frame value for a conversion to be considered. Select a reasonable value based on the user's query. If needed, this can be practically unlimited by setting a large value, though it's rare to need that. Use in combination with `funnelWindowIntervalUnit`. The default value is 14 days."
                 },
                 "funnelWindowIntervalUnit": {
                     "$ref": "#/definitions/FunnelConversionWindowTimeUnit",
@@ -9512,6 +9515,23 @@
                         "type": "number"
                     },
                     "type": "array"
+                },
+                "volume_buckets": {
+                    "items": {
+                        "additionalProperties": false,
+                        "properties": {
+                            "label": {
+                                "format": "date-time",
+                                "type": "string"
+                            },
+                            "value": {
+                                "type": "number"
+                            }
+                        },
+                        "required": ["label", "value"],
+                        "type": "object"
+                    },
+                    "type": "array"
                 }
             },
             "required": ["occurrences", "sessions", "users", "volumeRange"],
@@ -10577,6 +10597,9 @@
                     },
                     "type": "array"
                 },
+                "uuid": {
+                    "type": "string"
+                },
                 "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
@@ -10783,6 +10806,9 @@
                 "upper_bound_percentile": {
                     "type": "number"
                 },
+                "uuid": {
+                    "type": "string"
+                },
                 "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
@@ -10839,6 +10865,9 @@
                 },
                 "response": {
                     "type": "object"
+                },
+                "uuid": {
+                    "type": "string"
                 },
                 "version": {
                     "description": "version of the node, used for schema migrations",
@@ -11540,6 +11569,34 @@
         "FilterLogicalOperator": {
             "enum": ["AND", "OR"],
             "type": "string"
+        },
+        "FlagPropertyFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "key": {
+                    "description": "The key should be the flag ID",
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "operator": {
+                    "const": "flag_evaluates_to",
+                    "description": "Only flag_evaluates_to operator is allowed for flag dependencies",
+                    "type": "string"
+                },
+                "type": {
+                    "const": "flag",
+                    "description": "Feature flag dependency",
+                    "type": "string"
+                },
+                "value": {
+                    "description": "The value can be true, false, or a variant name",
+                    "type": ["boolean", "string"]
+                }
+            },
+            "required": ["key", "operator", "type", "value"],
+            "type": "object"
         },
         "FunnelConversionWindowTimeUnit": {
             "enum": ["second", "minute", "hour", "day", "week", "month"],
@@ -15612,7 +15669,7 @@
             "type": "object"
         },
         "PropertyFilterBaseValue": {
-            "type": ["string", "number"]
+            "type": ["string", "number", "boolean"]
         },
         "PropertyFilterType": {
             "enum": [
@@ -15632,6 +15689,7 @@
                 "data_warehouse_person_property",
                 "error_tracking_issue",
                 "revenue_analytics",
+                "flag",
                 "log"
             ],
             "type": "string"
@@ -15719,7 +15777,8 @@
                 "max",
                 "in",
                 "not_in",
-                "is_cleaned_path_exact"
+                "is_cleaned_path_exact",
+                "flag_evaluates_to"
             ],
             "type": "string"
         },
@@ -19428,6 +19487,10 @@
             ],
             "type": "string"
         },
+        "RecordingOrderDirection": {
+            "enum": ["ASC", "DESC"],
+            "type": "string"
+        },
         "RecordingPropertyFilter": {
             "additionalProperties": false,
             "properties": {
@@ -19527,6 +19590,11 @@
                 "order": {
                     "$ref": "#/definitions/RecordingOrder",
                     "default": "start_time"
+                },
+                "order_direction": {
+                    "$ref": "#/definitions/RecordingOrderDirection",
+                    "default": "DESC",
+                    "description": "Replay originally had all ordering as descending by specifying the field name, this runs counter to Django behavior where the field name specifies ascending sorting (e.g. the_field_name) and -the_field_name would indicate descending order to avoid invalidating or migrating all existing filters we keep DESC as the default or allow specification of an explicit order direction here"
                 },
                 "person_uuid": {
                     "type": "string"

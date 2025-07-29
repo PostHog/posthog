@@ -72,6 +72,7 @@ export enum PluginServerMode {
     recordings_blob_ingestion_v2 = 'recordings-blob-ingestion-v2',
     recordings_blob_ingestion_v2_overflow = 'recordings-blob-ingestion-v2-overflow',
     cdp_processed_events = 'cdp-processed-events',
+    cdp_person_updates = 'cdp-person-updates',
     cdp_internal_events = 'cdp-internal-events',
     cdp_cyclotron_worker = 'cdp-cyclotron-worker',
     cdp_behavioural_events = 'cdp-behavioural-events',
@@ -287,12 +288,6 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     PIPELINE_STEP_STALLED_LOG_TIMEOUT: number
     CAPTURE_CONFIG_REDIS_HOST: string | null // Redis cluster to use to coordinate with capture (overflow, routing)
     LAZY_LOADER_DEFAULT_BUFFER_MS: number
-    // dump profiles to disk, covering the first N seconds of runtime
-    STARTUP_PROFILE_DURATION_SECONDS: number
-    STARTUP_PROFILE_CPU: boolean
-    STARTUP_PROFILE_HEAP: boolean
-    STARTUP_PROFILE_HEAP_INTERVAL: number
-    STARTUP_PROFILE_HEAP_DEPTH: number
 
     // local directory might be a volume mount or a directory on disk (e.g. in local dev)
     SESSION_RECORDING_LOCAL_DIRECTORY: string
@@ -426,6 +421,7 @@ export interface PluginServerCapabilities {
     sessionRecordingBlobIngestionV2?: boolean
     sessionRecordingBlobIngestionV2Overflow?: boolean
     cdpProcessedEvents?: boolean
+    cdpPersonUpdates?: boolean
     cdpInternalEvents?: boolean
     cdpLegacyOnEvent?: boolean
     cdpCyclotronWorker?: boolean

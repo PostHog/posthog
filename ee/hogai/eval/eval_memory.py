@@ -90,7 +90,7 @@ def call_node(demo_org_team_user, core_memory):
 
 
 @pytest.mark.django_db
-async def eval_memory(call_node):
+async def eval_memory(call_node, pytestconfig):
     await MaxEval(
         experiment_name="memory",
         task=call_node,
@@ -162,4 +162,5 @@ async def eval_memory(call_node):
                 expected=None,
             ),
         ],
+        pytestconfig=pytestconfig,
     )
