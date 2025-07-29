@@ -23,7 +23,7 @@ import { sessionRecordingsPlaylistLogic } from 'scenes/session-recordings/playli
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { NotebookNodeType, ProductKey, ReplayTab, ReplayTabs } from '~/types'
+import { ProductKey, ReplayTab, ReplayTabs } from '~/types'
 
 import { createPlaylist } from './playlist/playlistUtils'
 import { SessionRecordingsPlaylist } from './playlist/SessionRecordingsPlaylist'
@@ -31,6 +31,7 @@ import { SavedSessionRecordingPlaylists } from './saved-playlists/SavedSessionRe
 import { sessionRecordingEventUsageLogic } from './sessionRecordingEventUsageLogic'
 import { sessionReplaySceneLogic } from './sessionReplaySceneLogic'
 import SessionRecordingTemplates from './templates/SessionRecordingTemplates'
+import { NotebookNodeType } from 'scenes/notebooks/types'
 
 function Header(): JSX.Element {
     const { tab } = useValues(sessionReplaySceneLogic)
