@@ -665,7 +665,7 @@ class UserAccessControl:
         for access_control in access_controls:
             resource_id_access_levels.setdefault(access_control.resource_id, []).append(access_control.access_level)
 
-        for resource_id, _access_levels in resource_id_access_levels.items():
+        for resource_id, access_levels in resource_id_access_levels.items():
             # Get the access controls for this specific resource_id to check role/member
             resource_access_controls = [ac for ac in access_controls if ac.resource_id == resource_id]
 
@@ -675,6 +675,8 @@ class UserAccessControl:
             ]
 
             if not explicit_access_controls:
+                if all(access_level == NO_ACCESS_LEVEL for access_level in access_levels):
+                    blocked_resource_ids.add(resource_id)
                 # No explicit controls for this object - don't block it
                 continue
 
