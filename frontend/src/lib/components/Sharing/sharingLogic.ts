@@ -8,7 +8,6 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { ExportOptions } from '~/exporter/types'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { AvailableFeature, InsightShortId, SharingConfigurationType } from '~/types'
 
@@ -21,14 +20,17 @@ export interface SharingLogicProps {
     additionalParams?: Record<string, any>
 }
 
-export interface EmbedConfig extends ExportOptions {
+export interface EmbedConfig {
     width: string
     height: string
 }
 
-const defaultEmbedConfig: EmbedConfig = {
+const defaultIframeConfig = {
     width: '100%',
     height: '400',
+}
+
+const defaultSharingSettings = {
     whitelabel: false,
     legend: false,
     noHeader: false,
@@ -112,9 +114,10 @@ export const sharingLogic = kea<sharingLogicType>([
         },
         loadSharingConfigurationSuccess: (sharingConfiguration) => {
             if (sharingConfiguration) {
-                // Load all options from settings
+                // Load sharing settings and iframe config from settings
                 actions.setEmbedConfigValues({
-                    ...defaultEmbedConfig,
+                    ...defaultIframeConfig,
+                    ...defaultSharingSettings,
                     ...sharingConfiguration.settings,
                 })
             }
@@ -123,48 +126,46 @@ export const sharingLogic = kea<sharingLogicType>([
 
     forms({
         embedConfig: {
-            defaults: defaultEmbedConfig,
+            defaults: defaultIframeConfig,
         },
     }),
     selectors({
         siteUrl: [() => [preflightLogic.selectors.preflight], (preflight) => preflight?.site_url],
+
         whitelabelAvailable: [
             () => [userLogic.selectors.hasAvailableFeature],
             (hasAvailableFeature) => hasAvailableFeature(AvailableFeature.WHITE_LABELLING),
         ],
-        mergedEmbedConfig: [
-            (s) => [s.embedConfig, s.sharingConfiguration],
-            (embedConfig, sharingConfiguration) => ({
-                ...defaultEmbedConfig,
+
+        currentEmbedConfig: [
+            (s) => [s.embedConfig],
+            (embedConfig) => ({
+                ...defaultIframeConfig,
                 ...embedConfig,
-                // Merge all options from settings
-                ...sharingConfiguration?.settings,
             }),
         ],
 
         params: [
-            (s) => [s.mergedEmbedConfig, (_, props) => props.additionalParams],
-            (mergedEmbedConfig, additionalParams = {}) => {
-                // eslint-disable-next-line @typescript-eslint/no-unused-vars
-                const { width, height, whitelabel, noHeader, showInspector, legend, detailed, ...params } =
-                    mergedEmbedConfig
-                return {
-                    ...additionalParams,
-                }
-            },
+            () => [(_, props) => props.additionalParams],
+            (additionalParams = {}) => ({
+                ...additionalParams,
+            }),
         ],
+
         shareLink: [
             (s) => [s.siteUrl, s.sharingConfiguration, s.params],
             (siteUrl, sharingConfiguration, params) =>
                 sharingConfiguration ? siteUrl + urls.shared(sharingConfiguration.access_token, params) : '',
         ],
+
         embedLink: [
             (s) => [s.siteUrl, s.sharingConfiguration, s.params],
             (siteUrl, sharingConfiguration, params) =>
                 sharingConfiguration ? siteUrl + urls.embedded(sharingConfiguration.access_token, params) : '',
         ],
+
         iframeProperties: [
-            (s) => [s.embedLink, s.mergedEmbedConfig, s.iframeKey],
+            (s) => [s.embedLink, s.currentEmbedConfig, s.iframeKey],
             (embedLink, { width, height }, iframeKey) => ({
                 width,
                 height,
@@ -174,6 +175,7 @@ export const sharingLogic = kea<sharingLogicType>([
                 key: iframeKey,
             }),
         ],
+
         embedCode: [
             (s) => [s.iframeProperties],
             (iframeProperties) =>
