@@ -543,7 +543,7 @@ jobs:
               if: ${{ needs.changes.outputs.backend == 'true' }}
               uses: actions/setup-node@1a4442cacd436585916779262731d5b162bc6ec7 # v3
               with:
-                  node-version: 18.12.1
+                  node-version: 22.17.1
                   cache: pnpm
 
             # tests would intermittently fail in GH actions
