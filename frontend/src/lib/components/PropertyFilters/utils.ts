@@ -40,7 +40,7 @@ import {
     RecordingPropertyFilter,
     RevenueAnalyticsPropertyFilter,
     SessionPropertyFilter,
-    FlagDependencyPropertyFilter,
+    FlagPropertyFilter,
 } from '~/types'
 
 export function isPropertyGroup(
@@ -252,7 +252,7 @@ export function isDataWarehousePersonPropertyFilter(
 export function isFeaturePropertyFilter(filter?: AnyFilterLike | null): filter is FeaturePropertyFilter {
     return filter?.type === PropertyFilterType.Feature
 }
-export function isFlagDependencyPropertyFilter(filter?: AnyFilterLike | null): filter is FlagDependencyPropertyFilter {
+export function isFlagPropertyFilter(filter?: AnyFilterLike | null): filter is FlagPropertyFilter {
     return filter?.type === PropertyFilterType.Flag
 }
 export function isHogQLPropertyFilter(filter?: AnyFilterLike | null): filter is HogQLPropertyFilter {
@@ -271,7 +271,7 @@ export function isAnyPropertyfilter(filter?: AnyFilterLike | null): filter is An
         isRecordingPropertyFilter(filter) ||
         isLogEntryPropertyFilter(filter) ||
         isFeaturePropertyFilter(filter) ||
-        isFlagDependencyPropertyFilter(filter) ||
+        isFlagPropertyFilter(filter) ||
         isGroupPropertyFilter(filter) ||
         isLogPropertyFilter(filter)
     )
@@ -303,7 +303,7 @@ export function isPropertyFilterWithOperator(
             isRecordingPropertyFilter(filter) ||
             isLogEntryPropertyFilter(filter) ||
             isFeaturePropertyFilter(filter) ||
-            isFlagDependencyPropertyFilter(filter) ||
+            isFlagPropertyFilter(filter) ||
             isGroupPropertyFilter(filter) ||
             isCohortPropertyFilter(filter) ||
             isDataWarehousePropertyFilter(filter) ||

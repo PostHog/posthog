@@ -16,8 +16,10 @@ import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
 import { isEmptyProperty } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType, TaxonomicFilterProps } from 'lib/components/TaxonomicFilter/types'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { objectsEqual, range } from 'lib/utils'
 import { v4 as uuidv4 } from 'uuid'
+import posthog from 'posthog-js'
 import { projectLogic } from 'scenes/projectLogic'
 
 import { groupsModel } from '~/models/groupsModel'
@@ -93,6 +95,9 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
         setAffectedUsers: (index: number, count?: number) => ({ index, count }),
         setTotalUsers: (count: number) => ({ count }),
         calculateBlastRadius: true,
+        loadAllFlagKeys: (flagIds: string[]) => ({ flagIds }),
+        setFlagKeys: (flagKeys: Record<string, string>) => ({ flagKeys }),
+        setFlagKeysLoading: (isLoading: boolean) => ({ isLoading }),
     }),
     defaults(({ props }) => ({
         filters: ensureSortKeys(props.filters),
@@ -212,8 +217,37 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                 setTotalUsers: (_, { count }) => count,
             },
         ],
+        flagKeyCache: [
+            {} as Record<string, string>,
+            {
+                setFlagKeys: (state, { flagKeys }) => ({
+                    ...state,
+                    ...flagKeys,
+                }),
+            },
+        ],
+        flagKeyLoading: [
+            false as boolean,
+            {
+                setFlagKeysLoading: (_, { isLoading }) => isLoading,
+            },
+        ],
     })),
     listeners(({ actions, values }) => ({
+        setFilters: async () => {
+            // Extract all flag IDs using flatMap
+            const flagIds =
+                values.filterGroups?.flatMap(
+                    (group: FeatureFlagGroupType) =>
+                        group.properties?.flatMap((property: AnyPropertyFilter) =>
+                            property.type === PropertyFilterType.Flag && property.key ? [property.key] : []
+                        ) || []
+                ) || []
+
+            if (flagIds.length > 0) {
+                await actions.loadAllFlagKeys(flagIds)
+            }
+        },
         duplicateConditionSet: async ({ index }, breakpoint) => {
             await breakpoint(1000) // in ms
             const valueForSourceCondition = values.affectedUsers[index]
@@ -224,6 +258,25 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
             if (newProperties) {
                 // properties have changed, so we'll have to re-fetch affected users
                 actions.setAffectedUsers(index, undefined)
+
+                // Extract all flag IDs using flatMap
+                const flagIds =
+                    values.filterGroups?.flatMap(
+                        (group: FeatureFlagGroupType) =>
+                            group.properties?.flatMap((property: AnyPropertyFilter) =>
+                                property.type === PropertyFilterType.Flag && property.key ? [property.key] : []
+                            ) || []
+                    ) || []
+
+                // Add any new flag IDs from the updated properties
+                const newFlagIds = newProperties.flatMap((property) =>
+                    property.type === PropertyFilterType.Flag && property.key ? [property.key] : []
+                )
+
+                const allFlagIds = [...flagIds, ...newFlagIds]
+                if (allFlagIds.length > 0) {
+                    await actions.loadAllFlagKeys(allFlagIds)
+                }
             }
 
             if (!newProperties || newProperties.some(isEmptyProperty)) {
@@ -297,6 +350,56 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                 }
             })
         },
+        loadAllFlagKeys: async ({ flagIds }) => {
+            if (!flagIds || flagIds.length === 0) {
+                return
+            }
+
+            // Remove duplicates
+            const uniqueFlagIds = [...new Set(flagIds)]
+
+            // Filter out IDs that are already cached
+            const uncachedIds = uniqueFlagIds.filter((id: string) => !values.flagKeyCache[id])
+            if (uncachedIds.length === 0) {
+                return
+            }
+
+            // Set loading state
+            actions.setFlagKeysLoading(true)
+
+            try {
+                const response = await api.featureFlags.bulkKeys(uncachedIds.map((id: string) => parseInt(id)))
+                const keys = response.keys
+
+                // Create a mapping with all returned keys
+                const flagKeyMapping: Record<string, string> = {}
+
+                // Add all returned keys to the mapping
+                Object.entries(keys).forEach(([id, key]) => {
+                    flagKeyMapping[id] = key
+                })
+                // For any IDs that weren't returned (not found), use the ID as fallback
+                uncachedIds.forEach((id: string) => {
+                    if (!keys[id]) {
+                        flagKeyMapping[id] = id
+                    }
+                })
+
+                // Update the entire cache at once
+                actions.setFlagKeys(flagKeyMapping)
+            } catch (error) {
+                console.error('Error loading flag keys:', error)
+                // Fall back to using IDs as keys
+                const fallbackMapping: Record<string, string> = {}
+                uncachedIds.forEach((id: string) => {
+                    fallbackMapping[id] = id
+                })
+                actions.setFlagKeys(fallbackMapping)
+            } finally {
+                // Clear loading state
+                actions.setFlagKeysLoading(false)
+            }
+        },
     })),
     selectors({
         // Get the appropriate groups based on isSuper
@@ -323,6 +426,9 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                 } else {
                     targetGroupTypes.push(TaxonomicFilterGroupType.PersonProperties)
                     targetGroupTypes.push(TaxonomicFilterGroupType.Cohorts)
+                    if (posthog.featureFlags.isFeatureEnabled(FEATURE_FLAGS.FEATURE_FLAGS_FLAG_DEPENDENCY)) {
+                        targetGroupTypes.push(TaxonomicFilterGroupType.FeatureFlags)
+                    }
                     targetGroupTypes.push(TaxonomicFilterGroupType.Metadata)
                 }
 
@@ -395,6 +501,13 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                 return effectiveRolloutPercentage * ((affectedUsers[index] ?? 0) / effectiveTotalUsers)
             },
         ],
+        getFlagKey: [
+            (s) => [s.flagKeyCache],
+            (flagKeyCache) => (flagId: string) => {
+                return flagKeyCache[flagId] || flagId
+            },
+        ],
+        flagKeysLoading: [(s) => [s.flagKeyLoading], (flagKeyLoading) => flagKeyLoading],
     }),
     propsChanged(({ props, values, actions }) => {
         if (!objectsEqual(props.filters, values.filters)) {
@@ -408,7 +521,23 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
             }
         },
     })),
-    afterMount(({ props, actions }) => {
+    afterMount(({ props, actions, values }) => {
+        // Load flag keys on mount if there are flag dependencies
+        if (props.filters) {
+            // Extract all flag IDs using flatMap
+            const flagIds =
+                values.filterGroups?.flatMap(
+                    (group) =>
+                        group.properties?.flatMap((property) =>
+                            property.type === PropertyFilterType.Flag && property.key ? [property.key] : []
+                        ) || []
+                ) || []
+
+            if (flagIds.length > 0) {
+                actions.loadAllFlagKeys(flagIds)
+            }
+        }
+
         if (!props.readOnly) {
             actions.calculateBlastRadius()
         }
