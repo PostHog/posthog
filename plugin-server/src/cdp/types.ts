@@ -44,6 +44,7 @@ export type HogFunctionMasking = {
 }
 
 export interface HogFunctionFilters {
+    source?: 'events' | 'person-updates' // Special case to identify what kind of thing this filters on
     events?: HogFunctionFilterEvent[]
     actions?: HogFunctionFilterAction[]
     filter_test_accounts?: boolean
@@ -350,7 +351,7 @@ export type HogFunctionTemplate = {
     id: string
     name: string
     description: string
-    hog: string
+    code: string
     inputs_schema: HogFunctionInputSchemaType[]
     category: string[]
     filters?: HogFunctionFilters
@@ -399,7 +400,7 @@ export type Response = {
     headers: Record<string, any>
 }
 
-export type NativeTemplate = Omit<HogFunctionTemplate, 'hog' | 'code_language'> & {
+export type NativeTemplate = Omit<HogFunctionTemplate, 'code' | 'code_language'> & {
     perform: (
         request: (
             url: string,

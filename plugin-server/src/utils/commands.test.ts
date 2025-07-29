@@ -1,7 +1,8 @@
 import '../../tests/helpers/mocks/producer.mock'
 
-import express from 'express'
+import { Server } from 'http'
 import supertest from 'supertest'
+import express from 'ultimate-express'
 
 import { setupExpressApp } from '~/router'
 import { waitForExpect } from '~/tests/helpers/expectations'
@@ -15,22 +16,22 @@ describe('Commands API', () => {
     let hub: Hub
     let app: express.Application
     let service: ServerCommands
+    let server: Server
 
-    beforeEach(async () => {
+    beforeAll(async () => {
         await resetTestDatabase()
         hub = await createHub()
 
         service = new ServerCommands(hub)
         app = setupExpressApp()
         app.use('/', service.router())
+
+        server = app.listen(0, () => {})
     })
 
-    afterEach(async () => {
+    afterAll(async () => {
         await closeHub(hub)
-    })
-
-    afterAll(() => {
-        jest.useRealTimers()
+        server.close()
     })
 
     it('succeeds with valid command', async () => {
