@@ -825,6 +825,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     for (let attempts = 0; attempts < 5; attempts++) {
                         const theMountedLogic = playerCommentOverlayLogic.findMounted({
                             recordingId: props.sessionRecordingId,
+                            ...props,
                         })
                         if (theMountedLogic) {
                             return theMountedLogic
