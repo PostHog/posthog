@@ -12,7 +12,6 @@ class TestDataWarehouseSavedQueryDraft(APIBaseTest):
                     "kind": "HogQLQuery",
                     "query": "select event as event from events LIMIT 100",
                 },
-                "name": "test_draft",
             },
         )
         self.assertEqual(response.status_code, 201, response.content)
@@ -24,7 +23,8 @@ class TestDataWarehouseSavedQueryDraft(APIBaseTest):
                 "query": "select event as event from events LIMIT 100",
             },
         )
-        self.assertEqual(draft["name"], "test_draft")
+        # no attached view
+        self.assertEqual(draft["name"], "Untitled")
 
     def test_update_draft(self):
         draft = DataWarehouseSavedQueryDraft.objects.create(
@@ -43,7 +43,6 @@ class TestDataWarehouseSavedQueryDraft(APIBaseTest):
                     "kind": "HogQLQuery",
                     "query": "select event as updated from events LIMIT 100",
                 },
-                "name": "updated_draft",
             },
         )
 
@@ -56,7 +55,8 @@ class TestDataWarehouseSavedQueryDraft(APIBaseTest):
                 "query": "select event as updated from events LIMIT 100",
             },
         )
-        self.assertEqual(draft.name, "updated_draft")
+        # no attached view
+        self.assertEqual(draft.name, None)
 
     def test_delete_draft(self):
         draft = DataWarehouseSavedQueryDraft.objects.create(
@@ -127,7 +127,7 @@ class TestDataWarehouseSavedQueryDraft(APIBaseTest):
         self.assertEqual(response.status_code, 201, response.content)
         draft = response.json()
         self.assertEqual(draft["saved_query_id"], str(saved_query.id))
-        self.assertEqual(draft["name"], "test_draft")
+        self.assertEqual(draft["name"], "(1) test_draft")
         # Verify it was actually saved to the database
         draft_obj = DataWarehouseSavedQueryDraft.objects.get(id=draft["id"])
         self.assertIsNotNone(draft_obj.saved_query)
