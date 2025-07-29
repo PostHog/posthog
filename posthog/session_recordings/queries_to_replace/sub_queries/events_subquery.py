@@ -163,7 +163,7 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
         )
 
         return SessionRecordingQueryResult(
-            results=list(hogql_query_response.results[0]) if hogql_query_response.results else [],
+            results=hogql_query_response.results[0],
             has_more_recording=False,
             timings=hogql_query_response.timings,
         )
