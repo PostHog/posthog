@@ -1,4 +1,4 @@
-import { BaseEdge, EdgeProps, getSmoothStepPath, useEdges, Edge, Position } from '@xyflow/react'
+import { BaseEdge, EdgeProps, getSmoothStepPath, useEdges, Edge, Position, EdgeLabelRenderer } from '@xyflow/react'
 
 const MINIMUM_EDGE_SPACING = 200 // Minimum horizontal distance between parallel edges
 
@@ -122,26 +122,32 @@ export function getSmartStepPath({
     // Create custom path with horizontal branching
     if (Math.abs(horizontalOffset) > 0) {
         // Define key points for the 5-segment path
-        const segment1EndY = sourceY + 10 // End of first down segment
-        const segment3EndY = targetY - 10 // End of middle down segment
+        // Ensure adequate spacing between segments, especially for vertically close nodes
+        const verticalDistance = targetY - sourceY
+        const absVerticalDistance = Math.abs(verticalDistance)
+
+        // Handle both normal (sourceY < targetY) and inverted (sourceY > targetY) cases
+        let segment1EndY, segment3EndY
+
+        if (verticalDistance >= 0) {
+            // Normal case: source above target
+            segment1EndY = sourceY + Math.max(10, absVerticalDistance * 0.2)
+            segment3EndY = targetY - Math.max(10, absVerticalDistance * 0.2)
+        } else {
+            // Inverted case: source below target - we need to go up then down
+            segment1EndY = sourceY - Math.max(10, absVerticalDistance * 0.2)
+            segment3EndY = targetY + Math.max(10, absVerticalDistance * 0.2)
+        }
+
         const branchX = sourceX + horizontalOffset
 
-        // Create path with rounded corners using quadratic curves
         const pathCommands = [
             `M ${sourceX} ${sourceY}`, // Move to source
-            `L ${sourceX} ${segment1EndY - borderRadius}`, // 1. Down from source (stopping before corner)
-            `Q ${sourceX} ${segment1EndY} ${
-                sourceX + (branchX > sourceX ? borderRadius : -borderRadius)
-            } ${segment1EndY}`, // Rounded corner
-            `L ${branchX - (branchX > sourceX ? borderRadius : -borderRadius)} ${segment1EndY}`, // 2. Horizontal to branch position (stopping before corner)
-            `Q ${branchX} ${segment1EndY} ${branchX} ${segment1EndY + borderRadius}`, // Rounded corner
-            `L ${branchX} ${segment3EndY - borderRadius}`, // 3. Down in branch (stopping before corner)
-            `Q ${branchX} ${segment3EndY} ${
-                branchX - (branchX > targetX ? borderRadius : -borderRadius)
-            } ${segment3EndY}`, // Rounded corner
-            `L ${targetX + (branchX > targetX ? borderRadius : -borderRadius)} ${segment3EndY}`, // 4. Horizontal back to target X (stopping before corner)
-            `Q ${targetX} ${segment3EndY} ${targetX} ${segment3EndY + borderRadius}`, // Rounded corner
-            `L ${targetX} ${targetY}`, // 5. Down to target
+            `L ${sourceX} ${segment1EndY}`, // 1. Vertical from source
+            `L ${branchX} ${segment1EndY}`, // 2. Horizontal to branch position
+            `L ${branchX} ${segment3EndY}`, // 3. Vertical in branch
+            `L ${targetX} ${segment3EndY}`, // 4. Horizontal back to target X
+            `L ${targetX} ${targetY}`, // 5. Vertical to target
         ]
 
         const svgPath = pathCommands.join(' ')
@@ -170,6 +176,25 @@ export function getSmartStepPath({
     })
 }
 
+function EdgeLabel({ transform, label }: { transform: string; label: string }): JSX.Element {
+    return (
+        <div
+            style={{
+                position: 'absolute',
+                background: 'rgba(255, 255, 255, 0.75)',
+                padding: '5px 10px',
+                color: '#ff5050',
+                fontSize: 12,
+                fontWeight: 700,
+                transform,
+            }}
+            className="nodrag nopan"
+        >
+            {label}
+        </div>
+    )
+}
+
 export function SmartEdge({
     id,
     sourceX,
@@ -180,6 +205,7 @@ export function SmartEdge({
     targetPosition,
     markerEnd,
     markerStart,
+    data,
     ...props
 }: EdgeProps): JSX.Element {
     const edges = useEdges()
@@ -196,7 +222,19 @@ export function SmartEdge({
         currentEdgeId: id,
     })
 
-    return <BaseEdge {...props} path={edgePath} markerEnd={markerEnd} markerStart={markerStart} />
+    return (
+        <>
+            <BaseEdge {...props} path={edgePath} markerEnd={markerEnd} markerStart={markerStart} />
+            <EdgeLabelRenderer>
+                {data?.label && (
+                    <EdgeLabel
+                        transform={`translate(-50%, 0%) translate(${sourceX}px,${sourceY}px)`}
+                        label={data?.label || ''}
+                    />
+                )}
+            </EdgeLabelRenderer>
+        </>
+    )
 }
 
 export const REACT_FLOW_EDGE_TYPES = {

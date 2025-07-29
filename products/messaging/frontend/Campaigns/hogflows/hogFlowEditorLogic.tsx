@@ -355,6 +355,8 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
             actions.setCampaignInfo({
                 edges: values.campaign.edges.filter((edge) => !deleted.some((e) => getEdgeId(edge) === e.id)),
             })
+            actions.setEdgeDeletionNodes([])
+            actions.setSelectedEdgeId(null)
         },
 
         onDragOver: ({ event }) => {
@@ -458,6 +460,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
 
         onNodeDragStart: () => {
             actions.setSelectedEdgeId(null)
+            actions.setDropzoneNodes([])
             actions.setEdgeDeletionNodes([])
         },
 
@@ -510,7 +513,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                     {
                         id: `deletion_button_${selectedEdge.id}`,
                         type: 'edge_deletion_button',
-                        position: { x: labelX - 8, y: labelY - 8 },
+                        position: { x: labelX + 8, y: labelY + 8 },
                         data: {
                             edge: selectedEdge,
                         },
