@@ -4,11 +4,13 @@ import { createTeam, getFirstTeam, getTeam, resetTestDatabase } from '~/tests/he
 import { Hub, Person, Team } from '~/types'
 import { closeHub, createHub } from '~/utils/db/hub'
 import { UUIDT } from '~/utils/utils'
+import { PostgresPersonRepository } from '~/worker/ingestion/persons/repositories/postgres-person-repository'
 
 import { PersonsManagerService } from './persons-manager.service'
 
 describe('PersonsManager', () => {
     let hub: Hub
+    let personRepository: PostgresPersonRepository
     let manager: PersonsManagerService
     let team: Team
     let team2: Team
@@ -16,6 +18,7 @@ describe('PersonsManager', () => {
 
     beforeEach(async () => {
         hub = await createHub()
+        personRepository = new PostgresPersonRepository(hub.db.postgres)
         await resetTestDatabase()
         manager = new PersonsManagerService(hub)
         team = await getFirstTeam(hub)
@@ -23,18 +26,39 @@ describe('PersonsManager', () => {
         team2 = (await getTeam(hub, team2Id))!
 
         const TIMESTAMP = DateTime.fromISO('2000-10-14T11:42:06.502Z').toUTC()
-        const uuid = new UUIDT().toString()
-        const [person1] = await hub.db.createPerson(TIMESTAMP, { foo: '1' }, {}, {}, team.id, null, true, uuid, [
-            { distinctId: 'distinct_id_A_1' },
-            { distinctId: 'distinct_id_A_2' },
-            { distinctId: 'distinct_id_A_3' },
-        ])
-        const [person2] = await hub.db.createPerson(TIMESTAMP, { foo: '2' }, {}, {}, team.id, null, true, uuid, [
-            { distinctId: 'distinct_id_B_1' },
-        ])
-        const [person3] = await hub.db.createPerson(TIMESTAMP, { foo: '3' }, {}, {}, team2.id, null, true, uuid, [
-            { distinctId: 'distinct_id_A_1' },
-        ])
+        const [person1] = await personRepository.createPerson(
+            TIMESTAMP,
+            { foo: '1' },
+            {},
+            {},
+            team.id,
+            null,
+            true,
+            new UUIDT().toString(),
+            [{ distinctId: 'distinct_id_A_1' }, { distinctId: 'distinct_id_A_2' }, { distinctId: 'distinct_id_A_3' }]
+        )
+        const [person2] = await personRepository.createPerson(
+            TIMESTAMP,
+            { foo: '2' },
+            {},
+            {},
+            team.id,
+            null,
+            true,
+            new UUIDT().toString(),
+            [{ distinctId: 'distinct_id_B_1' }]
+        )
+        const [person3] = await personRepository.createPerson(
+            TIMESTAMP,
+            { foo: '3' },
+            {},
+            {},
+            team2.id,
+            null,
+            true,
+            new UUIDT().toString(),
+            [{ distinctId: 'distinct_id_A_1' }]
+        )
 
         persons = [person1, person2, person3]
     })

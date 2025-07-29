@@ -193,6 +193,7 @@ export const dataTableLogic = kea<dataTableLogicType>([
                     kind,
                     columns: columnsInQuery,
                     hiddenColumns: [],
+                    pinnedColumns: query.pinnedColumns ?? [],
                     source,
                     context: query.context ?? { type: 'team_columns' },
                     ...sortedKeys({

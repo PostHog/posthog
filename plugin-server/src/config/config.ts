@@ -38,13 +38,6 @@ export function getDefaultConfig(): PluginsServerConfig {
         POSTHOG_DB_PASSWORD: '',
         POSTHOG_POSTGRES_HOST: 'localhost',
         POSTHOG_POSTGRES_PORT: 5432,
-        CLICKHOUSE_HOST: 'localhost',
-        CLICKHOUSE_OFFLINE_CLUSTER_HOST: null,
-        CLICKHOUSE_DATABASE: isTestEnv() ? 'posthog_test' : 'default',
-        CLICKHOUSE_USER: 'default',
-        CLICKHOUSE_PASSWORD: null,
-        CLICKHOUSE_CA: null,
-        CLICKHOUSE_SECURE: false,
         CASSANDRA_HOST: 'localhost',
         CASSANDRA_PORT: 9042,
         CASSANDRA_KEYSPACE: isTestEnv() ? 'test_posthog' : 'posthog',
@@ -58,6 +51,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         CONSUMER_BATCH_SIZE: 500,
         CONSUMER_MAX_HEARTBEAT_INTERVAL_MS: 30_000,
         CONSUMER_MAX_BACKGROUND_TASKS: 1,
+        CONSUMER_WAIT_FOR_BACKGROUND_TASKS_ON_REBALANCE: false,
         CONSUMER_AUTO_CREATE_TOPICS: true,
         KAFKA_HOSTS: 'kafka:9092', // KEEP IN SYNC WITH posthog/settings/data_stores.py
         KAFKA_CLIENT_CERT_B64: undefined,
@@ -135,12 +129,6 @@ export function getDefaultConfig(): PluginsServerConfig {
         // posthog
         POSTHOG_API_KEY: '',
         POSTHOG_HOST_URL: 'http://localhost:8010',
-
-        STARTUP_PROFILE_DURATION_SECONDS: 300, // 5 minutes
-        STARTUP_PROFILE_CPU: false,
-        STARTUP_PROFILE_HEAP: false,
-        STARTUP_PROFILE_HEAP_INTERVAL: 512 * 1024, // default v8 value
-        STARTUP_PROFILE_HEAP_DEPTH: 16, // default v8 value
 
         SESSION_RECORDING_LOCAL_DIRECTORY: '.tmp/sessions',
         // NOTE: 10 minutes

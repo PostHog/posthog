@@ -33,7 +33,7 @@ export function ScenePanel({ children }: { children: React.ReactNode }): JSX.Ele
         <>
             {children &&
                 scenePanelElement &&
-                createPortal(<div className="flex flex-col gap-px">{children}</div>, scenePanelElement)}
+                createPortal(<div className="flex flex-col gap-px pt-4">{children}</div>, scenePanelElement)}
         </>
     )
 }
@@ -42,39 +42,46 @@ export function ScenePanelDivider(): JSX.Element {
     return <LemonDivider className="-mx-2 my-2 w-[calc(100%+1rem)]" />
 }
 
-export function ScenePanelMetaInfo({ children }: { children: React.ReactNode }): JSX.Element {
-    return <div className="pl-1 pt-4 pb-2 flex flex-col gap-2">{children}</div>
-}
-
-export function ScenePanelCommonActions({ children }: { children: React.ReactNode }): JSX.Element {
+// Should be first!
+export const ScenePanelCommonActions = ({
+    children,
+    isFirst = true,
+}: {
+    children: React.ReactNode
+    isFirst?: boolean
+}): JSX.Element => {
     return (
         <>
-            <div className="flex flex-col gap-2">{children}</div>
+            <div className={cn('flex flex-col gap-2', { '-mt-2': isFirst })}>{children}</div>
             <ScenePanelDivider />
         </>
     )
 }
 
+// Should be second!
+export function ScenePanelMetaInfo({ children }: { children: React.ReactNode }): JSX.Element {
+    return <div className="pl-1 pb-1 flex flex-col gap-2 -ml-1">{children}</div>
+}
+
+// Should be third!
 export function ScenePanelActions({ children }: { children: React.ReactNode }): JSX.Element {
     return (
-        <div className="flex flex-col gap-2">
-            <Label intent="menu" className="px-1">
+        <div className="flex flex-col gap-2 pl-1 -ml-1">
+            <Label intent="menu" className="mx-2">
                 Actions
             </Label>
-            <div className="flex flex-col gap-px">{children}</div>
+            <div className="flex flex-col gap-px -ml-1 pl-1">{children}</div>
         </div>
     )
 }
 
 export function ScenePanelLabel({ children, title, ...props }: PropsWithChildren<LabelProps>): JSX.Element {
     return (
-        <div>
-            <div className="gap-0">
-                <Label intent="menu" {...props}>
-                    {title}
-                </Label>
-                {children}
-            </div>
+        <div className="flex flex-col gap-0">
+            <Label intent="menu" {...props} className="mx-button-padding-x">
+                {title}
+            </Label>
+            {children}
         </div>
     )
 }

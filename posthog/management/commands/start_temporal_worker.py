@@ -23,7 +23,6 @@ from posthog.constants import (
     SYNC_BATCH_EXPORTS_TASK_QUEUE,
     TEST_TASK_QUEUE,
 )
-from posthog.otel_instrumentation import initialize_otel
 from posthog.temporal.ai import ACTIVITIES as AI_ACTIVITIES, WORKFLOWS as AI_WORKFLOWS
 from posthog.temporal.common.logger import configure_logger_async, get_logger
 from posthog.temporal.common.worker import create_worker
@@ -180,8 +179,6 @@ class Command(BaseCommand):
 
         # enable faulthandler to print stack traces on segfaults
         faulthandler.enable()
-
-        initialize_otel()
 
         metrics_port = int(options["metrics_port"])
 
