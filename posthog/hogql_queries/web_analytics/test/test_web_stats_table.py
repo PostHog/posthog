@@ -537,7 +537,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest, FloatAwareT
         assert [
             ["/admin/<section>", (2.0, None), (2.0, None), 2 / 5, ""],  # Both admin paths matched this general rule
             ["/user/<id>/<page>", (2.0, None), (2.0, None), 2 / 5, ""],  # Both user paths
-            ["/other/path", (1.0, None), (1.0, None), 1, ""],  # unchanged
+            ["/other/path", (1.0, None), (1.0, None), 1 / 5, ""],  # unchanged
         ] == results
 
     def test_path_cleaning_with_order_field_and_baseline_urls(self):
