@@ -2387,6 +2387,7 @@ export const enum ExperimentMetricType {
 
 export interface ExperimentMetricBaseProperties extends Node {
     kind: NodeKind.ExperimentMetric
+    uuid?: string
     name?: string
     conversion_window?: integer
     conversion_window_unit?: FunnelConversionWindowTimeUnit

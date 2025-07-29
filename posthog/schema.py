@@ -3481,6 +3481,7 @@ class ExperimentMetricBaseProperties(BaseModel):
     kind: Literal["ExperimentMetric"] = "ExperimentMetric"
     name: Optional[str] = None
     response: Optional[dict[str, Any]] = None
+    uuid: Optional[str] = None
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -11385,6 +11386,7 @@ class ExperimentFunnelMetric(BaseModel):
     name: Optional[str] = None
     response: Optional[dict[str, Any]] = None
     series: list[Union[EventsNode, ActionsNode]]
+    uuid: Optional[str] = None
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -11401,6 +11403,7 @@ class ExperimentMeanMetric(BaseModel):
     response: Optional[dict[str, Any]] = None
     source: Union[EventsNode, ActionsNode, ExperimentDataWarehouseNode]
     upper_bound_percentile: Optional[float] = None
+    uuid: Optional[str] = None
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
