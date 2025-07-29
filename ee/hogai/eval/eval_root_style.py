@@ -194,7 +194,7 @@ class GenericCommunicationStyleChecker(LLMClassifier):
 
 
 @pytest.mark.django_db
-async def eval_root_communication_style(call_root):
+async def eval_root_communication_style(call_root, pytestconfig):
     await MaxEval(
         experiment_name="root_communication_style",
         task=call_root,
@@ -206,4 +206,5 @@ async def eval_root_communication_style(call_root):
                 '- Response must NOT include any questions about the user\'s request. Failing example: "Could you confirm the exact event name you use for X?"',
             ),
         ],
+        pytestconfig=pytestconfig,
     )
