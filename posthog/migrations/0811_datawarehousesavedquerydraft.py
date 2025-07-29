@@ -8,7 +8,7 @@ import posthog.models.utils
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0807_dwh_source_refactor"),
+        ("posthog", "0810_alter_hogfunctiontemplate_icon_url"),
     ]
 
     operations = [
