@@ -80,7 +80,6 @@ class TemporalWorkerRunner:
         self.command_args = command_args
         self.process: Optional[subprocess.Popen] = None
         self.watcher: Optional[FileWatcher] = None
-        self.restart_count = 0
         self.last_restart_time = 0
 
     def setup_watcher(self):

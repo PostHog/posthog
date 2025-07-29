@@ -34,7 +34,7 @@ procs:
         shell: 'bin/check_kafka_clickhouse_up && bin/check_temporal_up && ./bin/watch-temporal-worker python manage.py start_temporal_worker --task-queue data-warehouse-compaction-task-queue --metrics-port 8004'
 
     temporal-worker-data-modeling:
-        shell: 'bin/check_kafka_clickhouse_up && bin/check_temporal_up &&./bin/watch-temporal-worker python manage.py start_temporal_worker --task-queue data-modeling-task-queue --metrics-port 8005'
+        shell: 'bin/check_kafka_clickhouse_up && bin/check_temporal_up && ./bin/watch-temporal-worker python manage.py start_temporal_worker --task-queue data-modeling-task-queue --metrics-port 8005'
 
     temporal-worker-max-ai:
         # added a sleep to give the docker stuff time to start
