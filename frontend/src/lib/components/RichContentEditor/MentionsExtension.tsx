@@ -1,7 +1,6 @@
 import { LemonButton, ProfilePicture } from '@posthog/lemon-ui'
-import { Extension } from '@tiptap/core'
 import { PluginKey } from '@tiptap/pm/state'
-import { ReactRenderer } from '@tiptap/react'
+import { Editor, Extension, ReactRenderer } from '@tiptap/react'
 import Suggestion from '@tiptap/suggestion'
 import Fuse from 'fuse.js'
 import { useValues } from 'kea'
@@ -9,16 +8,16 @@ import { Popover } from 'lib/lemon-ui/Popover'
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useState } from 'react'
 import { membersLogic } from 'scenes/organization/membersLogic'
 
-import { NotebookNodeType, OrganizationMemberType } from '~/types'
+import { OrganizationMemberType } from '~/types'
 
-import { notebookLogic } from './notebookLogic'
-import { EditorRange } from './utils'
+import { EditorRange, RichContentNodeType } from './types'
 
 type MentionsProps = {
     range: EditorRange
     query?: string
     decorationNode?: any
     onClose?: () => void
+    editor: Editor
 }
 
 type MentionsPopoverProps = MentionsProps & {
@@ -31,10 +30,9 @@ type MentionsRef = {
 }
 
 export const Mentions = forwardRef<MentionsRef, MentionsProps>(function SlashCommands(
-    { range, onClose, query }: MentionsProps,
+    { range, onClose, query, editor }: MentionsProps,
     ref
 ): JSX.Element | null {
-    const { editor } = useValues(notebookLogic)
     const { meFirstMembers } = useValues(membersLogic)
 
     // We start with 1 because the first item is the text controls
@@ -53,7 +51,7 @@ export const Mentions = forwardRef<MentionsRef, MentionsProps>(function SlashCom
             return meFirstMembers
         }
         return fuse.search(query).map((result) => result.item)
-    }, [query, fuse])
+    }, [query, fuse, meFirstMembers])
 
     useEffect(() => {
         setSelectedIndex(0)
@@ -63,10 +61,12 @@ export const Mentions = forwardRef<MentionsRef, MentionsProps>(function SlashCom
     const execute = async (member: OrganizationMemberType): Promise<void> => {
         if (editor) {
             editor
+                .chain()
+                .focus()
                 .deleteRange(range)
                 .insertContentAt(range.from, [
                     {
-                        type: NotebookNodeType.Mention,
+                        type: RichContentNodeType.Mention,
                         attrs: {
                             id: member.user.id,
                         },
@@ -104,6 +104,7 @@ export const Mentions = forwardRef<MentionsRef, MentionsProps>(function SlashCom
 
             return false
         },
+        // oxlint-disable-next-line exhaustive-deps
         [selectedIndex, selectedHorizontalIndex, filteredMembers]
     )
 
