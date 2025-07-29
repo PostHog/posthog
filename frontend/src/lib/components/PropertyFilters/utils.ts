@@ -335,6 +335,7 @@ const propertyFilterMapping: Partial<Record<PropertyFilterType, TaxonomicFilterG
     [PropertyFilterType.ErrorTrackingIssue]: TaxonomicFilterGroupType.ErrorTrackingIssues,
     [PropertyFilterType.Log]: TaxonomicFilterGroupType.LogAttributes,
     [PropertyFilterType.RevenueAnalytics]: TaxonomicFilterGroupType.RevenueAnalyticsProperties,
+    [PropertyFilterType.Flag]: TaxonomicFilterGroupType.FeatureFlags,
 }
 
 export const filterToTaxonomicFilterType = (
