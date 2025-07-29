@@ -165,32 +165,11 @@ class AssistantGenericMultipleBreakdownFilter(BaseModel):
     type: AssistantEventMultipleBreakdownFilterType
 
 
-class AssistantGenericPropertyFilter3(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    key: str = Field(..., description="Use one of the properties the user has provided in the plan.")
-    operator: AssistantArrayPropertyFilterOperator = Field(
-        ..., description="`exact` - exact match of any of the values. `is_not` - does not match any of the values."
-    )
-    type: str
-    value: list[str] = Field(
-        ...,
-        description=(
-            "Only use property values from the plan. Always use strings as values. If you have a number, convert it to"
-            ' a string first. If you have a boolean, convert it to a string "true" or "false".'
-        ),
-    )
-
-
-class AssistantGenericPropertyFilter4(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    key: str = Field(..., description="Use one of the properties the user has provided in the plan.")
-    operator: AssistantDateTimePropertyFilterOperator
-    type: str
-    value: str = Field(..., description="Value must be a date in ISO 8601 format.")
+class AssistantGenericPropertyFilterType(StrEnum):
+    EVENT = "event"
+    PERSON = "person"
+    SESSION = "session"
+    FEATURE = "feature"
 
 
 class AssistantHogQLQuery(BaseModel):
@@ -1025,7 +1004,7 @@ class VolumeBucket(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    label: datetime
+    label: str
     value: float
 
 
@@ -1036,8 +1015,8 @@ class ErrorTrackingIssueAggregations(BaseModel):
     occurrences: float
     sessions: float
     users: float
-    volumeRange: list[float]
-    volume_buckets: Optional[list[VolumeBucket]] = None
+    volumeRange: Optional[list[float]] = None
+    volume_buckets: list[VolumeBucket]
 
 
 class Type2(StrEnum):
@@ -2887,7 +2866,7 @@ class AssistantGenericPropertyFilter1(BaseModel):
             " matches the regex pattern. `not_regex` - does not match the regex pattern."
         ),
     )
-    type: str
+    type: AssistantGenericPropertyFilterType
     value: str = Field(
         ...,
         description=(
@@ -2904,8 +2883,36 @@ class AssistantGenericPropertyFilter2(BaseModel):
     )
     key: str = Field(..., description="Use one of the properties the user has provided in the plan.")
     operator: AssistantNumericValuePropertyFilterOperator
-    type: str
+    type: AssistantGenericPropertyFilterType
     value: float
+
+
+class AssistantGenericPropertyFilter3(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    key: str = Field(..., description="Use one of the properties the user has provided in the plan.")
+    operator: AssistantArrayPropertyFilterOperator = Field(
+        ..., description="`exact` - exact match of any of the values. `is_not` - does not match any of the values."
+    )
+    type: AssistantGenericPropertyFilterType
+    value: list[str] = Field(
+        ...,
+        description=(
+            "Only use property values from the plan. Always use strings as values. If you have a number, convert it to"
+            ' a string first. If you have a boolean, convert it to a string "true" or "false".'
+        ),
+    )
+
+
+class AssistantGenericPropertyFilter4(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    key: str = Field(..., description="Use one of the properties the user has provided in the plan.")
+    operator: AssistantDateTimePropertyFilterOperator
+    type: AssistantGenericPropertyFilterType
+    value: str = Field(..., description="Value must be a date in ISO 8601 format.")
 
 
 class AssistantGenericPropertyFilter5(BaseModel):
@@ -2920,7 +2927,7 @@ class AssistantGenericPropertyFilter5(BaseModel):
             " collected."
         ),
     )
-    type: str
+    type: AssistantGenericPropertyFilterType
 
 
 class AssistantGroupMultipleBreakdownFilter(BaseModel):
@@ -5235,7 +5242,6 @@ class AssistantTrendsActionsNode(BaseModel):
     math_group_type_index: Optional[MathGroupTypeIndex] = None
     math_multiplier: Optional[float] = None
     math_property: Optional[str] = None
-    math_property_revenue_currency: Optional[RevenueCurrencyPropertyConfig] = None
     math_property_type: Optional[str] = None
     name: str = Field(..., description="Action name from the plan.")
     properties: Optional[
@@ -5283,7 +5289,6 @@ class AssistantTrendsEventsNode(BaseModel):
     math_group_type_index: Optional[MathGroupTypeIndex] = None
     math_multiplier: Optional[float] = None
     math_property: Optional[str] = None
-    math_property_revenue_currency: Optional[RevenueCurrencyPropertyConfig] = None
     math_property_type: Optional[str] = None
     name: Optional[str] = None
     properties: Optional[
