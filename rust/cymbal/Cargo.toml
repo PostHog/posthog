@@ -38,6 +38,8 @@ moka = { workspace = true }
 rdkafka = { workspace = true }
 posthog-rs = { workspace = true }
 base64 = { workspace = true }
+regex = { workspace = true }
+once_cell = { workspace = true }
 
 [dev-dependencies]
 httpmock = { workspace = true }

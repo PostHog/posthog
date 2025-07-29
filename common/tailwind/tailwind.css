@@ -7,5 +7,5 @@
     --text-xxs: 0.625rem;
     --text-xxs--line-height: 0.75rem;
 
-    --spacing-button-padding-x: 6px; /* Match the padding of the button primitives base size */
+    --spacing-button-padding-x: 7px; /* Match the padding of the button primitives base size (6px) + 1px border */
 }
