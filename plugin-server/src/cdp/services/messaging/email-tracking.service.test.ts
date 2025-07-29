@@ -20,6 +20,7 @@ import { MailjetEventBase, MailjetWebhookEvent } from './types'
 import { KAFKA_APP_METRICS_2 } from '~/config/kafka-topics'
 import { HogFunctionType } from '~/cdp/types'
 import { HogFlow } from '~/schema/hogflow'
+import { Server } from 'http'
 
 describe('EmailTrackingService', () => {
     let hub: Hub
@@ -47,13 +48,14 @@ describe('EmailTrackingService', () => {
         let hogFunction: HogFunctionType
         let hogFlow: HogFlow
         const invocationId = 'invocation-id'
-
+        let server: Server
         let exampleEvent: MailjetWebhookEvent
 
         beforeEach(async () => {
             api = new CdpApi(hub)
             app = setupExpressApp()
             app.use('/', api.router())
+            server = app.listen(0, () => {})
 
             hogFunction = await insertHogFunction(hub.postgres, team.id)
             hogFlow = await insertHogFlow(hub.postgres, new FixtureHogFlowBuilder().withTeamId(team.id).build())
@@ -71,6 +73,9 @@ describe('EmailTrackingService', () => {
                 CustomID: generateMailjetCustomId({ functionId: hogFunction.id, id: invocationId }),
                 Payload: JSON.stringify({}),
             }
+        })
+        afterEach(async () => {
+            server.close()
         })
 
         const sendValidEvent = async (mailjetEvent: MailjetEventBase): Promise<supertest.Response> => {
