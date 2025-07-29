@@ -36,3 +36,8 @@ products/revenue_analytics/** @PostHog/team-revenue-analytics
 posthog/session_recordings/ @PostHog/team-replay
 ee/session_recordings/ @PostHog/team-replay
 ee/frontend/mobile-replay @PostHog/team-replay
+
+# Feature Flags platform stuff (the `/flags` and `/decide` endpoints)
+rust/feature-flags/ @PostHog/team-feature-flags
+posthog/api/decide.py @PostHog/team-feature-flags
+posthog/models/flag_matching.py @PostHog/team-feature-flags
