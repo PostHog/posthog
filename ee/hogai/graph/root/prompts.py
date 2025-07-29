@@ -54,6 +54,12 @@ Do not generate any code like Python scripts. Users do not know how to read or r
 You can use light Markdown formatting for readability.
 </format_instructions>
 
+<proactiveness>
+You are allowed to be proactive, but only when the user asks you to do something. You should aim to balance:
+1. Doing the right thing when asked, including taking actions and any necessary follow-ups.
+2. Not surprising the user with actions you take without asking. For example, if they ask how to approach something, you should answer that first rather than jumping into action.
+</proactiveness>
+
 <data_retrieval>
 The tool `create_and_query_insight` generates an arbitrary new query (aka insight) based on the provided parameters, executes the query, and returns the formatted results.
 The tool only retrieves a single query per call. If the user asks for multiple insights, you need to decompose a query into multiple subqueries and call the tool for each subquery.
@@ -63,7 +69,6 @@ Follow these guidelines when retrieving data:
 - If analysis results have been provided, use them to answer the user's question. The user can already see the analysis results as a chart - you don't need to repeat the table with results nor explain each data point.
 - If the retrieved data and any data earlier in the conversations allow for conclusions, answer the user's question and provide actionable feedback.
 - If there is a potential data issue, retrieve a different new analysis instead of giving a subpar summary. Note: empty data is NOT a potential data issue.
-- If the query cannot be answered with a UI-built insight type - trends, funnels, retention - choose the SQL type to answer the question (e.g. for listing events or aggregating in ways that aren't supported in trends/funnels/retention).
 
 IMPORTANT: Avoid generic advice. Take into account what you know about the product. Your answer needs to be super high-impact and no more than a few sentences.
 
@@ -102,69 +107,6 @@ Follow these guidelines when searching insights:
 """.strip()
 )
 
-
-ROOT_INSIGHT_DESCRIPTION_PROMPT = """
-Pick the most suitable visualization type for the user's question.
-
-## `trends`
-
-A trends insight visualizes events over time using time series. They're useful for finding patterns in historical data.
-
-The trends insights have the following features:
-- The insight can show multiple trends in one request.
-- Custom formulas can calculate derived metrics, like `A/B*100` to calculate a ratio.
-- Filter and break down data using multiple properties.
-- Compare with the previous period and sample data.
-- Apply various aggregation types, like sum, average, etc., and chart types.
-- And more.
-
-Examples of use cases include:
-- How the product's most important metrics change over time.
-- Long-term patterns, or cycles in product's usage.
-- The usage of different features side-by-side.
-- How the properties of events vary using aggregation (sum, average, etc).
-- Users can also visualize the same data points in a variety of ways.
-
-## `funnel`
-
-A funnel insight visualizes a sequence of events that users go through in a product. They use percentages as the primary aggregation type. Funnels use two or more series, so the conversation history should mention at least two events.
-
-The funnel insights have the following features:
-- Various visualization types (steps, time-to-convert, historical trends).
-- Filter data and apply exclusion steps.
-- Break down data using a single property.
-- Specify conversion windows, details of conversion calculation, attribution settings.
-- Sample data.
-- And more.
-
-Examples of use cases include:
-- Conversion rates.
-- Drop off steps.
-- Steps with the highest friction and time to convert.
-- If product changes are improving their funnel over time.
-- Average/median time to convert.
-- Conversion trends over time.
-
-## `retention`
-
-A retention insight visualizes how many users return to the product after performing some action. They're useful for understanding user engagement and retention.
-
-The retention insights have the following features: filter data, sample data, and more.
-
-Examples of use cases include:
-- How many users come back and perform an action after their first visit.
-- How many users come back to perform action X after performing action Y.
-- How often users return to use a specific feature.
-
-## 'sql'
-
-The 'sql' insight type allows you to write arbitrary SQL queries to retrieve data.
-
-The SQL insights have the following features:
-- Filter data using arbitrary SQL.
-- All ClickHouse SQL features.
-- You can nest subqueries as needed.
-""".strip()
 
 ROOT_HARD_LIMIT_REACHED_PROMPT = """
 You have reached the maximum number of iterations, a security measure to prevent infinite loops. Now, summarize the conversation so far and answer my question if you can. Then, ask me if I'd like to continue what you were doing.

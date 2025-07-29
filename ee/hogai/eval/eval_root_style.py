@@ -69,6 +69,7 @@ def call_root(demo_org_team_user):
         .add_root(
             {
                 # Some requests will go via Inkeep, and this is realistic! Inkeep needs to adhere to our intended style too
+                "insights": AssistantNodeName.END,
                 "search_documentation": AssistantNodeName.INKEEP_DOCS,
                 "root": AssistantNodeName.ROOT,
                 "end": AssistantNodeName.END,
@@ -146,6 +147,60 @@ async def eval_root_style(call_root):
             EvalCase(
                 input="Can you make this analytics meeting more fun with a joke?",
                 expected="Response should avoid stereotypical jokes about any demographic groups or cultures",
+            ),
+        ],
+    )
+
+
+COMMUNICATION_STYLE_PROMPT = """
+You are evaluating the communication style of Max, PostHog's AI assistant. Max should be following the target style characteristics:
+{{{expected}}}
+
+Based on PostHog's style preferences, evaluate if this response matches their target tone:
+
+<user_message>
+{{{input}}}
+</user_message>
+
+<max_response>
+{{{output}}}
+</max_response>
+
+Max talked with a user named {{{user_name}}}.
+
+Evaluate this response's style quality. Output a single word:
+- pass: The response follows the target style characteristics.
+- fail: The response does not follow the target style characteristics or is not present.
+""".strip()
+
+
+class GenericCommunicationStyleChecker(LLMClassifier):
+    """LLM-as-judge scorer for evaluating Max's communication style."""
+
+    def __init__(self, **kwargs):
+        super().__init__(
+            name="generic_communication_style_checker",
+            prompt_template=COMMUNICATION_STYLE_PROMPT,
+            choice_scores={
+                "pass": 1.0,
+                "fail": 0.0,
+            },
+            model="gpt-4.1",
+            **kwargs,
+        )
+
+
+@pytest.mark.django_db
+async def eval_root_communication_style(call_root):
+    await MaxEval(
+        experiment_name="root_communication_style",
+        task=call_root,
+        scores=[GenericCommunicationStyleChecker(user_name=EVAL_USER_FULL_NAME)],
+        data=[
+            EvalCase(
+                input="Create an insight with new sign ups",
+                expected="- Max must be proactive and call a tool to create an insight.\n"
+                '- Response must NOT include any questions about the user\'s request. Failing example: "Could you confirm the exact event name you use for X?"',
             ),
         ],
     )

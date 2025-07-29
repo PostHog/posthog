@@ -12,7 +12,6 @@ from langchain_core.runnables import RunnableConfig
 from langchain_openai import ChatOpenAI
 from pydantic import Field, ValidationError, create_model
 
-from ee.hogai.graph.root.prompts import ROOT_INSIGHT_DESCRIPTION_PROMPT
 from ee.hogai.graph.shared_prompts import CORE_MEMORY_PROMPT, PROJECT_ORG_USER_CONTEXT_PROMPT
 from ee.hogai.utils.helpers import dereference_schema, format_events_prompt
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
@@ -117,7 +116,6 @@ class QueryPlannerNode(AssistantNode):
                 "trends_json_schema": dereference_schema(AssistantTrendsQuery.model_json_schema()),
                 "funnel_json_schema": dereference_schema(AssistantFunnelsQuery.model_json_schema()),
                 "retention_json_schema": dereference_schema(AssistantRetentionQuery.model_json_schema()),
-                "insight_types_prompt": ROOT_INSIGHT_DESCRIPTION_PROMPT,
             },
             config,
         )
