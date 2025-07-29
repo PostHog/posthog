@@ -3,6 +3,7 @@ import structlog
 import time
 from django.conf import settings
 from posthog.cdp.templates import HOG_FUNCTION_TEMPLATES
+from posthog.models.hog_function_template import HogFunctionTemplate
 from posthog.plugins.plugin_server_api import get_hog_function_templates
 from posthog.api.hog_function_template import HogFunctionTemplateSerializer
 from posthog.models.hog_functions.hog_function import HogFunctionType
@@ -51,12 +52,12 @@ class Command(BaseCommand):
         all_templates: list[dict] = []
 
         # Process templates from HOG_FUNCTION_TEMPLATES (Python templates)
-        for template in HOG_FUNCTION_TEMPLATES:
-            if not self.should_include_python_template(template):
+        for template_dc in HOG_FUNCTION_TEMPLATES:
+            if not self.should_include_python_template(template_dc):
                 continue
 
             total_templates += 1
-            all_templates.append(template.to_dict())
+            all_templates.append(template_dc.to_dict())
 
         # Process templates from Node.js
         try:
@@ -77,9 +78,14 @@ class Command(BaseCommand):
             self.stdout.write(self.style.ERROR(f"Error fetching Node.js templates: {str(e)}"))
 
         for template_data in all_templates:
-            print(template_data)
-            serializer = HogFunctionTemplateSerializer(data=template_data)
+            template = HogFunctionTemplate.get_template(template_data["id"])
+            if template:
+                serializer = HogFunctionTemplateSerializer(template)
+            else:
+                serializer = HogFunctionTemplateSerializer(data=template_data)
+
             serializer.is_valid(raise_exception=True)
+
             try:
                 template = serializer.save()
                 updated_count += 1

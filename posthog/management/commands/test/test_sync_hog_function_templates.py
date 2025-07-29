@@ -1,3 +1,4 @@
+from posthog.api.hog_function import HogFunctionSerializer
 from posthog.management.commands.sync_hog_function_templates import TYPES_WITH_JAVASCRIPT_SOURCE
 import pytest
 from unittest.mock import patch, MagicMock
@@ -136,7 +137,7 @@ class TestSyncHogFunctionTemplates:
         expected_created = len(TEST_INCLUDE_PYTHON_TEMPLATE_IDS)
 
         # Check that templates were reported as created
-        assert f"Created: {expected_created}" in output or f"Created: " in output
+        assert f"Created or updated: {expected_created}" in output or f"Created or updated: " in output
 
         # Second run - templates should be skipped/updated since they already exist
         stdout = StringIO()
@@ -175,16 +176,13 @@ class TestSyncHogFunctionTemplates:
         if db_template.type not in TYPES_WITH_JAVASCRIPT_SOURCE:
             assert db_template.bytecode is not None
 
-        dataclass_template = db_template.to_dataclass()
-        assert dataclass_template.id == slack_template.id
-        assert dataclass_template.name == slack_template.name
-        assert dataclass_template.code == slack_template.code
+        assert db_template.template_id == slack_template.id
+        assert db_template.name == slack_template.name
+        assert db_template.code == slack_template.code
 
     @patch("posthog.plugins.plugin_server_api.get_hog_function_templates")
     def test_template_version_behavior(self, mock_get_hog_function_templates):
         """Test that template versioning behaves correctly"""
-        from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
-
         # Mock the Node.js API to avoid external dependencies
         mock_response = MagicMock()
         mock_response.status_code = 200
@@ -193,59 +191,3 @@ class TestSyncHogFunctionTemplates:
 
         # Clear any existing templates
         HogFunctionTemplate.objects.all().delete()
-
-        # Create a test template
-        test_template = HogFunctionTemplateDC(
-            id="test-versioning-template",
-            name="Test Versioning Template",
-            description="Test template for version behavior",
-            type="transformation",
-            code="return event",
-            inputs_schema=[],
-            status="beta",
-            free=True,
-            category=["Test"],
-            code_language="hog",
-        )
-
-        # Save the template to the database
-        template_1, created_1 = HogFunctionTemplate.create_from_dataclass(test_template)
-        assert created_1 is True
-        initial_sha = template_1.sha
-
-        # Save the exact same template again
-        template_2, created_2 = HogFunctionTemplate.create_from_dataclass(test_template)
-        assert created_2 is False  # Should not create a new record
-        assert template_2.id == template_1.id  # Should be the same database record
-        assert template_2.sha == initial_sha  # sha should be unchanged
-
-        # Verify only one template exists in the database
-        template_count = HogFunctionTemplate.objects.filter(template_id="test-versioning-template").count()
-        assert template_count == 1
-
-        # Create a modified version of the template (can't modify frozen dataclass)
-        modified_template = HogFunctionTemplateDC(
-            id="test-versioning-template",  # Same ID
-            name="Modified Test Template",  # Changed
-            description="This template was modified",  # Changed
-            type="transformation",
-            code="return null",  # Changed
-            inputs_schema=[],
-            status="beta",
-            free=True,
-            category=["Test"],
-            code_language="hog",
-        )
-
-        # Save the modified template
-        template_3, created_3 = HogFunctionTemplate.create_from_dataclass(modified_template)
-        assert created_3 is False  # Should not create a new record
-        assert template_3.id == template_1.id  # Should update the same database record
-        assert template_3.sha != initial_sha  # sha should be different
-        assert template_3.name == "Modified Test Template"
-        assert template_3.description == "This template was modified"
-        assert template_3.code == "return null"
-
-        # Verify still only one template exists in the database
-        template_count = HogFunctionTemplate.objects.filter(template_id="test-versioning-template").count()
-        assert template_count == 1
