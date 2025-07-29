@@ -18,6 +18,8 @@ import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/column
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { getAppContext } from 'lib/utils/getAppContext'
@@ -196,25 +198,29 @@ export function OverViewTab({
                 )
             },
         },
-        {
-            title: 'Runtime',
-            dataIndex: 'evaluation_runtime',
-            width: 120,
-            render: function RenderFlagRuntime(_, featureFlag: FeatureFlagType) {
-                const runtime = featureFlag.evaluation_runtime || FeatureFlagEvaluationRuntime.ALL
-                return (
-                    <LemonTag type="default" className="uppercase">
-                        {runtime === FeatureFlagEvaluationRuntime.ALL
-                            ? 'All'
-                            : runtime === FeatureFlagEvaluationRuntime.CLIENT
-                            ? 'Client'
-                            : runtime === FeatureFlagEvaluationRuntime.SERVER
-                            ? 'Server'
-                            : 'All'}
-                    </LemonTag>
-                )
-            },
-        },
+        ...(enabledFeaturesLogic.values.featureFlags?.[FEATURE_FLAGS.FLAG_EVALUATION_RUNTIMES]
+            ? [
+                  {
+                      title: 'Runtime',
+                      dataIndex: 'evaluation_runtime' as keyof FeatureFlagType,
+                      width: 120,
+                      render: function RenderFlagRuntime(_: any, featureFlag: FeatureFlagType) {
+                          const runtime = featureFlag.evaluation_runtime || FeatureFlagEvaluationRuntime.ALL
+                          return (
+                              <LemonTag type="default" className="uppercase">
+                                  {runtime === FeatureFlagEvaluationRuntime.ALL
+                                      ? 'All'
+                                      : runtime === FeatureFlagEvaluationRuntime.CLIENT
+                                      ? 'Client'
+                                      : runtime === FeatureFlagEvaluationRuntime.SERVER
+                                      ? 'Server'
+                                      : 'All'}
+                              </LemonTag>
+                          )
+                      },
+                  },
+              ]
+            : []),
         {
             width: 0,
             render: function Render(_, featureFlag: FeatureFlagType) {
@@ -433,29 +439,36 @@ export function OverViewTab({
                     }}
                     data-attr="feature-flag-select-created-by"
                 />
-                <span className="ml-1">
-                    <b>Runtime</b>
-                </span>
-                <LemonSelect
-                    dropdownMatchSelectWidth={false}
-                    size="small"
-                    onChange={(runtime) => {
-                        const { evaluation_runtime, ...restFilters } = filters || {}
-                        if (runtime === 'any') {
-                            setFeatureFlagsFilters({ ...restFilters, page: 1 }, true)
-                        } else {
-                            setFeatureFlagsFilters({ ...restFilters, evaluation_runtime: runtime, page: 1 }, true)
-                        }
-                    }}
-                    options={[
-                        { label: 'Any', value: 'any', 'data-attr': 'feature-flag-select-runtime-any' },
-                        { label: 'All', value: FeatureFlagEvaluationRuntime.ALL },
-                        { label: 'Client', value: FeatureFlagEvaluationRuntime.CLIENT },
-                        { label: 'Server', value: FeatureFlagEvaluationRuntime.SERVER },
-                    ]}
-                    value={filters.evaluation_runtime ?? 'any'}
-                    data-attr="feature-flag-select-runtime"
-                />
+                {enabledFeaturesLogic.values.featureFlags?.[FEATURE_FLAGS.FLAG_EVALUATION_RUNTIMES] && (
+                    <>
+                        <span className="ml-1">
+                            <b>Runtime</b>
+                        </span>
+                        <LemonSelect
+                            dropdownMatchSelectWidth={false}
+                            size="small"
+                            onChange={(runtime) => {
+                                const { evaluation_runtime, ...restFilters } = filters || {}
+                                if (runtime === 'any') {
+                                    setFeatureFlagsFilters({ ...restFilters, page: 1 }, true)
+                                } else {
+                                    setFeatureFlagsFilters(
+                                        { ...restFilters, evaluation_runtime: runtime, page: 1 },
+                                        true
+                                    )
+                                }
+                            }}
+                            options={[
+                                { label: 'Any', value: 'any', 'data-attr': 'feature-flag-select-runtime-any' },
+                                { label: 'All', value: FeatureFlagEvaluationRuntime.ALL },
+                                { label: 'Client', value: FeatureFlagEvaluationRuntime.CLIENT },
+                                { label: 'Server', value: FeatureFlagEvaluationRuntime.SERVER },
+                            ]}
+                            value={filters.evaluation_runtime ?? 'any'}
+                            data-attr="feature-flag-select-runtime"
+                        />
+                    </>
+                )}
             </div>
         </div>
     )
