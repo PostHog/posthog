@@ -16,7 +16,6 @@ import { marketingAnalyticsLogic } from './marketingAnalyticsLogic'
 import type { marketingAnalyticsTilesLogicType } from './marketingAnalyticsTilesLogicType'
 import { marketingAnalyticsTableLogic } from './marketingAnalyticsTableLogic'
 
-
 export enum TileId {
     MARKETING = 'MARKETING',
     MARKETING_CAMPAIGN_BREAKDOWN = 'MARKETING_CAMPAIGN_BREAKDOWN',
