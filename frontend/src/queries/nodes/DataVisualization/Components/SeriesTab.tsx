@@ -235,14 +235,6 @@ const YSeriesDisplayTab = ({ ySeriesLogicProps }: { ySeriesLogicProps: YSeriesLo
     const showColorPicker = !showTableSettings && !selectedSeriesBreakdownColumn
     const showLabelInput = showTableSettings || !selectedSeriesBreakdownColumn
 
-    const onColorChange = (color: string) => {
-        updateSeriesIndex(ySeriesLogicProps.seriesIndex, ySeriesLogicProps.series.column.name, {
-            display: {
-                color: color,
-            },
-        })
-    }
-
     return (
         <Form logic={ySeriesLogic} props={ySeriesLogicProps} formKey="display" className="deprecated-space-y-4">
             {(showColorPicker || showLabelInput) && (
@@ -252,7 +244,14 @@ const YSeriesDisplayTab = ({ ySeriesLogicProps }: { ySeriesLogicProps: YSeriesLo
                             {({ value, onChange }) => (
                                 <LemonColorPicker
                                     selectedColor={value}
-                                    onSelectColor={onColorChange}
+                                    onSelectColor={(color) => {
+                                        onChange(color)
+                                        updateSeriesIndex(ySeriesLogicProps.seriesIndex, ySeriesLogicProps.series.column.name, {
+                                            display: {
+                                                color: color,
+                                            },
+                                        })
+                                    }}
                                     colors={getSeriesColorPalette()}
                                     showCustomColor
                                     hideDropdown

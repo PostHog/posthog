@@ -55,7 +55,6 @@ export const LemonColorPickerOverlay = ({
     const [lastValidColor, setLastValidColor] = useState<string | null>(selectedColor || null)
     const { getAvailableColorTokens } = useValues(dataThemeLogic)
 
-    // Update the custom color input when customColorValue or selectedColor changes
     useEffect(() => {
         const newColor = customColorValue || selectedColor
         if (newColor) {
