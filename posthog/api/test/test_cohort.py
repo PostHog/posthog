@@ -2346,15 +2346,15 @@ email@example.org,
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["cohort_type"], "analytical")
 
-    def test_static_cohort_type_is_behavioral(self):
-        """Test that static cohorts are automatically set to behavioral type"""
+    def test_static_cohort_type_is_static(self):
+        """Test that static cohorts are automatically set to static type"""
         response = self.client.post(
             f"/api/projects/{self.team.id}/cohorts", data={"name": "static_cohort", "is_static": True}, format="json"
         )
         self.assertEqual(response.status_code, 201)
 
         data = response.json()
-        self.assertEqual(data["cohort_type"], "behavioral")
+        self.assertEqual(data["cohort_type"], "static")
         self.assertFalse(data["has_behavioral_filters"])  # No behavioral filters
         self.assertFalse(data["is_analytical"])  # Not analytical
 

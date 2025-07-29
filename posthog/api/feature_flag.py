@@ -333,10 +333,10 @@ class FeatureFlagSerializer(
                         )
                         dependent_cohorts = get_dependent_cohorts(initial_cohort)
                         for cohort in [initial_cohort, *dependent_cohorts]:
-                            # Check cohort type - only behavioral cohorts allowed in feature flags
-                            if cohort.cohort_type == "analytical":
+                            # Check cohort type - only real-time compatible cohorts allowed in feature flags
+                            if not cohort.can_be_used_in_real_time:
                                 raise serializers.ValidationError(
-                                    detail=f"Analytical cohort '{cohort.name}' cannot be used in feature flags. Real-time evaluation only supports behavioral cohorts.",
+                                    detail=f"Cohort '{cohort.name}' (type: {cohort.cohort_type}) cannot be used in feature flags. Only static, person_properties, and behavioral cohorts are supported for real-time evaluation.",
                                     code=ANALYTICAL_COHORT_FOUND_ERROR_CODE,
                                 )
                     except Cohort.DoesNotExist:

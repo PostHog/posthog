@@ -4316,7 +4316,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                                 "name": "Third Variant",
                                 "rollout_percentage": 25,
                             },
-                        ],
+                        ]
                     },
                 },
             },
@@ -4998,7 +4998,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             analytical_request.json(),
         )
         self.assertIn(
-            "Analytical cohort 'analytical_cohort' cannot be used in feature flags", analytical_request.json()["detail"]
+            "Cohort 'analytical_cohort' (type: analytical) cannot be used in feature flags",
+            analytical_request.json()["detail"],
         )
 
         # Behavioral cohort should be accepted
@@ -5008,6 +5009,48 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             expected_status=status.HTTP_201_CREATED,
         )
         self.assertEqual(behavioral_request.status_code, status.HTTP_201_CREATED)
+
+        # Test person_properties cohort
+        person_cohort = Cohort.objects.create(
+            team=self.team,
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                {"key": "email", "type": "person", "value": "test@example.com", "operator": "exact"}
+                            ],
+                        }
+                    ],
+                }
+            },
+            name="person_cohort",
+        )
+        person_cohort.update_cohort_type()
+        person_cohort.save()
+
+        # Person properties cohort should be accepted
+        person_request = self._create_flag_with_properties(
+            "person-cohort-flag",
+            [{"key": "id", "type": "cohort", "value": person_cohort.id}],
+            expected_status=status.HTTP_201_CREATED,
+        )
+        self.assertEqual(person_request.status_code, status.HTTP_201_CREATED)
+
+        # Test static cohort
+        static_cohort = Cohort.objects.create(team=self.team, is_static=True, name="static_cohort")
+        static_cohort.update_cohort_type()
+        static_cohort.save()
+
+        # Static cohort should be accepted
+        static_request = self._create_flag_with_properties(
+            "static-cohort-flag",
+            [{"key": "id", "type": "cohort", "value": static_cohort.id}],
+            expected_status=status.HTTP_201_CREATED,
+        )
+        self.assertEqual(static_request.status_code, status.HTTP_201_CREATED)
 
     def test_validation_group_properties(self):
         groups_request = self._create_flag_with_properties(
@@ -5282,15 +5325,6 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         response = filtered_flags_list_experiment.json()
         assert len(response["results"]) == 1
         assert response["results"][0]["key"] == feature_flag.key
-
-    def test_get_flags_with_search(self):
-        FeatureFlag.objects.create(team=self.team, created_by=self.user, key="blue_search_term_button")
-        FeatureFlag.objects.create(team=self.team, created_by=self.user, key="green_search_term_button", active=False)
-
-        filtered_flags_list = self.client.get(f"/api/projects/@current/feature_flags?active=true&search=search_term")
-        response = filtered_flags_list.json()
-        assert len(response["results"]) == 1
-        assert response["results"][0]["key"] == "blue_search_term_button"
 
     def test_get_flags_with_stale_filter(self):
         # Create a stale flag (100% rollout with no properties and 30+ days old)

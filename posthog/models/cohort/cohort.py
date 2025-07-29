@@ -166,14 +166,16 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
 
     # Cohort type determines where this cohort can be used
     COHORT_TYPE_CHOICES = [
-        ("analytical", "Analytical"),
+        ("static", "Static"),
+        ("person_properties", "Person Properties"),
         ("behavioral", "Behavioral"),
+        ("analytical", "Analytical"),
     ]
     cohort_type = models.CharField(
         max_length=20,
         choices=COHORT_TYPE_CHOICES,
         default="analytical",
-        help_text="Determines where this cohort can be used. Analytical cohorts are for analytics only, behavioral cohorts can be used in real-time features.",
+        help_text="Determines where this cohort can be used. Static, person_properties, and behavioral cohorts can be used in real-time features. Analytical cohorts are for analytics only.",
     )
 
     # deprecated in favor of filters
@@ -311,11 +313,16 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
                 return False
         return True
 
+    @property
+    def can_be_used_in_real_time(self) -> bool:
+        """Check if cohort can be used in real-time features like feature flags"""
+        return self.cohort_type in ["static", "person_properties", "behavioral"]
+
     def determine_cohort_type(self) -> str:
         """Automatically determine cohort type based on its filters"""
-        # Static cohorts are always behavioral (can be used in real-time)
+        # Static cohorts are always static type
         if self.is_static:
-            return "behavioral"
+            return "static"
 
         # If cohort has complex behavioral filters, it must be analytical
         if self.is_analytical:
@@ -325,9 +332,9 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         if self.has_behavioral_filters:
             return "behavioral"
 
-        # Person-only property cohorts should be behavioral (can be used in feature flags)
+        # Person-only property cohorts get their own type
         if self.has_only_person_properties:
-            return "behavioral"
+            return "person_properties"
 
         # All other cohorts default to analytical
         return "analytical"
