@@ -3605,6 +3605,7 @@ export enum PropertyType {
     Cohort = 'Cohort',
     Assignee = 'Assignee',
     StringArray = 'StringArray',
+    Flag = 'Flag',
 }
 
 export enum PropertyDefinitionType {
@@ -3618,6 +3619,7 @@ export enum PropertyDefinitionType {
     Meta = 'meta',
     Resource = 'resource',
     Log = 'log',
+    FlagValue = 'flag_value',
 }
 
 export interface PropertyDefinition {
@@ -5146,6 +5148,7 @@ export type CyclotronJobFilterPropertyFilter =
     | GroupPropertyFilter
     | FeaturePropertyFilter
     | HogQLPropertyFilter
+    | FlagPropertyFilter
 
 export interface CyclotronJobFiltersType {
     source?: 'events' | 'person-updates'

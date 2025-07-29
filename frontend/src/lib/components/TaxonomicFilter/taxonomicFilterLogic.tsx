@@ -619,7 +619,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                     {
                         name: 'Feature Flags',
                         searchPlaceholder: 'feature flags',
-                        type: TaxonomicFilterGroupType.FeatureFlags,
+                        type: TaxonomicFilterGroupType.FeatureFlags, // Feature flag dependencies
                         endpoint: combineUrl(`api/projects/${projectId}/feature_flags/`).url,
                         getName: (featureFlag: FeatureFlagType) => featureFlag.key || featureFlag.name,
                         getValue: (featureFlag: FeatureFlagType) => featureFlag.id || '',
