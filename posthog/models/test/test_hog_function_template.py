@@ -326,7 +326,7 @@ class TestHogFunctionTemplate(TestCase):
             type="destination",
             free=True,
             category=[],
-            mappings=[HogFunctionMapping()],
+            mapping_templates=[HogFunctionMappingTemplate(name="Mapping Template 1")],
             code_language="hog",
         )
 

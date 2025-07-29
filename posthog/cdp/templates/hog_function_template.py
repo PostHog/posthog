@@ -57,7 +57,6 @@ class HogFunctionTemplateDC:
     category: list[str]
     description: Optional[str] = None
     filters: Optional[dict] = None
-    mappings: Optional[list[HogFunctionMapping]] = None
     mapping_templates: Optional[list[HogFunctionMappingTemplate]] = None
     masking: Optional[dict] = None
     icon_url: Optional[str] = None
@@ -65,12 +64,12 @@ class HogFunctionTemplateDC:
     def to_dict(self) -> dict:
         obj = dataclasses.asdict(self)
 
-        # Convert collections to JSON
-        if obj.get("mappings"):
-            obj["mappings"] = [dataclasses.asdict(mapping) for mapping in obj.get("mappings")]
+        # # Convert collections to JSON
+        # if obj.get("mappings"):
+        #     obj["mappings"] = [dataclasses.asdict(mapping) for mapping in obj["mappings"]]
 
-        if obj.get("mapping_templates"):
-            obj["mapping_templates"] = [dataclasses.asdict(template) for template in obj.get("mapping_templates")]
+        # if obj.get("mapping_templates"):
+        #     obj["mapping_templates"] = [dataclasses.asdict(template) for template in obj["mapping_templates"]]
 
         return obj
 
