@@ -1,6 +1,6 @@
 import { Monaco } from '@monaco-editor/react'
 import { IconBook, IconDownload, IconInfo, IconPlayFilled, IconSidebarClose } from '@posthog/icons'
-import { LemonDivider } from '@posthog/lemon-ui'
+import { LemonDivider, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { IconCancel } from 'lib/lemon-ui/icons'
@@ -22,6 +22,7 @@ import { QueryPane } from './QueryPane'
 import { QueryTabs } from './QueryTabs'
 import { draftsLogic } from './draftsLogic'
 import { NodeKind } from '~/queries/schema/schema-general'
+import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
 
 interface QueryWindowProps {
     onSetMonacoAndEditor: (monaco: Monaco, editor: importedEditor.IStandaloneCodeEditor) => void
@@ -41,6 +42,8 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
         suggestedQueryInput,
         isDraft,
         currentDraft,
+        changesToSave,
+        inProgressViewEdits,
     } = useValues(multitabEditorLogic)
 
     const { activePanelIdentifier } = useValues(panelLayoutLogic)
@@ -59,13 +62,31 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
         saveAsView,
         saveDraft,
         publishDraft,
+        updateView,
     } = useActions(multitabEditorLogic)
     const { openHistoryModal } = useActions(multitabEditorLogic)
 
     const { saveOrUpdateDraft } = useActions(draftsLogic)
     const { response } = useValues(dataNodeLogic)
+    const { updatingDataWarehouseSavedQuery } = useValues(dataWarehouseViewsLogic)
     const { sidebarWidth } = useValues(editorSizingLogic)
     const { resetDefaultSidebarWidth } = useActions(editorSizingLogic)
+
+    const [editingViewDisabledReason, EditingViewButtonIcon] = useMemo(() => {
+        if (updatingDataWarehouseSavedQuery) {
+            return ['Saving...', Spinner]
+        }
+
+        if (!response) {
+            return ['Run query to update', IconDownload]
+        }
+
+        if (!changesToSave) {
+            return ['No changes to save', IconDownload]
+        }
+
+        return [undefined, IconDownload]
+    }, [updatingDataWarehouseSavedQuery, changesToSave, response])
 
     const isMaterializedView = !!editingView?.last_run_at || !!editingView?.sync_frequency
 
@@ -157,6 +178,7 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
                             type="tertiary"
                             size="xsmall"
                             id="sql-editor-query-window-publish-draft"
+                            disabledReason={editingViewDisabledReason}
                             onClick={() => {
                                 if (editingView && currentDraft?.id) {
                                     publishDraft(currentDraft.id, {
@@ -181,18 +203,41 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
                     </>
                 )}
                 {editingView && !isDraft && (
-                    <LemonButton
-                        type="tertiary"
-                        size="xsmall"
-                        id="sql-editor-query-window-save-draft"
-                        onClick={() => {
-                            if (activeModelUri) {
-                                saveDraft(activeModelUri, queryInput, editingView.id)
+                    <>
+                        <LemonButton
+                            type="tertiary"
+                            size="xsmall"
+                            id="sql-editor-query-window-save-draft"
+                            onClick={() => {
+                                if (activeModelUri) {
+                                    saveDraft(activeModelUri, queryInput, editingView.id)
+                                }
+                            }}
+                        >
+                            Save draft
+                        </LemonButton>
+                        <LemonButton
+                            onClick={() =>
+                                updateView({
+                                    id: editingView.id,
+                                    query: {
+                                        ...sourceQuery.source,
+                                        query: queryInput,
+                                    },
+                                    types: response && 'types' in response ? response?.types ?? [] : [],
+                                    shouldRematerialize: isMaterializedView,
+                                    edited_history_id: inProgressViewEdits[editingView.id],
+                                })
                             }
-                        }}
-                    >
-                        Save draft
-                    </LemonButton>
+                            disabledReason={editingViewDisabledReason}
+                            icon={<EditingViewButtonIcon />}
+                            type="tertiary"
+                            size="xsmall"
+                            id={`sql-editor-query-window-update-${isMaterializedView ? 'materialize' : 'view'}`}
+                        >
+                            {isMaterializedView ? 'Update and re-materialize view' : 'Update view'}
+                        </LemonButton>
+                    </>
                 )}
                 {editingView && (
                     <>
