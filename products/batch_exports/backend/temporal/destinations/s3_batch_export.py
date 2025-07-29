@@ -206,7 +206,26 @@ class NoUploadInProgressError(Exception):
         super().__init__("No multi-part upload is in progress. Call 'create' to start one.")
 
 
-class IntermittentUploadPartTimeoutError(Exception):
+class UploadPartError(Exception):
+    """Base class for exceptions raised while uploading parts."""
+
+    def __init__(self, message: str, key: str, part_number: int):
+        super().__init__(message)
+        self.key = key
+        self.part_number = part_number
+
+
+class ClientUploadPartError(UploadPartError):
+    """Base class for client exceptions raised while uploading parts.
+
+    All these generally indicate a non-retryable user error.
+    """
+
+    def __init__(self, message: str, key: str, part_number: int):
+        super().__init__(f"A client error occurred while uploading part {part_number}: {message}", key, part_number)
+
+
+class IntermittentUploadPartTimeoutError(ClientUploadPartError):
     """Exception raised when an S3 upload part times out.
 
     This is generally a transient or intermittent error that can be handled by a retry.
@@ -214,8 +233,8 @@ class IntermittentUploadPartTimeoutError(Exception):
     non-retryable errors. So, we can re-raise our own exception in those cases.
     """
 
-    def __init__(self, part_number: int):
-        super().__init__(f"An intermittent `RequestTimeout` was raised while attempting to upload part {part_number}")
+    def __init__(self, key: str, part_number: int):
+        super().__init__("Upload part request timed out", key, part_number)
 
 
 class InvalidS3EndpointError(Exception):
@@ -593,7 +612,7 @@ class S3MultiPartUpload:
                 UploadId=self.upload_id,
             )
         except Exception:
-            self.logger.exception("Ignoring error that occurred when aborting multipart upload")
+            self.logger.exception("Ignoring error when aborting multipart upload")
 
         self._parts.clear()
 
@@ -681,7 +700,7 @@ class S3MultiPartUpload:
 
                         if error_code is not None and error_code == "RequestTimeout":
                             if attempt >= self.retry.max_attempts:
-                                raise IntermittentUploadPartTimeoutError(part_number=part_number) from err
+                                raise IntermittentUploadPartTimeoutError(key=self.key, part_number=part_number) from err
 
                             retry_delay = min(
                                 self.retry.max_delay,
@@ -691,7 +710,17 @@ class S3MultiPartUpload:
                             await asyncio.sleep(retry_delay)
                             continue
                         else:
-                            raise
+                            raise ClientUploadPartError(
+                                err.response.get("Error", {}).get("Message", "Unknown"),
+                                key=self.key,
+                                part_number=part_number,
+                            ) from err
+                    except Exception as err:
+                        raise UploadPartError(
+                            f"An unknown error occurred while uploading part {part_number}: {str(err)}",
+                            self.key,
+                            part_number,
+                        ) from err
 
             return Part(number=part_number, etag=response["ETag"])
 
@@ -717,18 +746,32 @@ class S3MultiPartUpload:
         abort the multipart upload before re-raising the exception.
         """
 
-        await self.start()
+        _ = await self.start()
 
+        inner_error = None
         try:
             async with asyncio.TaskGroup() as tg:
                 self._task_group = tg
 
-                yield self
-        except Exception:
+                try:
+                    yield self
+                except Exception as exc:
+                    # This means an exception was raised outside a task.
+                    inner_error = exc
+                    raise
+
+        except* Exception as e:
             await self.abort()
-            raise
+
+            if inner_error:
+                # Prioritize exception from outside tasks as they could
+                # indicate implementation bugs.
+                raise inner_error
+            # Raise only one exception out of the bunch.
+            # TODO: Better support for exception groups.
+            raise e.exceptions[0]
         else:
-            await self.complete()
+            _ = await self.complete()
         finally:
             self._upload_id = None
             self._task_group = None

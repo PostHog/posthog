@@ -1626,7 +1626,7 @@ class TestErrorHandling:
         assert run.bytes_exported is None
         assert (
             run.latest_error
-            == "IntermittentUploadPartTimeoutError: An intermittent `RequestTimeout` was raised while attempting to upload part 1"
+            == "IntermittentUploadPartTimeoutError: A client error occurred while uploading part 1: Upload part request timed out"
         )
 
         run = runs[1]
