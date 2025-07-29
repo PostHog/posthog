@@ -1,8 +1,9 @@
-from typing import Literal
+from typing import Any, Literal
 from uuid import uuid4
 import time
 from langchain_core.runnables import RunnableConfig
 import structlog
+from asgiref.sync import async_to_sync
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from posthog.schema import AssistantToolCallMessage
 from ee.hogai.graph.base import AssistantNode
@@ -14,10 +15,94 @@ class SessionSummarizationNode(AssistantNode):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
+    async def _generate_replay_filters(self) -> dict:
+        from products.replay.backend.max_tools import (
+            MULTIPLE_FILTERS_PROMPT,
+            PRODUCT_DESCRIPTION_PROMPT,
+            SESSION_REPLAY_EXAMPLES_PROMPT,
+            SESSION_REPLAY_RESPONSE_FORMATS_PROMPT,
+        )
+        from ee.hogai.graph.filter_options.graph import FilterOptionsGraph
+
+        # Create the graph with injected prompts
+        injected_prompts = {
+            "product_description_prompt": PRODUCT_DESCRIPTION_PROMPT,
+            "response_formats_prompt": SESSION_REPLAY_RESPONSE_FORMATS_PROMPT,
+            "examples_prompt": SESSION_REPLAY_EXAMPLES_PROMPT,
+            "multiple_filters_prompt": MULTIPLE_FILTERS_PROMPT,
+        }
+        graph = FilterOptionsGraph(self._team, self._user, injected_prompts=injected_prompts).compile_full_graph()
+        # Call with your query
+        result = await graph.ainvoke(
+            {
+                "change": "show me sessions of the user test@posthog.com",
+                "current_filters": {},  # Empty state
+            }
+        )
+        print("*" * 50)
+        print("RESULT")
+        print(result)
+        # RESULT
+        # {'intermediate_steps': None, 'generated_filter_options': {'data': MaxRecordingUniversalFilters(date_from='-5d', date_to=None, duration=[RecordingDurationFilter(key=<DurationType.DURATION: 'duration'>, label=None, operator=<PropertyOperator.GT: 'gt'>, type='recording', value=60.0)], filter_group=MaxOuterUniversalFiltersGroup(type=<FilterLogicalOperator.AND_: 'AND'>, values=[MaxInnerUniversalFiltersGroup(type=<FilterLogicalOperator.AND_: 'AND'>, values=[PersonPropertyFilter(key='email', label=None, operator=<PropertyOperator.EXACT: 'exact'>, type='person', value=['test@posthog.com'])])]), filter_test_accounts=None, order=<RecordingOrder.START_TIME: 'start_time'>)}, 'change': 'show me sessions of the user test@posthog.com', 'current_filters': {}, 'tool_progress_messages': []}
+        # **************************************************
+        # SESSION IDS
+        # ['01985643-1360-740f-8702-ecfc2fd7da91']
+        return result
+
+    def _get_session_ids_from_query(self, graph_result: dict[str, Any]) -> list[str]:
+        from posthog.schema import RecordingsQuery
+        from posthog.session_recordings.queries_to_replace.session_recording_list_from_query import (
+            SessionRecordingListFromQuery,
+        )
+
+        # Extract the generated filters
+        max_filters = graph_result["generated_filter_options"]["data"]  # This is MaxRecordingUniversalFilters
+
+        # Convert MaxRecordingUniversalFilters to RecordingsQuery format
+        # The key is to convert filter_group to properties format
+        properties = []
+        if max_filters.filter_group and max_filters.filter_group.values:
+            for inner_group in max_filters.filter_group.values:
+                if hasattr(inner_group, "values"):
+                    properties.extend(inner_group.values)
+
+        # Create RecordingsQuery
+        recordings_query = RecordingsQuery(
+            date_from=max_filters.date_from,
+            date_to=max_filters.date_to,
+            properties=properties,
+            filter_test_accounts=max_filters.filter_test_accounts,
+            order=max_filters.order,
+            # Handle duration filters
+            having_predicates=(
+                [
+                    {"key": "duration", "type": "recording", "operator": dur.operator, "value": dur.value}
+                    for dur in (max_filters.duration or [])
+                ]
+                if max_filters.duration
+                else None
+            ),
+        )
+
+        # Execute the query to get session IDs
+        query_runner = SessionRecordingListFromQuery(
+            team=self._team, query=recordings_query, hogql_query_modifiers=None
+        )
+
+        # Get the results
+        results = query_runner.run()
+        # Extract session IDs
+        session_ids = [recording["session_id"] for recording in results.results]
+        print("*" * 50)
+        print("SESSION IDS")
+        print(session_ids)
+
     def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
         start_time = time.time()
         session_id = state.summarization_session_id
         conversation_id = config.get("configurable", {}).get("thread_id", "unknown")
+        filter_results = async_to_sync(self._generate_replay_filters)()
+        session_ids = self._get_session_ids_from_query(filter_results)
         try:
             # TODO: Replace with actual session summarization
             return PartialAssistantState(
