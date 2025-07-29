@@ -1,4 +1,5 @@
 from collections.abc import Callable
+from datetime import UTC, datetime, timedelta
 import os
 
 import dagster
@@ -6,6 +7,8 @@ from dagster import DailyPartitionsDefinition, BackfillPolicy
 from dags.common import JobOwners, dagster_tags
 from dags.web_preaggregated_utils import (
     CLICKHOUSE_SETTINGS,
+    HISTORICAL_DAILY_CRON_SCHEDULE,
+    INTRA_DAY_HOURLY_CRON_SCHEDULE,
     drop_partitions_for_date_range,
     merge_clickhouse_settings,
     WEB_ANALYTICS_CONFIG_SCHEMA,
@@ -94,16 +97,10 @@ def web_pre_aggregated_bounces(
     context: dagster.AssetExecutionContext,
     cluster: dagster.ResourceParam[ClickhouseCluster],
 ) -> None:
-    """
-    Hourly historical bounce rate data with daily partitions.
-
-    Solves timezone issues by providing hourly granularity while maintaining
-    daily partitions for efficient management.
-    """
     query_tagging.get_query_tags().with_dagster(dagster_tags(context))
     return pre_aggregate_web_analytics_data(
         context=context,
-        table_name="web_bounces_hourly_historical",
+        table_name="web_pre_aggregated_bounces",
         sql_generator=WEB_BOUNCES_INSERT_SQL,
         cluster=cluster,
     )
@@ -124,12 +121,6 @@ def web_pre_aggregated_stats(
     context: dagster.AssetExecutionContext,
     cluster: dagster.ResourceParam[ClickhouseCluster],
 ) -> None:
-    """
-    Hourly historical stats data with daily partitions.
-
-    Solves timezone issues by providing hourly granularity while maintaining
-    daily partitions for efficient management.
-    """
     query_tagging.get_query_tags().with_dagster(dagster_tags(context))
     return pre_aggregate_web_analytics_data(
         context=context,
@@ -139,41 +130,43 @@ def web_pre_aggregated_stats(
     )
 
 
-# web_pre_aggregate_job = dagster.define_asset_job(
-#     name="web_pre_aggregate_job",
-#     selection=["web_pre_aggregated_bounces", "web_pre_aggregated_stats"],
-#     tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},
-#     config={
-#         "execution": {
-#             "config": {
-#                 "multiprocess": {
-#                     "max_concurrent": 1,
-#                 }
-#             }
-#         }
-#     },
-# )
+web_pre_aggregate_job = dagster.define_asset_job(
+    name="web_pre_aggregate_job",
+    selection=["web_pre_aggregated_bounces", "web_pre_aggregated_stats"],
+    tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},
+    config={
+        "execution": {
+            "config": {
+                "multiprocess": {
+                    "max_concurrent": 1,
+                }
+            }
+        }
+    },
+)
 
 
-# @dagster.schedule(
-#     cron_schedule=HISTORICAL_DAILY_CRON_SCHEDULE,
-#     job=web_pre_aggregate_job,
-#     execution_timezone="UTC",
-#     tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},
-# )
-# def web_pre_aggregate_hourly_historical_schedule(context: dagster.ScheduleEvaluationContext):
-#     """
-#     Runs daily for the previous day's partition, creating hourly historical data.
-#     This runs after the daily job to provide timezone-friendly hourly granularity.
-#     """
-#     yesterday = (datetime.now(UTC) - timedelta(days=1)).strftime("%Y-%m-%d")
+@dagster.schedule(
+    cron_schedule=HISTORICAL_DAILY_CRON_SCHEDULE,
+    job=web_pre_aggregate_job,
+    execution_timezone="UTC",
+    tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},
+)
+def web_pre_aggregate_historical_schedule(context: dagster.ScheduleEvaluationContext):
+    yesterday = (datetime.now(UTC) - timedelta(days=1)).strftime("%Y-%m-%d")
 
-#     return dagster.RunRequest(
-#         partition_key=yesterday,
-#         run_config={
-#             "ops": {
-#                 "web_analytics_bounces_hourly_historical": {"config": {}},
-#                 "web_analytics_stats_hourly_historical": {"config": {}},
-#             }
-#         },
-#     )
+    return dagster.RunRequest(
+        partition_key=yesterday,
+    )
+
+
+@dagster.schedule(
+    cron_schedule=INTRA_DAY_HOURLY_CRON_SCHEDULE,
+    job=web_pre_aggregate_job,
+    execution_timezone="UTC",
+    tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},
+)
+def web_pre_aggregate_current_day_schedule(context: dagster.ScheduleEvaluationContext):
+    return dagster.RunRequest(
+        partition_key=datetime.now(UTC).strftime("%Y-%m-%d"),
+    )

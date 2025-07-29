@@ -36,11 +36,14 @@ defs = dagster.Definitions(
         web_preaggregated_daily.web_pre_aggregate_daily_job,
         web_preaggregated_asset_checks.web_analytics_data_quality_job,
         web_preaggregated_asset_checks.simple_data_checks_job,
+        web_preaggregated.web_pre_aggregate_job,
     ],
     schedules=[
         web_preaggregated_daily.web_pre_aggregate_daily_schedule,
         web_preaggregated_hourly.web_pre_aggregate_current_day_hourly_schedule,
         web_preaggregated_asset_checks.web_analytics_weekly_data_quality_schedule,
+        web_preaggregated.web_pre_aggregate_historical_schedule,
+        web_preaggregated.web_pre_aggregate_current_day_schedule,
     ],
     resources=resources,
 )
