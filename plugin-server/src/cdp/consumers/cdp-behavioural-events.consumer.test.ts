@@ -1,10 +1,11 @@
 import { Client as CassandraClient } from 'cassandra-driver'
 import { createHash } from 'crypto'
 
-import { truncateBehavioralCounters } from '../../../tests/helpers/cassandra'
+import { truncateBehavioralCounters, truncatePersonEventOccurrences } from '../../../tests/helpers/cassandra'
 import { createAction, getFirstTeam, resetTestDatabase } from '../../../tests/helpers/sql'
 import { Hub, RawClickHouseEvent, Team } from '../../types'
 import { BehavioralCounterRepository } from '../../utils/db/cassandra/behavioural-counter.repository'
+import { PersonEventOccurrenceRepository } from '../../utils/db/cassandra/person-event-occurrence.repository'
 import { closeHub, createHub } from '../../utils/db/hub'
 import { createIncomingEvent } from '../_tests/fixtures'
 import { convertClickhouseRawEventToFilterGlobals } from '../utils/hog-function-filtering'
@@ -17,6 +18,10 @@ class TestCdpBehaviouralEventsConsumer extends CdpBehaviouralEventsConsumer {
 
     public getBehavioralCounterRepository(): BehavioralCounterRepository | null {
         return this.behavioralCounterRepository
+    }
+
+    public getPersonEventOccurrenceRepository(): PersonEventOccurrenceRepository | null {
+        return this.personEventOccurrenceRepository
     }
 }
 
@@ -114,9 +119,11 @@ describe('CdpBehaviouralEventsConsumer', () => {
 
         await cassandra.connect()
         const repository = processor.getBehavioralCounterRepository()!
+        const occurrenceRepository = processor.getPersonEventOccurrenceRepository()!
         await truncateBehavioralCounters(cassandra)
+        await truncatePersonEventOccurrences(cassandra)
 
-        return { hub, team, processor, cassandra, repository }
+        return { hub, team, processor, cassandra, repository, occurrenceRepository }
     }
 
     // Helper function to setup test environment with Cassandra disabled
@@ -139,6 +146,7 @@ describe('CdpBehaviouralEventsConsumer', () => {
         let team: Team
         let cassandra: CassandraClient
         let repository: BehavioralCounterRepository
+        let occurrenceRepository: PersonEventOccurrenceRepository
 
         beforeEach(async () => {
             const setup = await setupWithCassandraEnabled()
@@ -147,6 +155,7 @@ describe('CdpBehaviouralEventsConsumer', () => {
             processor = setup.processor
             cassandra = setup.cassandra
             repository = setup.repository
+            occurrenceRepository = setup.occurrenceRepository
         })
 
         afterEach(async () => {
@@ -405,6 +414,302 @@ describe('CdpBehaviouralEventsConsumer', () => {
                 expect(counters).toHaveLength(0)
             })
         })
+
+        describe('Person event occurrence writes', () => {
+            it('should write person event occurrence for every event processed', async () => {
+                // Arrange
+                const personId = '550e8400-e29b-41d4-a716-446655440000'
+                const eventName = '$pageview'
+
+                const event = createIncomingEvent(team.id, {
+                    event: eventName,
+                    properties: JSON.stringify({ $browser: 'Chrome' }),
+                    person_id: personId,
+                } as RawClickHouseEvent)
+
+                const filterGlobals = convertClickhouseRawEventToFilterGlobals(event)
+                const behavioralEvent: BehavioralEvent = {
+                    teamId: team.id,
+                    filterGlobals,
+                    personId,
+                }
+
+                // Act
+                await processor.processBatch([behavioralEvent])
+
+                // Assert - check that occurrence was written regardless of action matching
+                const hasOccurred = await occurrenceRepository.hasOccurred({
+                    teamId: team.id,
+                    personId,
+                    eventName,
+                })
+
+                expect(hasOccurred).toBe(true)
+            })
+
+            it('should write occurrences for multiple different events', async () => {
+                // Arrange
+                const personId = '550e8400-e29b-41d4-a716-446655440000'
+                const events = [
+                    { eventName: '$pageview', browser: 'Chrome' },
+                    { eventName: '$identify', browser: 'Firefox' },
+                    { eventName: 'custom_event', browser: 'Safari' },
+                ]
+
+                const behavioralEvents = events.map(({ eventName, browser }) => {
+                    const event = createIncomingEvent(team.id, {
+                        event: eventName,
+                        properties: JSON.stringify({ $browser: browser }),
+                        person_id: personId,
+                    } as RawClickHouseEvent)
+
+                    const filterGlobals = convertClickhouseRawEventToFilterGlobals(event)
+                    return {
+                        teamId: team.id,
+                        filterGlobals,
+                        personId,
+                    }
+                })
+
+                // Act
+                await processor.processBatch(behavioralEvents)
+
+                // Assert - check that all occurrences were written
+                for (const { eventName } of events) {
+                    const hasOccurred = await occurrenceRepository.hasOccurred({
+                        teamId: team.id,
+                        personId,
+                        eventName,
+                    })
+                    expect(hasOccurred).toBe(true)
+                }
+
+                // Get all events for person to verify count
+                const allEvents = await occurrenceRepository.getEventsForPerson(team.id, personId)
+                expect(allEvents).toHaveLength(3)
+                expect(allEvents.map((e) => e.event_name).sort()).toEqual(['$identify', '$pageview', 'custom_event'])
+            })
+
+            it('should handle duplicate events gracefully (idempotent writes)', async () => {
+                // Arrange
+                const personId = '550e8400-e29b-41d4-a716-446655440000'
+                const eventName = '$pageview'
+
+                const event = createIncomingEvent(team.id, {
+                    event: eventName,
+                    properties: JSON.stringify({ $browser: 'Chrome' }),
+                    person_id: personId,
+                } as RawClickHouseEvent)
+
+                const filterGlobals = convertClickhouseRawEventToFilterGlobals(event)
+                const behavioralEvent: BehavioralEvent = {
+                    teamId: team.id,
+                    filterGlobals,
+                    personId,
+                }
+
+                // Act - process the same event multiple times
+                await processor.processBatch([behavioralEvent])
+                await processor.processBatch([behavioralEvent])
+                await processor.processBatch([behavioralEvent])
+
+                // Assert - occurrence should still exist (duplicate inserts are handled by compaction)
+                const hasOccurred = await occurrenceRepository.hasOccurred({
+                    teamId: team.id,
+                    personId,
+                    eventName,
+                })
+
+                expect(hasOccurred).toBe(true)
+
+                // Get all events for person - should only show unique events
+                const allEvents = await occurrenceRepository.getEventsForPerson(team.id, personId)
+                expect(allEvents).toHaveLength(1)
+                expect(allEvents[0].event_name).toBe(eventName)
+            })
+
+            it('should handle multiple persons performing the same event', async () => {
+                // Arrange
+                const person1Id = '550e8400-e29b-41d4-a716-446655440000'
+                const person2Id = '550e8400-e29b-41d4-a716-446655440001'
+                const eventName = '$pageview'
+
+                const behavioralEvents = [person1Id, person2Id].map((personId) => {
+                    const event = createIncomingEvent(team.id, {
+                        event: eventName,
+                        properties: JSON.stringify({ $browser: 'Chrome' }),
+                        person_id: personId,
+                    } as RawClickHouseEvent)
+
+                    const filterGlobals = convertClickhouseRawEventToFilterGlobals(event)
+                    return {
+                        teamId: team.id,
+                        filterGlobals,
+                        personId,
+                    }
+                })
+
+                // Act
+                await processor.processBatch(behavioralEvents)
+
+                // Assert - both persons should have the occurrence
+                for (const personId of [person1Id, person2Id]) {
+                    const hasOccurred = await occurrenceRepository.hasOccurred({
+                        teamId: team.id,
+                        personId,
+                        eventName,
+                    })
+                    expect(hasOccurred).toBe(true)
+
+                    const events = await occurrenceRepository.getEventsForPerson(team.id, personId)
+                    expect(events).toHaveLength(1)
+                    expect(events[0].event_name).toBe(eventName)
+                }
+            })
+
+            it('should not write occurrences when events are dropped due to missing person_id', async () => {
+                // Arrange - create raw event without person_id
+                const rawEventWithoutPersonId = {
+                    uuid: '12345',
+                    event: '$pageview',
+                    team_id: team.id,
+                    properties: JSON.stringify({ $browser: 'Chrome' }),
+                    // person_id is undefined
+                }
+
+                const messages = [
+                    {
+                        value: Buffer.from(JSON.stringify(rawEventWithoutPersonId)),
+                    },
+                ] as any[]
+
+                // Act - parse and process the batch
+                const parsedEvents = await (processor as any)._parseKafkaBatch(messages)
+                await processor.processBatch(parsedEvents)
+
+                // Assert - no events should be parsed, so no occurrences written
+                expect(parsedEvents).toHaveLength(0)
+
+                // Verify no occurrences were written by checking if any exist for this team
+                // Since we don't have a "get all occurrences for team" method, we'll try a specific lookup
+                // that should fail since no events were processed
+                const hasAnyOccurrence = await occurrenceRepository.hasOccurred({
+                    teamId: team.id,
+                    personId: '550e8400-e29b-41d4-a716-446655440000', // any person id
+                    eventName: '$pageview',
+                })
+                expect(hasAnyOccurrence).toBe(false)
+            })
+
+            it('should deduplicate occurrences within a single batch', async () => {
+                // Arrange - create multiple identical events in the same batch
+                const personId = '550e8400-e29b-41d4-a716-446655440000'
+                const eventName = '$pageview'
+
+                // Create 5 identical events (same person, same event)
+                const identicalEvents = Array(5)
+                    .fill(null)
+                    .map(() => {
+                        const event = createIncomingEvent(team.id, {
+                            event: eventName,
+                            properties: JSON.stringify({ $browser: 'Chrome' }),
+                            person_id: personId,
+                        } as RawClickHouseEvent)
+
+                        const filterGlobals = convertClickhouseRawEventToFilterGlobals(event)
+                        return {
+                            teamId: team.id,
+                            filterGlobals,
+                            personId,
+                        }
+                    })
+
+                // Act - process all identical events in a single batch
+                await processor.processBatch(identicalEvents)
+
+                // Assert - verify the occurrence exists (should be deduplicated to 1 record)
+                const hasOccurred = await occurrenceRepository.hasOccurred({
+                    teamId: team.id,
+                    personId,
+                    eventName,
+                })
+                expect(hasOccurred).toBe(true)
+
+                // Verify only 1 event recorded for this person
+                const allEvents = await occurrenceRepository.getEventsForPerson(team.id, personId)
+                expect(allEvents).toHaveLength(1)
+                expect(allEvents[0].event_name).toBe(eventName)
+            })
+
+            it('should deduplicate mixed events correctly within a batch', async () => {
+                // Arrange - create a batch with some duplicates and some unique events
+                const person1Id = '550e8400-e29b-41d4-a716-446655440000'
+                const person2Id = '550e8400-e29b-41d4-a716-446655440001'
+
+                const events = [
+                    // 3x person1 + $pageview (should be deduplicated to 1)
+                    { personId: person1Id, eventName: '$pageview' },
+                    { personId: person1Id, eventName: '$pageview' },
+                    { personId: person1Id, eventName: '$pageview' },
+                    // 2x person1 + $identify (should be deduplicated to 1)
+                    { personId: person1Id, eventName: '$identify' },
+                    { personId: person1Id, eventName: '$identify' },
+                    // 2x person2 + $pageview (should be deduplicated to 1)
+                    { personId: person2Id, eventName: '$pageview' },
+                    { personId: person2Id, eventName: '$pageview' },
+                    // 1x person2 + custom_event (unique)
+                    { personId: person2Id, eventName: 'custom_event' },
+                ]
+
+                const behavioralEvents = events.map(({ personId, eventName }) => {
+                    const event = createIncomingEvent(team.id, {
+                        event: eventName,
+                        properties: JSON.stringify({ $browser: 'Chrome' }),
+                        person_id: personId,
+                    } as RawClickHouseEvent)
+
+                    const filterGlobals = convertClickhouseRawEventToFilterGlobals(event)
+                    return {
+                        teamId: team.id,
+                        filterGlobals,
+                        personId,
+                    }
+                })
+
+                // Act
+                await processor.processBatch(behavioralEvents)
+
+                // Assert - verify all unique combinations exist in the database
+                const expectedOccurrences = [
+                    { personId: person1Id, eventName: '$pageview' },
+                    { personId: person1Id, eventName: '$identify' },
+                    { personId: person2Id, eventName: '$pageview' },
+                    { personId: person2Id, eventName: 'custom_event' },
+                ]
+
+                // Check each expected occurrence exists
+                for (const { personId, eventName } of expectedOccurrences) {
+                    const hasOccurred = await occurrenceRepository.hasOccurred({
+                        teamId: team.id,
+                        personId,
+                        eventName,
+                    })
+                    expect(hasOccurred).toBe(true)
+                }
+
+                // Verify person1 has exactly 2 events
+                const person1Events = await occurrenceRepository.getEventsForPerson(team.id, person1Id)
+                expect(person1Events).toHaveLength(2)
+                const person1EventNames = person1Events.map((e) => e.event_name).sort()
+                expect(person1EventNames).toEqual(['$identify', '$pageview'])
+
+                // Verify person2 has exactly 2 events
+                const person2Events = await occurrenceRepository.getEventsForPerson(team.id, person2Id)
+                expect(person2Events).toHaveLength(2)
+                const person2EventNames = person2Events.map((e) => e.event_name).sort()
+                expect(person2EventNames).toEqual(['$pageview', 'custom_event'])
+            })
+        })
     })
 
     describe('with Cassandra disabled', () => {
@@ -444,17 +749,20 @@ describe('CdpBehaviouralEventsConsumer', () => {
                 personId,
             }
 
-            // Spy on the writeBehavioralCounters method to ensure it's never called when Cassandra is disabled
-            const writeSpy = jest.spyOn(processor as any, 'writeBehavioralCounters')
+            // Spy on the write methods to ensure they're never called when Cassandra is disabled
+            const writeCountersSpy = jest.spyOn(processor as any, 'writeBehavioralCounters')
+            const writeOccurrencesSpy = jest.spyOn(processor as any, 'writePersonEventOccurrences')
 
             // Act
             await processor.processBatch([behavioralEvent])
 
-            // Assert - writeBehavioralCounters should never be called when Cassandra is disabled
-            expect(writeSpy).toHaveBeenCalledTimes(0)
+            // Assert - write methods should never be called when Cassandra is disabled
+            expect(writeCountersSpy).toHaveBeenCalledTimes(0)
+            expect(writeOccurrencesSpy).toHaveBeenCalledTimes(0)
 
-            // Double-check repository is still null
+            // Double-check repositories are still null
             expect(processor.getBehavioralCounterRepository()).toBeNull()
+            expect(processor.getPersonEventOccurrenceRepository()).toBeNull()
         })
     })
 })
