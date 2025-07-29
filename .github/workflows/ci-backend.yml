@@ -543,7 +543,7 @@ jobs:
               if: ${{ needs.changes.outputs.backend == 'true' }}
               uses: actions/setup-node@1a4442cacd436585916779262731d5b162bc6ec7 # v3
               with:
-                  node-version: 18.12.1
+                  node-version: 22.17.1
                   cache: pnpm
 
             # tests would intermittently fail in GH actions
@@ -637,6 +637,7 @@ jobs:
                       || 'posthog products'
                   }} ${{ matrix.person-on-events && 'ee/clickhouse/' || 'ee/' }} -m "not async_migrations" \
                       --ignore=posthog/temporal \
+                      --ignore=products/batch_exports/backend/tests/temporal \
                       --ignore=common/hogvm/python/test \
                       ${{ matrix.person-on-events && '--ignore=posthog/hogql_queries' || '' }} \
                       ${{ matrix.person-on-events && '--ignore=posthog/hogql' || '' }} \
@@ -682,7 +683,7 @@ jobs:
                   AWS_S3_ALLOW_UNSAFE_RENAME: 'true'
               run: |
                   set +e
-                  pytest posthog/temporal -m "not async_migrations" \
+                  pytest posthog/temporal products/batch_exports/backend/tests/temporal -m "not async_migrations" \
                       --splits ${{ matrix.concurrency }} --group ${{ matrix.group }} \
                       --durations=100 --durations-min=1.0 --store-durations \
                       --splitting-algorithm=duration_based_chunks \
