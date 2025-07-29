@@ -60,6 +60,8 @@ from . import (
     instance_status,
     integration,
     notebook,
+    vercel_installation,
+    vercel_resource,
     organization,
     organization_domain,
     organization_feature_flag,
@@ -778,10 +780,19 @@ environments_router.register(
     "environment_revenue_analytics_taxonomy",
     ["team_id"],
 )
-
 projects_router.register(
     r"flag_value",
     flag_value.FlagValueViewSet,
     "project_flag_value",
     ["project_id"],
+)
+
+vercel_router = router.register(
+    r"vercel/v1/installations", vercel_installation.VercelInstallationViewSet, "vercel_installations"
+)
+vercel_router.register(
+    r"resources",
+    vercel_resource.VercelResourceViewSet,
+    "vercel_resources",
+    ["installation_id"],
 )

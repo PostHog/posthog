@@ -102,6 +102,8 @@ from .user import User, UserManager
 from .user_group import UserGroup, UserGroupMembership
 from .user_scene_personalisation import UserScenePersonalisation
 from .web_experiment import WebExperiment
+from .vercel_installation import VercelInstallation
+from .vercel_resouce import VercelResource
 
 # Products Imports
 from products.early_access_features.backend.models import EarlyAccessFeature
@@ -222,6 +224,8 @@ __all__ = [
     "ScheduledChange",
     "WebExperiment",
     "Comment",
+    "VercelInstallation",
+    "VercelResource",
     # Deprecated models here for backwards compatibility
     "Prompt",
     "PromptSequence",
