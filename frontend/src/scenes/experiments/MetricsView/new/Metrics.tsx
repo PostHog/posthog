@@ -111,24 +111,20 @@ export function Metrics({ isSecondary }: { isSecondary?: boolean }): JSX.Element
                                 isSecondary={!!isSecondary}
                                 getInsightType={getInsightType}
                             />
-                            {metrics.length === 1 &&
-                                results[0] &&
-                                hasMinimumExposureForResults &&
-                                !isSecondary &&
-                                !useNewMetricsTable && (
-                                    <div className="mt-4">
-                                        <ResultDetails
-                                            metric={metrics[0] as ExperimentMetric}
-                                            result={{
-                                                ...results[0],
-                                                metric: metrics[0] as ExperimentMetric,
-                                            }}
-                                            experiment={experiment}
-                                            metricIndex={0}
-                                            isSecondary={!!isSecondary}
-                                        />
-                                    </div>
-                                )}
+                            {metrics.length === 1 && results[0] && hasMinimumExposureForResults && !isSecondary && (
+                                <div className="mt-4">
+                                    <ResultDetails
+                                        metric={metrics[0] as ExperimentMetric}
+                                        result={{
+                                            ...results[0],
+                                            metric: metrics[0] as ExperimentMetric,
+                                        }}
+                                        experiment={experiment}
+                                        metricIndex={0}
+                                        isSecondary={!!isSecondary}
+                                    />
+                                </div>
+                            )}
                         </>
                     ) : (
                         <div className="w-full overflow-x-auto">
