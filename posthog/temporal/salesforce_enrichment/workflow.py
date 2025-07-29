@@ -74,14 +74,7 @@ async def enrich_chunk_activity(inputs: EnrichChunkInputs) -> dict[str, typing.A
                 error=str(e),
             )
             capture_exception(e)
-
-            return {
-                "total_accounts_in_chunk": 0,
-                "records_processed": 0,
-                "records_enriched": 0,
-                "records_updated": 0,
-                "errors": [str(e)],
-            }
+            raise
 
 
 @activity.defn
@@ -128,7 +121,7 @@ async def cache_all_accounts_activity() -> dict[str, typing.Any]:
     except Exception as e:
         logger.exception("Failed to cache accounts", workflow_id=workflow_id, error=str(e))
         capture_exception(e)
-        return {"success": False, "error": str(e)}
+        raise
 
 
 @workflow.defn(name="salesforce-enrichment-async")

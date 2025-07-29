@@ -260,9 +260,13 @@ def bulk_update_salesforce_accounts(sf, update_records):
                     if errors:
                         error_msg = errors[0].get("message", "Unknown error")
                         error_fields = errors[0].get("fields", [])
-                        logger.error("Record update error", record_index=i + 1, error=error_msg, fields=error_fields)
+                        logger.exception(
+                            "Record update error", record_index=i + 1, error=error_msg, fields=error_fields
+                        )
                     else:
-                        logger.error("Record update error", record_index=i + 1, error="Unknown error", result=result)
+                        logger.exception(
+                            "Record update error", record_index=i + 1, error="Unknown error", result=result
+                        )
 
             total_success += batch_success
             total_errors += batch_errors
@@ -303,7 +307,8 @@ async def query_salesforce_accounts_chunk_async(sf, offset=0, limit=5000):
             return cached_accounts
     except Exception as e:
         cache_time = time.time() - cache_start
-        logger.warning("Redis cache error", error=str(e), cache_time=round(cache_time, 3))
+        logger.exception("Redis cache error", error=str(e), cache_time=round(cache_time, 3))
+        capture_exception(e)
 
     # Fallback to Salesforce query
     query = """
