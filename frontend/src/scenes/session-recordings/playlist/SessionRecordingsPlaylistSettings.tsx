@@ -10,7 +10,7 @@ import {
 } from './sessionRecordingsPlaylistLogic'
 import { savedSessionRecordingPlaylistsLogic } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
 import { ReplayTabs } from '~/types'
-import { LemonBadge, LemonButton, LemonCheckbox, LemonInput, LemonModal } from '@posthog/lemon-ui'
+import { LemonBadge, LemonButton, LemonCheckbox, LemonInput, LemonModal, Spinner } from '@posthog/lemon-ui'
 import { LemonMenuItem } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -27,6 +27,15 @@ const SortingKeyToLabel = {
     mouse_activity_count: 'Mouse activity',
 }
 
+function getLabel(filters: RecordingUniversalFilters): string {
+    const order_field = filters.order || 'start_time'
+    if (order_field === 'start_time') {
+        return filters.order_direction === 'ASC' ? 'Oldest' : 'Latest'
+    }
+
+    return SortingKeyToLabel[order_field as keyof typeof SortingKeyToLabel]
+}
+
 function SortedBy({
     filters,
     setFilters,
@@ -39,9 +48,20 @@ function SortedBy({
             highlightWhenActive={false}
             items={[
                 {
-                    label: SortingKeyToLabel['start_time'],
-                    onClick: () => setFilters({ order: 'start_time' }),
-                    active: filters.order === 'start_time',
+                    label: 'Start time',
+                    items: [
+                        {
+                            label: 'Latest',
+                            onClick: () => setFilters({ order: 'start_time', order_direction: 'DESC' }),
+                            active:
+                                !filters.order || (filters.order === 'start_time' && filters.order_direction !== 'ASC'),
+                        },
+                        {
+                            label: 'Oldest',
+                            onClick: () => setFilters({ order: 'start_time', order_direction: 'ASC' }),
+                            active: filters.order === 'start_time' && filters.order_direction === 'ASC',
+                        },
+                    ],
                 },
                 {
                     label: SortingKeyToLabel['activity_score'],
@@ -95,7 +115,7 @@ function SortedBy({
                 },
             ]}
             icon={<IconSort className="text-lg" />}
-            label={SortingKeyToLabel[filters.order || 'start_time']}
+            label={getLabel(filters)}
         />
     )
 }
@@ -159,6 +179,54 @@ function ConfirmDeleteRecordings({ shortId }: { shortId?: string }): JSX.Element
     )
 }
 
+function NewCollectionModal(): JSX.Element {
+    const { isNewCollectionDialogOpen, selectedRecordingsIds, newCollectionName } =
+        useValues(sessionRecordingsPlaylistLogic)
+    const { setIsNewCollectionDialogOpen, setNewCollectionName, handleCreateNewCollectionBulkAdd } =
+        useActions(sessionRecordingsPlaylistLogic)
+    const { loadPlaylists } = useActions(savedSessionRecordingPlaylistsLogic({ tab: ReplayTabs.Playlists }))
+
+    const handleClose = (): void => {
+        setIsNewCollectionDialogOpen(false)
+        setNewCollectionName('')
+    }
+
+    return (
+        <LemonModal isOpen={isNewCollectionDialogOpen} onClose={handleClose} title="Create collection" maxWidth="500px">
+            <div className="space-y-4">
+                <p>
+                    Collections help you organize and save recordings for later analysis. This will create a new
+                    collection with the {selectedRecordingsIds.length} selected recording
+                    {selectedRecordingsIds.length > 1 ? 's' : ''}.
+                </p>
+                <div className="space-y-2">
+                    <label className="text-sm font-medium">Collection name</label>
+                    <LemonInput
+                        value={newCollectionName}
+                        onChange={setNewCollectionName}
+                        placeholder="e.g., Bug reports, User onboarding, Feature usage"
+                        className="w-full"
+                        autoFocus
+                    />
+                </div>
+            </div>
+
+            <div className="flex justify-end gap-2 mt-8">
+                <LemonButton type="secondary" onClick={handleClose}>
+                    Cancel
+                </LemonButton>
+                <LemonButton
+                    type="primary"
+                    disabledReason={newCollectionName.length === 0 ? 'Collection name is required' : undefined}
+                    onClick={() => handleCreateNewCollectionBulkAdd(loadPlaylists)}
+                >
+                    Create collection
+                </LemonButton>
+            </div>
+        </LemonModal>
+    )
+}
+
 export function SessionRecordingsPlaylistTopSettings({
     filters,
     setFilters,
@@ -182,31 +250,42 @@ export function SessionRecordingsPlaylistTopSettings({
         handleBulkDeleteFromPlaylist,
         handleSelectUnselectAll,
         setIsDeleteSelectedRecordingsDialogOpen,
+        setIsNewCollectionDialogOpen,
     } = useActions(sessionRecordingsPlaylistLogic)
 
     const recordings = type === 'filters' ? sessionRecordings : pinnedRecordings
     const checked = recordings.length > 0 && selectedRecordingsIds.length === recordings.length
 
     const getActionsMenuItems = (): LemonMenuItem[] => {
-        const menuItems = []
+        const menuItems: LemonMenuItem[] = [
+            {
+                label: 'Add to new collection...',
+                onClick: () => setIsNewCollectionDialogOpen(true),
+                'data-attr': 'add-to-new-collection',
+            },
+        ]
 
-        if (!playlistsLoading) {
-            const collections =
-                type === 'collection' && shortId
-                    ? playlists.results.filter((playlist) => playlist.short_id !== shortId)
-                    : playlists.results
+        const collections =
+            type === 'collection' && shortId
+                ? playlists.results.filter((playlist) => playlist.short_id !== shortId)
+                : playlists.results
 
-            if (collections.length > 0) {
-                menuItems.push({
-                    label: 'Add to collection',
-                    items: collections.map((playlist) => ({
-                        label: <span className="truncate">{playlist.name || playlist.derived_name || 'Unnamed'}</span>,
-                        onClick: () => handleBulkAddToPlaylist(playlist.short_id),
-                    })),
-                    'data-attr': 'add-to-collection',
-                })
-            }
-        }
+        menuItems.push({
+            label: 'Add to collection',
+            items: playlistsLoading
+                ? [
+                      {
+                          label: <Spinner textColored={true} />,
+                          onClick: () => {},
+                      },
+                  ]
+                : collections.map((playlist) => ({
+                      label: <span className="truncate">{playlist.name || playlist.derived_name || 'Unnamed'}</span>,
+                      onClick: () => handleBulkAddToPlaylist(playlist.short_id),
+                  })),
+            disabledReason: collections.length === 0 ? 'There are no collections' : undefined,
+            'data-attr': 'add-to-collection',
+        })
 
         if (type === 'collection' && shortId) {
             menuItems.push({
@@ -256,6 +335,7 @@ export function SessionRecordingsPlaylistTopSettings({
                     <SettingsMenu
                         items={getActionsMenuItems()}
                         label={<LemonBadge content={selectedRecordingsIds.length.toString()} size="small" />}
+                        data-attr="bulk-action-menu"
                     />
                 )}
                 <SettingsMenu
@@ -285,6 +365,7 @@ export function SessionRecordingsPlaylistTopSettings({
                 />
             </div>
             <ConfirmDeleteRecordings shortId={shortId} />
+            <NewCollectionModal />
         </SettingsBar>
     )
 }

@@ -1,4 +1,4 @@
-from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
+from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
 
 COMMON_INPUTS_SCHEMA = [
     {
@@ -11,7 +11,7 @@ COMMON_INPUTS_SCHEMA = [
     },
 ]
 
-template: HogFunctionTemplate = HogFunctionTemplate(
+template: HogFunctionTemplateDC = HogFunctionTemplateDC(
     status="stable",
     free=True,
     type="destination",
@@ -20,7 +20,8 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     description="Sends a message to a discord channel",
     icon_url="/static/services/discord.png",
     category=["Customer Success"],
-    hog="""
+    code_language="hog",
+    code="""
 if (not match(inputs.webhookUrl, '^https://discord.com/api/webhooks/.*')) {
     throw Error('Invalid URL. The URL should match the format: https://discord.com/api/webhooks/...')
 }

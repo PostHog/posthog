@@ -1,6 +1,6 @@
-from posthog.cdp.templates.hog_function_template import HogFunctionMappingTemplate, HogFunctionTemplate
+from posthog.cdp.templates.hog_function_template import HogFunctionMappingTemplate, HogFunctionTemplateDC
 
-blank_site_destination: HogFunctionTemplate = HogFunctionTemplate(
+blank_site_destination: HogFunctionTemplateDC = HogFunctionTemplateDC(
     status="beta",
     free=True,
     type="site_destination",
@@ -9,7 +9,8 @@ blank_site_destination: HogFunctionTemplate = HogFunctionTemplate(
     description="New destination with complex event mapping. Works only with posthog-js when opt_in_site_apps is set to true.",
     icon_url="/static/hedgehog/builder-hog-01.png",
     category=["Custom", "Analytics"],
-    hog="""
+    code_language="javascript",
+    code="""
 export async function onLoad({ inputs, posthog }) {
     console.log('🦔 Loading (takes 1 sec)', { inputs })
     // onEvent will not be called until this function resolves
@@ -51,7 +52,6 @@ export function onEvent({ inputs, posthog }) {
             "required": True,
         },
     ],
-    mappings=[],
     mapping_templates=[
         HogFunctionMappingTemplate(
             name="Aquisition",
@@ -135,7 +135,7 @@ export function onEvent({ inputs, posthog }) {
     ],
 )
 
-blank_site_app: HogFunctionTemplate = HogFunctionTemplate(
+blank_site_app: HogFunctionTemplateDC = HogFunctionTemplateDC(
     status="beta",
     free=True,
     type="site_app",
@@ -144,7 +144,8 @@ blank_site_app: HogFunctionTemplate = HogFunctionTemplate(
     description="Run custom JavaScript on your website. Works only with posthog-js when opt_in_site_apps is set to true.",
     icon_url="/static/hedgehog/builder-hog-03.png",
     category=["Custom", "Analytics"],
-    hog="""
+    code_language="javascript",
+    code="""
 export function onLoad({ inputs, posthog }) {
     console.log(`Hello ${inputs.name} from your new Site App!`)
 }

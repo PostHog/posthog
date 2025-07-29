@@ -45,6 +45,8 @@ import type { sessionRecordingsPlaylistLogicType } from './sessionRecordingsPlay
 import { lemonToast } from '@posthog/lemon-ui'
 import { sessionRecordingsPlaylistSceneLogic } from './sessionRecordingsPlaylistSceneLogic'
 import { urls } from 'scenes/urls'
+import { createPlaylist } from 'scenes/session-recordings/playlist/playlistUtils'
+
 export type PersonUUID = string
 
 interface Params {
@@ -53,6 +55,7 @@ interface Params {
     advancedFilters?: LegacyRecordingFilters
     sessionRecordingId?: SessionRecordingId
     order?: RecordingsQuery['order']
+    order_direction?: RecordingsQuery['order_direction']
 }
 
 interface NoEventsToMatch {
@@ -97,6 +100,7 @@ export const DEFAULT_RECORDING_FILTERS: RecordingUniversalFilters = {
     filter_group: { ...DEFAULT_UNIVERSAL_GROUP_FILTER },
     duration: [defaultRecordingDurationFilter],
     order: DEFAULT_RECORDING_FILTERS_ORDER_BY,
+    order_direction: 'DESC',
 }
 
 const DEFAULT_PERSON_RECORDING_FILTERS: RecordingUniversalFilters = {
@@ -171,6 +175,13 @@ export function isValidRecordingFilters(filters: Partial<RecordingUniversalFilte
         return false
     }
 
+    if (
+        'order_direction' in filters &&
+        (typeof filters.order_direction !== 'string' || !['ASC', 'DESC'].includes(filters.order_direction ?? 'DESC'))
+    ) {
+        return false
+    }
+
     return true
 }
 
@@ -184,6 +195,8 @@ export function convertUniversalFiltersToRecordingsQuery(universalFilters: Recor
     const having_predicates: RecordingsQuery['having_predicates'] = []
 
     const order: RecordingsQuery['order'] = universalFilters.order || DEFAULT_RECORDING_FILTERS_ORDER_BY
+    const order_direction: RecordingsQuery['order_direction'] = universalFilters.order_direction || 'DESC'
+
     const durationFilter = universalFilters.duration[0]
 
     if (durationFilter) {
@@ -227,6 +240,7 @@ export function convertUniversalFiltersToRecordingsQuery(universalFilters: Recor
     return {
         kind: NodeKind.RecordingsQuery,
         order: order,
+        order_direction: order_direction,
         date_from: universalFilters.date_from,
         date_to: universalFilters.date_to,
         properties,
@@ -295,6 +309,7 @@ export function convertLegacyFiltersToUniversalFilters(
             ],
         },
         order: DEFAULT_RECORDING_FILTERS.order,
+        order_direction: 'DESC',
     }
 }
 
@@ -309,17 +324,22 @@ function combineLegacyRecordingFilters(
     }
 }
 
+// TODO if we're just appending pages... can we avoid this in-memory sorting?
+// it's fast to sort an already sorted list but would be nice to avoid it
 function sortRecordings(
     recordings: SessionRecordingType[],
-    order: RecordingsQuery['order'] | 'duration' = 'start_time'
+    order: RecordingsQuery['order'] | 'duration' = 'start_time',
+    order_direction: RecordingsQuery['order_direction']
 ): SessionRecordingType[] {
     const orderKey: RecordingOrder = order === 'duration' ? 'recording_duration' : order
 
     return recordings.sort((a, b) => {
         const orderA = a[orderKey]
         const orderB = b[orderKey]
-        const incomparible = orderA === undefined || orderB === undefined
-        return incomparible ? 0 : orderA > orderB ? -1 : 1
+        const incomparable = orderA === undefined || orderB === undefined
+        const left_greater = order_direction === 'DESC' ? -1 : 1
+        const right_greater = order_direction === 'DESC' ? 1 : -1
+        return incomparable ? 0 : orderA > orderB ? left_greater : right_greater
     })
 }
 
@@ -391,6 +411,9 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         }),
         setDeleteConfirmationText: (deleteConfirmationText: string) => ({ deleteConfirmationText }),
         handleDeleteSelectedRecordings: (shortId?: string) => ({ shortId }),
+        setIsNewCollectionDialogOpen: (isNewCollectionDialogOpen: boolean) => ({ isNewCollectionDialogOpen }),
+        setNewCollectionName: (newCollectionName: string) => ({ newCollectionName }),
+        handleCreateNewCollectionBulkAdd: (onSuccess: () => void) => ({ onSuccess }),
     }),
     propsChanged(({ actions, props }, oldProps) => {
         // If the defined list changes, we need to call the loader to either load the new items or change the list
@@ -426,7 +449,11 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 results: [],
                 has_next: false,
                 order: DEFAULT_RECORDING_FILTERS_ORDER_BY,
-            } as RecordingsQueryResponse & { order: RecordingsQuery['order'] },
+                order_direction: 'DESC',
+            } as RecordingsQueryResponse & {
+                order: RecordingsQuery['order']
+                order_direction: RecordingsQuery['order_direction']
+            },
             {
                 loadSessionRecordings: async ({ direction, userModifiedFilters }, breakpoint) => {
                     const params: RecordingsQuery = {
@@ -471,6 +498,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                                 : response.has_next,
                         results: response.results,
                         order: params.order,
+                        order_direction: params.order_direction,
                     }
                 },
             },
@@ -495,7 +523,9 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                         const fetchedRecordings = await api.recordings.list({
                             kind: NodeKind.RecordingsQuery,
                             session_ids: recordingIds,
+                            // TODO... wait, do we not support sorting in collections 🤯
                             order: DEFAULT_RECORDING_FILTERS_ORDER_BY,
+                            order_direction: 'DESC',
                         })
 
                         recordings = [...recordings, ...fetchedRecordings.results]
@@ -582,7 +612,11 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                         }
                     })
 
-                    return sortRecordings(mergedResults, sessionRecordingsResponse.order)
+                    return sortRecordings(
+                        mergedResults,
+                        sessionRecordingsResponse.order,
+                        sessionRecordingsResponse.order_direction
+                    )
                 },
 
                 setSelectedRecordingId: (state, { id }) =>
@@ -631,6 +665,18 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             '',
             {
                 setDeleteConfirmationText: (_, { deleteConfirmationText }) => deleteConfirmationText,
+            },
+        ],
+        isNewCollectionDialogOpen: [
+            false,
+            {
+                setIsNewCollectionDialogOpen: (_, { isNewCollectionDialogOpen }) => isNewCollectionDialogOpen,
+            },
+        ],
+        newCollectionName: [
+            '',
+            {
+                setNewCollectionName: (_, { newCollectionName }) => newCollectionName,
             },
         ],
     })),
@@ -705,7 +751,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 {},
                 {
                     button: {
-                        label: 'View playlist',
+                        label: 'View collection',
                         action: () => router.actions.push(urls.replayPlaylist(short_id)),
                     },
                 }
@@ -772,6 +818,19 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                     }...`,
                 }
             )
+        },
+        handleCreateNewCollectionBulkAdd: async ({ onSuccess }) => {
+            const newPlaylist = await createPlaylist({
+                name: values.newCollectionName,
+                type: 'collection',
+            })
+
+            if (newPlaylist) {
+                actions.handleBulkAddToPlaylist(newPlaylist.short_id)
+                actions.setIsNewCollectionDialogOpen(false)
+                actions.setNewCollectionName('')
+                onSuccess()
+            }
         },
     })),
     selectors({
@@ -922,7 +981,11 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                     return true
                 })
 
-                return sortRecordings(filteredRecordings, filters.order || DEFAULT_RECORDING_FILTERS_ORDER_BY)
+                return sortRecordings(
+                    filteredRecordings,
+                    filters.order || DEFAULT_RECORDING_FILTERS_ORDER_BY,
+                    filters.order_direction || 'DESC'
+                )
             },
         ],
 

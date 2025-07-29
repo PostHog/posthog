@@ -71,12 +71,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
 
         // New messages have been added since we last updated the thread
         if (!values.streamingActive && props.conversation.messages.length > values.threadMessageCount) {
-            actions.setThread(
-                props.conversation.messages.map((message) => ({
-                    ...message,
-                    status: 'completed',
-                }))
-            )
+            actions.setThread(updateMessagesWithCompletedStatus(props.conversation.messages))
         }
 
         // Check if the meta fields like the `status` field have changed
@@ -105,13 +100,24 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 'setActiveStreamingThreads',
                 'setConversationId',
                 'setAutoRun',
+                'loadConversationHistorySuccess',
             ],
         ],
     })),
 
     actions({
-        // null prompt means continuing previous generation
-        askMax: (prompt: string | null, generationAttempt: number = 0) => ({ prompt, generationAttempt }),
+        // null prompt means resuming streaming or continuing previous generation
+        askMax: (prompt: string | null) => ({ prompt }),
+        reconnectToStream: true,
+        streamConversation: (
+            streamData: {
+                content: string | null
+                conversation?: string
+                contextual_tools?: Record<string, any>
+                ui_context?: any
+            },
+            generationAttempt: number
+        ) => ({ streamData, generationAttempt }),
         stopGeneration: true,
         completeThreadGeneration: true,
         addMessage: (message: ThreadMessage) => ({ message }),
@@ -133,7 +139,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         ],
 
         threadRaw: [
-            (props.conversation?.messages ?? []) as ThreadMessage[],
+            updateMessagesWithCompletedStatus(props.conversation?.messages ?? []),
             {
                 addMessage: (state, { message }) => [...state, message],
                 replaceMessage: (state, { message, index }) => [
@@ -168,6 +174,8 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             false,
             {
                 askMax: () => true,
+                reconnectToStream: () => true,
+                streamConversation: () => true,
                 completeThreadGeneration: () => false,
             },
         ],
@@ -177,16 +185,14 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
     })),
 
     listeners(({ actions, values, cache, props }) => ({
-        askMax: async ({ prompt, generationAttempt }, breakpoint) => {
+        askMax: async ({ prompt }) => {
             if (!values.dataProcessingAccepted) {
                 return // Skip - this will be re-fired by the `onApprove` on `AIConsentPopoverWrapper`
             }
             // Clear the question
             actions.setQuestion('')
-            // Set active streaming threads, so we know how many are running
-            actions.setActiveStreamingThreads(1)
 
-            // For a new conversations, set the temporary conversation ID, which will be replaced with the actual conversation ID once the first message is generated
+            // For a new conversations, set the frontend conversation ID
             if (!values.conversation) {
                 actions.setConversationId(values.conversationId)
             } else {
@@ -201,45 +207,58 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 actions.updateGlobalConversationCache(updatedConversation)
             }
 
-            if (generationAttempt === 0 && prompt) {
+            actions.streamConversation(
+                {
+                    content: prompt,
+                    contextual_tools: Object.fromEntries(values.tools.map((tool) => [tool.name, tool.context])),
+                    ui_context: values.compiledContext || undefined,
+                    conversation: values.conversation?.id || values.conversationId,
+                },
+                0
+            )
+        },
+
+        streamConversation: async ({ streamData, generationAttempt }, breakpoint) => {
+            // Set active streaming threads, so we know streaming is active
+            actions.setActiveStreamingThreads(1)
+
+            if (generationAttempt === 0 && streamData.content) {
                 const message: ThreadMessage = {
                     type: AssistantMessageType.Human,
-                    content: prompt,
+                    content: streamData.content,
                     status: 'completed',
-                }
-                if (values.compiledContext) {
-                    message.ui_context = values.compiledContext
                 }
                 actions.addMessage(message)
             }
 
             try {
-                // Generate a trace ID for the conversation run
-                const traceId = uuid()
-                actions.setTraceId(traceId)
-
                 cache.generationController = new AbortController()
 
-                const response = await api.conversations.stream(
-                    {
-                        content: prompt,
-                        contextual_tools: Object.fromEntries(values.tools.map((tool) => [tool.name, tool.context])),
-                        ui_context: values.compiledContext || undefined,
-                        conversation: values.conversation?.id,
-                        trace_id: traceId,
-                    },
-                    {
-                        signal: cache.generationController.signal,
-                    }
-                )
-                const reader = response.body?.getReader()
+                // Ensure we have valid data for the API call
+                const apiData: any = { ...streamData }
 
+                // For reconnection, we only need conversation ID
+                if (!streamData.content && streamData.conversation) {
+                    // Remove all other fields to ensure clean reconnection call
+                    delete apiData.contextual_tools
+                    delete apiData.ui_context
+                }
+
+                // Generate a new trace ID for this interaction
+                const traceId = uuid()
+                actions.setTraceId(traceId)
+                apiData.trace_id = traceId
+
+                const response = await api.conversations.stream(apiData, {
+                    signal: cache.generationController.signal,
+                })
+
+                const reader = response.body?.getReader()
                 if (!reader) {
                     return
                 }
 
                 const decoder = new TextDecoder()
-
                 const parser = createParser({
                     onEvent: async ({ data, event }) => {
                         // A Conversation object is only received when the conversation is new
@@ -248,23 +267,13 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                             if (!parsedResponse) {
                                 return
                             }
-
                             const conversationWithTitle = {
                                 ...parsedResponse,
                                 title: parsedResponse.title || 'New chat',
                             }
 
-                            // Set the mapping of conversation ID and thread ID, so we can get back to this thread later.
-                            if (!values.threadKeys[props.conversationId]) {
-                                actions.setThreadKey(parsedResponse.id, props.conversationId)
-                            }
-
-                            // Update the local cache
                             actions.setConversation(conversationWithTitle)
-                            // Update the global conversation cache
                             actions.updateGlobalConversationCache(conversationWithTitle)
-                            // Set the current conversation ID
-                            actions.setConversationId(parsedResponse.id)
                         } else if (event === AssistantEventType.Message) {
                             const parsedResponse = parseResponse<RootAssistantMessage>(data)
                             if (!parsedResponse) {
@@ -335,7 +344,15 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     if (e instanceof ApiError) {
                         if (e.status === 409 && generationAttempt < 6) {
                             await breakpoint(1000 * (generationAttempt + 1))
-                            actions.askMax(prompt, generationAttempt + 1)
+                            actions.streamConversation(
+                                {
+                                    content: streamData.content,
+                                    conversation: streamData.conversation,
+                                    contextual_tools: streamData.contextual_tools,
+                                    ui_context: streamData.ui_context,
+                                },
+                                generationAttempt + 1
+                            )
                             return
                         }
 
@@ -382,6 +399,22 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             }
         },
 
+        reconnectToStream: () => {
+            if (!props.conversationId) {
+                return
+            }
+
+            // Historical messages should already be loaded by propsChanged
+            // Just start the stream reconnection
+            actions.streamConversation(
+                {
+                    conversation: props.conversationId,
+                    content: null,
+                },
+                0
+            )
+        },
+
         retryLastMessage: () => {
             const lastMessage = values.threadRaw.filter(isHumanMessage).pop() as HumanMessage | undefined
             if (lastMessage) {
@@ -408,6 +441,18 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             // Must go last. Otherwise, the logic will be unmounted before the lifecycle finishes.
             if (values.selectedConversationId !== values.conversationId && cache.unmount) {
                 cache.unmount()
+            }
+        },
+
+        loadConversationHistorySuccess: ({ conversationHistory, payload }) => {
+            if (payload?.doNotUpdateCurrentThread || values.autoRun) {
+                return
+            }
+            const conversation = conversationHistory.find((c) => c.id === values.conversationId)
+            if (conversation?.status === ConversationStatus.InProgress) {
+                setTimeout(() => {
+                    actions.reconnectToStream()
+                }, 0)
             }
         },
     })),
@@ -581,4 +626,14 @@ function removeConversationMessages({ messages, ...conversation }: ConversationD
  */
 function filterOutReasoningMessages(thread: ThreadMessage[]): ThreadMessage[] {
     return thread.filter((message) => !isReasoningMessage(message))
+}
+
+/**
+ * Update the status of the messages to completed, so the UI displays additional actions.
+ */
+function updateMessagesWithCompletedStatus(thread: RootAssistantMessage[]): ThreadMessage[] {
+    return thread.map((message) => ({
+        ...message,
+        status: 'completed',
+    }))
 }

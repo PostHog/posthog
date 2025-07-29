@@ -2,6 +2,7 @@ import { PluginEvent } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 
 import { mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
+import { parseJSON } from '~/utils/json-parse'
 
 import { posthogFilterOutPlugin } from '../../../src/cdp/legacy-plugins/_transformations/posthog-filter-out-plugin/template'
 import { template as defaultTemplate } from '../../../src/cdp/templates/_transformations/default/default.template'
@@ -61,7 +62,7 @@ describe('HogTransformer', () => {
     describe('transformEvent', () => {
         it('handles geoip lookup transformation', async () => {
             // Setup the hog function
-            const hogByteCode = await compileHog(geoipTemplate.hog)
+            const hogByteCode = await compileHog(geoipTemplate.code)
             const geoIpFunction = createHogFunction({
                 type: 'transformation',
                 name: geoipTemplate.name,
@@ -191,7 +192,8 @@ describe('HogTransformer', () => {
                 name: 'Test Template',
                 description: 'A simple test template that adds a test property',
                 category: ['Custom'],
-                hog: `
+                code_language: 'hog',
+                code: `
                     let returnEvent := event
                     returnEvent.properties.test_property := 'test_value'
                     return returnEvent
@@ -199,7 +201,7 @@ describe('HogTransformer', () => {
                 inputs_schema: [],
             }
 
-            const geoTransformationIpByteCode = await compileHog(geoipTemplate.hog)
+            const geoTransformationIpByteCode = await compileHog(geoipTemplate.code)
             const geoIpTransformationFunction = createHogFunction({
                 type: 'transformation',
                 name: geoipTemplate.name,
@@ -209,7 +211,7 @@ describe('HogTransformer', () => {
                 execution_order: 1,
             })
 
-            const defaultTransformationByteCode = await compileHog(defaultTemplate.hog)
+            const defaultTransformationByteCode = await compileHog(defaultTemplate.code)
             const defaultTransformationFunction = createHogFunction({
                 type: 'transformation',
                 name: defaultTemplate.name,
@@ -219,7 +221,7 @@ describe('HogTransformer', () => {
                 execution_order: 2,
             })
 
-            const testTransformationByteCode = await compileHog(testTemplate.hog)
+            const testTransformationByteCode = await compileHog(testTemplate.code)
             const testTransformationFunction = createHogFunction({
                 type: 'transformation',
                 name: testTemplate.name,
@@ -282,7 +284,8 @@ describe('HogTransformer', () => {
                 name: 'Test Template',
                 description: 'A simple test template that adds a test property',
                 category: ['Custom'],
-                hog: `
+                code_language: 'hog',
+                code: `
                     let returnEvent := event
                     returnEvent.properties.test_property := 'test_value'
                     return returnEvent
@@ -298,7 +301,8 @@ describe('HogTransformer', () => {
                 name: 'Test Template',
                 description: 'A simple test template that adds a test property',
                 category: ['Custom'],
-                hog: `
+                code_language: 'hog',
+                code: `
                     let returnEvent := event
                     returnEvent.properties.test_property := null
                     return returnEvent
@@ -311,7 +315,7 @@ describe('HogTransformer', () => {
                 name: addingTemplate.name,
                 team_id: teamId,
                 enabled: true,
-                bytecode: await compileHog(addingTemplate.hog),
+                bytecode: await compileHog(addingTemplate.code),
                 execution_order: 1,
             })
 
@@ -320,7 +324,7 @@ describe('HogTransformer', () => {
                 name: deletingTemplate.name,
                 team_id: teamId,
                 enabled: true,
-                bytecode: await compileHog(deletingTemplate.hog),
+                bytecode: await compileHog(deletingTemplate.code),
                 execution_order: 2,
             })
 
@@ -366,7 +370,8 @@ describe('HogTransformer', () => {
                 name: 'Test Template',
                 description: 'A simple test template that adds a test property',
                 category: ['Custom'],
-                hog: `
+                code_language: 'hog',
+                code: `
                     return event
                 `,
                 inputs_schema: [],
@@ -380,7 +385,8 @@ describe('HogTransformer', () => {
                 name: 'Test Template',
                 description: 'A simple test template that adds a test property',
                 category: ['Custom'],
-                hog: `
+                code_language: 'hog',
+                code: `
                     return event
                 `,
                 inputs_schema: [],
@@ -394,13 +400,14 @@ describe('HogTransformer', () => {
                 name: 'Test Template',
                 description: 'A simple test template that adds a test property',
                 category: ['Custom'],
-                hog: `
+                code_language: 'hog',
+                code: `
                     return event
                 `,
                 inputs_schema: [],
             }
 
-            const firstTransformationByteCode = await compileHog(firstTemplate.hog)
+            const firstTransformationByteCode = await compileHog(firstTemplate.code)
             const firstTransformationFunction = createHogFunction({
                 type: 'transformation',
                 name: firstTemplate.name,
@@ -410,7 +417,7 @@ describe('HogTransformer', () => {
                 execution_order: 1,
             })
 
-            const secondTransformationByteCode = await compileHog(secondTemplate.hog)
+            const secondTransformationByteCode = await compileHog(secondTemplate.code)
             const secondTransformationFunction = createHogFunction({
                 type: 'transformation',
                 name: secondTemplate.name,
@@ -420,7 +427,7 @@ describe('HogTransformer', () => {
                 execution_order: 2,
             })
 
-            const thirdTransformationByteCode = await compileHog(thirdTemplate.hog)
+            const thirdTransformationByteCode = await compileHog(thirdTemplate.code)
             const thirdTransformationFunction = createHogFunction({
                 type: 'transformation',
                 name: thirdTemplate.name,
@@ -471,7 +478,8 @@ describe('HogTransformer', () => {
                 name: 'Success Template',
                 description: 'A template that should succeed',
                 category: ['Custom'],
-                hog: `
+                code_language: 'hog',
+                code: `
                     let returnEvent := event
                     returnEvent.properties.success := true
                     return returnEvent
@@ -488,14 +496,15 @@ describe('HogTransformer', () => {
                 name: 'Failing Template',
                 description: 'A template that should fail',
                 category: ['Custom'],
-                hog: `
+                code_language: 'hog',
+                code: `
                     // Return invalid result (not an object with properties)
                     return "invalid"
                 `,
                 inputs_schema: [],
             }
 
-            const successByteCode = await compileHog(successTemplate.hog)
+            const successByteCode = await compileHog(successTemplate.code)
             const successFunction = createHogFunction({
                 type: 'transformation',
                 name: successTemplate.name,
@@ -505,7 +514,7 @@ describe('HogTransformer', () => {
                 execution_order: 1,
             })
 
-            const failByteCode = await compileHog(failingTemplate.hog)
+            const failByteCode = await compileHog(failingTemplate.code)
             const failFunction = createHogFunction({
                 type: 'transformation',
                 name: failingTemplate.name,
@@ -551,7 +560,8 @@ describe('HogTransformer', () => {
                 name: 'Input Setter',
                 description: 'A template that sets the inputs',
                 category: ['Custom'],
-                hog: `
+                code_language: 'hog',
+                code: `
                     let returnEvent := event
                     returnEvent.properties.inputs := {
                         'not_encrypted': inputs.not_encrypted,
@@ -562,7 +572,7 @@ describe('HogTransformer', () => {
                 inputs_schema: [],
             }
 
-            const inputSetterByteCode = await compileHog(inputSetter.hog)
+            const inputSetterByteCode = await compileHog(inputSetter.code)
 
             const inputSetterFunction = createHogFunction({
                 type: 'transformation',
@@ -644,7 +654,8 @@ describe('HogTransformer', () => {
                 name: 'Success Template',
                 description: 'A template that should succeed',
                 category: ['Custom'],
-                hog: `
+                code_language: 'hog',
+                code: `
                     let returnEvent := event
                     returnEvent.properties.success := true
                     return returnEvent
@@ -652,7 +663,7 @@ describe('HogTransformer', () => {
                 inputs_schema: [],
             }
 
-            const successByteCode = await compileHog(successTemplate.hog)
+            const successByteCode = await compileHog(successTemplate.code)
             const successFunction = createHogFunction({
                 type: 'transformation',
                 name: successTemplate.name,
@@ -843,7 +854,7 @@ describe('HogTransformer', () => {
                 },
                 team_id: teamId,
                 enabled: true,
-                hog: posthogFilterOutPlugin.template.hog,
+                hog: posthogFilterOutPlugin.template.code,
                 inputs_schema: posthogFilterOutPlugin.template.inputs_schema,
                 id: 'c342e9ae-9f76-4379-a465-d33b4826bc05',
             })
@@ -901,7 +912,7 @@ describe('HogTransformer', () => {
                 inputs: {},
                 team_id: teamId,
                 enabled: true,
-                hog: posthogPluginGeoip.template.hog,
+                hog: posthogPluginGeoip.template.code,
                 inputs_schema: posthogPluginGeoip.template.inputs_schema,
             })
 
@@ -916,7 +927,7 @@ describe('HogTransformer', () => {
                 },
                 team_id: teamId,
                 enabled: true,
-                hog: propertyFilterPlugin.template.hog,
+                hog: propertyFilterPlugin.template.code,
                 inputs_schema: propertyFilterPlugin.template.inputs_schema,
             })
 
@@ -1329,7 +1340,8 @@ describe('HogTransformer', () => {
                 name: 'Test Template',
                 description: 'A simple test template',
                 category: ['Custom'],
-                hog: `
+                code_language: 'hog',
+                code: `
                     let returnEvent := event
                     returnEvent.properties.test_property := true
                     return returnEvent
@@ -1342,7 +1354,7 @@ describe('HogTransformer', () => {
                 name: testTemplate.name,
                 team_id: teamId,
                 enabled: true,
-                bytecode: await compileHog(testTemplate.hog),
+                bytecode: await compileHog(testTemplate.code),
                 id: '11111111-1111-4111-a111-111111111111',
             })
 
@@ -1371,7 +1383,8 @@ describe('HogTransformer', () => {
                 name: 'Test Template',
                 description: 'A simple test template',
                 category: ['Custom'],
-                hog: `
+                code_language: 'hog',
+                code: `
                     let returnEvent := event
                     returnEvent.properties.test_property := true
                     return returnEvent
@@ -1385,7 +1398,7 @@ describe('HogTransformer', () => {
                 name: testTemplate.name,
                 team_id: teamId,
                 enabled: true,
-                bytecode: await compileHog(testTemplate.hog),
+                bytecode: await compileHog(testTemplate.code),
                 id: hogFunctionId,
             })
 
@@ -1484,7 +1497,8 @@ describe('HogTransformer', () => {
                 name: 'Disabled Test Template',
                 description: 'A test template that should be skipped due to disabled state',
                 category: ['Custom'],
-                hog: `
+                code_language: 'hog',
+                code: `
                     let returnEvent := event
                     returnEvent.properties.should_not_be_set := true
                     return returnEvent
@@ -1498,7 +1512,7 @@ describe('HogTransformer', () => {
                 name: testTemplate.name,
                 team_id: teamId,
                 enabled: true,
-                bytecode: await compileHog(testTemplate.hog),
+                bytecode: await compileHog(testTemplate.code),
                 id: hogFunctionId,
             })
 
@@ -1541,7 +1555,8 @@ describe('HogTransformer', () => {
                 name: 'Healthy Test Template',
                 description: 'A test template that should execute because state is healthy',
                 category: ['Custom'],
-                hog: `
+                code_language: 'hog',
+                code: `
                     let returnEvent := event
                     returnEvent.properties.should_be_set := true
                     return returnEvent
@@ -1555,7 +1570,7 @@ describe('HogTransformer', () => {
                 name: testTemplate.name,
                 team_id: teamId,
                 enabled: true,
-                bytecode: await compileHog(testTemplate.hog),
+                bytecode: await compileHog(testTemplate.code),
                 id: hogFunctionId,
             })
 
@@ -1599,7 +1614,8 @@ describe('HogTransformer', () => {
                 name: 'Test Template',
                 description: 'A test template that should execute despite disabled state because hogwatcher is off',
                 category: ['Custom'],
-                hog: `
+                code_language: 'hog',
+                code: `
                     let returnEvent := event
                     returnEvent.properties.should_be_set := true
                     return returnEvent
@@ -1613,7 +1629,7 @@ describe('HogTransformer', () => {
                 name: testTemplate.name,
                 team_id: teamId,
                 enabled: true,
-                bytecode: await compileHog(testTemplate.hog),
+                bytecode: await compileHog(testTemplate.code),
                 id: hogFunctionId,
             })
 
@@ -1642,6 +1658,91 @@ describe('HogTransformer', () => {
 
             // Reset spies
             executeHogFunctionSpy.mockRestore()
+        })
+
+        it('should capture events with correct Kafka headers', async () => {
+            // Create a transformation function that captures an event
+            const captureTemplate: HogFunctionTemplate = {
+                free: true,
+                status: 'beta',
+                type: 'transformation',
+                id: 'template-capture',
+                name: 'Capture Template',
+                description: 'A template that captures an event',
+                category: ['Custom'],
+                code_language: 'hog',
+                code: `
+                    let returnEvent := event
+                    returnEvent.properties.captured := true
+
+                    // Capture a new event
+                    postHogCapture({
+                        'event': 'captured_event',
+                        'distinct_id': 'captured_user',
+                        'properties': {
+                            'source': 'hog_function',
+                            'original_event': event.event,
+                            'original_distinct_id': event.distinct_id,
+                            'captured_at': '2024-01-01T00:00:00Z'
+                        }
+                    })
+
+                    return returnEvent
+                `,
+                inputs_schema: [],
+            }
+
+            const hogFunction = createHogFunction({
+                type: 'transformation',
+                name: captureTemplate.name,
+                team_id: teamId,
+                enabled: true,
+                bytecode: await compileHog(captureTemplate.code),
+                id: 'aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa',
+            })
+
+            await insertHogFunction(hub.db.postgres, teamId, hogFunction)
+            hogTransformer['hogFunctionManager']['onHogFunctionsReloaded'](teamId, [hogFunction.id])
+
+            const event = createPluginEvent({ event: 'original-event', distinct_id: 'original_user' }, teamId)
+            await hogTransformer.transformEventAndProduceMessages(event)
+            await hogTransformer.processInvocationResults()
+
+            const messages = mockProducerObserver.getProducedKafkaMessages()
+
+            // Find the captured event message
+            const capturedEventMessage = messages.find((msg) => {
+                try {
+                    const data = parseJSON(msg.value.data as string)
+                    return data.event === 'captured_event' && data.distinct_id === 'captured_user'
+                } catch {
+                    return false
+                }
+            })
+
+            expect(capturedEventMessage).toBeDefined()
+
+            const capturedEventData = parseJSON(capturedEventMessage!.value.data as string)
+
+            expect(capturedEventData).toMatchObject({
+                event: 'captured_event',
+                distinct_id: 'captured_user',
+                properties: {
+                    source: 'hog_function',
+                    original_event: 'original-event',
+                    original_distinct_id: 'original_user',
+                    captured_at: '2024-01-01T00:00:00Z',
+                    $hog_function_execution_count: 1,
+                },
+                timestamp: '2025-01-01T00:00:00.000Z',
+            })
+
+            // Check that the Kafka headers are correct
+            expect(capturedEventMessage?.headers).toBeDefined()
+            expect(capturedEventMessage?.headers).toMatchObject({
+                distinct_id: 'captured_user',
+                token: 'THIS IS NOT A TOKEN FOR TEAM 2',
+            })
         })
     })
 })

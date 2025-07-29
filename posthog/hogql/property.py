@@ -43,6 +43,7 @@ from posthog.schema import (
     LogEntryPropertyFilter,
     GroupPropertyFilter,
     FeaturePropertyFilter,
+    FlagPropertyFilter,
     HogQLPropertyFilter,
     EmptyPropertyFilter,
     DataWarehousePropertyFilter,
@@ -215,7 +216,7 @@ def _expr_to_compare_op(
         return ast.Call(
             name="ifNull",
             args=[
-                ast.Call(name="match", args=[ast.Call(name="toString", args=[expr]), ast.Constant(value=value)]),
+                ast.Call(name="match", args=[expr, ast.Constant(value=value)]),
                 ast.Constant(value=0),
             ],
         )
@@ -304,6 +305,7 @@ def property_to_expr(
         | LogEntryPropertyFilter
         | GroupPropertyFilter
         | FeaturePropertyFilter
+        | FlagPropertyFilter
         | HogQLPropertyFilter
         | EmptyPropertyFilter
         | DataWarehousePropertyFilter

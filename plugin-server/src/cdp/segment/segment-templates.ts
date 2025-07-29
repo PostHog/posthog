@@ -509,7 +509,8 @@ export const SEGMENT_DESTINATIONS = Object.entries(destinations)
                         default: false,
                     },
                 ],
-                hog: 'return event',
+                code_language: 'javascript',
+                code: 'return event',
                 mapping_templates: (destination.presets ?? [])
                     .filter((preset) => preset.type === 'automatic' && preset.subscribe)
                     .filter((preset) => preset.partnerAction in destination.actions)

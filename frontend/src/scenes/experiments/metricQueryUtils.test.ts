@@ -17,7 +17,7 @@ import {
     PropertyOperator,
 } from '~/types'
 
-import { getFilter, getQuery } from './metricQueryUtils'
+import { getFilter, getMathProperties, getQuery } from './metricQueryUtils'
 
 describe('getFilter', () => {
     it('returns the correct filter for an event', () => {
@@ -654,6 +654,123 @@ describe('Data Warehouse Support', () => {
                 math_hogql: 'sum(conversion_value)',
                 kind: NodeKind.ExperimentDataWarehouseNode,
             })
+        })
+    })
+})
+
+describe('getMathProperties', () => {
+    it('returns TotalCount math properties when no math is specified', () => {
+        const source = {
+            kind: NodeKind.EventsNode,
+            event: '$pageview',
+        } as EventsNode
+
+        const result = getMathProperties(source)
+        expect(result).toEqual({
+            math: ExperimentMetricMathType.TotalCount,
+            math_property: undefined,
+        })
+    })
+
+    it('returns TotalCount math properties when math is explicitly TotalCount', () => {
+        const source = {
+            kind: NodeKind.EventsNode,
+            event: '$pageview',
+            math: ExperimentMetricMathType.TotalCount,
+        } as EventsNode
+
+        const result = getMathProperties(source)
+        expect(result).toEqual({
+            math: ExperimentMetricMathType.TotalCount,
+            math_property: undefined,
+        })
+    })
+
+    it('returns UniqueSessions math properties without math_property', () => {
+        const source = {
+            kind: NodeKind.EventsNode,
+            event: '$pageview',
+            math: ExperimentMetricMathType.UniqueSessions,
+        } as EventsNode
+
+        const result = getMathProperties(source)
+        expect(result).toEqual({
+            math: ExperimentMetricMathType.UniqueSessions,
+        })
+    })
+
+    it('returns Sum math properties with math_property', () => {
+        const source = {
+            kind: NodeKind.EventsNode,
+            event: 'purchase',
+            math: ExperimentMetricMathType.Sum,
+            math_property: 'price',
+        } as EventsNode
+
+        const result = getMathProperties(source)
+        expect(result).toEqual({
+            math: ExperimentMetricMathType.Sum,
+            math_property: 'price',
+        })
+    })
+
+    it('returns Avg math properties with math_property', () => {
+        const source = {
+            kind: NodeKind.EventsNode,
+            event: 'session_duration',
+            math: ExperimentMetricMathType.Avg,
+            math_property: 'duration',
+        } as EventsNode
+
+        const result = getMathProperties(source)
+        expect(result).toEqual({
+            math: ExperimentMetricMathType.Avg,
+            math_property: 'duration',
+        })
+    })
+
+    it('returns Min math properties with math_property', () => {
+        const source = {
+            kind: NodeKind.EventsNode,
+            event: 'purchase',
+            math: ExperimentMetricMathType.Min,
+            math_property: 'price',
+        } as EventsNode
+
+        const result = getMathProperties(source)
+        expect(result).toEqual({
+            math: ExperimentMetricMathType.Min,
+            math_property: 'price',
+        })
+    })
+
+    it('returns Max math properties with math_property', () => {
+        const source = {
+            kind: NodeKind.EventsNode,
+            event: 'purchase',
+            math: ExperimentMetricMathType.Max,
+            math_property: 'price',
+        } as EventsNode
+
+        const result = getMathProperties(source)
+        expect(result).toEqual({
+            math: ExperimentMetricMathType.Max,
+            math_property: 'price',
+        })
+    })
+
+    it('preserves undefined math_property for property-based math types', () => {
+        const source = {
+            kind: NodeKind.EventsNode,
+            event: 'purchase',
+            math: ExperimentMetricMathType.Avg,
+            math_property: undefined,
+        } as EventsNode
+
+        const result = getMathProperties(source)
+        expect(result).toEqual({
+            math: ExperimentMetricMathType.Avg,
+            math_property: undefined,
         })
     })
 })

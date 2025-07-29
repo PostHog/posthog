@@ -1,17 +1,10 @@
 import { EncryptedFields } from '~/cdp/encryption-utils'
+import { IntegrationType } from '~/cdp/types'
 import { PubSub } from '~/utils/pubsub'
 
 import { PostgresRouter, PostgresUse } from '../../../utils/db/postgres'
 import { LazyLoader } from '../../../utils/lazy-loader'
 import { logger } from '../../../utils/logger'
-
-export type IntegrationType = {
-    id: string
-    team_id: number
-    kind: string
-    config: Record<string, any>
-    sensitive_config: Record<string, any>
-}
 
 export class IntegrationManagerService {
     private lazyLoader: LazyLoader<IntegrationType>
@@ -28,15 +21,15 @@ export class IntegrationManagerService {
     }
 
     public async get(id: IntegrationType['id']): Promise<IntegrationType | null> {
-        return (await this.lazyLoader.get(id)) ?? null
+        return (await this.lazyLoader.get(id.toString())) ?? null
     }
 
     public async getMany(ids: IntegrationType['id'][]): Promise<Record<IntegrationType['id'], IntegrationType | null>> {
-        return await this.lazyLoader.getMany(ids)
+        return await this.lazyLoader.getMany(ids.map((id) => id.toString()))
     }
 
     private onIntegrationsReloaded(integrationIds: IntegrationType['id'][]): void {
-        this.lazyLoader.markForRefresh(integrationIds)
+        this.lazyLoader.markForRefresh(integrationIds.map((id) => id.toString()))
     }
 
     private async fetchIntegrations(ids: string[]): Promise<Record<string, IntegrationType | undefined>> {

@@ -1,3 +1,4 @@
+import asyncio
 import datetime
 import os
 from collections import namedtuple
@@ -6,7 +7,7 @@ from unittest import mock
 
 import pytest
 from _pytest.terminal import TerminalReporter
-from braintrust import EvalAsync, init_logger
+from braintrust import EvalAsync, Metadata, init_logger
 from braintrust.framework import EvalData, EvalScorer, EvalTask, Input, Output
 from braintrust_langchain import BraintrustCallbackHandler, set_global_handler
 from django.test import override_settings
@@ -21,12 +22,19 @@ from ee.models.assistant import Conversation, CoreMemory
 from posthog.conftest import django_db_setup  # noqa: F401
 from posthog.demo.matrix.manager import MatrixManager
 from posthog.models import Team
-from posthog.schema import HumanMessage, VisualizationMessage
+from posthog.schema import HumanMessage, VisualizationMessage, FailureMessage
 from posthog.tasks.demo_create_data import HedgeboxMatrix
 
 handler = BraintrustCallbackHandler()
 if os.environ.get("BRAINTRUST_API_KEY"):
     set_global_handler(handler)
+
+EVAL_USER_FULL_NAME = "Karen Smith"
+
+
+def pytest_addoption(parser):
+    # Example: pytest ee/hogai/eval/eval_sql.py --eval churn - to only run cases containing "churn" in input
+    parser.addoption("--eval", action="store")
 
 
 async def MaxEval(
@@ -34,11 +42,21 @@ async def MaxEval(
     data: EvalData[Input, Output],
     task: EvalTask[Input, Output],
     scores: Sequence[EvalScorer[Input, Output]],
+    pytestconfig: pytest.Config,
+    metadata: Metadata | None = None,
 ):
     # We need to specify a separate project for each MaxEval() suite for comparison to baseline to work
     # That's the way Braintrust folks recommended - Braintrust projects are much more lightweight than PostHog ones
     project_name = f"max-ai-{experiment_name}"
     init_logger(project_name)
+
+    # Filter by --case <eval_case_name_part> pytest flag
+    case_filter = pytestconfig.option.eval
+    if case_filter:
+        if asyncio.iscoroutine(data):
+            data = await data
+        data = [case for case in data if case_filter in str(case.input)]  # type: ignore
+
     result = await EvalAsync(
         project_name,
         data=data,
@@ -48,6 +66,7 @@ async def MaxEval(
         timeout=60 * 8,
         max_concurrency=20,
         is_public=True,
+        metadata=metadata,
     )
     if os.getenv("GITHUB_EVENT_NAME") == "pull_request":
         with open("eval_results.jsonl", "a") as f:
@@ -73,7 +92,6 @@ def call_root_for_insight_generation(demo_org_team_user):
                 "insights": AssistantNodeName.INSIGHTS_SUBGRAPH,
                 "root": AssistantNodeName.END,
                 "search_documentation": AssistantNodeName.END,
-                "memory_onboarding": AssistantNodeName.END,
                 "end": AssistantNodeName.END,
             }
         )
@@ -83,20 +101,30 @@ def call_root_for_insight_generation(demo_org_team_user):
         .compile(checkpointer=DjangoCheckpointer())
     )
 
-    async def callable(query: str) -> PlanAndQueryOutput:
-        conversation = await Conversation.objects.acreate(team=demo_org_team_user[1], user=demo_org_team_user[2])
+    async def callable(query_with_extra_context: str | tuple[str, str]) -> PlanAndQueryOutput:
+        # If query_with_extra_context is a tuple, the first element is the query, the second is the extra context
+        # in case there's an ask_user tool call.
+        query = query_with_extra_context[0] if isinstance(query_with_extra_context, tuple) else query_with_extra_context
         # Initial state for the graph
         initial_state = AssistantState(
             messages=[HumanMessage(content=f"Answer this question: {query}")],
         )
+        conversation = await Conversation.objects.acreate(team=demo_org_team_user[1], user=demo_org_team_user[2])
 
         # Invoke the graph. The state will be updated through planner and then generator.
-        final_state_raw = await graph.ainvoke(
-            initial_state,
-            {"configurable": {"thread_id": conversation.id}},
-        )
+        final_state_raw = await graph.ainvoke(initial_state, {"configurable": {"thread_id": conversation.id}})
 
         final_state = AssistantState.model_validate(final_state_raw)
+
+        # If we have extra context for the potential ask_user tool, and there's no message of type ai/failure
+        # or ai/visualization, we should answer with that extra context. We only do this once at most in an eval case.
+        if isinstance(query_with_extra_context, tuple) and not any(
+            isinstance(m, VisualizationMessage | FailureMessage) for m in final_state.messages
+        ):
+            final_state.messages = [*final_state.messages, HumanMessage(content=query_with_extra_context[1])]
+            final_state.graph_status = "resumed"
+            final_state_raw = await graph.ainvoke(final_state, {"configurable": {"thread_id": conversation.id}})
+            final_state = AssistantState.model_validate(final_state_raw)
 
         if not final_state.messages or not isinstance(final_state.messages[-1], VisualizationMessage):
             return {
@@ -136,7 +164,7 @@ def demo_org_team_user(django_db_setup, django_db_blocker):  # noqa: F811
                 # Simulation saving should occur in non-test mode, so that Kafka isn't mocked. Normally in tests we don't
                 # want to ingest via Kafka, but simulation saving is specifically designed to use that route for speed
                 org, team, user = matrix_manager.ensure_account_and_save(
-                    f"eval-{today.isoformat()}", "Eval Doe", "Hedgebox Inc."
+                    f"eval-{today.isoformat()}", EVAL_USER_FULL_NAME, "Hedgebox Inc."
                 )
         else:
             print(f"Using existing demo data for evals...")  # noqa: T201
