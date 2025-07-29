@@ -41,7 +41,7 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
         suggestedQueryInput,
         isDraft,
         currentDraftId,
-        inProgressViewEdits,
+        inProgressDraftEdits,
     } = useValues(multitabEditorLogic)
 
     const { activePanelIdentifier } = useValues(panelLayoutLogic)
@@ -167,7 +167,7 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
                                         },
                                         types: response && 'types' in response ? response?.types ?? [] : [],
                                         shouldRematerialize: isMaterializedView,
-                                        edited_history_id: inProgressViewEdits[editingView.id],
+                                        edited_history_id: inProgressDraftEdits[currentDraftId],
                                     })
                                 }
                             }}
@@ -183,7 +183,7 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
                         id="sql-editor-query-window-save-draft"
                         onClick={() => {
                             if (activeModelUri) {
-                                saveDraft(activeModelUri.uri.toString(), queryInput, editingView.id)
+                                saveDraft(activeModelUri, queryInput, editingView.id)
                             }
                         }}
                     >
