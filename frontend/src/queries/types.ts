@@ -9,6 +9,7 @@ import {
     RefreshType,
 } from '~/queries/schema/schema-general'
 import { InsightLogicProps, TrendResult } from '~/types'
+import { ColumnFeature } from './nodes/DataTable/DataTable'
 
 /** Pass custom metadata to queries. Used for e.g. custom columns in the DataTable. */
 export interface QueryContext<Q extends QuerySchema = QuerySchema> {
@@ -39,6 +40,8 @@ export interface QueryContext<Q extends QuerySchema = QuerySchema> {
     fileNameForExport?: string
     /** Whether to format numbers in human friendly format. */
     formatNumbers?: boolean
+    /** Custom column features to pass down to the DataTable */
+    columnFeatures?: ColumnFeature[]
 }
 
 export type QueryContextColumnTitleComponent = ComponentType<{

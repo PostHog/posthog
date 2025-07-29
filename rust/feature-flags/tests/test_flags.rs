@@ -4741,7 +4741,7 @@ async fn test_flag_keys_should_include_dependency_graph() -> Result<()> {
                             {
                                 "key": LEAF_FLAG_ID.to_string(),
                                 "value": true,
-                                "operator": "exact",
+                                "operator": "flag_evaluates_to",
                                 "type": "flag"
                             }
                         ],
@@ -4764,7 +4764,7 @@ async fn test_flag_keys_should_include_dependency_graph() -> Result<()> {
                             {
                                 "key": INTERMEDIATE_FLAG_ID.to_string(),
                                 "value": true,
-                                "operator": "exact",
+                                "operator": "flag_evaluates_to",
                                 "type": "flag"
                             }
                         ],

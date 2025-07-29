@@ -73,7 +73,7 @@
     "lint-staged": {
         "*.{json,yaml,yml}": "prettier --write",
         "*.{css,scss}": [
-            "stylelint --fix",
+            "stylelint --fix --allow-empty-input",
             "prettier --write"
         ],
         "{cypress,playwright,frontend,products,common,ee}/**/*.{js,jsx,mjs,ts,tsx}": [
