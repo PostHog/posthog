@@ -74,7 +74,8 @@ describe('EmailTrackingService', () => {
                 Payload: JSON.stringify({}),
             }
         })
-        afterEach(async () => {
+
+        afterEach(() => {
             server.close()
         })
 
