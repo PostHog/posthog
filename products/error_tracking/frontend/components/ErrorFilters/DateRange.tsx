@@ -5,7 +5,7 @@ import { cn } from 'lib/utils/css-classes'
 
 import { errorFiltersLogic } from './errorFiltersLogic'
 
-const errorTrackingDateOptions = dateMapping.filter((dm) => dm.key != 'Yesterday')
+const errorTrackingDateOptions = dateMapping.filter((dm) => !['Yesterday', 'All time'].includes(dm.key))
 
 export const DateRangeFilter = ({
     className,

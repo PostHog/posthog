@@ -234,8 +234,8 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                     }
                 },
                 saveCohort: async ({ cohortParams }, breakpoint) => {
-                    let cohort = { ...cohortParams }
                     const existingCohort = values.cohort
+                    let cohort = { ...existingCohort, ...cohortParams }
                     const cohortFormData = createCohortFormData(cohort)
 
                     try {

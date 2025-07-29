@@ -1230,7 +1230,7 @@ def check_flag_evaluation_query_is_ok(feature_flag: FeatureFlag, project_id: int
 
     # This is a very rough simulation of the actual query that will be run.
     # Only reason we do it this way is to catch any DB level errors that will bork at runtime
-    # but aren't caught by above validation, like a regex valid according to re2 but  not postgresql.
+    # but aren't caught by above validation, like a regex valid according to re2 but not postgresql.
     # We also randomly query for 20 people sans distinct id to make sure the query is valid.
 
     # TODO: Once we move to no DB level evaluation, can get rid of this.

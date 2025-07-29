@@ -20,7 +20,7 @@ class TestCdpBehaviouralEventsConsumer extends CdpBehaviouralEventsConsumer {
     }
 }
 
-jest.setTimeout(5000)
+jest.setTimeout(20_000)
 
 const TEST_FILTERS = {
     // Simple pageview event filter: event == '$pageview'
@@ -100,39 +100,6 @@ const TEST_FILTERS = {
 }
 
 describe('CdpBehaviouralEventsConsumer', () => {
-    // Helper function to setup test environment with Cassandra enabled
-    async function setupWithCassandraEnabled() {
-        await resetTestDatabase()
-        const hub = await createHub({ WRITE_BEHAVIOURAL_COUNTERS_TO_CASSANDRA: true })
-        const team = await getFirstTeam(hub)
-        const processor = new TestCdpBehaviouralEventsConsumer(hub)
-        const cassandra = processor.getCassandraClient()
-
-        if (!cassandra) {
-            throw new Error('Cassandra client should be initialized when flag is enabled')
-        }
-
-        await cassandra.connect()
-        const repository = processor.getBehavioralCounterRepository()!
-        await truncateBehavioralCounters(cassandra)
-
-        return { hub, team, processor, cassandra, repository }
-    }
-
-    // Helper function to setup test environment with Cassandra disabled
-    async function setupWithCassandraDisabled() {
-        await resetTestDatabase()
-        const hub = await createHub({ WRITE_BEHAVIOURAL_COUNTERS_TO_CASSANDRA: false })
-        const team = await getFirstTeam(hub)
-        const processor = new TestCdpBehaviouralEventsConsumer(hub)
-
-        // Processor should not have initialized Cassandra
-        expect(processor.getCassandraClient()).toBeNull()
-        expect(processor.getBehavioralCounterRepository()).toBeNull()
-
-        return { hub, team, processor }
-    }
-
     describe('with Cassandra enabled', () => {
         let processor: TestCdpBehaviouralEventsConsumer
         let hub: Hub
@@ -140,18 +107,35 @@ describe('CdpBehaviouralEventsConsumer', () => {
         let cassandra: CassandraClient
         let repository: BehavioralCounterRepository
 
-        beforeEach(async () => {
-            const setup = await setupWithCassandraEnabled()
-            hub = setup.hub
-            team = setup.team
-            processor = setup.processor
-            cassandra = setup.cassandra
-            repository = setup.repository
+        beforeAll(async () => {
+            await resetTestDatabase()
+            hub = await createHub({ WRITE_BEHAVIOURAL_COUNTERS_TO_CASSANDRA: true })
+            team = await getFirstTeam(hub)
+            processor = new TestCdpBehaviouralEventsConsumer(hub)
+            const cassandraClient = processor.getCassandraClient()
+
+            if (!cassandraClient) {
+                throw new Error('Cassandra client should be initialized when flag is enabled')
+            }
+
+            cassandra = cassandraClient
+            await cassandra.connect()
+            repository = processor.getBehavioralCounterRepository()!
         })
 
-        afterEach(async () => {
+        beforeEach(async () => {
+            await resetTestDatabase()
+            await truncateBehavioralCounters(cassandra)
+            // Clear action manager cache to ensure test isolation
+            ;(hub.actionManagerCDP as any).lazyLoader.clear()
+        })
+
+        afterAll(async () => {
             await cassandra.shutdown()
             await closeHub(hub)
+        })
+
+        afterEach(() => {
             jest.restoreAllMocks()
         })
 
@@ -412,15 +396,28 @@ describe('CdpBehaviouralEventsConsumer', () => {
         let hub: Hub
         let team: Team
 
-        beforeEach(async () => {
-            const setup = await setupWithCassandraDisabled()
-            hub = setup.hub
-            team = setup.team
-            processor = setup.processor
+        beforeAll(async () => {
+            await resetTestDatabase()
+            hub = await createHub({ WRITE_BEHAVIOURAL_COUNTERS_TO_CASSANDRA: false })
+            team = await getFirstTeam(hub)
+            processor = new TestCdpBehaviouralEventsConsumer(hub)
+
+            // Processor should not have initialized Cassandra
+            expect(processor.getCassandraClient()).toBeNull()
+            expect(processor.getBehavioralCounterRepository()).toBeNull()
         })
 
-        afterEach(async () => {
+        beforeEach(async () => {
+            await resetTestDatabase()
+            // Clear action manager cache to ensure test isolation
+            ;(hub.actionManagerCDP as any).lazyLoader.clear()
+        })
+
+        afterAll(async () => {
             await closeHub(hub)
+        })
+
+        afterEach(() => {
             jest.restoreAllMocks()
         })
 

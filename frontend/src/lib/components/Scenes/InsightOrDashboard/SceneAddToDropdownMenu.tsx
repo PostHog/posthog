@@ -1,5 +1,5 @@
 import { IconPlus } from '@posthog/icons'
-import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { ButtonPrimitive, ButtonPrimitiveProps } from 'lib/ui/Button/ButtonPrimitives'
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -19,22 +19,28 @@ type SceneAddToDropdownMenuProps = {
     onClick?: () => void
 }
 
-type SceneNotebookDropdownMenuProps = SceneDataAttrKeyProps & {
-    notebook?: boolean
-    dashboard?: SceneAddToDropdownMenuProps
-    shortId?: string
-}
+type SceneNotebookDropdownMenuProps = SceneDataAttrKeyProps &
+    Pick<ButtonPrimitiveProps, 'disabledReasons'> & {
+        notebook?: boolean
+        dashboard?: SceneAddToDropdownMenuProps
+        shortId?: string
+    }
 
 export function SceneAddToDropdownMenu({
     notebook,
     dashboard,
     shortId,
     dataAttrKey,
+    disabledReasons,
 }: SceneNotebookDropdownMenuProps): JSX.Element {
     return (
         <DropdownMenu>
             <DropdownMenuTrigger asChild>
-                <ButtonPrimitive menuItem data-attr={`${dataAttrKey}-add-to-dropdown-menu`}>
+                <ButtonPrimitive
+                    menuItem
+                    data-attr={`${dataAttrKey}-add-to-dropdown-menu`}
+                    disabledReasons={disabledReasons}
+                >
                     <IconPlus />
                     Add to...
                     <DropdownMenuOpenIndicator />
