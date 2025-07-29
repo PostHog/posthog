@@ -101,10 +101,3 @@ class Command(BaseCommand):
                 f"Errors: {error_count}"
             )
         )
-
-
-# python manage.py shell
-# from posthog.models.hog_function_template import HogFunctionTemplate
-# templates = HogFunctionTemplate.objects.filter(sha="")
-# print(templates.count())
-# templates.delete()
