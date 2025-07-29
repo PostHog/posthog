@@ -632,7 +632,7 @@ mod tests {
                 PropertyFilter {
                     key: leaf_flag.id.to_string(),
                     value: Some(json!(true)),
-                    operator: Some(OperatorType::Exact),
+                    operator: Some(OperatorType::FlagEvaluatesTo),
                     prop_type: PropertyType::Flag,
                     group_type_index: None,
                     negation: None,
@@ -1136,7 +1136,7 @@ mod tests {
             properties: Some(vec![PropertyFilter {
                 key: "1".to_string(),
                 value: Some(json!(true)),
-                operator: Some(OperatorType::Exact),
+                operator: Some(OperatorType::FlagEvaluatesTo),
                 prop_type: PropertyType::Flag,
                 group_type_index: None,
                 negation: None,

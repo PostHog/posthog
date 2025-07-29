@@ -1340,6 +1340,19 @@ class FilterLogicalOperator(StrEnum):
     OR_ = "OR"
 
 
+class FlagPropertyFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    key: str = Field(..., description="The key should be the flag ID")
+    label: Optional[str] = None
+    operator: Literal["flag_evaluates_to"] = Field(
+        default="flag_evaluates_to", description="Only flag_evaluates_to operator is allowed for flag dependencies"
+    )
+    type: Literal["flag"] = Field(default="flag", description="Feature flag dependency")
+    value: Union[bool, str] = Field(..., description="The value can be true, false, or a variant name")
+
+
 class FunnelConversionWindowTimeUnit(StrEnum):
     SECOND = "second"
     MINUTE = "minute"
@@ -1875,6 +1888,7 @@ class PropertyFilterType(StrEnum):
     DATA_WAREHOUSE_PERSON_PROPERTY = "data_warehouse_person_property"
     ERROR_TRACKING_ISSUE = "error_tracking_issue"
     REVENUE_ANALYTICS = "revenue_analytics"
+    FLAG = "flag"
     LOG = "log"
 
 
@@ -1913,6 +1927,7 @@ class PropertyOperator(StrEnum):
     IN_ = "in"
     NOT_IN = "not_in"
     IS_CLEANED_PATH_EXACT = "is_cleaned_path_exact"
+    FLAG_EVALUATES_TO = "flag_evaluates_to"
 
 
 class QueryIndexUsage(StrEnum):
@@ -2019,7 +2034,7 @@ class RecordingPropertyFilter(BaseModel):
     label: Optional[str] = None
     operator: PropertyOperator
     type: Literal["recording"] = "recording"
-    value: Optional[Union[list[Union[str, float]], Union[str, float]]] = None
+    value: Optional[Union[list[Union[str, float, bool]], Union[str, float, bool]]] = None
 
 
 class RefreshType(StrEnum):
@@ -2124,7 +2139,7 @@ class RevenueAnalyticsPropertyFilter(BaseModel):
     label: Optional[str] = None
     operator: PropertyOperator
     type: Literal["revenue_analytics"] = "revenue_analytics"
-    value: Optional[Union[list[Union[str, float]], Union[str, float]]] = None
+    value: Optional[Union[list[Union[str, float, bool]], Union[str, float, bool]]] = None
 
 
 class RevenueAnalyticsRevenueQueryResult(BaseModel):
@@ -2216,7 +2231,7 @@ class SessionPropertyFilter(BaseModel):
     label: Optional[str] = None
     operator: PropertyOperator
     type: Literal["session"] = "session"
-    value: Optional[Union[list[Union[str, float]], Union[str, float]]] = None
+    value: Optional[Union[list[Union[str, float, bool]], Union[str, float, bool]]] = None
 
 
 class SnapshotSource(StrEnum):
@@ -3255,7 +3270,7 @@ class DataWarehousePersonPropertyFilter(BaseModel):
     label: Optional[str] = None
     operator: PropertyOperator
     type: Literal["data_warehouse_person_property"] = "data_warehouse_person_property"
-    value: Optional[Union[list[Union[str, float]], Union[str, float]]] = None
+    value: Optional[Union[list[Union[str, float, bool]], Union[str, float, bool]]] = None
 
 
 class DataWarehousePropertyFilter(BaseModel):
@@ -3266,7 +3281,7 @@ class DataWarehousePropertyFilter(BaseModel):
     label: Optional[str] = None
     operator: PropertyOperator
     type: Literal["data_warehouse"] = "data_warehouse"
-    value: Optional[Union[list[Union[str, float]], Union[str, float]]] = None
+    value: Optional[Union[list[Union[str, float, bool]], Union[str, float, bool]]] = None
 
 
 class DatabaseSchemaField(BaseModel):
@@ -3317,7 +3332,7 @@ class ElementPropertyFilter(BaseModel):
     label: Optional[str] = None
     operator: PropertyOperator
     type: Literal["element"] = "element"
-    value: Optional[Union[list[Union[str, float]], Union[str, float]]] = None
+    value: Optional[Union[list[Union[str, float, bool]], Union[str, float, bool]]] = None
 
 
 class ErrorTrackingExternalReferenceIntegration(BaseModel):
@@ -3345,7 +3360,7 @@ class ErrorTrackingIssueFilter(BaseModel):
     label: Optional[str] = None
     operator: PropertyOperator
     type: Literal["error_tracking_issue"] = "error_tracking_issue"
-    value: Optional[Union[list[Union[str, float]], Union[str, float]]] = None
+    value: Optional[Union[list[Union[str, float, bool]], Union[str, float, bool]]] = None
 
 
 class EventMetadataPropertyFilter(BaseModel):
@@ -3356,7 +3371,7 @@ class EventMetadataPropertyFilter(BaseModel):
     label: Optional[str] = None
     operator: PropertyOperator
     type: Literal["event_metadata"] = "event_metadata"
-    value: Optional[Union[list[Union[str, float]], Union[str, float]]] = None
+    value: Optional[Union[list[Union[str, float, bool]], Union[str, float, bool]]] = None
 
 
 class EventOddsRatioSerialized(BaseModel):
@@ -3378,7 +3393,7 @@ class EventPropertyFilter(BaseModel):
     label: Optional[str] = None
     operator: Optional[PropertyOperator] = PropertyOperator.EXACT
     type: Literal["event"] = Field(default="event", description="Event properties")
-    value: Optional[Union[list[Union[str, float]], Union[str, float]]] = None
+    value: Optional[Union[list[Union[str, float, bool]], Union[str, float, bool]]] = None
 
 
 class EventTaxonomyItem(BaseModel):
@@ -3527,7 +3542,7 @@ class FeaturePropertyFilter(BaseModel):
     label: Optional[str] = None
     operator: PropertyOperator
     type: Literal["feature"] = Field(default="feature", description='Event property with "$feature/" prepended')
-    value: Optional[Union[list[Union[str, float]], Union[str, float]]] = None
+    value: Optional[Union[list[Union[str, float, bool]], Union[str, float, bool]]] = None
 
 
 class FunnelCorrelationResult(BaseModel):
@@ -3575,7 +3590,7 @@ class GroupPropertyFilter(BaseModel):
     label: Optional[str] = None
     operator: PropertyOperator
     type: Literal["group"] = "group"
-    value: Optional[Union[list[Union[str, float]], Union[str, float]]] = None
+    value: Optional[Union[list[Union[str, float, bool]], Union[str, float, bool]]] = None
 
 
 class HogQLAutocompleteResponse(BaseModel):
@@ -3606,7 +3621,7 @@ class HogQLPropertyFilter(BaseModel):
     key: str
     label: Optional[str] = None
     type: Literal["hogql"] = "hogql"
-    value: Optional[Union[list[Union[str, float]], Union[str, float]]] = None
+    value: Optional[Union[list[Union[str, float, bool]], Union[str, float, bool]]] = None
 
 
 class HogQLQueryModifiers(BaseModel):
@@ -3710,7 +3725,7 @@ class LogEntryPropertyFilter(BaseModel):
     label: Optional[str] = None
     operator: PropertyOperator
     type: Literal["log_entry"] = "log_entry"
-    value: Optional[Union[list[Union[str, float]], Union[str, float]]] = None
+    value: Optional[Union[list[Union[str, float, bool]], Union[str, float, bool]]] = None
 
 
 class LogMessage(BaseModel):
@@ -3740,7 +3755,7 @@ class LogPropertyFilter(BaseModel):
     label: Optional[str] = None
     operator: PropertyOperator
     type: Literal["log"] = "log"
-    value: Optional[Union[list[Union[str, float]], Union[str, float]]] = None
+    value: Optional[Union[list[Union[str, float, bool]], Union[str, float, bool]]] = None
 
 
 class MarketingAnalyticsSchemaField(BaseModel):
@@ -3796,7 +3811,7 @@ class PersonPropertyFilter(BaseModel):
     label: Optional[str] = None
     operator: PropertyOperator
     type: Literal["person"] = Field(default="person", description="Person properties")
-    value: Optional[Union[list[Union[str, float]], Union[str, float]]] = None
+    value: Optional[Union[list[Union[str, float, bool]], Union[str, float, bool]]] = None
 
 
 class QueryResponseAlternative8(BaseModel):
@@ -6596,6 +6611,7 @@ class ConversionGoalFilter1(BaseModel):
                 LogEntryPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
+                FlagPropertyFilter,
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
@@ -6644,6 +6660,7 @@ class ConversionGoalFilter1(BaseModel):
                 LogEntryPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
+                FlagPropertyFilter,
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
@@ -6679,6 +6696,7 @@ class ConversionGoalFilter2(BaseModel):
                 LogEntryPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
+                FlagPropertyFilter,
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
@@ -6726,6 +6744,7 @@ class ConversionGoalFilter2(BaseModel):
                 LogEntryPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
+                FlagPropertyFilter,
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
@@ -6763,6 +6782,7 @@ class ConversionGoalFilter3(BaseModel):
                 LogEntryPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
+                FlagPropertyFilter,
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
@@ -6811,6 +6831,7 @@ class ConversionGoalFilter3(BaseModel):
                 LogEntryPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
+                FlagPropertyFilter,
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
@@ -6848,6 +6869,7 @@ class DashboardFilter(BaseModel):
                 LogEntryPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
+                FlagPropertyFilter,
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
@@ -7286,6 +7308,7 @@ class DataWarehouseNode(BaseModel):
                 LogEntryPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
+                FlagPropertyFilter,
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
@@ -7334,6 +7357,7 @@ class DataWarehouseNode(BaseModel):
                 LogEntryPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
+                FlagPropertyFilter,
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
@@ -7394,6 +7418,7 @@ class EntityNode(BaseModel):
                 LogEntryPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
+                FlagPropertyFilter,
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
@@ -7440,6 +7465,7 @@ class EntityNode(BaseModel):
                 LogEntryPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
+                FlagPropertyFilter,
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
@@ -7538,6 +7564,7 @@ class ErrorTrackingSceneToolOutput(BaseModel):
                 LogEntryPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
+                FlagPropertyFilter,
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
@@ -7595,6 +7622,7 @@ class EventsNode(BaseModel):
                 LogEntryPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
+                FlagPropertyFilter,
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
@@ -7643,6 +7671,7 @@ class EventsNode(BaseModel):
                 LogEntryPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
+                FlagPropertyFilter,
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
@@ -7703,6 +7732,7 @@ class ExperimentDataWarehouseNode(BaseModel):
                 LogEntryPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
+                FlagPropertyFilter,
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
@@ -7749,6 +7779,7 @@ class ExperimentDataWarehouseNode(BaseModel):
                 LogEntryPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
+                FlagPropertyFilter,
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
@@ -7783,6 +7814,7 @@ class ExperimentEventExposureConfig(BaseModel):
             LogEntryPropertyFilter,
             GroupPropertyFilter,
             FeaturePropertyFilter,
+            FlagPropertyFilter,
             HogQLPropertyFilter,
             EmptyPropertyFilter,
             DataWarehousePropertyFilter,
@@ -7869,6 +7901,7 @@ class FunnelExclusionActionsNode(BaseModel):
                 LogEntryPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
+                FlagPropertyFilter,
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
@@ -7918,6 +7951,7 @@ class FunnelExclusionActionsNode(BaseModel):
                 LogEntryPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
+                FlagPropertyFilter,
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
@@ -7951,6 +7985,7 @@ class FunnelExclusionEventsNode(BaseModel):
                 LogEntryPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
+                FlagPropertyFilter,
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
@@ -8001,6 +8036,7 @@ class FunnelExclusionEventsNode(BaseModel):
                 LogEntryPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
+                FlagPropertyFilter,
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
@@ -8105,6 +8141,7 @@ class HogQLFilters(BaseModel):
                 LogEntryPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
+                FlagPropertyFilter,
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
@@ -8305,6 +8342,7 @@ class PersonsNode(BaseModel):
                 LogEntryPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
+                FlagPropertyFilter,
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
@@ -8337,6 +8375,7 @@ class PersonsNode(BaseModel):
                 LogEntryPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
+                FlagPropertyFilter,
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
@@ -8372,6 +8411,7 @@ class PropertyGroupFilterValue(BaseModel):
                 LogEntryPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
+                FlagPropertyFilter,
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
@@ -9641,6 +9681,7 @@ class RetentionEntity(BaseModel):
                 LogEntryPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
+                FlagPropertyFilter,
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
@@ -10019,6 +10060,7 @@ class TracesQuery(BaseModel):
                 LogEntryPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
+                FlagPropertyFilter,
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
@@ -10275,6 +10317,7 @@ class ActionsNode(BaseModel):
                 LogEntryPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
+                FlagPropertyFilter,
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
@@ -10322,6 +10365,7 @@ class ActionsNode(BaseModel):
                 LogEntryPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
+                FlagPropertyFilter,
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
@@ -10888,6 +10932,7 @@ class RecordingsQuery(BaseModel):
                 LogEntryPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
+                FlagPropertyFilter,
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
@@ -10920,6 +10965,7 @@ class RecordingsQuery(BaseModel):
                 LogEntryPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
+                FlagPropertyFilter,
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
@@ -10993,6 +11039,7 @@ class StickinessQuery(BaseModel):
                     LogEntryPropertyFilter,
                     GroupPropertyFilter,
                     FeaturePropertyFilter,
+                    FlagPropertyFilter,
                     HogQLPropertyFilter,
                     EmptyPropertyFilter,
                     DataWarehousePropertyFilter,
@@ -11067,6 +11114,7 @@ class TrendsQuery(BaseModel):
                     LogEntryPropertyFilter,
                     GroupPropertyFilter,
                     FeaturePropertyFilter,
+                    FlagPropertyFilter,
                     HogQLPropertyFilter,
                     EmptyPropertyFilter,
                     DataWarehousePropertyFilter,
@@ -11197,6 +11245,7 @@ class CalendarHeatmapQuery(BaseModel):
                     LogEntryPropertyFilter,
                     GroupPropertyFilter,
                     FeaturePropertyFilter,
+                    FlagPropertyFilter,
                     HogQLPropertyFilter,
                     EmptyPropertyFilter,
                     DataWarehousePropertyFilter,
@@ -11436,6 +11485,7 @@ class FunnelsQuery(BaseModel):
                     LogEntryPropertyFilter,
                     GroupPropertyFilter,
                     FeaturePropertyFilter,
+                    FlagPropertyFilter,
                     HogQLPropertyFilter,
                     EmptyPropertyFilter,
                     DataWarehousePropertyFilter,
@@ -11485,6 +11535,7 @@ class InsightsQueryBaseCalendarHeatmapResponse(BaseModel):
                     LogEntryPropertyFilter,
                     GroupPropertyFilter,
                     FeaturePropertyFilter,
+                    FlagPropertyFilter,
                     HogQLPropertyFilter,
                     EmptyPropertyFilter,
                     DataWarehousePropertyFilter,
@@ -11531,6 +11582,7 @@ class InsightsQueryBaseFunnelsQueryResponse(BaseModel):
                     LogEntryPropertyFilter,
                     GroupPropertyFilter,
                     FeaturePropertyFilter,
+                    FlagPropertyFilter,
                     HogQLPropertyFilter,
                     EmptyPropertyFilter,
                     DataWarehousePropertyFilter,
@@ -11577,6 +11629,7 @@ class InsightsQueryBaseLifecycleQueryResponse(BaseModel):
                     LogEntryPropertyFilter,
                     GroupPropertyFilter,
                     FeaturePropertyFilter,
+                    FlagPropertyFilter,
                     HogQLPropertyFilter,
                     EmptyPropertyFilter,
                     DataWarehousePropertyFilter,
@@ -11623,6 +11676,7 @@ class InsightsQueryBasePathsQueryResponse(BaseModel):
                     LogEntryPropertyFilter,
                     GroupPropertyFilter,
                     FeaturePropertyFilter,
+                    FlagPropertyFilter,
                     HogQLPropertyFilter,
                     EmptyPropertyFilter,
                     DataWarehousePropertyFilter,
@@ -11669,6 +11723,7 @@ class InsightsQueryBaseRetentionQueryResponse(BaseModel):
                     LogEntryPropertyFilter,
                     GroupPropertyFilter,
                     FeaturePropertyFilter,
+                    FlagPropertyFilter,
                     HogQLPropertyFilter,
                     EmptyPropertyFilter,
                     DataWarehousePropertyFilter,
@@ -11715,6 +11770,7 @@ class InsightsQueryBaseTrendsQueryResponse(BaseModel):
                     LogEntryPropertyFilter,
                     GroupPropertyFilter,
                     FeaturePropertyFilter,
+                    FlagPropertyFilter,
                     HogQLPropertyFilter,
                     EmptyPropertyFilter,
                     DataWarehousePropertyFilter,
@@ -11784,6 +11840,7 @@ class LifecycleQuery(BaseModel):
                     LogEntryPropertyFilter,
                     GroupPropertyFilter,
                     FeaturePropertyFilter,
+                    FlagPropertyFilter,
                     HogQLPropertyFilter,
                     EmptyPropertyFilter,
                     DataWarehousePropertyFilter,
@@ -11941,6 +11998,7 @@ class RetentionQuery(BaseModel):
                     LogEntryPropertyFilter,
                     GroupPropertyFilter,
                     FeaturePropertyFilter,
+                    FlagPropertyFilter,
                     HogQLPropertyFilter,
                     EmptyPropertyFilter,
                     DataWarehousePropertyFilter,
@@ -12228,6 +12286,7 @@ class PathsQuery(BaseModel):
                     LogEntryPropertyFilter,
                     GroupPropertyFilter,
                     FeaturePropertyFilter,
+                    FlagPropertyFilter,
                     HogQLPropertyFilter,
                     EmptyPropertyFilter,
                     DataWarehousePropertyFilter,
@@ -12536,6 +12595,7 @@ class FunnelCorrelationActorsQuery(BaseModel):
                 LogEntryPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
+                FlagPropertyFilter,
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
@@ -12617,6 +12677,7 @@ class SessionBatchEventsQuery(BaseModel):
                     LogEntryPropertyFilter,
                     GroupPropertyFilter,
                     FeaturePropertyFilter,
+                    FlagPropertyFilter,
                     HogQLPropertyFilter,
                     EmptyPropertyFilter,
                     DataWarehousePropertyFilter,
@@ -12655,6 +12716,7 @@ class SessionBatchEventsQuery(BaseModel):
                 LogEntryPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
+                FlagPropertyFilter,
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
@@ -12743,6 +12805,7 @@ class EventsQuery(BaseModel):
                     LogEntryPropertyFilter,
                     GroupPropertyFilter,
                     FeaturePropertyFilter,
+                    FlagPropertyFilter,
                     HogQLPropertyFilter,
                     EmptyPropertyFilter,
                     DataWarehousePropertyFilter,
@@ -12778,6 +12841,7 @@ class EventsQuery(BaseModel):
                 LogEntryPropertyFilter,
                 GroupPropertyFilter,
                 FeaturePropertyFilter,
+                FlagPropertyFilter,
                 HogQLPropertyFilter,
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
