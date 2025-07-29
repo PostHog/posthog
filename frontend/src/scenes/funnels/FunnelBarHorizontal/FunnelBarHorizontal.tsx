@@ -50,7 +50,7 @@ export function FunnelBarHorizontal({
     return (
         <div
             data-attr="funnel-bar-horizontal"
-            className={clsx('FunnelBarHorizontal', { 'has-optional-steps': hasOptionalSteps })}
+            className={clsx('FunnelBarHorizontal', { 'FunnelBarHorizontal--has-optional-steps': hasOptionalSteps })}
             ref={graphRef}
         >
             {steps.map((step, stepIndex) => {

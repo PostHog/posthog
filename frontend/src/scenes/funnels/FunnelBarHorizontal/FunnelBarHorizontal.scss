@@ -14,7 +14,7 @@ $glyph_height: 23px; // Based on .funnel-step-glyph
     }
 
     // When there are optional steps, indent all content to make room for the layout
-    &.has-optional-steps {
+    &.FunnelBarHorizontal--has-optional-steps {
         .funnel-step {
             padding-left: $series_container_width + 2rem; // Extra space for optional step positioning
         }
