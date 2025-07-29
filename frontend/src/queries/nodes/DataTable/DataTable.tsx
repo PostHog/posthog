@@ -781,20 +781,8 @@ export function DataTable({
                                       }
                                     : undefined
                             }
-                            rowClassName={({ result, label }) => {
-                                let rowPercentIndex = allColumns.findIndex(
-                                    (colName) => context?.columns?.[colName]?.hidden
-                                )
-                                let rowPercent: number | undefined
-                                if (
-                                    rowPercentIndex >= 0 &&
-                                    Array.isArray(result) &&
-                                    typeof result[rowPercentIndex] === 'number'
-                                ) {
-                                    rowPercent = result[rowPercentIndex]
-                                }
-
-                                return clsx('DataTable__row', {
+                            rowClassName={({ result, label }) =>
+                                clsx('DataTable__row', {
                                     'DataTable__row--highlight_once': result && highlightedRows.has(result),
                                     'DataTable__row--category_row': !!label,
                                     'border border-x-danger-dark bg-danger-highlight':
@@ -803,7 +791,7 @@ export function DataTable({
                                         result[0] &&
                                         result[0]['event'] === '$exception',
                                 })
-                            }}
+                            }
                             footer={
                                 (dataTableRows ?? []).length > 0 &&
                                 !sourceFeatures.has(QueryFeature.hideLoadNextButton) ? (
