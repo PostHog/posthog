@@ -46,7 +46,7 @@ IMPORTANT: DO NOT REMOVE ANY FIELDS FROM THE CURRENT INSIGHT DEFINITION. DO NOT 
 
     args_schema: type[BaseModel] = EditCurrentInsightArgs
 
-    async def _arun_impl(self, query_kind: str, query_description: str) -> tuple[str, None]:
+    async def _arun_impl(self, query_description: str) -> tuple[str, None]:
         from ee.hogai.graph.graph import InsightsAssistantGraph  # avoid circular import
 
         if "current_query" not in self.context:

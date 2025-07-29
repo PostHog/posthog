@@ -23,6 +23,7 @@ from ee.hogai.graph.retention.nodes import RetentionSchemaGeneratorOutput
 from ee.hogai.graph.root.nodes import SLASH_COMMAND_INIT
 from ee.hogai.graph.trends.nodes import TrendsSchemaGeneratorOutput
 from ee.hogai.tool import search_documentation
+from ee.hogai.utils.state import GraphValueUpdateTuple
 from ee.hogai.utils.tests import FakeChatOpenAI, FakeRunnableLambdaWithTokenCounter
 from ee.hogai.utils.types import (
     AssistantMode,
@@ -59,7 +60,6 @@ from posthog.schema import (
     VisualizationMessage,
 )
 from posthog.test.base import ClickhouseTestMixin, NonAtomicBaseTest, _create_event, _create_person
-from ee.hogai.utils.state import GraphValueUpdateTuple
 
 from ..assistant import Assistant
 from ..graph import AssistantGraph, InsightsAssistantGraph
@@ -521,7 +521,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                         {
                             "id": "1",
                             "name": "create_and_query_insight",
-                            "args": {"query_description": "Foobar", "query_kind": insight_type},
+                            "args": {"query_description": "Foobar"},
                         }
                     ],
                 )
@@ -698,7 +698,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                     {
                         "id": "xyz",
                         "name": "create_and_query_insight",
-                        "args": {"query_description": "Foobar", "query_kind": "trends"},
+                        "args": {"query_description": "Foobar"},
                     }
                 ],
             )
@@ -765,7 +765,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                         {
                             "id": "xyz",
                             "name": "create_and_query_insight",
-                            "args": {"query_description": "Foobar", "query_kind": "funnel"},
+                            "args": {"query_description": "Foobar"},
                         }
                     ],
                 )
@@ -839,7 +839,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                     {
                         "id": "xyz",
                         "name": "create_and_query_insight",
-                        "args": {"query_description": "Foobar", "query_kind": "retention"},
+                        "args": {"query_description": "Foobar"},
                     }
                 ],
             )
@@ -910,7 +910,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                     {
                         "id": "xyz",
                         "name": "create_and_query_insight",
-                        "args": {"query_description": "Foobar", "query_kind": "sql"},
+                        "args": {"query_description": "Foobar"},
                     }
                 ],
             )
@@ -1142,7 +1142,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                         {
                             "id": str(uuid4()),
                             "name": "create_and_query_insight",
-                            "args": {"query_description": "Foobar", "query_kind": "trends"},
+                            "args": {"query_description": "Foobar"},
                         }
                     ],
                 )
@@ -1223,7 +1223,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                         {
                             "id": "1",
                             "name": "create_and_query_insight",
-                            "args": {"query_description": "Foobar", "query_kind": "trends"},
+                            "args": {"query_description": "Foobar"},
                         }
                     ],
                 )
@@ -1561,7 +1561,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                     {
                         "id": "xyz",
                         "name": "create_and_query_insight",
-                        "args": {"query_description": "Foobar", "query_kind": "trends"},
+                        "args": {"query_description": "Foobar"},
                     }
                 ],
             )
@@ -1579,7 +1579,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                         {
                             "id": "call_1",
                             "name": "final_answer",
-                            "args": {"query_kind": "trends", "plan": "Plan"},
+                            "args": {"plan": "Plan", "query_kind": "trends"},
                         }
                     ],
                 )
@@ -1643,7 +1643,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                     AssistantToolCall(
                         id="xyz",
                         name="create_and_query_insight",
-                        args={"query_description": "Foobar", "query_kind": "trends"},
+                        args={"query_description": "Foobar"},
                     )
                 ],
             ),

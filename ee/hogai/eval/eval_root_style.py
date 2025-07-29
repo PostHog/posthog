@@ -1,3 +1,5 @@
+from collections import defaultdict
+
 import pytest
 from autoevals.llm import LLMClassifier
 from braintrust import EvalCase
@@ -63,18 +65,18 @@ Focus specifically on tone and writing style, not content accuracy.
 
 @pytest.fixture
 def call_root(demo_org_team_user):
+    mapping = defaultdict(lambda: AssistantNodeName.END)
+    mapping.update(
+        {
+            "search_documentation": AssistantNodeName.INKEEP_DOCS,
+            "root": AssistantNodeName.ROOT,
+        }
+    )
+
     graph = (
         AssistantGraph(demo_org_team_user[1], demo_org_team_user[2])
         .add_edge(AssistantNodeName.START, AssistantNodeName.ROOT)
-        .add_root(
-            {
-                # Some requests will go via Inkeep, and this is realistic! Inkeep needs to adhere to our intended style too
-                "insights": AssistantNodeName.END,
-                "search_documentation": AssistantNodeName.INKEEP_DOCS,
-                "root": AssistantNodeName.ROOT,
-                "end": AssistantNodeName.END,
-            }
-        )
+        .add_root(mapping)
         .add_inkeep_docs()
         .compile()
     )
