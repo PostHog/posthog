@@ -1,10 +1,9 @@
+from posthog.cdp.templates.hog_function_template import sync_template_to_db
 from posthog.models.hog_flow.hog_flow import HogFlow
 from posthog.test.base import APIBaseTest
 from inline_snapshot import snapshot
 
 from posthog.cdp.templates.slack.template_slack import template as template_slack
-from posthog.models.hog_function_template import HogFunctionTemplate
-from posthog.api.test.test_hog_function import _create_template_from_mock
 from posthog.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
 
 webhook_template = MOCK_NODE_TEMPLATES[0]
@@ -14,8 +13,8 @@ class TestHogFlowAPI(APIBaseTest):
     def setUp(self):
         super().setUp()
         # Create slack template in DB
-        HogFunctionTemplate.create_from_dataclass(template_slack)
-        _create_template_from_mock(webhook_template)
+        sync_template_to_db(template_slack)
+        sync_template_to_db(webhook_template)
 
     def _create_hog_flow_with_action(self, action_config: dict):
         action = {
