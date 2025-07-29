@@ -1,9 +1,14 @@
 from rest_framework import serializers
+from rest_framework import pagination
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.warehouse.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from posthog.warehouse.models.datawarehouse_saved_query_draft import DataWarehouseSavedQueryDraft
 from rest_framework import viewsets
+
+
+class DataWarehouseSavedQueryDraftPagination(pagination.LimitOffsetPagination):
+    default_limit = 100
 
 
 class DataWarehouseSavedQueryDraftSerializer(serializers.ModelSerializer):
@@ -40,6 +45,7 @@ class DataWarehouseSavedQueryDraftViewSet(TeamAndOrgViewSetMixin, viewsets.Model
     scope_object = "INTERNAL"
     queryset = DataWarehouseSavedQueryDraft.objects.all()
     serializer_class = DataWarehouseSavedQueryDraftSerializer
+    pagination_class = DataWarehouseSavedQueryDraftPagination
 
     def safely_get_queryset(self, queryset):
         # API is scoped to user

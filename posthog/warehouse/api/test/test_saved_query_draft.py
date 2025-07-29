@@ -97,9 +97,21 @@ class TestDataWarehouseSavedQueryDraft(APIBaseTest):
         response = self.client.get(f"/api/environments/{self.team.pk}/warehouse_saved_query_drafts/")
 
         self.assertEqual(response.status_code, 200, response.content)
-        self.assertEqual(len(response.json()["results"]), 1)
-        self.assertEqual(response.json()["results"][0]["id"], str(draft.id))
-        self.assertEqual(response.json()["results"][0]["name"], "test_draft")
+        response_data = response.json()
+
+        # Verify pagination metadata
+        self.assertIn("count", response_data)
+        self.assertIn("next", response_data)
+        self.assertIn("previous", response_data)
+        self.assertIn("results", response_data)
+
+        # Verify content
+        self.assertEqual(response_data["count"], 1)
+        self.assertIsNone(response_data["next"])
+        self.assertIsNone(response_data["previous"])
+        self.assertEqual(len(response_data["results"]), 1)
+        self.assertEqual(response_data["results"][0]["id"], str(draft.id))
+        self.assertEqual(response_data["results"][0]["name"], "test_draft")
 
     def test_create_draft_with_saved_query_id(self):
         # Create a saved query first
