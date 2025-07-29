@@ -76,11 +76,11 @@ function buildData(
     const generator = d3.randomLcg(42) // Initialize a random generator with seed
     const dayJsStart = dayjs(minDate)
     const dayJsEnd = dayjs(maxDate)
-    const binSize = dayJsEnd.diff(dayJsStart, 'day') / resolution
+    const binSize = dayJsEnd.diff(dayJsStart, 'seconds') / resolution
     return new Array(resolution).fill(0).map((_, index) => {
         return {
             value: Math.floor(generator() * (maxValue - minValue) + minValue),
-            date: dayJsStart.add(index * binSize, 'day').toDate(),
+            date: dayJsStart.add(index * binSize, 'seconds').toDate(),
         }
     })
 }
