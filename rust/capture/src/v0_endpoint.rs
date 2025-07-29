@@ -234,9 +234,15 @@ async fn handle_legacy(
         .is_limited(context.token.as_str())
         .await;
 
+    let mut events = events;
     if billing_limited {
-        report_dropped_events("over_quota", events.len() as u64);
-        return Err(CaptureError::BillingLimit);
+        let start_len = events.len();
+        // TODO - right now the exception billing limits are applied in ET's pipeline
+        events.retain(|e| e.event != "$exception");
+        report_dropped_events("over_quota", (start_len - events.len()) as u64);
+        if events.is_empty() {
+            return Err(CaptureError::BillingLimit);
+        }
     }
 
     debug!(context=?context,
