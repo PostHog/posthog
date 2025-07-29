@@ -650,7 +650,7 @@ describe('maxThreadLogic', () => {
 
     describe('threadRaw status fields', () => {
         it('initializes threadRaw with status fields from conversation messages', async () => {
-            const conversationWithMessages = {
+            const conversationWithMessages: ConversationDetail = {
                 id: MOCK_CONVERSATION_ID,
                 status: ConversationStatus.Idle,
                 title: 'Test conversation',
@@ -719,7 +719,7 @@ describe('maxThreadLogic', () => {
 
         it('updates threadRaw with status fields when conversation prop changes with new messages', async () => {
             // Start with empty conversation
-            const initialConversation = {
+            const initialConversation: ConversationDetail = {
                 id: MOCK_CONVERSATION_ID,
                 status: ConversationStatus.Idle,
                 title: 'Test conversation',
