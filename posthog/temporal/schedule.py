@@ -11,6 +11,7 @@ from temporalio.client import (
     ScheduleAlreadyRunningError,
     ScheduleCalendarSpec,
     ScheduleIntervalSpec,
+    ScheduleRange,
     ScheduleSpec,
 )
 
@@ -133,8 +134,8 @@ async def create_salesforce_enrichment_schedule(client: Client):
             calendars=[
                 ScheduleCalendarSpec(
                     comment="Sunday at 2 AM UTC",
-                    hour=[2],
-                    day_of_week=[0],
+                    hour=[ScheduleRange(start=2, end=2)],
+                    day_of_week=[ScheduleRange(start=0, end=0)],
                 )
             ]
         ),
