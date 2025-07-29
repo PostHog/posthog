@@ -252,9 +252,9 @@ function PersonalAPIKeysTable(): JSX.Element {
         getRestrictedOrganizationsForKey,
         getRestrictedTeamsForKey,
     } = useValues(personalAPIKeysLogic)
-    const { deleteKey, loadKeys, setEditingKeyId } = useActions(personalAPIKeysLogic)
+    const { deleteKey, loadKeys, setEditingKeyId, rollKey } = useActions(personalAPIKeysLogic)
 
-    useEffect(() => loadKeys(), [])
+    useEffect(() => loadKeys(), [loadKeys])
 
     return (
         <LemonTable
@@ -461,6 +461,12 @@ function PersonalAPIKeysTable(): JSX.Element {
                     render: (_, key) => humanFriendlyDetailedTime(key.created_at),
                 },
                 {
+                    title: 'Last Rolled',
+                    dataIndex: 'last_rolled_at',
+                    key: 'lastRolledAt',
+                    render: (_, key) => humanFriendlyDetailedTime(key.last_rolled_at, 'MMMM DD, YYYY', 'h A'),
+                },
+                {
                     title: '',
                     key: 'actions',
                     align: 'right',
@@ -472,6 +478,26 @@ function PersonalAPIKeysTable(): JSX.Element {
                                     {
                                         label: 'Edit',
                                         onClick: () => setEditingKeyId(key.id),
+                                    },
+                                    {
+                                        label: 'Roll',
+                                        onClick: () => {
+                                            LemonDialog.open({
+                                                title: `Roll key "${key.label}"?`,
+                                                description:
+                                                    'This will generate a new key. The old key will immediately stop working.',
+                                                primaryButton: {
+                                                    status: 'danger',
+                                                    children: 'Roll',
+                                                    type: 'primary',
+                                                    onClick: () => rollKey(key.id),
+                                                },
+                                                secondaryButton: {
+                                                    children: 'Cancel',
+                                                    type: 'secondary',
+                                                },
+                                            })
+                                        },
                                     },
                                     {
                                         label: 'Delete',
