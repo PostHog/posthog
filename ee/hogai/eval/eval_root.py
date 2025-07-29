@@ -21,7 +21,7 @@ def call_root(demo_org_team_user):
         .add_root(
             {
                 "insights": AssistantNodeName.END,
-                "docs": AssistantNodeName.END,
+                "search_documentation": AssistantNodeName.END,
                 "root": AssistantNodeName.END,
                 "end": AssistantNodeName.END,
             }
@@ -178,6 +178,15 @@ async def eval_root(call_root, pytestconfig):
                     HumanMessage(content="List all user names who have completed a page view YTD"),
                 ],
                 expected=None,
+            ),
+            # Documentation search when the user asks about SDK integration or instrumentation
+            EvalCase(
+                input="import posthog from 'posthog-js' posthog.captureException(error) in my react app i manually capture exceptions but i don't see them on the dashboard",
+                expected=AssistantToolCall(
+                    name="search_documentation",
+                    args={},
+                    id="call_oejkj9HpAcIVAqTjxaXaofyA",
+                ),
             ),
         ],
         pytestconfig=pytestconfig,

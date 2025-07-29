@@ -1242,27 +1242,7 @@
                             "description": "`icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern."
                         },
                         "type": {
-                            "anyOf": [
-                                {
-                                    "const": "event",
-                                    "description": "Event properties",
-                                    "type": "string"
-                                },
-                                {
-                                    "const": "person",
-                                    "description": "Person properties",
-                                    "type": "string"
-                                },
-                                {
-                                    "const": "session",
-                                    "type": "string"
-                                },
-                                {
-                                    "const": "feature",
-                                    "description": "Event property with \"$feature/\" prepended",
-                                    "type": "string"
-                                }
-                            ]
+                            "$ref": "#/definitions/AssistantGenericPropertyFilterType"
                         },
                         "value": {
                             "description": "Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties.",
@@ -1283,27 +1263,7 @@
                             "$ref": "#/definitions/AssistantNumericValuePropertyFilterOperator"
                         },
                         "type": {
-                            "anyOf": [
-                                {
-                                    "const": "event",
-                                    "description": "Event properties",
-                                    "type": "string"
-                                },
-                                {
-                                    "const": "person",
-                                    "description": "Person properties",
-                                    "type": "string"
-                                },
-                                {
-                                    "const": "session",
-                                    "type": "string"
-                                },
-                                {
-                                    "const": "feature",
-                                    "description": "Event property with \"$feature/\" prepended",
-                                    "type": "string"
-                                }
-                            ]
+                            "$ref": "#/definitions/AssistantGenericPropertyFilterType"
                         },
                         "value": {
                             "type": "number"
@@ -1324,27 +1284,7 @@
                             "description": "`exact` - exact match of any of the values. `is_not` - does not match any of the values."
                         },
                         "type": {
-                            "anyOf": [
-                                {
-                                    "const": "event",
-                                    "description": "Event properties",
-                                    "type": "string"
-                                },
-                                {
-                                    "const": "person",
-                                    "description": "Person properties",
-                                    "type": "string"
-                                },
-                                {
-                                    "const": "session",
-                                    "type": "string"
-                                },
-                                {
-                                    "const": "feature",
-                                    "description": "Event property with \"$feature/\" prepended",
-                                    "type": "string"
-                                }
-                            ]
+                            "$ref": "#/definitions/AssistantGenericPropertyFilterType"
                         },
                         "value": {
                             "description": "Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string \"true\" or \"false\".",
@@ -1368,27 +1308,7 @@
                             "$ref": "#/definitions/AssistantDateTimePropertyFilterOperator"
                         },
                         "type": {
-                            "anyOf": [
-                                {
-                                    "const": "event",
-                                    "description": "Event properties",
-                                    "type": "string"
-                                },
-                                {
-                                    "const": "person",
-                                    "description": "Person properties",
-                                    "type": "string"
-                                },
-                                {
-                                    "const": "session",
-                                    "type": "string"
-                                },
-                                {
-                                    "const": "feature",
-                                    "description": "Event property with \"$feature/\" prepended",
-                                    "type": "string"
-                                }
-                            ]
+                            "$ref": "#/definitions/AssistantGenericPropertyFilterType"
                         },
                         "value": {
                             "description": "Value must be a date in ISO 8601 format.",
@@ -1410,33 +1330,17 @@
                             "description": "`is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected."
                         },
                         "type": {
-                            "anyOf": [
-                                {
-                                    "const": "event",
-                                    "description": "Event properties",
-                                    "type": "string"
-                                },
-                                {
-                                    "const": "person",
-                                    "description": "Person properties",
-                                    "type": "string"
-                                },
-                                {
-                                    "const": "session",
-                                    "type": "string"
-                                },
-                                {
-                                    "const": "feature",
-                                    "description": "Event property with \"$feature/\" prepended",
-                                    "type": "string"
-                                }
-                            ]
+                            "$ref": "#/definitions/AssistantGenericPropertyFilterType"
                         }
                     },
                     "required": ["key", "operator", "type"],
                     "type": "object"
                 }
             ]
+        },
+        "AssistantGenericPropertyFilterType": {
+            "enum": ["event", "person", "session", "feature"],
+            "type": "string"
         },
         "AssistantGroupMultipleBreakdownFilter": {
             "additionalProperties": false,
@@ -2022,9 +1926,6 @@
                 "math_property": {
                     "type": "string"
                 },
-                "math_property_revenue_currency": {
-                    "$ref": "#/definitions/RevenueCurrencyPropertyConfig"
-                },
                 "math_property_type": {
                     "type": "string"
                 },
@@ -2136,9 +2037,6 @@
                 },
                 "math_property": {
                     "type": "string"
-                },
-                "math_property_revenue_currency": {
-                    "$ref": "#/definitions/RevenueCurrencyPropertyConfig"
                 },
                 "math_property_type": {
                     "type": "string"
@@ -9521,7 +9419,6 @@
                         "additionalProperties": false,
                         "properties": {
                             "label": {
-                                "format": "date-time",
                                 "type": "string"
                             },
                             "value": {
@@ -9534,7 +9431,7 @@
                     "type": "array"
                 }
             },
-            "required": ["occurrences", "sessions", "users", "volumeRange"],
+            "required": ["occurrences", "sessions", "users", "volume_buckets"],
             "type": "object"
         },
         "ErrorTrackingIssueAssignee": {
