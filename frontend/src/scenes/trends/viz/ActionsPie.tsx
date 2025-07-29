@@ -98,7 +98,7 @@ export function ActionsPie({ inSharedMode, showPersonsModal = true, context }: C
                 indexedResults[0]
             )
         }
-    } else if (!showPersonsModal || formula) {
+    } else if (showPersonsModal && !formula) {
         onClick = (payload: GraphPointPayload) => {
             const { points, index } = payload
             const dataset = points.referencePoint.dataset

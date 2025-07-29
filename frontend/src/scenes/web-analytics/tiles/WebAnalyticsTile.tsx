@@ -1,5 +1,5 @@
 import { IconChevronDown, IconTrending, IconWarning } from '@posthog/icons'
-import { Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonSegmentedButton, Link, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { getColorVar } from 'lib/colors'
@@ -52,6 +52,8 @@ import { HeatmapButton } from '../CrossSellButtons/HeatmapButton'
 import { ReplayButton } from '../CrossSellButtons/ReplayButton'
 import { pageReportsLogic } from '../pageReportsLogic'
 import { MarketingAnalyticsTable } from '../tabs/marketing-analytics/frontend/components/MarketingAnalyticsTable/MarketingAnalyticsTable'
+import { marketingAnalyticsLogic } from '../tabs/marketing-analytics/frontend/logic/marketingAnalyticsLogic'
+import { DISPLAY_MODE_OPTIONS } from '../tabs/marketing-analytics/frontend/shared'
 
 export const toUtcOffsetFormat = (value: number): string => {
     if (value === 0) {
@@ -473,7 +475,7 @@ export const WebStatsTrendTile = ({
                 query,
             },
         }
-    }, [onWorldMapClick, insightProps])
+    }, [onWorldMapClick, insightProps, query])
 
     return (
         <div className="border rounded bg-surface-primary flex-1 flex flex-col">
@@ -486,6 +488,35 @@ export const WebStatsTrendTile = ({
                 </div>
             )}
             <Query query={query} readOnly={true} context={context} />
+        </div>
+    )
+}
+
+export const MarketingAnalyticsTrendTile = ({
+    query,
+    showIntervalTile,
+    insightProps,
+}: QueryWithInsightProps<InsightVizNode> & { showIntervalTile?: boolean }): JSX.Element => {
+    const { setInterval, setChartDisplayType } = useActions(marketingAnalyticsLogic)
+    const { dateFilter, chartDisplayType } = useValues(marketingAnalyticsLogic)
+
+    return (
+        <div className="border rounded bg-surface-primary flex-1 flex flex-col">
+            {showIntervalTile && (
+                <div className="flex flex-row items-center justify-end m-2 mr-4">
+                    <div className="flex flex-row items-center mr-4">
+                        <span className="mr-2">Group by</span>
+                        <IntervalFilterStandalone interval={dateFilter.interval} onIntervalChange={setInterval} />
+                    </div>
+                    <LemonSegmentedButton
+                        value={chartDisplayType}
+                        onChange={setChartDisplayType}
+                        options={DISPLAY_MODE_OPTIONS}
+                        size="small"
+                    />
+                </div>
+            )}
+            <Query query={query} readOnly={true} context={{ insightProps: { ...insightProps, query } }} />
         </div>
     )
 }
@@ -547,7 +578,7 @@ export const WebStatsTableTile = ({
             insightProps,
             rowProps,
         }
-    }, [onClick, insightProps])
+    }, [onClick, insightProps, breakdownBy, key, type])
 
     return (
         <div className="border rounded bg-surface-primary flex-1 flex flex-col">
@@ -761,7 +792,15 @@ export const WebQuery = ({
         return <WebExternalClicksTile query={adjustedQuery} insightProps={insightProps} />
     }
 
-    if (query.kind === NodeKind.InsightVizNode) {
+    if (query.kind === NodeKind.InsightVizNode && tileId === TileId.MARKETING) {
+        return (
+            <MarketingAnalyticsTrendTile
+                query={query}
+                showIntervalTile={showIntervalSelect}
+                insightProps={insightProps}
+            />
+        )
+    } else if (query.kind === NodeKind.InsightVizNode) {
         return <WebStatsTrendTile query={query} showIntervalTile={showIntervalSelect} insightProps={insightProps} />
     }
 

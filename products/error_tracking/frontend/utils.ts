@@ -108,36 +108,45 @@ export class ResolvedDateRange {
         }
     }
 
-    static fromDateRange(dateRange: DateRange, precision?: DateRangePrecision): ResolvedDateRange {
-        const fromOffset = precision
-            ? dayjs().subtract(precision.value, precision.unit).startOf(precision.unit)
-            : dayjs()
-        const toOffset = precision ? dayjs().add(precision.value, precision.unit).endOf(precision.unit) : dayjs()
+    static fromDateRange(dateRange: DateRange): ResolvedDateRange {
         return new ResolvedDateRange(
-            resolveDate(fromOffset, dateRange.date_from),
-            resolveDate(toOffset, dateRange.date_to)
+            resolveDateFrom(dayjs.utc(), dateRange.date_from),
+            resolveDateTo(dayjs.utc(), dateRange.date_to)
         )
     }
 }
 
 // Converts relative date range to absolute date range
-export function resolveDateRange(dateRange: DateRange, precision?: DateRangePrecision): ResolvedDateRange {
-    return ResolvedDateRange.fromDateRange(dateRange, precision)
+export function resolveDateRange(dateRange: DateRange): ResolvedDateRange {
+    return ResolvedDateRange.fromDateRange(dateRange)
 }
 
 // Converts relative date to absolute date.
-export function resolveDate(offset: Dayjs, date?: string | null): Dayjs {
+// Keep in sync with posthog/hogql_queries/error_tracking_query_runner.py
+export function resolveDateFrom(offset: Dayjs, date?: string | null): Dayjs {
     if (!date) {
-        return offset
-    }
-    if (date == 'all') {
-        return offset.subtract(1, 'year')
+        return offset.subtract(4, 'years')
     }
     const parsedDate = datetimeStringToDayJs(date, offset)
     if (parsedDate) {
         return parsedDate
     }
-    throw new Error(`Invalid date: ${date}`)
+    throw new Error(`Invalid DateRange (from): ${date}`)
+}
+
+// Converts relative date to absolute date.
+export function resolveDateTo(offset: Dayjs, date?: string | null): Dayjs {
+    if (!date) {
+        return offset
+    }
+    if (date == 'all') {
+        throw new Error('Invalid date: all')
+    }
+    const parsedDate = datetimeStringToDayJs(date, offset)
+    if (parsedDate) {
+        return parsedDate
+    }
+    throw new Error(`Invalid DateRange (to): ${date}`)
 }
 
 const customOptions: Record<string, string> = {

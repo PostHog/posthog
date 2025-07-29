@@ -12,43 +12,8 @@ from posthog.api.log_entries import LogEntryMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.hogql.database.database import create_hogql_database
-from posthog.temporal.data_imports.pipelines.bigquery import (
-    BigQuerySourceConfig,
-    filter_incremental_fields as filter_bigquery_incremental_fields,
-    get_schemas as get_bigquery_schemas,
-)
-from posthog.temporal.data_imports.pipelines.doit.source import DOIT_INCREMENTAL_FIELDS
-from posthog.temporal.data_imports.pipelines.google_sheets.source import (
-    GoogleSheetsServiceAccountSourceConfig,
-    get_schema_incremental_fields as get_google_schema_incremental_fields,
-)
-from posthog.temporal.data_imports.pipelines.google_ads import (
-    get_incremental_fields as get_google_ads_incremental_fields,
-)
-from posthog.temporal.data_imports.pipelines.mongo.mongo import filter_mongo_incremental_fields
-from posthog.temporal.data_imports.pipelines.mssql import (
-    MSSQLSourceConfig,
-    get_schemas as get_mssql_schemas,
-)
-from posthog.temporal.data_imports.pipelines.mysql import (
-    MySQLSourceConfig,
-    get_schemas as get_mysql_schemas,
-)
-from posthog.temporal.data_imports.pipelines.postgres import (
-    PostgreSQLSourceConfig,
-    get_schemas as get_postgres_schemas,
-)
-from posthog.temporal.data_imports.pipelines.mongo import (
-    MongoSourceConfig,
-    get_schemas as get_mongo_schemas,
-)
-from posthog.temporal.data_imports.pipelines.schemas import (
-    PIPELINE_TYPE_INCREMENTAL_FIELDS_MAPPING,
-)
-from posthog.temporal.data_imports.pipelines.snowflake import (
-    SnowflakeSourceConfig,
-    get_schemas as get_snowflake_schemas,
-)
+from posthog.temporal.data_imports.sources import SourceRegistry
+from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.warehouse.data_load.service import (
     cancel_external_data_workflow,
     external_data_workflow_exists,
@@ -60,15 +25,10 @@ from posthog.warehouse.data_load.service import (
 )
 from posthog.warehouse.models import ExternalDataJob, ExternalDataSchema
 from posthog.warehouse.models.external_data_schema import (
-    filter_mssql_incremental_fields,
-    filter_mysql_incremental_fields,
-    filter_postgres_incremental_fields,
-    filter_snowflake_incremental_fields,
     sync_frequency_interval_to_sync_frequency,
     sync_frequency_to_sync_frequency_interval,
 )
 from posthog.warehouse.models.external_data_source import ExternalDataSource
-from posthog.warehouse.types import IncrementalField
 
 logger = structlog.get_logger(__name__)
 
@@ -338,90 +298,35 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.
     def incremental_fields(self, request: Request, *args: Any, **kwargs: Any):
         instance: ExternalDataSchema = self.get_object()
         source: ExternalDataSource = instance.source
-        incremental_columns: list[IncrementalField] = []
 
-        if source.source_type == ExternalDataSource.Type.POSTGRES:
-            db_schemas = get_postgres_schemas(PostgreSQLSourceConfig.from_dict(source.job_inputs))
-            columns = db_schemas.get(instance.name, [])
-            incremental_columns = [
-                {"field": name, "field_type": field_type, "label": name, "type": field_type}
-                for name, field_type in filter_postgres_incremental_fields(columns)
-            ]
+        if not source.job_inputs:
+            return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": "Missing job inputs"})
 
-        elif source.source_type == ExternalDataSource.Type.MYSQL:
-            db_schemas = get_mysql_schemas(MySQLSourceConfig.from_dict(source.job_inputs))
-            columns = db_schemas.get(instance.name, [])
-            incremental_columns = [
-                {"field": name, "field_type": field_type, "label": name, "type": field_type}
-                for name, field_type in filter_mysql_incremental_fields(columns)
-            ]
+        if not source.source_type:
+            return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": "Missing source type"})
 
-        elif source.source_type == ExternalDataSource.Type.MSSQL:
-            db_schemas = get_mssql_schemas(MSSQLSourceConfig.from_dict(source.job_inputs))
-            columns = db_schemas.get(instance.name, [])
-            incremental_columns = [
-                {"field": name, "field_type": field_type, "label": name, "type": field_type}
-                for name, field_type in filter_mssql_incremental_fields(columns)
-            ]
+        source_type_enum = ExternalDataSource.Type(source.source_type)
 
-        elif source.source_type == ExternalDataSource.Type.BIGQUERY:
-            db_schemas = get_bigquery_schemas(BigQuerySourceConfig.from_dict(source.job_inputs), logger=logger)
-            columns = db_schemas.get(instance.name, [])
-            incremental_columns = [
-                {"field": name, "field_type": field_type, "label": name, "type": field_type}
-                for name, field_type in filter_bigquery_incremental_fields(columns)
-            ]
+        new_source = SourceRegistry.get_source(source_type_enum)
+        config = new_source.parse_config(source.job_inputs)
+        schemas = new_source.get_schemas(config, self.team_id)
 
-        elif source.source_type == ExternalDataSource.Type.SNOWFLAKE:
-            sf_schemas = get_snowflake_schemas(SnowflakeSourceConfig.from_dict(source.job_inputs))
-            columns = sf_schemas.get(instance.name, [])
-            incremental_columns = [
-                {"field": name, "field_type": field_type, "label": name, "type": field_type}
-                for name, field_type in filter_snowflake_incremental_fields(columns)
-            ]
+        schema: SourceSchema | None = None
 
-        elif source.source_type == ExternalDataSource.Type.MONGODB:
-            db_schemas = get_mongo_schemas(MongoSourceConfig.from_dict(source.job_inputs))
-            columns = db_schemas.get(instance.name, [])
-            incremental_columns = [
-                {"field": name, "field_type": field_type, "label": name, "type": field_type}
-                for name, field_type in filter_mongo_incremental_fields(
-                    columns, MongoSourceConfig.from_dict(source.job_inputs).connection_string, instance.name
-                )
-            ]
+        for s in schemas:
+            if s.name == instance.name:
+                schema = s
+                break
 
-        elif source.source_type == ExternalDataSource.Type.GOOGLEADS:
-            incremental_fields = get_google_ads_incremental_fields()
-            matching_fields = incremental_fields.get(instance.name, None)
-            if matching_fields is None:
-                incremental_columns = []
-            else:
-                incremental_columns = [
-                    {"field": field_name, "field_type": field_type, "label": field_name, "type": field_type}
-                    for field_name, field_type in matching_fields
-                ]
-        elif source.source_type == ExternalDataSource.Type.DOIT:
-            incremental_columns = DOIT_INCREMENTAL_FIELDS
-        elif source.source_type == ExternalDataSource.Type.GOOGLESHEETS:
-            incremental_columns = get_google_schema_incremental_fields(
-                GoogleSheetsServiceAccountSourceConfig.from_dict(source.job_inputs), instance.name
+        if schema is None:
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST, data={"message": f"Schema with name {instance.name} not found"}
             )
-        else:
-            mapping = PIPELINE_TYPE_INCREMENTAL_FIELDS_MAPPING.get(source.source_type)
-            if mapping is None:
-                return Response(
-                    status=status.HTTP_400_BAD_REQUEST,
-                    data={"message": f'Source type "{source.source_type}" not found'},
-                )
-            mapping_fields = mapping.get(instance.name, [])
-
-            incremental_columns = mapping_fields
 
         data = {
-            "incremental_fields": incremental_columns,
-            "incremental_available": len(incremental_columns) > 0
-            and source.source_type != ExternalDataSource.Type.STRIPE,
-            "append_available": len(incremental_columns) > 0,
+            "incremental_fields": schema.incremental_fields,
+            "incremental_available": schema.supports_incremental,
+            "append_available": schema.supports_append,
             "full_refresh_available": True,
         }
 

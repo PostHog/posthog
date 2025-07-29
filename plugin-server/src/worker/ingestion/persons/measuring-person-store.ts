@@ -3,8 +3,7 @@ import { DateTime } from 'luxon'
 
 import { TopicMessage } from '../../../kafka/producer'
 import { InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt, Team } from '../../../types'
-import { DB, MoveDistinctIdsResult } from '../../../utils/db/db'
-import { PostgresUse, TransactionClient } from '../../../utils/db/postgres'
+import { MoveDistinctIdsResult } from '../../../utils/db/db'
 import {
     observeLatencyByVersion,
     personCacheOperationsCounter,
@@ -17,6 +16,9 @@ import {
 import { applyEventPropertyUpdates } from './person-update'
 import { PersonsStore } from './persons-store'
 import { FlushResult, PersonsStoreForBatch } from './persons-store-for-batch'
+import { PersonsStoreTransaction } from './persons-store-transaction'
+import { PersonRepository } from './repositories/person-repository'
+import { PersonRepositoryTransaction } from './repositories/person-repository-transaction'
 
 type MethodName =
     | 'fetchForChecking'
@@ -47,10 +49,10 @@ interface CacheMetrics {
 }
 
 export class MeasuringPersonsStore implements PersonsStore {
-    constructor(private db: DB, private options: PersonsStoreOptions) {}
+    constructor(private personRepository: PersonRepository, private options: PersonsStoreOptions) {}
 
     forBatch(): PersonsStoreForBatch {
-        return new MeasuringPersonsStoreForBatch(this.db, this.options)
+        return new MeasuringPersonsStoreForBatch(this.personRepository, this.options)
     }
 }
 
@@ -79,7 +81,7 @@ export class MeasuringPersonsStoreForBatch implements PersonsStoreForBatch {
     private fetchPromisesForUpdate: Map<string, Promise<InternalPerson | null>>
 
     constructor(
-        private db: DB,
+        private personRepository: PersonRepository,
         private options: PersonsStoreOptions = {
             personCacheEnabledForUpdates: true,
             personCacheEnabledForChecks: true,
@@ -129,8 +131,11 @@ export class MeasuringPersonsStoreForBatch implements PersonsStoreForBatch {
         personCacheOperationsCounter.inc({ cache: 'check', operation: 'miss' }, this.cacheMetrics.checkCacheMisses)
     }
 
-    async inTransaction<T>(description: string, transaction: (tx: TransactionClient) => Promise<T>): Promise<T> {
-        return await this.db.postgres.transaction(PostgresUse.PERSONS_WRITE, description, transaction)
+    async inTransaction<T>(description: string, transaction: (tx: PersonsStoreTransaction) => Promise<T>): Promise<T> {
+        return await this.personRepository.inTransaction(description, async (tx) => {
+            const wrapper = new PersonsStoreTransaction(this, tx)
+            return await transaction(wrapper)
+        })
     }
 
     async fetchForChecking(teamId: Team['id'], distinctId: string): Promise<InternalPerson | null> {
@@ -156,7 +161,7 @@ export class MeasuringPersonsStoreForBatch implements PersonsStoreForBatch {
                 try {
                     this.incrementDatabaseOperation('fetchForChecking', distinctId)
                     const start = performance.now()
-                    const person = await this.db.fetchPerson(teamId, distinctId, { useReadReplica: true })
+                    const person = await this.personRepository.fetchPerson(teamId, distinctId, { useReadReplica: true })
                     observeLatencyByVersion(person, start, 'fetchForChecking')
                     this.setCheckCachedPerson(teamId, distinctId, person ?? null)
                     return person ?? null
@@ -187,7 +192,9 @@ export class MeasuringPersonsStoreForBatch implements PersonsStoreForBatch {
                 try {
                     this.incrementDatabaseOperation('fetchForUpdate', distinctId)
                     const start = performance.now()
-                    const person = await this.db.fetchPerson(teamId, distinctId, { useReadReplica: false })
+                    const person = await this.personRepository.fetchPerson(teamId, distinctId, {
+                        useReadReplica: false,
+                    })
                     observeLatencyByVersion(person, start, 'fetchForUpdate')
                     this.setCachedPerson(teamId, distinctId, person ?? null)
                     return person ?? null
@@ -212,12 +219,12 @@ export class MeasuringPersonsStoreForBatch implements PersonsStoreForBatch {
         isIdentified: boolean,
         uuid: string,
         distinctIds?: { distinctId: string; version?: number }[],
-        tx?: TransactionClient
+        tx?: PersonRepositoryTransaction
     ): Promise<[InternalPerson, TopicMessage[]]> {
         this.incrementCount('createPerson', distinctIds?.[0].distinctId ?? '')
         this.clearCache()
         this.incrementDatabaseOperation('createPerson', distinctIds?.[0]?.distinctId ?? '')
-        return await this.db.createPerson(
+        return await (tx || this.personRepository).createPerson(
             createdAt,
             properties,
             propertiesLastUpdatedAt,
@@ -226,8 +233,7 @@ export class MeasuringPersonsStoreForBatch implements PersonsStoreForBatch {
             isUserId,
             isIdentified,
             uuid,
-            distinctIds,
-            tx
+            distinctIds
         )
     }
 
@@ -235,7 +241,7 @@ export class MeasuringPersonsStoreForBatch implements PersonsStoreForBatch {
         person: InternalPerson,
         update: Partial<InternalPerson>,
         distinctId: string,
-        tx?: TransactionClient
+        tx?: PersonRepositoryTransaction
     ): Promise<[InternalPerson, TopicMessage[], boolean]> {
         return this.updatePerson(person, update, tx, 'updatePersonForUpdate', 'forUpdate', distinctId)
     }
@@ -244,7 +250,7 @@ export class MeasuringPersonsStoreForBatch implements PersonsStoreForBatch {
         person: InternalPerson,
         update: Partial<InternalPerson>,
         distinctId: string,
-        tx?: TransactionClient
+        tx?: PersonRepositoryTransaction
     ): Promise<[InternalPerson, TopicMessage[], boolean]> {
         return this.updatePerson(person, update, tx, 'updatePersonForMerge', 'forMerge', distinctId)
     }
@@ -255,7 +261,7 @@ export class MeasuringPersonsStoreForBatch implements PersonsStoreForBatch {
         propertiesToUnset: string[],
         otherUpdates: Partial<InternalPerson>,
         distinctId: string,
-        tx?: TransactionClient
+        tx?: PersonRepositoryTransaction
     ): Promise<[InternalPerson, TopicMessage[], boolean]> {
         const mainStorePropertyUpdates = { toSet: propertiesToSet, toUnset: propertiesToUnset, hasChanges: true }
 
@@ -271,7 +277,7 @@ export class MeasuringPersonsStoreForBatch implements PersonsStoreForBatch {
     private async updatePerson(
         person: InternalPerson,
         update: Partial<InternalPerson>,
-        tx: TransactionClient | undefined,
+        tx: PersonRepositoryTransaction | undefined,
         methodName: MethodName,
         updateType: UpdateType,
         distinctId: string
@@ -280,18 +286,22 @@ export class MeasuringPersonsStoreForBatch implements PersonsStoreForBatch {
         this.clearCache()
         this.incrementDatabaseOperation(methodName, distinctId)
         const start = performance.now()
-        const response = await this.db.updatePerson(person, update, tx, updateType)
+        const response = await (tx || this.personRepository).updatePerson(person, update, updateType)
         this.recordUpdateLatency(updateType, (performance.now() - start) / 1000, distinctId)
         observeLatencyByVersion(person, start, methodName)
         return response
     }
 
-    async deletePerson(person: InternalPerson, distinctId: string, tx?: TransactionClient): Promise<TopicMessage[]> {
+    async deletePerson(
+        person: InternalPerson,
+        distinctId: string,
+        tx?: PersonRepositoryTransaction
+    ): Promise<TopicMessage[]> {
         this.incrementCount('deletePerson', distinctId)
         this.clearCache()
         this.incrementDatabaseOperation('deletePerson', distinctId)
         const start = performance.now()
-        const response = await this.db.deletePerson(person, tx)
+        const response = await (tx || this.personRepository).deletePerson(person)
         observeLatencyByVersion(person, start, 'deletePerson')
         return response
     }
@@ -300,13 +310,13 @@ export class MeasuringPersonsStoreForBatch implements PersonsStoreForBatch {
         person: InternalPerson,
         distinctId: string,
         version: number,
-        tx?: TransactionClient
+        tx?: PersonRepositoryTransaction
     ): Promise<TopicMessage[]> {
         this.incrementCount('addDistinctId', distinctId)
         this.clearCache()
         this.incrementDatabaseOperation('addDistinctId', distinctId)
         const start = performance.now()
-        const response = await this.db.addDistinctId(person, distinctId, version, tx)
+        const response = await (tx || this.personRepository).addDistinctId(person, distinctId, version)
         observeLatencyByVersion(person, start, 'addDistinctId')
         return response
     }
@@ -315,13 +325,13 @@ export class MeasuringPersonsStoreForBatch implements PersonsStoreForBatch {
         source: InternalPerson,
         target: InternalPerson,
         distinctId: string,
-        tx?: TransactionClient
+        tx?: PersonRepositoryTransaction
     ): Promise<MoveDistinctIdsResult> {
         this.incrementCount('moveDistinctIds', distinctId)
         this.clearCache()
         this.incrementDatabaseOperation('moveDistinctIds', distinctId)
         const start = performance.now()
-        const response = await this.db.moveDistinctIds(source, target, tx)
+        const response = await (tx || this.personRepository).moveDistinctIds(source, target)
         observeLatencyByVersion(target, start, 'moveDistinctIds')
         return response
     }
@@ -331,31 +341,31 @@ export class MeasuringPersonsStoreForBatch implements PersonsStoreForBatch {
         sourcePersonID: InternalPerson['id'],
         targetPersonID: InternalPerson['id'],
         distinctId: string,
-        tx?: TransactionClient
+        tx?: PersonRepositoryTransaction
     ): Promise<void> {
         this.incrementCount('updateCohortsAndFeatureFlagsForMerge', distinctId)
         this.clearCache()
-        await this.db.updateCohortsAndFeatureFlagsForMerge(teamID, sourcePersonID, targetPersonID, tx)
+        await (tx || this.personRepository).updateCohortsAndFeatureFlagsForMerge(teamID, sourcePersonID, targetPersonID)
     }
 
     async addPersonlessDistinctId(teamId: Team['id'], distinctId: string): Promise<boolean> {
         this.incrementCount('addPersonlessDistinctId', distinctId)
         this.clearCache()
-        return await this.db.addPersonlessDistinctId(teamId, distinctId)
+        return await this.personRepository.addPersonlessDistinctId(teamId, distinctId)
     }
 
     async addPersonlessDistinctIdForMerge(
         teamId: Team['id'],
         distinctId: string,
-        tx?: TransactionClient
+        tx?: PersonRepositoryTransaction
     ): Promise<boolean> {
         this.incrementCount('addPersonlessDistinctIdForMerge', distinctId)
         this.clearCache()
-        return await this.db.addPersonlessDistinctIdForMerge(teamId, distinctId, tx)
+        return await (tx || this.personRepository).addPersonlessDistinctIdForMerge(teamId, distinctId)
     }
 
     async personPropertiesSize(teamId: Team['id'], distinctId: string): Promise<number> {
-        return await this.db.personPropertiesSize(teamId, distinctId)
+        return await this.personRepository.personPropertiesSize(teamId, distinctId)
     }
 
     getMethodCountsPerDistinctId(): Map<string, Map<MethodName, number>> {

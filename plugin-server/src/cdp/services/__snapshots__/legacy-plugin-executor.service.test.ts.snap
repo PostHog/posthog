@@ -72,7 +72,7 @@ exports[`LegacyPluginExecutorService smoke tests should run the destination plug
 
 exports[`LegacyPluginExecutorService smoke tests should run the destination plugin: { name: 'plugin-pubsub-plugin', plugin: [Object] } 1`] = `
 [
-  "Plugin execution failed: Plugin plugin-pubsub-plugin setup failed: Cannot read properties of undefined (reading 'googleCloudKeyJson')",
+  "Plugin execution failed: Plugin plugin-pubsub-plugin setup failed: JSON config not provided!",
 ]
 `;
 

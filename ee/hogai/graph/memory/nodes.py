@@ -408,7 +408,7 @@ class MemoryCollectorNode(MemoryOnboardingShouldRunMixin):
                 config=config,
             )
         except MemoryCollectionCompleted:
-            return PartialAssistantState(memory_updated=len(node_messages) > 0, memory_collection_messages=None)
+            return PartialAssistantState(memory_collection_messages=None)
         return PartialAssistantState(memory_collection_messages=[*node_messages, cast(LangchainAIMessage, response)])
 
     def router(self, state: AssistantState) -> Literal["tools", "next"]:
@@ -458,9 +458,7 @@ class MemoryCollectorToolsNode(AssistantNode):
         last_message = node_messages[-1]
         if not isinstance(last_message, LangchainAIMessage):
             raise ValueError("Last message must be an AI message.")
-        core_memory = self.core_memory
-        if core_memory is None:
-            raise ValueError("No core memory found.")
+        core_memory, _ = CoreMemory.objects.get_or_create(team=self._team)
 
         tools_parser = PydanticToolsParser(tools=memory_collector_tools)
         try:

@@ -417,15 +417,15 @@ def prepare_run_config(config: BackupConfig) -> dagster.RunConfig:
 
 
 def run_backup_request(table: str, incremental: bool) -> dagster.RunRequest:
-    timestamp = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    timestamp = datetime.now(UTC)
     config = BackupConfig(
         database=settings.CLICKHOUSE_DATABASE,
-        date=timestamp,
+        date=timestamp.strftime("%Y-%m-%dT%H:%M:%SZ"),
         table=table,
         incremental=incremental,
     )
     return dagster.RunRequest(
-        run_key=f"{timestamp}-{table}",
+        run_key=f"{timestamp.strftime('%Y%m%d')}-{table}",
         run_config=prepare_run_config(config),
         tags={
             "backup_type": "incremental" if incremental else "full",

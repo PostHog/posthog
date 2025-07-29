@@ -56,7 +56,7 @@ export function useKeyboardNavigation<R extends HTMLElement = HTMLElement, I ext
                 item?.current?.removeEventListener('keydown', handleKeyDown)
             }
         }
-    }, [focusedItemIndex, itemCount])
+    }, [focusedItemIndex, itemCount, enabled])
 
     return { referenceRef, itemsRef }
 }

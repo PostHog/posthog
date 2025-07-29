@@ -644,3 +644,35 @@ class Fix204Middleware:
                 response.headers.pop(h, None)
 
         return response
+
+
+# Add CSP to Admin tooling
+class AdminCSPMiddleware:
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        response = self.get_response(request)
+        if request.path.startswith("/admin/"):
+            # TODO replace with django-loginas `LOGINAS_CSP_FRIENDLY` setting once 0.3.12 is released (https://github.com/skorokithakis/django-loginas/issues/111)
+            django_loginas_inline_script_hash = "sha256-YS9p0l7SQLkAEtvGFGffDcYHRcUBpPzMcbSQe1lRuLc="
+            csp_parts = [
+                "default-src 'self'",
+                "style-src 'self' 'unsafe-inline'",
+                f"script-src 'self' '{django_loginas_inline_script_hash}'",
+                "worker-src 'none'",
+                "child-src 'none'",
+                "object-src 'none'",
+                "frame-ancestors 'none'",
+                "manifest-src 'none'",
+                "base-uri 'self'",
+                "report-uri https://us.i.posthog.com/report/?token=sTMFPsFhdP1Ssg&v=2",
+                "report-to posthog",
+            ]
+
+            response.headers["Reporting-Endpoints"] = (
+                'posthog="https://us.i.posthog.com/report/?token=sTMFPsFhdP1Ssg&v=2"'
+            )
+            response.headers["Content-Security-Policy-Report-Only"] = "; ".join(csp_parts)
+
+        return response

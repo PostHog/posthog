@@ -1,6 +1,5 @@
-import { Histogram } from 'prom-client'
-
 import { InternalPerson } from '../../../types'
+import { personPropertiesSizeHistogram } from '../../../utils/db/metrics'
 import { logger } from '../../../utils/logger'
 import { promiseRetry } from '../../../utils/retries'
 import { PersonContext } from './person-context'
@@ -9,12 +8,6 @@ import { applyEventPropertyUpdates, computeEventPropertyUpdates } from './person
 
 // temporary: for fetchPerson properties JSONB size observation
 const ONE_MEGABYTE_PROPS_BLOB = 1048576
-const personPropertiesSize = new Histogram({
-    name: 'person_properties_size',
-    help: 'histogram of compressed person JSONB bytes retrieved in fetchPerson calls',
-    labelNames: ['at'],
-    buckets: [1024, 8192, 65536, 524288, 1048576, 2097152, 4194304, 8388608, 16777216, 67108864, Infinity],
-})
 
 /**
  * Service responsible for handling person property updates and person creation.
@@ -114,7 +107,7 @@ export class PersonPropertyService {
             this.context.team.id,
             this.context.distinctId
         )
-        personPropertiesSize.labels({ at: at }).observe(estimatedBytes)
+        personPropertiesSizeHistogram.labels({ at: at }).observe(estimatedBytes)
 
         // if larger than size threshold (start conservative, adjust as we observe)
         // we should log the team and disinct_id associated with the properties
