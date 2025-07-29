@@ -820,6 +820,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
                 team=self.team,
                 user=user,
                 session_id=session_id,
+                bulk_viewed=True,
             )
             for session_id in session_recording_ids
         ]
