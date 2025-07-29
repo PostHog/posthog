@@ -78,8 +78,8 @@ export function MetricRowGroup({
         }
 
         return metric.metric_type === ExperimentMetricType.MEAN
-            ? 'sum(value) / # number of exposures'
-            : '# conversions / # number of exposures'
+            ? 'Total value / exposures'
+            : 'Total conversions / exposures'
     }
 
     // Handle loading or error states
