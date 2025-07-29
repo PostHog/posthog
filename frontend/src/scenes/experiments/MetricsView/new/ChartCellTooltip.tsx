@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
+import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import {
     type ExperimentVariantResult,
     formatChanceToWin,
@@ -68,24 +69,30 @@ export function ChartCellTooltip({ variantResult, children }: ChartCellTooltipPr
                         <div className="flex justify-between items-center">
                             <div className="font-semibold">{variantResult.key}</div>
                             {variantResult.key !== 'control' && (
-                                <div className={`font-semibold text-xs px-2 py-1 rounded ${
-                                    !variantResult.significant 
-                                        ? 'text-muted' 
-                                        : (() => {
-                                            const interval = getVariantInterval(variantResult)
-                                            const deltaPercent = interval ? ((interval[0] + interval[1]) / 2) * 100 : 0
-                                            return deltaPercent > 0 ? 'text-success' : 'text-danger'
-                                        })()
-                                }`}>
-                                    {!variantResult.significant 
-                                        ? 'Not significant' 
-                                        : (() => {
-                                            const interval = getVariantInterval(variantResult)
-                                            const deltaPercent = interval ? ((interval[0] + interval[1]) / 2) * 100 : 0
-                                            return deltaPercent > 0 ? 'Won' : 'Lost'
-                                        })()
+                                <LemonTag
+                                    type={
+                                        !variantResult.significant
+                                            ? 'muted'
+                                            : (() => {
+                                                  const interval = getVariantInterval(variantResult)
+                                                  const deltaPercent = interval
+                                                      ? ((interval[0] + interval[1]) / 2) * 100
+                                                      : 0
+                                                  return deltaPercent > 0 ? 'success' : 'danger'
+                                              })()
                                     }
-                                </div>
+                                    size="small"
+                                >
+                                    {!variantResult.significant
+                                        ? 'Not significant'
+                                        : (() => {
+                                              const interval = getVariantInterval(variantResult)
+                                              const deltaPercent = interval
+                                                  ? ((interval[0] + interval[1]) / 2) * 100
+                                                  : 0
+                                              return deltaPercent > 0 ? 'Won' : 'Lost'
+                                          })()}
+                                </LemonTag>
                             )}
                         </div>
 
@@ -110,7 +117,6 @@ export function ChartCellTooltip({ variantResult, children }: ChartCellTooltipPr
                                 <span className="font-semibold">{formatPValue(variantResult.p_value)}</span>
                             </div>
                         )}
-
 
                         <div className="flex justify-between items-center">
                             <span className="text-muted-alt font-semibold">Delta:</span>
