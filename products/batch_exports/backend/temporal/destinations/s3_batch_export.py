@@ -918,7 +918,7 @@ class ConcurrentS3Consumer(ConsumerFromStage):
             await self._finalize_current_file()
 
         try:
-            await asyncio.wait([active.task for active in self._pending_multipart_uploads.values()])
+            await asyncio.gather(*(active.task for active in self._pending_multipart_uploads.values()))
         finally:
             self._finalized = True
 
