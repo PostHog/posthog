@@ -119,6 +119,7 @@ export const PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE: Record<Propert
         [PropertyFilterType.ErrorTrackingIssue]: TaxonomicFilterGroupType.ErrorTrackingIssues,
         [PropertyFilterType.Log]: TaxonomicFilterGroupType.LogAttributes,
         [PropertyFilterType.RevenueAnalytics]: TaxonomicFilterGroupType.RevenueAnalyticsProperties,
+        [PropertyFilterType.Flag]: TaxonomicFilterGroupType.FeatureFlags,
     }
 
 export function formatPropertyLabel(
