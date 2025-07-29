@@ -240,9 +240,10 @@ class SessionRecordingPlaylistSerializer(serializers.ModelSerializer):
             instance.last_modified_at = now()
             instance.last_modified_by = self.context["request"].user
 
-        if instance.type == "collection" and validated_data.get("filters", None) is not None:
+        if instance.type == "collection" and len(validated_data.get("filters", {})) > 0:
+            # Allow empty filters object, only reject if it has actual filter keys
             raise ValidationError("You cannot update a collection to add filters")
-        if instance.type == "filters" and not validated_data.get("filters", None):
+        if instance.type == "filters" and len(validated_data.get("filters", {})) == 0:
             raise ValidationError("You cannot remove all filters when updating a saved filter")
 
         updated_playlist = super().update(instance, validated_data)
