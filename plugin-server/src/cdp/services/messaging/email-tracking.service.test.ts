@@ -3,7 +3,7 @@ import { mockFetch } from '~/tests/helpers/mocks/request.mock'
 import { mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
 
 import crypto from 'crypto'
-import express from 'express'
+import express from 'ultimate-express'
 
 import { closeHub, createHub } from '~/utils/db/hub'
 
