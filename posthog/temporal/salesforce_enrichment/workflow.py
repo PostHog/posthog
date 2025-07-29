@@ -1,3 +1,4 @@
+import asyncio
 import dataclasses
 import datetime as dt
 import json
@@ -12,7 +13,6 @@ from temporalio.common import RetryPolicy
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_internal_logger
-from posthog.exceptions_capture import capture_exception
 
 from ee.billing.salesforce_enrichment.enrichment import enrich_accounts_chunked_async
 from ee.billing.salesforce_enrichment.salesforce_client import get_salesforce_client
@@ -67,7 +67,6 @@ async def enrich_chunk_activity(inputs: EnrichChunkInputs) -> dict[str, typing.A
                 chunk_size=inputs.chunk_size,
                 error=str(e),
             )
-            capture_exception(e)
             raise
 
 
@@ -92,7 +91,7 @@ async def cache_all_accounts_activity() -> dict[str, typing.Any]:
         sf_start = time.time()
         sf = get_salesforce_client()
 
-        accounts_result = sf.query_all(SALESFORCE_ACCOUNTS_QUERY)
+        accounts_result = await asyncio.to_thread(sf.query_all, SALESFORCE_ACCOUNTS_QUERY)
         all_accounts = accounts_result["records"]
         total_count = len(all_accounts)
         sf_time = time.time() - sf_start
@@ -114,7 +113,6 @@ async def cache_all_accounts_activity() -> dict[str, typing.Any]:
 
     except Exception as e:
         logger.exception("Failed to cache accounts", workflow_id=workflow_id, error=str(e))
-        capture_exception(e)
         raise
 
 

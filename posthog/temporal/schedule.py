@@ -9,6 +9,7 @@ from temporalio.client import (
     Schedule,
     ScheduleActionStartWorkflow,
     ScheduleAlreadyRunningError,
+    ScheduleCalendarSpec,
     ScheduleIntervalSpec,
     ScheduleSpec,
 )
@@ -124,11 +125,19 @@ async def create_salesforce_enrichment_schedule(client: Client):
     salesforce_enrichment_schedule = Schedule(
         action=ScheduleActionStartWorkflow(
             "salesforce-enrichment-async",
-            asdict(SalesforceEnrichmentInputs(chunk_size=DEFAULT_CHUNK_SIZE)),
+            SalesforceEnrichmentInputs(chunk_size=DEFAULT_CHUNK_SIZE),
             id="salesforce-enrichment-schedule",
             task_queue=GENERAL_PURPOSE_TASK_QUEUE,
         ),
-        spec=ScheduleSpec(cron_expressions=["0 2 * * 0"]),  # Sunday at 2 AM UTC
+        spec=ScheduleSpec(
+            calendars=[
+                ScheduleCalendarSpec(
+                    comment="Sunday at 2 AM UTC",
+                    hour=[2],
+                    day_of_week=[0],
+                )
+            ]
+        ),
     )
 
     if await a_schedule_exists(client, "salesforce-enrichment-schedule"):
