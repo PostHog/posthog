@@ -249,7 +249,7 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
             if column:
                 return ast.OrderExpr(expr=ast.Field(chain=[column]), order=direction)
 
-        return ast.OrderExpr(expr=ast.Field(chain=["context.columns.views"]), order="DESC")
+        return ast.OrderExpr(expr=ast.Field(chain=["context.columns.visitors"]), order="DESC")
 
     def _fill_fraction(self, order: Optional[list[ast.OrderExpr]]):
         # use whatever column we are sorting by to also visually fill the row by some fraction
