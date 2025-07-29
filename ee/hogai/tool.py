@@ -55,6 +55,11 @@ class search_documentation(BaseModel):
     - How to submit feature requests
     and/or when the user:
     - Needs help understanding PostHog concepts
+    - Has questions about SDK integration or instrumentation
+      - e.g. `posthog.capture('event')`, `posthog.captureException(err)`,
+        `posthog.identify(userId)`, `capture({ ... })` not working, etc.
+    - Troubleshooting missing or unexpected data
+      - e.g. "Events aren't arriving", "Why don't I see errors on the dashboard?"
     - Wants to know more about PostHog the company
     - Has questions about incidents or system status
     - Has PostHog-related questions that don't match your other specialized tools
