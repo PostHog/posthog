@@ -5180,11 +5180,11 @@ export type CyclotronJobFilterPropertyFilter =
     | HogQLPropertyFilter
 
 export interface CyclotronJobFiltersType {
+    source?: 'events' | 'person-updates'
     events?: CyclotronJobFilterEvents[]
     actions?: CyclotronJobFilterActions[]
     properties?: CyclotronJobFilterPropertyFilter[]
     filter_test_accounts?: boolean
-    drop_events?: boolean
     bytecode?: any[]
     bytecode_error?: string
 }

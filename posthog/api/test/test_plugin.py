@@ -1137,7 +1137,10 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
         assert hog_function[0].type == "transformation"
         assert hog_function[0].name == "GeoIP"
         assert hog_function[0].description == "Enrich events with GeoIP data"
-        assert hog_function[0].filters == {"bytecode": ["_H", 1, 29]}  # Assert the compiled bytecode for empty filter
+        assert hog_function[0].filters == {
+            "source": "events",
+            "bytecode": ["_H", 1, 29],
+        }  # Assert the compiled bytecode for empty filter
         assert hog_function[0].hog == "return event"
         assert hog_function[0].enabled
         assert hog_function[0].team == self.team
