@@ -1,38 +1,12 @@
 'use client';
 
-import { useEffect } from 'react';
 import Link from 'next/link';
 import Header from '@/components/Header';
-import { posthog } from '@/lib/posthog';
 import { useAuth } from '@/lib/auth';
 
 export default function HomePage(): JSX.Element {
   const { user } = useAuth();
-
-  useEffect(() => {
-    // Track pageview
-    if (typeof window !== 'undefined') {
-      posthog.capture('$pageview', {
-        $current_url: window.location.href,
-        $host: window.location.host,
-        $pathname: window.location.pathname,
-      });
-    }
-  }, []);
-
-  const handleGetStarted = (): void => {
-    posthog.capture('$autocapture', {
-      $event_type: 'click',
-      button_text: 'Get Started Free'
-    });
-  };
-
-  const handleLearnMore = (): void => {
-    posthog.capture('$autocapture', {
-      $event_type: 'click',
-      button_text: 'View Pricing'
-    });
-  };
+  
 
   return (
     <div className="min-h-screen bg-base-100">
@@ -102,14 +76,12 @@ export default function HomePage(): JSX.Element {
                   <Link 
                     href="/signup" 
                     className="btn btn-primary btn-lg px-8 rounded-xl transition-all"
-                    onClick={handleGetStarted}
                   >
                   Get started free
                   </Link>
                   <Link 
                     href="/pricing" 
                     className="btn btn-outline btn-lg px-8 rounded-xl transition-all"
-                    onClick={handleLearnMore}
                   >
                     View pricing
                   </Link>
@@ -183,10 +155,6 @@ export default function HomePage(): JSX.Element {
           <Link 
             href="/signup" 
             className="btn btn-primary btn-lg px-8 rounded-xl transition-all"
-            onClick={() => posthog.capture('$autocapture', { 
-              $event_type: 'click', 
-              button_text: 'Start your journey' 
-            })}
           >
             🌟 Start your journey
           </Link>

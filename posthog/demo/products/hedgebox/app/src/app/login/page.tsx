@@ -1,11 +1,12 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import Header from '@/components/Header';
 import { posthog } from '@/lib/posthog';
 import { useAuth } from '@/lib/auth';
+import {  useAuthRedirect } from '@/lib/hooks';
 
 export default function LoginPage(): JSX.Element {
   const [formData, setFormData] = useState({
@@ -13,25 +14,10 @@ export default function LoginPage(): JSX.Element {
     password: ''
   });
   const [error, setError] = useState('');
-  const { login, isLoading, user } = useAuth();
+  const { login, isLoading } = useAuth();
   const router = useRouter();
 
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      posthog.capture('$pageview', {
-        $current_url: window.location.href,
-        $host: window.location.host,
-        $pathname: window.location.pathname,
-      });
-    }
-  }, []);
-
-  // Redirect if already logged in
-  useEffect(() => {
-    if (user) {
-      router.push('/files');
-    }
-  }, [user, router]);
+  useAuthRedirect();
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>): void => {
     const { name, value } = e.target;

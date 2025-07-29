@@ -131,8 +131,7 @@ class SessionReplayGenerator:
             cwd=self.product_app_path,
             env={
                 **os.environ,
-                "NEXT_PUBLIC_POSTHOG_API_HOST": f"http://{LOCAL_POSTHOG_NETLOC}",
-                "NEXT_PUBLIC_POSTHOG_DEMO_TOKEN": self.posthog_api_token,
+                "NEXT_PUBLIC_POSTHOG_KEY": self.posthog_api_token,
             },
             stdout=None if print_progress else subprocess.PIPE,
             stderr=None if print_progress else subprocess.PIPE,
