@@ -22,6 +22,7 @@ from posthog.temporal.common.schedule import a_create_schedule, a_schedule_exist
 from posthog.temporal.quota_limiting.run_quota_limiting import RunQuotaLimitingInputs
 from posthog.temporal.subscriptions.subscription_scheduling_workflow import ScheduleAllSubscriptionsWorkflowInputs
 from posthog.temporal.product_analytics.upgrade_queries_workflow import UpgradeQueriesWorkflowInputs
+from posthog.temporal.salesforce_enrichment.workflow import SalesforceEnrichmentInputs
 from django.conf import settings
 
 
@@ -114,6 +115,29 @@ async def create_upgrade_queries_schedule(client: Client):
         await a_create_schedule(client, "upgrade-queries-schedule", upgrade_queries_schedule, trigger_immediately=False)
 
 
+async def create_salesforce_enrichment_schedule(client: Client):
+    """Create or update the schedule for the Salesforce enrichment workflow.
+
+    This schedule runs every Sunday at 2 AM UTC with chunk size of 5000.
+    """
+    salesforce_enrichment_schedule = Schedule(
+        action=ScheduleActionStartWorkflow(
+            "salesforce-enrichment-async",
+            asdict(SalesforceEnrichmentInputs(chunk_size=5000)),
+            id="salesforce-enrichment-schedule",
+            task_queue=GENERAL_PURPOSE_TASK_QUEUE,
+        ),
+        spec=ScheduleSpec(cron_expressions=["0 2 * * 0"]),  # Sunday at 2 AM UTC
+    )
+
+    if await a_schedule_exists(client, "salesforce-enrichment-schedule"):
+        await a_update_schedule(client, "salesforce-enrichment-schedule", salesforce_enrichment_schedule)
+    else:
+        await a_create_schedule(
+            client, "salesforce-enrichment-schedule", salesforce_enrichment_schedule, trigger_immediately=False
+        )
+
+
 schedules = [
     create_sync_vectors_schedule,
     create_run_quota_limiting_schedule,
@@ -122,6 +146,7 @@ schedules = [
 
 if settings.EE_AVAILABLE:
     schedules.append(create_schedule_all_subscriptions_schedule)
+    schedules.append(create_salesforce_enrichment_schedule)
 
 
 async def a_init_general_queue_schedules():

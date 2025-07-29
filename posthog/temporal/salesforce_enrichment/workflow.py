@@ -18,6 +18,7 @@ from ee.billing.salesforce_enrichment.enrichment import enrich_accounts_chunked_
 from ee.billing.salesforce_enrichment.salesforce_client import SalesforceClient
 from ee.billing.salesforce_enrichment.redis_cache import store_accounts_in_redis, get_cached_accounts_count
 
+
 SALESFORCE_ACCOUNTS_QUERY = """
     SELECT Id, Name, Website, CreatedDate
     FROM Account
