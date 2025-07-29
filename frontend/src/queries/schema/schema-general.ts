@@ -436,6 +436,8 @@ export type RecordingOrder =
     | 'mouse_activity_count'
     | 'activity_score'
 
+export type RecordingOrderDirection = 'ASC' | 'DESC'
+
 export interface RecordingsQuery extends DataNode<RecordingsQueryResponse> {
     kind: NodeKind.RecordingsQuery
     /**
@@ -460,6 +462,18 @@ export interface RecordingsQuery extends DataNode<RecordingsQueryResponse> {
      * @default "start_time"
      * */
     order?: RecordingOrder
+    /**
+     * Replay originally had all ordering as descending
+     * by specifying the field name,
+     * this runs counter to Django behavior
+     * where the field name specifies ascending sorting (e.g. the_field_name)
+     * and -the_field_name would indicate descending order
+     * to avoid invalidating or migrating all existing filters
+     * we keep DESC as the default
+     * or allow specification of an explicit order direction here
+     * @default "DESC"
+     */
+    order_direction?: RecordingOrderDirection
     limit?: integer
     offset?: integer
     user_modified_filters?: Record<string, any>
