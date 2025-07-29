@@ -172,7 +172,7 @@ class MyNotificationsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             last_read_filter = ""
 
             if last_read_date and unread:
-                last_read_filter = f"AND created_at > '{last_read_date.isoformat()}'"
+                last_read_filter = f"AND date_trunc('microseconds', created_at) > '{last_read_date.isoformat()}'"
 
         with timer("query_for_candidate_ids"):
             # before we filter to include only the important changes,
