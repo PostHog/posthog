@@ -7,13 +7,10 @@ from posthog.exceptions_capture import capture_exception
 
 from .constants import HARMONIC_DEFAULT_MAX_CONCURRENT_REQUESTS, HARMONIC_REQUEST_TIMEOUT_SECONDS
 
-# Harmonic API endpoint
 HARMONIC_BASE_URL = "https://api.harmonic.ai"
 
-# Domain variations to try when enriching (in order)
 DOMAIN_VARIATIONS = ["", "www."]  # Try exact domain first, then with www prefix
 
-# GraphQL query for company enrichment
 HARMONIC_COMPANY_ENRICHMENT_QUERY = """
 mutation($identifiers: CompanyEnrichmentIdentifiersInput!) {
     enrichCompanyByIdentifiers(identifiers: $identifiers) {
@@ -145,7 +142,7 @@ class AsyncHarmonicClient:
                 try:
                     variables = {"identifiers": {"websiteUrl": f"https://{domain_variation}"}}
 
-                    assert self.session is not None  # Guaranteed by context manager
+                    assert self.session is not None
                     async with self.session.post(
                         f"{HARMONIC_BASE_URL}/graphql",
                         params={"apikey": self.api_key},
@@ -156,18 +153,16 @@ class AsyncHarmonicClient:
                         data = await response.json()
 
                         if "errors" in data:
-                            continue  # Try next domain variation
+                            continue
 
                         result = data.get("data", {}).get("enrichCompanyByIdentifiers", {})
                         if result.get("companyFound"):
                             company_data = result.get("company")
                             return company_data
 
-                except (TimeoutError, aiohttp.ClientError):
-                    continue  # Try next domain variation
                 except Exception as e:
                     capture_exception(e)
-                    continue  # Try next domain variation
+                    continue
 
             return None
 
