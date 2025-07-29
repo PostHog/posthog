@@ -3,31 +3,22 @@ from django.db.models import QuerySet, Count
 from rest_framework import permissions, mixins, viewsets, serializers
 from rest_framework.request import Request
 
-from posthog.cdp.templates.hog_function_template import (
-    HogFunctionMapping,
-    HogFunctionMappingTemplate,
-)
-from rest_framework_dataclasses.serializers import DataclassSerializer
 from posthog.models.hog_functions import HogFunction
 from posthog.models.hog_function_template import HogFunctionTemplate
-
 
 logger = structlog.get_logger(__name__)
 
 
-class HogFunctionMappingSerializer(DataclassSerializer):
-    class Meta:
-        dataclass = HogFunctionMapping
-
-
-class HogFunctionMappingTemplateSerializer(DataclassSerializer):
-    class Meta:
-        dataclass = HogFunctionMappingTemplate
+class HogFunctionMappingTemplateSerializer(serializers.Serializer):
+    name = serializers.CharField()
+    include_by_default = serializers.BooleanField(required=False, allow_null=True)
+    filters = serializers.JSONField(required=False, allow_null=True)
+    inputs = serializers.JSONField(required=False, allow_null=True)
+    inputs_schema = serializers.JSONField(required=False, allow_null=True)
 
 
 class HogFunctionTemplateSerializer(serializers.ModelSerializer):
-    mapping_templates = HogFunctionMappingTemplateSerializer(many=True, required=False)
-    mappings = HogFunctionMappingSerializer(many=True, required=False)
+    mapping_templates = HogFunctionMappingTemplateSerializer(many=True, required=False, allow_null=True)
     id = serializers.CharField(source="template_id")
 
     class Meta:
@@ -46,7 +37,6 @@ class HogFunctionTemplateSerializer(serializers.ModelSerializer):
             "icon_url",
             "filters",
             "masking",
-            "mappings",
             "mapping_templates",
         ]
 
