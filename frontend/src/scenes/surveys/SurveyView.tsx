@@ -47,6 +47,7 @@ import { SceneCommonButtons } from 'lib/components/Scenes/SceneCommonButtons'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { SceneDescription } from 'lib/components/Scenes/SceneDescription'
 import { SceneName } from 'lib/components/Scenes/SceneName'
+import { SceneFile } from 'lib/components/Scenes/SceneFile'
 const RESOURCE_TYPE = 'survey'
 
 export function SurveyView({ id }: { id: string }): JSX.Element {
@@ -337,6 +338,8 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                 dataAttrKey={RESOURCE_TYPE}
                                 optional
                             />
+
+                            <SceneFile dataAttrKey={RESOURCE_TYPE} />
                         </ScenePanelMetaInfo>
                         <ScenePanelDivider />
                         <ScenePanelActions>
