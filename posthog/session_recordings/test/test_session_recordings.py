@@ -2108,9 +2108,14 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         assert response.status_code == status.HTTP_200_OK
         response_data = response.json()
 
-        # Should only create 1 new viewed record (the third one)
-        assert response_data["viewed_count"] == 1
+        # Should process all 3 recordings (viewed_count represents total processed)
+        assert response_data["viewed_count"] == 3
         assert response_data["total_requested"] == 3
+
+        # Verify all recordings are marked as viewed in database
+        for session_id in session_ids:
+            viewed_record = SessionRecordingViewed.objects.get(team=self.team, user=self.user, session_id=session_id)
+            assert viewed_record is not None
 
     def test_bulk_not_viewed_session_recordings(self):
         """Test successful bulk marking of session recordings as not viewed"""
