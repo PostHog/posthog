@@ -111,13 +111,17 @@ const SupportResponseTimesTable = ({
             features: [getResponseTimeFeature('Boost') || { note: '1 business day' }],
             plan_key: 'boost',
         },
-        {
-            name: 'Teams',
-            current_plan: currentPlan === 'teams',
-            features: [{ note: '1 business day' }],
-            plan_key: 'teams',
-            legacy_product: true,
-        },
+        ...(billingPlan === BillingPlan.Teams
+            ? [
+                  {
+                      name: 'Teams',
+                      current_plan: currentPlan === 'teams',
+                      features: [{ note: '1 business day' }],
+                      plan_key: 'teams',
+                      legacy_product: true,
+                  },
+              ]
+            : []),
         {
             name: 'Scale',
             current_plan: currentPlan === 'scale',
@@ -132,16 +136,9 @@ const SupportResponseTimesTable = ({
         },
     ]
 
-    const filteredPlansToDisplay = plansToDisplay.filter((plan) => {
-        if (plan.plan_key === 'teams') {
-            return plan.current_plan
-        }
-        return true
-    })
-
     return (
         <div className="grid grid-cols-2 border rounded [&_>*]:px-2 [&_>*]:py-0.5 bg-surface-primary mb-2">
-            {filteredPlansToDisplay.map((plan, index) => {
+            {plansToDisplay.map((plan, index) => {
                 const isBold = plan.current_plan
 
                 const responseNote = plan.features.find((f: any) => f.note)?.note
