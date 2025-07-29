@@ -95,7 +95,7 @@ def call_root(demo_org_team_user):
 
 
 @pytest.mark.django_db
-async def eval_root_style(call_root):
+async def eval_root_style(call_root, pytestconfig):
     await MaxEval(
         experiment_name="root_style",
         task=call_root,
@@ -151,6 +151,7 @@ async def eval_root_style(call_root):
                 expected="Response should avoid stereotypical jokes about any demographic groups or cultures",
             ),
         ],
+        pytestconfig=pytestconfig,
     )
 
 

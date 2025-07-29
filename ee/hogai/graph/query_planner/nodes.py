@@ -143,6 +143,9 @@ class QueryPlannerNode(AssistantNode):
             model_kwargs={
                 "previous_response_id": state.query_planner_previous_response_id or None,  # Must alias "" to None
             },
+            reasoning={
+                "summary": "auto",  # Without this, there's no reasoning summaries! Only works with reasoning models
+            },
         ).bind_tools(
             [
                 retrieve_event_properties,
