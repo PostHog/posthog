@@ -19,7 +19,10 @@ max_attempts=5
 attempt=0
 
 while [ $attempt -lt $max_attempts ]; do
-    if cqlsh $CASSANDRA_HOST $CASSANDRA_PORT -e "SELECT now() FROM system.local;" >/dev/null 2>&1; then
+    if nc -z "$CASSANDRA_HOST" "$CASSANDRA_PORT" > /dev/null 2>&1; then
+        echo "Cassandra port is open!"
+        # Give Cassandra a bit more time to fully initialize after port opens
+        sleep 3
         echo "Cassandra is ready!"
         break
     fi
