@@ -1804,7 +1804,6 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
 
     def test_bulk_delete_session_recordings(self):
-        """Test successful bulk delete of session recordings"""
         Person.objects.create(
             team=self.team,
             distinct_ids=["user1", "user2"],
@@ -1861,7 +1860,6 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         ]
     )
     def test_bulk_delete_validation_errors(self, test_name, request_data, expected_error_message):
-        """Test bulk delete validation errors"""
         response = self.client.post(
             f"/api/projects/{self.team.id}/session_recordings/bulk_delete",
             request_data,
@@ -1871,7 +1869,6 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         assert response.json()["detail"] == expected_error_message
 
     def test_bulk_delete_skips_already_deleted_recordings(self):
-        """Test bulk delete skips recordings that are already deleted"""
         Person.objects.create(
             team=self.team,
             distinct_ids=["user1"],
@@ -1907,7 +1904,6 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         assert response_data["total_requested"] == 2
 
     def test_bulk_delete_nonexistent_recordings(self):
-        """Test bulk delete with nonexistent recordings"""
         session_ids = ["nonexistent_1", "nonexistent_2"]
 
         response = self.client.post(
@@ -1923,7 +1919,6 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         assert response_data["total_requested"] == 2
 
     def test_bulk_delete_mixed_existing_and_nonexistent(self):
-        """Test bulk delete with mix of existing and nonexistent recordings"""
         Person.objects.create(
             team=self.team,
             distinct_ids=["user1"],
@@ -1950,7 +1945,6 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         assert response_data["total_requested"] == 2
 
     def test_bulk_delete_creates_postgres_records_for_clickhouse_only_recordings(self):
-        """Test that bulk delete creates PostgreSQL records for ClickHouse-only recordings"""
         Person.objects.create(
             team=self.team,
             distinct_ids=["user1"],
@@ -1984,7 +1978,6 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
 
     @patch("posthog.session_recordings.session_recording_api.logger")
     def test_bulk_delete_logging(self, mock_logger):
-        """Test that bulk delete logs the operation"""
         Person.objects.create(
             team=self.team,
             distinct_ids=["user1"],
@@ -2013,7 +2006,6 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         )
 
     def test_bulk_delete_doesnt_leak_teams(self):
-        """Test that bulk delete doesn't affect recordings from other teams"""
         other_team = Team.objects.create(organization=self.organization)
         Person.objects.create(
             team=other_team,
@@ -2041,7 +2033,6 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         assert response_data["total_requested"] == 1
 
     def test_bulk_viewed_session_recordings(self):
-        """Test successful bulk marking of session recordings as viewed"""
         Person.objects.create(
             team=self.team,
             distinct_ids=["user1", "user2"],
@@ -2074,7 +2065,6 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             assert viewed_record is not None
 
     def test_bulk_viewed_handles_duplicates(self):
-        """Test bulk viewed ignores already viewed recordings"""
         Person.objects.create(
             team=self.team,
             distinct_ids=["user1"],
@@ -2114,7 +2104,6 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             assert viewed_record is not None
 
     def test_bulk_not_viewed_session_recordings(self):
-        """Test successful bulk marking of session recordings as not viewed"""
         Person.objects.create(
             team=self.team,
             distinct_ids=["user1"],
@@ -2155,7 +2144,6 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             ).exists()
 
     def test_bulk_not_viewed_handles_already_not_viewed(self):
-        """Test bulk not viewed handles recordings that aren't viewed"""
         Person.objects.create(
             team=self.team,
             distinct_ids=["user1"],
