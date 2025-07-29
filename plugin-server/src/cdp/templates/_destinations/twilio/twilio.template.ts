@@ -10,7 +10,7 @@ export const template: HogFunctionTemplate = {
     icon_url: '/static/services/twilio.png',
     category: ['Communication'],
     code_language: 'hog',
-    hog: `
+    code: `
 let toNumber := inputs.to_number
 let message := inputs.message
 let fromNumber := inputs.from_number

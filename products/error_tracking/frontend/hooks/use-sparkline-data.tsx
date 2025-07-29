@@ -1,31 +1,55 @@
 import { useValues } from 'kea'
 import { useMemo } from 'react'
 
-import { DateRange } from '~/queries/schema/schema-general'
+import { DateRange, ErrorTrackingIssueAggregations } from '~/queries/schema/schema-general'
 
 import { SparklineData } from '../components/SparklineChart/SparklineChart'
 import { errorTrackingIssueSceneLogic } from '../errorTrackingIssueSceneLogic'
 import { ERROR_TRACKING_DETAILS_RESOLUTION, generateSparklineLabels } from '../utils'
+import { Dayjs } from 'lib/dayjs'
+
+type NotUndefined<T> = T extends undefined ? never : T
+
+function generateDataFromVolumeBuckets(
+    volumeBuckets: NotUndefined<ErrorTrackingIssueAggregations['volume_buckets']>
+): SparklineData {
+    return volumeBuckets.map(({ label, value }) => ({
+        value,
+        date: new Date(label),
+    }))
+}
+
+function generateDataFromVolumeRange(
+    volumeRange: ErrorTrackingIssueAggregations['volumeRange'],
+    labels: Dayjs[]
+): SparklineData {
+    return volumeRange.map((value, index) => ({
+        value,
+        date: labels[index].toDate(),
+    }))
+}
 
 export function useSparklineData(
-    occurrences: number[] | undefined,
+    aggregations: ErrorTrackingIssueAggregations | undefined,
     dateRange: DateRange,
     volumeResolution: number
 ): SparklineData {
     return useMemo(() => {
-        const labels = generateSparklineLabels(dateRange, volumeResolution)
-        let values = occurrences
-        if (!values) {
-            values = new Array(volumeResolution).fill(0)
+        if (aggregations?.volume_buckets) {
+            return generateDataFromVolumeBuckets(aggregations.volume_buckets)
         }
-        return values.map((value, index) => ({
-            value,
-            date: labels[index].toDate(),
+        const labels = generateSparklineLabels(dateRange, volumeResolution)
+        if (aggregations?.volumeRange) {
+            return generateDataFromVolumeRange(aggregations.volumeRange, labels)
+        }
+        return labels.map((label) => ({
+            value: 0,
+            date: label.toDate(),
         }))
-    }, [occurrences, dateRange, volumeResolution])
+    }, [aggregations, dateRange, volumeResolution])
 }
 
 export function useSparklineDataIssueScene(): SparklineData {
     const { aggregations, dateRange } = useValues(errorTrackingIssueSceneLogic)
-    return useSparklineData(aggregations?.volumeRange, dateRange, ERROR_TRACKING_DETAILS_RESOLUTION)
+    return useSparklineData(aggregations, dateRange, ERROR_TRACKING_DETAILS_RESOLUTION)
 }
