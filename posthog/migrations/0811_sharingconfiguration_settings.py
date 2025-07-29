@@ -5,13 +5,13 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0808_add_evaluation_environment_to_feature_flag"),
+        ("posthog", "0810_alter_hogfunctiontemplate_icon_url"),
     ]
 
     operations = [
         migrations.AddField(
             model_name="sharingconfiguration",
-            name="state",
-            field=models.JSONField(blank=True, default=dict, help_text="JSON state for storing configuration settings"),
+            name="settings",
+            field=models.JSONField(blank=True, null=True, help_text="JSON settings for storing configuration options"),
         ),
     ]

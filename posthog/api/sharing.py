@@ -87,7 +87,7 @@ def get_themes_for_team(team: Team):
 class SharingConfigurationSerializer(serializers.ModelSerializer):
     class Meta:
         model = SharingConfiguration
-        fields = ["created_at", "enabled", "access_token", "state"]
+        fields = ["created_at", "enabled", "access_token", "settings"]
         read_only_fields = ["created_at", "access_token"]
 
 
@@ -351,8 +351,8 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
         else:
             raise NotFound()
 
-        # Check both query params (legacy) and state for configuration options
-        state = getattr(resource, "state", {}) or {}
+        # Check both query params (legacy) and settings for configuration options
+        state = getattr(resource, "settings", {}) or {}
 
         # Only check query params for configurations created before SHIP_DATE
         # TODO: Replace SHIP_DATE with actual deployment date

@@ -506,20 +506,20 @@ class TestSharing(APIBaseTest):
         assert original_config.expires_at > timezone.now()  # Should be in the future
 
     @patch("posthog.api.exports.exporter.export_asset.delay")
-    def test_sharing_configuration_state_field_defaults(self, patched_exporter_task: Mock):
-        """Test that state field defaults to empty dict"""
+    def test_sharing_configuration_settings_field_defaults(self, patched_exporter_task: Mock):
+        """Test that settings field defaults to empty dict"""
         response = self.client.patch(
             f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}/sharing",
             {"enabled": True},
         )
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
-        assert "state" in data
-        assert data["state"] == {}
+        assert "settings" in data
+        assert data["settings"] == {}
 
     @patch("posthog.api.exports.exporter.export_asset.delay")
-    def test_can_update_state_field(self, patched_exporter_task: Mock):
-        """Test that state field can be updated"""
+    def test_can_update_settings_field(self, patched_exporter_task: Mock):
+        """Test that settings field can be updated"""
         # First enable sharing
         response = self.client.patch(
             f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}/sharing",
@@ -527,25 +527,25 @@ class TestSharing(APIBaseTest):
         )
         assert response.status_code == status.HTTP_200_OK
 
-        # Update state
-        state_data = {"whitelabel": True, "customSetting": "value"}
+        # Update settings
+        settings_data = {"whitelabel": True, "customSetting": "value"}
         response = self.client.patch(
             f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}/sharing",
-            {"state": state_data},
+            {"settings": settings_data},
         )
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
-        assert data["state"] == state_data
+        assert data["settings"] == settings_data
 
-        # Verify state persists
+        # Verify settings persists
         response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}/sharing")
-        assert response.json()["state"] == state_data
+        assert response.json()["settings"] == settings_data
 
     @patch("posthog.api.exports.exporter.export_asset.delay")
-    def test_state_preserved_on_token_rotation(self, patched_exporter_task: Mock):
-        """Test that state is preserved when rotating access tokens"""
-        # Enable sharing with comprehensive state
-        state_data = {
+    def test_settings_preserved_on_token_rotation(self, patched_exporter_task: Mock):
+        """Test that settings are preserved when rotating access tokens"""
+        # Enable sharing with comprehensive settings
+        settings_data = {
             "whitelabel": True,
             "noHeader": True,
             "showInspector": False,
@@ -555,7 +555,7 @@ class TestSharing(APIBaseTest):
         }
         response = self.client.patch(
             f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}/sharing",
-            {"enabled": True, "state": state_data},
+            {"enabled": True, "settings": settings_data},
         )
         assert response.status_code == status.HTTP_200_OK
 
@@ -563,8 +563,8 @@ class TestSharing(APIBaseTest):
         response = self.client.post(f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}/sharing/refresh/")
         assert response.status_code == status.HTTP_200_OK
 
-        # State should be preserved
-        assert response.json()["state"] == state_data
+        # Settings should be preserved
+        assert response.json()["settings"] == settings_data
 
     @freeze_time("2023-12-15")  # Before ship date
     @patch("posthog.api.exports.exporter.export_asset.delay")
@@ -612,17 +612,17 @@ class TestSharing(APIBaseTest):
 
     @freeze_time("2024-06-15")  # After ship date
     @patch("posthog.api.exports.exporter.export_asset.delay")
-    def test_all_options_from_state_work_for_new_configs(self, patched_exporter_task: Mock):
-        """Test that all options from state work for new configurations"""
-        # Create sharing configuration with all options in state
-        state_data = {"whitelabel": True, "noHeader": True, "legend": True, "detailed": True, "showInspector": True}
+    def test_all_options_from_settings_work_for_new_configs(self, patched_exporter_task: Mock):
+        """Test that all options from settings work for new configurations"""
+        # Create sharing configuration with all options in settings
+        settings_data = {"whitelabel": True, "noHeader": True, "legend": True, "detailed": True, "showInspector": True}
         response = self.client.patch(
             f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}/sharing",
-            {"enabled": True, "state": state_data},
+            {"enabled": True, "settings": settings_data},
         )
         access_token = response.json()["access_token"]
 
-        # Test all options from state work
+        # Test all options from settings work
         response = self.client.get(f"/shared/{access_token}")
         assert response.status_code == 200
         content = response.content.decode()
@@ -634,10 +634,10 @@ class TestSharing(APIBaseTest):
 
     @parameterized.expand(["insights", "dashboards"])
     @patch("posthog.api.exports.exporter.export_asset.delay")
-    def test_state_field_works_for_both_insights_and_dashboards(self, type: str, patched_exporter_task: Mock):
-        """Test that state field works for both insights and dashboards"""
+    def test_settings_field_works_for_both_insights_and_dashboards(self, type: str, patched_exporter_task: Mock):
+        """Test that settings field works for both insights and dashboards"""
         target = self.insight if type == "insights" else self.dashboard
-        state_data = {
+        settings_data = {
             "whitelabel": True,
             "noHeader": False,
             "showInspector": True,
@@ -648,17 +648,17 @@ class TestSharing(APIBaseTest):
 
         response = self.client.patch(
             f"/api/projects/{self.team.id}/{type}/{target.pk}/sharing",
-            {"enabled": True, "state": state_data},
+            {"enabled": True, "settings": settings_data},
         )
         assert response.status_code == status.HTTP_200_OK
-        assert response.json()["state"] == state_data
+        assert response.json()["settings"] == settings_data
 
-        # Verify state persists
+        # Verify settings persists
         response = self.client.get(f"/api/projects/{self.team.id}/{type}/{target.pk}/sharing")
-        assert response.json()["state"] == state_data
+        assert response.json()["settings"] == settings_data
 
-    def test_sharing_configuration_model_state_default(self):
-        """Test that the model's state field defaults to empty dict"""
+    def test_sharing_configuration_model_settings_default(self):
+        """Test that the model's settings field defaults to empty dict"""
         from posthog.models.sharing_configuration import SharingConfiguration
 
         config = SharingConfiguration.objects.create(
@@ -666,20 +666,20 @@ class TestSharing(APIBaseTest):
             dashboard=self.dashboard,
             enabled=True,
         )
-        assert config.state == {}
+        assert config.settings == {}
 
-        # Test with explicit state
-        config_with_state = SharingConfiguration.objects.create(
-            team=self.team, insight=self.insight, enabled=True, state={"whitelabel": True, "custom": "value"}
+        # Test with explicit settings
+        config_with_settings = SharingConfiguration.objects.create(
+            team=self.team, insight=self.insight, enabled=True, settings={"whitelabel": True, "custom": "value"}
         )
-        assert config_with_state.state == {"whitelabel": True, "custom": "value"}
+        assert config_with_settings.settings == {"whitelabel": True, "custom": "value"}
 
-    def test_rotate_access_token_preserves_state(self):
-        """Test that rotating access token preserves the state"""
+    def test_rotate_access_token_preserves_settings(self):
+        """Test that rotating access token preserves the settings"""
         from posthog.models.sharing_configuration import SharingConfiguration
 
-        # Create config with comprehensive state
-        state_data = {
+        # Create config with comprehensive settings
+        settings_data = {
             "whitelabel": True,
             "noHeader": False,
             "showInspector": True,
@@ -688,13 +688,13 @@ class TestSharing(APIBaseTest):
             "customSetting": "preserved",
         }
         original_config = SharingConfiguration.objects.create(
-            team=self.team, dashboard=self.dashboard, enabled=True, state=state_data
+            team=self.team, dashboard=self.dashboard, enabled=True, settings=settings_data
         )
 
         # Rotate token
         new_config = original_config.rotate_access_token()
 
-        # State should be preserved
-        assert new_config.state == state_data
+        # Settings should be preserved
+        assert new_config.settings == settings_data
         assert new_config.access_token != original_config.access_token
         assert new_config.enabled == original_config.enabled

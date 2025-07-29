@@ -94,7 +94,7 @@ export function SharingModalContent({
 
     useEffect(() => {
         setIframeLoaded(false)
-    }, [iframeProperties.src, sharingConfiguration?.enabled, showPreview])
+    }, [iframeProperties.src, iframeProperties.key, sharingConfiguration?.enabled, showPreview])
 
     return (
         <div className="deprecated-space-y-4">

@@ -4220,7 +4220,7 @@ export interface SharingConfigurationType {
     enabled: boolean
     access_token: string
     created_at: string
-    state: Record<string, any>
+    settings?: Record<string, any>
 }
 
 export enum ExporterFormat {

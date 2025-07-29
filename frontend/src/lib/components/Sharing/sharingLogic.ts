@@ -57,10 +57,11 @@ export const sharingLogic = kea<sharingLogicType>([
 
     actions({
         togglePreview: true,
-        saveConfigToState: true,
+        reloadIframe: true,
     }),
     reducers({
         showPreview: [true, { togglePreview: (state) => !state }],
+        iframeKey: [0, { reloadIframe: (state) => state + 1 }],
     }),
 
     loaders(({ props }) => ({
@@ -73,13 +74,13 @@ export const sharingLogic = kea<sharingLogicType>([
                 setIsEnabled: async (enabled: boolean) => {
                     return await api.sharing.update(await propsToApiParams(props), { enabled })
                 },
-                updateState: async (state: Record<string, any>) => {
-                    return await api.sharing.update(await propsToApiParams(props), { state })
+                updateSettings: async (settings: Record<string, any>) => {
+                    return await api.sharing.update(await propsToApiParams(props), { settings })
                 },
             },
         ],
     })),
-    listeners(({ props }) => ({
+    listeners(({ props, values, actions }) => ({
         setIsEnabled: (enabled) => {
             if (props.dashboardId) {
                 eventUsageLogic.actions.reportDashboardShareToggled(enabled)
@@ -90,35 +91,31 @@ export const sharingLogic = kea<sharingLogicType>([
                 dashboardsModel.actions.loadDashboards()
             }
         },
-        setEmbedConfigValue: ({ name, value }, { actions, values }) => {
+        setEmbedConfigValue: ({ name, value }) => {
             if (name === 'whitelabel' && props.dashboardId) {
                 eventUsageLogic.actions.reportDashboardWhitelabelToggled(value)
             }
             if (name === 'whitelabel' && props.insightShortId) {
                 eventUsageLogic.actions.reportInsightWhitelabelToggled(value)
             }
-            // Auto-save all embed config changes to state
+            // Auto-save all embed config changes to settings
             if (values.sharingConfiguration) {
-                actions.updateState({
-                    ...values.sharingConfiguration.state,
-                    [name]: value,
+                actions.updateSettings({
+                    ...values.sharingConfiguration.settings,
+                    [name as string]: value,
                 })
             }
         },
-        saveConfigToState: async (_, { values, actions }) => {
-            const { embedConfig, sharingConfiguration } = values
-            if (sharingConfiguration) {
-                // Save all embed config options to state (excluding width/height which are iframe-specific)
-                const { width, height, ...stateConfig } = embedConfig
-                await actions.updateState({ ...sharingConfiguration.state, ...stateConfig })
-            }
+        updateSettingsSuccess: () => {
+            // Reload iframe when settings are updated
+            actions.reloadIframe()
         },
-        loadSharingConfigurationSuccess: (sharingConfiguration, { actions }) => {
-            if (sharingConfiguration && sharingConfiguration.state) {
-                // Load all options from state
+        loadSharingConfigurationSuccess: (sharingConfiguration) => {
+            if (sharingConfiguration) {
+                // Load all options from settings
                 actions.setEmbedConfigValues({
                     ...defaultEmbedConfig,
-                    ...sharingConfiguration.state,
+                    ...sharingConfiguration.settings,
                 })
             }
         },
@@ -140,8 +137,8 @@ export const sharingLogic = kea<sharingLogicType>([
             (embedConfig, sharingConfiguration) => ({
                 ...defaultEmbedConfig,
                 ...embedConfig,
-                // Merge all options from state
-                ...sharingConfiguration?.state,
+                // Merge all options from settings
+                ...sharingConfiguration?.settings,
             }),
         ],
 
@@ -167,13 +164,14 @@ export const sharingLogic = kea<sharingLogicType>([
                 sharingConfiguration ? siteUrl + urls.embedded(sharingConfiguration.access_token, params) : '',
         ],
         iframeProperties: [
-            (s) => [s.embedLink, s.mergedEmbedConfig],
-            (embedLink, { width, height }) => ({
+            (s) => [s.embedLink, s.mergedEmbedConfig, s.iframeKey],
+            (embedLink, { width, height }, iframeKey) => ({
                 width,
                 height,
                 frameBorder: 0,
                 allowfullscreen: true,
                 src: embedLink,
+                key: iframeKey,
             }),
         ],
         embedCode: [
