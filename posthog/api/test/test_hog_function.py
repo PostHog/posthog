@@ -347,7 +347,6 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             "code": webhook_template["code"].strip(),
             "filters": None,
             "masking": None,
-            "mappings": None,
             "mapping_templates": None,
         }
 

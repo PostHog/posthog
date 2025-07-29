@@ -38,15 +38,15 @@ class TestTemplatesGeneral(BaseTest):
         template_id = template_data.id
         template = sync_template_to_db(template_data)
         assert HogFunctionTemplate.objects.filter(template_id=template_id).count() == 1
-        assert template.sha == "ce801db1"
+        assert template.sha == "721860af"
 
         template_data_dict = dataclasses.asdict(template_data)
         template = sync_template_to_db(template_data_dict)  # Test it as a dictionary
-        assert template.sha == "ce801db1"
+        assert template.sha == "721860af"
         assert HogFunctionTemplate.objects.filter(template_id=template_id).count() == 1
 
         template_data_dict["code"] = "return 1"
         template = sync_template_to_db(template_data_dict)
-        assert template.sha == "7a3c3b98"
+        assert template.sha == "a7ba7533"
         assert template.code == "return 1"
         assert HogFunctionTemplate.objects.filter(template_id=template_id).count() == 1
