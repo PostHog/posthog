@@ -83,7 +83,7 @@ class TestAccessControlPermission(BaseTest):
 
         request = self.factory.get("/") if method == "GET" else self.factory.post("/")
         request.user = user
-        request.successful_authenticator = Mock()
+        request.successful_authenticator = Mock()  # type: ignore
         request.successful_authenticator.__class__.__name__ = "SessionAuthentication"
         return request
 
