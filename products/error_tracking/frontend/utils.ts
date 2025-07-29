@@ -30,9 +30,29 @@ export const INTERNAL_EXCEPTION_PROPERTY_KEYS = [
 
 export const ISSUE_STATUS_OPTIONS: ErrorTrackingIssue['status'][] = ['active', 'resolved', 'suppressed']
 
-const volumePeriods: 'volumeRange'[] = ['volumeRange']
-const sumVolumes = (...arrays: number[][]): number[] =>
-    arrays[0].map((_, i) => arrays.reduce((sum, arr) => sum + arr[i], 0))
+const sumVolumeBuckets = (
+    primaryIssue: { label: string; value: number }[] | undefined,
+    mergingIssues: ({ label: string; value: number }[] | undefined)[]
+): { label: string; value: number }[] | undefined => {
+    if (!primaryIssue) {
+        return undefined
+    }
+    return primaryIssue.map((item, i) =>
+        mergingIssues.reduce(
+            (agg, arr) => {
+                if (!arr) {
+                    return agg
+                }
+                const value = arr[i]?.value || 0
+                return {
+                    label: arr[i]?.label || '',
+                    value: agg.value + value,
+                }
+            },
+            { label: item.label || '', value: item.value }
+        )
+    )
+}
 
 export const mergeIssues = (
     primaryIssue: ErrorTrackingIssue,
@@ -54,19 +74,14 @@ export const mergeIssues = (
             return mergingIssues.reduce((sum, g) => sum + (g.aggregations?.[value] || 0), aggregations[value])
         }
 
-        volumePeriods.forEach((period) => {
-            const volume = aggregations[period]
-            if (volume) {
-                const mergingVolumes: number[][] = mergingIssues
-                    .map((issue) => (issue.aggregations ? issue.aggregations[period] : undefined))
-                    .filter((volume) => volume != undefined) as number[][]
-                aggregations[period] = sumVolumes(...mergingVolumes, volume)
-            }
-        })
-
         aggregations.users = sum('users')
         aggregations.sessions = sum('sessions')
         aggregations.occurrences = sum('occurrences')
+        aggregations.volume_buckets =
+            sumVolumeBuckets(
+                primaryIssue.aggregations?.volume_buckets,
+                mergingIssues.map((issue) => issue.aggregations?.volume_buckets)
+            ) || []
     }
 
     return {

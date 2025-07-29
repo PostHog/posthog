@@ -1,6 +1,13 @@
-import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
+import { ErrorTrackingIssue, ErrorTrackingIssueAggregations } from '~/queries/schema/schema-general'
 
 import { generateDateRangeLabel, mergeIssues } from './utils'
+
+function wrapVolumeBuckets(volumeBuckets: number[]): ErrorTrackingIssueAggregations['volume_buckets'] {
+    return volumeBuckets.map((v) => ({
+        value: v,
+        label: new Date().toISOString(),
+    }))
+}
 
 describe('mergeIssues', () => {
     it('arbitrary values', async () => {
@@ -15,7 +22,7 @@ describe('mergeIssues', () => {
                 occurrences: 250,
                 sessions: 100,
                 users: 50,
-                volumeRange: [0, 0, 10, 25, 95],
+                volume_buckets: wrapVolumeBuckets([0, 0, 10, 25, 95]),
             },
             library: 'web',
             status: 'active',
@@ -34,7 +41,7 @@ describe('mergeIssues', () => {
                     occurrences: 10,
                     sessions: 5,
                     users: 1,
-                    volumeRange: [0, 0, 0, 0, 1],
+                    volume_buckets: wrapVolumeBuckets([0, 0, 0, 0, 1]),
                 },
                 library: 'web',
                 status: 'active',
@@ -51,7 +58,7 @@ describe('mergeIssues', () => {
                     occurrences: 1,
                     sessions: 1,
                     users: 1,
-                    volumeRange: [0, 0, 0, 1, 0],
+                    volume_buckets: wrapVolumeBuckets([0, 0, 0, 1, 0]),
                 },
                 library: 'web',
                 status: 'active',
@@ -68,7 +75,7 @@ describe('mergeIssues', () => {
                     occurrences: 1000,
                     sessions: 500,
                     users: 50,
-                    volumeRange: [0, 500, 1500, 1000, 1310],
+                    volume_buckets: wrapVolumeBuckets([0, 500, 1500, 1000, 1310]),
                 },
                 library: 'web',
                 status: 'active',
@@ -96,7 +103,7 @@ describe('mergeIssues', () => {
                 occurrences: 1261,
                 sessions: 606,
                 users: 102,
-                volumeRange: [0, 500, 1510, 1026, 1406],
+                volume_buckets: wrapVolumeBuckets([0, 500, 1510, 1026, 1406]),
             },
         } satisfies ErrorTrackingIssue)
     })

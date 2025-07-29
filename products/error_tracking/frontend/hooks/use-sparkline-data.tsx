@@ -1,7 +1,7 @@
 import { useValues } from 'kea'
 import { useMemo } from 'react'
 
-import { DateRange, ErrorTrackingIssueAggregations } from '~/queries/schema/schema-general'
+import { ErrorTrackingIssueAggregations } from '~/queries/schema/schema-general'
 
 import { SparklineData } from '../components/SparklineChart/SparklineChart'
 import { errorTrackingIssueSceneLogic } from '../errorTrackingIssueSceneLogic'
@@ -20,7 +20,6 @@ function generateDataFromVolumeBuckets(
 
 export function useSparklineData(
     aggregations: ErrorTrackingIssueAggregations | undefined,
-    dateRange: DateRange,
     volumeResolution: number
 ): SparklineData {
     return useMemo(() => {
@@ -28,10 +27,10 @@ export function useSparklineData(
             return generateDataFromVolumeBuckets(aggregations.volume_buckets)
         }
         return new Array(volumeResolution).fill({ value: 0, date: new Date() })
-    }, [aggregations, dateRange, volumeResolution])
+    }, [aggregations, volumeResolution])
 }
 
 export function useSparklineDataIssueScene(): SparklineData {
-    const { aggregations, dateRange } = useValues(errorTrackingIssueSceneLogic)
-    return useSparklineData(aggregations, dateRange, ERROR_TRACKING_DETAILS_RESOLUTION)
+    const { aggregations } = useValues(errorTrackingIssueSceneLogic)
+    return useSparklineData(aggregations, ERROR_TRACKING_DETAILS_RESOLUTION)
 }

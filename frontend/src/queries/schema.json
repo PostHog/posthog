@@ -9521,7 +9521,6 @@
                         "additionalProperties": false,
                         "properties": {
                             "label": {
-                                "format": "date-time",
                                 "type": "string"
                             },
                             "value": {

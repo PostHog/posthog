@@ -1025,7 +1025,7 @@ class VolumeBucket(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    label: datetime
+    label: str
     value: float
 
 
