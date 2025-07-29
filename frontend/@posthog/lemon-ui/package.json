@@ -12,13 +12,13 @@
         "build:types": "echo \"Building types\" && tsup src/index.ts --dts-only",
         "prepublishOnly": "pnpm build"
     },
-    "devDependencies": {
+    "dependencies": {
+        "kea": "^3.1.5",
+        "kea-router": "^3.2.2",
         "tsup": "^5.12.8",
         "typescript": "5.2.2"
     },
     "peerDependencies": {
-        "kea": "*",
-        "kea-router": "*",
         "react": "*",
         "react-dom": "*"
     }
