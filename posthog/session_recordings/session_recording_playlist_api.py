@@ -203,10 +203,10 @@ class SessionRecordingPlaylistSerializer(serializers.ModelSerializer):
         if not playlist_type or playlist_type not in ["collection", "filters"]:
             raise ValidationError("Must provide a valid playlist type: either filters or collection")
 
-        if playlist_type == "collection" and validated_data.get("filters", None) is not None:
+        if playlist_type == "collection" and len(validated_data.get("filters", {})) > 0:
             raise ValidationError("You cannot create a collection with filters")
 
-        if playlist_type == "filters" and validated_data.get("filters", None) is None:
+        if playlist_type == "filters" and len(validated_data.get("filters", {})) == 0:
             raise ValidationError("You must provide a valid filters when creating a saved filter")
 
         playlist = SessionRecordingPlaylist.objects.create(
