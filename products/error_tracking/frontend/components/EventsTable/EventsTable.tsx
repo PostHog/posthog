@@ -41,6 +41,46 @@ function renderViewRecordingButton(event: ErrorEventType): JSX.Element {
     )
 }
 
+function renderMoreButton(event: ErrorEventType): JSX.Element {
+    return (
+        <More
+            size="xsmall"
+            overlay={
+                <>
+                    <LemonButton
+                        fullWidth
+                        size="small"
+                        sideIcon={<IconLink />}
+                        data-attr="events-table-event-link"
+                        onClick={() =>
+                            void copyToClipboard(
+                                urls.absolute(urls.currentProject(urls.event(String(event.uuid), event.timestamp))),
+                                'link to event'
+                            )
+                        }
+                    >
+                        Copy link to event
+                    </LemonButton>
+                    <LemonButton
+                        fullWidth
+                        size="small"
+                        sideIcon={<IconAI />}
+                        to={urls.llmObservabilityTrace(event.properties.$ai_trace_id, {
+                            event: event.uuid,
+                            timestamp: event.timestamp,
+                        })}
+                        disabledReason={
+                            !event.properties.$ai_trace_id ? 'There is no LLM Trace ID on this event' : undefined
+                        }
+                    >
+                        View LLM Trace
+                    </LemonButton>
+                </>
+            }
+        />
+    )
+}
+
 export function EventsTable({ issueId, selectedEvent, onEventSelect }: EventsTableProps): JSX.Element {
     const { query, queryKey } = useValues(eventsQueryLogic({ issueId }))
     const tagRenderer = useErrorTagRenderer()
@@ -92,45 +132,7 @@ export function EventsTable({ issueId, selectedEvent, onEventSelect }: EventsTab
         return (
             <div className="flex justify-end items-center gap-x-1">
                 {renderViewRecordingButton(record)}
-                <More
-                    size="xsmall"
-                    overlay={
-                        <>
-                            <LemonButton
-                                fullWidth
-                                size="small"
-                                sideIcon={<IconLink />}
-                                data-attr="events-table-event-link"
-                                onClick={() =>
-                                    void copyToClipboard(
-                                        urls.absolute(
-                                            urls.currentProject(urls.event(String(record.uuid), record.timestamp))
-                                        ),
-                                        'link to event'
-                                    )
-                                }
-                            >
-                                Copy link to event
-                            </LemonButton>
-                            <LemonButton
-                                fullWidth
-                                size="small"
-                                sideIcon={<IconAI />}
-                                to={urls.llmObservabilityTrace(record.properties.$ai_trace_id, {
-                                    event: record.uuid,
-                                    timestamp: record.timestamp,
-                                })}
-                                disabledReason={
-                                    !record.properties.$ai_trace_id
-                                        ? 'There is no LLM Trace ID on this event'
-                                        : undefined
-                                }
-                            >
-                                View LLM Trace
-                            </LemonButton>
-                        </>
-                    }
-                />
+                {renderMoreButton(record)}
             </div>
         )
     }
