@@ -553,6 +553,9 @@
                     "$ref": "#/definitions/FeaturePropertyFilter"
                 },
                 {
+                    "$ref": "#/definitions/FlagPropertyFilter"
+                },
+                {
                     "$ref": "#/definitions/HogQLPropertyFilter"
                 },
                 {
@@ -839,7 +842,9 @@
                 "create_hog_function_filters",
                 "create_hog_function_inputs",
                 "navigate",
-                "search_error_tracking_issues"
+                "search_error_tracking_issues",
+                "experiment_results_summary",
+                "create_survey"
             ],
             "type": "string"
         },
@@ -1081,7 +1086,7 @@
                 },
                 "exclusions": {
                     "default": [],
-                    "description": "Users may want to use exclusion events to filter out conversions in which a particular event occurred between specific steps. These events must not be included in the main sequence. You must include start and end indexes for each exclusion where the minimum index is one and the maximum index is the number of steps in the funnel. For example, there is a sequence with three steps: sign up, finish onboarding, purchase. If the user wants to exclude all conversions in which users left the page before finishing the onboarding, the exclusion step would be the event `$pageleave` with start index 2 and end index 3. When exclusion steps appear needed when you're planning the query, make sure to explicitly state this in the plan.",
+                    "description": "Users may want to use exclusion events to filter out conversions in which a particular event occurred between specific steps. These events must not be included in the main sequence. This doesn't exclude users who have completed the event before or after the funnel sequence, but often this is what users want. (If not sure, worth clarifying.) You must include start and end indexes for each exclusion where the minimum index is one and the maximum index is the number of steps in the funnel. For example, there is a sequence with three steps: sign up, finish onboarding, purchase. If the user wants to exclude all conversions in which users left the page before finishing the onboarding, the exclusion step would be the event `$pageleave` with start index 2 and end index 3. When exclusion steps appear needed when you're planning the query, make sure to explicitly state this in the plan.",
                     "items": {
                         "$ref": "#/definitions/AssistantFunnelsExclusionEventsNode"
                     },
@@ -1111,7 +1116,7 @@
                 "funnelWindowInterval": {
                     "$ref": "#/definitions/integer",
                     "default": 14,
-                    "description": "Controls a time frame value for a conversion to be considered. Select a reasonable value based on the user's query. Use in combination with `funnelWindowIntervalUnit`. The default value is 14 days."
+                    "description": "Controls a time frame value for a conversion to be considered. Select a reasonable value based on the user's query. If needed, this can be practically unlimited by setting a large value, though it's rare to need that. Use in combination with `funnelWindowIntervalUnit`. The default value is 14 days."
                 },
                 "funnelWindowIntervalUnit": {
                     "$ref": "#/definitions/FunnelConversionWindowTimeUnit",
@@ -1237,27 +1242,7 @@
                             "description": "`icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern."
                         },
                         "type": {
-                            "anyOf": [
-                                {
-                                    "const": "event",
-                                    "description": "Event properties",
-                                    "type": "string"
-                                },
-                                {
-                                    "const": "person",
-                                    "description": "Person properties",
-                                    "type": "string"
-                                },
-                                {
-                                    "const": "session",
-                                    "type": "string"
-                                },
-                                {
-                                    "const": "feature",
-                                    "description": "Event property with \"$feature/\" prepended",
-                                    "type": "string"
-                                }
-                            ]
+                            "$ref": "#/definitions/AssistantGenericPropertyFilterType"
                         },
                         "value": {
                             "description": "Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties.",
@@ -1278,27 +1263,7 @@
                             "$ref": "#/definitions/AssistantNumericValuePropertyFilterOperator"
                         },
                         "type": {
-                            "anyOf": [
-                                {
-                                    "const": "event",
-                                    "description": "Event properties",
-                                    "type": "string"
-                                },
-                                {
-                                    "const": "person",
-                                    "description": "Person properties",
-                                    "type": "string"
-                                },
-                                {
-                                    "const": "session",
-                                    "type": "string"
-                                },
-                                {
-                                    "const": "feature",
-                                    "description": "Event property with \"$feature/\" prepended",
-                                    "type": "string"
-                                }
-                            ]
+                            "$ref": "#/definitions/AssistantGenericPropertyFilterType"
                         },
                         "value": {
                             "type": "number"
@@ -1319,27 +1284,7 @@
                             "description": "`exact` - exact match of any of the values. `is_not` - does not match any of the values."
                         },
                         "type": {
-                            "anyOf": [
-                                {
-                                    "const": "event",
-                                    "description": "Event properties",
-                                    "type": "string"
-                                },
-                                {
-                                    "const": "person",
-                                    "description": "Person properties",
-                                    "type": "string"
-                                },
-                                {
-                                    "const": "session",
-                                    "type": "string"
-                                },
-                                {
-                                    "const": "feature",
-                                    "description": "Event property with \"$feature/\" prepended",
-                                    "type": "string"
-                                }
-                            ]
+                            "$ref": "#/definitions/AssistantGenericPropertyFilterType"
                         },
                         "value": {
                             "description": "Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string \"true\" or \"false\".",
@@ -1363,27 +1308,7 @@
                             "$ref": "#/definitions/AssistantDateTimePropertyFilterOperator"
                         },
                         "type": {
-                            "anyOf": [
-                                {
-                                    "const": "event",
-                                    "description": "Event properties",
-                                    "type": "string"
-                                },
-                                {
-                                    "const": "person",
-                                    "description": "Person properties",
-                                    "type": "string"
-                                },
-                                {
-                                    "const": "session",
-                                    "type": "string"
-                                },
-                                {
-                                    "const": "feature",
-                                    "description": "Event property with \"$feature/\" prepended",
-                                    "type": "string"
-                                }
-                            ]
+                            "$ref": "#/definitions/AssistantGenericPropertyFilterType"
                         },
                         "value": {
                             "description": "Value must be a date in ISO 8601 format.",
@@ -1405,33 +1330,17 @@
                             "description": "`is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected."
                         },
                         "type": {
-                            "anyOf": [
-                                {
-                                    "const": "event",
-                                    "description": "Event properties",
-                                    "type": "string"
-                                },
-                                {
-                                    "const": "person",
-                                    "description": "Person properties",
-                                    "type": "string"
-                                },
-                                {
-                                    "const": "session",
-                                    "type": "string"
-                                },
-                                {
-                                    "const": "feature",
-                                    "description": "Event property with \"$feature/\" prepended",
-                                    "type": "string"
-                                }
-                            ]
+                            "$ref": "#/definitions/AssistantGenericPropertyFilterType"
                         }
                     },
                     "required": ["key", "operator", "type"],
                     "type": "object"
                 }
             ]
+        },
+        "AssistantGenericPropertyFilterType": {
+            "enum": ["event", "person", "session", "feature"],
+            "type": "string"
         },
         "AssistantGroupMultipleBreakdownFilter": {
             "additionalProperties": false,
@@ -2017,9 +1926,6 @@
                 "math_property": {
                     "type": "string"
                 },
-                "math_property_revenue_currency": {
-                    "$ref": "#/definitions/RevenueCurrencyPropertyConfig"
-                },
                 "math_property_type": {
                     "type": "string"
                 },
@@ -2131,9 +2037,6 @@
                 },
                 "math_property": {
                     "type": "string"
-                },
-                "math_property_revenue_currency": {
-                    "$ref": "#/definitions/RevenueCurrencyPropertyConfig"
                 },
                 "math_property_type": {
                     "type": "string"
@@ -3209,7 +3112,7 @@
             "additionalProperties": false,
             "properties": {
                 "baseline": {
-                    "$ref": "#/definitions/ExperimentStatsBase"
+                    "$ref": "#/definitions/ExperimentStatsBaseValidated"
                 },
                 "cache_key": {
                     "type": "string"
@@ -4276,7 +4179,7 @@
             "additionalProperties": false,
             "properties": {
                 "baseline": {
-                    "$ref": "#/definitions/ExperimentStatsBase"
+                    "$ref": "#/definitions/ExperimentStatsBaseValidated"
                 },
                 "cache_key": {
                     "type": "string"
@@ -7274,6 +7177,13 @@
                     "const": "DataTableNode",
                     "type": "string"
                 },
+                "pinnedColumns": {
+                    "description": "Columns that are sticky when scrolling horizontally",
+                    "items": {
+                        "$ref": "#/definitions/HogQLExpression"
+                    },
+                    "type": "array"
+                },
                 "propertiesViaUrl": {
                     "description": "Link properties via the URL (default: false)",
                     "type": "boolean"
@@ -9452,6 +9362,22 @@
                 "id": {
                     "type": "string"
                 },
+                "last_event": {
+                    "additionalProperties": false,
+                    "properties": {
+                        "properties": {
+                            "type": "string"
+                        },
+                        "timestamp": {
+                            "type": "string"
+                        },
+                        "uuid": {
+                            "type": "string"
+                        }
+                    },
+                    "required": ["uuid", "timestamp", "properties"],
+                    "type": "object"
+                },
                 "last_seen": {
                     "format": "date-time",
                     "type": "string"
@@ -9487,9 +9413,25 @@
                         "type": "number"
                     },
                     "type": "array"
+                },
+                "volume_buckets": {
+                    "items": {
+                        "additionalProperties": false,
+                        "properties": {
+                            "label": {
+                                "type": "string"
+                            },
+                            "value": {
+                                "type": "number"
+                            }
+                        },
+                        "required": ["label", "value"],
+                        "type": "object"
+                    },
+                    "type": "array"
                 }
             },
-            "required": ["occurrences", "sessions", "users", "volumeRange"],
+            "required": ["occurrences", "sessions", "users", "volume_buckets"],
             "type": "object"
         },
         "ErrorTrackingIssueAssignee": {
@@ -9607,6 +9549,9 @@
                     "type": "boolean"
                 },
                 "withFirstEvent": {
+                    "type": "boolean"
+                },
+                "withLastEvent": {
                     "type": "boolean"
                 }
             },
@@ -10549,6 +10494,9 @@
                     },
                     "type": "array"
                 },
+                "uuid": {
+                    "type": "string"
+                },
                 "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
@@ -10755,6 +10703,9 @@
                 "upper_bound_percentile": {
                     "type": "number"
                 },
+                "uuid": {
+                    "type": "string"
+                },
                 "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
@@ -10812,6 +10763,9 @@
                 "response": {
                     "type": "object"
                 },
+                "uuid": {
+                    "type": "string"
+                },
                 "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
@@ -10821,7 +10775,7 @@
             "type": "object"
         },
         "ExperimentMetricMathType": {
-            "enum": ["total", "sum", "unique_session", "min", "max", "avg"],
+            "enum": ["total", "sum", "unique_session", "min", "max", "avg", "hogql"],
             "type": "string"
         },
         "ExperimentMetricOutlierHandling": {
@@ -10834,32 +10788,6 @@
                     "type": "number"
                 }
             },
-            "type": "object"
-        },
-        "ExperimentMetricResult": {
-            "additionalProperties": false,
-            "properties": {
-                "baseline": {
-                    "$ref": "#/definitions/ExperimentStatsBase"
-                },
-                "variants": {
-                    "anyOf": [
-                        {
-                            "items": {
-                                "$ref": "#/definitions/ExperimentVariantResultFrequentist"
-                            },
-                            "type": "array"
-                        },
-                        {
-                            "items": {
-                                "$ref": "#/definitions/ExperimentVariantResultBayesian"
-                            },
-                            "type": "array"
-                        }
-                    ]
-                }
-            },
-            "required": ["baseline", "variants"],
             "type": "object"
         },
         "ExperimentMetricSource": {
@@ -10927,7 +10855,7 @@
             "additionalProperties": false,
             "properties": {
                 "baseline": {
-                    "$ref": "#/definitions/ExperimentStatsBase"
+                    "$ref": "#/definitions/ExperimentStatsBaseValidated"
                 },
                 "credible_intervals": {
                     "additionalProperties": {
@@ -11028,6 +10956,35 @@
             },
             "required": ["key", "number_of_samples", "sum", "sum_squares"],
             "type": "object"
+        },
+        "ExperimentStatsBaseValidated": {
+            "additionalProperties": false,
+            "properties": {
+                "key": {
+                    "type": "string"
+                },
+                "number_of_samples": {
+                    "$ref": "#/definitions/integer"
+                },
+                "sum": {
+                    "type": "number"
+                },
+                "sum_squares": {
+                    "type": "number"
+                },
+                "validation_failures": {
+                    "items": {
+                        "$ref": "#/definitions/ExperimentStatsValidationFailure"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["key", "number_of_samples", "sum", "sum_squares"],
+            "type": "object"
+        },
+        "ExperimentStatsValidationFailure": {
+            "enum": ["not-enough-exposures", "baseline-mean-is-zero", "not-enough-metric-data"],
+            "type": "string"
         },
         "ExperimentTrendsQuery": {
             "additionalProperties": false,
@@ -11181,18 +11138,15 @@
                 },
                 "sum_squares": {
                     "type": "number"
+                },
+                "validation_failures": {
+                    "items": {
+                        "$ref": "#/definitions/ExperimentStatsValidationFailure"
+                    },
+                    "type": "array"
                 }
             },
-            "required": [
-                "chance_to_win",
-                "credible_interval",
-                "key",
-                "method",
-                "number_of_samples",
-                "significant",
-                "sum",
-                "sum_squares"
-            ],
+            "required": ["key", "method", "number_of_samples", "sum", "sum_squares"],
             "type": "object"
         },
         "ExperimentVariantResultFrequentist": {
@@ -11227,18 +11181,15 @@
                 },
                 "sum_squares": {
                     "type": "number"
+                },
+                "validation_failures": {
+                    "items": {
+                        "$ref": "#/definitions/ExperimentStatsValidationFailure"
+                    },
+                    "type": "array"
                 }
             },
-            "required": [
-                "confidence_interval",
-                "key",
-                "method",
-                "number_of_samples",
-                "p_value",
-                "significant",
-                "sum",
-                "sum_squares"
-            ],
+            "required": ["key", "method", "number_of_samples", "sum", "sum_squares"],
             "type": "object"
         },
         "ExperimentVariantTrendsBaseStats": {
@@ -11515,6 +11466,34 @@
         "FilterLogicalOperator": {
             "enum": ["AND", "OR"],
             "type": "string"
+        },
+        "FlagPropertyFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "key": {
+                    "description": "The key should be the flag ID",
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "operator": {
+                    "const": "flag_evaluates_to",
+                    "description": "Only flag_evaluates_to operator is allowed for flag dependencies",
+                    "type": "string"
+                },
+                "type": {
+                    "const": "flag",
+                    "description": "Feature flag dependency",
+                    "type": "string"
+                },
+                "value": {
+                    "description": "The value can be true, false, or a variant name",
+                    "type": ["boolean", "string"]
+                }
+            },
+            "required": ["key", "operator", "type", "value"],
+            "type": "object"
         },
         "FunnelConversionWindowTimeUnit": {
             "enum": ["second", "minute", "hour", "day", "week", "month"],
@@ -13966,6 +13945,7 @@
                 "snapchat",
                 "intercom",
                 "email",
+                "twilio",
                 "linear",
                 "github",
                 "meta-ads"
@@ -14548,7 +14528,7 @@
         "MarketingAnalyticsOrderBy": {
             "items": [
                 {
-                    "type": "number"
+                    "type": "string"
                 },
                 {
                     "enum": ["ASC", "DESC"],
@@ -14601,7 +14581,7 @@
                 "doPathCleaning": {
                     "type": "boolean"
                 },
-                "dynamicConversionGoal": {
+                "draftConversionGoal": {
                     "anyOf": [
                         {
                             "$ref": "#/definitions/ConversionGoalFilter"
@@ -14610,7 +14590,7 @@
                             "type": "null"
                         }
                     ],
-                    "description": "Dynamic conversion goal that can be set in the UI without saving"
+                    "description": "Draft conversion goal that can be set in the UI without saving"
                 },
                 "filterTestAccounts": {
                     "description": "Filter test accounts",
@@ -15045,7 +15025,7 @@
             "additionalProperties": false,
             "properties": {
                 "baseline": {
-                    "$ref": "#/definitions/ExperimentStatsBase"
+                    "$ref": "#/definitions/ExperimentStatsBaseValidated"
                 },
                 "variant_results": {
                     "anyOf": [
@@ -15102,6 +15082,7 @@
                 "RetentionQuery",
                 "PathsQuery",
                 "StickinessQuery",
+                "StickinessActorsQuery",
                 "LifecycleQuery",
                 "InsightActorsQuery",
                 "InsightActorsQueryOptions",
@@ -15156,6 +15137,9 @@
             "properties": {
                 "alias": {
                     "type": "string"
+                },
+                "order": {
+                    "type": "number"
                 },
                 "regex": {
                     "type": "string"
@@ -15582,7 +15566,7 @@
             "type": "object"
         },
         "PropertyFilterBaseValue": {
-            "type": ["string", "number"]
+            "type": ["string", "number", "boolean"]
         },
         "PropertyFilterType": {
             "enum": [
@@ -15602,6 +15586,7 @@
                 "data_warehouse_person_property",
                 "error_tracking_issue",
                 "revenue_analytics",
+                "flag",
                 "log"
             ],
             "type": "string"
@@ -15689,7 +15674,8 @@
                 "max",
                 "in",
                 "not_in",
-                "is_cleaned_path_exact"
+                "is_cleaned_path_exact",
+                "flag_evaluates_to"
             ],
             "type": "string"
         },
@@ -16561,7 +16547,7 @@
                     "additionalProperties": false,
                     "properties": {
                         "baseline": {
-                            "$ref": "#/definitions/ExperimentStatsBase"
+                            "$ref": "#/definitions/ExperimentStatsBaseValidated"
                         },
                         "credible_intervals": {
                             "additionalProperties": {
@@ -19398,6 +19384,10 @@
             ],
             "type": "string"
         },
+        "RecordingOrderDirection": {
+            "enum": ["ASC", "DESC"],
+            "type": "string"
+        },
         "RecordingPropertyFilter": {
             "additionalProperties": false,
             "properties": {
@@ -19497,6 +19487,11 @@
                 "order": {
                     "$ref": "#/definitions/RecordingOrder",
                     "default": "start_time"
+                },
+                "order_direction": {
+                    "$ref": "#/definitions/RecordingOrderDirection",
+                    "default": "DESC",
+                    "description": "Replay originally had all ordering as descending by specifying the field name, this runs counter to Django behavior where the field name specifies ascending sorting (e.g. the_field_name) and -the_field_name would indicate descending order to avoid invalidating or migrating all existing filters we keep DESC as the default or allow specification of an explicit order direction here"
                 },
                 "person_uuid": {
                     "type": "string"
@@ -21630,6 +21625,9 @@
                 },
                 {
                     "$ref": "#/definitions/SourceFieldFileUploadConfig"
+                },
+                {
+                    "$ref": "#/definitions/SourceFieldSSHTunnelConfig"
                 }
             ]
         },
@@ -21637,7 +21635,7 @@
             "additionalProperties": false,
             "properties": {
                 "fileFormat": {
-                    "type": "string"
+                    "$ref": "#/definitions/SourceFieldFileUploadJsonFormatConfig"
                 },
                 "label": {
                     "type": "string"
@@ -21654,6 +21652,31 @@
                 }
             },
             "required": ["type", "name", "label", "fileFormat", "required"],
+            "type": "object"
+        },
+        "SourceFieldFileUploadJsonFormatConfig": {
+            "additionalProperties": false,
+            "properties": {
+                "format": {
+                    "const": ".json",
+                    "type": "string"
+                },
+                "keys": {
+                    "anyOf": [
+                        {
+                            "const": "*",
+                            "type": "string"
+                        },
+                        {
+                            "items": {
+                                "type": "string"
+                            },
+                            "type": "array"
+                        }
+                    ]
+                }
+            },
+            "required": ["format", "keys"],
             "type": "object"
         },
         "SourceFieldInputConfig": {
@@ -21702,9 +21725,30 @@
             "required": ["type", "name", "label", "required", "kind"],
             "type": "object"
         },
+        "SourceFieldSSHTunnelConfig": {
+            "additionalProperties": false,
+            "properties": {
+                "label": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "type": {
+                    "const": "ssh-tunnel",
+                    "type": "string"
+                }
+            },
+            "required": ["type", "label", "name"],
+            "type": "object"
+        },
         "SourceFieldSelectConfig": {
             "additionalProperties": false,
             "properties": {
+                "converter": {
+                    "enum": ["str_to_int", "str_to_bool", "str_to_optional_int"],
+                    "type": "string"
+                },
                 "defaultValue": {
                     "type": "string"
                 },
@@ -21810,22 +21854,6 @@
         "StickinessActorsQuery": {
             "additionalProperties": false,
             "properties": {
-                "breakdown": {
-                    "anyOf": [
-                        {
-                            "type": "string"
-                        },
-                        {
-                            "$ref": "#/definitions/BreakdownValueInt"
-                        },
-                        {
-                            "items": {
-                                "type": "string"
-                            },
-                            "type": "array"
-                        }
-                    ]
-                },
                 "compare": {
                     "enum": ["current", "previous"],
                     "type": "string"
@@ -21843,12 +21871,8 @@
                 "includeRecordings": {
                     "type": "boolean"
                 },
-                "interval": {
-                    "$ref": "#/definitions/integer",
-                    "description": "An interval selected out of available intervals in source query."
-                },
                 "kind": {
-                    "const": "InsightActorsQuery",
+                    "const": "StickinessActorsQuery",
                     "type": "string"
                 },
                 "modifiers": {
@@ -21865,10 +21889,7 @@
                     "$ref": "#/definitions/integer"
                 },
                 "source": {
-                    "$ref": "#/definitions/InsightQuerySource"
-                },
-                "status": {
-                    "type": "string"
+                    "$ref": "#/definitions/StickinessQuery"
                 },
                 "tags": {
                     "$ref": "#/definitions/QueryLogTags"
@@ -22123,6 +22144,294 @@
             "required": ["questions"],
             "type": "object"
         },
+        "SurveyAppearanceSchema": {
+            "additionalProperties": false,
+            "properties": {
+                "backgroundColor": {
+                    "type": "string"
+                },
+                "borderColor": {
+                    "type": "string"
+                },
+                "buttonColor": {
+                    "type": "string"
+                },
+                "buttonTextColor": {
+                    "type": "string"
+                },
+                "inputBackground": {
+                    "type": "string"
+                },
+                "maxWidth": {
+                    "type": "string"
+                },
+                "placeholder": {
+                    "type": "string"
+                },
+                "position": {
+                    "$ref": "#/definitions/SurveyPosition"
+                },
+                "ratingButtonActiveColor": {
+                    "type": "string"
+                },
+                "ratingButtonColor": {
+                    "type": "string"
+                },
+                "shuffleQuestions": {
+                    "type": "boolean"
+                },
+                "surveyPopupDelaySeconds": {
+                    "type": "number"
+                },
+                "textColor": {
+                    "type": "string"
+                },
+                "textSubtleColor": {
+                    "type": "string"
+                },
+                "thankYouMessageCloseButtonText": {
+                    "type": "string"
+                },
+                "thankYouMessageDescription": {
+                    "type": "string"
+                },
+                "thankYouMessageDescriptionContentType": {
+                    "$ref": "#/definitions/SurveyQuestionDescriptionContentType"
+                },
+                "thankYouMessageHeader": {
+                    "type": "string"
+                },
+                "whiteLabel": {
+                    "type": "boolean"
+                },
+                "widgetColor": {
+                    "type": "string"
+                },
+                "widgetLabel": {
+                    "type": "string"
+                },
+                "widgetSelector": {
+                    "type": "string"
+                },
+                "widgetType": {
+                    "$ref": "#/definitions/SurveyWidgetType"
+                },
+                "zIndex": {
+                    "type": "string"
+                }
+            },
+            "type": "object"
+        },
+        "SurveyCreationSchema": {
+            "additionalProperties": false,
+            "properties": {
+                "appearance": {
+                    "$ref": "#/definitions/SurveyAppearanceSchema"
+                },
+                "archived": {
+                    "type": "boolean"
+                },
+                "conditions": {
+                    "$ref": "#/definitions/SurveyDisplayConditionsSchema"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "enable_partial_responses": {
+                    "type": "boolean"
+                },
+                "end_date": {
+                    "type": "string"
+                },
+                "iteration_count": {
+                    "type": "number"
+                },
+                "iteration_frequency_days": {
+                    "type": "number"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "questions": {
+                    "items": {
+                        "$ref": "#/definitions/SurveyQuestionSchema"
+                    },
+                    "type": "array"
+                },
+                "responses_limit": {
+                    "type": "number"
+                },
+                "should_launch": {
+                    "type": "boolean"
+                },
+                "start_date": {
+                    "type": "string"
+                },
+                "type": {
+                    "$ref": "#/definitions/SurveyType"
+                }
+            },
+            "required": ["name", "description", "type", "questions"],
+            "type": "object"
+        },
+        "SurveyDisplayConditionsSchema": {
+            "additionalProperties": false,
+            "properties": {
+                "actions": {
+                    "additionalProperties": false,
+                    "properties": {
+                        "values": {
+                            "items": {
+                                "additionalProperties": false,
+                                "properties": {
+                                    "id": {
+                                        "type": "number"
+                                    },
+                                    "name": {
+                                        "type": "string"
+                                    }
+                                },
+                                "required": ["id", "name"],
+                                "type": "object"
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "required": ["values"],
+                    "type": "object"
+                },
+                "deviceTypes": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "deviceTypesMatchType": {
+                    "$ref": "#/definitions/SurveyMatchType"
+                },
+                "seenSurveyWaitPeriodInDays": {
+                    "type": "number"
+                },
+                "selector": {
+                    "type": "string"
+                },
+                "url": {
+                    "type": "string"
+                },
+                "urlMatchType": {
+                    "$ref": "#/definitions/SurveyMatchType"
+                }
+            },
+            "type": "object"
+        },
+        "SurveyMatchType": {
+            "enum": ["exact", "is_not", "icontains", "not_icontains", "regex", "not_regex"],
+            "type": "string"
+        },
+        "SurveyPosition": {
+            "enum": [
+                "top_left",
+                "top_center",
+                "top_right",
+                "middle_left",
+                "middle_center",
+                "middle_right",
+                "left",
+                "center",
+                "right",
+                "next_to_trigger"
+            ],
+            "type": "string"
+        },
+        "SurveyQuestionDescriptionContentType": {
+            "enum": ["html", "text"],
+            "type": "string"
+        },
+        "SurveyQuestionSchema": {
+            "additionalProperties": false,
+            "properties": {
+                "branching": {
+                    "additionalProperties": false,
+                    "properties": {
+                        "index": {
+                            "type": "number"
+                        },
+                        "responseValues": {
+                            "additionalProperties": {
+                                "type": ["string", "number"]
+                            },
+                            "type": "object"
+                        },
+                        "type": {
+                            "enum": ["next_question", "end", "response_based", "specific_question"],
+                            "type": "string"
+                        }
+                    },
+                    "required": ["type"],
+                    "type": "object"
+                },
+                "buttonText": {
+                    "type": "string"
+                },
+                "choices": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "descriptionContentType": {
+                    "$ref": "#/definitions/SurveyQuestionDescriptionContentType"
+                },
+                "display": {
+                    "enum": ["number", "emoji"],
+                    "type": "string"
+                },
+                "hasOpenChoice": {
+                    "type": "boolean"
+                },
+                "link": {
+                    "type": "string"
+                },
+                "lowerBoundLabel": {
+                    "type": "string"
+                },
+                "optional": {
+                    "type": "boolean"
+                },
+                "question": {
+                    "type": "string"
+                },
+                "scale": {
+                    "type": "number"
+                },
+                "shuffleOptions": {
+                    "type": "boolean"
+                },
+                "type": {
+                    "$ref": "#/definitions/SurveyQuestionType"
+                },
+                "upperBoundLabel": {
+                    "type": "string"
+                }
+            },
+            "required": ["type", "question"],
+            "type": "object"
+        },
+        "SurveyQuestionType": {
+            "enum": ["open", "multiple_choice", "single_choice", "rating", "link"],
+            "type": "string"
+        },
+        "SurveyType": {
+            "enum": ["popover", "widget", "full_screen", "api", "external_survey"],
+            "type": "string"
+        },
+        "SurveyWidgetType": {
+            "enum": ["button", "tab", "selector"],
+            "type": "string"
+        },
         "TableSettings": {
             "additionalProperties": false,
             "properties": {
@@ -22178,6 +22487,7 @@
                 "replay",
                 "revenue_analytics_properties",
                 "resources",
+                "error_tracking_properties",
                 "max_ai_context"
             ],
             "type": "string"
@@ -22517,6 +22827,9 @@
                 "breakdown_histogram_bin_count": {
                     "type": "number"
                 },
+                "confidenceLevel": {
+                    "type": "number"
+                },
                 "decimalPlaces": {
                     "type": "number"
                 },
@@ -22585,6 +22898,9 @@
                 },
                 "showAlertThresholdLines": {
                     "default": false,
+                    "type": "boolean"
+                },
+                "showConfidenceIntervals": {
                     "type": "boolean"
                 },
                 "showLabelsOnSeries": {
@@ -23775,6 +24091,9 @@
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
+                },
+                "offset": {
+                    "$ref": "#/definitions/integer"
                 },
                 "orderBy": {
                     "$ref": "#/definitions/WebAnalyticsOrderBy"

@@ -6907,6 +6907,69 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         )
 
     @also_test_with_different_timezones
+    @snapshot_clickhouse_queries
+    def test_weekly_active_groups_daily(self):
+        self._create_event_count_per_actor_events()
+        with freeze_time("2020-01-19"):
+            self._create_event(
+                team=self.team,
+                event="viewed video",
+                distinct_id="blabla",
+                properties={"$group_0": "bouba"},
+            )
+
+        data = {
+            "date_from": "2020-01-08",
+            "date_to": "2020-01-19",
+            "events": [
+                {
+                    "id": "viewed video",
+                    "type": "events",
+                    "order": 0,
+                    "math": "weekly_active",
+                    "math_group_type_index": 0,
+                }
+            ],
+        }
+
+        filter = Filter(team=self.team, data=data)
+        result = self._run(filter, self.team)
+        self.assertEqual(
+            result[0]["days"],
+            [
+                "2020-01-08",
+                "2020-01-09",
+                "2020-01-10",
+                "2020-01-11",
+                "2020-01-12",
+                "2020-01-13",
+                "2020-01-14",
+                "2020-01-15",
+                "2020-01-16",
+                "2020-01-17",
+                "2020-01-18",
+                "2020-01-19",
+            ],
+        )
+        self.assertEqual(
+            result[0]["data"],
+            [
+                2,
+                2,
+                2,
+                2,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                1,
+                1,
+            ],
+        )
+
+    @also_test_with_different_timezones
     def test_weekly_active_users_daily_based_on_action(self):
         action = _create_action(name="$pageview", team=self.team)
         self._create_active_users_events()

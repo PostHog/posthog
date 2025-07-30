@@ -87,12 +87,11 @@ export function ErrorTrackingScene(): JSX.Element {
 }
 
 const VolumeColumn: QueryContextColumnComponent = (props) => {
-    const { dateRange } = useValues(errorTrackingSceneLogic)
     const record = props.record as ErrorTrackingIssue
     if (!record.aggregations) {
         throw new Error('No aggregations found')
     }
-    const data = useSparklineData(record.aggregations.volumeRange, dateRange, ERROR_TRACKING_LISTING_RESOLUTION)
+    const data = useSparklineData(record.aggregations, ERROR_TRACKING_LISTING_RESOLUTION)
     return (
         <div className="flex justify-end">
             <OccurrenceSparkline className="h-8" data={data} displayXAxis={false} />
@@ -164,16 +163,16 @@ const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
             <div className="flex flex-col gap-[2px]">
                 <Link
                     className="flex-1 pr-12"
-                    to={urls.errorTrackingIssue(record.id)}
+                    to={urls.errorTrackingIssue(record.id, { timestamp: record.last_seen })}
                     onClick={() => {
-                        const issueLogic = errorTrackingIssueSceneLogic({ id: record.id })
+                        const issueLogic = errorTrackingIssueSceneLogic({ id: record.id, timestamp: record.last_seen })
                         issueLogic.mount()
                         issueLogic.actions.setIssue(record)
                     }}
                 >
                     <div className="flex items-center h-[1.2rem] gap-2">
-                        <RuntimeIcon runtime={runtime} fontSize="0.8rem" />
-                        <span className="font-semibold text-[1.2em]">{record.name || 'Unknown Type'}</span>
+                        <RuntimeIcon className="shrink-0" runtime={runtime} fontSize="0.8rem" />
+                        <span className="font-semibold text-[1.2em] line-clamp-1">{record.name || 'Unknown Type'}</span>
                     </div>
                 </Link>
                 <div className="line-clamp-1 text-secondary">{record.description}</div>

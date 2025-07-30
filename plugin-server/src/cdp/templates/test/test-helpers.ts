@@ -6,7 +6,7 @@ import { GeoIp, GeoIPService } from '~/utils/geoip'
 
 import { Hub } from '../../../types'
 import { cleanNullValues } from '../../hog-transformations/transformation-functions'
-import { buildGlobalsWithInputs, HogExecutorService } from '../../services/hog-executor.service'
+import { HogExecutorService } from '../../services/hog-executor.service'
 import {
     CyclotronJobInvocationHogFunction,
     CyclotronJobInvocationResult,
@@ -63,10 +63,8 @@ export class TemplateTester {
 
         this.template = {
             ...this._template,
-            bytecode: await compileHog(this._template.hog),
+            bytecode: await compileHog(this._template.code),
         }
-
-        this.mockHub = { mmdb: undefined } as any
 
         this.executor = new HogExecutorService(this.mockHub)
     }
@@ -158,8 +156,10 @@ export class TemplateTester {
         const compiledInputs = await this.compileInputs(_inputs)
         const globals = this.createGlobals(_globals)
 
+        const { code, ...partialTemplate } = this.template
         const hogFunction: HogFunctionType = {
-            ...this.template,
+            ...partialTemplate,
+            hog: code,
             inputs: compiledInputs,
             bytecode: this.template.bytecode,
             team_id: 1,
@@ -171,7 +171,7 @@ export class TemplateTester {
             deleted: false,
         }
 
-        const globalsWithInputs = await buildGlobalsWithInputs(globals, hogFunction.inputs)
+        const globalsWithInputs = await this.executor.buildInputsWithGlobals(hogFunction, globals)
         const invocation = createInvocation(globalsWithInputs, hogFunction)
 
         const transformationFunctions = {
@@ -230,12 +230,10 @@ export class TemplateTester {
 
         compiledMappingInputs.inputs = inputsObj
 
-        const globalsWithInputs = await buildGlobalsWithInputs(this.createGlobals(_globals), {
-            ...compiledInputs,
-            ...compiledMappingInputs.inputs,
-        })
-        const invocation = createInvocation(globalsWithInputs, {
-            ...this.template,
+        const { code, ...partialTemplate } = this.template
+        const hogFunction: HogFunctionType = {
+            ...partialTemplate,
+            hog: code,
             team_id: 1,
             enabled: true,
             created_at: '2024-01-01T00:00:00Z',
@@ -244,7 +242,15 @@ export class TemplateTester {
             inputs: compiledInputs,
             mappings: [compiledMappingInputs],
             is_addon_required: false,
-        })
+        }
+
+        const globalsWithInputs = await this.executor.buildInputsWithGlobals(
+            hogFunction,
+            this.createGlobals(_globals),
+            compiledMappingInputs.inputs
+        )
+
+        const invocation = createInvocation(globalsWithInputs, hogFunction)
 
         return this.executor.execute(invocation)
     }

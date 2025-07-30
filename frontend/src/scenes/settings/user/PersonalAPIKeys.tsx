@@ -21,7 +21,7 @@ import { IconErrorOutline } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { API_KEY_SCOPE_PRESETS, API_SCOPES, MAX_API_KEYS_PER_USER } from 'lib/scopes'
-import { capitalizeFirstLetter, humanFriendlyDetailedTime } from 'lib/utils'
+import { capitalizeFirstLetter, detailedTime, humanFriendlyDetailedTime } from 'lib/utils'
 import { Fragment, useEffect } from 'react'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
@@ -252,9 +252,9 @@ function PersonalAPIKeysTable(): JSX.Element {
         getRestrictedOrganizationsForKey,
         getRestrictedTeamsForKey,
     } = useValues(personalAPIKeysLogic)
-    const { deleteKey, loadKeys, setEditingKeyId } = useActions(personalAPIKeysLogic)
+    const { deleteKey, loadKeys, setEditingKeyId, rollKey } = useActions(personalAPIKeysLogic)
 
-    useEffect(() => loadKeys(), [])
+    useEffect(() => loadKeys(), [loadKeys])
 
     return (
         <LemonTable
@@ -296,22 +296,30 @@ function PersonalAPIKeysTable(): JSX.Element {
 
                         if (keyDisabled) {
                             const orgNames = restrictedOrgs.map((org: any) => org.name)
-                            const tooltipMessage =
-                                orgNames.length === 1
-                                    ? `Organization <strong>${orgNames[0]}</strong> has restricted the use of personal API keys.`
-                                    : `Organizations <strong>${orgNames.join(
-                                          ', '
-                                      )}</strong> have restricted the use of personal API keys.`
 
                             return (
-                                <Tooltip title={<span dangerouslySetInnerHTML={{ __html: tooltipMessage }} />}>
+                                <Tooltip
+                                    title={
+                                        orgNames.length === 1 ? (
+                                            <span>
+                                                Organization <strong>{orgNames[0]}</strong> has restricted the use of
+                                                personal API keys.
+                                            </span>
+                                        ) : (
+                                            <span>
+                                                Organizations <strong>{orgNames.join(', ')}</strong> have restricted the
+                                                use of personal API keys.
+                                            </span>
+                                        )
+                                    }
+                                >
                                     <LemonTag type="danger">Disabled</LemonTag>
                                 </Tooltip>
                             )
                         }
 
                         if (hasPartialRestrictions) {
-                            let tooltipMessage = ''
+                            let tooltipMessage: JSX.Element = <span />
 
                             // Handle project-scoped keys with restrictions
                             if (restrictedTeams.length > 0) {
@@ -319,35 +327,51 @@ function PersonalAPIKeysTable(): JSX.Element {
                                 const restrictedOrgNames = restrictedOrgs.map((org: any) => org.name)
 
                                 if (restrictedOrgNames.length === 1 && restrictedTeamNames.length === 1) {
-                                    tooltipMessage = `Organization <strong>${restrictedOrgNames[0]}</strong> has restricted the use of personal API keys. This key will not work for project <strong>${restrictedTeamNames[0]}</strong>.`
+                                    tooltipMessage = (
+                                        <span>
+                                            Organization <strong>{restrictedOrgNames[0]}</strong> has restricted the use
+                                            of personal API keys. This key will not work for project{' '}
+                                            <strong>{restrictedTeamNames[0]}</strong>.
+                                        </span>
+                                    )
                                 } else if (restrictedOrgNames.length === 1) {
-                                    tooltipMessage = `Organization <strong>${
-                                        restrictedOrgNames[0]
-                                    }</strong> has restricted the use of personal API keys. This key will not work for projects: <strong>${restrictedTeamNames.join(
-                                        ', '
-                                    )}</strong>.`
+                                    tooltipMessage = (
+                                        <span>
+                                            Organization <strong>{restrictedOrgNames[0]}</strong> has restricted the use
+                                            of personal API keys. This key will not work for projects:{' '}
+                                            <strong>{restrictedTeamNames.join(', ')}</strong>.
+                                        </span>
+                                    )
                                 } else {
                                     // Multiple organizations affecting projects
-                                    tooltipMessage = `Multiple organizations have restricted personal API keys. This key will not work for projects: <strong>${restrictedTeamNames.join(
-                                        ', '
-                                    )}</strong>.`
+                                    tooltipMessage = (
+                                        <span>
+                                            Multiple organizations have restricted personal API keys. This key will not
+                                            work for projects: <strong>{restrictedTeamNames.join(', ')}</strong>.
+                                        </span>
+                                    )
                                 }
                             }
                             // Handle organization-scoped keys with restrictions
                             else if (restrictedOrgs.length > 0) {
                                 const restrictedOrgNames = restrictedOrgs.map((org: any) => org.name)
 
-                                if (restrictedOrgNames.length === 1) {
-                                    tooltipMessage = `Organization <strong>${restrictedOrgNames[0]}</strong> has restricted the use of personal API keys.`
-                                } else {
-                                    tooltipMessage = `Organizations <strong>${restrictedOrgNames.join(
-                                        ', '
-                                    )}</strong> have restricted the use of personal API keys.`
-                                }
+                                tooltipMessage =
+                                    restrictedOrgNames.length === 1 ? (
+                                        <span>
+                                            Organization <strong>{restrictedOrgNames[0]}</strong> has restricted the use
+                                            of personal API keys.
+                                        </span>
+                                    ) : (
+                                        <span>
+                                            Organizations <strong>{restrictedOrgNames.join(', ')}</strong> have
+                                            restricted the use of personal API keys.
+                                        </span>
+                                    )
                             }
 
                             return (
-                                <Tooltip title={<span dangerouslySetInnerHTML={{ __html: tooltipMessage }} />}>
+                                <Tooltip title={tooltipMessage}>
                                     <LemonTag type="warning">Partial restrictions</LemonTag>
                                 </Tooltip>
                             )
@@ -428,13 +452,37 @@ function PersonalAPIKeysTable(): JSX.Element {
                     title: 'Last Used',
                     dataIndex: 'last_used_at',
                     key: 'lastUsedAt',
-                    render: (_, key) => humanFriendlyDetailedTime(key.last_used_at, 'MMMM DD, YYYY', 'h A'),
+                    render: (_, key) => {
+                        return (
+                            <Tooltip title={detailedTime(key.last_used_at)} placement="bottom">
+                                {humanFriendlyDetailedTime(key.last_used_at, 'MMMM DD, YYYY', 'h A')}
+                            </Tooltip>
+                        )
+                    },
                 },
                 {
                     title: 'Created',
                     dataIndex: 'created_at',
                     key: 'createdAt',
-                    render: (_, key) => humanFriendlyDetailedTime(key.created_at),
+                    render: (_, key) => {
+                        return (
+                            <Tooltip title={detailedTime(key.created_at)} placement="bottom">
+                                {humanFriendlyDetailedTime(key.created_at)}
+                            </Tooltip>
+                        )
+                    },
+                },
+                {
+                    title: 'Last Rolled',
+                    dataIndex: 'last_rolled_at',
+                    key: 'lastRolledAt',
+                    render: (_, key) => {
+                        return (
+                            <Tooltip title={detailedTime(key.last_rolled_at)} placement="bottom">
+                                {humanFriendlyDetailedTime(key.last_rolled_at, 'MMMM DD, YYYY', 'h A')}
+                            </Tooltip>
+                        )
+                    },
                 },
                 {
                     title: '',
@@ -448,6 +496,26 @@ function PersonalAPIKeysTable(): JSX.Element {
                                     {
                                         label: 'Edit',
                                         onClick: () => setEditingKeyId(key.id),
+                                    },
+                                    {
+                                        label: 'Roll',
+                                        onClick: () => {
+                                            LemonDialog.open({
+                                                title: `Roll key "${key.label}"?`,
+                                                description:
+                                                    'This will generate a new key. The old key will immediately stop working.',
+                                                primaryButton: {
+                                                    status: 'danger',
+                                                    children: 'Roll',
+                                                    type: 'primary',
+                                                    onClick: () => rollKey(key.id),
+                                                },
+                                                secondaryButton: {
+                                                    children: 'Cancel',
+                                                    type: 'secondary',
+                                                },
+                                            })
+                                        },
                                     },
                                     {
                                         label: 'Delete',

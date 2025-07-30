@@ -11,30 +11,43 @@ services:
         volumes:
             - /root/.caddy
         environment:
+            CADDY_TLS_BLOCK: ''
+            CADDY_HOST: 'http://localhost:8000'
             CADDYFILE: |
-                http://localhost:8000 {
+                {
+                ${CADDY_TLS_BLOCK}
+                }
+                ${CADDY_HOST} {
                     @replay-capture {
                         path /s
+                        path /s/
                         path /s/*
                     }
 
                     @capture {
                         path /e
+                        path /e/
                         path /e/*
+                        path /i/v0
+                        path /i/v0/
                         path /i/v0/*
                         path /batch
-                        path /batch*
+                        path /batch/
+                        path /batch/*
                         path /capture
-                        path /capture*
+                        path /capture/
+                        path /capture/*
                     }
 
                     @flags {
                         path /flags
-                        path /flags*
+                        path /flags/
+                        path /flags/*
                     }
 
                     @webhooks {
                         path /public/webhooks
+                        path /public/webhooks/
                         path /public/webhooks/*
                     }
 
@@ -98,7 +111,7 @@ services:
         # Note: please keep the default version in sync across
         #       `posthog` and the `charts-clickhouse` repos
         #
-        image: ${CLICKHOUSE_SERVER_IMAGE:-clickhouse/clickhouse-server:25.3.5.42}
+        image: ${CLICKHOUSE_SERVER_IMAGE:-clickhouse/clickhouse-server:25.3.6.56}
         restart: on-failure
         environment:
             CLICKHOUSE_SKIP_USER_SETUP: 1
@@ -390,6 +403,23 @@ services:
         networks:
             - otel_network
 
+    cassandra:
+        image: cassandra:4.1
+        restart: on-failure
+        environment:
+            - HEAP_NEWSIZE=128M
+            - MAX_HEAP_SIZE=512M
+        healthcheck:
+            test: ['CMD-SHELL', 'cqlsh -e "SELECT now() FROM system.local;" || exit 1']
+            interval: 30s
+            timeout: 10s
+            retries: 5
+        volumes:
+            - cassandra_data:/var/lib/cassandra
+
 networks:
     otel_network:
         driver: bridge
+
+volumes:
+    cassandra_data:

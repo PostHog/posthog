@@ -40,7 +40,13 @@ def migrate_hooks(hook_ids: list[str], team_ids: list[int], dry_run: bool = Fals
         for hook in page.object_list:
             try:
                 hog_function = create_zapier_hog_function(
-                    hook, {"user": hook.user, "get_team": lambda hook=hook: hook.team}, from_migration=True
+                    hook,
+                    {
+                        "user": hook.user,
+                        "get_team": lambda hook=hook: hook.team,
+                        "is_create": True,
+                    },
+                    from_migration=True,
                 )
                 hog_functions.append(hog_function)
             except Exception as e:

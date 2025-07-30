@@ -1,11 +1,10 @@
-import express from 'express'
 import { DateTime } from 'luxon'
+import express from 'ultimate-express'
 
 import { Hub } from '../../types'
 import { logger } from '../../utils/logger'
 import { PromiseScheduler } from '../../utils/promise-scheduler'
-import { UUIDT } from '../../utils/utils'
-import { buildGlobalsWithInputs } from '../services/hog-executor.service'
+import { UUID, UUIDT } from '../../utils/utils'
 import { CyclotronJobQueue } from '../services/job-queue/job-queue'
 import {
     CyclotronJobInvocationHogFunction,
@@ -32,6 +31,10 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
     }
 
     public async getWebhook(webhookId: string): Promise<HogFunctionType | null> {
+        if (!UUID.validateString(webhookId, false)) {
+            return null
+        }
+
         const hogFunction = await this.hogFunctionManager.getHogFunction(webhookId)
 
         if (hogFunction?.type !== 'source_webhook') {
@@ -60,8 +63,11 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
         }
 
         const body: Record<string, any> = req.body
-        // TODO: Should this be filled via other headers?
-        const ip = getFirstHeaderValue(req.headers['x-forwarded-for']) || req.socket.remoteAddress || req.ip
+
+        const ipValue = getFirstHeaderValue(req.headers['x-forwarded-for']) || req.socket.remoteAddress || req.ip
+        // IP could be comma delimited list of IPs
+        const ips = ipValue?.split(',').map((ip) => ip.trim()) || []
+        const ip = ips[0]
 
         const projectUrl = `${this.hub.SITE_URL}/project/${hogFunction.team_id}`
 
@@ -95,10 +101,7 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
 
         try {
             // TODO: Add error handling and logging
-            const globalsWithInputs = await buildGlobalsWithInputs(globals, {
-                ...hogFunction.inputs,
-                ...hogFunction.encrypted_inputs,
-            })
+            const globalsWithInputs = await this.hogExecutor.buildInputsWithGlobals(hogFunction, globals)
 
             // TODO: Do we want to use hogwatcher here as well?
             const invocation = createInvocation(globalsWithInputs, hogFunction)

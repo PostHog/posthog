@@ -1,6 +1,8 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
-import express from 'express'
 import { DateTime } from 'luxon'
+import express from 'ultimate-express'
+
+import { ModifiedRequest } from '~/router'
 
 import { Hub, PluginServerService } from '../types'
 import { logger } from '../utils/logger'
@@ -8,12 +10,12 @@ import { delay, UUID, UUIDT } from '../utils/utils'
 import { CdpSourceWebhooksConsumer } from './consumers/cdp-source-webhooks.consumer'
 import { HogTransformerService } from './hog-transformations/hog-transformer.service'
 import { createCdpRedisPool } from './redis'
-import { HogExecutorExecuteOptions, HogExecutorService } from './services/hog-executor.service'
+import { HogExecutorExecuteAsyncOptions, HogExecutorService, MAX_ASYNC_STEPS } from './services/hog-executor.service'
 import { HogFlowExecutorService } from './services/hogflows/hogflow-executor.service'
 import { HogFlowManagerService } from './services/hogflows/hogflow-manager.service'
 import { HogFunctionManagerService } from './services/managers/hog-function-manager.service'
 import { HogFunctionTemplateManagerService } from './services/managers/hog-function-template-manager.service'
-import { MessagingMailjetManagerService } from './services/messaging/mailjet-manager.service'
+import { EmailTrackingService } from './services/messaging/email-tracking.service'
 import { HogFunctionMonitoringService } from './services/monitoring/hog-function-monitoring.service'
 import { HogWatcherService, HogWatcherState } from './services/monitoring/hog-watcher.service'
 import { NativeDestinationExecutorService } from './services/native-destination-executor.service'
@@ -35,21 +37,26 @@ export class CdpApi {
     private hogTransformer: HogTransformerService
     private hogFunctionMonitoringService: HogFunctionMonitoringService
     private cdpSourceWebhooksConsumer: CdpSourceWebhooksConsumer
-    private messagingMailjetManagerService: MessagingMailjetManagerService
+    private emailTrackingService: EmailTrackingService
 
     constructor(private hub: Hub) {
         this.hogFunctionManager = new HogFunctionManagerService(hub)
         this.hogFunctionTemplateManager = new HogFunctionTemplateManagerService(hub)
         this.hogFlowManager = new HogFlowManagerService(hub)
         this.hogExecutor = new HogExecutorService(hub)
+        this.hogFlowExecutor = new HogFlowExecutorService(hub, this.hogExecutor, this.hogFunctionTemplateManager)
         this.nativeDestinationExecutorService = new NativeDestinationExecutorService(hub)
         this.segmentDestinationExecutorService = new SegmentDestinationExecutorService(hub)
-        this.hogFlowExecutor = new HogFlowExecutorService(hub, this.hogExecutor, this.hogFunctionTemplateManager)
         this.hogWatcher = new HogWatcherService(hub, createCdpRedisPool(hub))
         this.hogTransformer = new HogTransformerService(hub)
         this.hogFunctionMonitoringService = new HogFunctionMonitoringService(hub)
         this.cdpSourceWebhooksConsumer = new CdpSourceWebhooksConsumer(hub)
-        this.messagingMailjetManagerService = new MessagingMailjetManagerService(hub)
+        this.emailTrackingService = new EmailTrackingService(
+            hub,
+            this.hogFunctionManager,
+            this.hogFlowManager,
+            this.hogFunctionMonitoringService
+        )
     }
 
     public get service(): PluginServerService {
@@ -60,13 +67,12 @@ export class CdpApi {
         }
     }
 
-    async start() {
-        await this.hogFunctionManager.start()
+    async start(): Promise<void> {
         await this.cdpSourceWebhooksConsumer.start()
     }
 
-    async stop() {
-        await Promise.all([this.hogFunctionManager.stop(), this.cdpSourceWebhooksConsumer.stop()])
+    async stop(): Promise<void> {
+        await Promise.all([this.cdpSourceWebhooksConsumer.stop()])
     }
 
     isHealthy() {
@@ -188,8 +194,6 @@ export class CdpApi {
                 team_id: team.id,
             }
 
-            await this.hogFunctionManager.enrichWithIntegrations([compoundConfiguration])
-
             let logs: MinimalLogEntry[] = []
             let result: any = null
             const errors: any[] = []
@@ -229,8 +233,9 @@ export class CdpApi {
                 for (const invocation of invocations) {
                     invocation.id = invocationID
 
-                    const options: HogExecutorExecuteOptions = {
-                        asyncFunctionsNames: mock_async_functions ? ['fetch'] : undefined,
+                    const options: HogExecutorExecuteAsyncOptions = {
+                        maxAsyncFunctions: MAX_ASYNC_STEPS,
+                        asyncFunctionsNames: mock_async_functions ? ['fetch', 'sendEmail'] : undefined,
                         functions: mock_async_functions
                             ? {
                                   fetch: (...args: any[]) => {
@@ -248,6 +253,22 @@ export class CdpApi {
                                       return {
                                           status: 200,
                                           body: {},
+                                      }
+                                  },
+                                  sendEmail: (...args: any[]) => {
+                                      logs.push({
+                                          level: 'info',
+                                          timestamp: DateTime.now(),
+                                          message: `Async function 'sendEmail' was mocked with arguments:`,
+                                      })
+                                      logs.push({
+                                          level: 'info',
+                                          timestamp: DateTime.now(),
+                                          message: `sendEmail('${JSON.stringify(args[0], null, 2)})`,
+                                      })
+
+                                      return {
+                                          success: true,
                                       }
                                   },
                               }
@@ -465,11 +486,10 @@ export class CdpApi {
 
     private postMailjetWebhook =
         () =>
-        async (req: express.Request & { rawBody?: Buffer }, res: express.Response): Promise<any> => {
+        async (req: ModifiedRequest, res: express.Response): Promise<any> => {
             try {
-                const { status, message } = await this.messagingMailjetManagerService.handleWebhook(req)
-
-                return res.status(status).send(message)
+                const { status, message } = await this.emailTrackingService.handleWebhook(req)
+                return res.status(status).json({ message })
             } catch (error) {
                 return res.status(500).json({ error: 'Internal error' })
             }

@@ -4,6 +4,7 @@ import { urlToAction } from 'kea-router'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { uuid } from 'lib/utils'
 import posthog from 'posthog-js'
+import api from 'lib/api'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -17,6 +18,7 @@ import {
     OrganizationBasicType,
     Region,
     SidePanelTab,
+    StartupProgramLabel,
     TeamPublicType,
     UserType,
 } from '~/types'
@@ -385,6 +387,7 @@ export const supportLogic = kea<supportLogicType>([
         closeSupportForm: true,
         openSupportForm: (values: Partial<SupportFormFields>) => values,
         submitZendeskTicket: (form: SupportFormFields) => form,
+        ensureZendeskOrganization: true,
         updateUrlParams: true,
         openEmailForm: true,
         closeEmailForm: true,
@@ -484,7 +487,7 @@ export const supportLogic = kea<supportLogicType>([
                 kind,
                 target_area: area,
                 severity_level: severity_level ?? null,
-                message: message ?? '',
+                message: message ?? values.sendSupportRequest.message ?? '',
             })
 
             if (isEmailFormOpen === 'true' || isEmailFormOpen === true) {
@@ -558,6 +561,13 @@ export const supportLogic = kea<supportLogicType>([
                         planLevelTag = 'plan_free'
                         break
                 }
+            }
+
+            const startupProgramLabel = billing?.startup_program_label
+            if (startupProgramLabel === StartupProgramLabel.YC) {
+                planLevelTag = 'plan_yc'
+            } else if (startupProgramLabel === StartupProgramLabel.Startup) {
+                planLevelTag = 'plan_startup'
             }
 
             const { accountOwner } = billingLogic.values
@@ -712,6 +722,9 @@ export const supportLogic = kea<supportLogicType>([
                 }
                 posthog.capture('support_ticket', properties)
                 lemonToast.success("Got the message! If we have follow-up information for you, we'll reply via email.")
+
+                actions.ensureZendeskOrganization()
+
                 // Only close and reset the form on success
                 actions.closeSupportForm()
                 actions.resetSendSupportRequest()
@@ -729,8 +742,7 @@ export const supportLogic = kea<supportLogicType>([
         },
 
         closeSupportForm: () => {
-            // Reset the form when closing so Cancel button clears the data
-            actions.resetSendSupportRequest()
+            // Form is only reset by explicit Cancel button or successful submission
             props.onClose?.()
         },
 
@@ -738,6 +750,29 @@ export const supportLogic = kea<supportLogicType>([
             // Only update URL params for non-text fields to prevent focus loss during typing
             if (name !== 'message' && name !== 'name' && name !== 'email') {
                 actions.updateUrlParams()
+            }
+        },
+
+        ensureZendeskOrganization: async () => {
+            try {
+                const currentOrganization = organizationLogic.values.currentOrganization
+
+                if (!currentOrganization?.id || !currentOrganization?.name) {
+                    return
+                }
+
+                await api.create('/api/support/ensure-zendesk-organization', {
+                    organization_id: currentOrganization.id,
+                    organization_name: currentOrganization.name,
+                })
+            } catch (error) {
+                posthog.captureException(error, {
+                    context: 'zendesk_organization_creation',
+                    organization_id: organizationLogic.values.currentOrganization?.id,
+                    organization_name: organizationLogic.values.currentOrganization?.name,
+                    error_message: error instanceof Error ? error.message : String(error),
+                    error_status: error && typeof error === 'object' && 'status' in error ? error.status : undefined,
+                })
             }
         },
     })),

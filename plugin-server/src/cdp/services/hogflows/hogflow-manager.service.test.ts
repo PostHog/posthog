@@ -62,12 +62,9 @@ describe('HogFlowManager', () => {
                     .build()
             )
         )
-
-        await manager.start()
     })
 
     afterEach(async () => {
-        await manager.stop()
         await closeHub(hub)
     })
 

@@ -31,10 +31,6 @@ class Conversation(UUIDModel):
     type = models.CharField(max_length=20, choices=Type.choices, default=Type.ASSISTANT)
     title = models.CharField(null=True, blank=True, help_text="Title of the conversation.", max_length=250)
 
-    @property
-    def is_locked(self) -> bool:
-        return self.status in (self.Status.IN_PROGRESS, self.Status.CANCELING)
-
 
 class ConversationCheckpoint(UUIDModel):
     thread = models.ForeignKey(Conversation, on_delete=models.CASCADE, related_name="checkpoints")
@@ -158,7 +154,10 @@ class CoreMemory(UUIDModel):
         self.save()
 
     def append_core_memory(self, text: str):
-        self.text = self.text + "\n" + text
+        if self.text == "":
+            self.text = text
+        else:
+            self.text = self.text + "\n" + text
         self.save()
 
     def replace_core_memory(self, original_fragment: str, new_fragment: str):

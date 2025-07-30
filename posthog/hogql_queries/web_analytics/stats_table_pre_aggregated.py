@@ -1,8 +1,13 @@
-from typing import TYPE_CHECKING, Literal, cast
+from typing import TYPE_CHECKING, Literal, cast, Optional
 
 from posthog.hogql import ast
-from posthog.hogql.database.schema.channel_type import wrap_with_null_if_empty
-from posthog.hogql.parser import parse_select
+from posthog.hogql.parser import parse_select, parse_expr
+
+from posthog.hogql.database.schema.channel_type import (
+    wrap_with_null_if_empty,
+    create_channel_type_expr,
+    ChannelTypeExprs,
+)
 from posthog.hogql_queries.web_analytics.pre_aggregated.query_builder import WebAnalyticsPreAggregatedQueryBuilder
 from posthog.hogql_queries.web_analytics.pre_aggregated.properties import STATS_TABLE_SUPPORTED_FILTERS
 from posthog.schema import WebAnalyticsOrderByDirection, WebAnalyticsOrderByFields, WebStatsBreakdown
@@ -28,6 +33,7 @@ WEB_ANALYTICS_STATS_TABLE_PRE_AGGREGATED_SUPPORTED_BREAKDOWNS = [
     WebStatsBreakdown.INITIAL_PAGE,
     WebStatsBreakdown.PAGE,
     WebStatsBreakdown.EXIT_PAGE,
+    WebStatsBreakdown.INITIAL_CHANNEL_TYPE,
 ]
 
 
@@ -49,6 +55,39 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
 
         return self.runner.query.breakdownBy in WEB_ANALYTICS_STATS_TABLE_PRE_AGGREGATED_SUPPORTED_BREAKDOWNS
 
+    def _get_channel_type_expr(self) -> ast.Expr:
+        """Create a channel type expression using the available fields in pre-aggregated tables."""
+
+        def _wrap_with_lower(expr: ast.Expr) -> ast.Expr:
+            return ast.Call(name="lower", args=[expr])
+
+        channel_type_exprs = ChannelTypeExprs(
+            campaign=_wrap_with_lower(wrap_with_null_if_empty(ast.Field(chain=["utm_campaign"]))),
+            medium=_wrap_with_lower(wrap_with_null_if_empty(ast.Field(chain=["utm_medium"]))),
+            source=_wrap_with_lower(wrap_with_null_if_empty(ast.Field(chain=["utm_source"]))),
+            referring_domain=wrap_with_null_if_empty(ast.Field(chain=["referring_domain"])),
+            url=ast.Constant(value=None),  # URL not available in pre-aggregated tables
+            hostname=ast.Field(chain=["host"]),
+            pathname=ast.Field(chain=["entry_pathname"]),
+            has_gclid=ast.Field(chain=["has_gclid"]),
+            has_fbclid=ast.Field(chain=["has_fbclid"]),
+            # To keep this compatible with the non-pre-aggregated version, we need to return '1' when the boolean is true, null otherwise
+            gad_source=ast.Call(
+                name="if",
+                args=[
+                    ast.Field(chain=["has_gad_source_paid_search"]),
+                    ast.Constant(value="1"),
+                    ast.Constant(value=None),
+                ],
+            ),
+        )
+
+        return create_channel_type_expr(
+            custom_rules=None,  # Custom rules not supported for pre-aggregated tables yet
+            source_exprs=channel_type_exprs,
+            timings=self.runner.timings,
+        )
+
     def _bounce_rate_query(self) -> ast.SelectQuery:
         # Like in the original stats_table, we will need this method to build the "Paths" tile so it is a special breakdown
         previous_period_filter, current_period_filter = self.get_date_ranges()
@@ -63,6 +102,7 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
                 {views_tuple} as `context.columns.views`,
                 {bounce_rate_tuple} as `context.columns.bounce_rate`
             FROM web_bounces_combined
+            WHERE and({filters}, {breakdown_value} IS NOT NULL)
             GROUP BY `context.columns.breakdown_value`
             """,
                 placeholders={
@@ -79,15 +119,15 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
                     "bounce_rate_tuple": self._bounce_rate_calculation_tuple(
                         current_period_filter, previous_period_filter
                     ),
+                    "filters": self._get_bounce_rate_filters(),
                 },
             ),
         )
 
-        filters = self._get_filters(table_name="web_bounces_combined")
-        if filters:
-            query.where = filters
-
         return query
+
+    def _get_bounce_rate_filters(self) -> ast.Expr:
+        return self._get_filters(table_name="web_bounces_combined", exclude_pathname=True)
 
     def _path_query(self) -> ast.SelectQuery:
         previous_period_filter, current_period_filter = self.get_date_ranges(table_name="web_stats_combined")
@@ -105,6 +145,7 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
                 web_stats_combined
             LEFT JOIN ({bounce_subquery}) bounces
                 ON {join_condition}
+            WHERE and({filters}, {breakdown_value} IS NOT NULL)
             GROUP BY `context.columns.breakdown_value`
             """,
                 placeholders={
@@ -132,55 +173,56 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
                         left=self._apply_path_cleaning(ast.Field(chain=["web_stats_combined", "pathname"])),
                         right=ast.Field(chain=["bounces", "context.columns.breakdown_value"]),
                     ),
+                    "filters": self._get_filters(table_name="web_stats_combined"),
                 },
             ),
         )
 
-        filters = self._get_filters(table_name="web_stats_combined")
-        if filters:
-            query.where = filters
+        return query
+
+    def _default_breakdown_query(self) -> ast.SelectQuery:
+        previous_period_filter, current_period_filter = self.get_date_ranges()
+
+        query = cast(
+            ast.SelectQuery,
+            parse_select(
+                """
+            SELECT
+                {breakdown_field} as `context.columns.breakdown_value`,
+                {visitors_tuple} AS `context.columns.visitors`,
+                {views_tuple} as `context.columns.views`
+            FROM web_stats_combined
+            WHERE {filters}
+            GROUP BY `context.columns.breakdown_value`
+            """,
+                placeholders={
+                    "breakdown_field": self._get_breakdown_field(),
+                    "visitors_tuple": self._period_comparison_tuple(
+                        "persons_uniq_state", "uniqMergeIf", current_period_filter, previous_period_filter
+                    ),
+                    "views_tuple": self._period_comparison_tuple(
+                        "pageviews_count_state", "sumMergeIf", current_period_filter, previous_period_filter
+                    ),
+                    "filters": self._get_filters(table_name="web_stats_combined"),
+                },
+            ),
+        )
 
         return query
 
     def get_query(self) -> ast.SelectQuery:
         if self.runner.query.breakdownBy == WebStatsBreakdown.INITIAL_PAGE:
             query = self._bounce_rate_query()
-            table_name = "web_bounces_combined"
         elif self.runner.query.breakdownBy == WebStatsBreakdown.PAGE:
             query = self._path_query()
-            table_name = "web_stats_combined"
         else:
-            previous_period_filter, current_period_filter = self.get_date_ranges()
-
-            query = cast(
-                ast.SelectQuery,
-                parse_select(
-                    """
-                SELECT
-                    {breakdown_field} as `context.columns.breakdown_value`,
-                    {visitors_tuple} AS `context.columns.visitors`,
-                    {views_tuple} as `context.columns.views`
-                FROM web_stats_combined
-                GROUP BY `context.columns.breakdown_value`
-                """,
-                    placeholders={
-                        "breakdown_field": self._get_breakdown_field(),
-                        "visitors_tuple": self._period_comparison_tuple(
-                            "persons_uniq_state", "uniqMergeIf", current_period_filter, previous_period_filter
-                        ),
-                        "views_tuple": self._period_comparison_tuple(
-                            "pageviews_count_state", "sumMergeIf", current_period_filter, previous_period_filter
-                        ),
-                    },
-                ),
-            )
-            table_name = "web_stats_combined"
-
-        filters = self._get_filters(table_name=table_name)
-        if filters:
-            query.where = filters
+            query = self._default_breakdown_query()
 
         query.order_by = [self._get_order_by()]
+
+        fill_fraction_expr = self.runner._fill_fraction(query.order_by)
+        if fill_fraction_expr:
+            query.select.append(fill_fraction_expr)
 
         return query
 
@@ -204,7 +246,54 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
             if column:
                 return ast.OrderExpr(expr=ast.Field(chain=[column]), order=direction)
 
-        return ast.OrderExpr(expr=ast.Field(chain=["context.columns.views"]), order="DESC")
+        return ast.OrderExpr(expr=ast.Field(chain=["context.columns.visitors"]), order="DESC")
+
+    def _fill_fraction(self, order: Optional[list[ast.OrderExpr]]):
+        # use whatever column we are sorting by to also visually fill the row by some fraction
+        col_name = (
+            order[0].expr.chain[0]
+            if order and isinstance(order[0].expr, ast.Field) and len(order[0].expr.chain) == 1
+            else None
+        )
+
+        if col_name:
+            # for these columns, use the fraction of the overall total belonging to this row
+            if col_name in [
+                "context.columns.visitors",
+                "context.columns.views",
+                "context.columns.clicks",
+                "context.columns.total_conversions",
+                "context.columns.unique_conversions",
+                "context.columns.rage_clicks",
+                "context.columns.dead_clicks",
+                "context.columns.errors",
+            ]:
+                return ast.Alias(
+                    alias="context.columns.ui_fill_fraction",
+                    expr=parse_expr(
+                        "{col}.1 / sum({col}.1) OVER ()",
+                        placeholders={"col": ast.Field(chain=[col_name])},
+                    ),
+                )
+            # these columns are fractions already, use them directly
+            if col_name in [
+                "context.columns.bounce_rate",
+                "context.columns.average_scroll_percentage",
+                "context.columns.scroll_gt80_percentage",
+                "context.columns.conversion_rate",
+            ]:
+                return ast.Alias(
+                    alias="context.columns.ui_fill_fraction",
+                    expr=parse_expr(
+                        "{col}.1",
+                        placeholders={"col": ast.Field(chain=[col_name])},
+                    ),
+                )
+        # use visitors as a fallback
+        return ast.Alias(
+            alias="context.columns.ui_fill_fraction",
+            expr=parse_expr(""" "context.columns.visitors".1 / sum("context.columns.visitors".1) OVER ()"""),
+        )
 
     @_nullif_empty_decorator
     def _get_breakdown_field(self):
@@ -250,6 +339,8 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
                 return ast.Field(chain=["city_name"])
             case WebStatsBreakdown.EXIT_PAGE:
                 return self._apply_path_cleaning(ast.Field(chain=["end_pathname"]))
+            case WebStatsBreakdown.INITIAL_CHANNEL_TYPE:
+                return self._get_channel_type_expr()
 
     def _apply_path_cleaning(self, path_expr: ast.Expr) -> ast.Expr:
         if not self.runner.query.doPathCleaning:

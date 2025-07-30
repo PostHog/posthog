@@ -16,10 +16,7 @@ on:
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
-    # This is so that the workflow run isn't canceled when a snapshot update is pushed within it by posthog-bot
-    # We do however cancel from container-images-ci.yml if a commit is pushed by someone OTHER than posthog-bot
-    cancel-in-progress: false
-
+    cancel-in-progress: true
 env:
     SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
     DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
@@ -40,6 +37,20 @@ env:
     DISPLAY: ':99.0'
     OIDC_RSA_PRIVATE_KEY: 'test'
 jobs:
+    # Generate GitHub App token - the default GITHUB_TOKEN gets rate limited if we use it across all CI jobs
+    generate-token:
+        runs-on: ubuntu-latest
+        outputs:
+            token: ${{ steps.app-token.outputs.token }}
+        steps:
+            - name: Generate GitHub App Token
+              id: app-token
+              uses: actions/create-github-app-token@df432ceedc7162793a195dd1713ff69aefc7379e # v2
+              with:
+                  app-id: ${{ secrets.CI_TEST_RUNNER_1_APP_ID }}
+                  private-key: ${{ secrets.CI_TEST_RUNNER_1_APP_PRIVATE_KEY }}
+                  skip-token-revoke: true # The token will only be valid for 1 hour, and is masked so will not be logged
+
     # Job to decide if we should run backend ci
     # See https://github.com/dorny/paths-filter#conditional-execution for more details
     changes:
@@ -84,7 +95,7 @@ jobs:
                         - pytest.ini
                         - frontend/src/queries/schema.json # Used for generating schema.py
                         - common/plugin_transpiler/src # Used for transpiling plugins
-                        # Make sure we run if someone is explicitly change the workflow
+                        # Make sure we run if someone is explicitly changing the workflow
                         - .github/workflows/ci-backend.yml
                         # We use docker compose for tests, make sure we rerun on
                         # changes to docker-compose.dev.yml e.g. dependency
@@ -100,12 +111,14 @@ jobs:
                         - 'products/**/migrations/*.py'
 
     check-migrations:
-        needs: changes
+        needs: [changes, generate-token]
         if: needs.changes.outputs.backend == 'true'
         timeout-minutes: 10
 
         name: Validate Django and CH migrations
         runs-on: ubuntu-latest
+        env:
+            GITHUB_TOKEN: ${{ needs.generate-token.outputs.token }}
 
         steps:
             - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
@@ -130,7 +143,7 @@ jobs:
               uses: astral-sh/setup-uv@0c5e2b8115b80b4c7c5ddf6ffdd634974642d182 # v5.4.1
               with:
                   enable-cache: true
-                  pyproject-file: 'pyproject.toml'
+                  version: 0.7.8
 
             # First running migrations from master, to simulate the real-world scenario
             - name: Checkout master
@@ -242,18 +255,20 @@ jobs:
                   git diff --name-status origin/master..HEAD | grep "A\sposthog/clickhouse/migrations/" | grep -v README | awk '{print $2}' |  python manage.py test_ch_migrations_are_safe
 
     django:
-        needs: changes
+        needs: [changes, generate-token]
         # increase for tmate testing
         timeout-minutes: 30
 
         name: Django tests – ${{ matrix.segment }} (persons-on-events ${{ matrix.person-on-events && 'on' || 'off' }}), Py ${{ matrix.python-version }}, ${{ matrix.clickhouse-server-image }} (${{matrix.group}}/${{ matrix.concurrency }})
         runs-on: ${{ needs.changes.outputs.backend == 'true' && 'depot-ubuntu-latest' || 'ubuntu-latest' }}
+        env:
+            GITHUB_TOKEN: ${{ needs.generate-token.outputs.token }}
 
         strategy:
             fail-fast: false
             matrix:
                 python-version: ['3.11.9']
-                clickhouse-server-image: ['clickhouse/clickhouse-server:25.3.5.42']
+                clickhouse-server-image: ['clickhouse/clickhouse-server:25.3.6.56']
                 segment: ['Core']
                 person-on-events: [false]
                 # :NOTE: Keep concurrency and groups in sync
@@ -304,121 +319,121 @@ jobs:
                 include:
                     - segment: 'Core'
                       person-on-events: true
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.3.5.42'
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.3.6.56'
                       python-version: '3.11.9'
                       concurrency: 10
                       group: 1
                     - segment: 'Core'
                       person-on-events: true
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.3.5.42'
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.3.6.56'
                       python-version: '3.11.9'
                       concurrency: 10
                       group: 2
                     - segment: 'Core'
                       person-on-events: true
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.3.5.42'
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.3.6.56'
                       python-version: '3.11.9'
                       concurrency: 10
                       group: 3
                     - segment: 'Core'
                       person-on-events: true
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.3.5.42'
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.3.6.56'
                       python-version: '3.11.9'
                       concurrency: 10
                       group: 4
                     - segment: 'Core'
                       person-on-events: true
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.3.5.42'
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.3.6.56'
                       python-version: '3.11.9'
                       concurrency: 10
                       group: 5
                     - segment: 'Core'
                       person-on-events: true
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.3.5.42'
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.3.6.56'
                       python-version: '3.11.9'
                       concurrency: 10
                       group: 6
                     - segment: 'Core'
                       person-on-events: true
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.3.5.42'
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.3.6.56'
                       python-version: '3.11.9'
                       concurrency: 10
                       group: 7
                     - segment: 'Core'
                       person-on-events: true
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.3.5.42'
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.3.6.56'
                       python-version: '3.11.9'
                       concurrency: 10
                       group: 8
                     - segment: 'Core'
                       person-on-events: true
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.3.5.42'
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.3.6.56'
                       python-version: '3.11.9'
                       concurrency: 10
                       group: 9
                     - segment: 'Core'
                       person-on-events: true
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.3.5.42'
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.3.6.56'
                       python-version: '3.11.9'
                       concurrency: 10
                       group: 10
                     - segment: 'Temporal'
                       person-on-events: false
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.3.5.42'
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.3.6.56'
                       python-version: '3.11.9'
                       concurrency: 10
                       group: 1
                     - segment: 'Temporal'
                       person-on-events: false
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.3.5.42'
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.3.6.56'
                       python-version: '3.11.9'
                       concurrency: 10
                       group: 2
                     - segment: 'Temporal'
                       person-on-events: false
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.3.5.42'
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.3.6.56'
                       python-version: '3.11.9'
                       concurrency: 10
                       group: 3
                     - segment: 'Temporal'
                       person-on-events: false
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.3.5.42'
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.3.6.56'
                       python-version: '3.11.9'
                       concurrency: 10
                       group: 4
                     - segment: 'Temporal'
                       person-on-events: false
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.3.5.42'
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.3.6.56'
                       python-version: '3.11.9'
                       concurrency: 10
                       group: 5
                     - segment: 'Temporal'
                       person-on-events: false
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.3.5.42'
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.3.6.56'
                       python-version: '3.11.9'
                       concurrency: 10
                       group: 6
                     - segment: 'Temporal'
                       person-on-events: false
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.3.5.42'
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.3.6.56'
                       python-version: '3.11.9'
                       concurrency: 10
                       group: 7
                     - segment: 'Temporal'
                       person-on-events: false
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.3.5.42'
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.3.6.56'
                       python-version: '3.11.9'
                       concurrency: 10
                       group: 8
                     - segment: 'Temporal'
                       person-on-events: false
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.3.5.42'
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.3.6.56'
                       python-version: '3.11.9'
                       concurrency: 10
                       group: 9
                     - segment: 'Temporal'
                       person-on-events: false
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.3.5.42'
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.3.6.56'
                       python-version: '3.11.9'
                       concurrency: 10
                       group: 10
@@ -509,7 +524,7 @@ jobs:
               uses: astral-sh/setup-uv@0c5e2b8115b80b4c7c5ddf6ffdd634974642d182 # v5.4.1
               with:
                   enable-cache: true
-                  pyproject-file: 'pyproject.toml'
+                  version: 0.7.8
 
             - name: Determine if hogql-parser has changed compared to master
               if: ${{ needs.changes.outputs.backend == 'true' }}
@@ -528,7 +543,7 @@ jobs:
               if: ${{ needs.changes.outputs.backend == 'true' }}
               uses: actions/setup-node@1a4442cacd436585916779262731d5b162bc6ec7 # v3
               with:
-                  node-version: 18.12.1
+                  node-version: 22.17.1
                   cache: pnpm
 
             # tests would intermittently fail in GH actions
@@ -622,6 +637,7 @@ jobs:
                       || 'posthog products'
                   }} ${{ matrix.person-on-events && 'ee/clickhouse/' || 'ee/' }} -m "not async_migrations" \
                       --ignore=posthog/temporal \
+                      --ignore=products/batch_exports/backend/tests/temporal \
                       --ignore=common/hogvm/python/test \
                       ${{ matrix.person-on-events && '--ignore=posthog/hogql_queries' || '' }} \
                       ${{ matrix.person-on-events && '--ignore=posthog/hogql' || '' }} \
@@ -667,7 +683,7 @@ jobs:
                   AWS_S3_ALLOW_UNSAFE_RENAME: 'true'
               run: |
                   set +e
-                  pytest posthog/temporal -m "not async_migrations" \
+                  pytest posthog/temporal products/batch_exports/backend/tests/temporal -m "not async_migrations" \
                       --splits ${{ matrix.concurrency }} --group ${{ matrix.group }} \
                       --durations=100 --durations-min=1.0 --store-durations \
                       --splitting-algorithm=duration_based_chunks \
@@ -689,7 +705,7 @@ jobs:
 
             - name: Upload updated timing data as artifacts
               uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4
-              if: ${{ needs.changes.outputs.backend == 'true' && !matrix.person-on-events && matrix.clickhouse-server-image == 'clickhouse/clickhouse-server:25.3.5.42' }}
+              if: ${{ needs.changes.outputs.backend == 'true' && !matrix.person-on-events && matrix.clickhouse-server-image == 'clickhouse/clickhouse-server:25.3.6.56' }}
               with:
                   name: timing_data-${{ matrix.segment }}-${{ matrix.group }}
                   path: .test_durations
@@ -732,15 +748,34 @@ jobs:
                   path: posthog/tasks/test/__emails__
                   retention-days: 1
 
+    # Job just to collate the status of the matrix jobs for requiring passing status
+    django_tests:
+        needs: [django]
+        name: Django Tests Pass
+        runs-on: ubuntu-latest
+        if: always()
+        steps:
+            - name: Check matrix outcome
+              run: |
+                  # The `needs.django.result` will be 'success' only if all jobs in the matrix succeeded.
+                  # Otherwise, it will be 'failure'.
+                  if [[ "${{ needs.django.result }}" != "success" ]]; then
+                    echo "One or more jobs in the Django test matrix failed."
+                    exit 1
+                  fi
+                  echo "All jobs in the Django test matrix passed."
+
     async-migrations:
         name: Async migrations tests -  ${{ matrix.clickhouse-server-image }}
-        needs: changes
+        needs: [changes, generate-token]
         strategy:
             fail-fast: false
             matrix:
-                clickhouse-server-image: ['clickhouse/clickhouse-server:25.3.5.42']
+                clickhouse-server-image: ['clickhouse/clickhouse-server:25.3.6.56']
         if: needs.changes.outputs.backend == 'true'
         runs-on: ubuntu-latest
+        env:
+            GITHUB_TOKEN: ${{ needs.generate-token.outputs.token }}
         steps:
             - name: 'Checkout repo'
               uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
@@ -768,7 +803,7 @@ jobs:
               uses: astral-sh/setup-uv@0c5e2b8115b80b4c7c5ddf6ffdd634974642d182 # v5.4.1
               with:
                   enable-cache: true
-                  pyproject-file: 'pyproject.toml'
+                  version: 0.7.8
             - name: Install python dependencies
               shell: bash
               run: |
@@ -831,15 +866,3 @@ jobs:
                   posthog-token: ${{secrets.POSTHOG_API_TOKEN}}
                   event: 'posthog-ci-running-time'
                   properties: '{"runner": "depot", "duration_seconds": ${{ env.running_time_duration_seconds }}, "run_url": "${{ env.running_time_run_url }}", "run_attempt": "${{ env.running_time_run_attempt }}", "run_id": "${{ env.running_time_run_id }}", "run_started_at": "${{ env.running_time_run_started_at }}"}'
-
-    posthog-analytics:
-        name: PostHog CI analytics
-        if: always() && needs.changes.outputs.backend == 'true'
-        needs: [calculate-running-time] # last job in this workflow
-        runs-on: ubuntu-latest
-        steps:
-            - name: Checkout
-              uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
-            - uses: ./.github/actions/ci-analytics
-              with:
-                  posthog-api-key: ${{ secrets.CI_ANALYTICS_TOKEN }}

@@ -32,6 +32,7 @@ import {
     FeatureFlagFilters,
     IntervalType,
     MultipleSurveyQuestion,
+    ProductKey,
     ProjectTreeRef,
     PropertyFilterType,
     PropertyOperator,
@@ -50,6 +51,7 @@ import {
     SurveyStats,
 } from '~/types'
 
+import { ProductIntentContext } from 'lib/utils/product-intents'
 import posthog from 'posthog-js'
 import {
     defaultSurveyAppearance,
@@ -480,6 +482,8 @@ export const surveyLogic = kea<surveyLogicType>([
                 'reportSurveyViewed',
                 'reportSurveyCycleDetected',
             ],
+            teamLogic,
+            ['addProductIntent'],
         ],
         values: [enabledFlagLogic, ['featureFlags as enabledFlags'], surveysLogic, ['data']],
     })),
@@ -574,6 +578,13 @@ export const surveyLogic = kea<surveyLogicType>([
                             },
                             false
                         )
+                        actions.addProductIntent({
+                            product_type: ProductKey.SURVEYS,
+                            intent_context: ProductIntentContext.SURVEY_VIEWED,
+                            metadata: {
+                                survey_id: survey.id,
+                            },
+                        })
                         return survey
                     } catch (error: any) {
                         if (error.status === 404) {
@@ -603,22 +614,63 @@ export const surveyLogic = kea<surveyLogicType>([
                 return newSurvey
             },
             createSurvey: async (surveyPayload: Partial<Survey>) => {
-                return await api.surveys.create(surveyPayload)
+                const response = await api.surveys.create(surveyPayload)
+                actions.addProductIntent({
+                    product_type: ProductKey.SURVEYS,
+                    intent_context: ProductIntentContext.SURVEY_CREATED,
+                    metadata: {
+                        survey_id: response.id,
+                    },
+                })
+                return response
             },
-            updateSurvey: async (surveyPayload: Partial<Survey>) => {
+            updateSurvey: async (surveyPayload: Partial<Survey> & { intentContext?: ProductIntentContext }) => {
                 const response = await api.surveys.update(props.id, surveyPayload)
+                if (surveyPayload.intentContext) {
+                    actions.addProductIntent({
+                        product_type: ProductKey.SURVEYS,
+                        intent_context: surveyPayload.intentContext,
+                        metadata: {
+                            survey_id: values.survey.id,
+                        },
+                    })
+                }
                 refreshTreeItem('survey', props.id)
                 return response
             },
             launchSurvey: async () => {
                 const startDate = dayjs()
-                return await api.surveys.update(props.id, { start_date: startDate.toISOString() })
+                const response = await api.surveys.update(props.id, { start_date: startDate.toISOString() })
+                actions.addProductIntent({
+                    product_type: ProductKey.SURVEYS,
+                    intent_context: ProductIntentContext.SURVEY_LAUNCHED,
+                    metadata: {
+                        survey_id: response.id,
+                    },
+                })
+                return response
             },
             stopSurvey: async () => {
-                return await api.surveys.update(props.id, { end_date: dayjs().toISOString() })
+                const response = await api.surveys.update(props.id, { end_date: dayjs().toISOString() })
+                actions.addProductIntent({
+                    product_type: ProductKey.SURVEYS,
+                    intent_context: ProductIntentContext.SURVEY_COMPLETED,
+                    metadata: {
+                        survey_id: response.id,
+                    },
+                })
+                return response
             },
             resumeSurvey: async () => {
-                return await api.surveys.update(props.id, { end_date: null })
+                const response = await api.surveys.update(props.id, { end_date: null })
+                actions.addProductIntent({
+                    product_type: ProductKey.SURVEYS,
+                    intent_context: ProductIntentContext.SURVEY_RESUMED,
+                    metadata: {
+                        survey_id: response.id,
+                    },
+                })
+                return response
             },
         },
         duplicatedSurvey: {
@@ -639,6 +691,13 @@ export const surveyLogic = kea<surveyLogicType>([
                     })
 
                     actions.reportSurveyCreated(createdSurvey, true)
+                    actions.addProductIntent({
+                        product_type: ProductKey.SURVEYS,
+                        intent_context: ProductIntentContext.SURVEY_DUPLICATED,
+                        metadata: {
+                            survey_id: createdSurvey.id,
+                        },
+                    })
                     return survey
                 } catch (error) {
                     posthog.captureException('Error duplicating survey', {
@@ -667,6 +726,13 @@ export const surveyLogic = kea<surveyLogicType>([
 
                 actions.reportSurveyCreated(createdSurvey, true)
                 actions.setIsDuplicateToProjectModalOpen(false)
+                actions.addProductIntent({
+                    product_type: ProductKey.SURVEYS,
+                    intent_context: ProductIntentContext.SURVEY_DUPLICATED,
+                    metadata: {
+                        survey_id: createdSurvey.id,
+                    },
+                })
                 return sourceSurvey
             },
         },
@@ -853,6 +919,13 @@ export const surveyLogic = kea<surveyLogicType>([
             },
             archiveSurvey: () => {
                 actions.updateSurvey({ archived: true })
+                actions.addProductIntent({
+                    product_type: ProductKey.SURVEYS,
+                    intent_context: ProductIntentContext.SURVEY_ARCHIVED,
+                    metadata: {
+                        survey_id: values.survey.id,
+                    },
+                })
             },
             loadSurveySuccess: () => {
                 // Trigger stats loading after survey loads
@@ -1208,6 +1281,12 @@ export const surveyLogic = kea<surveyLogicType>([
                             NOT JSONHas(properties, '${SurveyEventProperties.SURVEY_COMPLETED}')
                             OR JSONExtractBool(properties, '${SurveyEventProperties.SURVEY_COMPLETED}') = true
                         )`
+            },
+        ],
+        isExternalSurveyFFEnabled: [
+            (s) => [s.enabledFlags],
+            (enabledFlags: FeatureFlagsSet): boolean => {
+                return !!enabledFlags[FEATURE_FLAGS.EXTERNAL_SURVEYS]
             },
         ],
         isAdaptiveLimitFFEnabled: [
@@ -1795,6 +1874,13 @@ export const surveyLogic = kea<surveyLogicType>([
                 actions.editingSurvey(false)
                 if (props.id && props.id !== 'new') {
                     actions.updateSurvey(payload)
+                    actions.addProductIntent({
+                        product_type: ProductKey.SURVEYS,
+                        intent_context: ProductIntentContext.SURVEY_EDITED,
+                        metadata: {
+                            survey_id: values.survey.id,
+                        },
+                    })
                 } else {
                     actions.createSurvey({ ...payload, _create_in_folder: 'Unfiled/Surveys' })
                 }

@@ -183,7 +183,10 @@ export function lowercaseFirstLetter(string: string): string {
     return string.charAt(0).toLowerCase() + string.slice(1)
 }
 
-export function fullName(props: { first_name?: string; last_name?: string }): string {
+export function fullName(props?: { first_name?: string; last_name?: string }): string {
+    if (!props) {
+        return 'Unknown User'
+    }
     return `${props.first_name || ''} ${props.last_name || ''}`.trim()
 }
 
@@ -652,6 +655,13 @@ export function humanFriendlyDetailedTime(
         formatString = `${formatDate} ${formatTime}`
     }
     return parsedDate.format(formatString)
+}
+
+export function detailedTime(date: dayjs.Dayjs | string | null | undefined): string {
+    if (!date) {
+        return ''
+    }
+    return dayjs(date).format('MMMM DD, YYYY h:mm:ss A')
 }
 
 // Pad numbers with leading zeros
@@ -1852,7 +1862,7 @@ export function isNumeric(x: any): boolean {
 }
 
 /**
- * Check if the argument is nullish (null or undefined).
+ * Check if the argument is not nullish (null or undefined).
  *
  * Useful as a typeguard, e.g. when passed to Array.filter()
  *

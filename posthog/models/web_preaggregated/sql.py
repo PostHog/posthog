@@ -1,6 +1,7 @@
 from posthog.clickhouse.table_engines import MergeTreeEngine, ReplicationScheme
 from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
 from posthog.hogql.database.schema.web_analytics_s3 import get_s3_function_args
+from posthog.models.web_preaggregated.team_selection import WEB_PRE_AGGREGATED_TEAM_SELECTION_DICTIONARY_NAME
 
 
 def TABLE_TEMPLATE(table_name, columns, order_by):
@@ -57,8 +58,10 @@ WEB_ANALYTICS_DIMENSIONS = [
     "city_name",
     "region_code",
     "region_name",
+    "has_gclid",
+    "has_gad_source_paid_search",
+    "has_fbclid",
 ]
-
 
 WEB_STATS_DIMENSIONS = ["pathname", *WEB_ANALYTICS_DIMENSIONS]
 WEB_BOUNCES_DIMENSIONS = WEB_ANALYTICS_DIMENSIONS
@@ -69,6 +72,8 @@ def get_dimension_columns(dimensions):
     for d in dimensions:
         if d in ["viewport_width", "viewport_height"]:
             column_definitions.append(f"{d} Int64")
+        elif d in ["has_gclid", "has_gad_source_paid_search", "has_fbclid"]:
+            column_definitions.append(f"{d} Bool")
         else:
             column_definitions.append(f"{d} String")
     return ",\n".join(column_definitions)
@@ -79,6 +84,29 @@ def get_order_by_clause(dimensions, bucket_column="period_bucket"):
     all_columns = base_columns + dimensions
     column_list = ",\n    ".join(all_columns)
     return f"(\n    {column_list}\n)"
+
+
+def get_insert_columns(dimensions, aggregate_columns):
+    shared_columns = ["period_bucket", "team_id", "host", "device_type"]
+    all_columns = shared_columns + dimensions + aggregate_columns
+    return all_columns
+
+
+def get_web_stats_insert_columns():
+    aggregate_columns = ["persons_uniq_state", "sessions_uniq_state", "pageviews_count_state"]
+    return get_insert_columns(WEB_STATS_DIMENSIONS, aggregate_columns)
+
+
+def get_web_bounces_insert_columns():
+    aggregate_columns = [
+        "persons_uniq_state",
+        "sessions_uniq_state",
+        "pageviews_count_state",
+        "bounces_count_state",
+        "total_session_duration_state",
+        "total_session_count_state",
+    ]
+    return get_insert_columns(WEB_BOUNCES_DIMENSIONS, aggregate_columns)
 
 
 WEB_STATS_COLUMNS = f"""
@@ -161,14 +189,24 @@ def format_team_ids(team_ids):
 
 
 def get_team_filters(team_ids):
-    team_ids_str = format_team_ids(team_ids) if team_ids else None
-    return {
-        "raw_sessions": f"raw_sessions.team_id IN({team_ids_str})" if team_ids else "1=1",
-        "person_distinct_id_overrides": (
-            f"person_distinct_id_overrides.team_id IN({team_ids_str})" if team_ids else "1=1"
-        ),
-        "events": f"e.team_id IN({team_ids_str})" if team_ids else "1=1",
-    }
+    """
+    Get team filters using dictionary lookup for enabled teams.
+    If team_ids is provided, use IN clause (for backward compatibility or debugging).
+    Otherwise, use dictionary lookup for the latest configuration.
+    """
+    if team_ids:
+        team_ids_str = format_team_ids(team_ids)
+        return {
+            "raw_sessions": f"raw_sessions.team_id IN({team_ids_str})",
+            "person_distinct_id_overrides": f"person_distinct_id_overrides.team_id IN({team_ids_str})",
+            "events": f"e.team_id IN({team_ids_str})",
+        }
+    else:
+        return {
+            "raw_sessions": f"dictHas('{WEB_PRE_AGGREGATED_TEAM_SELECTION_DICTIONARY_NAME}', raw_sessions.team_id)",
+            "person_distinct_id_overrides": f"dictHas('{WEB_PRE_AGGREGATED_TEAM_SELECTION_DICTIONARY_NAME}', person_distinct_id_overrides.team_id)",
+            "events": f"dictHas('{WEB_PRE_AGGREGATED_TEAM_SELECTION_DICTIONARY_NAME}', e.team_id)",
+        }
 
 
 def get_insert_params(team_ids, granularity="daily"):
@@ -230,6 +268,9 @@ def WEB_STATS_INSERT_SQL(
         city_name,
         region_code,
         region_name,
+        has_gclid,
+        has_gad_source_paid_search,
+        has_fbclid,
         uniqState(assumeNotNull(session_person_id)) AS persons_uniq_state,
         uniqState(assumeNotNull(session_id)) AS sessions_uniq_state,
         sumState(pageview_count) AS pageviews_count_state
@@ -257,6 +298,9 @@ def WEB_STATS_INSERT_SQL(
             events__session.end_pathname AS end_pathname,
             events__session.referring_domain AS referring_domain,
             events__session.region_name AS region_name,
+            events__session.has_gclid AS has_gclid,
+            events__session.has_gad_source_paid_search AS has_gad_source_paid_search,
+            events__session.has_fbclid AS has_fbclid,
             countIf(e.event IN ('$pageview', '$screen')) AS pageview_count,
             e.team_id AS team_id,
             min(events__session.start_timestamp) AS start_timestamp
@@ -278,6 +322,9 @@ def WEB_STATS_INSERT_SQL(
                 argMinMerge(raw_sessions.initial_geoip_subdivision_1_code) AS region_code,
                 argMinMerge(raw_sessions.initial_geoip_subdivision_1_name) AS region_name,
                 argMinMerge(raw_sessions.initial_geoip_subdivision_city_name) AS city_name,
+                notEmpty(argMinMerge(raw_sessions.initial_gclid)) AND argMinMerge(raw_sessions.initial_gclid) != 'null' AS has_gclid,
+                argMinMerge(raw_sessions.initial_gad_source) = '1' AS has_gad_source_paid_search,
+                notEmpty(argMinMerge(raw_sessions.initial_fbclid)) AND argMinMerge(raw_sessions.initial_fbclid) != 'null' AS has_fbclid,
                 raw_sessions.session_id_v7 AS session_id_v7
             FROM raw_sessions
             WHERE {team_filter}
@@ -324,7 +371,10 @@ def WEB_STATS_INSERT_SQL(
             country_code,
             city_name,
             region_code,
-            region_name
+            region_name,
+            has_gclid,
+            has_gad_source_paid_search,
+            has_fbclid
         {settings_clause}
     )
     GROUP BY
@@ -348,14 +398,20 @@ def WEB_STATS_INSERT_SQL(
         country_code,
         city_name,
         region_code,
-        region_name
+        region_name,
+        has_gclid,
+        has_gad_source_paid_search,
+        has_fbclid
     {settings_clause}
     """
 
     if select_only:
         return query
     else:
-        return f"INSERT INTO {table_name}\n{query}"
+        # Explicitly specify column names to protect against column order changes
+        columns = get_web_stats_insert_columns()
+        column_list = ",\n    ".join(columns)
+        return f"INSERT INTO {table_name}\n(\n    {column_list}\n)\n{query}"
 
 
 def WEB_BOUNCES_INSERT_SQL(
@@ -398,6 +454,9 @@ def WEB_BOUNCES_INSERT_SQL(
         city_name,
         region_code,
         region_name,
+        has_gclid,
+        has_gad_source_paid_search,
+        has_fbclid,
         uniqState(assumeNotNull(person_id)) AS persons_uniq_state,
         uniqState(assumeNotNull(session_id)) AS sessions_uniq_state,
         sumState(pageview_count) AS pageviews_count_state,
@@ -427,6 +486,9 @@ def WEB_BOUNCES_INSERT_SQL(
             any(e.mat_$os) AS os,
             accurateCastOrNull(any(e.mat_$viewport_width), 'Int64') AS viewport_width,
             accurateCastOrNull(any(e.mat_$viewport_height), 'Int64') AS viewport_height,
+            any(events__session.has_gclid) AS has_gclid,
+            any(events__session.has_gad_source_paid_search) AS has_gad_source_paid_search,
+            any(events__session.has_fbclid) AS has_fbclid,
             any(events__session.is_bounce) AS is_bounce,
             any(events__session.session_duration) AS session_duration,
             toUInt64(1) AS total_session_count_state,
@@ -449,6 +511,9 @@ def WEB_BOUNCES_INSERT_SQL(
                 argMinMerge(raw_sessions.initial_geoip_subdivision_city_name) AS city_name,
                 argMinMerge(raw_sessions.initial_geoip_subdivision_1_code) AS region_code,
                 argMinMerge(raw_sessions.initial_geoip_subdivision_1_name) AS region_name,
+                notEmpty(argMinMerge(raw_sessions.initial_gclid)) AND argMinMerge(raw_sessions.initial_gclid) != 'null' AS has_gclid,
+                argMinMerge(raw_sessions.initial_gad_source) = '1' AS has_gad_source_paid_search,
+                notEmpty(argMinMerge(raw_sessions.initial_fbclid)) AND argMinMerge(raw_sessions.initial_fbclid) != 'null' AS has_fbclid,
                 toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id,
                 dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, '{timezone}')), max(toTimeZone(raw_sessions.max_timestamp, '{timezone}'))) AS session_duration,
                 if(ifNull(equals(uniqUpToMerge(1)(raw_sessions.page_screen_autocapture_uniq_up_to), 0), 0), NULL,
@@ -506,14 +571,20 @@ def WEB_BOUNCES_INSERT_SQL(
         browser,
         os,
         viewport_width,
-        viewport_height
+        viewport_height,
+        has_gclid,
+        has_gad_source_paid_search,
+        has_fbclid
     {settings_clause}
     """
 
     if select_only:
         return query
     else:
-        return f"INSERT INTO {table_name}\n{query}"
+        # Explicitly specify column names to protect against column order changes
+        columns = get_web_bounces_insert_columns()
+        column_list = ",\n    ".join(columns)
+        return f"INSERT INTO {table_name}\n(\n    {column_list}\n)\n{query}"
 
 
 def WEB_STATS_EXPORT_SQL(
@@ -582,7 +653,7 @@ def WEB_BOUNCES_EXPORT_SQL(
 
 def create_combined_view_sql(table_prefix):
     return f"""
-    CREATE VIEW IF NOT EXISTS {table_prefix}_combined AS
+    CREATE OR REPLACE VIEW {table_prefix}_combined AS
     SELECT * FROM {table_prefix}_daily WHERE period_bucket < toStartOfDay(now(), 'UTC')
     UNION ALL
     SELECT * FROM {table_prefix}_hourly WHERE period_bucket >= toStartOfDay(now(), 'UTC')

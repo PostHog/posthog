@@ -103,7 +103,7 @@ runs:
         - name: Set up Node.js
           uses: actions/setup-node@1a4442cacd436585916779262731d5b162bc6ec7 # v3
           with:
-              node-version: 18.12.1
+              node-version: 22.17.1
               cache: pnpm
 
         # tests would intermittently fail in GH actions
@@ -235,7 +235,7 @@ runs:
 
         - name: Upload updated timing data as artifacts
           uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4
-          if: ${{ inputs.person-on-events != 'true' && inputs.clickhouse-server-image == 'clickhouse/clickhouse-server:25.3.5.42' }}
+          if: ${{ inputs.person-on-events != 'true' && inputs.clickhouse-server-image == 'clickhouse/clickhouse-server:25.3.6.56' }}
           with:
               name: timing_data-${{ inputs.segment }}-${{ inputs.group }}
               path: .test_durations

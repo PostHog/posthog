@@ -245,7 +245,11 @@ export const insightDataLogic = kea<insightDataLogicType>([
     }),
     actionToUrl(({ values }) => ({
         setQuery: ({ query }) => {
-            if (values.queryChanged && insightSceneLogic.values.activeScene === Scene.Insight) {
+            if (
+                values.queryChanged &&
+                insightSceneLogic.values.activeScene === Scene.Insight &&
+                insightSceneLogic.values.insightId === 'new'
+            ) {
                 // query is changed and we are in edit mode
                 return [
                     router.values.currentLocation.pathname,
@@ -255,9 +259,6 @@ export const insightDataLogic = kea<insightDataLogicType>([
                     {
                         ...router.values.currentLocation.hashParams,
                         q: crushDraftQueryForURL(query),
-                    },
-                    {
-                        replace: true,
                     },
                 ]
             }

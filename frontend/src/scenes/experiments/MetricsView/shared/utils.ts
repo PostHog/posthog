@@ -169,13 +169,44 @@ export function isFrequentistResult(result: ExperimentVariantResult): result is 
 
 export function getVariantInterval(result: ExperimentVariantResult): [number, number] | null {
     if (isBayesianResult(result)) {
-        return result.credible_interval
+        return result.credible_interval || null
     } else if (isFrequentistResult(result)) {
-        return result.confidence_interval
+        return result.confidence_interval || null
     }
     return null
 }
 
 export function getIntervalLabel(result: ExperimentVariantResult): string {
     return isBayesianResult(result) ? 'Credible interval' : 'Confidence interval'
+}
+
+export interface PercentageChangeResult {
+    text: string
+    isSignificant?: boolean
+    isPositive?: boolean
+    pointEstimate?: number
+}
+
+export function formatPercentageChange(result: ExperimentVariantResult): PercentageChangeResult {
+    const interval = getVariantInterval(result)
+    if (!interval) {
+        return {
+            text: '—',
+            isSignificant: false,
+            isPositive: undefined,
+            pointEstimate: undefined,
+        }
+    }
+
+    // Calculate the point estimate as the middle of the interval
+    const [lower, upper] = interval
+    const pointEstimate = (lower + upper) / 2
+    const pointEstimatePercent = (pointEstimate * 100).toFixed(1)
+
+    return {
+        text: `${pointEstimatePercent}%`,
+        isSignificant: result.significant,
+        isPositive: pointEstimate > 0,
+        pointEstimate,
+    }
 }

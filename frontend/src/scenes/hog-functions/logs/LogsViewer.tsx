@@ -81,7 +81,12 @@ export function LogsViewer({ renderColumns = (c) => c, ...props }: LogsViewerPro
                                         <LemonButton
                                             key={level}
                                             fullWidth
-                                            sideIcon={<LemonCheckbox checked={filters.levels.includes(level)} />}
+                                            icon={
+                                                <LemonCheckbox
+                                                    checked={filters.levels.includes(level)}
+                                                    className="pointer-events-none"
+                                                />
+                                            }
                                             onClick={() => {
                                                 setFilters({
                                                     levels: filters.levels.includes(level)

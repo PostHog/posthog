@@ -8,7 +8,6 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
     switch (mode) {
         case null:
             return {
-                mmdb: true,
                 ingestionV2Combined: true,
                 processAsyncWebhooksHandlers: true,
                 sessionRecordingBlobIngestion: true,
@@ -17,13 +16,12 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
                 sessionRecordingBlobIngestionV2Overflow: config.SESSION_RECORDING_OVERFLOW_ENABLED,
                 appManagementSingleton: true,
                 cdpProcessedEvents: true,
+                cdpPersonUpdates: true,
                 cdpInternalEvents: true,
                 cdpLegacyOnEvent: true,
                 cdpCyclotronWorker: true,
-                cdpCyclotronWorkerPlugins: true,
-                cdpCyclotronWorkerSegment: true,
-                cdpCyclotronWorkerNative: true,
                 cdpCyclotronWorkerHogFlow: true,
+                cdpBehaviouralEvents: true,
                 cdpApi: true,
             }
 
@@ -31,7 +29,6 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
             // NOTE: this mode will be removed in the future and replaced with
             // `analytics-ingestion` and `recordings-ingestion` modes.
             return {
-                mmdb: true,
                 ingestionV2: true,
             }
         case PluginServerMode.recordings_blob_ingestion:
@@ -59,6 +56,10 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
             return {
                 cdpProcessedEvents: true,
             }
+        case PluginServerMode.cdp_person_updates:
+            return {
+                cdpPersonUpdates: true,
+            }
         case PluginServerMode.cdp_internal_events:
             return {
                 cdpInternalEvents: true,
@@ -71,13 +72,9 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
             return {
                 cdpCyclotronWorkerHogFlow: true,
             }
-        case PluginServerMode.cdp_cyclotron_worker_plugins:
+        case PluginServerMode.cdp_behavioural_events:
             return {
-                cdpCyclotronWorkerPlugins: true,
-            }
-        case PluginServerMode.cdp_cyclotron_worker_segment:
-            return {
-                cdpCyclotronWorkerSegment: true,
+                cdpBehaviouralEvents: true,
             }
         case PluginServerMode.cdp_legacy_on_event:
             return {
@@ -86,7 +83,6 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
         case PluginServerMode.cdp_api:
             return {
                 cdpApi: true,
-                mmdb: true,
                 // NOTE: This is temporary until we have removed plugins
                 appManagementSingleton: true,
             }
