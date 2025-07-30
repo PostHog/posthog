@@ -8,7 +8,6 @@ import type { storyGroup } from './storiesMap'
 import { storiesMap } from './storiesMap'
 
 const STORAGE_KEY = 'posthog_stories_viewed'
-const COLLAPSED_STORAGE_KEY = 'posthog_stories_collapsed'
 
 export interface ViewedStories {
     storyIds: string[]
@@ -22,7 +21,6 @@ export const storiesLogic = kea<storiesLogicType>([
         setOpenStoriesModal: (openStoriesModal: boolean) => ({ openStoriesModal }),
         markStoryAsViewed: (storyId: string) => ({ storyId }),
         toggleStoriesCollapsed: true,
-        setInitialCollapsedState: (collapsed: boolean) => ({ collapsed }),
     }),
 
     loaders(() => ({
@@ -35,19 +33,6 @@ export const storiesLogic = kea<storiesLogicType>([
                         return stored ? JSON.parse(stored) : { storyIds: [] }
                     } catch {
                         return { storyIds: [] }
-                    }
-                },
-            },
-        ],
-        collapsedState: [
-            false as boolean,
-            {
-                loadCollapsedState: async () => {
-                    try {
-                        const stored = localStorage.getItem(COLLAPSED_STORAGE_KEY)
-                        return stored !== null ? JSON.parse(stored) : false
-                    } catch {
-                        return false
                     }
                 },
             },
@@ -76,10 +61,9 @@ export const storiesLogic = kea<storiesLogicType>([
         ],
         storiesCollapsedValue: [
             false,
+            { persist: true, storageKey: 'posthog_stories_collapsed' },
             {
                 toggleStoriesCollapsed: (state) => !state,
-                setInitialCollapsedState: (_, { collapsed }) => collapsed,
-                loadCollapsedStateSuccess: (_, { collapsedState }) => collapsedState,
             },
         ],
     }),
@@ -95,24 +79,6 @@ export const storiesLogic = kea<storiesLogicType>([
                 localStorage.setItem(STORAGE_KEY, JSON.stringify(updated))
                 actions.loadViewedStories()
             }
-        },
-        toggleStoriesCollapsed: () => {
-            // Save collapsed state to localStorage after toggling
-            localStorage.setItem(COLLAPSED_STORAGE_KEY, JSON.stringify(values.storiesCollapsed))
-        },
-        setInitialCollapsedState: ({ collapsed }) => {
-            // Save collapsed state to localStorage when explicitly set
-            localStorage.setItem(COLLAPSED_STORAGE_KEY, JSON.stringify(collapsed))
-        },
-        loadCollapsedStateSuccess: () => {
-            // If no stored collapsed state exists, set initial state based on unseen stories
-            if (localStorage.getItem(COLLAPSED_STORAGE_KEY) === null) {
-                actions.setInitialCollapsedState(!values.hasUnseenStories)
-            }
-        },
-        loadViewedStoriesSuccess: () => {
-            // Load collapsed state after viewed stories are loaded
-            actions.loadCollapsedState()
         },
     })),
 

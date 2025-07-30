@@ -85,11 +85,10 @@ export function ProjectHomepage(): JSX.Element {
 
 function HomeDashboard({ dashboardLogicProps }: { dashboardLogicProps: DashboardLogicProps }): JSX.Element {
     const { dashboard } = useValues(dashboardLogic(dashboardLogicProps))
-    const { featureFlags } = useValues(featureFlagLogic)
 
     return (
         <>
-            {featureFlags[FEATURE_FLAGS.POSTHOG_STORIES] && <PosthogStoriesContainer />}
+            <PosthogStoriesContainer />
             <div className="ProjectHomepage__dashboardheader">
                 <div className="ProjectHomepage__dashboardheader__title">
                     {!dashboard && <LemonSkeleton className="w-20 h-4" />}
