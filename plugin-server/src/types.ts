@@ -105,6 +105,7 @@ export type CdpConfig = {
     CDP_WATCHER_THRESHOLD_DEGRADED: number // Percentage of the bucket where we count it as degraded
     CDP_WATCHER_BUCKET_SIZE: number // The total bucket size
     CDP_WATCHER_TTL: number // The expiry for the rate limit key
+    CDP_WATCHER_STATE_LOCK_TTL: number // The expiry for the state lock key preventing transitions too fast
     CDP_WATCHER_REFILL_RATE: number // The number of tokens to be refilled per second
     CDP_WATCHER_DISABLED_TEMPORARY_TTL: number // How long a function should be temporarily disabled for
     CDP_WATCHER_DISABLED_TEMPORARY_MAX_COUNT: number // How many times a function can be disabled before it is disabled permanently
