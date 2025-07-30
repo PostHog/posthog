@@ -171,6 +171,7 @@ import {
 } from './constants'
 import type { ProductIntentProperties } from './utils/product-intents'
 import { NotebookListItemType, NotebookNodeResource, NotebookType } from 'scenes/notebooks/types'
+import { MaxBillingContext } from 'scenes/max/maxBillingContextLogic'
 
 /**
  * WARNING: Be very careful importing things here. This file is heavily used and can trigger a lot of cyclic imports
@@ -3693,6 +3694,7 @@ const api = {
                 content: string | null
                 contextual_tools?: Record<string, any>
                 ui_context?: MaxUIContext
+                billing_context?: MaxBillingContext
                 conversation?: string | null
                 trace_id: string
             },

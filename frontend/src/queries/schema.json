@@ -2269,6 +2269,14 @@
             ],
             "type": "string"
         },
+        "BillingSpendResponseBreakdownType": {
+            "enum": ["type", "team", "multiple"],
+            "type": "string"
+        },
+        "BillingUsageResponseBreakdownType": {
+            "enum": ["type", "team", "multiple"],
+            "type": "string"
+        },
         "BinCountValue": {
             "anyOf": [
                 {
@@ -14790,6 +14798,262 @@
             "required": ["type", "id", "name"],
             "type": "object"
         },
+        "MaxAddonInfo": {
+            "additionalProperties": false,
+            "properties": {
+                "current_usage": {
+                    "type": "number"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "docs_url": {
+                    "type": "string"
+                },
+                "has_exceeded_limit": {
+                    "type": "boolean"
+                },
+                "is_used": {
+                    "type": "boolean"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "percentage_usage": {
+                    "type": "number"
+                },
+                "projected_amount_usd": {
+                    "type": ["string", "null"]
+                },
+                "projected_amount_usd_with_limit": {
+                    "type": ["string", "null"]
+                },
+                "type": {
+                    "type": "string"
+                },
+                "usage_limit": {
+                    "type": ["number", "null"]
+                }
+            },
+            "required": ["type", "name", "description", "is_used", "has_exceeded_limit", "current_usage"],
+            "type": "object"
+        },
+        "MaxBillingContext": {
+            "additionalProperties": false,
+            "properties": {
+                "billing_period": {
+                    "$ref": "#/definitions/MaxBillingContextBillingPeriod"
+                },
+                "billing_plan": {
+                    "type": ["string", "null"]
+                },
+                "has_active_subscription": {
+                    "type": "boolean"
+                },
+                "is_deactivated": {
+                    "type": "boolean"
+                },
+                "products": {
+                    "items": {
+                        "$ref": "#/definitions/MaxProductInfo"
+                    },
+                    "type": "array"
+                },
+                "projected_total_amount_usd": {
+                    "type": "string"
+                },
+                "projected_total_amount_usd_after_discount": {
+                    "type": "string"
+                },
+                "projected_total_amount_usd_with_limit": {
+                    "type": "string"
+                },
+                "projected_total_amount_usd_with_limit_after_discount": {
+                    "type": "string"
+                },
+                "settings": {
+                    "$ref": "#/definitions/MaxBillingContextSettings"
+                },
+                "spend_history": {
+                    "items": {
+                        "additionalProperties": false,
+                        "properties": {
+                            "breakdown_type": {
+                                "anyOf": [
+                                    {
+                                        "$ref": "#/definitions/BillingSpendResponseBreakdownType"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ]
+                            },
+                            "breakdown_value": {
+                                "anyOf": [
+                                    {
+                                        "type": "string"
+                                    },
+                                    {
+                                        "items": {
+                                            "type": "string"
+                                        },
+                                        "type": "array"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ]
+                            },
+                            "data": {
+                                "items": {
+                                    "type": "number"
+                                },
+                                "type": "array"
+                            },
+                            "dates": {
+                                "items": {
+                                    "type": "string"
+                                },
+                                "type": "array"
+                            },
+                            "id": {
+                                "type": "number"
+                            },
+                            "label": {
+                                "type": "string"
+                            }
+                        },
+                        "required": ["id", "label", "data", "dates", "breakdown_type", "breakdown_value"],
+                        "type": "object"
+                    },
+                    "type": "array"
+                },
+                "startup_program_label": {
+                    "type": "string"
+                },
+                "startup_program_label_previous": {
+                    "type": "string"
+                },
+                "subscription_level": {
+                    "$ref": "#/definitions/MaxBillingContextSubscriptionLevel"
+                },
+                "total_current_amount_usd": {
+                    "type": "string"
+                },
+                "trial": {
+                    "$ref": "#/definitions/MaxBillingContextTrial"
+                },
+                "usage_history": {
+                    "items": {
+                        "additionalProperties": false,
+                        "properties": {
+                            "breakdown_type": {
+                                "anyOf": [
+                                    {
+                                        "$ref": "#/definitions/BillingUsageResponseBreakdownType"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ]
+                            },
+                            "breakdown_value": {
+                                "anyOf": [
+                                    {
+                                        "type": "string"
+                                    },
+                                    {
+                                        "items": {
+                                            "type": "string"
+                                        },
+                                        "type": "array"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ]
+                            },
+                            "data": {
+                                "items": {
+                                    "type": "number"
+                                },
+                                "type": "array"
+                            },
+                            "dates": {
+                                "items": {
+                                    "type": "string"
+                                },
+                                "type": "array"
+                            },
+                            "id": {
+                                "type": "number"
+                            },
+                            "label": {
+                                "type": "string"
+                            }
+                        },
+                        "required": ["id", "label", "data", "dates", "breakdown_type", "breakdown_value"],
+                        "type": "object"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["has_active_subscription", "subscription_level", "billing_plan", "products", "settings"],
+            "type": "object"
+        },
+        "MaxBillingContextBillingPeriod": {
+            "additionalProperties": false,
+            "properties": {
+                "current_period_end": {
+                    "type": "string"
+                },
+                "current_period_start": {
+                    "type": "string"
+                },
+                "interval": {
+                    "$ref": "#/definitions/MaxBillingContextBillingPeriodInterval"
+                }
+            },
+            "required": ["current_period_start", "current_period_end", "interval"],
+            "type": "object"
+        },
+        "MaxBillingContextBillingPeriodInterval": {
+            "enum": ["month", "year"],
+            "type": "string"
+        },
+        "MaxBillingContextSettings": {
+            "additionalProperties": false,
+            "properties": {
+                "active_destinations": {
+                    "type": "number"
+                },
+                "autocapture_on": {
+                    "type": "boolean"
+                }
+            },
+            "required": ["autocapture_on", "active_destinations"],
+            "type": "object"
+        },
+        "MaxBillingContextSubscriptionLevel": {
+            "enum": ["free", "paid", "custom"],
+            "type": "string"
+        },
+        "MaxBillingContextTrial": {
+            "additionalProperties": false,
+            "properties": {
+                "expires_at": {
+                    "type": "string"
+                },
+                "is_active": {
+                    "type": "boolean"
+                },
+                "target": {
+                    "type": "string"
+                }
+            },
+            "required": ["is_active"],
+            "type": "object"
+        },
         "MaxDashboardContext": {
             "additionalProperties": false,
             "properties": {
@@ -14892,6 +15156,58 @@
                 }
             },
             "required": ["type", "values"],
+            "type": "object"
+        },
+        "MaxProductInfo": {
+            "additionalProperties": false,
+            "properties": {
+                "addons": {
+                    "items": {
+                        "$ref": "#/definitions/MaxAddonInfo"
+                    },
+                    "type": "array"
+                },
+                "current_usage": {
+                    "type": "number"
+                },
+                "custom_limit_usd": {
+                    "type": ["number", "null"]
+                },
+                "description": {
+                    "type": "string"
+                },
+                "docs_url": {
+                    "type": "string"
+                },
+                "has_exceeded_limit": {
+                    "type": "boolean"
+                },
+                "is_used": {
+                    "type": "boolean"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "next_period_custom_limit_usd": {
+                    "type": ["number", "null"]
+                },
+                "percentage_usage": {
+                    "type": "number"
+                },
+                "projected_amount_usd": {
+                    "type": ["string", "null"]
+                },
+                "projected_amount_usd_with_limit": {
+                    "type": ["string", "null"]
+                },
+                "type": {
+                    "type": "string"
+                },
+                "usage_limit": {
+                    "type": ["number", "null"]
+                }
+            },
+            "required": ["type", "name", "description", "is_used", "has_exceeded_limit", "percentage_usage", "addons"],
             "type": "object"
         },
         "MaxRecordingUniversalFilters": {
