@@ -7,6 +7,7 @@ import {
     IconInfo,
     IconPlus,
     IconRewindPlay,
+    IconSurveys,
     IconTrash,
     IconGlobe,
     IconServer,
@@ -127,6 +128,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
         loadFeatureFlag,
         saveFeatureFlag,
         createStaticCohort,
+        createSurvey,
         setFeatureFlagFilters,
         setActiveTab,
     } = useActions(featureFlagLogic)
@@ -573,6 +575,17 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                                             <LemonDivider />
                                                         </>
                                                     )}
+
+                                                    <LemonButton
+                                                        icon={<IconSurveys />}
+                                                        onClick={() => {
+                                                            createSurvey()
+                                                        }}
+                                                        data-attr="create-survey"
+                                                        fullWidth
+                                                    >
+                                                        Create survey
+                                                    </LemonButton>
 
                                                     <LemonButton
                                                         to={urls.featureFlagDuplicate(featureFlag.id)}
