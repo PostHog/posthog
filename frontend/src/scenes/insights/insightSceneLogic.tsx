@@ -332,8 +332,9 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
 
             if (
                 currentScene?.activeScene === Scene.Insight &&
-                (currentScene.activeSceneLogic as insightSceneLogicType)?.values.insightId === insightId &&
-                (currentScene.activeSceneLogic as insightSceneLogicType)?.values.insightMode === insightMode
+                currentScene.activeSceneLogic &&
+                (currentScene.activeSceneLogic as BuiltLogic<insightSceneLogicType>).values.insightId === insightId &&
+                (currentScene.activeSceneLogic as BuiltLogic<insightSceneLogicType>).values.insightMode === insightMode
             ) {
                 // If nothing about the scene has changed, don't do anything
                 return
