@@ -61,7 +61,7 @@ export const storiesLogic = kea<storiesLogicType>([
         ],
         storiesCollapsedValue: [
             false,
-            { persist: true, storageKey: 'posthog_stories_collapsed' },
+            { persist: true },
             {
                 toggleStoriesCollapsed: (state) => !state,
             },
