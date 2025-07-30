@@ -85,6 +85,7 @@ export class HogWatcherService2 {
         previousState: HogWatcherStateEnum
     }) {
         const team = await this.hub.teamManager.getTeam(hogFunction.team_id)
+
         if (team) {
             captureTeamEvent(team, 'hog_function_state_change', {
                 hog_function_id: hogFunction.id,
