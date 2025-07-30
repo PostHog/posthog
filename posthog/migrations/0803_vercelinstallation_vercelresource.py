@@ -27,7 +27,7 @@ class Migration(migrations.Migration):
                 ("created_at", models.DateTimeField(auto_now_add=True)),
                 (
                     "organization",
-                    models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.organization"),
+                    models.OneToOneField(on_delete=django.db.models.deletion.CASCADE, to="posthog.organization"),
                 ),
             ],
             options={
@@ -55,6 +55,7 @@ class Migration(migrations.Migration):
                         to="posthog.vercelinstallation",
                     ),
                 ),
+                ("team", models.OneToOneField(on_delete=django.db.models.deletion.CASCADE, to="posthog.team")),
             ],
             options={
                 "abstract": False,
