@@ -79,7 +79,15 @@ export class HogWatcherService2 {
         }
     }
 
-    private async onStateChange(hogFunction: HogFunctionType, state: HogWatcherStateEnum) {
+    private async onStateChange({
+        hogFunction,
+        state,
+        previousState,
+    }: {
+        hogFunction: HogFunctionType
+        state: HogWatcherStateEnum
+        previousState: HogWatcherStateEnum
+    }) {
         const team = await this.hub.teamManager.getTeam(hogFunction.team_id)
         if (team) {
             captureTeamEvent(team, 'hog_function_state_change', {
@@ -88,9 +96,9 @@ export class HogWatcherService2 {
                 hog_function_name: hogFunction.name,
                 hog_function_template_id: hogFunction.template_id,
                 state: HogWatcherStateEnum[state], // Convert numeric state to readable string
+                previous_state: HogWatcherStateEnum[previousState], // Convert numeric state to readable string
             })
         }
-        await this.hub.celery.applyAsync(CELERY_TASK_ID, [hogFunction.id, state])
     }
 
     private rateLimitArgs(id: HogFunctionType['id'], cost: number) {
@@ -179,10 +187,15 @@ export class HogWatcherService2 {
         await Promise.all(
             changes.map(async ([hogFunction, state], index) => {
                 // We only trigger stateChange events if the value in redis actually changed
-                const previousStateValue =
+                const previousState = Number(
                     (res ? res[index * indexOffset][1] : undefined) ?? HogWatcherStateEnum.healthy
-                if (Number(previousStateValue) !== state) {
-                    await this.onStateChange(hogFunction, state)
+                )
+                if (previousState !== state) {
+                    await this.onStateChange({
+                        hogFunction,
+                        state,
+                        previousState,
+                    })
                 }
             })
         )
