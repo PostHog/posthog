@@ -29,6 +29,7 @@ class SessionRecordingViewed(models.Model):
     user = models.ForeignKey("User", on_delete=models.CASCADE)
     created_at = models.DateTimeField(auto_now_add=True, null=True, blank=True)
     session_id = models.CharField(max_length=200)
+    bulk_viewed = models.BooleanField(default=False)
 
     class Meta:
         unique_together = (("team_id", "user_id", "session_id"),)

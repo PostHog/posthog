@@ -32,6 +32,7 @@ interface InitKeaProps {
     routerHistory?: any
     routerLocation?: any
     beforePlugins?: KeaPlugin[]
+    replaceInitialPathInWindow?: boolean
 }
 
 // Used in some tests to make life easier
@@ -62,7 +63,12 @@ export const loggerPlugin: () => KeaPlugin = () => ({
     },
 })
 
-export function initKea({ routerHistory, routerLocation, beforePlugins }: InitKeaProps = {}): void {
+export function initKea({
+    routerHistory,
+    routerLocation,
+    beforePlugins,
+    replaceInitialPathInWindow,
+}: InitKeaProps = {}): void {
     const plugins = [
         ...(beforePlugins || []),
         localStoragePlugin(),
@@ -84,6 +90,8 @@ export function initKea({ routerHistory, routerLocation, beforePlugins }: InitKe
             pathFromWindowToRoutes: (path) => {
                 return removeProjectIdIfPresent(path)
             },
+            replaceInitialPathInWindow:
+                typeof replaceInitialPathInWindow === 'undefined' ? true : replaceInitialPathInWindow,
         }),
         formsPlugin,
         loadersPlugin({
