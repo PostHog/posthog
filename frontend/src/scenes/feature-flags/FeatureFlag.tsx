@@ -577,6 +577,13 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                                     )}
 
                                                     <LemonButton
+                                                        to={urls.featureFlagDuplicate(featureFlag.id)}
+                                                        fullWidth
+                                                    >
+                                                        <span>Duplicate feature flag</span>
+                                                    </LemonButton>
+
+                                                    <LemonButton
                                                         icon={<IconSurveys />}
                                                         onClick={() => {
                                                             createSurvey()
@@ -585,13 +592,6 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                                         fullWidth
                                                     >
                                                         Create survey
-                                                    </LemonButton>
-
-                                                    <LemonButton
-                                                        to={urls.featureFlagDuplicate(featureFlag.id)}
-                                                        fullWidth
-                                                    >
-                                                        <span>Duplicate feature flag</span>
                                                     </LemonButton>
                                                     <LemonDivider />
                                                     <AccessControlledLemonButton

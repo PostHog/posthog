@@ -1122,6 +1122,19 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 })
             }
         },
+        createSurveySuccess: ({ newSurvey }) => {
+            if (newSurvey) {
+                lemonToast.success('Survey created successfully', {
+                    button: {
+                        label: 'View survey',
+                        action: () => router.actions.push(urls.survey(newSurvey.id)),
+                    },
+                })
+            }
+        },
+        createSurveyFailure: ({ error }) => {
+            lemonToast.error(`Failed to create survey: ${error?.detail || 'Unknown error'}`)
+        },
         createScheduledChangeSuccess: ({ scheduledChange }) => {
             if (scheduledChange) {
                 lemonToast.success('Change scheduled successfully')
