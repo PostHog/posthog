@@ -6,7 +6,7 @@ export function GroupNotebookCard(): JSX.Element {
     // TODO: hardcoded as scratchpad temporarily until the backend relationship between groups and notebooks is created
     const shortId = 'scratchpad'
     return (
-        <div className="flex flex-col gap-2 h-full">
+        <div className="flex flex-col gap-2 h-full min-h-80">
             <div className="flex-1 relative">
                 <div className="absolute inset-0 overflow-y-auto">
                     <Notebook shortId={shortId} editable={true} initialAutofocus="end" />
