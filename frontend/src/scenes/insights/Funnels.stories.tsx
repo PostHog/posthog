@@ -83,10 +83,7 @@ export const FunnelTopToBottomBreakdown: Story = createInsightStory(
 )
 FunnelTopToBottomBreakdown.parameters = {
     testOptions: {
-        waitForSelector: [
-            '[data-attr=funnel-bar-horizontal] .funnel-bar-empty-space .funnel-bar-percentage',
-            '.PayGateMini',
-        ],
+        waitForSelector: ['[data-attr=funnel-bar-horizontal] .funnel-bar-empty-space', '.PayGateMini'],
     },
 }
 export const FunnelTopToBottomBreakdownEdit: Story = createInsightStory(
@@ -95,10 +92,7 @@ export const FunnelTopToBottomBreakdownEdit: Story = createInsightStory(
 )
 FunnelTopToBottomBreakdownEdit.parameters = {
     testOptions: {
-        waitForSelector: [
-            '[data-attr=funnel-bar-horizontal] .funnel-bar-empty-space .funnel-bar-percentage',
-            '.PayGateMini',
-        ],
+        waitForSelector: ['[data-attr=funnel-bar-horizontal] .funnel-bar-empty-space', '.PayGateMini'],
     },
 }
 export const FunnelHistoricalTrends: Story = createInsightStory(
