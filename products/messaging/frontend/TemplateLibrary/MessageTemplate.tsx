@@ -73,7 +73,7 @@ export function MessageTemplate({ id }: MessageTemplateLogicProps = {}): JSX.Ele
                             <EmailTemplater
                                 value={template?.content.email}
                                 onChange={(value) => setTemplateValue('content.email', value)}
-                                emailMetaFields={['subject']}
+                                // emailMetaFields={['subject']}
                             />
                         )}
                     </div>

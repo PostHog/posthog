@@ -9,6 +9,52 @@ import { capitalizeFirstLetter } from 'lib/utils'
 import EmailEditor from 'react-email-editor'
 
 import { emailTemplaterLogic, EmailTemplaterLogicProps } from './emailTemplaterLogic'
+import { CyclotronJobInputIntegration } from 'lib/components/CyclotronJob/integrations/CyclotronJobInputIntegration'
+import { OnChange } from '@monaco-editor/react'
+
+function EmailTemplaterField({
+    field,
+    value,
+    onChange,
+    error,
+}: {
+    field: 'from' | 'to' | 'subject'
+    value: string
+    onChange: OnChange
+    error: any
+}): JSX.Element {
+    const { logicProps } = useValues(emailTemplaterLogic)
+
+    if (field === 'from') {
+        return (
+            <CyclotronJobInputIntegration
+                schema={{
+                    type: 'email',
+                    key: 'email',
+                    label: 'Email address',
+                    integration: 'email',
+                    required: true,
+                    default: '',
+                    secret: false,
+                    description: 'The email address to send the email from.',
+                }}
+            />
+        )
+    }
+
+    return (
+        <div className="flex items-center">
+            <LemonLabel className={error ? 'text-danger' : ''}>{capitalizeFirstLetter(field)}</LemonLabel>
+            <CodeEditorInline
+                embedded
+                className="flex-1"
+                globals={logicProps.variables}
+                value={value}
+                onChange={onChange}
+            />
+        </div>
+    )
+}
 
 function EmailTemplaterForm({ mode }: { mode: 'full' | 'preview' }): JSX.Element {
     const { unlayerEditorProjectId, logicProps, appliedTemplate, templates, templatesLoading, mergeTags } =
@@ -54,18 +100,7 @@ function EmailTemplaterForm({ mode }: { mode: 'full' | 'preview' }): JSX.Element
                         renderError={() => null}
                     >
                         {({ value, onChange, error }) => (
-                            <div className="flex items-center">
-                                <LemonLabel className={error ? 'text-danger' : ''}>
-                                    {capitalizeFirstLetter(field)}
-                                </LemonLabel>
-                                <CodeEditorInline
-                                    embedded
-                                    className="flex-1"
-                                    globals={logicProps.variables}
-                                    value={value}
-                                    onChange={onChange}
-                                />
-                            </div>
+                            <EmailTemplaterField field={field} value={value} onChange={onChange} error={error} />
                         )}
                     </LemonField>
                 ))}
