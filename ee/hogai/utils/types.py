@@ -155,7 +155,7 @@ class _SharedAssistantState(BaseState):
     A clarifying question asked during the onboarding process.
     """
 
-    memory_collection_messages: Annotated[Optional[Sequence[LangchainBaseMessage]], merge] = Field(default=[])
+    memory_collection_messages: Annotated[Optional[Sequence[LangchainBaseMessage]], merge] = Field(default=None)
     """
     The messages with tool calls to collect memory in the `MemoryCollectorToolsNode`.
     """
