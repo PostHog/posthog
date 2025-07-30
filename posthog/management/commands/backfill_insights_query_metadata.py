@@ -139,7 +139,7 @@ class Command(BaseCommand):
                         if verbose:
                             self.stdout.write(f"Insight {insight.id}: Generated query metadata")
                     except Exception as e:
-                        logger.warning(f"Failed to generate metadata for insight {insight.id}: {e}")
+                        logger.exception(f"Failed to generate metadata for insight {insight.id}: {e}")
 
                 # Update all modified insights in this batch
                 if insights_to_update and not dry_run:
