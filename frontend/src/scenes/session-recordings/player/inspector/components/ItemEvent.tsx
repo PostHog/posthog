@@ -204,23 +204,17 @@ export function ItemEventDetail({ item }: ItemEventProps): JSX.Element {
                         size="small"
                         data-attr="replay-event-property-tabs"
                         event={item.data}
-                        displayForEventFn={(displayArgs) => {
-                            return (
-                                <SimpleKeyValueList
-                                    item={displayArgs.properties}
-                                    promotedKeys={displayArgs.promotedKeys}
-                                />
+                        displayForEventFn={({ properties, promotedKeys, tabKey }) => {
+                            return tabKey === 'raw' ? (
+                                <pre className="text-xs text-secondary whitespace-pre-wrap">
+                                    {JSON.stringify(properties, null, 2)}
+                                </pre>
+                            ) : (
+                                <SimpleKeyValueList item={properties} promotedKeys={promotedKeys} />
                             )
                         }}
                         aiDisplayFn={(event) => {
                             return <AIEventExpanded event={event} />
-                        }}
-                        rawDisplayFn={(event) => {
-                            return (
-                                <pre className="text-xs text-secondary whitespace-pre-wrap">
-                                    {JSON.stringify(event.properties, null, 2)}
-                                </pre>
-                            )
                         }}
                     />
                 ) : (

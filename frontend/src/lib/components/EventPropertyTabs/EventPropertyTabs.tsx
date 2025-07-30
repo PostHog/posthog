@@ -15,6 +15,7 @@ export interface DisplayForEventFnProps {
     event: Omit<EventType, 'distinct_id'>
     properties: Record<string, any>
     promotedKeys?: string[]
+    tabKey?: EventPropertyTabKey
 }
 
 type EventPropertyTabKey =
@@ -37,12 +38,10 @@ export const EventPropertyTabs = ({
     event,
     aiDisplayFn,
     displayForEventFn,
-    rawDisplayFn,
 }: {
     event: Omit<EventType, 'distinct_id'>
     displayForEventFn: (displayArgs: DisplayForEventFnProps) => JSX.Element
-    aiDisplayFn: (event: Omit<EventType, 'distinct_id'>) => JSX.Element
-    rawDisplayFn: (event: Omit<EventType, 'distinct_id'>) => JSX.Element
+    aiDisplayFn: (displayArgs: DisplayForEventFnProps) => JSX.Element
     dataAttr?: LemonTabsProps<EventPropertyTabKey>['data-attr']
     size?: LemonTabsProps<EventPropertyTabKey>['size']
 }): JSX.Element => {
@@ -92,20 +91,28 @@ export const EventPropertyTabs = ({
         isErrorEvent && {
             key: 'error_display',
             label: 'Exception',
-            content: <ErrorDisplay eventProperties={event.properties} eventId={event.id} />,
+            content: (
+                <ErrorDisplay
+                    eventProperties={event.properties}
+                    // fallback on timestamp as uuid is optional
+                    eventId={event.uuid ?? event.timestamp ?? 'error'}
+                    // what do we do about margin in the events table?
+                    // should have <div className="mx-3">
+                />
+            ),
         },
         // Add conversation tab for $ai_generation events
         isAIEvent
             ? {
                   key: 'conversation',
                   label: 'Conversation',
-                  content: aiDisplayFn(event),
+                  content: aiDisplayFn({ event, properties }),
               }
             : null,
         {
             key: 'properties',
             label: 'Properties',
-            content: displayForEventFn({ event, properties, promotedKeys }),
+            content: displayForEventFn({ event, properties, promotedKeys, tabKey: 'properties' }),
         },
         {
             key: 'metadata',
@@ -119,12 +126,13 @@ export const EventPropertyTabs = ({
                     // distinct_id: event.distinct_id,
                     timestamp: event.timestamp,
                 },
+                tabKey: 'metadata',
             }),
         },
         {
             key: 'flags',
             label: 'Flags',
-            content: displayForEventFn({ event, properties: featureFlagProperties, promotedKeys }),
+            content: displayForEventFn({ event, properties: featureFlagProperties, promotedKeys, tabKey: 'flags' }),
         },
         event.elements && event.elements.length > 0
             ? {
@@ -161,7 +169,12 @@ export const EventPropertyTabs = ({
                   //                     </Link>
                   //                 </p>
                   //             }
-                  content: displayForEventFn({ properties: setProperties, event, promotedKeys }),
+                  content: displayForEventFn({
+                      properties: setProperties,
+                      event,
+                      promotedKeys,
+                      tabKey: '$set_properties',
+                  }),
               }
             : null,
         Object.keys(setOnceProperties).length > 0
@@ -179,14 +192,24 @@ export const EventPropertyTabs = ({
                       //                     </Link>
                       //                 </p>
                       //             }
-                      displayForEventFn({ properties: setOnceProperties, event, promotedKeys }),
+                      displayForEventFn({
+                          properties: setOnceProperties,
+                          event,
+                          promotedKeys,
+                          tabKey: '$set_once_properties',
+                      }),
               }
             : null,
         Object.keys(errorProperties).length > 0
             ? {
                   key: 'exception_properties',
                   label: 'Exception properties',
-                  content: displayForEventFn({ properties: errorProperties, event, promotedKeys }),
+                  content: displayForEventFn({
+                      properties: errorProperties,
+                      event,
+                      promotedKeys,
+                      tabKey: 'exception_properties',
+                  }),
               }
             : null,
         Object.keys(debugProperties).length > 0
@@ -195,13 +218,18 @@ export const EventPropertyTabs = ({
                   label: 'Debug properties',
                   content:
                       // header={<p>PostHog uses some properties to help debug issues with the SDKs.</p>}
-                      displayForEventFn({ properties: debugProperties, event, promotedKeys }),
+                      displayForEventFn({
+                          properties: debugProperties,
+                          event,
+                          promotedKeys,
+                          tabKey: 'debug_properties',
+                      }),
               }
             : null,
         {
             key: 'raw',
             label: 'Raw',
-            content: rawDisplayFn(event),
+            content: displayForEventFn({ event, properties, tabKey: 'raw' }),
         },
     ]
     return (
