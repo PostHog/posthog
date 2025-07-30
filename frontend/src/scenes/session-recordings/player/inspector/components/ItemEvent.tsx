@@ -204,17 +204,19 @@ export function ItemEventDetail({ item }: ItemEventProps): JSX.Element {
                         size="small"
                         data-attr="replay-event-property-tabs"
                         event={item.data}
-                        displayForEventFn={({ properties, promotedKeys, tabKey }) => {
-                            return tabKey === 'raw' ? (
-                                <pre className="text-xs text-secondary whitespace-pre-wrap">
-                                    {JSON.stringify(properties, null, 2)}
-                                </pre>
-                            ) : (
-                                <SimpleKeyValueList item={properties} promotedKeys={promotedKeys} />
-                            )
-                        }}
-                        aiDisplayFn={(event) => {
-                            return <AIEventExpanded event={event} />
+                        tabContentComponentFn={({ event, properties, promotedKeys, tabKey }) => {
+                            switch (tabKey) {
+                                case 'raw':
+                                    return (
+                                        <pre className="text-xs text-secondary whitespace-pre-wrap">
+                                            {JSON.stringify(properties, null, 2)}
+                                        </pre>
+                                    )
+                                case 'conversation':
+                                    return <AIEventExpanded event={event} />
+                                default:
+                                    return <SimpleKeyValueList item={properties} promotedKeys={promotedKeys} />
+                            }
                         }}
                     />
                 ) : (

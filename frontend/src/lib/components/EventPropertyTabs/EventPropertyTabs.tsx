@@ -11,11 +11,11 @@ import { eventPropertyFilteringLogic } from 'lib/components/EventPropertyTabs/ev
 import { INTERNAL_EXCEPTION_PROPERTY_KEYS } from 'products/error_tracking/frontend/utils'
 import { dayjs } from 'lib/dayjs'
 
-export interface DisplayForEventFnProps {
+export interface TabContentComponentFnProps {
     event: Omit<EventType, 'distinct_id'>
     properties: Record<string, any>
     promotedKeys?: string[]
-    tabKey?: EventPropertyTabKey
+    tabKey: EventPropertyTabKey
 }
 
 type EventPropertyTabKey =
@@ -36,12 +36,10 @@ export const EventPropertyTabs = ({
     dataAttr,
     size,
     event,
-    aiDisplayFn,
-    displayForEventFn,
+    tabContentComponentFn,
 }: {
     event: Omit<EventType, 'distinct_id'>
-    displayForEventFn: (displayArgs: DisplayForEventFnProps) => JSX.Element
-    aiDisplayFn: (displayArgs: DisplayForEventFnProps) => JSX.Element
+    tabContentComponentFn: (props: TabContentComponentFnProps) => JSX.Element
     dataAttr?: LemonTabsProps<EventPropertyTabKey>['data-attr']
     size?: LemonTabsProps<EventPropertyTabKey>['size']
 }): JSX.Element => {
@@ -106,18 +104,18 @@ export const EventPropertyTabs = ({
             ? {
                   key: 'conversation',
                   label: 'Conversation',
-                  content: aiDisplayFn({ event, properties }),
+                  content: tabContentComponentFn({ event, properties, tabKey: 'conversation' }),
               }
             : null,
         {
             key: 'properties',
             label: 'Properties',
-            content: displayForEventFn({ event, properties, promotedKeys, tabKey: 'properties' }),
+            content: tabContentComponentFn({ event, properties, promotedKeys, tabKey: 'properties' }),
         },
         {
             key: 'metadata',
             label: 'Metadata',
-            content: displayForEventFn({
+            content: tabContentComponentFn({
                 event,
                 promotedKeys,
                 properties: {
@@ -132,7 +130,7 @@ export const EventPropertyTabs = ({
         {
             key: 'flags',
             label: 'Flags',
-            content: displayForEventFn({ event, properties: featureFlagProperties, promotedKeys, tabKey: 'flags' }),
+            content: tabContentComponentFn({ event, properties: featureFlagProperties, promotedKeys, tabKey: 'flags' }),
         },
         event.elements && event.elements.length > 0
             ? {
@@ -169,7 +167,7 @@ export const EventPropertyTabs = ({
                   //                     </Link>
                   //                 </p>
                   //             }
-                  content: displayForEventFn({
+                  content: tabContentComponentFn({
                       properties: setProperties,
                       event,
                       promotedKeys,
@@ -192,7 +190,7 @@ export const EventPropertyTabs = ({
                       //                     </Link>
                       //                 </p>
                       //             }
-                      displayForEventFn({
+                      tabContentComponentFn({
                           properties: setOnceProperties,
                           event,
                           promotedKeys,
@@ -204,7 +202,7 @@ export const EventPropertyTabs = ({
             ? {
                   key: 'exception_properties',
                   label: 'Exception properties',
-                  content: displayForEventFn({
+                  content: tabContentComponentFn({
                       properties: errorProperties,
                       event,
                       promotedKeys,
@@ -218,7 +216,7 @@ export const EventPropertyTabs = ({
                   label: 'Debug properties',
                   content:
                       // header={<p>PostHog uses some properties to help debug issues with the SDKs.</p>}
-                      displayForEventFn({
+                      tabContentComponentFn({
                           properties: debugProperties,
                           event,
                           promotedKeys,
@@ -229,7 +227,7 @@ export const EventPropertyTabs = ({
         {
             key: 'raw',
             label: 'Raw',
-            content: displayForEventFn({ event, properties, tabKey: 'raw' }),
+            content: tabContentComponentFn({ event, properties, tabKey: 'raw' }),
         },
     ]
     return (

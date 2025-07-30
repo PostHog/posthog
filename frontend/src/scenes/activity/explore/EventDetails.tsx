@@ -3,11 +3,9 @@ import './EventDetails.scss'
 import { JSONViewer } from 'lib/components/JSONViewer'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTableProps } from 'lib/lemon-ui/LemonTable'
 import { Link } from 'lib/lemon-ui/Link'
 import { ConversationDisplay } from 'products/llm_observability/frontend/ConversationDisplay/ConversationDisplay'
-import { useState } from 'react'
 import { urls } from 'scenes/urls'
 
 import { KNOWN_PROMOTED_PROPERTY_PARENTS } from '~/taxonomy/taxonomy'
@@ -21,45 +19,28 @@ interface EventDetailsProps {
 }
 
 export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Element {
-    const [showSystemProps, setShowSystemProps] = useState(false)
-
     return (
         <EventPropertyTabs
             data-attr="event-details"
             size="medium"
             event={event}
-            displayForEventFn={({ event, properties, tabKey }) => {
+            tabContentComponentFn={({ event, properties, tabKey }) => {
                 switch (tabKey) {
-                    case 'properties':
+                    case 'conversation':
                         return (
-                            <div className="mx-3">
-                                <PropertiesTable
-                                    type={PropertyDefinitionType.Event}
-                                    properties={properties}
-                                    useDetectedPropertyType={true}
-                                    tableProps={tableProps}
-                                    filterable
-                                    searchable
-                                    parent={event.event as KNOWN_PROMOTED_PROPERTY_PARENTS}
-                                />
-                                <LemonButton
-                                    className="mb-2"
-                                    onClick={() => setShowSystemProps(!showSystemProps)}
-                                    size="small"
-                                >
-                                    {showSystemProps ? 'Hide' : 'Show'} system properties
-                                </LemonButton>
-                            </div>
-                        )
-                    case 'metadata':
-                        return (
-                            <div className="mx-3">
-                                <PropertiesTable
-                                    type={PropertyDefinitionType.Meta}
-                                    properties={properties}
-                                    sortProperties
-                                    tableProps={tableProps}
-                                />
+                            <div className="mx-3 -mt-2 mb-2 deprecated-space-y-2">
+                                {properties.$session_id ? (
+                                    <div className="flex flex-row items-center gap-2">
+                                        <Link
+                                            to={urls.replay(undefined, undefined, properties.$session_id)}
+                                            className="flex flex-row gap-1 items-center"
+                                        >
+                                            <IconOpenInNew />
+                                            <span>View session recording</span>
+                                        </Link>
+                                    </div>
+                                ) : null}
+                                <ConversationDisplay eventProperties={properties} />
                             </div>
                         )
                     case 'exception_properties':
@@ -74,18 +55,6 @@ export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Elem
                                     properties={properties}
                                     sortProperties
                                     tableProps={tableProps}
-                                />
-                            </div>
-                        )
-                    case 'flags':
-                        return (
-                            <div className="ml-10 mt-2">
-                                <PropertiesTable
-                                    type={PropertyDefinitionType.Event}
-                                    properties={properties}
-                                    useDetectedPropertyType={true}
-                                    tableProps={tableProps}
-                                    searchable
                                 />
                             </div>
                         )
@@ -145,30 +114,21 @@ export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Elem
                                 <PropertiesTable
                                     type={PropertyDefinitionType.Event}
                                     properties={properties}
-                                    sortProperties
+                                    useDetectedPropertyType={['flags', 'properties'].includes(tabKey)}
                                     tableProps={tableProps}
+                                    filterable={tabKey === 'properties'}
+                                    sortProperties
+                                    // metadata is so short, that serachable is wasted space
+                                    searchable={tabKey !== 'metadata'}
+                                    parent={
+                                        tabKey === 'properties'
+                                            ? (event.event as KNOWN_PROMOTED_PROPERTY_PARENTS)
+                                            : undefined
+                                    }
                                 />
                             </div>
                         )
                 }
-            }}
-            aiDisplayFn={({ properties }) => {
-                return (
-                    <div className="mx-3 -mt-2 mb-2 deprecated-space-y-2">
-                        {properties.$session_id ? (
-                            <div className="flex flex-row items-center gap-2">
-                                <Link
-                                    to={urls.replay(undefined, undefined, properties.$session_id)}
-                                    className="flex flex-row gap-1 items-center"
-                                >
-                                    <IconOpenInNew />
-                                    <span>View session recording</span>
-                                </Link>
-                            </div>
-                        ) : null}
-                        <ConversationDisplay eventProperties={properties} />
-                    </div>
-                )
             }}
         />
     )
