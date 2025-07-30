@@ -763,8 +763,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         },
         deleteTab: ({ tab: tabToRemove }) => {
             if (
-                values.activeModelUri?.view &&
-                values.queryInput !== values.sourceQuery.source.query &&
+                (values.activeModelUri?.view && values.queryInput !== values.sourceQuery.source.query) ||
                 values.queryInput !== tabToRemove.draft?.query.query
             ) {
                 LemonDialog.open({
@@ -786,7 +785,12 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                         onClick: () => actions._deleteTab(tabToRemove),
                     },
                 })
-            } else if (values.queryInput !== '' && !values.activeModelUri?.view && !values.activeModelUri?.insight) {
+            } else if (
+                values.queryInput !== '' &&
+                !values.activeModelUri?.view &&
+                !values.activeModelUri?.insight &&
+                !values.activeModelUri?.draft
+            ) {
                 LemonDialog.open({
                     title: 'Unsaved query',
                     description:
@@ -1104,6 +1108,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                     const newTabs = values.allTabs.map((tab) => ({
                         ...tab,
                         draft: tab.draft?.id === fromDraft ? undefined : tab.draft,
+                        name: tab.draft?.id === fromDraft && savedQuery?.name ? savedQuery?.name : tab.name,
                     }))
                     actions.setTabs(newTabs)
                 }
@@ -1183,7 +1188,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             actions.updateState()
         },
         deleteDataWarehouseSavedQuerySuccess: ({ payload: viewId }) => {
-            const tabToRemove = values.allTabs.find((tab) => tab.view?.id === viewId || !tab.draft)
+            const tabToRemove = values.allTabs.find((tab) => tab.view?.id === viewId && !tab.draft)
             if (tabToRemove) {
                 actions._deleteTab(tabToRemove)
             }
@@ -1287,7 +1292,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 const newTabs = values.allTabs.map((tab) => ({
                     ...tab,
                     draft: tab.draft?.id === draftId ? undefined : tab.draft,
-                    name: tab.draft?.id === draftId && tab.view?.name ? tab.view?.name : tab.name,
+                    name: tab.draft?.id === draftId && view?.name ? view.name : tab.name,
                 }))
                 actions.setTabs(newTabs)
             })
@@ -1356,7 +1361,10 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             const newTabs = values.allTabs.map((tab) => ({
                 ...tab,
                 draft: drafts.find((d: DataWarehouseSavedQueryDraft) => d.id === tab.draft?.id),
-                name: drafts.find((d: DataWarehouseSavedQueryDraft) => d.id === tab.draft?.id)?.name ?? tab.name,
+                name:
+                    drafts.find((d: DataWarehouseSavedQueryDraft) => d.id === tab.draft?.id)?.name ??
+                    tab.view?.name ??
+                    tab.name,
             }))
             actions.setTabs(newTabs)
         },

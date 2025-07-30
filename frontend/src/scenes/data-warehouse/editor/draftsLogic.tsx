@@ -25,7 +25,7 @@ export const draftsLogic = kea<draftsLogicType>([
             editedHistoryId,
         }),
         updateDraft: (draft: DataWarehouseSavedQueryDraft) => ({ draft }),
-        saveOrUpdateDraft: (query: HogQLQuery, viewId: string, draftId?: string, editedHistoryId?: string) => ({
+        saveOrUpdateDraft: (query: HogQLQuery, viewId?: string, draftId?: string, editedHistoryId?: string) => ({
             query,
             viewId,
             draftId,
@@ -122,7 +122,7 @@ export const draftsLogic = kea<draftsLogicType>([
             editedHistoryId,
         }: {
             query: HogQLQuery
-            viewId: string
+            viewId?: string
             draftId?: string
             editedHistoryId?: string
         }) => {
@@ -144,7 +144,7 @@ export const draftsLogic = kea<draftsLogicType>([
                             query,
                         })
                         lemonToast.success('Draft updated')
-                    } else {
+                    } else if (viewId) {
                         actions.saveAsDraft(query, viewId, undefined, editedHistoryId)
                         lemonToast.success('Draft saved')
                     }

@@ -169,6 +169,16 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
                                         currentDraft?.id || undefined,
                                         editingView.latest_history_id
                                     )
+                                } else {
+                                    saveOrUpdateDraft(
+                                        {
+                                            kind: NodeKind.HogQLQuery,
+                                            query: queryInput,
+                                        },
+                                        undefined,
+                                        currentDraft?.id || undefined,
+                                        undefined
+                                    )
                                 }
                             }}
                         >
@@ -187,6 +197,7 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
                                             ...sourceQuery.source,
                                             query: queryInput,
                                         },
+                                        name: editingView.name,
                                         types: response && 'types' in response ? response?.types ?? [] : [],
                                         shouldRematerialize: isMaterializedView,
                                         edited_history_id: currentDraft.edited_history_id,
