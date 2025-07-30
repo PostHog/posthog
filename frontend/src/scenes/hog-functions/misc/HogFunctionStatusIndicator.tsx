@@ -51,8 +51,11 @@ const DISABLED_MANUALLY_DISPLAY: DisplayOptions = {
 export type HogFunctionStatusIndicatorProps = {
     hogFunction: HogFunctionType | null
 }
+
+const HIDE_STATUS_FOR_TYPES: HogFunctionType['type'][] = ['site_destination', 'site_app']
+
 export function HogFunctionStatusIndicator({ hogFunction }: HogFunctionStatusIndicatorProps): JSX.Element | null {
-    if (!hogFunction) {
+    if (!hogFunction || HIDE_STATUS_FOR_TYPES.includes(hogFunction.type)) {
         return null
     }
 

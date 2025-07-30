@@ -123,6 +123,7 @@
         "@types/adm-zip": "^0.4.34",
         "@types/babel__core": "^7.1.19",
         "@types/babel__standalone": "^7.1.4",
+        "@types/chance": "^1.1.7",
         "@types/faker": "^5.5.7",
         "@types/generic-pool": "^3.1.9",
         "@types/ioredis": "^4.26.4",
@@ -159,6 +160,7 @@
         "supertest": "^7.0.0",
         "ts-node": "^10.9.1",
         "tsc-alias": "^1.8.16",
+        "chance": "^1.1.13",
         "tsconfig-paths": "^4.2.0"
     },
     "cyclotron": {
