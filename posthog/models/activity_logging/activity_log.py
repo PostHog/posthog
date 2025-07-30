@@ -529,7 +529,7 @@ def dict_changes_between(
 def log_activity(
     *,
     organization_id: Optional[UUID],
-    team_id: int,
+    team_id: Optional[int],
     user: Optional["User"],
     item_id: Optional[Union[int, str, UUID]],
     scope: str,

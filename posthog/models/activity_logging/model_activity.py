@@ -46,11 +46,13 @@ class ModelActivityMixin(models.Model):
         should_log = True
         if change_type == "updated" and before_update:
             # Lazy import to avoid circular import issues
-            from posthog.models.activity_logging.activity_log import signal_exclusions, changes_between
+            from posthog.models.activity_logging.activity_log import signal_exclusions, changes_between, ActivityScope
+            from typing import cast
 
-            signal_excluded_fields = signal_exclusions.get(self.__class__.__name__, [])
+            model_name = cast(ActivityScope, self.__class__.__name__)
+            signal_excluded_fields = signal_exclusions.get(model_name, [])
             if signal_excluded_fields:
-                changes = changes_between(self.__class__.__name__, before_update, self)
+                changes = changes_between(model_name, before_update, self)
                 changes_triggering_logging = [
                     change for change in changes if change.field not in signal_excluded_fields
                 ]
