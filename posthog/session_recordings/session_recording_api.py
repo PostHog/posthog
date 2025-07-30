@@ -635,24 +635,29 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
     # Returns metadata about the recording
     def retrieve(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         tag_queries(product=Product.REPLAY)
-        recording = self.get_object()
+        with tracer.start_as_current_span("retrieve_recording", kind=trace.SpanKind.SERVER):
+            with tracer.start_as_current_span("get_recording_object"):
+                recording = self.get_object()
+                loaded = recording.load_metadata()
 
-        loaded = recording.load_metadata()
+            if not loaded:
+                raise exceptions.NotFound("Recording not found")
 
-        if not loaded:
-            raise exceptions.NotFound("Recording not found")
+            recording.load_person()
+            if not request.user.is_anonymous:
+                with tracer.start_as_current_span("check_viewed_for_users"):
+                    viewed = current_user_viewed([str(recording.session_id)], cast(User, request.user), self.team)
+                    other_viewers = _other_users_viewed(
+                        [str(recording.session_id)], cast(User, request.user), self.team
+                    )
 
-        recording.load_person()
-        if not request.user.is_anonymous:
-            viewed = current_user_viewed([str(recording.session_id)], cast(User, request.user), self.team)
-            other_viewers = _other_users_viewed([str(recording.session_id)], cast(User, request.user), self.team)
+                    recording.viewed = str(recording.session_id) in viewed
+                    recording.viewers = other_viewers.get(str(recording.session_id), [])
 
-            recording.viewed = str(recording.session_id) in viewed
-            recording.viewers = other_viewers.get(str(recording.session_id), [])
+            with tracer.start_as_current_span("serialize_recording"):
+                serializer = self.get_serializer(recording)
 
-        serializer = self.get_serializer(recording)
-
-        return Response(serializer.data)
+                return Response(serializer.data)
 
     def update(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         tag_queries(product=Product.REPLAY)
