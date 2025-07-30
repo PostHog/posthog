@@ -305,7 +305,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                 upgradedQuery = query
             }
 
-            values.insightLogicRef?.logic.actions.setQuery(upgradedQuery)
+            values.insightDataLogicRef?.logic.actions.setQuery(upgradedQuery)
         },
     })),
     urlToAction(({ actions, values }) => ({
@@ -332,8 +332,8 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
 
             if (
                 currentScene?.activeScene === Scene.Insight &&
-                currentScene.activeSceneLogic?.values.insightId === insightId &&
-                currentScene.activeSceneLogic?.values.mode === insightMode
+                (currentScene.activeSceneLogic as insightSceneLogicType)?.values.insightId === insightId &&
+                (currentScene.activeSceneLogic as insightSceneLogicType)?.values.insightMode === insightMode
             ) {
                 // If nothing about the scene has changed, don't do anything
                 return
