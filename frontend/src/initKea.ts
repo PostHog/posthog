@@ -84,6 +84,7 @@ export function initKea({ routerHistory, routerLocation, beforePlugins }: InitKe
             pathFromWindowToRoutes: (path) => {
                 return removeProjectIdIfPresent(path)
             },
+            replaceInitialPathInWindow: true,
         }),
         formsPlugin,
         loadersPlugin({

@@ -3,7 +3,7 @@
     "dependencies": {
         "kea": "^3.1.5",
         "kea-loaders": "^3.1.1",
-        "kea-router": "^3.3.0",
+        "kea-router": "^3.3.1",
         "posthog-js": "1.258.3"
     },
     "peerDependencies": {
