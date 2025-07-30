@@ -5,7 +5,9 @@ import {
     formatPValue,
     getIntervalLabel,
     formatIntervalPercent,
-    getDeltaPercent,
+    isSignificant,
+    isDeltaPositive,
+    formatDeltaPercent,
     isBayesianResult,
     type ExperimentVariantResult,
 } from '../shared/utils'
@@ -13,18 +15,16 @@ import {
 export const renderTooltipContent = (variantResult: ExperimentVariantResult): JSX.Element => {
     const intervalPercent = formatIntervalPercent(variantResult)
     const intervalLabel = getIntervalLabel(variantResult)
-    const deltaPercent = getDeltaPercent(variantResult)
+    const significant = isSignificant(variantResult)
+    const deltaPositive = isDeltaPositive(variantResult)
 
     return (
         <div className="flex flex-col gap-1">
             <div className="flex justify-between items-center">
                 <div className="font-semibold pb-2">{variantResult.key}</div>
                 {variantResult.key !== 'control' && (
-                    <LemonTag
-                        type={!variantResult.significant ? 'muted' : deltaPercent > 0 ? 'success' : 'danger'}
-                        size="medium"
-                    >
-                        {!variantResult.significant ? 'Not significant' : deltaPercent > 0 ? 'Won' : 'Lost'}
+                    <LemonTag type={!significant ? 'muted' : deltaPositive ? 'success' : 'danger'} size="medium">
+                        {!significant ? 'Not significant' : deltaPositive ? 'Won' : 'Lost'}
                     </LemonTag>
                 )}
             </div>
@@ -57,8 +57,8 @@ export const renderTooltipContent = (variantResult: ExperimentVariantResult): JS
                     {variantResult.key === 'control' ? (
                         <em className="text-muted-alt">Baseline</em>
                     ) : (
-                        <span className={deltaPercent > 0 ? 'text-success' : 'text-danger'}>
-                            {`${deltaPercent > 0 ? '+' : ''}${deltaPercent.toFixed(2)}%`}
+                        <span className={deltaPositive ? 'text-success' : 'text-danger'}>
+                            {formatDeltaPercent(variantResult)}
                         </span>
                     )}
                 </span>

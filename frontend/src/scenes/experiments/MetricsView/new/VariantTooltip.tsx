@@ -5,7 +5,9 @@ import {
     getIntervalLabel,
     getIntervalBounds,
     formatIntervalPercent,
-    getDeltaPercent,
+    isSignificant,
+    isDeltaPositive,
+    formatDeltaPercent,
     isBayesianResult,
     valueToXCoordinate,
 } from '../shared/utils'
@@ -34,7 +36,8 @@ export function VariantTooltip({
 
     // Calculate SVG coordinates (same as VariantBar)
     const [lower, upper] = getIntervalBounds(variantResult)
-    const deltaPercent = getDeltaPercent(variantResult)
+    const significant = isSignificant(variantResult)
+    const deltaPositive = isDeltaPositive(variantResult)
 
     const y = BAR_SPACING + (BAR_HEIGHT + BAR_SPACING) * index
     const x1 = valueToXCoordinate(lower, chartRadius, VIEW_BOX_WIDTH, SVG_EDGE_MARGIN)
@@ -93,8 +96,8 @@ export function VariantTooltip({
 
                 <div className="flex justify-between items-center">
                     <span className="text-secondary font-semibold">Significant:</span>
-                    <span className={`font-semibold ${variantResult.significant ? 'text-success' : 'text-muted'}`}>
-                        {variantResult.significant ? 'Yes' : 'No'}
+                    <span className={`font-semibold ${significant ? 'text-success' : 'text-muted'}`}>
+                        {significant ? 'Yes' : 'No'}
                     </span>
                 </div>
 
@@ -104,8 +107,8 @@ export function VariantTooltip({
                         {variantResult.key === 'control' ? (
                             <em className="text-secondary">Baseline</em>
                         ) : (
-                            <span className={deltaPercent > 0 ? 'text-success' : 'text-danger'}>
-                                {`${deltaPercent > 0 ? '+' : ''}${deltaPercent.toFixed(2)}%`}
+                            <span className={deltaPositive ? 'text-success' : 'text-danger'}>
+                                {formatDeltaPercent(variantResult)}
                             </span>
                         )}
                     </span>

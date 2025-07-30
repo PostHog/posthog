@@ -9,7 +9,13 @@ import { ChartEmptyState } from '../shared/ChartEmptyState'
 import { ChartLoadingState } from '../shared/ChartLoadingState'
 import { useChartColors } from '../shared/colors'
 import { MetricHeader } from '../shared/MetricHeader'
-import { formatDeltaPercentage, getNiceTickValues, type ExperimentVariantResult } from '../shared/utils'
+import {
+    formatDeltaPercent,
+    isSignificant,
+    isDeltaPositive,
+    getNiceTickValues,
+    type ExperimentVariantResult,
+} from '../shared/utils'
 import { ChartCell } from './ChartCell'
 
 import {
@@ -326,8 +332,10 @@ export function MetricRowGroup({
 
             {/* Variant rows */}
             {variantResults.map((variant, index) => {
-                const changeResult = formatDeltaPercentage(variant)
                 const isLastRow = index === variantResults.length - 1
+                const significant = isSignificant(variant)
+                const deltaPositive = isDeltaPositive(variant)
+                const deltaText = formatDeltaPercent(variant)
 
                 return (
                     <tr
@@ -377,22 +385,18 @@ export function MetricRowGroup({
                             <div className="flex items-center gap-1 text-sm">
                                 <span
                                     className={`${
-                                        changeResult.isSignificant
-                                            ? changeResult.isPositive
+                                        significant
+                                            ? deltaPositive
                                                 ? 'text-success font-semibold'
                                                 : 'text-danger font-semibold'
                                             : 'text-text-primary'
                                     }`}
                                 >
-                                    {changeResult.text}
+                                    {deltaText}
                                 </span>
-                                {changeResult.isSignificant && changeResult.isPositive !== null && (
-                                    <span
-                                        className={`flex-shrink-0 ${
-                                            changeResult.isPositive ? 'text-success' : 'text-danger'
-                                        }`}
-                                    >
-                                        {changeResult.isPositive ? (
+                                {significant && deltaPositive !== undefined && (
+                                    <span className={`flex-shrink-0 ${deltaPositive ? 'text-success' : 'text-danger'}`}>
+                                        {deltaPositive ? (
                                             <IconTrending className="w-4 h-4" />
                                         ) : (
                                             <IconTrendingDown className="w-4 h-4" />
