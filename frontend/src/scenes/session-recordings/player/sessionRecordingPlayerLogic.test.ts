@@ -263,7 +263,7 @@ describe('sessionRecordingPlayerLogic', () => {
                 ])
                 .toFinishAllListeners()
 
-            expect(router.values.location.pathname).toEqual('/')
+            expect(router.values.location.pathname).toEqual('/project/997')
 
             expect(api.delete).toHaveBeenCalledWith(`api/environments/${MOCK_TEAM_ID}/session_recordings/3`)
             resumeKeaLoadersErrors()
