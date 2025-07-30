@@ -166,6 +166,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         CDP_WATCHER_DISABLED_TEMPORARY_TTL: 60 * 10, // 5 minutes
         CDP_WATCHER_TTL: 60 * 60 * 24, // This is really long as it is essentially only important to make sure the key is eventually deleted
         CDP_WATCHER_REFILL_RATE: 10,
+        CDP_WATCHER_STATE_LOCK_TTL: 60, // 1 minute
         CDP_WATCHER_DISABLED_TEMPORARY_MAX_COUNT: 3,
         CDP_HOG_FILTERS_TELEMETRY_TEAMS: '',
         CDP_REDIS_PASSWORD: '',

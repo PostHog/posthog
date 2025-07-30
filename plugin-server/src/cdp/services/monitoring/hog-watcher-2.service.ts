@@ -16,6 +16,7 @@ import {
 export const BASE_REDIS_KEY = process.env.NODE_ENV == 'test' ? '@posthog-test/hog-watcher-2' : '@posthog/hog-watcher-2'
 const REDIS_KEY_TOKENS = `${BASE_REDIS_KEY}/tokens`
 const REDIS_KEY_STATE = `${BASE_REDIS_KEY}/state`
+const REDIS_KEY_STATE_LOCK = `${BASE_REDIS_KEY}/state-lock`
 
 export enum HogWatcherStateEnum {
     healthy = 1,
@@ -42,15 +43,18 @@ type HogFunctionTimingCost = {
 
 type HogFunctionTimingCosts = Partial<Record<HogFunctionTiming['kind'], HogFunctionTimingCost>>
 
-// TODO: Future follow up - we should swap this to an API call or something.
-// Having it as a celery task ID based on a file path is brittle and hard to test.
-export const CELERY_TASK_ID = 'posthog.tasks.plugin_server.hog_function_state_transition'
-
 // Check if the result is of type CyclotronJobInvocationHogFunction
 export const isHogFunctionResult = (
     result: CyclotronJobInvocationResult
 ): result is CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction> => {
     return 'hogFunction' in result.invocation
+}
+
+type PipelineResults = [Error | null, any][]
+
+const getPipelineResults = (res: PipelineResults, index: number, numOperations: number) => {
+    // pipeline results are just a big array of operation results so we need to slice out the correct parts
+    return res.slice(index * numOperations, index * numOperations + numOperations)
 }
 
 export class HogWatcherService2 {
@@ -79,18 +83,34 @@ export class HogWatcherService2 {
         }
     }
 
-    private async onStateChange(hogFunction: HogFunctionType, state: HogWatcherStateEnum) {
+    private async onStateChange({
+        hogFunction,
+        state,
+        previousState,
+    }: {
+        hogFunction: HogFunctionType
+        state: HogWatcherStateEnum
+        previousState: HogWatcherStateEnum
+    }) {
         const team = await this.hub.teamManager.getTeam(hogFunction.team_id)
-        if (team) {
+
+        logger.info('[HogWatcherService] onStateChange', {
+            hogFunctionId: hogFunction.id,
+            hogFunctionName: hogFunction.name,
+            state,
+            previousState,
+        })
+
+        if (team && process.env.CDP_HOG_WATCHER_2_CAPTURE_ENABLED === 'true') {
             captureTeamEvent(team, 'hog_function_state_change', {
                 hog_function_id: hogFunction.id,
                 hog_function_type: hogFunction.type,
                 hog_function_name: hogFunction.name,
                 hog_function_template_id: hogFunction.template_id,
                 state: HogWatcherStateEnum[state], // Convert numeric state to readable string
+                previous_state: HogWatcherStateEnum[previousState], // Convert numeric state to readable string
             })
         }
-        await this.hub.celery.applyAsync(CELERY_TASK_ID, [hogFunction.id, state])
     }
 
     private rateLimitArgs(id: HogFunctionType['id'], cost: number) {
@@ -150,11 +170,17 @@ export class HogWatcherService2 {
         return res[id]
     }
 
+    public async clearLock(id: HogFunctionType['id']): Promise<void> {
+        await this.redis.usePipeline({ name: 'clearLock' }, (pipeline) => {
+            pipeline.del(`${REDIS_KEY_STATE_LOCK}/${id}`)
+        })
+    }
+
     public async doStageChanges(
         changes: [HogFunctionType, HogWatcherStateEnum][],
-        resetPool: boolean = false
+        forceReset: boolean = false
     ): Promise<void> {
-        logger.info('[HogWatcherService] Performing state changes', { changes, resetPool })
+        logger.info('[HogWatcherService] Performing state changes', { changes, forceReset })
         const res = await this.redis.usePipeline({ name: 'forceStateChange' }, (pipeline) => {
             for (const [hogFunction, state] of changes) {
                 const id = hogFunction.id
@@ -167,22 +193,33 @@ export class HogWatcherService2 {
 
                 const nowSeconds = Math.round(Date.now() / 1000)
 
-                pipeline.getset(`${REDIS_KEY_STATE}/${id}`, state)
-                if (resetPool) {
+                pipeline.getset(`${REDIS_KEY_STATE}/${id}`, state) // Set the state
+                pipeline.setex(`${REDIS_KEY_STATE_LOCK}/${id}`, this.hub.CDP_WATCHER_STATE_LOCK_TTL, '1') // Set the lock
+                if (forceReset) {
                     pipeline.hset(`${REDIS_KEY_TOKENS}/${id}`, 'pool', newScore)
                     pipeline.hset(`${REDIS_KEY_TOKENS}/${id}`, 'ts', nowSeconds)
                 }
             }
         })
 
-        const indexOffset = resetPool ? 3 : 1
+        if (!res) {
+            return
+        }
+
+        console.log('res', res)
+
+        const numOperations = forceReset ? 4 : 2
+
         await Promise.all(
             changes.map(async ([hogFunction, state], index) => {
-                // We only trigger stateChange events if the value in redis actually changed
-                const previousStateValue =
-                    (res ? res[index * indexOffset][1] : undefined) ?? HogWatcherStateEnum.healthy
-                if (Number(previousStateValue) !== state) {
-                    await this.onStateChange(hogFunction, state)
+                const [stateResult] = getPipelineResults(res, index, numOperations)
+                const previousState = Number(stateResult[1] ?? HogWatcherStateEnum.healthy)
+                if (previousState !== state) {
+                    await this.onStateChange({
+                        hogFunction,
+                        state,
+                        previousState,
+                    })
                 }
             })
         )
@@ -193,6 +230,10 @@ export class HogWatcherService2 {
     }
 
     public async observeResults(results: CyclotronJobInvocationResult[]): Promise<void> {
+        if (process.env.CDP_HOG_WATCHER_2_ENABLED !== 'true') {
+            return
+        }
+
         const functionCosts: Record<
             CyclotronJobInvocation['functionId'],
             {
@@ -233,18 +274,29 @@ export class HogWatcherService2 {
         const res = await this.redis.usePipeline({ name: 'updateRateLimits' }, (pipeline) => {
             for (const functionCost of Object.values(functionCosts)) {
                 pipeline.get(`${REDIS_KEY_STATE}/${functionCost.functionId}`)
+                pipeline.get(`${REDIS_KEY_STATE_LOCK}/${functionCost.functionId}`)
                 pipeline.checkRateLimit(...this.rateLimitArgs(functionCost.functionId, functionCost.cost))
             }
         })
 
+        if (!res) {
+            return
+        }
+
         await Promise.all(
             Object.values(functionCosts).map(async (functionCost, index) => {
-                const currentState: HogWatcherStateEnum = res ? Number(res[index][1]) : HogWatcherStateEnum.healthy
-                const tokens = res ? Number(res[index + 1][1]) : this.hub.CDP_WATCHER_BUCKET_SIZE
+                const [stateResult, lockResult, tokenResult] = getPipelineResults(res, index, 3)
 
+                const currentState: HogWatcherStateEnum = Number(stateResult[1] ?? HogWatcherStateEnum.healthy)
+                const tokens = Number(tokenResult[1] ?? this.hub.CDP_WATCHER_BUCKET_SIZE)
                 const newState = this.calculateNewState(tokens)
 
                 if (currentState !== newState) {
+                    if (lockResult[1]) {
+                        // We don't want to change the state of a function that is being locked (i.e. recently changed state)
+                        return
+                    }
+
                     if (currentState === HogWatcherStateEnum.disabled) {
                         // We never modify the state of a disabled function automatically
                         return
