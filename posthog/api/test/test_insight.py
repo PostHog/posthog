@@ -1591,7 +1591,10 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
             response = self.client.get(f"/api/projects/{self.team.id}/insights/{insight_id}/?refresh=true").json()
             self.assertNotIn("code", response)
-            self.assertGreaterEqual(spy_execute_hogql_query.call_count, 1)
+
+            # extra query because of the metadata update task: posthog.tasks.insight_query_metadata.extract_insight_query_metadata
+            self.assertEqual(spy_execute_hogql_query.call_count, 2)
+
             self.assertEqual(response["result"][0]["data"], [0, 0, 0, 0, 0, 0, 2, 0])
             self.assertEqual(response["last_refresh"], "2012-01-15T04:01:34Z")
             self.assertEqual(response["last_modified_at"], "2012-01-15T04:01:34Z")
