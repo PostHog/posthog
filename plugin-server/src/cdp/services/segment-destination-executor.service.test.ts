@@ -28,7 +28,6 @@ describe('SegmentDestinationExecutorService', () => {
     const pipedriveAction = pipedrivePlugin.destination.actions['createUpdatePerson']
 
     beforeEach(() => {
-        Settings.defaultZone = 'UTC'
         service = new SegmentDestinationExecutorService(defaultConfig)
 
         service.fetch = mockFetch = jest.fn((_url, _options) =>

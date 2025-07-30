@@ -25,7 +25,6 @@ describe('NativeDestinationExecutorService', () => {
     let mockFetch: jest.Mock<Promise<FetchResponse>, Parameters<typeof fetch>>
 
     beforeEach(() => {
-        Settings.defaultZone = 'UTC'
         service = new NativeDestinationExecutorService(defaultConfig)
 
         service.fetch = mockFetch = jest.fn((_url, _options) =>

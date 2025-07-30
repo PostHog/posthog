@@ -327,13 +327,11 @@ export class DestinationTester {
     }
 
     beforeEach() {
-        Settings.defaultZone = 'UTC'
         const fixedTime = DateTime.fromISO('2025-01-01T00:00:00Z').toJSDate()
         jest.spyOn(Date, 'now').mockReturnValue(fixedTime.getTime())
     }
 
     afterEach() {
-        Settings.defaultZone = 'system'
         jest.useRealTimers()
     }
 
