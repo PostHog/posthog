@@ -4316,7 +4316,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                                 "name": "Third Variant",
                                 "rollout_percentage": 25,
                             },
-                        ]
+                        ],
                     },
                 },
             },
