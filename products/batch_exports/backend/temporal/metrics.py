@@ -4,7 +4,7 @@ import typing
 
 import structlog
 from temporalio import activity, workflow
-from temporalio.common import MetricCounter
+from temporalio.common import MetricCounter, MetricMeter
 from temporalio.worker import (
     ActivityInboundInterceptor,
     ExecuteActivityInput,
@@ -41,8 +41,6 @@ def get_export_finished_metric(status: str) -> MetricCounter:
     )
 
 
-MAIN_ACTIVITY_EXECUTION_LATENCY_HISTOGRAM_NAME = "batch_exports_main_activity_execution_latency"
-STAGE_ACTIVITY_EXECUTION_LATENCY_HISTOGRAM_NAME = "batch_exports_stage_activity_execution_latency"
 BATCH_EXPORT_ACTIVITY_TYPES = {
     "insert_into_s3_activity_from_stage",
     "insert_into_snowflake_activity",
@@ -96,8 +94,19 @@ class _BatchExportsMetricsActivityInboundInterceptor(ActivityInboundInterceptor)
             "interval": interval,
         }
 
+        activity_attempt = activity_info.attempt
+        meter = get_metric_meter(histogram_attributes)
+        hist = meter.create_histogram(
+            name="batch_exports_activity_attempt",
+            description="Histogram tracking attempts made by critical batch export activities",
+        )
+        hist.record(activity_attempt)
+
         with ExecutionTimeRecorder(
-            "batch_exports_activity_interval_execution_latency", histogram_attributes=histogram_attributes, log=False
+            "batch_exports_activity_interval_execution_latency",
+            description="Histogram tracking execution latency for critical batch export activities by interval",
+            histogram_attributes=histogram_attributes,
+            log=False,
         ):
             return await super().execute_activity(input)
 
@@ -110,10 +119,16 @@ class _BatchExportsMetricsWorkflowInterceptor(WorkflowInboundInterceptor):
         if workflow_type not in BATCH_EXPORT_WORKFLOW_TYPES:
             return await super().execute_workflow(input)
 
-        histogram_attributes: Attributes = {"interval": input.args[0].interval}
+        # For consistency with the activity metric, use '_' as a separator instead of spaces.
+        # This only affects "every 5 minutes" which becomes "every_5_minutes".
+        interval = input.args[0].interval.replace(" ", "_")
+        histogram_attributes: Attributes = {"interval": interval}
 
         with ExecutionTimeRecorder(
-            "batch_exports_workflow_interval_execution_latency", histogram_attributes=histogram_attributes, log=False
+            "batch_exports_workflow_interval_execution_latency",
+            description="Histogram tracking execution latency for batch export workflows by interval",
+            histogram_attributes=histogram_attributes,
+            log=False,
         ):
             return await super().execute_workflow(input)
 
@@ -180,7 +195,8 @@ class ExecutionTimeRecorder:
         delta_milli_seconds = int((end_counter - start_counter) * 1000)
         delta = dt.timedelta(milliseconds=delta_milli_seconds)
 
-        attributes = get_attributes(self.histogram_attributes)
+        attributes = self.histogram_attributes or {}
+
         if exc_value is not None:
             attributes["status"] = "FAILED"
             attributes["exception"] = str(exc_value)
@@ -222,18 +238,18 @@ class ExecutionTimeRecorder:
         self.bytes_processed = None
 
 
-def get_metric_meter(additional_attributes: Attributes | None = None):
+def get_metric_meter(additional_attributes: Attributes | None = None) -> MetricMeter:
     """Return a meter depending on in which context we are."""
+    attributes = get_attributes(additional_attributes)
+
     if activity.in_activity():
         meter = activity.metric_meter()
+    elif workflow.in_workflow():
+        meter = workflow.metric_meter()
     else:
-        try:
-            meter = workflow.metric_meter()
-        except Exception:
-            raise RuntimeError("Not within workflow or activity context")
+        raise RuntimeError("Not within workflow or activity context")
 
-    if additional_attributes:
-        meter = meter.with_additional_attributes(additional_attributes)
+    meter = meter.with_additional_attributes(attributes)
 
     return meter
 
@@ -242,11 +258,10 @@ def get_attributes(additional_attributes: Attributes | None = None) -> Attribute
     """Return attributes depending on in which context we are."""
     if activity.in_activity():
         attributes = get_activity_attributes()
+    elif workflow.in_workflow():
+        attributes = get_workflow_attributes()
     else:
-        try:
-            attributes = get_workflow_attributes()
-        except Exception:
-            attributes = {}
+        attributes = {}
 
     if additional_attributes:
         attributes = {**attributes, **additional_attributes}
@@ -255,7 +270,7 @@ def get_attributes(additional_attributes: Attributes | None = None) -> Attribute
 
 
 def get_activity_attributes() -> Attributes:
-    """Return basic Temporal.io activity attributes."""
+    """Return basic Temporal activity attributes."""
     info = activity.info()
 
     return {
@@ -266,7 +281,7 @@ def get_activity_attributes() -> Attributes:
 
 
 def get_workflow_attributes() -> Attributes:
-    """Return basic Temporal.io workflow attributes."""
+    """Return basic Temporal workflow attributes."""
     info = workflow.info()
 
     return {
@@ -348,6 +363,6 @@ def get_interval_from_bounds(
             case 604800.0:
                 interval = "week"
             case s:
-                interval = f"every_{int(s) / 60}_minutes"
+                interval = f"every_{int(s / 60)}_minutes"
 
     return interval

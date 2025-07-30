@@ -1,5 +1,4 @@
-import { actions, connect, kea, path, reducers, selectors } from 'kea'
-import { actionToUrl, urlToAction } from 'kea-router'
+import { actions, connect, kea, path, reducers, selectors, listeners } from 'kea'
 import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
 import { mapUrlToProvider } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
 import { teamLogic } from 'scenes/teamLogic'
@@ -11,21 +10,33 @@ import {
     DataWarehouseNode,
     SourceMap,
     ConversionGoalFilter,
-    MarketingAnalyticsOrderBy,
     MarketingAnalyticsColumnsSchemaNames,
+    CompareFilter,
 } from '~/queries/schema/schema-general'
-import { DataWarehouseSettingsTab, ExternalDataSource, PipelineNodeTab, PipelineStage } from '~/types'
+import {
+    ChartDisplayType,
+    DataWarehouseSettingsTab,
+    ExternalDataSource,
+    IntervalType,
+    PipelineNodeTab,
+    PipelineStage,
+} from '~/types'
 
 import { MARKETING_ANALYTICS_SCHEMA } from '~/queries/schema/schema-general'
 import type { marketingAnalyticsLogicType } from './marketingAnalyticsLogicType'
 import { marketingAnalyticsSettingsLogic } from './marketingAnalyticsSettingsLogic'
+import { defaultConversionGoalFilter } from '../components/settings/constants'
 import { externalAdsCostTile } from './marketingCostTile'
 import {
     MarketingDashboardMapper,
     NativeMarketingSource,
     NEEDED_FIELDS_FOR_NATIVE_MARKETING_ANALYTICS,
     VALID_NATIVE_MARKETING_SOURCES,
+    generateUniqueName,
 } from './utils'
+import { getDefaultInterval, isValidRelativeOrAbsoluteDate, updateDatesWithInterval } from 'lib/utils'
+import { uuid } from 'lib/utils'
+import { actionToUrl, urlToAction } from 'kea-router'
 
 export type ExternalTable = {
     name: string
@@ -47,28 +58,15 @@ export type NativeSource = {
     tables: DatabaseSchemaDataWarehouseTable[]
 }
 
+const teamId = window.POSTHOG_APP_CONTEXT?.current_team?.id
+const persistConfig = { persist: true, prefix: `${teamId}__` }
+
+const INITIAL_DATE_FROM = '-7d' as string | null
+const INITIAL_DATE_TO = null as string | null
+const INITIAL_INTERVAL = getDefaultInterval(INITIAL_DATE_FROM, INITIAL_DATE_TO)
+
 export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
     path(['scenes', 'webAnalytics', 'marketingAnalyticsLogic']),
-    actions({
-        setMarketingAnalyticsOrderBy: (orderBy: number, direction: 'ASC' | 'DESC') => ({ orderBy, direction }),
-        clearMarketingAnalyticsOrderBy: () => true,
-        setDynamicConversionGoal: (goal: ConversionGoalFilter | null) => ({ goal }),
-    }),
-    reducers({
-        marketingAnalyticsOrderBy: [
-            null as MarketingAnalyticsOrderBy | null,
-            {
-                setMarketingAnalyticsOrderBy: (_, { orderBy, direction }) => [orderBy, direction],
-                clearMarketingAnalyticsOrderBy: () => null,
-            },
-        ],
-        dynamicConversionGoal: [
-            null as ConversionGoalFilter | null,
-            {
-                setDynamicConversionGoal: (_, { goal }) => goal,
-            },
-        ],
-    }),
     connect(() => ({
         values: [
             teamLogic,
@@ -79,6 +77,119 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             ['dataWarehouseTables', 'dataWarehouseSourcesLoading', 'dataWarehouseSources'],
         ],
     })),
+    actions({
+        setDraftConversionGoal: (goal: ConversionGoalFilter | null) => ({ goal }),
+        setConversionGoalInput: (goal: ConversionGoalFilter) => ({ goal }),
+        resetConversionGoalInput: () => true,
+        saveDraftConversionGoal: () => true,
+        setCompareFilter: (compareFilter: CompareFilter) => ({ compareFilter }),
+        setDates: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
+        setInterval: (interval: IntervalType) => ({ interval }),
+        setDatesAndInterval: (dateFrom: string | null, dateTo: string | null, interval: IntervalType) => ({
+            dateFrom,
+            dateTo,
+            interval,
+        }),
+        showColumnConfigModal: true,
+        hideColumnConfigModal: true,
+        setChartDisplayType: (chartDisplayType: ChartDisplayType) => ({ chartDisplayType }),
+    }),
+    reducers({
+        draftConversionGoal: [
+            null as ConversionGoalFilter | null,
+            {
+                setDraftConversionGoal: (_, { goal }) => goal,
+            },
+        ],
+        conversionGoalInput: [
+            (() => {
+                return {
+                    ...defaultConversionGoalFilter,
+                    conversion_goal_id: uuid(),
+                    conversion_goal_name: '',
+                }
+            })() as ConversionGoalFilter,
+            {
+                setConversionGoalInput: (_, { goal }) => goal,
+                resetConversionGoalInput: () => {
+                    return {
+                        ...defaultConversionGoalFilter,
+                        conversion_goal_id: uuid(),
+                        conversion_goal_name: '',
+                    }
+                },
+            },
+        ],
+        compareFilter: [
+            { compare: true } as CompareFilter,
+            persistConfig,
+            {
+                setCompareFilter: (_, { compareFilter }) => compareFilter,
+            },
+        ],
+        dateFilter: [
+            {
+                dateFrom: INITIAL_DATE_FROM,
+                dateTo: INITIAL_DATE_TO,
+                interval: INITIAL_INTERVAL,
+            },
+            persistConfig,
+            {
+                setDates: (_, { dateTo, dateFrom }) => {
+                    if (dateTo && !isValidRelativeOrAbsoluteDate(dateTo)) {
+                        dateTo = INITIAL_DATE_TO
+                    }
+                    if (dateFrom && !isValidRelativeOrAbsoluteDate(dateFrom)) {
+                        dateFrom = INITIAL_DATE_FROM
+                    }
+                    return {
+                        dateTo,
+                        dateFrom,
+                        interval: getDefaultInterval(dateFrom, dateTo),
+                    }
+                },
+                setInterval: ({ dateFrom: oldDateFrom, dateTo: oldDateTo }, { interval }) => {
+                    const { dateFrom, dateTo } = updateDatesWithInterval(interval, oldDateFrom, oldDateTo)
+                    return {
+                        dateTo,
+                        dateFrom,
+                        interval,
+                    }
+                },
+                setDatesAndInterval: (_, { dateTo, dateFrom, interval }) => {
+                    if (!dateFrom && !dateTo) {
+                        dateFrom = INITIAL_DATE_FROM
+                        dateTo = INITIAL_DATE_TO
+                    }
+                    if (dateTo && !isValidRelativeOrAbsoluteDate(dateTo)) {
+                        dateTo = INITIAL_DATE_TO
+                    }
+                    if (dateFrom && !isValidRelativeOrAbsoluteDate(dateFrom)) {
+                        dateFrom = INITIAL_DATE_FROM
+                    }
+                    return {
+                        dateTo,
+                        dateFrom,
+                        interval: interval || getDefaultInterval(dateFrom, dateTo),
+                    }
+                },
+            },
+        ],
+        columnConfigModalVisible: [
+            false,
+            {
+                showColumnConfigModal: () => true,
+                hideColumnConfigModal: () => false,
+            },
+        ],
+        chartDisplayType: [
+            ChartDisplayType.ActionsAreaGraph as ChartDisplayType,
+            persistConfig,
+            {
+                setChartDisplayType: (_, { chartDisplayType }) => chartDisplayType,
+            },
+        ],
+    }),
     selectors({
         validSourcesMap: [
             (s) => [s.sources_map],
@@ -199,6 +310,14 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                 }, [])
             },
         ],
+        uniqueConversionGoalName: [
+            (s) => [s.conversionGoalInput, s.conversion_goals],
+            (conversionGoalInput: ConversionGoalFilter | null, conversion_goals: ConversionGoalFilter[]): string => {
+                const baseName = conversionGoalInput?.conversion_goal_name || conversionGoalInput?.name || 'No name'
+                const existingNames = conversion_goals.map((goal) => goal.conversion_goal_name)
+                return generateUniqueName(baseName, existingNames)
+            },
+        ],
         loading: [
             (s) => [s.dataWarehouseSourcesLoading],
             (dataWarehouseSourcesLoading: boolean) => dataWarehouseSourcesLoading,
@@ -215,45 +334,36 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                     .filter(Boolean) as DataWarehouseNode[]
 
                 const nativeNodeList: DataWarehouseNode[] = validNativeSources
-                    .map(MarketingDashboardMapper)
+                    .map((source) => MarketingDashboardMapper(source))
                     .filter(Boolean) as DataWarehouseNode[]
 
                 return [...nativeNodeList, ...nonNativeNodeList]
             },
         ],
     }),
-    actionToUrl(() => ({
-        setMarketingAnalyticsOrderBy: ({ orderBy, direction }) => {
+    actionToUrl(({ values }) => ({
+        setChartDisplayType: () => {
             const searchParams = new URLSearchParams(window.location.search)
-            if (orderBy !== null && direction) {
-                searchParams.set('sort_field', orderBy.toString())
-                searchParams.set('sort_direction', direction)
-            } else {
-                searchParams.delete('sort_field')
-                searchParams.delete('sort_direction')
-            }
-            return [window.location.pathname, searchParams.toString()]
-        },
-        clearMarketingAnalyticsOrderBy: () => {
-            const searchParams = new URLSearchParams(window.location.search)
-            searchParams.delete('sort_field')
-            searchParams.delete('sort_direction')
+            searchParams.set('chart_display_type', values.chartDisplayType)
             return [window.location.pathname, searchParams.toString()]
         },
     })),
-    urlToAction(({ actions, values }) => ({
+    urlToAction(({ actions }) => ({
         '*': (_, searchParams) => {
-            const sortField = searchParams.sort_field
-            const sortDirection = searchParams.sort_direction
-
-            if (sortField && sortDirection && (sortDirection === 'ASC' || sortDirection === 'DESC')) {
-                const orderBy = parseInt(sortField, 10)
-                if (!isNaN(orderBy) && values.marketingAnalyticsOrderBy?.[0] !== orderBy) {
-                    actions.setMarketingAnalyticsOrderBy(orderBy, sortDirection as 'ASC' | 'DESC')
-                }
-            } else if (!sortField && !sortDirection && values.marketingAnalyticsOrderBy) {
-                actions.clearMarketingAnalyticsOrderBy()
+            const chartDisplayType = searchParams.chart_display_type as ChartDisplayType | undefined
+            if (chartDisplayType && Object.values(ChartDisplayType).includes(chartDisplayType)) {
+                actions.setChartDisplayType(chartDisplayType)
             }
+        },
+    })),
+    listeners(({ actions }) => ({
+        saveDraftConversionGoal: () => {
+            // Create a new local conversion goal with new id
+            actions.resetConversionGoalInput()
+        },
+        resetConversionGoalInput: () => {
+            // Clear the draft goal when resetting local goal
+            actions.setDraftConversionGoal(null)
         },
     })),
 ])

@@ -56,7 +56,7 @@ class ToolRelevance(ScorerWithPartial):
         return Score(name=self._name(), score=score)
 
 
-class PlanAndQueryOutput(TypedDict):
+class PlanAndQueryOutput(TypedDict, total=False):
     plan: str | None
     query: AssistantTrendsQuery | AssistantFunnelsQuery | AssistantRetentionQuery | AssistantHogQLQuery
     query_generation_retry_count: int | None
@@ -348,3 +348,75 @@ How would you rate the time range relevancy of the generated query? Choose one:
             query_kind=query_kind,
             **kwargs,
         )
+
+
+SQL_SEMANTICS_CORRECTNESS_PROMPT = """
+<system>
+You are an expert ClickHouse SQL auditor.
+Your job is to decide whether two ClickHouse SQL queries are **semantically equivalent for every possible valid database state**, given the same task description and schema.
+
+When you respond, think step-by-step **internally**, but reveal **nothing** except the final verdict:
+• Output **Pass** if the candidate query would always return the same result set (ignoring column aliases, ordering, or trivial formatting) as the reference query.
+• Output **Fail** otherwise, or if you are uncertain.
+Respond with a single word—**Pass** or **Fail**—and no additional text.
+</system>
+
+<input>
+Task / natural-language question:
+```
+{{input}}
+```
+
+Database schema (tables and columns):
+```
+{{database_schema}}
+```
+
+Reference (human-labelled) SQL:
+```sql
+{{expected}}
+```
+
+Candidate (generated) SQL:
+```sql
+{{output}}
+```
+</input>
+
+<reminder>
+Think through edge cases: NULL handling, grouping, filters, joins, HAVING clauses, aggregations, sub-queries, limits, and data-type quirks.
+If any logical difference could yield different outputs under some data scenario, the queries are *not* equivalent.
+</reminder>
+
+When ready, output your verdict—**Pass** or **Fail**—with absolutely no extra characters.
+""".strip()
+
+
+class SQLSemanticsCorrectness(LLMClassifier):
+    """Evaluate if the actual query matches semantically the expected query."""
+
+    def __init__(self, **kwargs):
+        super().__init__(
+            name="sql_semantics_correctness",
+            prompt_template=SQL_SEMANTICS_CORRECTNESS_PROMPT,
+            choice_scores={
+                "Pass": 1.0,
+                "Fail": 0.0,
+            },
+            model="gpt-4.1",
+            **kwargs,
+        )
+
+    async def _run_eval_async(
+        self, output: str | None, expected: str | None = None, database_schema: str | None = None, **kwargs
+    ):
+        if not output:
+            return Score(name=self._name(), score=None, metadata={"reason": "No query to check, skipping evaluation"})
+        return await super()._run_eval_async(output, expected, database_schema=database_schema, **kwargs)
+
+    def _run_eval_sync(
+        self, output: str | None, expected: str | None = None, database_schema: str | None = None, **kwargs
+    ):
+        if not output:
+            return Score(name=self._name(), score=None, metadata={"reason": "No query to check, skipping evaluation"})
+        return super()._run_eval_sync(output, expected, database_schema=database_schema, **kwargs)
