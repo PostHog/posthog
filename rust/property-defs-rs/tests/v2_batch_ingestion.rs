@@ -258,7 +258,7 @@ async fn test_property_definitions_conflict_update(db: PgPool) {
     .unwrap();
 
     assert_eq!(initial_row.property_type, None);
-    assert_eq!(initial_row.is_numerical, false);
+    assert!(!initial_row.is_numerical);
 
     // Now insert the same property with a numeric type and is_numerical true
     let updated_prop = property_defs_rs::types::PropertyDefinition {
@@ -286,7 +286,7 @@ async fn test_property_definitions_conflict_update(db: PgPool) {
     .unwrap();
 
     assert_eq!(updated_row.property_type, Some("Numeric".to_string()));
-    assert_eq!(updated_row.is_numerical, true);
+    assert!(updated_row.is_numerical);
 
     // Verify only one row exists (no duplicate)
     let count: Option<i64> = sqlx::query_scalar!(
