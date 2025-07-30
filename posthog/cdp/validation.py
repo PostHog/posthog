@@ -272,6 +272,7 @@ class InputsSerializer(serializers.DictField):
 
 
 class HogFunctionFiltersSerializer(serializers.Serializer):
+    source = serializers.ChoiceField(choices=["events", "person-updates"], required=False, default="events")  # type: ignore
     actions = serializers.ListField(child=serializers.DictField(), required=False)
     events = serializers.ListField(child=serializers.DictField(), required=False)
     properties = serializers.ListField(child=serializers.DictField(), required=False)
@@ -291,6 +292,11 @@ class HogFunctionFiltersSerializer(serializers.Serializer):
 
         # Ensure data is initialized as an empty dict if it's None
         data = data or {}
+
+        if data.get("source") == "person-updates":
+            # Don't allow events or actions for person-updates
+            data.pop("events", None)
+            data.pop("actions", None)
 
         # If we have a bytecode, we need to validate the transpiled
         if function_type in TYPES_WITH_TRANSPILED_FILTERS:

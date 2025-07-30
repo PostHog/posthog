@@ -1,20 +1,19 @@
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from langchain_core.outputs import ChatResult, ChatGeneration
-from langchain_core.messages import AIMessage
 from langchain_core.messages import (
+    AIMessage,
     AIMessage as LangchainAIMessage,
     HumanMessage as LangchainHumanMessage,
     SystemMessage,
     ToolMessage as LangchainToolMessage,
 )
+from langchain_core.outputs import ChatGeneration, ChatResult
 from langgraph.errors import NodeInterrupt
 from parameterized import parameterized
 
 from ee.hogai.graph.root.nodes import RootNode, RootNodeTools
 from ee.hogai.utils.tests import FakeChatOpenAI
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
-from ee.models.assistant import CoreMemory
 from posthog.schema import (
     AssistantMessage,
     AssistantToolCall,
@@ -27,10 +26,10 @@ from posthog.schema import (
     HumanMessage,
     LifecycleQuery,
     MaxActionContext,
-    MaxUIContext,
     MaxDashboardContext,
     MaxEventContext,
     MaxInsightContext,
+    MaxUIContext,
     RetentionEntity,
     RetentionFilter,
     RetentionQuery,
@@ -562,24 +561,11 @@ class TestRootNodeTools(BaseTest):
         )
         self.assertEqual(node.router(state_1), "root")
 
-        # Test case 2: Has root tool call with query_kind - should return that query_kind
-        # If the user has not completed the onboarding, it should return memory_onboarding instead
-        state_2 = AssistantState(
-            messages=[AssistantMessage(content="Hello")],
-            root_tool_call_id="xyz",
-            root_tool_insight_plan="Foobar",
-            root_tool_insight_type="trends",
-        )
-        self.assertEqual(node.router(state_2), "memory_onboarding")
-        core_memory = CoreMemory.objects.create(team=self.team)
-        core_memory.change_status_to_skipped()
-        self.assertEqual(node.router(state_2), "insights")
-
-        # Test case 3: No tool call message or root tool call - should return "end"
+        # Test case 2: No tool call message or root tool call - should return "end"
         state_3 = AssistantState(messages=[AssistantMessage(content="Hello")])
         self.assertEqual(node.router(state_3), "end")
 
-        # Test case 4: Has contextual tool call result - should go back to root
+        # Test case 3: Has contextual tool call result - should go back to root
         state_4 = AssistantState(
             messages=[
                 AssistantMessage(content="Hello"),
@@ -736,7 +722,7 @@ class TestRootNodeTools(BaseTest):
             mock_navigate_tool.ainvoke.return_value = LangchainToolMessage(
                 content="XXX", tool_call_id="nav-123", artifact={"page_key": "insights"}
             )
-            mock_tools.return_value = lambda _: mock_navigate_tool
+            mock_tools.return_value = lambda *args, **kwargs: mock_navigate_tool
 
             # The navigate tool call should raise NodeInterrupt
             with self.assertRaises(NodeInterrupt) as cm:
@@ -775,7 +761,7 @@ class TestRootNodeTools(BaseTest):
             mock_search_session_recordings.ainvoke.return_value = LangchainToolMessage(
                 content="YYYY", tool_call_id="nav-123", artifact={"filters": {}}
             )
-            mock_tools.return_value = lambda _: mock_search_session_recordings
+            mock_tools.return_value = lambda *args, **kwargs: mock_search_session_recordings
 
             # This should not raise NodeInterrupt
             result = await node.arun(
@@ -813,7 +799,7 @@ class TestRootNodeUIContextMixin(ClickhouseTestMixin, BaseTest):
             query=TrendsQuery(series=[EventsNode(event="pageview")]),
         )
 
-        result = self.mixin._run_and_format_insight(insight, mock_query_runner, heading="#")
+        result = self.mixin._run_and_format_insight({}, insight, mock_query_runner, heading="#")
         expected = """# Insight: User Trends
 
 Description: Daily active users
@@ -842,7 +828,7 @@ Trend results: 100 users
             query=FunnelsQuery(series=[EventsNode(event="sign_up"), EventsNode(event="purchase")]),
         )
 
-        result = self.mixin._run_and_format_insight(insight, mock_query_runner, heading="#")
+        result = self.mixin._run_and_format_insight({}, insight, mock_query_runner, heading="#")
 
         expected = """# Insight: Conversion Funnel
 
@@ -874,7 +860,7 @@ Funnel results: 50% conversion
             ),
         )
 
-        result = self.mixin._run_and_format_insight(insight, mock_query_runner, heading="#")
+        result = self.mixin._run_and_format_insight({}, insight, mock_query_runner, heading="#")
         expected = """# Insight: ID 789
 
 Query schema:
@@ -900,7 +886,7 @@ Retention: 30% Day 7
             query=HogQLQuery(query="SELECT count() FROM events"),
         )
 
-        result = self.mixin._run_and_format_insight(insight, mock_query_runner, heading="#")
+        result = self.mixin._run_and_format_insight({}, insight, mock_query_runner, heading="#")
         expected = """# Insight: Custom Query
 
 Description: HogQL analysis
@@ -922,7 +908,7 @@ Query results: 42 events
 
         insight = MaxInsightContext(id="123", name="Unsupported", description=None, query=LifecycleQuery(series=[]))
 
-        result = self.mixin._run_and_format_insight(insight, mock_query_runner)
+        result = self.mixin._run_and_format_insight({}, insight, mock_query_runner)
 
         self.assertEqual(result, None)
         mock_query_runner.run_and_format_query.assert_not_called()
@@ -939,7 +925,7 @@ Query results: 42 events
             query=TrendsQuery(series=[EventsNode(event="pageview")]),
         )
 
-        result = self.mixin._run_and_format_insight(insight, mock_query_runner)
+        result = self.mixin._run_and_format_insight({}, insight, mock_query_runner)
 
         self.assertEqual(result, None)
 
@@ -968,7 +954,7 @@ Query results: 42 events
         # Create mock UI context
         ui_context = MaxUIContext(dashboards=[dashboard], insights=None)
 
-        result = self.mixin._format_ui_context(ui_context)
+        result = self.mixin._format_ui_context(ui_context, {})
 
         self.assertIn("Dashboard: Test Dashboard", result)
         self.assertIn("Description: Test dashboard description", result)
@@ -984,7 +970,7 @@ Query results: 42 events
         # Create mock UI context
         ui_context = MaxUIContext(dashboards=None, insights=None, events=[event1, event2], actions=None)
 
-        result = self.mixin._format_ui_context(ui_context)
+        result = self.mixin._format_ui_context(ui_context, {})
 
         self.assertIn('"page_view", "button_click"', result)
         self.assertIn("<events_context>", result)
@@ -997,7 +983,7 @@ Query results: 42 events
         # Create mock UI context
         ui_context = MaxUIContext(dashboards=None, insights=None, events=[event1, event2], actions=None)
 
-        result = self.mixin._format_ui_context(ui_context)
+        result = self.mixin._format_ui_context(ui_context, {})
 
         self.assertIn('"page_view: User viewed a page", "button_click: User clicked a button"', result)
         self.assertIn("<events_context>", result)
@@ -1010,7 +996,7 @@ Query results: 42 events
         # Create mock UI context
         ui_context = MaxUIContext(dashboards=None, insights=None, events=None, actions=[action1, action2])
 
-        result = self.mixin._format_ui_context(ui_context)
+        result = self.mixin._format_ui_context(ui_context, {})
 
         self.assertIn('"Sign Up", "Purchase"', result)
         self.assertIn("<actions_context>", result)
@@ -1023,7 +1009,7 @@ Query results: 42 events
         # Create mock UI context
         ui_context = MaxUIContext(dashboards=None, insights=None, events=None, actions=[action1, action2])
 
-        result = self.mixin._format_ui_context(ui_context)
+        result = self.mixin._format_ui_context(ui_context, {})
 
         self.assertIn('"Sign Up: User creates account", "Purchase: User makes a purchase"', result)
         self.assertIn("<actions_context>", result)
@@ -1044,7 +1030,7 @@ Query results: 42 events
         # Create mock UI context
         ui_context = MaxUIContext(insights=[insight])
 
-        result = self.mixin._format_ui_context(ui_context)
+        result = self.mixin._format_ui_context(ui_context, {})
 
         self.assertIn("Insights", result)
         self.assertIn("Insight: Standalone Insight", result)
@@ -1052,12 +1038,12 @@ Query results: 42 events
 
     @patch("ee.hogai.graph.root.nodes.AssistantQueryExecutor")
     def test_run_insights_from_ui_context_empty(self, mock_query_runner_class):
-        result = self.mixin._format_ui_context(None)
+        result = self.mixin._format_ui_context({}, None)
         self.assertEqual(result, "")
 
         # Test with ui_context but no insights
         ui_context = MaxUIContext(insights=None)
-        result = self.mixin._format_ui_context(ui_context)
+        result = self.mixin._format_ui_context(ui_context, {})
         self.assertEqual(result, "")
 
     @patch("ee.hogai.graph.root.nodes.AssistantQueryExecutor")
@@ -1076,7 +1062,7 @@ Query results: 42 events
         # Create mock UI context
         ui_context = MaxUIContext(insights=[insight])
 
-        result = self.mixin._format_ui_context(ui_context)
+        result = self.mixin._format_ui_context(ui_context, {})
 
         self.assertIn("# Insights", result)
         self.assertIn("Test Insight", result)
@@ -1099,7 +1085,7 @@ Query results: 42 events
         # Create mock UI context
         ui_context = MaxUIContext(insights=[insight])
 
-        result = self.mixin._format_ui_context(ui_context)
+        result = self.mixin._format_ui_context(ui_context, {})
 
         # Should return empty string since the insight failed to run
         self.assertEqual(result, "")

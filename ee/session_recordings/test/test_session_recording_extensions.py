@@ -10,7 +10,7 @@ from ee.session_recordings.session_recording_extensions import (
     persist_recording,
 )
 from posthog.session_recordings.models.session_recording import SessionRecording
-from posthog.session_recordings.queries.test.session_replay_sql import (
+from posthog.session_recordings.queries_to_replace.test.session_replay_sql import (
     produce_replay_summary,
 )
 from posthog.settings import (

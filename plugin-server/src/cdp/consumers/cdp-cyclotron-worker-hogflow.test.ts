@@ -3,6 +3,7 @@ import { DateTime } from 'luxon'
 import { HogFlow } from '~/schema/hogflow'
 import { createTeam, getFirstTeam, getTeam, resetTestDatabase } from '~/tests/helpers/sql'
 import { UUIDT } from '~/utils/utils'
+import { PostgresPersonRepository } from '~/worker/ingestion/persons/repositories/postgres-person-repository'
 
 import { Hub, InternalPerson, Team } from '../../types'
 import { closeHub, createHub } from '../../utils/db/hub'
@@ -21,6 +22,7 @@ jest.setTimeout(1000)
 describe('CdpCyclotronWorkerHogFlow', () => {
     let processor: CdpCyclotronWorkerHogFlow
     let hub: Hub
+    let personRepository: PostgresPersonRepository
     let team: Team
     let team2: Team
     let hogFlows: HogFlow[]
@@ -52,15 +54,19 @@ describe('CdpCyclotronWorkerHogFlow', () => {
         properties: any
     ): Promise<InternalPerson> => {
         const TIMESTAMP = DateTime.fromISO('2000-10-14T11:42:06.502Z').toUTC()
-        const [person] = await hub.db.createPerson(TIMESTAMP, properties, {}, {}, teamId, null, true, uuid, [
+        const result = await personRepository.createPerson(TIMESTAMP, properties, {}, {}, teamId, null, true, uuid, [
             { distinctId },
         ])
-        return person
+        if (!result.success) {
+            throw new Error('Failed to create person')
+        }
+        return result.person
     }
 
     beforeEach(async () => {
         await resetTestDatabase()
         hub = await createHub()
+        personRepository = new PostgresPersonRepository(hub.db.postgres)
         team = await getFirstTeam(hub)
         const team2Id = await createTeam(hub.postgres, team.organization_id)
         team2 = (await getTeam(hub, team2Id))!
