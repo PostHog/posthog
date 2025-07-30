@@ -22,7 +22,8 @@ export const eventPropertyFilteringLogic = kea<eventPropertyFilteringLogicType>(
                             const isPostHogProperty = key.startsWith('$') && PROPERTY_KEYS.includes(key)
                             const isNonDollarPostHogProperty =
                                 isCloudOrDev && CLOUD_INTERNAL_POSTHOG_PROPERTY_KEYS.includes(key)
-                            return !isPostHogProperty && !isNonDollarPostHogProperty
+                            const isSystemProperty = props[key]?.system
+                            return !isPostHogProperty && !isNonDollarPostHogProperty && !isSystemProperty
                         })
                     )
                 }
