@@ -2809,6 +2809,28 @@ const api = {
                 .withAction('bulk_delete')
                 .create({ data: { session_recording_ids } })
         },
+
+        async bulkViewedRecordings(session_recording_ids: SessionRecordingType['id'][]): Promise<{
+            success: boolean
+            viewed_count: number
+            total_requested: number
+        }> {
+            return await new ApiRequest()
+                .recordings()
+                .withAction('bulk_viewed')
+                .create({ data: { session_recording_ids } })
+        },
+
+        async bulkNotViewedRecordings(session_recording_ids: SessionRecordingType['id'][]): Promise<{
+            success: boolean
+            not_viewed_count: number
+            total_requested: number
+        }> {
+            return await new ApiRequest()
+                .recordings()
+                .withAction('bulk_not_viewed')
+                .create({ data: { session_recording_ids } })
+        },
     },
 
     notebooks: {
@@ -3466,6 +3488,9 @@ const api = {
         },
         async delete(id: PersonalAPIKeyType['id']): Promise<void> {
             await new ApiRequest().personalApiKey(id).delete()
+        },
+        async roll(id: PersonalAPIKeyType['id']): Promise<PersonalAPIKeyType> {
+            return await new ApiRequest().personalApiKey(id).withAction('roll').create()
         },
     },
 
