@@ -2,7 +2,6 @@ import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import api from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import posthog from 'posthog-js'
 import React from 'react'
@@ -17,7 +16,7 @@ import {
     SurveyEventName,
 } from '~/types'
 
-import { convertAmountToUsage } from './billing-utils'
+import { convertAmountToUsage, isAddonVisible } from './billing-utils'
 import { billingLogic } from './billingLogic'
 import type { billingProductLogicType } from './billingProductLogicType'
 import { BillingGaugeItemKind, BillingGaugeItemType } from './types'
@@ -268,25 +267,9 @@ export const billingProductLogic = kea<billingProductLogicType>([
                     return []
                 }
 
-                return product.addons.filter((addon: BillingProductV2AddonType) => {
-                    // Filter out inclusion-only addons if personless events are not supported
-                    if (addon.inclusion_only && featureFlags[FEATURE_FLAGS.PERSONLESS_EVENTS_NOT_SUPPORTED]) {
-                        return false
-                    }
-
-                    // Filter out legacy addons for platform_and_support if not subscribed
-                    if (product.type === 'platform_and_support' && addon.legacy_product && !addon.subscribed) {
-                        return false
-                    }
-
-                    // Filter out addons that are hidden by feature flag
-                    const hideAddonFlag = `billing_hide_addon_${addon.type}`
-                    if (featureFlags[hideAddonFlag]) {
-                        return false
-                    }
-
-                    return true
-                })
+                return product.addons.filter((addon: BillingProductV2AddonType) =>
+                    isAddonVisible(product, addon, featureFlags)
+                )
             },
         ],
         hasCustomLimitSet: [
