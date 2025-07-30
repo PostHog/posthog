@@ -4,7 +4,6 @@ import collections.abc
 import contextlib
 import dataclasses
 import datetime as dt
-import functools
 import io
 import json
 import operator
@@ -777,40 +776,51 @@ class S3MultiPartUpload:
             self._task_group = None
 
 
-class BytesQueue(asyncio.Queue):
+class QueueClosed(Exception):
+    def __init__(self):
+        super().__init__("Queue is closed")
+
+
+class BytesQueue(asyncio.Queue[bytes]):
     """Subclass of asyncio.Queue limited by number of bytes."""
 
     def __init__(self, max_size_bytes: int = 0) -> None:
         super().__init__(maxsize=max_size_bytes)
         self._bytes_size = 0
+        self._closed = asyncio.Event()
         # This is set by `asyncio.Queue.__init__` calling `_init`
-        self._queue: collections.deque
-        self._finished: asyncio.Event
+        self._queue: collections.deque[bytes]
 
-    def _put(self, item: bytes | bytearray | memoryview | None) -> None:
+    def _get(self) -> bytes:
+        """Override parent `_get` to keep track of bytes."""
+        item = self._queue.popleft()
+        self._bytes_size -= len(item)
+        return item
+
+    def _put(self, item: bytes) -> None:
         """Override parent `_put` to keep track of bytes."""
-        if item:
-            self._bytes_size += len(item)
+        if self._closed.is_set():
+            raise QueueClosed()
+
+        self._bytes_size += len(item)
 
         self._queue.append(item)
 
-    def bytes_done(self, bytes: int) -> None:
-        """Indicate a certain amount of bytes has been processed."""
-        if self._bytes_size <= 0:
-            raise ValueError("bytes_done() called with too many bytes")
-
-        self._bytes_size -= bytes
-
-        if self._bytes_size == 0:
-            self._finished.set()
-
     def qsize(self) -> int:
-        """Size in bytes of record batches in the queue.
+        """Size in bytes of bytes in the queue.
 
         This is used to determine when the queue is full, so it returns the
         number of bytes.
         """
         return self._bytes_size
+
+    def close(self) -> None:
+        """Close the queue so no more bytes can be put."""
+        self._closed.set()
+
+    async def wait_until_closed(self) -> None:
+        """Wait until queue is closed."""
+        await self._closed.wait()
 
 
 S3MultipartUploadTask = asyncio.Task[None]
@@ -846,6 +856,7 @@ class ConcurrentS3Consumer(ConsumerFromStage):
         self.current_file_index = 0
         self.files_uploaded: list[str] = []
 
+        self._queue = BytesQueue(self.max_concurrent_uploads * self.part_size)
         self._pending_multipart_uploads: dict[int, ActiveS3MultipartUpload] = {}
 
         # Internal S3 client management
@@ -865,9 +876,12 @@ class ConcurrentS3Consumer(ConsumerFromStage):
             raise RuntimeError("Consumer already finalized")
 
         if self.current_file_index not in self._pending_multipart_uploads:
-            queue = BytesQueue(self.max_concurrent_uploads * self.part_size)
+            queue = BytesQueue(max_size_bytes=self.part_size)
             task = asyncio.create_task(self.run_multipart_upload(queue))
-            self._pending_multipart_uploads[self.current_file_index] = ActiveS3MultipartUpload(task=task, queue=queue)
+            self._pending_multipart_uploads[self.current_file_index] = ActiveS3MultipartUpload(
+                task=task,
+                queue=queue,
+            )
 
         task, queue = self._pending_multipart_uploads[self.current_file_index]
 
@@ -897,50 +911,65 @@ class ConcurrentS3Consumer(ConsumerFromStage):
 
             buffer = bytearray()
             is_last = False
+            wait_until_closed_task = asyncio.create_task(queue.wait_until_closed(), name="wait_until_closed")
 
             while not is_last:
-                try:
-                    buffer += await queue.get()
-                except TypeError:
-                    if not buffer:
+                get_task = asyncio.create_task(queue.get(), name="get")
+                await asyncio.wait(
+                    (get_task, wait_until_closed_task),
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+
+                if get_task.done():
+                    buffer += get_task.result()
+
+                if wait_until_closed_task.done():
+                    while not queue.empty():
+                        buffer += queue.get_nowait()
+                    is_last = True
+
+                if not is_last and len(buffer) < self.part_size:
+                    continue
+
+                buffer_view = memoryview(buffer)
+                end = 0
+                for start in range(0, len(buffer_view), self.part_size):
+                    if len(buffer_view[start:]) < self.part_size:
                         break
 
-                    part_body = memoryview(buffer)
-                    is_last = True
-                else:
-                    if len(buffer) < self.part_size:
-                        continue
+                    end = start + self.part_size
+                    part_body = buffer_view[start:end]
 
-                    part_body, buffer = memoryview(buffer)[: self.part_size], buffer[self.part_size :]
+                    await self.upload_semaphore.acquire()
+                    upload_task = multipart_upload.upload_next_part(part_body)
+                    upload_task.add_done_callback(self._on_upload_part_done)
 
-                await self.upload_semaphore.acquire()
+                buffer = buffer[end:]
 
-                part_body_size = len(part_body)
-                done_callback = functools.partial(self._on_upload_part_done, queue=queue, part_body_size=part_body_size)
-
-                upload_task = multipart_upload.upload_next_part(part_body)
-                upload_task.add_done_callback(done_callback)
+                if is_last and buffer:
+                    await self.upload_semaphore.acquire()
+                    upload_task = multipart_upload.upload_next_part(memoryview(buffer))
+                    upload_task.add_done_callback(self._on_upload_part_done)
 
         self.external_logger.info("Completed multipart upload for file number %d", file_index)
         self.files_uploaded.append(multipart_upload.key)
 
-    def _on_upload_part_done(self, _: asyncio.Task[Part], queue: BytesQueue, part_body_size: int) -> None:
+    def _on_upload_part_done(self, _: asyncio.Task[Part]) -> None:
         """Callback to release global semaphore and signal upload's queue."""
         self.upload_semaphore.release()
-        queue.bytes_done(part_body_size)
 
     async def finalize_file(self) -> None:
         """Call to mark the end of the current file.
 
         All chunks consumed afterwards will be uploaded to a new file.
         """
-        await self._finalize_current_file()
+        self._finalize_current_file()
         self._start_new_file()
 
-    async def _finalize_current_file(self) -> None:
+    def _finalize_current_file(self) -> None:
         """Finalize the current file by signaling its associated upload."""
         _, queue = self._pending_multipart_uploads[self.current_file_index]
-        await queue.put(None)
+        queue.close()
 
     def _start_new_file(self) -> None:
         """Increment file index to start a new file upload on the next chunk."""
@@ -958,7 +987,7 @@ class ConcurrentS3Consumer(ConsumerFromStage):
             return
 
         if self.current_file_index in self._pending_multipart_uploads:
-            await self._finalize_current_file()
+            self._finalize_current_file()
 
         try:
             await asyncio.gather(*(active.task for active in self._pending_multipart_uploads.values()))
