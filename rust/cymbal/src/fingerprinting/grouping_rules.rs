@@ -142,7 +142,35 @@ pub async fn try_grouping_rules(
 ) -> Result<Option<GroupingRule>, UnhandledError> {
     let timing = common_metrics::timing_guard(GROUPING_RULES_PROCESSING_TIME, &[]);
 
-    let props_json = serde_json::to_value(exception_properties)?;
+    let mut props_json = serde_json::to_value(exception_properties)?;
+
+    if let Value::Object(ref mut props) = props_json {
+        let exception_list = &exception_properties.exception_list;
+        props.insert(
+            "$exception_types".to_string(),
+            serde_json::to_value(exception_list.get_unique_types())?,
+        );
+        props.insert(
+            "$exception_values".to_string(),
+            serde_json::to_value(exception_list.get_unique_messages())?,
+        );
+        props.insert(
+            "$exception_releases".to_string(),
+            serde_json::to_value(exception_list.get_release_map())?,
+        );
+        props.insert(
+            "$exception_sources".to_string(),
+            serde_json::to_value(exception_list.get_unique_sources())?,
+        );
+        props.insert(
+            "$exception_functions".to_string(),
+            serde_json::to_value(exception_list.get_unique_functions())?,
+        );
+        props.insert(
+            "handled".to_string(),
+            serde_json::to_value(exception_list.get_is_handled())?,
+        );
+    }
 
     let mut rules = team_manager.get_grouping_rules(&mut *con, team_id).await?;
 
@@ -182,7 +210,10 @@ mod test {
     use uuid::Uuid;
 
     use crate::{
-        config::Config, fingerprinting::resolve_fingerprint, teams::TeamManager, types::RawErrProps,
+        config::Config,
+        fingerprinting::resolve_fingerprint,
+        teams::TeamManager,
+        types::{ExceptionList, RawErrProps},
     };
 
     use super::GroupingRule;
@@ -220,7 +251,7 @@ mod test {
 
     fn test_props() -> RawErrProps {
         RawErrProps {
-            exception_list: vec![],
+            exception_list: ExceptionList(vec![]),
             fingerprint: None,
             issue_name: None,
             issue_description: None,

@@ -3,6 +3,7 @@ use serde_json::Value;
 use sha2::{Digest, Sha512};
 use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
+use std::ops::{Deref, DerefMut};
 use uuid::Uuid;
 
 use crate::fingerprinting::{
@@ -49,13 +50,66 @@ pub struct Exception {
     pub stack: Option<Stacktrace>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[repr(transparent)]
+#[serde(transparent)]
+pub struct ExceptionList(pub Vec<Exception>);
+
+impl Deref for ExceptionList {
+    type Target = Vec<Exception>;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for ExceptionList {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+impl ExceptionList {
+    fn get_frames_iter(&self) -> impl Iterator<Item = &Frame> {
+        self.iter()
+            .filter_map(|e| e.stack.as_ref())
+            .flat_map(Stacktrace::get_frames)
+    }
+
+    pub fn get_unique_messages(&self) -> Vec<String> {
+        unique_by(self.iter(), |e| Some(e.exception_message.clone()))
+    }
+
+    pub fn get_unique_types(&self) -> Vec<String> {
+        unique_by(self.iter(), |e| Some(e.exception_type.clone()))
+    }
+
+    pub fn get_unique_sources(&self) -> Vec<String> {
+        unique_by(self.get_frames_iter(), |f| f.source.clone())
+    }
+
+    pub fn get_unique_functions(&self) -> Vec<String> {
+        unique_by(self.get_frames_iter(), |f| f.resolved_name.clone())
+    }
+
+    pub fn get_release_map(&self) -> HashMap<String, ReleaseInfo> {
+        ReleaseRecord::collect_to_map(self.get_frames_iter().filter_map(|f| f.release.as_ref()))
+    }
+
+    pub fn get_is_handled(&self) -> bool {
+        self.first()
+            .and_then(|e| e.mechanism.as_ref())
+            .and_then(|m| m.handled)
+            .unwrap_or(false)
+    }
+}
+
 // Given a Clickhouse Event's properties, we care about the contents
 // of only a small subset. This struct is used to give us a strongly-typed
 // "view" of those event properties we care about.
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct RawErrProps {
     #[serde(rename = "$exception_list")]
-    pub exception_list: Vec<Exception>,
+    pub exception_list: ExceptionList,
     #[serde(
         rename = "$exception_fingerprint",
         skip_serializing_if = "Option::is_none"
@@ -72,7 +126,7 @@ pub struct RawErrProps {
 
 #[derive(Debug, Clone)]
 pub struct FingerprintedErrProps {
-    pub exception_list: Vec<Exception>,
+    pub exception_list: ExceptionList,
     pub fingerprint: Fingerprint,
     pub proposed_issue_name: Option<String>,
     pub proposed_issue_description: Option<String>,
@@ -84,7 +138,7 @@ pub struct FingerprintedErrProps {
 #[derive(Debug, Serialize, Clone)]
 pub struct OutputErrProps {
     #[serde(rename = "$exception_list")]
-    pub exception_list: Vec<Exception>,
+    pub exception_list: ExceptionList,
     #[serde(rename = "$exception_fingerprint")]
     pub fingerprint: String,
     #[serde(rename = "$exception_proposed_fingerprint")]
@@ -204,29 +258,12 @@ impl RawErrProps {
 
 impl FingerprintedErrProps {
     pub fn to_output(self, issue_id: Uuid) -> OutputErrProps {
-        let frames = self
-            .exception_list
-            .iter()
-            .filter_map(|e| e.stack.as_ref())
-            .flat_map(Stacktrace::get_frames);
-
-        let sources = unique_by(frames.clone(), |f| f.source.clone());
-        let functions = unique_by(frames.clone(), |f| f.resolved_name.clone());
-        let releases = ReleaseRecord::collect_to_map(frames.filter_map(|f| f.release.as_ref()));
-
-        let types = unique_by(self.exception_list.iter(), |e| {
-            Some(e.exception_type.clone())
-        });
-        let values = unique_by(self.exception_list.iter(), |e| {
-            Some(e.exception_message.clone())
-        });
-
-        let handled = self
-            .exception_list
-            .first()
-            .and_then(|e| e.mechanism.as_ref())
-            .and_then(|m| m.handled)
-            .unwrap_or(false);
+        let sources = self.exception_list.get_unique_sources();
+        let functions = self.exception_list.get_unique_functions();
+        let releases = self.exception_list.get_release_map();
+        let types = self.exception_list.get_unique_types();
+        let values = self.exception_list.get_unique_messages();
+        let handled = self.exception_list.get_is_handled();
 
         OutputErrProps {
             exception_list: self.exception_list,

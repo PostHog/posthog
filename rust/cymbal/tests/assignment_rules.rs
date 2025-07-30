@@ -7,7 +7,7 @@ use cymbal::{
     fingerprinting::Fingerprint,
     issue_resolution::{process_assignment, Issue, IssueStatus},
     teams::TeamManager,
-    types::FingerprintedErrProps,
+    types::{ExceptionList, FingerprintedErrProps},
 };
 use serde_json::{json, Value as JsonValue};
 use sqlx::PgPool;
@@ -54,7 +54,7 @@ fn test_fingerprint() -> Fingerprint {
 
 fn test_props(fingerprint: Fingerprint) -> FingerprintedErrProps {
     FingerprintedErrProps {
-        exception_list: vec![],
+        exception_list: ExceptionList(vec![]),
         fingerprint,
         proposed_issue_name: None,
         proposed_issue_description: None,
