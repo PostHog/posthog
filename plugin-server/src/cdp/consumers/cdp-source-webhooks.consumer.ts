@@ -37,7 +37,7 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
 
         const hogFunction = await this.hogFunctionManager.getHogFunction(webhookId)
 
-        if (hogFunction?.type !== 'source_webhook') {
+        if (hogFunction?.type !== 'source_webhook' || !hogFunction.enabled) {
             return null
         }
 
