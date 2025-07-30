@@ -42,13 +42,14 @@ class search_insights(BaseModel):
         description="IMPORTANT: Pass the user's COMPLETE, UNMODIFIED query exactly as they wrote it. Do NOT summarize, truncate, or extract keywords. For example, if the user says 'look for inkeep insights in all my insights', pass exactly 'look for inkeep insights in all my insights', not just 'inkeep' or 'inkeep insights'."
     )
 
-class summarize_session(BaseModel):
+class session_summarization(BaseModel):
     """
-    "Watch" the session and summarize it. Use this tool when users ask to summarize their session.
+    Analyze sessions by finding relevant sessions based on user query and summarizing their events.
+    Use this tool for summarizing sessions, when users ask to summarize (e.g. watch, analyze) specific sessions (e.g. replays, recordings)
     """
-
-    session_id: str = Field(
-        description="The ID of the session to summarize."
+    
+    session_summarization_query: str = Field(
+        description="The user's complete query for session summarization. This will be used to find relevant sessions. Examples: 'summarize sessions from yesterday', 'watch what user X did on the checkout page', 'analyze mobile user sessions from last week'"
     )
 
 
