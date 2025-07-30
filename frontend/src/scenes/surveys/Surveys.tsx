@@ -50,24 +50,8 @@ function NewSurveyButton(): JSX.Element {
     const { user } = useValues(userLogic)
 
     const button = (
-        <LemonButton
-            to={urls.surveyTemplates()}
-            type="primary"
-            data-attr="new-survey"
-            sideAction={{
-                dropdown: {
-                    placement: 'bottom-start',
-                    actionable: true,
-                    overlay: (
-                        <LemonButton size="small" to={urls.survey('new')}>
-                            Create blank survey
-                        </LemonButton>
-                    ),
-                },
-                'data-attr': 'saved-insights-new-insight-dropdown',
-            }}
-        >
-            New survey
+        <LemonButton to={urls.surveyTemplates()} type="primary" data-attr="new-survey">
+            <span className="pr-3">New survey</span>
         </LemonButton>
     )
 
@@ -103,6 +87,7 @@ function NewSurveyButton(): JSX.Element {
                 loadSurveys()
                 router.actions.push(urls.survey(toolOutput.survey_id))
             }}
+            position="bottom-right"
         >
             {button}
         </MaxTool>
