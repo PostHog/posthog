@@ -46,12 +46,21 @@ import {
     ScenePanelMetaInfo,
 } from '~/layout/scenes/SceneLayout'
 import { SurveysDisabledBanner } from './SurveySettings'
+import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/WrappingLoadingSkeleton'
 const RESOURCE_TYPE = 'survey'
 
 export function SurveyView({ id }: { id: string }): JSX.Element {
     const { survey, surveyLoading } = useValues(surveyLogic)
-    const { editingSurvey, updateSurvey, launchSurvey, stopSurvey, archiveSurvey, resumeSurvey, duplicateSurvey } =
-        useActions(surveyLogic)
+    const {
+        editingSurvey,
+        updateSurvey,
+        launchSurvey,
+        stopSurvey,
+        archiveSurvey,
+        resumeSurvey,
+        duplicateSurvey,
+        setIsDuplicateToProjectModalOpen,
+    } = useActions(surveyLogic)
     const { deleteSurvey } = useActions(surveysLogic)
     const { currentOrganization } = useValues(organizationLogic)
 
@@ -61,7 +70,6 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
     const [tabKey, setTabKey] = useState(survey.start_date ? 'results' : 'overview')
     const { featureFlags } = useValues(featureFlagLogic)
     const newSceneLayout = featureFlags[FEATURE_FLAGS.NEW_SCENE_LAYOUT]
-
     useEffect(() => {
         if (survey.start_date) {
             setTabKey('results')
@@ -310,12 +318,24 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                     />
                     <ScenePanel>
                         <ScenePanelCommonActions>
-                            <SceneCommonButtons
-                                dataAttrKey={RESOURCE_TYPE}
-                                duplicate={{
-                                    onClick: () => void duplicateSurvey(),
-                                }}
-                            />
+                            {surveyLoading ? (
+                                <WrappingLoadingSkeleton>
+                                    <ButtonPrimitive aria-hidden>X</ButtonPrimitive>
+                                </WrappingLoadingSkeleton>
+                            ) : (
+                                <SceneCommonButtons
+                                    dataAttrKey={RESOURCE_TYPE}
+                                    duplicate={{
+                                        onClick: () => {
+                                            if (hasMultipleProjects) {
+                                                setIsDuplicateToProjectModalOpen(true)
+                                            } else {
+                                                duplicateSurvey()
+                                            }
+                                        },
+                                    }}
+                                />
+                            )}
                         </ScenePanelCommonActions>
                         <ScenePanelMetaInfo>
                             <SceneFile dataAttrKey={RESOURCE_TYPE} />
