@@ -5010,7 +5010,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
         self.assertEqual(behavioral_request.status_code, status.HTTP_201_CREATED)
 
-        # Test person_properties cohort
+        # Test person_property cohort
         person_cohort = Cohort.objects.create(
             team=self.team,
             filters={
@@ -5029,7 +5029,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             name="person_cohort",
         )
 
-        # Person properties cohort should be accepted
+        # Person property cohort should be accepted
         person_request = self._create_flag_with_properties(
             "person-cohort-flag",
             [{"key": "id", "type": "cohort", "value": person_cohort.id}],

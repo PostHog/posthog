@@ -459,7 +459,7 @@ class TestCohort(BaseTest):
             },
             name="person_cohort",
         )
-        self.assertEqual(cohort.determine_cohort_type(), "person_properties")
+        self.assertEqual(cohort.determine_cohort_type(), "person_property")
         self.assertTrue(cohort.can_be_used_in_real_time)
 
     def test_empty_cohort_defaults_analytical(self):
@@ -522,3 +522,47 @@ class TestCohort(BaseTest):
         # Should be analytical because it has complex behavioral filters
         self.assertEqual(cohort.determine_cohort_type(), "analytical")
         self.assertFalse(cohort.can_be_used_in_real_time)
+
+    def test_static_method_cohort_type_determination(self):
+        """Test the static method for cohort type determination"""
+        # Test static cohort
+        self.assertEqual(Cohort.determine_cohort_type_from_filters(is_static=True), "static")
+
+        # Test person properties only
+        person_filters = {
+            "properties": {
+                "type": "OR",
+                "values": [
+                    {"type": "AND", "values": [{"key": "email", "type": "person", "value": "test@example.com"}]}
+                ],
+            }
+        }
+        self.assertEqual(Cohort.determine_cohort_type_from_filters(False, person_filters), "person_property")
+
+        # Test simple behavioral
+        behavioral_filters = {
+            "properties": {
+                "type": "OR",
+                "values": [
+                    {"type": "AND", "values": [{"key": "test_event", "type": "behavioral", "value": "performed_event"}]}
+                ],
+            }
+        }
+        self.assertEqual(Cohort.determine_cohort_type_from_filters(False, behavioral_filters), "behavioral")
+
+        # Test complex behavioral
+        complex_filters = {
+            "properties": {
+                "type": "OR",
+                "values": [
+                    {
+                        "type": "AND",
+                        "values": [{"key": "test_event", "type": "behavioral", "value": "performed_event_first_time"}],
+                    }
+                ],
+            }
+        }
+        self.assertEqual(Cohort.determine_cohort_type_from_filters(False, complex_filters), "analytical")
+
+        # Test empty filters
+        self.assertEqual(Cohort.determine_cohort_type_from_filters(False, None), "analytical")
