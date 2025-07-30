@@ -1,6 +1,8 @@
 import { Client as CassandraClient } from 'cassandra-driver'
 import { createHash } from 'crypto'
 import { Message } from 'node-rdkafka'
+import { join } from 'path'
+import Piscina from 'piscina'
 import { Counter } from 'prom-client'
 
 import { KAFKA_EVENTS_JSON } from '../../config/kafka-topics'
@@ -12,7 +14,6 @@ import { BehavioralCounterRepository, CounterUpdate } from '../../utils/db/cassa
 import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
 import { HogFunctionFilterGlobals } from '../types'
-import { execHog } from '../utils/hog-exec'
 import { convertClickhouseRawEventToFilterGlobals } from '../utils/hog-function-filtering'
 import { CdpConsumerBase } from './cdp-base.consumer'
 
@@ -50,10 +51,22 @@ export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
     protected cassandra: CassandraClient | null
     protected behavioralCounterRepository: BehavioralCounterRepository | null
     private filterHashCache = new Map<string, string>()
+    private workerPool: Piscina
 
     constructor(hub: Hub, topic: string = KAFKA_EVENTS_JSON, groupId: string = 'cdp-behavioural-events-consumer') {
         super(hub)
         this.kafkaConsumer = new KafkaConsumer({ groupId, topic })
+
+        // Initialize Piscina worker pool for parallel HOG execution
+        this.workerPool = new Piscina({
+            filename: join(__dirname, '../workers/hog-executor.worker.js'),
+            maxThreads: Math.max(2, Math.floor(require('os').cpus().length * 0.5)),
+            minThreads: 2,
+            resourceLimits: {
+                maxOldGenerationSizeMb: 256,
+                maxYoungGenerationSizeMb: 64,
+            },
+        })
 
         // Only initialize Cassandra client if the feature is enabled
         if (hub.WRITE_BEHAVIOURAL_COUNTERS_TO_CASSANDRA) {
@@ -140,20 +153,17 @@ export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
         }
 
         try {
-            // Execute bytecode directly with the filter globals
-            const execHogOutcome = await execHog(action.bytecode, {
-                globals: event.filterGlobals,
-                telemetry: false,
+            // Execute bytecode in worker thread for better performance
+            const result = await this.workerPool.run({
+                bytecode: action.bytecode,
+                filterGlobals: event.filterGlobals,
             })
 
-            if (!execHogOutcome.execResult || execHogOutcome.error || execHogOutcome.execResult.error) {
-                throw execHogOutcome.error ?? execHogOutcome.execResult?.error ?? new Error('Unknown error')
+            if (result.error) {
+                throw result.error
             }
 
-            const matchedFilter =
-                typeof execHogOutcome.execResult.result === 'boolean' && execHogOutcome.execResult.result
-
-            if (matchedFilter) {
+            if (result.matched) {
                 const filterHash = this.createFilterHash(action.bytecode!)
                 const date = new Date().toISOString().split('T')[0]
                 counterUpdates.push({
@@ -164,9 +174,9 @@ export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
                 })
             }
 
-            return matchedFilter
+            return result.matched
         } catch (error) {
-            logger.error('Error executing action bytecode', {
+            logger.error('Error executing action bytecode in worker', {
                 actionId: String(action.id),
                 error,
             })
@@ -274,6 +284,9 @@ export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
     public async stop(): Promise<void> {
         logger.info('💤', 'Stopping behavioural events consumer...')
         await this.kafkaConsumer.disconnect()
+
+        // Shutdown worker pool
+        await this.workerPool.destroy()
 
         // Only shutdown Cassandra if it was initialized
         if (this.cassandra) {
