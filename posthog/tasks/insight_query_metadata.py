@@ -10,9 +10,14 @@ logger = structlog.get_logger(__name__)
 @shared_task(ignore_result=True, queue=CeleryQueue.LONG_RUNNING.value, max_retries=1)
 def extract_insight_query_metadata(insight_id: str) -> None:
     try:
-        insight = Insight.objects.get(pk=insight_id)
+        insight = (
+            Insight.objects.select_for_update()
+            .select_related("team")
+            .only("query", "query_metadata", "team")
+            .get(pk=insight_id)
+        )
         insight.generate_query_metadata()
-        insight.save()
+        insight.save(update_fields=["query_metadata"])
     except Insight.DoesNotExist as e:
         logger.exception(
             "Failed to extract query metadata - insight does not exist", insight_id=insight_id, error=str(e)
