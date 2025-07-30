@@ -51,7 +51,7 @@ import { ContextSummary } from './Context'
 import { MarkdownMessage } from './MarkdownMessage'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { maxLogic, MessageStatus, ThreadMessage } from './maxLogic'
-import { maxThreadLogic } from './maxThreadLogic'
+import { maxThreadLogic, USAGE_LIMIT_SENTENCE } from './maxThreadLogic'
 import {
     castAssistantQuery,
     isAssistantMessage,
@@ -66,6 +66,7 @@ import { supportLogic } from 'lib/components/Support/supportLogic'
 import { MAX_SLASH_COMMANDS } from './slash-commands'
 import { openNotebook } from '~/models/notebooksModel'
 import { NotebookTarget } from 'scenes/notebooks/types'
+import { compareDataNodeQuery } from 'scenes/insights/utils/queryUtils'
 
 export function Thread({ className }: { className?: string }): JSX.Element | null {
     const { conversationLoading, conversationId } = useValues(maxLogic)
@@ -341,10 +342,9 @@ const TextAnswer = React.forwardRef<HTMLDivElement, TextAnswerProps>(function Te
             return null
         }
 
-        // Don't show retry button when rate-limited
         if (
             isFailureMessage(message) &&
-            !message.content?.includes('usage limit') && // Don't show retry button when rate-limited
+            !message.content?.includes(USAGE_LIMIT_SENTENCE) && // Don't show retry button when rate-limited
             retriable
         ) {
             return <RetriableFailureActions />
@@ -443,7 +443,7 @@ const VisualizationAnswer = React.memo(function VisualizationAnswer({
     // Get insight props for the logic
     const insightProps = { dashboardItemId: insight?.short_id }
 
-    const { suggestedQuery, previousQuery } = useValues(insightLogic(insightProps))
+    const { query: currentQuery, previousQuery } = useValues(insightLogic(insightProps))
     const { onRejectSuggestedInsight, onReapplySuggestedInsight } = useActions(insightLogic(insightProps))
 
     useEffect(() => {
@@ -461,6 +461,14 @@ const VisualizationAnswer = React.memo(function VisualizationAnswer({
 
         return null
     }, [message])
+
+    const canThisQueryBeApplied = useMemo(() => {
+        if (!isEditingInsight || !query || !currentQuery) {
+            return false
+        }
+        return !compareDataNodeQuery(currentQuery, query)
+    }, [query, currentQuery, isEditingInsight])
+    const canThisQueryBeRejected = !!query && !!previousQuery
 
     return status !== 'completed'
         ? null
@@ -487,14 +495,15 @@ const VisualizationAnswer = React.memo(function VisualizationAnswer({
                               </LemonButton>
                           </div>
                           <div className="flex items-center gap-1.5">
-                              {isEditingInsight && suggestedQuery && (
+                              {(canThisQueryBeApplied || canThisQueryBeRejected) && (
                                   <LemonButton
                                       onClick={() => {
-                                          if (previousQuery) {
-                                              onRejectSuggestedInsight()
-                                          } else {
-                                              onReapplySuggestedInsight()
+                                          if (canThisQueryBeApplied) {
+                                              return onReapplySuggestedInsight(query)
+                                          } else if (canThisQueryBeRejected) {
+                                              return onRejectSuggestedInsight()
                                           }
+                                          console.warn('Unexpected insight apply/reject state')
                                       }}
                                       sideIcon={previousQuery ? <IconX /> : <IconRefresh />}
                                       size="xsmall"

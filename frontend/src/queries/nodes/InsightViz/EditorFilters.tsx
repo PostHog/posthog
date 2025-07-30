@@ -86,9 +86,8 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
     } = useValues(insightVizDataLogic(insightProps))
 
     const { handleInsightSuggested, onRejectSuggestedInsight } = useActions(insightLogic(insightProps))
-    const { previousQuery, suggestedQuery } = useValues(insightLogic(insightProps))
+    const { previousQuery, query: currentQuery } = useValues(insightLogic(insightProps))
     const { isStepsFunnel, isTrendsFunnel } = useValues(funnelDataLogic(insightProps))
-    const { setQuery } = useActions(insightVizDataLogic(insightProps))
 
     const maxSuggestionActionsBanner = useRef<HTMLDivElement>(null)
 
@@ -440,7 +439,6 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                                 node = { kind: NodeKind.InsightVizNode, source } satisfies InsightVizNode
                             }
                             handleInsightSuggested(node)
-                            setQuery(node)
                         }}
                         initialMaxPrompt="Show me users who "
                         className="EditorFiltersWrapper"
@@ -474,7 +472,7 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                                     {(() => {
                                         const changedLabels = compareInsightTopLevelSections(
                                             previousQuery,
-                                            suggestedQuery
+                                            currentQuery
                                         )
                                         const diffString = `🔍 ${pluralize(
                                             changedLabels.length,
