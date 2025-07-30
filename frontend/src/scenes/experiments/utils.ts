@@ -402,7 +402,63 @@ export function getDefaultExperimentMetric(metricType: ExperimentMetricType): Ex
     }
 }
 
-export function getExperimentMetricFromInsight(
+export function getExperimentMetricFromInsight(insight: QueryBasedInsightModel | null): ExperimentMetric | undefined {
+    if (!insight?.query || !isValidQueryForExperiment(insight?.query) || !isNodeWithSource(insight.query)) {
+        return undefined
+    }
+
+    const metricName = (insight?.name || insight?.derived_name) ?? undefined
+
+    if (isFunnelsQuery(insight.query.source)) {
+        return {
+            kind: NodeKind.ExperimentMetric,
+            uuid: uuid(),
+            metric_type: ExperimentMetricType.FUNNEL,
+            name: metricName,
+            series: insight.query.source.series.map((series) => ({
+                ...series,
+                // Ensure we have proper node structure
+                kind: series.kind || NodeKind.EventsNode,
+                event: series.kind === NodeKind.EventsNode ? series.event : undefined,
+                name: series.name || (series.kind === NodeKind.EventsNode ? series.event : undefined),
+            })) as ExperimentFunnelMetricStep[],
+        }
+    }
+
+    /**
+     * TODO: add support for trends queries. IsValidQueryForExperiment
+     * has a isFunnelsQuery check, so this is never called. Trend queries
+     * get undefined.
+     */
+    if (isTrendsQuery(insight.query.source)) {
+        // For trends queries, convert the first series to a mean metric
+        const firstSeries = insight.query.source.series?.[0]
+        if (!firstSeries) {
+            return undefined
+        }
+
+        return {
+            kind: NodeKind.ExperimentMetric,
+            uuid: uuid(),
+            metric_type: ExperimentMetricType.MEAN,
+            name: metricName,
+            source: {
+                ...firstSeries,
+                kind: NodeKind.EventsNode,
+                event: firstSeries.name,
+                name: firstSeries.name,
+                math: firstSeries.math || ExperimentMetricMathType.TotalCount,
+            },
+        }
+    }
+
+    return undefined
+}
+
+/**
+ * @deprecated Legacy function - use getExperimentMetricFromInsight instead
+ */
+export function getExperimentMetricFromInsightLegacy(
     insight: QueryBasedInsightModel | null
 ): ExperimentTrendsQuery | ExperimentFunnelsQuery | undefined {
     if (!insight?.query || !isValidQueryForExperiment(insight?.query) || !isNodeWithSource(insight.query)) {
