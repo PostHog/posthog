@@ -1,23 +1,14 @@
-from typing import Any, Literal, cast
-from uuid import uuid4
 import time
-from langchain_core.runnables import RunnableConfig
+from typing import cast, Literal, Any
+from uuid import uuid4
+
 import structlog
 from asgiref.sync import async_to_sync
-from ee.hogai.utils.types import AssistantState, PartialAssistantState
-from posthog.schema import AssistantToolCallMessage, MaxRecordingUniversalFilters
+from langchain_core.runnables import RunnableConfig
+
 from ee.hogai.graph.base import AssistantNode
-from products.replay.backend.max_tools import (
-    MULTIPLE_FILTERS_PROMPT,
-    PRODUCT_DESCRIPTION_PROMPT,
-    SESSION_REPLAY_EXAMPLES_PROMPT,
-    SESSION_REPLAY_RESPONSE_FORMATS_PROMPT,
-)
-from ee.hogai.graph.filter_options.graph import FilterOptionsGraph
-from posthog.schema import RecordingsQuery
-from posthog.session_recordings.queries_to_replace.session_recording_list_from_query import (
-    SessionRecordingListFromQuery,
-)
+from ee.hogai.utils.types import AssistantState, PartialAssistantState
+from posthog.schema import MaxRecordingUniversalFilters, RecordingsQuery, AssistantToolCallMessage
 
 
 class SessionSummarizationNode(AssistantNode):
@@ -28,6 +19,12 @@ class SessionSummarizationNode(AssistantNode):
 
     async def _generate_replay_filters(self, plain_text_query: str) -> MaxRecordingUniversalFilters | None:
         """Generates replay filters to get session ids by querying a compiled Universal filters graph."""
+        from ee.hogai.graph.filter_options.prompts import PRODUCT_DESCRIPTION_PROMPT
+        from products.replay.backend.prompts import SESSION_REPLAY_RESPONSE_FORMATS_PROMPT
+        from products.replay.backend.prompts import SESSION_REPLAY_EXAMPLES_PROMPT
+        from products.replay.backend.prompts import MULTIPLE_FILTERS_PROMPT
+        from ee.hogai.graph.filter_options.graph import FilterOptionsGraph
+
         # Create the graph with injected prompts
         injected_prompts = {
             "product_description_prompt": PRODUCT_DESCRIPTION_PROMPT,
@@ -51,6 +48,10 @@ class SessionSummarizationNode(AssistantNode):
         return max_filters
 
     def _get_session_ids_with_filters(self, replay_filters: MaxRecordingUniversalFilters) -> list[str] | None:
+        from posthog.session_recordings.queries_to_replace.session_recording_list_from_query import (
+            SessionRecordingListFromQuery,
+        )
+
         # Convert Max filters into recordings query format
         properties = []
         if replay_filters.filter_group and replay_filters.filter_group.values:
@@ -89,54 +90,57 @@ class SessionSummarizationNode(AssistantNode):
         if not state.session_summarization_query:
             self._log_failure(
                 f"Session summarization query is not provided: {state.session_summarization_query}",
-                conversation_id, start_time
+                conversation_id,
+                start_time,
             )
-            return self._create_error_response(self._base_error_message, state.root_tool_call_id)
+            return self._create_error_response(self._base_error_instructions, state.root_tool_call_id)
         try:
             # Generate filters to get session ids from DB
             replay_filters = async_to_sync(self._generate_replay_filters)(state.session_summarization_query)
             if not replay_filters:
                 self._log_failure(
                     f"No Replay filters were generated for session summarization: {state.session_summarization_query}",
-                    conversation_id, start_time
+                    conversation_id,
+                    start_time,
                 )
-                return self._create_error_response(self._base_error_message, state.root_tool_call_id)
+                return self._create_error_response(self._base_error_instructions, state.root_tool_call_id)
             # Query the filters to get session ids
             session_ids = self._get_session_ids_with_filters(replay_filters)
             if not session_ids:
                 self._log_failure(
-                    f"No session ids found for the provided filters: {replay_filters}",
-                    conversation_id, start_time
+                    f"No session ids found for the provided filters: {replay_filters}", conversation_id, start_time
                 )
-                return self._create_error_response(self._base_error_message, state.root_tool_call_id)
-            # TODO: Replace with actual session summarization
+                return self._create_error_response(self._base_error_instructions, state.root_tool_call_id)
+            # Return the summarization response
+            # TODO: Replace with actual summarization logic
             return PartialAssistantState(
                 messages=[
                     AssistantToolCallMessage(
-                        content=f"In the session with id {session_id} I found the following insights: User tried to sign up, but encountered lots of API errors, so abandoned the flow.",
+                        content=f"In the provided sessions ({session_ids}) found the following insights: "
+                        f"User tried to sign up, but encountered lots of API errors, so abandoned the flow.",
                         tool_call_id=state.root_tool_call_id or "unknown",
                         id=str(uuid4()),
                     ),
                 ],
-                summarization_session_id=None,
+                session_summarization_query=None,
                 root_tool_call_id=None,
             )
-        except Exception as e:
-            execution_time = time.time() - start_time
-            self.logger.exception(
-                f"Session summarization failed",
-                extra={
-                    "team_id": getattr(self._team, "id", "unknown"),
-                    "conversation_id": conversation_id,
-                    "session_id": session_id,
-                    "execution_time_ms": round(execution_time * 1000, 2),
-                    "error": str(e),
-                },
-            )
-            return self._create_error_response(
-                "INSTRUCTIONS: Tell the user that you encountered an issue while summarizing the session and suggest they try again with a different session id.",
-                state.root_tool_call_id,
-            )
+        except Exception as err:
+            self._log_failure("Session summarization failed", conversation_id, start_time, err)
+            return self._create_error_response(self._base_error_instructions, state.root_tool_call_id)
+
+    def _create_error_response(self, message: str, root_tool_call_id: str | None) -> PartialAssistantState:
+        return PartialAssistantState(
+            messages=[
+                AssistantToolCallMessage(
+                    content=message,
+                    tool_call_id=root_tool_call_id or "unknown",
+                    id=str(uuid4()),
+                ),
+            ],
+            session_summarization_query=None,
+            root_tool_call_id=None,
+        )
 
     def _log_failure(self, message: str, conversation_id: str, start_time: float, error: Any = None):
         self.logger.exception(
@@ -150,7 +154,7 @@ class SessionSummarizationNode(AssistantNode):
         )
 
     @property
-    def _base_error_message(self) -> str:
+    def _base_error_instructions(self) -> str:
         return "INSTRUCTIONS: Tell the user that you encountered an issue while summarizing the session and suggest they try again with a different question."
 
     def router(self, _: AssistantState) -> Literal["end", "root"]:
