@@ -21,11 +21,9 @@ import { urls } from 'scenes/urls'
 
 import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
 import { Logo } from '~/toolbar/assets/Logo'
-import { FloatingContainerContext } from 'lib/hooks/useFloatingContainerContext'
 
 import { playerMetaLogic } from './playerMetaLogic'
 import { PlayerPersonMeta } from './PlayerPersonMeta'
-import { RefObject } from 'react'
 
 export function parseUrl(lastUrl: unknown): { urlToUse: string | undefined; isValidUrl: boolean } {
     let urlToUse: string | undefined = typeof lastUrl === 'string' ? lastUrl : undefined
@@ -180,39 +178,36 @@ export function PlayerMeta(): JSX.Element {
                     'PlayerMeta--fullscreen': isFullScreen,
                 })}
             >
-                {/* This context proivder is necessary to make the popover positioning to work correctly */}
-                <FloatingContainerContext.Provider value={ref as RefObject<HTMLElement>}>
-                    <div className="flex flex-row items-center justify-between gap-x-1 whitespace-nowrap overflow-hidden px-1 py-0.5 text-xs">
-                        {loading ? (
-                            <LemonSkeleton className="w-1/3 h-4 my-1" />
-                        ) : (
-                            <>
-                                <LemonSelect
-                                    size="xsmall"
-                                    options={windowOptions}
-                                    value={trackedWindow}
-                                    disabledReason={windowIds.length <= 1 ? "There's only one window" : undefined}
-                                    onSelect={(value) => setTrackedWindow(value)}
-                                />
+                <div className="flex flex-row items-center justify-between gap-x-1 whitespace-nowrap overflow-hidden px-1 py-0.5 text-xs">
+                    {loading ? (
+                        <LemonSkeleton className="w-1/3 h-4 my-1" />
+                    ) : (
+                        <>
+                            <LemonSelect
+                                size="xsmall"
+                                options={windowOptions}
+                                value={trackedWindow}
+                                disabledReason={windowIds.length <= 1 ? "There's only one window" : undefined}
+                                onSelect={(value) => setTrackedWindow(value)}
+                            />
 
-                                <URLOrScreen url={currentURL} />
-                                {lastPageviewEvent?.properties?.['$screen_name'] && (
+                            <URLOrScreen url={currentURL} />
+                            {lastPageviewEvent?.properties?.['$screen_name'] && (
+                                <span className="flex flex-row items-center gap-x-1 truncate">
+                                    <span>·</span>
                                     <span className="flex flex-row items-center gap-x-1 truncate">
-                                        <span>·</span>
-                                        <span className="flex flex-row items-center gap-x-1 truncate">
-                                            {lastPageviewEvent?.properties['$screen_name']}
-                                        </span>
+                                        {lastPageviewEvent?.properties['$screen_name']}
                                     </span>
-                                )}
-                            </>
-                        )}
-                        <div className={clsx('flex-1', size === 'small' ? 'min-w-[1rem]' : 'min-w-[5rem]')} />
-                        {!isCinemaMode && <PlayerMetaLinks size={size} />}
-                        {!isCinemaMode && <ResolutionView size={size} />}
-                        <PlayerPersonMeta />
-                    </div>
-                    {!isCinemaMode && <PlayerMetaBottomSettings size={size} />}
-                </FloatingContainerContext.Provider>
+                                </span>
+                            )}
+                        </>
+                    )}
+                    <div className={clsx('flex-1', size === 'small' ? 'min-w-[1rem]' : 'min-w-[5rem]')} />
+                    {!isCinemaMode && <PlayerMetaLinks size={size} />}
+                    {!isCinemaMode && <ResolutionView size={size} />}
+                    <PlayerPersonMeta />
+                </div>
+                {!isCinemaMode && <PlayerMetaBottomSettings size={size} />}
             </div>
         </DraggableToNotebook>
     )
