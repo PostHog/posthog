@@ -54,6 +54,8 @@ class TemplateSource(BaseSource[Config]): # Replace this after config generation
 
 The fields shown on the frontend are all backend driven. We have a collection of 6 field types available to collect info such as API keys, auth logins, and file uploads.
 
+The frontend logic for rendering the below fields can be found in `frontend/src/scenes/data-warehouse/external/forms/SourceForm.tsx`.
+
 All of the below are defined in `posthog/schema.py` with a union of them defined as `FieldType` in `posthog/temporal/data_imports/sources/common/base.py`. Check out the other sources for examples of how we implement these.
 
 #### `SourceFieldInputConfig`
