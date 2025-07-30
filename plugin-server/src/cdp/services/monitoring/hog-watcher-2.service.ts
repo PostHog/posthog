@@ -42,10 +42,6 @@ type HogFunctionTimingCost = {
 
 type HogFunctionTimingCosts = Partial<Record<HogFunctionTiming['kind'], HogFunctionTimingCost>>
 
-// TODO: Future follow up - we should swap this to an API call or something.
-// Having it as a celery task ID based on a file path is brittle and hard to test.
-export const CELERY_TASK_ID = 'posthog.tasks.plugin_server.hog_function_state_transition'
-
 // Check if the result is of type CyclotronJobInvocationHogFunction
 export const isHogFunctionResult = (
     result: CyclotronJobInvocationResult
