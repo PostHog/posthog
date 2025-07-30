@@ -27,7 +27,7 @@ class Command(BaseCommand):
     help = "Backfill query_metadata for Insight/dashboarditem records"
 
     def add_arguments(self, parser):
-        parser.add_argument("--batch-size", type=int, default=1000, help="Number of insights to process in each batch")
+        parser.add_argument("--batch-size", type=int, default=100, help="Number of insights to process in each batch")
         parser.add_argument("--sleep-interval", type=float, default=0.1, help="Sleep time between batches in seconds")
         parser.add_argument("--team-id", type=int, help="Process insights for a specific team only")
         parser.add_argument(
