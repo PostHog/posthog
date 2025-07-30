@@ -2,7 +2,7 @@ from .types import FilterOptionsState
 
 from .nodes import FilterOptionsNode, FilterOptionsToolsNode
 
-from ee.hogai.graph.taxonomy_toolkit import TaxonomyAgent
+from ee.hogai.graph.taxonomy import TaxonomyAgent
 
 
 class FilterOptionsGraph(TaxonomyAgent[FilterOptionsState]):

@@ -3,7 +3,7 @@ from typing import Union, TypeVar
 from pydantic import BaseModel, Field
 from posthog.schema import MaxRecordingUniversalFilters
 import yaml
-from ee.hogai.graph.taxonomy_toolkit import (
+from ee.hogai.graph.taxonomy import (
     TaxonomyAgentToolkit,
     retrieve_entity_properties,
     retrieve_entity_property_values,
@@ -67,7 +67,7 @@ class FilterOptionsTool(BaseModel):
     arguments: FilterOptionsToolUnion
 
 
-class FilterOptionsToolkit(TaxonomyAgentToolkit[MaxRecordingUniversalFilters, FilterOptionsTool]):
+class FilterOptionsToolkit(TaxonomyAgentToolkit[FilterOptionsTool]):
     def __init__(self, team):
         super().__init__(team=team)
         self.output_schema_class = MaxRecordingUniversalFilters

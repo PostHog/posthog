@@ -15,93 +15,14 @@ from langgraph.graph.state import StateGraph
 
 
 from functools import cached_property
-from typing import Generic, TypeVar, Optional, cast, Literal, get_args, get_origin
+from typing import Generic, TypeVar, Optional, cast, get_args, get_origin
 from collections.abc import Iterable
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 from posthog.models.user import User
-from ..utils.types import (
-    AssistantNodeName,
-)
-from .taxonomy_toolkit_types import TaxonomyNodeName
+from .types import TaxonomyNodeName
+from .nodes import TaxonomyAgentNode, TaxonomyAgentToolsNode
 from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
-from .base import TaxonomyNode
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
-
-
-class retrieve_event_properties(BaseModel):
-    """
-    Use this tool to retrieve the property names of an event. You will receive a list of properties containing their name, value type, and description, or a message that properties have not been found.
-
-    - **Try other events** if the tool doesn't return any properties.
-    - **Prioritize properties that are directly related to the context or objective of the user's query.**
-    - **Avoid using ambiguous properties** unless their relevance is explicitly confirmed.
-    """
-
-    event_name: str = Field(..., description="The name of the event that you want to retrieve properties for.")
-
-
-class retrieve_action_properties(BaseModel):
-    """
-    Use this tool to retrieve the property names of an action. You will receive a list of properties containing their name, value type, and description, or a message that properties have not been found.
-
-    - **Try other actions or events** if the tool doesn't return any properties.
-    - **Prioritize properties that are directly related to the context or objective of the user's query.**
-    - **Avoid using ambiguous properties** unless their relevance is explicitly confirmed.
-    """
-
-    action_id: int = Field(..., description="The ID of the action that you want to retrieve properties for.")
-
-
-class retrieve_entity_properties(BaseModel):
-    """
-    Use this tool to retrieve property names for a property group (entity). You will receive a list of properties containing their name, value type, and description, or a message that properties have not been found.
-
-    - **Infer the property groups from the user's request.**
-    - **Try other entities** if the tool doesn't return any properties.
-    - **Prioritize properties that are directly related to the context or objective of the user's query.**
-    - **Avoid using ambiguous properties** unless their relevance is explicitly confirmed.
-    """
-
-    entity: Literal["person", "session"] = Field(
-        ..., description="The type of the entity that you want to retrieve properties for."
-    )
-
-
-class retrieve_event_property_values(BaseModel):
-    """
-    Use this tool to retrieve the property values for an event. Adjust filters to these values. You will receive a list of property values or a message that property values have not been found. Some properties can have many values, so the output will be truncated. Use your judgment to find a proper value.
-    """
-
-    event_name: str = Field(..., description="The name of the event that you want to retrieve values for.")
-    property_name: str = Field(..., description="The name of the property that you want to retrieve values for.")
-
-
-class retrieve_action_property_values(BaseModel):
-    """
-    Use this tool to retrieve the property values for an action. Adjust filters to these values. You will receive a list of property values or a message that property values have not been found. Some properties can have many values, so the output will be truncated. Use your judgment to find a proper value.
-    """
-
-    action_id: int = Field(..., description="The ID of the action that you want to retrieve values for.")
-    property_name: str = Field(..., description="The name of the property that you want to retrieve values for.")
-
-
-class retrieve_entity_property_values(BaseModel):
-    """
-    Use this tool to retrieve property values for a property name. Adjust filters to these values. You will receive a list of property values or a message that property values have not been found. Some properties can have many values, so the output will be truncated. Use your judgment to find a proper value.
-    """
-
-    entity: Literal["person", "session"] = Field(
-        ..., description="The type of the entity that you want to retrieve properties for."
-    )
-    property_name: str = Field(..., description="The name of the property that you want to retrieve values for.")
-
-
-class ask_user_for_help(BaseModel):
-    """
-    Use this tool to ask a question to the user. Your question must be concise and clear.
-    """
-
-    request: str = Field(..., description="The question you want to ask the user.")
 
 
 # Type variables for the new generic classes
@@ -110,7 +31,7 @@ State = TypeVar("State", bound=BaseModel)
 ToolInput = TypeVar("ToolInput", bound=BaseModel)
 
 
-class TaxonomyAgentToolkit(Generic[Output, ToolInput]):
+class TaxonomyAgentToolkit(Generic[ToolInput]):
     """Base toolkit for taxonomy agents that handle tool execution."""
 
     def __init__(self, team: Team):
@@ -408,36 +329,6 @@ class TaxonomyAgentToolkit(Generic[Output, ToolInput]):
         raise NotImplementedError
 
 
-class TaxonomyAgentNode(Generic[State], TaxonomyNode):
-    """Base node for taxonomy agents."""
-
-    toolkit_class: type[TaxonomyAgentToolkit] | None = None
-
-    def __init__(self, team: Team, user: User, toolkit_class: type[TaxonomyAgentToolkit] | None = None):
-        super().__init__(team, user)
-        toolkit_cls = toolkit_class or self.toolkit_class or TaxonomyAgentToolkit
-        self._toolkit = toolkit_cls(team=team)
-
-    def _get_system_prompt(self, state: State) -> str:
-        """Get the system prompt for this node. Override in subclasses."""
-        raise NotImplementedError
-
-
-class TaxonomyAgentToolsNode(Generic[State], TaxonomyNode):
-    """Base tools node for taxonomy agents."""
-
-    toolkit_class: type[TaxonomyAgentToolkit] | None = None
-
-    def __init__(self, team: Team, user: User, toolkit_class: type[TaxonomyAgentToolkit] | None = None):
-        super().__init__(team, user)
-        toolkit_cls = toolkit_class or self.toolkit_class or TaxonomyAgentToolkit
-        self._toolkit = toolkit_cls(team=team)
-
-    def router(self, state: State) -> str:
-        """Route based on the state. Override in subclasses."""
-        return "end"
-
-
 class TaxonomyAgent(Generic[State]):
     """Taxonomy agent that can be configured with different node classes."""
 
@@ -498,7 +389,7 @@ class TaxonomyAgent(Generic[State]):
         """Compile a complete taxonomy graph."""
         return self.add_taxonomy_generator().compile(checkpointer=checkpointer)
 
-    def add_taxonomy_generator(self, next_node: AssistantNodeName = AssistantNodeName.END):
+    def add_taxonomy_generator(self, next_node: TaxonomyNodeName = TaxonomyNodeName.END):
         """Add the taxonomy generator nodes to the graph."""
         builder = self._graph
         self._has_start_node = True
@@ -506,7 +397,7 @@ class TaxonomyAgent(Generic[State]):
         # Add the main loop node
         loop_node = self._loop_node_class(self._team, self._user)
         builder.add_node(TaxonomyNodeName.LOOP_NODE, loop_node)
-        builder.add_edge(AssistantNodeName.START, TaxonomyNodeName.LOOP_NODE)
+        builder.add_edge(TaxonomyNodeName.START, TaxonomyNodeName.LOOP_NODE)
 
         # Add the tools node
         tools_node = self._tools_node_class(self._team, self._user)

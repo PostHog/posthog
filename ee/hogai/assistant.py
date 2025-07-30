@@ -27,7 +27,7 @@ from ee.hogai.graph import (
     TrendsGeneratorNode,
 )
 from ee.hogai.graph.base import AssistantNode
-from ee.hogai.graph.taxonomy_toolkit_types import TaxonomyNodeName
+from ee.hogai.graph.taxonomy import TaxonomyNodeName
 from ee.hogai.tool import CONTEXTUAL_TOOL_NAME_TO_TOOL
 from ee.hogai.utils.exceptions import GenerationCanceled
 from ee.hogai.utils.helpers import find_last_ui_context, should_output_assistant_message

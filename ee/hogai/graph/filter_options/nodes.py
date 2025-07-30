@@ -9,7 +9,7 @@ from langchain_core.messages import (
 
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
-from ee.hogai.graph.taxonomy_toolkit import TaxonomyAgentNode, TaxonomyAgentToolsNode
+from ee.hogai.graph.taxonomy import TaxonomyAgentNode, TaxonomyAgentToolsNode
 from .types import FilterOptionsState, PartialFilterOptionsState
 
 from .prompts import (

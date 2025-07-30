@@ -1,4 +1,5 @@
 from enum import StrEnum
+from langgraph.graph import END, START
 
 
 class TaxonomyNodeName(StrEnum):
@@ -6,5 +7,5 @@ class TaxonomyNodeName(StrEnum):
 
     LOOP_NODE = "taxonomy_loop_node"
     TOOLS_NODE = "taxonomy_tools_node"
-    START = "START"
-    END = "END"
+    START = START
+    END = END

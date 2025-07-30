@@ -2,7 +2,7 @@ import re
 from typing import Literal, Union
 
 from pydantic import BaseModel, field_validator
-from ee.hogai.graph.taxonomy_toolkit import (
+from ee.hogai.graph.taxonomy import (
     TaxonomyAgentToolkit,
     retrieve_event_properties,
     retrieve_action_properties,
@@ -55,7 +55,7 @@ class TaxonomyAgentTool(BaseModel):
     arguments: TaxonomyAgentToolUnion
 
 
-class QueryPlannerTaxonomyAgentToolkit(TaxonomyAgentToolkit[TaxonomyAgentTool, TaxonomyAgentTool]):
+class QueryPlannerTaxonomyAgentToolkit(TaxonomyAgentToolkit[TaxonomyAgentTool]):
     def __init__(self, team: Team):
         super().__init__(team=team)
 
@@ -223,17 +223,17 @@ class QueryPlannerTaxonomyAgentToolkit(TaxonomyAgentToolkit[TaxonomyAgentTool, T
             result = self.retrieve_entity_properties(tool_input.arguments.entity)  # type: ignore
         elif tool_name == "retrieve_event_property_values":
             result = self.retrieve_event_or_action_property_values(
-                tool_input.arguments.event_name,
+                tool_input.arguments.event_name,  # type: ignore
                 tool_input.arguments.property_name,  # type: ignore
             )
         elif tool_name == "retrieve_action_property_values":
             result = self.retrieve_event_or_action_property_values(
-                tool_input.arguments.action_id,
+                tool_input.arguments.action_id,  # type: ignore
                 tool_input.arguments.property_name,  # type: ignore
             )
         elif tool_name == "retrieve_entity_property_values":
             result = self.retrieve_entity_property_values(
-                tool_input.arguments.entity,
+                tool_input.arguments.entity,  # type: ignore
                 tool_input.arguments.property_name,  # type: ignore
             )
         elif tool_name == "ask_user_for_help":
