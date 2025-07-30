@@ -14,9 +14,10 @@ import { insightUrlForEvent } from 'scenes/insights/utils'
 import { urls } from 'scenes/urls'
 
 import { InspectorListItemEvent } from '../playerInspectorLogic'
-import { AIEventSummary } from './AIEventItems'
+import { AIEventExpanded, AIEventSummary } from './AIEventItems'
 import { getExceptionAttributes } from 'lib/components/Errors/utils'
 import { EventPropertyTabs } from 'lib/components/EventPropertyTabs/EventPropertyTabs'
+import { SimpleKeyValueList } from 'lib/components/SimpleKeyValueList'
 
 export interface ItemEventProps {
     item: InspectorListItemEvent
@@ -199,7 +200,29 @@ export function ItemEventDetail({ item }: ItemEventProps): JSX.Element {
                 <LemonDivider dashed />
 
                 {item.data.fullyLoaded ? (
-                    <EventPropertyTabs event={item.data} />
+                    <EventPropertyTabs
+                        size="small"
+                        data-attr="replay-event-property-tabs"
+                        event={item.data}
+                        displayForEventFn={(displayArgs) => {
+                            return (
+                                <SimpleKeyValueList
+                                    item={displayArgs.properties}
+                                    promotedKeys={displayArgs.promotedKeys}
+                                />
+                            )
+                        }}
+                        aiDisplayFn={(event) => {
+                            return <AIEventExpanded event={event} />
+                        }}
+                        rawDisplayFn={(event) => {
+                            return (
+                                <pre className="text-xs text-secondary whitespace-pre-wrap">
+                                    {JSON.stringify(event.properties, null, 2)}
+                                </pre>
+                            )
+                        }}
+                    />
                 ) : (
                     <div className="text-secondary flex gap-1 items-center">
                         <Spinner textColored />

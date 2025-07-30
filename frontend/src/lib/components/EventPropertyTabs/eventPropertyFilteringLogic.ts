@@ -1,10 +1,12 @@
-import { connect, kea, selectors } from 'kea'
-import type { eventPropertyFilteringLogicType } from 'scenes/session-recordings/player/inspector/components/eventPropertyFilteringLogicType'
+import { connect, kea, selectors, path } from 'kea'
 import { userPreferencesLogic } from 'lib/logic/userPreferencesLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { CLOUD_INTERNAL_POSTHOG_PROPERTY_KEYS, PROPERTY_KEYS } from '~/taxonomy/taxonomy'
 
+import type { eventPropertyFilteringLogicType } from './eventPropertyFilteringLogicType'
+
 export const eventPropertyFilteringLogic = kea<eventPropertyFilteringLogicType>([
+    path(['lib', 'components', 'EventPropertyTabs', 'eventPropertyFilteringLogic']),
     connect(() => ({
         values: [userPreferencesLogic, ['hidePostHogPropertiesInTable'], preflightLogic, ['isCloudOrDev']],
     })),
