@@ -137,6 +137,7 @@ export function ItemEventDetail({ item }: ItemEventProps): JSX.Element {
         | 'conversation'
         | 'exception_properties'
         | 'error_display'
+        | 'debug_properties'
     >(isAIEvent ? 'conversation' : isErrorEvent ? 'error_display' : 'properties')
 
     const insightUrl = insightUrlForEvent(item.data)
@@ -153,7 +154,7 @@ export function ItemEventDetail({ item }: ItemEventProps): JSX.Element {
 
     for (const key of Object.keys(item.data.properties)) {
         if (!CORE_FILTER_DEFINITIONS_BY_GROUP.events[key] || !CORE_FILTER_DEFINITIONS_BY_GROUP.events[key].system) {
-            if (CORE_FILTER_DEFINITIONS_BY_GROUP.event_properties[key].used_for_debug) {
+            if (CORE_FILTER_DEFINITIONS_BY_GROUP.event_properties[key]?.used_for_debug) {
                 debugProperties[key] = item.data.properties[key]
             } else if (key.startsWith('$feature') || key === '$active_feature_flags') {
                 featureFlagProperties[key] = item.data.properties[key]

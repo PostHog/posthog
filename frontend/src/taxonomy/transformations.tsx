@@ -7,15 +7,6 @@ type RawCoreFilterDefinition = {
     system?: boolean
 }
 
-type CoreFilterDefinition = {
-    label: string
-    description?: string | React.ReactNode
-    examples?: (string | number)[]
-    system?: boolean
-    /** whether this is a property PostHog adds to aid with debugging */
-    used_for_debug?: boolean
-}
-
 function transformDescription(description: string): React.ReactNode {
     if (!description.includes('\n') && !description.includes('`') && !description.includes('[')) {
         return description

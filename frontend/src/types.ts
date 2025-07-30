@@ -3807,13 +3807,15 @@ export interface SelectOptionWithChildren extends SelectOption {
 
 export interface CoreFilterDefinition {
     label: string
-    description?: string | JSX.Element
+    description?: string | ReactNode
     examples?: (string | number)[]
     /** System properties are hidden in properties table by default. */
     system?: boolean
     type?: PropertyType
     /** Virtual properties are not "sent as", because they are calculated from other properties or SQL expressions **/
     virtual?: boolean
+    /** whether this is a property PostHog adds to aid with debugging */
+    used_for_debug?: boolean
 }
 
 export interface TileParams {
