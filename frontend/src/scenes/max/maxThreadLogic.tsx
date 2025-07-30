@@ -56,6 +56,8 @@ export interface MaxThreadLogicProps {
     conversation?: ConversationDetail | null
 }
 
+export const USAGE_LIMIT_SENTENCE = "You've reached my usage limit for now."
+
 export const maxThreadLogic = kea<maxThreadLogicType>([
     path(['scenes', 'max', 'maxThreadLogic']),
 
@@ -357,7 +359,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                         }
 
                         if (e.status === 429) {
-                            relevantErrorMessage.content = `You've reached my usage limit for now. Please try again ${e.formattedRetryAfter}.`
+                            relevantErrorMessage.content = `${USAGE_LIMIT_SENTENCE} Please try again ${e.formattedRetryAfter}.`
                         }
 
                         if (e.status === 400 && e.data?.attr === 'content') {

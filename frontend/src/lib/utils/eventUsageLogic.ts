@@ -85,6 +85,7 @@ export enum InsightEventSource {
     Toast = 'toast',
     Browser = 'browser',
     AddDescription = 'add_insight_description',
+    Max = 'max',
 }
 
 export enum GraphSeriesAddedSource {
