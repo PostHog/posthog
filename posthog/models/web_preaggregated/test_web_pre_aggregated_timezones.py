@@ -29,11 +29,6 @@ from posthog.schema import (
 
 @snapshot_clickhouse_queries
 class TestTimezonePreAggregatedIntegration(WebAnalyticsPreAggregatedTestBase):
-    """
-    Test timezone-aware hourly bucketing in pre-aggregated tables.
-    All tests use BROWSER breakdown but with different team timezones.
-    """
-
     def setUp(self):
         super().setUp()
         self._create_test_tables()
@@ -177,16 +172,6 @@ class TestTimezonePreAggregatedIntegration(WebAnalyticsPreAggregatedTestBase):
     @parameterized.expand(
         [
             (
-                "UTC (UTC+00:00)",
-                "UTC",
-                # UTC timezone: all 4 events fall within 2024-01-15 in UTC
-                [
-                    ["Chrome", (2.0, None), (2.0, None), ""],  # user_0, user_3
-                    ["Firefox", (1.0, None), (1.0, None), ""],  # user_2
-                    ["Safari", (1.0, None), (1.0, None), ""],  # user_1
-                ],
-            ),
-            (
                 "Pacific (UTC-08:00)",
                 "America/Los_Angeles",
                 # Pacific timezone: 06:00 UTC = 22:00 PT (prev day), so only 3 events in date range
@@ -197,9 +182,9 @@ class TestTimezonePreAggregatedIntegration(WebAnalyticsPreAggregatedTestBase):
                 ],
             ),
             (
-                "Tokyo (UTC+09:00)",
-                "Asia/Tokyo",
-                # Tokyo timezone: All events appear to be included in the date range
+                "New York (UTC-05:00)",
+                "America/New_York",
+                # Eastern timezone: All events should fall within Jan 15 local time
                 [
                     ["Chrome", (2.0, None), (2.0, None), ""],  # user_0, user_3
                     ["Firefox", (1.0, None), (1.0, None), ""],  # user_2
@@ -207,9 +192,69 @@ class TestTimezonePreAggregatedIntegration(WebAnalyticsPreAggregatedTestBase):
                 ],
             ),
             (
-                "London (UTC+00:00)",
-                "Europe/London",
-                # London timezone in January = UTC+0 (GMT), same as UTC
+                "Sao Paulo (UTC-03:00)",
+                "America/Sao_Paulo",
+                # Brazil timezone: All events should fall within Jan 15 local time
+                [
+                    ["Chrome", (2.0, None), (2.0, None), ""],  # user_0, user_3
+                    ["Firefox", (1.0, None), (1.0, None), ""],  # user_2
+                    ["Safari", (1.0, None), (1.0, None), ""],  # user_1
+                ],
+            ),
+            (
+                "UTC (UTC+00:00)",
+                "UTC",
+                # UTC timezone: all 4 events fall within 2024-01-15 in UTC
+                [
+                    ["Chrome", (2.0, None), (2.0, None), ""],  # user_0, user_3
+                    ["Firefox", (1.0, None), (1.0, None), ""],  # user_2
+                    ["Safari", (1.0, None), (1.0, None), ""],  # user_1
+                ],
+            ),
+            (
+                "Berlin (UTC+01:00)",
+                "Europe/Berlin",
+                # Berlin timezone: All events to be included in the date range
+                [
+                    ["Chrome", (2.0, None), (2.0, None), ""],  # user_0, user_3
+                    ["Firefox", (1.0, None), (1.0, None), ""],  # user_2
+                    ["Safari", (1.0, None), (1.0, None), ""],  # user_1
+                ],
+            ),
+            (
+                "Africa/Cairo (UTC+02:00)",
+                "Africa/Cairo",
+                # Cairo timezone: All events to be included in the date range
+                [
+                    ["Chrome", (2.0, None), (2.0, None), ""],  # user_0, user_3
+                    ["Firefox", (1.0, None), (1.0, None), ""],  # user_2
+                    ["Safari", (1.0, None), (1.0, None), ""],  # user_1
+                ],
+            ),
+            (
+                "Moscow (UTC+03:00)",
+                "Europe/Moscow",
+                # Moscow timezone: All events to be included in the date range
+                [
+                    ["Chrome", (2.0, None), (2.0, None), ""],  # user_0, user_3
+                    ["Firefox", (1.0, None), (1.0, None), ""],  # user_2
+                    ["Safari", (1.0, None), (1.0, None), ""],  # user_1
+                ],
+            ),
+            (
+                "Pakistan (UTC+05:00)",
+                "Asia/Karachi",
+                # Pakistan timezone: All events to be included in the date range
+                [
+                    ["Chrome", (2.0, None), (2.0, None), ""],  # user_0, user_3
+                    ["Firefox", (1.0, None), (1.0, None), ""],  # user_2
+                    ["Safari", (1.0, None), (1.0, None), ""],  # user_1
+                ],
+            ),
+            (
+                "Tokyo (UTC+09:00)",
+                "Asia/Tokyo",
+                # Tokyo timezone: All events to be included in the date range
                 [
                     ["Chrome", (2.0, None), (2.0, None), ""],  # user_0, user_3
                     ["Firefox", (1.0, None), (1.0, None), ""],  # user_2
@@ -219,7 +264,17 @@ class TestTimezonePreAggregatedIntegration(WebAnalyticsPreAggregatedTestBase):
             (
                 "Sydney (UTC+11:00)",
                 "Australia/Sydney",
-                # Sydney timezone: All events appear to be included in the date range
+                # Sydney timezone: All events to be included in the date range
+                [
+                    ["Chrome", (2.0, None), (2.0, None), ""],  # user_0, user_3
+                    ["Firefox", (1.0, None), (1.0, None), ""],  # user_2
+                    ["Safari", (1.0, None), (1.0, None), ""],  # user_1
+                ],
+            ),
+            (
+                "Auckland (UTC+12:00)",
+                "Pacific/Auckland",
+                # Auckland timezone: All events to be included in the date range
                 [
                     ["Chrome", (2.0, None), (2.0, None), ""],  # user_0, user_3
                     ["Firefox", (1.0, None), (1.0, None), ""],  # user_2
