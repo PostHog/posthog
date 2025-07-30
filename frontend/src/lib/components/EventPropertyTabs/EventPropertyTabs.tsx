@@ -7,7 +7,7 @@ import { HTMLElementsDisplay } from 'lib/components/HTMLElementsDisplay/HTMLElem
 import { useValues } from 'kea'
 
 import { eventPropertyFilteringLogic } from 'lib/components/EventPropertyTabs/eventPropertyFilteringLogic'
-import { INTERNAL_EXCEPTION_PROPERTY_KEYS } from 'products/error_tracking/frontend/utils'
+import { INTERNAL_EXCEPTION_PROPERTY_KEYS } from '@posthog/products/error_tracking/frontend/utils'
 import { dayjs } from 'lib/dayjs'
 
 export interface TabContentComponentFnProps {
