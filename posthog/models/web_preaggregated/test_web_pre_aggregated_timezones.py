@@ -19,6 +19,7 @@ from posthog.test.base import (
     snapshot_clickhouse_queries,
 )
 from posthog.hogql_queries.web_analytics.stats_table import WebStatsTableQueryRunner
+from posthog.hogql_queries.web_analytics.test.test_web_stats_table import FloatAwareTestCase
 from posthog.schema import (
     DateRange,
     WebStatsTableQuery,
@@ -28,7 +29,7 @@ from posthog.schema import (
 
 
 @snapshot_clickhouse_queries
-class TestTimezonePreAggregatedIntegration(WebAnalyticsPreAggregatedTestBase):
+class TestTimezonePreAggregatedIntegration(WebAnalyticsPreAggregatedTestBase, FloatAwareTestCase):
     def setUp(self):
         super().setUp()
         self._create_test_tables()
@@ -176,9 +177,9 @@ class TestTimezonePreAggregatedIntegration(WebAnalyticsPreAggregatedTestBase):
                 "America/Los_Angeles",
                 # Pacific timezone: 06:00 UTC = 22:00 PT (prev day), so only 3 events in date range
                 [
-                    ["Chrome", (1.0, None), (1.0, None), ""],  # user_3 only (user_0 is prev day in PT)
-                    ["Firefox", (1.0, None), (1.0, None), ""],  # user_2
-                    ["Safari", (1.0, None), (1.0, None), ""],  # user_1
+                    ["Chrome", (1.0, None), (1.0, None), 1 / 3, ""],  # user_3 only (user_0 is prev day in PT)
+                    ["Firefox", (1.0, None), (1.0, None), 1 / 3, ""],  # user_2
+                    ["Safari", (1.0, None), (1.0, None), 1 / 3, ""],  # user_1
                 ],
             ),
             (
@@ -186,9 +187,9 @@ class TestTimezonePreAggregatedIntegration(WebAnalyticsPreAggregatedTestBase):
                 "America/New_York",
                 # Eastern timezone: All events should fall within Jan 15 local time
                 [
-                    ["Chrome", (2.0, None), (2.0, None), ""],  # user_0, user_3
-                    ["Firefox", (1.0, None), (1.0, None), ""],  # user_2
-                    ["Safari", (1.0, None), (1.0, None), ""],  # user_1
+                    ["Chrome", (2.0, None), (2.0, None), 1 / 2, ""],  # user_0, user_3
+                    ["Firefox", (1.0, None), (1.0, None), 1 / 4, ""],  # user_2
+                    ["Safari", (1.0, None), (1.0, None), 1 / 4, ""],  # user_1
                 ],
             ),
             (
@@ -196,9 +197,9 @@ class TestTimezonePreAggregatedIntegration(WebAnalyticsPreAggregatedTestBase):
                 "America/Sao_Paulo",
                 # Brazil timezone: All events should fall within Jan 15 local time
                 [
-                    ["Chrome", (2.0, None), (2.0, None), ""],  # user_0, user_3
-                    ["Firefox", (1.0, None), (1.0, None), ""],  # user_2
-                    ["Safari", (1.0, None), (1.0, None), ""],  # user_1
+                    ["Chrome", (2.0, None), (2.0, None), 1 / 2, ""],  # user_0, user_3
+                    ["Firefox", (1.0, None), (1.0, None), 1 / 4, ""],  # user_2
+                    ["Safari", (1.0, None), (1.0, None), 1 / 4, ""],  # user_1
                 ],
             ),
             (
@@ -206,9 +207,9 @@ class TestTimezonePreAggregatedIntegration(WebAnalyticsPreAggregatedTestBase):
                 "UTC",
                 # UTC timezone: all 4 events fall within 2024-01-15 in UTC
                 [
-                    ["Chrome", (2.0, None), (2.0, None), ""],  # user_0, user_3
-                    ["Firefox", (1.0, None), (1.0, None), ""],  # user_2
-                    ["Safari", (1.0, None), (1.0, None), ""],  # user_1
+                    ["Chrome", (2.0, None), (2.0, None), 1 / 2, ""],  # user_0, user_3
+                    ["Firefox", (1.0, None), (1.0, None), 1 / 4, ""],  # user_2
+                    ["Safari", (1.0, None), (1.0, None), 1 / 4, ""],  # user_1
                 ],
             ),
             (
@@ -216,9 +217,9 @@ class TestTimezonePreAggregatedIntegration(WebAnalyticsPreAggregatedTestBase):
                 "Europe/Berlin",
                 # Berlin timezone: All events to be included in the date range
                 [
-                    ["Chrome", (2.0, None), (2.0, None), ""],  # user_0, user_3
-                    ["Firefox", (1.0, None), (1.0, None), ""],  # user_2
-                    ["Safari", (1.0, None), (1.0, None), ""],  # user_1
+                    ["Chrome", (2.0, None), (2.0, None), 1 / 2, ""],  # user_0, user_3
+                    ["Firefox", (1.0, None), (1.0, None), 1 / 4, ""],  # user_2
+                    ["Safari", (1.0, None), (1.0, None), 1 / 4, ""],  # user_1
                 ],
             ),
             (
@@ -226,9 +227,9 @@ class TestTimezonePreAggregatedIntegration(WebAnalyticsPreAggregatedTestBase):
                 "Africa/Cairo",
                 # Cairo timezone: All events to be included in the date range
                 [
-                    ["Chrome", (2.0, None), (2.0, None), ""],  # user_0, user_3
-                    ["Firefox", (1.0, None), (1.0, None), ""],  # user_2
-                    ["Safari", (1.0, None), (1.0, None), ""],  # user_1
+                    ["Chrome", (2.0, None), (2.0, None), 1 / 2, ""],  # user_0, user_3
+                    ["Firefox", (1.0, None), (1.0, None), 1 / 4, ""],  # user_2
+                    ["Safari", (1.0, None), (1.0, None), 1 / 4, ""],  # user_1
                 ],
             ),
             (
@@ -236,9 +237,9 @@ class TestTimezonePreAggregatedIntegration(WebAnalyticsPreAggregatedTestBase):
                 "Europe/Moscow",
                 # Moscow timezone: All events to be included in the date range
                 [
-                    ["Chrome", (2.0, None), (2.0, None), ""],  # user_0, user_3
-                    ["Firefox", (1.0, None), (1.0, None), ""],  # user_2
-                    ["Safari", (1.0, None), (1.0, None), ""],  # user_1
+                    ["Chrome", (2.0, None), (2.0, None), 1 / 2, ""],  # user_0, user_3
+                    ["Firefox", (1.0, None), (1.0, None), 1 / 4, ""],  # user_2
+                    ["Safari", (1.0, None), (1.0, None), 1 / 4, ""],  # user_1
                 ],
             ),
             (
@@ -246,9 +247,9 @@ class TestTimezonePreAggregatedIntegration(WebAnalyticsPreAggregatedTestBase):
                 "Asia/Karachi",
                 # Pakistan timezone: All events to be included in the date range
                 [
-                    ["Chrome", (2.0, None), (2.0, None), ""],  # user_0, user_3
-                    ["Firefox", (1.0, None), (1.0, None), ""],  # user_2
-                    ["Safari", (1.0, None), (1.0, None), ""],  # user_1
+                    ["Chrome", (2.0, None), (2.0, None), 1 / 2, ""],  # user_0, user_3
+                    ["Firefox", (1.0, None), (1.0, None), 1 / 4, ""],  # user_2
+                    ["Safari", (1.0, None), (1.0, None), 1 / 4, ""],  # user_1
                 ],
             ),
             (
@@ -256,9 +257,9 @@ class TestTimezonePreAggregatedIntegration(WebAnalyticsPreAggregatedTestBase):
                 "Asia/Tokyo",
                 # Tokyo timezone: All events to be included in the date range
                 [
-                    ["Chrome", (2.0, None), (2.0, None), ""],  # user_0, user_3
-                    ["Firefox", (1.0, None), (1.0, None), ""],  # user_2
-                    ["Safari", (1.0, None), (1.0, None), ""],  # user_1
+                    ["Chrome", (2.0, None), (2.0, None), 1 / 2, ""],  # user_0, user_3
+                    ["Firefox", (1.0, None), (1.0, None), 1 / 4, ""],  # user_2
+                    ["Safari", (1.0, None), (1.0, None), 1 / 4, ""],  # user_1
                 ],
             ),
             (
@@ -266,9 +267,9 @@ class TestTimezonePreAggregatedIntegration(WebAnalyticsPreAggregatedTestBase):
                 "Australia/Sydney",
                 # Sydney timezone: All events to be included in the date range
                 [
-                    ["Chrome", (2.0, None), (2.0, None), ""],  # user_0, user_3
-                    ["Firefox", (1.0, None), (1.0, None), ""],  # user_2
-                    ["Safari", (1.0, None), (1.0, None), ""],  # user_1
+                    ["Chrome", (2.0, None), (2.0, None), 1 / 2, ""],  # user_0, user_3
+                    ["Firefox", (1.0, None), (1.0, None), 1 / 4, ""],  # user_2
+                    ["Safari", (1.0, None), (1.0, None), 1 / 4, ""],  # user_1
                 ],
             ),
             (
@@ -276,9 +277,9 @@ class TestTimezonePreAggregatedIntegration(WebAnalyticsPreAggregatedTestBase):
                 "Pacific/Auckland",
                 # Auckland timezone: All events to be included in the date range
                 [
-                    ["Chrome", (2.0, None), (2.0, None), ""],  # user_0, user_3
-                    ["Firefox", (1.0, None), (1.0, None), ""],  # user_2
-                    ["Safari", (1.0, None), (1.0, None), ""],  # user_1
+                    ["Chrome", (2.0, None), (2.0, None), 1 / 2, ""],  # user_0, user_3
+                    ["Firefox", (1.0, None), (1.0, None), 1 / 4, ""],  # user_2
+                    ["Safari", (1.0, None), (1.0, None), 1 / 4, ""],  # user_1
                 ],
             ),
         ]
