@@ -47,7 +47,6 @@ import {
     Experiment,
     FeatureFlagType,
     Group,
-    NotebookType,
     PersonProperty,
     PersonType,
     PropertyDefinition,
@@ -58,6 +57,7 @@ import {
 
 import { InlineHogQLEditor } from './InlineHogQLEditor'
 import type { taxonomicFilterLogicType } from './taxonomicFilterLogicType'
+import { NotebookType } from 'scenes/notebooks/types'
 
 export const eventTaxonomicGroupProps: Pick<TaxonomicFilterGroup, 'getPopoverHeader' | 'getIcon'> = {
     getPopoverHeader: (eventDefinition: EventDefinition): string => {
