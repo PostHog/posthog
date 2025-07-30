@@ -1,10 +1,10 @@
-import express from 'express'
 import { Server } from 'http'
 import { CompressionCodecs, CompressionTypes } from 'kafkajs'
 import SnappyCodec from 'kafkajs-snappy'
 import LZ4 from 'lz4-kafkajs'
 import * as schedule from 'node-schedule'
 import { Counter } from 'prom-client'
+import express from 'ultimate-express'
 
 import { getPluginServerCapabilities } from './capabilities'
 import { CdpApi } from './cdp/cdp-api'
@@ -14,6 +14,7 @@ import { CdpCyclotronWorkerHogFlow } from './cdp/consumers/cdp-cyclotron-worker-
 import { CdpEventsConsumer } from './cdp/consumers/cdp-events.consumer'
 import { CdpInternalEventsConsumer } from './cdp/consumers/cdp-internal-event.consumer'
 import { CdpLegacyEventsConsumer } from './cdp/consumers/cdp-legacy-event.consumer'
+import { CdpPersonUpdatesConsumer } from './cdp/consumers/cdp-person-updates-consumer'
 import { defaultConfig } from './config/config'
 import {
     KAFKA_EVENTS_PLUGIN_INGESTION,
@@ -209,6 +210,14 @@ export class PluginServer {
             if (capabilities.cdpInternalEvents) {
                 serviceLoaders.push(async () => {
                     const consumer = new CdpInternalEventsConsumer(hub)
+                    await consumer.start()
+                    return consumer.service
+                })
+            }
+
+            if (capabilities.cdpPersonUpdates) {
+                serviceLoaders.push(async () => {
+                    const consumer = new CdpPersonUpdatesConsumer(hub)
                     await consumer.start()
                     return consumer.service
                 })

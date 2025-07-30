@@ -869,7 +869,7 @@ class TestRootNodeUIContextMixin(ClickhouseTestMixin, BaseTest):
             query=TrendsQuery(series=[EventsNode(event="pageview")]),
         )
 
-        result = self.mixin._run_and_format_insight(insight, mock_query_runner, heading="#")
+        result = self.mixin._run_and_format_insight({}, insight, mock_query_runner, heading="#")
         expected = """# Insight: User Trends
 
 Description: Daily active users
@@ -898,7 +898,7 @@ Trend results: 100 users
             query=FunnelsQuery(series=[EventsNode(event="sign_up"), EventsNode(event="purchase")]),
         )
 
-        result = self.mixin._run_and_format_insight(insight, mock_query_runner, heading="#")
+        result = self.mixin._run_and_format_insight({}, insight, mock_query_runner, heading="#")
 
         expected = """# Insight: Conversion Funnel
 
@@ -930,7 +930,7 @@ Funnel results: 50% conversion
             ),
         )
 
-        result = self.mixin._run_and_format_insight(insight, mock_query_runner, heading="#")
+        result = self.mixin._run_and_format_insight({}, insight, mock_query_runner, heading="#")
         expected = """# Insight: ID 789
 
 Query schema:
@@ -956,7 +956,7 @@ Retention: 30% Day 7
             query=HogQLQuery(query="SELECT count() FROM events"),
         )
 
-        result = self.mixin._run_and_format_insight(insight, mock_query_runner, heading="#")
+        result = self.mixin._run_and_format_insight({}, insight, mock_query_runner, heading="#")
         expected = """# Insight: Custom Query
 
 Description: HogQL analysis
@@ -978,7 +978,7 @@ Query results: 42 events
 
         insight = MaxInsightContext(id="123", name="Unsupported", description=None, query=LifecycleQuery(series=[]))
 
-        result = self.mixin._run_and_format_insight(insight, mock_query_runner)
+        result = self.mixin._run_and_format_insight({}, insight, mock_query_runner)
 
         self.assertEqual(result, None)
         mock_query_runner.run_and_format_query.assert_not_called()
@@ -995,7 +995,7 @@ Query results: 42 events
             query=TrendsQuery(series=[EventsNode(event="pageview")]),
         )
 
-        result = self.mixin._run_and_format_insight(insight, mock_query_runner)
+        result = self.mixin._run_and_format_insight({}, insight, mock_query_runner)
 
         self.assertEqual(result, None)
 
@@ -1024,7 +1024,7 @@ Query results: 42 events
         # Create mock UI context
         ui_context = MaxUIContext(dashboards=[dashboard], insights=None)
 
-        result = self.mixin._format_ui_context(ui_context)
+        result = self.mixin._format_ui_context(ui_context, {})
 
         self.assertIn("Dashboard: Test Dashboard", result)
         self.assertIn("Description: Test dashboard description", result)
@@ -1040,7 +1040,7 @@ Query results: 42 events
         # Create mock UI context
         ui_context = MaxUIContext(dashboards=None, insights=None, events=[event1, event2], actions=None)
 
-        result = self.mixin._format_ui_context(ui_context)
+        result = self.mixin._format_ui_context(ui_context, {})
 
         self.assertIn('"page_view", "button_click"', result)
         self.assertIn("<events_context>", result)
@@ -1053,7 +1053,7 @@ Query results: 42 events
         # Create mock UI context
         ui_context = MaxUIContext(dashboards=None, insights=None, events=[event1, event2], actions=None)
 
-        result = self.mixin._format_ui_context(ui_context)
+        result = self.mixin._format_ui_context(ui_context, {})
 
         self.assertIn('"page_view: User viewed a page", "button_click: User clicked a button"', result)
         self.assertIn("<events_context>", result)
@@ -1066,7 +1066,7 @@ Query results: 42 events
         # Create mock UI context
         ui_context = MaxUIContext(dashboards=None, insights=None, events=None, actions=[action1, action2])
 
-        result = self.mixin._format_ui_context(ui_context)
+        result = self.mixin._format_ui_context(ui_context, {})
 
         self.assertIn('"Sign Up", "Purchase"', result)
         self.assertIn("<actions_context>", result)
@@ -1079,7 +1079,7 @@ Query results: 42 events
         # Create mock UI context
         ui_context = MaxUIContext(dashboards=None, insights=None, events=None, actions=[action1, action2])
 
-        result = self.mixin._format_ui_context(ui_context)
+        result = self.mixin._format_ui_context(ui_context, {})
 
         self.assertIn('"Sign Up: User creates account", "Purchase: User makes a purchase"', result)
         self.assertIn("<actions_context>", result)
@@ -1100,7 +1100,7 @@ Query results: 42 events
         # Create mock UI context
         ui_context = MaxUIContext(insights=[insight])
 
-        result = self.mixin._format_ui_context(ui_context)
+        result = self.mixin._format_ui_context(ui_context, {})
 
         self.assertIn("Insights", result)
         self.assertIn("Insight: Standalone Insight", result)
@@ -1108,12 +1108,12 @@ Query results: 42 events
 
     @patch("ee.hogai.graph.root.nodes.AssistantQueryExecutor")
     def test_run_insights_from_ui_context_empty(self, mock_query_runner_class):
-        result = self.mixin._format_ui_context(None)
+        result = self.mixin._format_ui_context({}, None)
         self.assertEqual(result, "")
 
         # Test with ui_context but no insights
         ui_context = MaxUIContext(insights=None)
-        result = self.mixin._format_ui_context(ui_context)
+        result = self.mixin._format_ui_context(ui_context, {})
         self.assertEqual(result, "")
 
     @patch("ee.hogai.graph.root.nodes.AssistantQueryExecutor")
@@ -1132,7 +1132,7 @@ Query results: 42 events
         # Create mock UI context
         ui_context = MaxUIContext(insights=[insight])
 
-        result = self.mixin._format_ui_context(ui_context)
+        result = self.mixin._format_ui_context(ui_context, {})
 
         self.assertIn("# Insights", result)
         self.assertIn("Test Insight", result)
@@ -1155,7 +1155,7 @@ Query results: 42 events
         # Create mock UI context
         ui_context = MaxUIContext(insights=[insight])
 
-        result = self.mixin._format_ui_context(ui_context)
+        result = self.mixin._format_ui_context(ui_context, {})
 
         # Should return empty string since the insight failed to run
         self.assertEqual(result, "")

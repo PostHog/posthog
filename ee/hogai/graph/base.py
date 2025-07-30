@@ -80,18 +80,6 @@ class BaseAssistantNode(Generic[StateType, PartialStateType], AssistantContextMi
             return find_last_ui_context(state.messages)
         return None
 
-    def _get_user_distinct_id(self, config: RunnableConfig) -> Any | None:
-        """
-        Extracts the user distinct ID from the runnable config.
-        """
-        return (config.get("configurable") or {}).get("distinct_id") or None
-
-    def _get_trace_id(self, config: RunnableConfig) -> Any | None:
-        """
-        Extracts the trace ID from the runnable config.
-        """
-        return (config.get("configurable") or {}).get("trace_id") or None
-
     def _get_billing_context(self, config: RunnableConfig) -> MaxBillingContext | None:
         """
         Extracts the billing context from the runnable config.

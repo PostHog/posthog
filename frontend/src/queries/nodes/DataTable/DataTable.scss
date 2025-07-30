@@ -3,6 +3,26 @@
         max-width: 20rem;
     }
 
+    .DataTable__row {
+        position: relative;
+        z-index: 0;
+    }
+
+    .DataTable__row td:first-child {
+        &::before {
+            position: absolute;
+            top: 0;
+            left: 0;
+            z-index: -1;
+            width: var(--data-table-fraction-fill, 0%);
+            height: 100%;
+            pointer-events: none;
+            content: '';
+            background-color: var(--bg-fill-info-secondary);
+            opacity: 0.5;
+        }
+    }
+
     .DataTable__row--highlight_once {
         animation: DataTable__highlight 2000ms ease-out;
     }
