@@ -478,6 +478,10 @@ def table_from_py_list(table_data: list[Any], schema: Optional[pa.Schema] = None
     Convert a list of Python dictionaries to a PyArrow Table.
     This is a wrapper around table_from_iterator for backward compatibility.
     """
+    if schema:
+        nullable_fields = [field.with_nullable(True) for field in schema]
+        schema = pa.schema(nullable_fields)
+
     return table_from_iterator(iter(table_data), schema=schema)
 
 
