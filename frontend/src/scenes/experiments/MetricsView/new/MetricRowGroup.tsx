@@ -1,22 +1,10 @@
-import { IconTrending } from '@posthog/icons'
-import { IconTrendingDown } from 'lib/lemon-ui/icons'
-import { humanFriendlyNumber } from 'lib/utils'
-import { useState } from 'react'
-import { ExperimentMetric, NewExperimentQueryResponse, ExperimentMetricType } from '~/queries/schema/schema-general'
+import { ExperimentMetric, NewExperimentQueryResponse } from '~/queries/schema/schema-general'
 import { Experiment, InsightType } from '~/types'
-import { ChartEmptyState } from '../shared/ChartEmptyState'
-import { ChartLoadingState } from '../shared/ChartLoadingState'
-import { useChartColors } from '../shared/colors'
-import { MetricHeader } from '../shared/MetricHeader'
 import { formatPercentageChange, getNiceTickValues } from '../shared/utils'
 import { MetricHeader } from '../shared/MetricHeader'
-import { DetailsButton } from './DetailsButton'
-import { DetailsModal } from './DetailsModal'
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef } from 'react'
 import { humanFriendlyNumber } from 'lib/utils'
 import { useChartColors } from '../shared/colors'
-import { useAxisScale } from './useAxisScale'
-import { GridLines } from './GridLines'
 import { ChartCell } from './ChartCell'
 import { createPortal } from 'react-dom'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
@@ -32,7 +20,7 @@ import { IconTrendingDown } from 'lib/lemon-ui/icons'
 import { IconTrending } from '@posthog/icons'
 import { ChartLoadingState } from '../shared/ChartLoadingState'
 import { ChartEmptyState } from '../shared/ChartEmptyState'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
+
 import {
     CELL_HEIGHT,
     CHART_CELL_VIEW_BOX_HEIGHT,
@@ -105,17 +93,6 @@ export function MetricRowGroup({
             : `${(primaryValue * 100).toFixed(2)}%`
     }
 
-    // Helper function to get tooltip content for value cells
-    const getValueTooltipContent = (): string => {
-        if (!metric || !('metric_type' in metric)) {
-            return ''
-        }
-
-        return metric.metric_type === ExperimentMetricType.MEAN
-            ? 'Total value / exposures'
-            : 'Total conversions / exposures'
-    }
-
     // Tooltip handlers
     const handleTooltipMouseEnter = (variantResult: ExperimentVariantResult): void => {
         setTooltipState((prev) => ({
@@ -159,13 +136,6 @@ export function MetricRowGroup({
             }))
         }
     }
-
-    // Effect to handle initial tooltip positioning
-    useEffect(() => {
-        if (tooltipState.isVisible && tooltipState.variantResult && tooltipRef.current) {
-            // Initial positioning will be handled by mouse move
-        }
-    }, [tooltipState.isVisible, tooltipState.variantResult])
 
     // Handle loading or error states
     if (isLoading || error || !result || !hasMinimumExposureForResults) {
@@ -369,15 +339,13 @@ export function MetricRowGroup({
                     } ${variantResults.length === 0 ? 'border-b' : ''}`}
                     style={{ height: `${CELL_HEIGHT}px`, maxHeight: `${CELL_HEIGHT}px` }}
                 >
-                    <Tooltip title={getValueTooltipContent()}>
-                        <div className="text-sm">
-                            <div className="text-text-primary">{formatData(baselineResult)}</div>
-                            <div className="text-xs text-muted">
-                                {humanFriendlyNumber(baselineResult.sum)} /{' '}
-                                {humanFriendlyNumber(baselineResult.number_of_samples || 0)}
-                            </div>
+                    <div className="text-sm">
+                        <div className="text-text-primary">{formatData(baselineResult)}</div>
+                        <div className="text-xs text-muted">
+                            {humanFriendlyNumber(baselineResult.sum)} /{' '}
+                            {humanFriendlyNumber(baselineResult.number_of_samples || 0)}
                         </div>
-                    </Tooltip>
+                    </div>
                 </td>
 
                 {/* Change (empty for baseline) */}
@@ -482,15 +450,13 @@ export function MetricRowGroup({
                             } ${isLastRow ? 'border-b' : ''}`}
                             style={{ height: `${CELL_HEIGHT}px`, maxHeight: `${CELL_HEIGHT}px` }}
                         >
-                            <Tooltip title={getValueTooltipContent()}>
-                                <div className="text-sm">
-                                    <div className="text-text-primary">{formatData(variant)}</div>
-                                    <div className="text-xs text-muted">
-                                        {humanFriendlyNumber(variant.sum)} /{' '}
-                                        {humanFriendlyNumber(variant.number_of_samples || 0)}
-                                    </div>
+                            <div className="text-sm">
+                                <div className="text-text-primary">{formatData(variant)}</div>
+                                <div className="text-xs text-muted">
+                                    {humanFriendlyNumber(variant.sum)} /{' '}
+                                    {humanFriendlyNumber(variant.number_of_samples || 0)}
                                 </div>
-                            </Tooltip>
+                            </div>
                         </td>
 
                         {/* Change */}
