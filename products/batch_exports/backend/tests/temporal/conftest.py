@@ -139,7 +139,7 @@ async def activities(request):
         return ACTIVITIES
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="module")
 def event_loop():
     loop = asyncio.new_event_loop()
     yield loop
