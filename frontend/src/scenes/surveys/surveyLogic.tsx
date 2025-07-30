@@ -1228,7 +1228,7 @@ export const surveyLogic = kea<surveyLogicType>([
             },
         ],
     }),
-    selectors(({ actions }) => ({
+    selectors({
         timestampFilter: [
             (s) => [s.survey, s.dateRange],
             (survey: Survey, dateRange: SurveyDateRange): string => {
@@ -1374,8 +1374,8 @@ export const surveyLogic = kea<surveyLogicType>([
             },
         ],
         breadcrumbs: [
-            (s) => [s.survey, s.enabledFlags],
-            (survey: Survey, enabledFlags: FeatureFlagsSet): Breadcrumb[] => [
+            (s) => [s.survey],
+            (survey: Survey): Breadcrumb[] => [
                 {
                     key: Scene.Surveys,
                     name: 'Surveys',
@@ -1384,12 +1384,6 @@ export const surveyLogic = kea<surveyLogicType>([
                 {
                     key: [Scene.Survey, survey?.id || 'new'],
                     name: survey.name,
-                    onRename:
-                        enabledFlags[FEATURE_FLAGS.NEW_SCENE_LAYOUT] && survey.id !== 'new'
-                            ? async (name: string) => {
-                                  actions.updateSurvey({ id: survey.id, name })
-                              }
-                            : undefined,
                 },
             ],
         ],
@@ -1791,7 +1785,7 @@ export const surveyLogic = kea<surveyLogicType>([
                 return defaultRates
             },
         ],
-    })),
+    }),
     forms(({ actions, props, values }) => ({
         survey: {
             defaults: { ...NEW_SURVEY } as NewSurvey | Survey,

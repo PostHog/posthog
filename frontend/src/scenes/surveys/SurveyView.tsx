@@ -1,6 +1,6 @@
 import './SurveyView.scss'
 
-import { IconGraph, IconPencil, IconTrash } from '@posthog/icons'
+import { IconGraph, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonDivider } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
@@ -30,12 +30,14 @@ import {
     SurveyType,
 } from '~/types'
 
+import { SceneCommonButtons } from 'lib/components/Scenes/SceneCommonButtons'
+import { SceneFile } from 'lib/components/Scenes/SceneFile'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { ProductIntentContext } from 'lib/utils/product-intents'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { DuplicateToProjectModal, DuplicateToProjectTrigger } from 'scenes/surveys/DuplicateToProjectModal'
-import { SurveysDisabledBanner } from './SurveySettings'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import {
     ScenePanel,
     ScenePanelActions,
@@ -43,11 +45,7 @@ import {
     ScenePanelDivider,
     ScenePanelMetaInfo,
 } from '~/layout/scenes/SceneLayout'
-import { SceneCommonButtons } from 'lib/components/Scenes/SceneCommonButtons'
-import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
-import { SceneDescription } from 'lib/components/Scenes/SceneDescription'
-import { SceneName } from 'lib/components/Scenes/SceneName'
-import { SceneFile } from 'lib/components/Scenes/SceneFile'
+import { SurveysDisabledBanner } from './SurveySettings'
 const RESOURCE_TYPE = 'survey'
 
 export function SurveyView({ id }: { id: string }): JSX.Element {
@@ -320,38 +318,10 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                             />
                         </ScenePanelCommonActions>
                         <ScenePanelMetaInfo>
-                            <SceneName
-                                defaultValue={survey.name || ''}
-                                onSave={(value) => updateSurvey({ id: id, name: value })}
-                                dataAttrKey={RESOURCE_TYPE}
-                            />
-
-                            <SceneDescription
-                                defaultValue={survey.description || ''}
-                                onSave={(value) =>
-                                    updateSurvey({
-                                        id: id,
-                                        description: value,
-                                        intentContext: ProductIntentContext.SURVEY_EDITED,
-                                    })
-                                }
-                                dataAttrKey={RESOURCE_TYPE}
-                                optional
-                            />
-
                             <SceneFile dataAttrKey={RESOURCE_TYPE} />
                         </ScenePanelMetaInfo>
                         <ScenePanelDivider />
                         <ScenePanelActions>
-                            <ButtonPrimitive
-                                menuItem
-                                data-attr={`${RESOURCE_TYPE}-edit`}
-                                onClick={() => editingSurvey(true)}
-                            >
-                                <IconPencil />
-                                Edit survey
-                            </ButtonPrimitive>
-                            <ScenePanelDivider />
                             <ButtonPrimitive
                                 menuItem
                                 variant="danger"
