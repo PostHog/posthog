@@ -28,6 +28,7 @@ from posthog.models.utils import UUIDT
 from posthog.user_permissions import UserPermissions
 from posthog.caching.login_device_cache import check_and_cache_login_device
 from posthog.geoip import get_geoip_properties
+from posthog.event_usage import report_user_action
 
 logger = structlog.get_logger(__name__)
 
@@ -485,6 +486,7 @@ def login_from_new_device_notification(
     )
     message.add_recipient(user.email)
     message.send()
+    report_user_action(user=user, event="login notification sent")
 
 
 def get_users_for_orgs_with_no_ingested_events(org_created_from: datetime, org_created_to: datetime) -> list[User]:
