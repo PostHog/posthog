@@ -197,6 +197,7 @@ class PartialAssistantState(_SharedAssistantState):
 class AssistantNodeName(StrEnum):
     START = START
     END = END
+    BILLING = "billing"
     MEMORY_INITIALIZER = "memory_initializer"
     MEMORY_INITIALIZER_INTERRUPT = "memory_initializer_interrupt"
     MEMORY_ONBOARDING = "memory_onboarding"
