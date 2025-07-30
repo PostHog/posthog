@@ -1802,7 +1802,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
 
         # Simulate a chunk from OpenAI Responses API (list format)
         list_chunk = AIMessageChunk(content=[{"type": "text", "text": "new content from o3"}])
-        langgraph_state = {"langgraph_node": AssistantNodeName.DEEP_RESEARCH_PLANNER}
+        langgraph_state = {"langgraph_node": AssistantNodeName.ROOT}
 
         update = ("messages", (list_chunk, langgraph_state))
         assistant._process_message_update(update)
@@ -1836,7 +1836,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
 
         # Add first list chunk
         chunk1 = AIMessageChunk(content=[{"type": "text", "text": "First part"}])
-        langgraph_state = {"langgraph_node": AssistantNodeName.DEEP_RESEARCH_PLANNER}
+        langgraph_state = {"langgraph_node": AssistantNodeName.ROOT}
         update = ("messages", (chunk1, langgraph_state))
         assistant._process_message_update(update)
 
