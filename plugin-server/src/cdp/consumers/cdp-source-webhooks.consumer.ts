@@ -12,11 +12,29 @@ import {
     HogFunctionInvocationGlobals,
     HogFunctionType,
 } from '../types'
+import { createAddLogFunction } from '../utils'
 import { createInvocation, createInvocationResult } from '../utils/invocation-utils'
 import { CdpConsumerBase } from './cdp-base.consumer'
 
 const getFirstHeaderValue = (value: string | string[] | undefined): string | undefined => {
     return Array.isArray(value) ? value[0] : value
+}
+
+export const getCustomHttpResponse = (
+    result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>
+): {
+    status: number
+    body: Record<string, any> | string
+} | null => {
+    if (typeof result.execResult === 'object' && result.execResult && 'httpResponse' in result.execResult) {
+        const httpResponse = result.execResult.httpResponse as Record<string, any>
+        return {
+            status: 'status' in httpResponse && typeof httpResponse.status === 'number' ? httpResponse.status : 500,
+            body: 'body' in httpResponse ? httpResponse.body : '',
+        }
+    }
+
+    return null
 }
 
 export class SourceWebhookError extends Error {
@@ -121,9 +139,16 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
             // Run the initial step - this allows functions not using fetches to respond immediately
             result = await this.hogExecutor.execute(invocation)
 
+            const addLog = createAddLogFunction(result.logs)
+
             // Queue any queued work here. This allows us to enable delayed work like fetching eventually without blocking the API.
             if (!result.finished) {
                 await this.cyclotronJobQueue.queueInvocationResults([result])
+            }
+
+            const customHttpResponse = getCustomHttpResponse(result)
+            if (customHttpResponse) {
+                addLog('error', `Responded with response status - ${customHttpResponse.status}`)
             }
 
             void this.promiseScheduler.schedule(
@@ -145,6 +170,14 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
                     error: error.message,
                     logs: [{ level: 'error', message: error.message, timestamp: DateTime.now() }],
                 }
+            )
+            void this.promiseScheduler.schedule(
+                Promise.all([
+                    this.hogFunctionMonitoringService.queueInvocationResults([result]).then(() => {
+                        return this.hogFunctionMonitoringService.produceQueuedMessages()
+                    }),
+                    this.hogWatcher.observeResults([result]),
+                ])
             )
         }
 

@@ -27,11 +27,25 @@ if(notEmpty(inputs.auth_header) and notEquals(inputs.auth_header, request.header
 }
 
 if(empty(inputs.event)) {
-  throw Error('"event" cannot be empty')
+return {
+    'httpResponse': {
+      'status': 400,
+      'body': {
+        'error': '"event" cannot be empty',
+      }
+    }
+  }
 }
 
 if(empty(inputs.distinct_id)) {
-  throw Error('"distinct_id" cannot be empty')
+  return {
+    'httpResponse': {
+      'status': 400,
+      'body': {
+        'error': '"distinct_id" cannot be empty',
+      }
+    }
+  }
 }
 
 postHogCapture({
