@@ -19,6 +19,16 @@ const getFirstHeaderValue = (value: string | string[] | undefined): string | und
     return Array.isArray(value) ? value[0] : value
 }
 
+export class SourceWebhookError extends Error {
+    status: number
+
+    constructor(status: number, message: string) {
+        super(message)
+        this.name = 'SourceWebhookError'
+        this.status = status
+    }
+}
+
 export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
     protected name = 'CdpSourceWebhooksConsumer'
     private cyclotronJobQueue: CyclotronJobQueue
@@ -44,12 +54,15 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
         return hogFunction
     }
 
-    public async processWebhook(webhookId: string, req: express.Request) {
+    public async processWebhook(
+        webhookId: string,
+        req: express.Request
+    ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
         const hogFunction = await this.getWebhook(webhookId)
 
         if (!hogFunction) {
             // TODO: Maybe better error types?
-            throw new Error('Not found')
+            throw new SourceWebhookError(404, 'Not found')
         }
 
         const headers: Record<string, string> = {}
