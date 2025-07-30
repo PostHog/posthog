@@ -9,7 +9,8 @@ import { AIEventExpanded } from 'scenes/session-recordings/player/inspector/comp
 import { AutocaptureImageTab, autocaptureToImage } from 'lib/utils/autocapture-previews'
 import { HTMLElementsDisplay } from 'lib/components/HTMLElementsDisplay/HTMLElementsDisplay'
 import { useValues } from 'kea'
-import { eventPropertyFilteringLogic } from 'scenes/session-recordings/player/inspector/components/eventPropertyFilteringLogic'
+
+import { eventPropertyFilteringLogic } from 'lib/components/EventPropertyTabs/eventPropertyFilteringLogic'
 
 export const EventPropertyTabs = ({ event }: { event: Omit<EventType, 'distinct_id'> }): JSX.Element => {
     const isAIEvent = event.event === '$ai_generation' || event.event === '$ai_span' || event.event === '$ai_trace'
