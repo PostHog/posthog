@@ -25,33 +25,31 @@ function EmailTemplaterField({
 }): JSX.Element {
     const { logicProps } = useValues(emailTemplaterLogic)
 
-    if (field === 'from') {
-        return (
-            <CyclotronJobInputIntegration
-                schema={{
-                    type: 'email',
-                    key: 'email',
-                    label: 'Email address',
-                    integration: 'email',
-                    required: true,
-                    default: '',
-                    secret: false,
-                    description: 'The email address to send the email from.',
-                }}
-            />
-        )
-    }
-
     return (
         <div className="flex items-center">
             <LemonLabel className={error ? 'text-danger' : ''}>{capitalizeFirstLetter(field)}</LemonLabel>
-            <CodeEditorInline
-                embedded
-                className="flex-1"
-                globals={logicProps.variables}
-                value={value}
-                onChange={onChange}
-            />
+            {field === 'from' ? (
+                <CyclotronJobInputIntegration
+                    schema={{
+                        type: 'email',
+                        key: 'email',
+                        label: 'Email address',
+                        integration: 'email',
+                        required: true,
+                        default: '',
+                        secret: false,
+                        description: 'The email address to send the email from.',
+                    }}
+                />
+            ) : (
+                <CodeEditorInline
+                    embedded
+                    className="flex-1"
+                    globals={logicProps.variables}
+                    value={value}
+                    onChange={onChange}
+                />
+            )}
         </div>
     )
 }
