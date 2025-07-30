@@ -3604,9 +3604,3 @@ export const externalDataSources = [
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
-
-export interface InsightQueryMetadata {
-    events: string[]
-    /**  @format date-time */
-    updated_at: string
-}

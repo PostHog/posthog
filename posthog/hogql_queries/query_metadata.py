@@ -3,7 +3,7 @@ from typing import Any, Union, TypeVar
 
 from django.core.exceptions import ValidationError
 from django.core.validators import URLValidator
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 from posthog.cache_utils import cache_for
 from posthog.models import Action, Team
@@ -30,7 +30,6 @@ from posthog.schema import (
     StickinessActorsQuery,
     FunnelCorrelationQuery,
     EventsQuery,
-    InsightQueryMetadata,
     FunnelExclusionEventsNode,
     FunnelExclusionActionsNode,
 )
@@ -38,6 +37,14 @@ from posthog.utils import get_from_dict_or_attr
 from posthog.hogql_queries.query_runner import RunnableQueryNode
 
 T = TypeVar("T", bound=BaseModel)
+
+
+class InsightQueryMetadata(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    events: list[str]
+    updated_at: datetime
 
 
 class QueryEventsExtractor:

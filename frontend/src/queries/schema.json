@@ -13472,23 +13472,6 @@
             ],
             "type": "string"
         },
-        "InsightQueryMetadata": {
-            "additionalProperties": false,
-            "properties": {
-                "events": {
-                    "items": {
-                        "type": "string"
-                    },
-                    "type": "array"
-                },
-                "updated_at": {
-                    "format": "date-time",
-                    "type": "string"
-                }
-            },
-            "required": ["events", "updated_at"],
-            "type": "object"
-        },
         "InsightQueryNode": {
             "discriminator": {
                 "propertyName": "kind"
