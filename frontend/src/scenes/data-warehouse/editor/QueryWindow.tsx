@@ -23,6 +23,8 @@ import { QueryTabs } from './QueryTabs'
 import { draftsLogic } from './draftsLogic'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 interface QueryWindowProps {
     onSetMonacoAndEditor: (monaco: Monaco, editor: importedEditor.IStandaloneCodeEditor) => void
@@ -71,6 +73,7 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
     const { updatingDataWarehouseSavedQuery } = useValues(dataWarehouseViewsLogic)
     const { sidebarWidth } = useValues(editorSizingLogic)
     const { resetDefaultSidebarWidth } = useActions(editorSizingLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const [editingViewDisabledReason, EditingViewButtonIcon] = useMemo(() => {
         if (updatingDataWarehouseSavedQuery) {
@@ -152,7 +155,7 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
             <div className="flex flex-row justify-start align-center w-full pl-2 pr-2 bg-white dark:bg-black border-b">
                 <RunButton />
                 <LemonDivider vertical />
-                {isDraft && (
+                {isDraft && featureFlags[FEATURE_FLAGS.EDITOR_DRAFTS] && (
                     <>
                         <LemonButton
                             type="tertiary"
@@ -222,16 +225,18 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
                 )}
                 {editingView && !isDraft && activeModelUri && (
                     <>
-                        <LemonButton
-                            type="tertiary"
-                            size="xsmall"
-                            id="sql-editor-query-window-save-draft"
-                            onClick={() => {
-                                saveDraft(activeModelUri, queryInput, editingView.id)
-                            }}
-                        >
-                            Save draft
-                        </LemonButton>
+                        {featureFlags[FEATURE_FLAGS.EDITOR_DRAFTS] && (
+                            <LemonButton
+                                type="tertiary"
+                                size="xsmall"
+                                id="sql-editor-query-window-save-draft"
+                                onClick={() => {
+                                    saveDraft(activeModelUri, queryInput, editingView.id)
+                                }}
+                            >
+                                Save draft
+                            </LemonButton>
+                        )}
                         <LemonButton
                             onClick={() =>
                                 updateView({

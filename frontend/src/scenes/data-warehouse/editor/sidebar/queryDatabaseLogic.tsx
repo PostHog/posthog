@@ -25,6 +25,8 @@ import { dataWarehouseViewsLogic } from '../../saved_queries/dataWarehouseViewsL
 import { viewLinkLogic } from '../../viewLinkLogic'
 import type { queryDatabaseLogicType } from './queryDatabaseLogicType'
 import { draftsLogic } from '../draftsLogic'
+import { featureFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 export type EditorSidebarTreeRef = React.RefObject<LemonTreeRef> | null
 
@@ -338,6 +340,8 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
             ['dataWarehouseSavedQueries', 'dataWarehouseSavedQueryMapById', 'dataWarehouseSavedQueriesLoading'],
             draftsLogic,
             ['drafts', 'draftsResponseLoading', 'hasMoreDrafts'],
+            featureFlagLogic,
+            ['featureFlags'],
         ],
         actions: [
             viewLinkLogic,
@@ -490,6 +494,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 s.relevantManagedViews,
                 s.relevantDrafts,
                 s.searchTerm,
+                s.featureFlags,
             ],
             (
                 relevantPosthogTables: [DatabaseSchemaTable, FuseSearchMatch[] | null][],
@@ -497,7 +502,8 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 relevantSavedQueries: [DataWarehouseSavedQuery, FuseSearchMatch[] | null][],
                 relevantManagedViews: [DatabaseSchemaManagedViewTable, FuseSearchMatch[] | null][],
                 relevantDrafts: [DataWarehouseSavedQueryDraft, FuseSearchMatch[] | null][],
-                searchTerm: string
+                searchTerm: string,
+                featureFlags: FeatureFlagsSet
             ): TreeDataItem[] => {
                 if (!searchTerm) {
                     return []
@@ -549,9 +555,11 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 })
 
                 // Add drafts
-                relevantDrafts.forEach(([draft, matches]) => {
-                    draftsChildren.push(createDraftNode(draft, matches, true))
-                })
+                if (featureFlags[FEATURE_FLAGS.EDITOR_DRAFTS]) {
+                    relevantDrafts.forEach(([draft, matches]) => {
+                        draftsChildren.push(createDraftNode(draft, matches, true))
+                    })
+                }
 
                 const searchResults: TreeDataItem[] = []
 
@@ -590,31 +598,25 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 s.dataWarehouseTables,
                 s.dataWarehouseSavedQueries,
                 s.managedViews,
-                s.searchTerm,
-                s.searchTreeData,
                 s.databaseLoading,
                 s.dataWarehouseSavedQueriesLoading,
                 s.drafts,
                 s.draftsResponseLoading,
                 s.hasMoreDrafts,
+                s.featureFlags,
             ],
             (
                 posthogTables: DatabaseSchemaTable[],
                 dataWarehouseTables: DatabaseSchemaDataWarehouseTable[],
                 dataWarehouseSavedQueries: DataWarehouseSavedQuery[],
                 managedViews: DatabaseSchemaManagedViewTable[],
-                searchTerm: string,
-                searchTreeData: TreeDataItem[],
                 databaseLoading: boolean,
                 dataWarehouseSavedQueriesLoading: boolean,
                 drafts: DataWarehouseSavedQueryDraft[],
                 draftsResponseLoading: boolean,
-                hasMoreDrafts: boolean
+                hasMoreDrafts: boolean,
+                featureFlags: FeatureFlagsSet
             ): TreeDataItem[] => {
-                if (searchTerm) {
-                    return searchTreeData
-                }
-
                 const sourcesChildren: TreeDataItem[] = []
 
                 // Add loading indicator for sources if still loading
@@ -692,21 +694,8 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
 
                 const draftsChildren: TreeDataItem[] = []
 
-                if (draftsResponseLoading && drafts.length === 0) {
-                    draftsChildren.push({
-                        id: 'drafts-loading/',
-                        name: 'Loading...',
-                        displayName: <>Loading...</>,
-                        icon: <Spinner />,
-                        disableSelect: true,
-                        type: 'loading-indicator',
-                    })
-                } else {
-                    drafts.forEach((draft) => {
-                        draftsChildren.push(createDraftNode(draft))
-                    })
-
-                    if (drafts.length > 0 && draftsResponseLoading) {
+                if (featureFlags[FEATURE_FLAGS.EDITOR_DRAFTS]) {
+                    if (draftsResponseLoading && drafts.length === 0) {
                         draftsChildren.push({
                             id: 'drafts-loading/',
                             name: 'Loading...',
@@ -715,22 +704,39 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                             disableSelect: true,
                             type: 'loading-indicator',
                         })
-                    } else if (hasMoreDrafts) {
-                        draftsChildren.push({
-                            id: 'drafts-load-more/',
-                            name: 'Load more...',
-                            displayName: <>Load more...</>,
-                            icon: <IconPlus />,
-                            onClick: () => {
-                                actions.loadMoreDrafts()
-                            },
+                    } else {
+                        drafts.forEach((draft) => {
+                            draftsChildren.push(createDraftNode(draft))
                         })
+
+                        if (drafts.length > 0 && draftsResponseLoading) {
+                            draftsChildren.push({
+                                id: 'drafts-loading/',
+                                name: 'Loading...',
+                                displayName: <>Loading...</>,
+                                icon: <Spinner />,
+                                disableSelect: true,
+                                type: 'loading-indicator',
+                            })
+                        } else if (hasMoreDrafts) {
+                            draftsChildren.push({
+                                id: 'drafts-load-more/',
+                                name: 'Load more...',
+                                displayName: <>Load more...</>,
+                                icon: <IconPlus />,
+                                onClick: () => {
+                                    actions.loadMoreDrafts()
+                                },
+                            })
+                        }
                     }
                 }
 
                 return [
                     createTopLevelFolderNode('sources', sourcesChildren, false, <IconPlug />),
-                    createTopLevelFolderNode('drafts', draftsChildren, false),
+                    ...(featureFlags[FEATURE_FLAGS.EDITOR_DRAFTS]
+                        ? [createTopLevelFolderNode('drafts', draftsChildren, false)]
+                        : []),
                     createTopLevelFolderNode('views', viewsChildren),
                     createTopLevelFolderNode('managed-views', managedViewsChildren),
                 ]
@@ -869,9 +875,11 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
             draftsFuse.setCollection(drafts)
         },
     }),
-    events(({ actions }) => ({
+    events(({ actions, values }) => ({
         afterMount: () => {
-            actions.loadDrafts()
+            if (values.featureFlags[FEATURE_FLAGS.EDITOR_DRAFTS]) {
+                actions.loadDrafts()
+            }
         },
     })),
 ])

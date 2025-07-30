@@ -23,8 +23,15 @@ import api from 'lib/api'
 import { draftsLogic } from '../draftsLogic'
 
 export const QueryDatabase = (): JSX.Element => {
-    const { treeData, expandedFolders, expandedSearchFolders, searchTerm, joinsByFieldName, editingDraftId } =
-        useValues(queryDatabaseLogic)
+    const {
+        treeData,
+        searchTreeData,
+        expandedFolders,
+        expandedSearchFolders,
+        searchTerm,
+        joinsByFieldName,
+        editingDraftId,
+    } = useValues(queryDatabaseLogic)
     const {
         setExpandedFolders,
         toggleFolderOpen,
@@ -55,7 +62,8 @@ export const QueryDatabase = (): JSX.Element => {
     return (
         <LemonTree
             ref={treeRef}
-            data={treeData}
+            // TODO: Can move this to treedata selector but selectors are maxed out on dependencies
+            data={searchTerm ? searchTreeData : treeData}
             expandedItemIds={searchTerm ? expandedSearchFolders : expandedFolders}
             onSetExpandedItemIds={searchTerm ? setExpandedSearchFolders : setExpandedFolders}
             onFolderClick={(folder, isExpanded) => {
