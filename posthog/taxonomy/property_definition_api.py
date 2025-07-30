@@ -94,7 +94,7 @@ class PropertyDefinitionQuerySerializer(serializers.Serializer):
     )
 
     exclude_hidden = serializers.BooleanField(
-        help_text="Whether to exclude hidden properties",
+        help_text="Whether to exclude properties marked as hidden",
         required=False,
         default=False,
     )
