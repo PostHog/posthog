@@ -230,8 +230,6 @@ export class HogWatcherService2 {
         })
 
         // We apply the costs and return the existing states so we can calculate those that need a state change
-        // We still need to retrieve the
-
         const res = await this.redis.usePipeline({ name: 'updateRateLimits' }, (pipeline) => {
             for (const functionCost of Object.values(functionCosts)) {
                 pipeline.get(`${REDIS_KEY_STATE}/${functionCost.functionId}`)
