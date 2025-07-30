@@ -89,9 +89,9 @@ export const draftsLogic = kea<draftsLogicType>([
             actions.saveAsDraftSuccess(draft, tab)
         },
         updateDraft: async ({ draft }) => {
-            await api.dataWarehouseSavedQueryDrafts.update(draft.id, draft)
+            const updatedDraft = await api.dataWarehouseSavedQueryDrafts.update(draft.id, draft)
             lemonToast.success('Draft updated')
-            const newDrafts = values.drafts.map((d) => (d.id === draft.id ? draft : d))
+            const newDrafts = values.drafts.map((d) => (d.id === draft.id ? updatedDraft : d))
             actions.setDrafts(newDrafts)
         },
         deleteDraft: async ({ draftId }) => {
@@ -113,11 +113,11 @@ export const draftsLogic = kea<draftsLogicType>([
         saveOrUpdateDraft: async ({ query, viewId, draftId, activeTab }) => {
             try {
                 if (draftId) {
-                    await api.dataWarehouseSavedQueryDrafts.update(draftId, {
+                    const updatedDraft = await api.dataWarehouseSavedQueryDrafts.update(draftId, {
                         query,
                     })
                     lemonToast.success('Draft updated')
-                    const newDrafts = values.drafts.map((d) => (d.id === draftId ? { ...d, query } : d))
+                    const newDrafts = values.drafts.map((d) => (d.id === draftId ? updatedDraft : d))
                     actions.setDrafts(newDrafts)
                 } else {
                     const existingDrafts = await api.dataWarehouseSavedQueryDrafts.list()
