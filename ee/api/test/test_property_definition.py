@@ -12,9 +12,11 @@ from rest_framework import status
 from posthog.constants import AvailableFeature
 from posthog.models import ActivityLog, EventProperty, Tag
 from posthog.models.property_definition import PropertyDefinition
+from posthog.test.base import APIBaseTest
 
 from ee.models.license import License, LicenseManager
 from ee.models.property_definition import EnterprisePropertyDefinition
+from ee.api.ee_property_definition import EnterprisePropertyDefinitionSerializer
 
 
 class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
@@ -625,7 +627,6 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         self.assertIn("hidden_property2", property_names)
 
     def test_enterprise_serializer_is_optimized_field(self):
-        """Test that the enterprise serializer correctly sets is_optimized field"""
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
             plan="enterprise", valid_until=timezone.datetime(2500, 1, 19, 3, 14, 7)
         )
@@ -636,7 +637,6 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         ]
         self.team.organization.save()
 
-        # Create optimized properties
         optimized_props = [
             ("$entry_pathname", PropertyDefinition.Type.SESSION),
             ("$end_pathname", PropertyDefinition.Type.SESSION),
@@ -650,7 +650,6 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         for prop_name, prop_type in optimized_props:
             EnterprisePropertyDefinition.objects.create(team=self.team, name=prop_name, type=prop_type)
 
-        # Create non-optimized properties
         non_optimized_props = [
             ("custom_prop", PropertyDefinition.Type.EVENT),
             ("another_custom", PropertyDefinition.Type.EVENT),
@@ -659,47 +658,38 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         for prop_name, prop_type in non_optimized_props:
             EnterprisePropertyDefinition.objects.create(team=self.team, name=prop_name, type=prop_type)
 
-        # Test session properties
         response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?type=session")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         results = response.json()["results"]
         session_prop_results = {r["name"]: r["is_optimized"] for r in results}
-
-        # Check optimized session properties
         optimized_session_names = [name for name, ptype in optimized_props if ptype == PropertyDefinition.Type.SESSION]
         for prop_name in optimized_session_names:
-            self.assertIn(prop_name, session_prop_results)
-            self.assertTrue(session_prop_results[prop_name], f"Session property {prop_name} should be optimized")
+            assert prop_name in session_prop_results
+            assert session_prop_results[prop_name]
 
         # Test event properties
         response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?type=event")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         results = response.json()["results"]
         event_prop_results = {r["name"]: r["is_optimized"] for r in results}
 
-        # Check optimized event properties
         optimized_event_names = [name for name, ptype in optimized_props if ptype == PropertyDefinition.Type.EVENT]
         for prop_name in optimized_event_names:
-            if prop_name in event_prop_results:  # May not be in results if limit is applied
-                self.assertTrue(event_prop_results[prop_name], f"Event property {prop_name} should be optimized")
+            if prop_name in event_prop_results:
+                assert event_prop_results[prop_name]
 
-        # Check non-optimized event properties
         non_optimized_event_names = [
             name for name, ptype in non_optimized_props if ptype == PropertyDefinition.Type.EVENT
         ]
         for prop_name in non_optimized_event_names:
-            if prop_name in event_prop_results:  # May not be in results if limit is applied
-                self.assertFalse(event_prop_results[prop_name], f"Event property {prop_name} should not be optimized")
+            if prop_name in event_prop_results:
+                assert not event_prop_results[prop_name]
 
     def test_enterprise_serializer_get_is_optimized_method(self):
-        """Test the enterprise serializer's get_is_optimized method directly"""
-        from ee.api.ee_property_definition import EnterprisePropertyDefinitionSerializer
-
         serializer = EnterprisePropertyDefinitionSerializer()
 
-        # Test optimized properties
         optimized_props = [
             "$entry_pathname",
             "$end_pathname",
@@ -721,19 +711,17 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
             )
 
             is_optimized = serializer.get_is_optimized(prop)
-            self.assertTrue(is_optimized, f"Property {prop_name} should be detected as optimized")
+            assert is_optimized
 
             prop.delete()  # Clean up
 
-        # Test non-optimized properties
         non_optimized_props = ["custom_prop", "another_prop", "$some_other_prop"]
-
         for prop_name in non_optimized_props:
             prop = EnterprisePropertyDefinition.objects.create(
                 team=self.team, name=prop_name, type=PropertyDefinition.Type.EVENT
             )
 
             is_optimized = serializer.get_is_optimized(prop)
-            self.assertFalse(is_optimized, f"Property {prop_name} should not be detected as optimized")
+            assert not is_optimized
 
             prop.delete()  # Clean up
