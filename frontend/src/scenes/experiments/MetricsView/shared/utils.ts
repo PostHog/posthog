@@ -207,30 +207,30 @@ export function getDeltaPercent(result: ExperimentVariantResult): number {
     return getDelta(result) * 100
 }
 
-export interface PercentageChangeResult {
+export interface DeltaPercentageResult {
     text: string
     isSignificant?: boolean
     isPositive?: boolean
-    pointEstimate?: number
+    delta?: number
 }
 
-export function formatPercentageChange(result: ExperimentVariantResult): PercentageChangeResult {
-    const pointEstimate = getDelta(result)
+export function formatDeltaPercentage(result: ExperimentVariantResult): DeltaPercentageResult {
+    const delta = getDelta(result)
     if (!getVariantInterval(result)) {
         return {
             text: '—',
             isSignificant: false,
             isPositive: undefined,
-            pointEstimate: undefined,
+            delta: undefined,
         }
     }
 
-    const pointEstimatePercent = getDeltaPercent(result).toFixed(2)
+    const deltaPercent = getDeltaPercent(result).toFixed(2)
 
     return {
-        text: `${pointEstimate > 0 ? '+' : ''}${pointEstimatePercent}%`,
+        text: `${delta > 0 ? '+' : ''}${deltaPercent}%`,
         isSignificant: result.significant,
-        isPositive: pointEstimate > 0,
-        pointEstimate,
+        isPositive: delta > 0,
+        delta: delta,
     }
 }

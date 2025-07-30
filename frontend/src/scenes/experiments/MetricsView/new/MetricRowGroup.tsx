@@ -9,7 +9,7 @@ import { ChartEmptyState } from '../shared/ChartEmptyState'
 import { ChartLoadingState } from '../shared/ChartLoadingState'
 import { useChartColors } from '../shared/colors'
 import { MetricHeader } from '../shared/MetricHeader'
-import { formatPercentageChange, getNiceTickValues, type ExperimentVariantResult } from '../shared/utils'
+import { formatDeltaPercentage, getNiceTickValues, type ExperimentVariantResult } from '../shared/utils'
 import { ChartCell } from './ChartCell'
 
 import {
@@ -326,7 +326,7 @@ export function MetricRowGroup({
 
             {/* Variant rows */}
             {variantResults.map((variant, index) => {
-                const changeResult = formatPercentageChange(variant)
+                const changeResult = formatDeltaPercentage(variant)
                 const isLastRow = index === variantResults.length - 1
 
                 return (
