@@ -688,7 +688,10 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                                   ),
                               }
                             : {
-                                  endpoint: `api/environments/${teamId}/sessions/property_definitions`,
+                                  endpoint: combineUrl(
+                                      `api/environments/${teamId}/sessions/property_definitions`,
+                                      enableOptimizedHints ? { enable_optimized_hints: 'true' } : {}
+                                  ).url,
                               }),
                         getName: (option: any) => option.name,
                         getValue: (option) => option.name,

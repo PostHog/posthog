@@ -744,11 +744,11 @@ class TestGetLazySessionProperties(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(
             results[0],
             {
-                "id": "$start_timestamp",
-                "is_numerical": False,
+                "id": "$autocapture_count",
+                "is_numerical": True,
                 "is_seen_on_filtered_events": None,
-                "name": "$start_timestamp",
-                "property_type": PropertyType.Datetime,
+                "name": "$autocapture_count",
+                "property_type": PropertyType.Numeric,
                 "tags": [],
                 "is_optimized": False,
             },
@@ -756,6 +756,45 @@ class TestGetLazySessionProperties(ClickhouseTestMixin, APIBaseTest):
 
     def test_source(self):
         results = get_lazy_session_table_properties_v2("source")
+        self.assertEqual(
+            results,
+            [
+                {
+                    "id": "$entry_gad_source",
+                    "is_numerical": False,
+                    "is_seen_on_filtered_events": None,
+                    "name": "$entry_gad_source",
+                    "property_type": PropertyType.String,
+                    "tags": [],
+                    "is_optimized": False,
+                },
+                {
+                    "id": "$entry_utm_source",
+                    "is_numerical": False,
+                    "is_seen_on_filtered_events": None,
+                    "name": "$entry_utm_source",
+                    "property_type": PropertyType.String,
+                    "tags": [],
+                    "is_optimized": False,
+                },
+            ],
+        )
+
+    def test_entry_utm(self):
+        results = get_lazy_session_table_properties_v2("entry utm")
+        self.assertEqual(
+            [result["name"] for result in results],
+            ["$entry_utm_campaign", "$entry_utm_content", "$entry_utm_medium", "$entry_utm_source", "$entry_utm_term"],
+        )
+
+    def test_can_get_values_for_all(self):
+        results = get_lazy_session_table_properties_v2(None)
+        for prop in results:
+            get_lazy_session_table_values_v2(key=prop["id"], team=self.team, search_term=None)
+
+    def test_optimized_hints_enabled(self):
+        results = get_lazy_session_table_properties_v2("source", enable_optimized_hints=True)
+        # When optimized hints are enabled, optimized properties should come first and have is_optimized=True
         self.assertEqual(
             results,
             [
@@ -779,18 +818,6 @@ class TestGetLazySessionProperties(ClickhouseTestMixin, APIBaseTest):
                 },
             ],
         )
-
-    def test_entry_utm(self):
-        results = get_lazy_session_table_properties_v2("entry utm")
-        self.assertEqual(
-            [result["name"] for result in results],
-            ["$entry_utm_source", "$entry_utm_campaign", "$entry_utm_medium", "$entry_utm_term", "$entry_utm_content"],
-        )
-
-    def test_can_get_values_for_all(self):
-        results = get_lazy_session_table_properties_v2(None)
-        for prop in results:
-            get_lazy_session_table_values_v2(key=prop["id"], team=self.team, search_term=None)
 
     def test_custom_channel_types(self):
         self.team.modifiers = {

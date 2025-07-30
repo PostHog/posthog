@@ -503,7 +503,7 @@ def join_events_table_to_sessions_table_v2(
     return join_expr
 
 
-def get_lazy_session_table_properties_v2(search: Optional[str]):
+def get_lazy_session_table_properties_v2(search: Optional[str], enable_optimized_hints: bool = False):
     # Import optimized properties from web analytics module
     from posthog.hogql_queries.web_analytics.pre_aggregated.properties import (
         BASE_SUPPORTED_PROPERTIES,
@@ -576,11 +576,16 @@ def get_lazy_session_table_properties_v2(search: Optional[str]):
             "property_type": get_property_type(field_name, field_definition),
             "is_seen_on_filtered_events": None,
             "tags": [],
-            "is_optimized": field_name in optimized_properties,
+            "is_optimized": enable_optimized_hints and field_name in optimized_properties,
         }
         for field_name, field_definition in LAZY_SESSIONS_FIELDS.items()
         if is_match(field_name)
     ]
+
+    if enable_optimized_hints:
+        results.sort(key=lambda x: (not x["is_optimized"], x["name"]))
+    else:
+        results.sort(key=lambda x: x["name"])
 
     return results
 
