@@ -51,6 +51,13 @@ export const isHogFunctionResult = (
     return 'hogFunction' in result.invocation
 }
 
+type PipelineResults = [Error | null, any][]
+
+const getPipelineResults = (res: PipelineResults, index: number, numOperations: number) => {
+    // pipeline results are just a big array of operation results so we need to slice out the correct parts
+    return res.slice(index * numOperations, index * numOperations + numOperations)
+}
+
 export class HogWatcherService2 {
     private costsMapping: HogFunctionTimingCosts
 
@@ -189,13 +196,16 @@ export class HogWatcherService2 {
             }
         })
 
+        if (!res) {
+            return
+        }
+
         const indexOffset = resetPool ? 3 : 1
+
         await Promise.all(
             changes.map(async ([hogFunction, state], index) => {
-                // We only trigger stateChange events if the value in redis actually changed
-                const previousState = Number(
-                    (res ? res[index * indexOffset][1] : undefined) ?? HogWatcherStateEnum.healthy
-                )
+                const [stateResult] = getPipelineResults(res, index, indexOffset)
+                const previousState = Number(stateResult[1] ?? HogWatcherStateEnum.healthy)
                 if (previousState !== state) {
                     await this.onStateChange({
                         hogFunction,
@@ -261,12 +271,18 @@ export class HogWatcherService2 {
             }
         })
 
+        if (!res) {
+            return
+        }
+
         const indexOffset = 3
 
         await Promise.all(
             Object.values(functionCosts).map(async (functionCost, index) => {
-                const currentState: HogWatcherStateEnum = res ? Number(res[index][1]) : HogWatcherStateEnum.healthy
-                const tokens = res ? Number(res[index + 1][1]) : this.hub.CDP_WATCHER_BUCKET_SIZE
+                const [stateResult, lockResult, tokenResult] = getPipelineResults(res, index, indexOffset)
+
+                const currentState: HogWatcherStateEnum = Number(stateResult[1] ?? HogWatcherStateEnum.healthy)
+                const tokens = Number(tokenResult[1] ?? this.hub.CDP_WATCHER_BUCKET_SIZE)
 
                 const newState = this.calculateNewState(tokens)
 
