@@ -1,5 +1,11 @@
 import { useChartColors } from '../shared/colors'
-import { type ExperimentVariantResult, getVariantInterval, isBayesianResult, valueToXCoordinate } from '../shared/utils'
+import {
+    type ExperimentVariantResult,
+    getVariantInterval,
+    getDelta,
+    isBayesianResult,
+    valueToXCoordinate,
+} from '../shared/utils'
 import { generateViolinPath } from '../legacy/violinUtils'
 import { BAR_HEIGHT, BAR_SPACING, SVG_EDGE_MARGIN, VIEW_BOX_WIDTH } from './constants'
 
@@ -65,8 +71,7 @@ export function VariantBar({
 
     const [lower, upper] = interval ? [interval[0], interval[1]] : [0, 0]
 
-    // For now, use the midpoint as delta (todo: check if this is correct)
-    const delta = interval ? (interval[0] + interval[1]) / 2 : 0
+    const delta = getDelta(variantResult)
 
     const hasEnoughData = !!interval
 

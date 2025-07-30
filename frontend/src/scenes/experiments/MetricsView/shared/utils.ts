@@ -210,3 +210,21 @@ export function formatPercentageChange(result: ExperimentVariantResult): Percent
         pointEstimate,
     }
 }
+
+export function getDeltaPercent(result: ExperimentVariantResult): number {
+    const interval = getVariantInterval(result)
+    if (!interval) {
+        return 0
+    }
+    const [lower, upper] = interval
+    return ((lower + upper) / 2) * 100
+}
+
+export function getDelta(result: ExperimentVariantResult): number {
+    const interval = getVariantInterval(result)
+    if (!interval) {
+        return 0
+    }
+    const [lower, upper] = interval
+    return (lower + upper) / 2
+}

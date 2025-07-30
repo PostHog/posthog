@@ -4,6 +4,7 @@ import {
     formatPValue,
     getIntervalLabel,
     getVariantInterval,
+    getDeltaPercent,
     isBayesianResult,
     valueToXCoordinate,
 } from '../shared/utils'
@@ -33,6 +34,7 @@ export function VariantTooltip({
     // Calculate SVG coordinates (same as VariantBar)
     const interval = getVariantInterval(variantResult)
     const [lower, upper] = interval ? [interval[0], interval[1]] : [0, 0]
+    const deltaPercent = getDeltaPercent(variantResult)
 
     const y = BAR_SPACING + (BAR_HEIGHT + BAR_SPACING) * index
     const x1 = valueToXCoordinate(lower, chartRadius, VIEW_BOX_WIDTH, SVG_EDGE_MARGIN)
@@ -102,15 +104,9 @@ export function VariantTooltip({
                         {variantResult.key === 'control' ? (
                             <em className="text-secondary">Baseline</em>
                         ) : (
-                            (() => {
-                                const deltaPercent = interval ? ((lower + upper) / 2) * 100 : 0
-                                const isPositive = deltaPercent > 0
-                                return (
-                                    <span className={isPositive ? 'text-success' : 'text-danger'}>
-                                        {`${isPositive ? '+' : ''}${deltaPercent.toFixed(2)}%`}
-                                    </span>
-                                )
-                            })()
+                            <span className={deltaPercent > 0 ? 'text-success' : 'text-danger'}>
+                                {`${deltaPercent > 0 ? '+' : ''}${deltaPercent.toFixed(2)}%`}
+                            </span>
                         )}
                     </span>
                 </div>

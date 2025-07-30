@@ -5,6 +5,7 @@ import {
     formatPValue,
     getIntervalLabel,
     getVariantInterval,
+    getDeltaPercent,
     isBayesianResult,
     type ExperimentVariantResult,
 } from '../shared/utils'
@@ -14,6 +15,7 @@ export const renderTooltipContent = (variantResult: ExperimentVariantResult): JS
     const [lower, upper] = interval ? [interval[0], interval[1]] : [0, 0]
     const intervalPercent = interval ? `[${(lower * 100).toFixed(2)}%, ${(upper * 100).toFixed(2)}%]` : 'N/A'
     const intervalLabel = getIntervalLabel(variantResult)
+    const deltaPercent = getDeltaPercent(variantResult)
 
     return (
         <div className="flex flex-col gap-1">
@@ -21,24 +23,10 @@ export const renderTooltipContent = (variantResult: ExperimentVariantResult): JS
                 <div className="font-semibold pb-2">{variantResult.key}</div>
                 {variantResult.key !== 'control' && (
                     <LemonTag
-                        type={
-                            !variantResult.significant
-                                ? 'muted'
-                                : (() => {
-                                      const interval = getVariantInterval(variantResult)
-                                      const deltaPercent = interval ? ((interval[0] + interval[1]) / 2) * 100 : 0
-                                      return deltaPercent > 0 ? 'success' : 'danger'
-                                  })()
-                        }
+                        type={!variantResult.significant ? 'muted' : deltaPercent > 0 ? 'success' : 'danger'}
                         size="medium"
                     >
-                        {!variantResult.significant
-                            ? 'Not significant'
-                            : (() => {
-                                  const interval = getVariantInterval(variantResult)
-                                  const deltaPercent = interval ? ((interval[0] + interval[1]) / 2) * 100 : 0
-                                  return deltaPercent > 0 ? 'Won' : 'Lost'
-                              })()}
+                        {!variantResult.significant ? 'Not significant' : deltaPercent > 0 ? 'Won' : 'Lost'}
                     </LemonTag>
                 )}
             </div>
@@ -71,15 +59,9 @@ export const renderTooltipContent = (variantResult: ExperimentVariantResult): JS
                     {variantResult.key === 'control' ? (
                         <em className="text-muted-alt">Baseline</em>
                     ) : (
-                        (() => {
-                            const deltaPercent = interval ? ((lower + upper) / 2) * 100 : 0
-                            const isPositive = deltaPercent > 0
-                            return (
-                                <span className={isPositive ? 'text-success' : 'text-danger'}>
-                                    {`${isPositive ? '+' : ''}${deltaPercent.toFixed(2)}%`}
-                                </span>
-                            )
-                        })()
+                        <span className={deltaPercent > 0 ? 'text-success' : 'text-danger'}>
+                            {`${deltaPercent > 0 ? '+' : ''}${deltaPercent.toFixed(2)}%`}
+                        </span>
                     )}
                 </span>
             </div>

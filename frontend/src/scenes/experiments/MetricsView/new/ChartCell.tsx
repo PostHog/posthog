@@ -1,5 +1,11 @@
 import { useChartColors } from '../shared/colors'
-import { type ExperimentVariantResult, getVariantInterval, isBayesianResult, getNiceTickValues } from '../shared/utils'
+import {
+    type ExperimentVariantResult,
+    getVariantInterval,
+    getDelta,
+    isBayesianResult,
+    getNiceTickValues,
+} from '../shared/utils'
 import { generateViolinPath } from '../legacy/violinUtils'
 import {
     SVG_EDGE_MARGIN,
@@ -38,7 +44,7 @@ export function ChartCell({
 
     const interval = getVariantInterval(variantResult)
     const [lower, upper] = interval ? [interval[0], interval[1]] : [0, 0]
-    const delta = interval ? (interval[0] + interval[1]) / 2 : 0
+    const delta = getDelta(variantResult)
     const hasEnoughData = !!interval
 
     // Position calculations
