@@ -148,7 +148,9 @@ def get_s3_key_prefix(inputs: S3InsertInputs) -> str:
     try:
         return inputs.prefix.format(**template_variables)
     except KeyError as e:
-        EXTERNAL_LOGGER.warning(f"The key prefix '{inputs.prefix}' contains invalid template variables: {str(e)}")
+        EXTERNAL_LOGGER.warning(
+            f"The key prefix '{inputs.prefix}' will be used as-is since it contains invalid template variables: {str(e)}"
+        )
         return inputs.prefix
 
 
