@@ -36,7 +36,7 @@ import { EmailService } from './messaging/email.service'
 const cdpHttpRequests = new Counter({
     name: 'cdp_http_requests',
     help: 'HTTP requests and their outcomes',
-    labelNames: ['status'],
+    labelNames: ['status', 'template_id'],
 })
 
 const cdpHttpRequestTiming = new Histogram({
@@ -532,6 +532,7 @@ export class HogExecutorService {
     async executeFetch(
         invocation: CyclotronJobInvocationHogFunction
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
+        const templateId = invocation.hogFunction.template_id ?? 'unknown'
         if (invocation.queueParameters?.type !== 'fetch') {
             throw new Error('Bad invocation')
         }
@@ -567,7 +568,7 @@ export class HogExecutorService {
         const [fetchError, fetchResponse] = await tryCatch(async () => await fetch(params.url, fetchParams))
         const duration = performance.now() - start
         cdpHttpRequestTiming.observe(duration)
-        cdpHttpRequests.inc({ status: fetchResponse?.status?.toString() ?? 'error' })
+        cdpHttpRequests.inc({ status: fetchResponse?.status?.toString() ?? 'error', template_id: templateId })
 
         result.invocation.state.timings.push({
             kind: 'async_function',
