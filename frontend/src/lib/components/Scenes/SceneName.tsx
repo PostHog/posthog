@@ -1,11 +1,9 @@
-import { IconCheck, IconX } from '@posthog/icons'
-import { useValues } from 'kea'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
-import { Label } from 'lib/ui/Label/Label'
 import { TextareaPrimitive } from 'lib/ui/TextareaPrimitive/TextareaPrimitive'
 import { useEffect, useState } from 'react'
-import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
-import { SceneInputProps } from './utils'
+import { ScenePanelLabel } from '~/layout/scenes/SceneLayout'
+import { SceneLoadingSkeleton } from './SceneLoadingSkeleton'
+import { SceneInputProps, SceneSaveCancelButtons } from './utils'
 
 type SceneNameProps = SceneInputProps
 
@@ -15,11 +13,9 @@ export function SceneName({
     dataAttrKey,
     optional = false,
     canEdit = true,
+    isLoading = false,
 }: SceneNameProps): JSX.Element {
-    const { breadcrumbs } = useValues(breadcrumbsLogic)
-    const lastBreadcrumb = breadcrumbs[breadcrumbs.length - 1]
-    const value = typeof lastBreadcrumb?.name === 'string' ? (lastBreadcrumb.name as string) : defaultValue
-    const [localValue, setLocalValue] = useState(value)
+    const [localValue, setLocalValue] = useState(defaultValue)
     const [localIsEditing, setLocalIsEditing] = useState(false)
     const [hasChanged, setHasChanged] = useState(false)
     const [error, setError] = useState<string | null>(null)
@@ -38,14 +34,21 @@ export function SceneName({
         } else {
             setError(null)
         }
-    }, [localValue, defaultValue])
+    }, [localValue, defaultValue, optional])
+
+    useEffect(() => {
+        if (!isLoading && !localIsEditing) {
+            setLocalValue(defaultValue)
+        }
+    }, [isLoading, defaultValue, localIsEditing])
+
+    if (isLoading) {
+        return <SceneLoadingSkeleton />
+    }
 
     return localIsEditing ? (
         <form onSubmit={handleSubmit} name="page-name-form" className="flex flex-col gap-1">
-            <div className="flex flex-col gap-0">
-                <Label intent="menu" htmlFor="page-name-input">
-                    Name
-                </Label>
+            <ScenePanelLabel htmlFor="page-name-input" title="Name">
                 <TextareaPrimitive
                     value={localValue}
                     onChange={(e) => {
@@ -56,52 +59,38 @@ export function SceneName({
                     data-attr={`${dataAttrKey}-name-input`}
                     autoFocus
                     error={!!error}
-                    className="-ml-1.5"
                 />
-            </div>
-            <div className="flex gap-1">
-                <ButtonPrimitive
-                    type="submit"
-                    variant="outline"
-                    disabled={!hasChanged || !!error}
-                    tooltip={error || (hasChanged ? 'Update name' : 'No changes to update')}
-                    data-attr={`${dataAttrKey}-name-update-button`}
-                >
-                    <IconCheck />
-                </ButtonPrimitive>
-                <ButtonPrimitive
-                    type="button"
-                    variant="outline"
-                    onClick={() => {
-                        setLocalValue(value)
-                        setLocalIsEditing(false)
-                    }}
-                    tooltip="Cancel"
-                >
-                    <IconX />
-                </ButtonPrimitive>
-            </div>
+            </ScenePanelLabel>
+
+            <SceneSaveCancelButtons
+                name="name"
+                onCancel={() => {
+                    setLocalValue(defaultValue)
+                    setLocalIsEditing(false)
+                }}
+                hasChanged={hasChanged}
+                error={error}
+                dataAttrKey={dataAttrKey}
+                isLoading={isLoading}
+            />
         </form>
     ) : (
-        <div className="flex flex-col gap-0">
-            <Label intent="menu">Name</Label>
-            <div className="-ml-1.5">
-                <ButtonPrimitive
-                    className="hyphens-auto flex gap-1 items-center"
-                    lang="en"
-                    onClick={() => setLocalIsEditing(true)}
-                    tooltip={canEdit ? 'Edit name' : 'Name is read-only'}
-                    autoHeight
-                    menuItem
-                    inert={!canEdit}
-                >
-                    {value !== '' ? (
-                        value
-                    ) : (
-                        <span className="text-tertiary font-normal">No name {optional ? '(optional)' : ''}</span>
-                    )}
-                </ButtonPrimitive>
-            </div>
-        </div>
+        <ScenePanelLabel title="Name">
+            <ButtonPrimitive
+                className="hyphens-auto flex gap-1 items-center"
+                lang="en"
+                onClick={() => setLocalIsEditing(true)}
+                tooltip={canEdit ? 'Edit name' : 'Name is read-only'}
+                autoHeight
+                menuItem
+                inert={!canEdit}
+            >
+                {localValue !== '' ? (
+                    localValue
+                ) : (
+                    <span className="text-tertiary font-normal">No name {optional ? '(optional)' : ''}</span>
+                )}
+            </ButtonPrimitive>
+        </ScenePanelLabel>
     )
 }

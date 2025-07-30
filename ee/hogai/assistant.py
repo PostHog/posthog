@@ -62,6 +62,7 @@ from posthog.schema import (
     AssistantMessageType,
     FailureMessage,
     HumanMessage,
+    MaxBillingContext,
     ReasoningMessage,
     VisualizationMessage,
 )
@@ -124,6 +125,7 @@ class Assistant:
     """Like a message chunk, but specifically for the reasoning headline (and just a plain string)."""
     _last_reasoning_headline: Optional[str]
     """Last emittted reasoning headline, to be able to carry it over."""
+    _billing_context: Optional[MaxBillingContext]
 
     def __init__(
         self,
@@ -138,6 +140,7 @@ class Assistant:
         is_new_conversation: bool = False,
         trace_id: Optional[str | UUID] = None,
         tool_call_partial_state: Optional[AssistantState] = None,
+        billing_context: Optional[MaxBillingContext] = None,
     ):
         self._team = team
         self._contextual_tools = contextual_tools or {}
@@ -165,6 +168,7 @@ class Assistant:
                     "conversation_id": str(self._conversation.id),
                     "is_first_conversation": is_new_conversation,
                     "$session_id": self._session_id,
+                    "assistant_mode": mode.value,
                 },
                 trace_id=trace_id,
             )
@@ -175,6 +179,7 @@ class Assistant:
         self._custom_update_ids = set()
         self._reasoning_headline_chunk = None
         self._last_reasoning_headline = None
+        self._billing_context = billing_context
 
     async def ainvoke(self) -> list[tuple[Literal[AssistantEventType.MESSAGE], AssistantMessageUnion]]:
         """Returns all messages in once without streaming."""
@@ -267,7 +272,16 @@ class Assistant:
 
                 if not isinstance(e, GenerationCanceled):
                     logger.exception("Error in assistant stream", error=e)
-                    posthoganalytics.capture_exception(e)
+                    posthoganalytics.capture_exception(
+                        e,
+                        distinct_id=self._user.distinct_id if self._user else None,
+                        properties={
+                            "$session_id": self._session_id,
+                            "$ai_trace_id": self._trace_id,
+                            "thread_id": self._conversation.id,
+                            "tag": "max_ai",
+                        },
+                    )
 
                     # This is an unhandled error, so we just stop further generation at this point
                     snapshot = await self._graph.aget_state(config)
@@ -288,10 +302,17 @@ class Assistant:
             "configurable": {
                 "thread_id": self._conversation.id,
                 "trace_id": self._trace_id,
+                "session_id": self._session_id,
                 "distinct_id": self._user.distinct_id if self._user else None,
                 "contextual_tools": self._contextual_tools,
                 "team": self._team,
                 "user": self._user,
+                "billing_context": self._billing_context,
+                # Metadata to be sent to PostHog SDK (error tracking, etc).
+                "sdk_metadata": {
+                    "assistant_mode": self._mode.value,
+                    "tag": "max_ai",
+                },
             },
         }
         return config
@@ -393,6 +414,8 @@ class Assistant:
                     return ReasoningMessage(content="Coming up with an insight")
                 if tool_call.name == "search_documentation":
                     return ReasoningMessage(content="Checking PostHog docs")
+                if tool_call.name == "retrieve_billing_information":
+                    return ReasoningMessage(content="Checking your billing data")
                 # This tool should be in CONTEXTUAL_TOOL_NAME_TO_TOOL, but it might not be in the rare case
                 # when the tool has been removed from the backend since the user's frontent was loaded
                 ToolClass = CONTEXTUAL_TOOL_NAME_TO_TOOL.get(tool_call.name)  # type: ignore

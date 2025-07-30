@@ -590,10 +590,8 @@
     <!-- PostHog JavaScript -->
     <script>
         // Project config from Django and helper functions
+        const survey = {{ survey_data | safe }};
         const projectConfig = {{ project_config_json | safe }};
-        const surveyName = "{{ name }}";
-        const surveyId = "{{ id }}";
-        const surveyAppearance = {{ appearance | safe }};
 
         const BLACK_TEXT_COLOR = '#020617'
 
@@ -883,8 +881,8 @@
         }
 
         // Apply survey appearance if available
-        if (surveyAppearance) {
-            applySurveyAppearance(surveyAppearance);
+        if (survey.appearance) {
+            applySurveyAppearance(survey.appearance);
         }
     </script>
     <script>
@@ -898,9 +896,20 @@
             api_host: projectConfig.api_host,
             disable_surveys_automatic_display: true,
             debug: searchParams.get('__posthog_debug__') === 'true',
+            // Disable all non-essential features
             advanced_disable_toolbar_metrics: true,
-            capture_pageview: false, // Don't capture pageviews for survey pages
-            capture_pageleave: false
+            capture_pageview: false,
+            capture_pageleave: false,
+            disable_session_recording: true,
+            autocapture: false,
+            rageclick: false,
+            disable_web_experiments: true,
+            enable_recording_console_log: false,
+            capture_performance: false,
+            capture_heatmaps: false,
+            capture_dead_clicks: false,
+            capture_exceptions: false,
+            advanced_disable_feature_flags: true,
         };
 
         const distinctID = searchParams.get('distinct_id');
@@ -919,7 +928,7 @@
         posthog.init(projectConfig.token, config);
 
         posthog.onSurveysLoaded(() => {
-            posthog.surveys["_renderExternalSurvey"](surveyId, '#posthog-survey-container');
+            posthog.surveys["_surveyManager"].renderSurvey(survey, document.getElementById('posthog-survey-container'));
         });
     </script>
 </body>

@@ -5,11 +5,10 @@ import { Spinner } from 'lib/lemon-ui/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { useCallback, useEffect, useState } from 'react'
 
-import { NotebookSyncStatus } from '~/types'
-
 import { notebookLogic, NotebookLogicProps } from './notebookLogic'
 import { notebookSettingsLogic } from './notebookSettingsLogic'
 import { IconBook } from '@posthog/icons'
+import { NotebookSyncStatus } from '../types'
 
 const syncStatusMap: Record<NotebookSyncStatus, { content: React.ReactNode; tooltip: React.ReactNode }> = {
     synced: {
@@ -68,6 +67,7 @@ export const NotebookSyncInfo = (props: NotebookLogicProps): JSX.Element | null 
             clearTimeout(t)
             clearDebounceTimeout()
         }
+        // oxlint-disable-next-line exhaustive-deps
     }, [syncStatus])
 
     if (!debouncedSyncStatus) {
