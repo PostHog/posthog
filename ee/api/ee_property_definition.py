@@ -45,25 +45,10 @@ class EnterprisePropertyDefinitionSerializer(TaggedItemSerializerMixin, serializ
         ]
 
     def get_is_optimized(self, obj):
-        # Import here to avoid circular imports
-        from posthog.hogql_queries.web_analytics.pre_aggregated.properties import (
-            BASE_SUPPORTED_PROPERTIES,
-            PATH_PROPERTIES,
-            VIRTUAL_PROPERTIES,
-            STATS_TABLE_SPECIFIC_PROPERTIES,
-            EVENT_PROPERTY_TO_FIELD,
-            SESSION_PROPERTY_TO_FIELD,
-        )
+        # Import locally to avoid potential circular imports between ee.api and hogql_queries
+        from posthog.hogql_queries.web_analytics.pre_aggregated.properties import get_all_optimized_properties
 
-        # Combine all optimized properties from the web analytics module
-        optimized_properties = set(
-            list(BASE_SUPPORTED_PROPERTIES.keys())
-            + list(PATH_PROPERTIES.keys())
-            + list(VIRTUAL_PROPERTIES.keys())
-            + list(STATS_TABLE_SPECIFIC_PROPERTIES.keys())
-            + list(EVENT_PROPERTY_TO_FIELD.keys())
-            + list(SESSION_PROPERTY_TO_FIELD.keys())
-        )
+        optimized_properties = get_all_optimized_properties()
         return obj.name in optimized_properties
 
     def validate(self, data):

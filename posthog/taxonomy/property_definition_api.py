@@ -24,23 +24,9 @@ from posthog.models import EventProperty, PropertyDefinition, User
 from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.models.utils import UUIDT
 from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP, PROPERTY_NAME_ALIASES
-from posthog.hogql_queries.web_analytics.pre_aggregated.properties import (
-    BASE_SUPPORTED_PROPERTIES,
-    PATH_PROPERTIES,
-    VIRTUAL_PROPERTIES,
-    STATS_TABLE_SPECIFIC_PROPERTIES,
-    EVENT_PROPERTY_TO_FIELD,
-    SESSION_PROPERTY_TO_FIELD,
-)
+from posthog.hogql_queries.web_analytics.pre_aggregated.properties import get_all_optimized_properties
 
-OPTIMIZED_PROPERTIES = set(
-    list(BASE_SUPPORTED_PROPERTIES.keys())
-    + list(PATH_PROPERTIES.keys())
-    + list(VIRTUAL_PROPERTIES.keys())
-    + list(STATS_TABLE_SPECIFIC_PROPERTIES.keys())
-    + list(EVENT_PROPERTY_TO_FIELD.keys())
-    + list(SESSION_PROPERTY_TO_FIELD.keys())
-)
+OPTIMIZED_PROPERTIES = get_all_optimized_properties()
 
 # list of all event properties defined in the taxonomy, that don't start with $
 EXCLUDED_EVENT_CORE_PROPERTIES = [

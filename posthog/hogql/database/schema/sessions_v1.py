@@ -29,6 +29,8 @@ from posthog.models.sessions.sql import (
     SELECT_SESSION_PROP_STRING_VALUES_SQL_WITH_FILTER,
 )
 from posthog.queries.insight import insight_sync_execute
+from posthog.schema import BounceRatePageViewMode
+from posthog.hogql_queries.web_analytics.pre_aggregated.properties import get_all_optimized_properties
 
 if TYPE_CHECKING:
     from posthog.models.team import Team
@@ -407,25 +409,7 @@ def join_events_table_to_sessions_table(
 
 
 def get_lazy_session_table_properties_v1(search: Optional[str]):
-    # Import optimized properties from web analytics module
-    from posthog.hogql_queries.web_analytics.pre_aggregated.properties import (
-        BASE_SUPPORTED_PROPERTIES,
-        PATH_PROPERTIES,
-        VIRTUAL_PROPERTIES,
-        STATS_TABLE_SPECIFIC_PROPERTIES,
-        EVENT_PROPERTY_TO_FIELD,
-        SESSION_PROPERTY_TO_FIELD,
-    )
-
-    # Combine all optimized properties from the web analytics module
-    optimized_properties = set(
-        list(BASE_SUPPORTED_PROPERTIES.keys())
-        + list(PATH_PROPERTIES.keys())
-        + list(VIRTUAL_PROPERTIES.keys())
-        + list(STATS_TABLE_SPECIFIC_PROPERTIES.keys())
-        + list(EVENT_PROPERTY_TO_FIELD.keys())
-        + list(SESSION_PROPERTY_TO_FIELD.keys())
-    )
+    optimized_properties = get_all_optimized_properties()
 
     # some fields shouldn't appear as properties
     hidden_fields = {

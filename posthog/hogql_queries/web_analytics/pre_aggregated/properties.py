@@ -87,3 +87,20 @@ SESSION_PROPERTY_TO_FIELD = {
     "$entry_pathname": "entry_pathname",
     "$end_pathname": "end_pathname",
 }
+
+
+def get_all_optimized_properties() -> set[str]:
+    """
+    Returns a set of all optimized property names from the web analytics module.
+
+    This function combines all the property sets that are considered optimized
+    for web analytics queries.
+    """
+    return set(
+        list(BASE_SUPPORTED_PROPERTIES.keys())
+        + list(PATH_PROPERTIES.keys())
+        + list(VIRTUAL_PROPERTIES.keys())
+        + list(STATS_TABLE_SPECIFIC_PROPERTIES.keys())
+        + list(EVENT_PROPERTY_TO_FIELD.keys())
+        + list(SESSION_PROPERTY_TO_FIELD.keys())
+    )
