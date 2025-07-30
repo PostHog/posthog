@@ -1050,7 +1050,9 @@ class ConcurrentS3Consumer(ConsumerFromStage):
     #     self.current_file_size = 0
 
 
-async def upload_manifest_file(inputs: S3InsertInputs, files_uploaded: list[str], manifest_key: str):
+async def upload_manifest_file(
+    inputs: S3InsertInputs, files_uploaded: collections.abc.Sequence[str], manifest_key: str
+):
     session = aioboto3.Session()
     async with session.client(
         "s3",
@@ -1062,5 +1064,5 @@ async def upload_manifest_file(inputs: S3InsertInputs, files_uploaded: list[str]
         await client.put_object(
             Bucket=inputs.bucket_name,
             Key=manifest_key,
-            Body=json.dumps({"files": files_uploaded}),
+            Body=json.dumps({"files": sorted(files_uploaded, key=lambda file_key: (len(file_key), file_key))}),
         )
