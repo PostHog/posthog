@@ -128,10 +128,8 @@ export const draftsLogic = kea<draftsLogicType>([
                             ...existingDraft,
                             query,
                         })
-                        lemonToast.success('Draft updated')
                     } else if (viewId && activeTab) {
                         actions.saveAsDraft(query, viewId, activeTab)
-                        lemonToast.success('Draft saved')
                     }
                 }
             } catch (e) {

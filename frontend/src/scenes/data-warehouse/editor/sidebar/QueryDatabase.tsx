@@ -39,11 +39,8 @@ export const QueryDatabase = (): JSX.Element => {
     } = useActions(queryDatabaseLogic)
     const { deleteDataWarehouseSavedQuery } = useActions(dataWarehouseViewsLogic)
 
-    const multitabLogic = multitabEditorLogic({
-        key: `hogQLQueryEditor/${router.values.location.pathname}`,
-    })
-    const { allTabs } = useValues(multitabLogic)
-    const { createTab, selectTab, setTabDraftId } = useActions(multitabLogic)
+    const { allTabs } = useValues(multitabEditorLogic)
+    const { createTab, selectTab, setTabDraftId } = useActions(multitabEditorLogic)
     const { dataWarehouseSavedQueryMapById } = useValues(dataWarehouseViewsLogic)
     const { deleteDraft } = useActions(draftsLogic)
 

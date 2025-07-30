@@ -1,6 +1,7 @@
 from posthog.test.base import APIBaseTest
 from posthog.warehouse.models.datawarehouse_saved_query_draft import DataWarehouseSavedQueryDraft
 from posthog.warehouse.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from posthog.models import Team
 
 
 class TestDataWarehouseSavedQueryDraft(APIBaseTest):
@@ -77,6 +78,8 @@ class TestDataWarehouseSavedQueryDraft(APIBaseTest):
         self.assertFalse(DataWarehouseSavedQueryDraft.objects.filter(id=draft.id).exists())
 
     def test_list_drafts(self):
+        team2 = Team.objects.create(organization=self.organization)
+
         draft = DataWarehouseSavedQueryDraft.objects.create(
             team=self.team,
             created_by=self.user,
@@ -86,8 +89,18 @@ class TestDataWarehouseSavedQueryDraft(APIBaseTest):
             },
             name="test_draft",
         )
+
         DataWarehouseSavedQueryDraft.objects.create(
             team=self.team,
+            query={
+                "kind": "HogQLQuery",
+                "query": "select event as event from events LIMIT 100",
+            },
+            name="test_draft_2",
+        )
+        DataWarehouseSavedQueryDraft.objects.create(
+            team=team2,
+            created_by=self.user,
             query={
                 "kind": "HogQLQuery",
                 "query": "select event as event from events LIMIT 100",

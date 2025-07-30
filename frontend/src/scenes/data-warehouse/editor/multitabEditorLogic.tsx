@@ -665,7 +665,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             }
 
             const nextUntitledNumber = getNextUntitledNumber(values.allTabs)
-            const tabName = view?.name || insight?.name || `${NEW_QUERY} ${nextUntitledNumber}`
+            const tabName = draft?.name || view?.name || insight?.name || `${NEW_QUERY} ${nextUntitledNumber}`
 
             if (props.monaco) {
                 const uri = props.monaco.Uri.parse(currentModelCount.toString())
@@ -680,7 +680,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                     uri,
                     view,
                     insight,
-                    name: draft?.name || tabName,
+                    name: tabName,
                     sourceQuery: insight?.query as DataVisualizationNode | undefined,
                     draft: draft,
                 })
@@ -688,7 +688,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                     uri,
                     view,
                     insight,
-                    name: draft?.name || tabName,
+                    name: tabName,
                     sourceQuery: insight?.query as DataVisualizationNode | undefined,
                     draft: draft,
                 })
@@ -700,7 +700,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                         view: uri.path === tab.uri.path ? view : tab.view,
                         insight: uri.path === tab.uri.path ? insight : tab.insight,
                         sourceQuery: uri.path === tab.uri.path ? insight?.query : tab.insight?.query,
-                        name: draft?.name || tab.name,
+                        name: tab.name,
                         response: tab.response,
                         draft: tab.draft,
                     }
@@ -715,7 +715,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                         path: currentModelCount.toString(),
                         view,
                         insight,
-                        name: draft?.name || tabName,
+                        name: tabName,
                         sourceQuery: insight?.query as DataVisualizationNode | undefined,
                         draft: draft,
                     },
