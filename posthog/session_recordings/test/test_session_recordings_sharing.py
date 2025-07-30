@@ -34,6 +34,14 @@ class TestSessionRecordingsSharing(APIBaseTest, ClickhouseTestMixin, QueryMatchi
         SessionRecording.objects.all().delete()
         Person.objects.all().delete()
 
+        self.session_id = str(uuid7())
+        self.produce_replay_summary(
+            "user",
+            self.session_id,
+            now() - relativedelta(days=1),
+            team_id=self.team.pk,
+        )
+
     def produce_replay_summary(
         self,
         distinct_id,
@@ -65,15 +73,7 @@ class TestSessionRecordingsSharing(APIBaseTest, ClickhouseTestMixin, QueryMatchi
     @patch("ee.session_recordings.session_recording_extensions.object_storage.copy_objects", return_value=2)
     @freeze_time("2023-01-01T12:00:00Z")
     def test_enable_sharing_creates_access_token(self, _mock_copy_objects: MagicMock) -> None:
-        session_id = str(uuid7())
-        self.produce_replay_summary(
-            "user",
-            session_id,
-            now() - relativedelta(days=1),
-            team_id=self.team.pk,
-        )
-
-        token = self._enable_sharing(session_id)
+        token = self._enable_sharing(self.session_id)
         assert isinstance(token, str) and len(token) > 0
 
     @parameterized.expand(
@@ -100,16 +100,9 @@ class TestSessionRecordingsSharing(APIBaseTest, ClickhouseTestMixin, QueryMatchi
     @patch("ee.session_recordings.session_recording_extensions.object_storage.copy_objects", return_value=2)
     @freeze_time("2023-01-01T12:00:00Z")
     def test_sharing_token_forbidden_access_scenarios(
-        self, _name: str, url_builder, mock_copy_objects: MagicMock
+        self, _name: str, url_builder, _mock_copy_objects: MagicMock
     ) -> None:
         self.other_team = create_team(organization=self.organization)
-        self.session_id = str(uuid7())
-        self.produce_replay_summary(
-            "user",
-            self.session_id,
-            now() - relativedelta(days=1),
-            team_id=self.team.pk,
-        )
 
         token = self._enable_sharing(self.session_id)
 
@@ -121,27 +114,18 @@ class TestSessionRecordingsSharing(APIBaseTest, ClickhouseTestMixin, QueryMatchi
 
     @patch("ee.session_recordings.session_recording_extensions.object_storage.copy_objects", return_value=2)
     @freeze_time("2023-01-01T12:00:00Z")
-    def test_sharing_token_allows_authorized_access(self, mock_copy_objects: MagicMock) -> None:
-        session_id = str(uuid7())
-
-        self.produce_replay_summary(
-            "user",
-            session_id,
-            now() - relativedelta(days=1),
-            team_id=self.team.pk,
-        )
-
+    def test_sharing_token_allows_authorized_access(self, _mock_copy_objects: MagicMock) -> None:
         token = self._enable_sharing(self.session_id)
 
         self.client.logout()
 
         response = self.client.get(
-            f"/api/projects/{self.team.id}/session_recordings/{session_id}?sharing_access_token={token}"
+            f"/api/projects/{self.team.id}/session_recordings/{self.session_id}?sharing_access_token={token}"
         )
         assert response.status_code == status.HTTP_200_OK
 
         assert response.json() == {
-            "id": session_id,
+            "id": self.session_id,
             "recording_duration": 0,
             "start_time": "2022-12-31T12:00:00Z",
             "end_time": "2022-12-31T12:00:00Z",
@@ -149,21 +133,12 @@ class TestSessionRecordingsSharing(APIBaseTest, ClickhouseTestMixin, QueryMatchi
 
     @patch("ee.session_recordings.session_recording_extensions.object_storage.copy_objects", return_value=2)
     @freeze_time("2023-01-01T12:00:00Z")
-    def test_sharing_token_allows_snapshot_access_within_ttl(self, mock_copy_objects: MagicMock) -> None:
-        session_id = str(uuid7())
-
-        self.produce_replay_summary(
-            "user",
-            session_id,
-            now() - relativedelta(days=1),
-            team_id=self.team.pk,
-        )
-
+    def test_sharing_token_allows_snapshot_access_within_ttl(self, _mock_copy_objects: MagicMock) -> None:
         token = self._enable_sharing(self.session_id)
 
         self.produce_replay_summary(
             "user",
-            session_id,
+            self.session_id,
             # a little before now, since the DB checks if the snapshot is within TTL and before now
             # if the test runs too quickly it looks like the snapshot is not there
             now() - relativedelta(seconds=1),
@@ -173,6 +148,6 @@ class TestSessionRecordingsSharing(APIBaseTest, ClickhouseTestMixin, QueryMatchi
         self.client.logout()
 
         response = self.client.get(
-            f"/api/projects/{self.team.id}/session_recordings/{session_id}/snapshots?sharing_access_token={token}"
+            f"/api/projects/{self.team.id}/session_recordings/{self.session_id}/snapshots?sharing_access_token={token}"
         )
-        assert response.status_code == status.HTTP_200_OK
+        assert response.status_code == status.HTTP_200_OK, response.json()

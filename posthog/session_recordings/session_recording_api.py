@@ -1306,7 +1306,10 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         max_blob_key: int,
     ) -> HttpResponse:
         with STREAM_RESPONSE_TO_CLIENT_HISTOGRAM.labels(blob_version="v2").time():
-            with timer("list_blocks__stream_blob_v2_to_client"):
+            with (
+                timer("list_blocks__stream_blob_v2_to_client"),
+                tracer.start_as_current_span("list_blocks__stream_blob_v2_to_client"),
+            ):
                 blocks = list_blocks(recording)
                 if not blocks:
                     raise exceptions.NotFound("Session recording not found")
@@ -1330,7 +1333,10 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
                     )
                     return block_index, None
 
-            with timer("fetch_blocks_parallel__stream_blob_v2_to_client"):
+            with (
+                timer("fetch_blocks_parallel__stream_blob_v2_to_client"),
+                tracer.start_as_current_span("fetch_blocks_parallel__stream_blob_v2_to_client"),
+            ):
                 tasks = [fetch_single_block_async(block_index) for block_index in range(min_blob_key, max_blob_key + 1)]
 
                 results = await asyncio.gather(*tasks)
