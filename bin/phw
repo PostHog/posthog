@@ -52,7 +52,7 @@ phw() {
     fi
 }
 
-# Add completion support for bash
+# Add completion support for bash and zsh
 if [ -n "$BASH_VERSION" ]; then
     _phw_completions() {
         local cur="${COMP_WORDS[COMP_CWORD]}"
@@ -83,6 +83,54 @@ if [ -n "$BASH_VERSION" ]; then
         fi
     }
     complete -F _phw_completions phw
+elif [ -n "$ZSH_VERSION" ]; then
+    # Advanced zsh completion function
+    _phw_complete() {
+        local -a commands
+        local context state line
+        
+        commands=(
+            'create:Create a new worktree for a branch'
+            'checkout:Checkout existing branch in a worktree'  
+            'pr:Checkout a PR in a worktree'
+            'remove:Remove a worktree'
+            'list:List all worktrees'
+        )
+        
+        case $CURRENT in
+            2)
+                _describe 'commands' commands
+                ;;
+            3)
+                case $words[2] in
+                    remove)
+                        # Complete with existing worktree names
+                        local -a worktrees
+                        worktrees=($(git worktree list 2>/dev/null | grep -E "\.worktrees/posthog" | sed 's|.*/posthog/||' | awk '{print $1}' 2>/dev/null))
+                        if [[ ${#worktrees[@]} -gt 0 ]]; then
+                            _describe 'worktrees' worktrees
+                        fi
+                        ;;
+                    checkout)
+                        # Complete with branch names
+                        local -a branches
+                        branches=($(git branch -a 2>/dev/null | grep -v HEAD | sed 's/^[* ]*//' | sed 's/remotes\/origin\///' | sort -u 2>/dev/null))
+                        if [[ ${#branches[@]} -gt 0 ]]; then
+                            _describe 'branches' branches
+                        fi
+                        ;;
+                esac
+                ;;
+        esac
+    }
+    
+    # Use compdef to register the completion function
+    if command -v compdef >/dev/null 2>&1; then
+        compdef _phw_complete phw
+    else
+        # Fallback to simple completion if compdef not available
+        compctl -k '(create checkout pr remove list)' phw
+    fi
 fi
 
 echo "PostHog worktree helper loaded. Use 'phw' command."
