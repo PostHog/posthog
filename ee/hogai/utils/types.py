@@ -109,6 +109,16 @@ class BaseState(BaseModel):
         return cls(**{k: v.default for k, v in cls.model_fields.items()})
 
 
+class BaseAssistantState(BaseState):
+    messages: Annotated[Sequence[AssistantMessageUnion], add_and_merge_messages] = Field(default=[])
+    graph_status: Literal["resumed", "interrupted", ""] | None = Field(default=None)
+    start_id: str | None = Field(default=None)
+
+
+class BasePartialAssistantState(BaseAssistantState):
+    messages: Sequence[AssistantMessageUnion] | None = Field(default=[])
+
+
 class _SharedAssistantState(BaseState):
     """
     The state of the root node.
