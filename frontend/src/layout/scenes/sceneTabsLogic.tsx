@@ -1,4 +1,4 @@
-import { actions, connect, kea, listeners, reducers, path } from 'kea'
+import { actions, connect, kea, listeners, reducers, path, afterMount } from 'kea'
 import { combineUrl, router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
@@ -25,7 +25,9 @@ export const sceneTabsLogic = kea<sceneTabsLogicType>([
         setTabs: (tabs: SceneTab[]) => ({ tabs }),
         newTab: true,
         removeTab: (tab: SceneTab) => ({ tab }),
+        activateTab: (tab: SceneTab) => ({ tab }),
         persistTab: (tab: SceneTab) => ({ tab }),
+        clickOnTab: (tab: SceneTab) => ({ tab }),
     }),
     reducers({
         tabs: [
@@ -33,19 +35,6 @@ export const sceneTabsLogic = kea<sceneTabsLogicType>([
             {
                 setTabs: (_, { tabs }) => tabs,
                 newTab: (state) => {
-                    const oldNewIndex = state.findIndex((t) => t.pathname === '/new')
-                    if (oldNewIndex !== -1) {
-                        return state.map((tab, i) =>
-                            i === oldNewIndex
-                                ? {
-                                      ...tab,
-                                      active: true,
-                                      title: 'New tab',
-                                  }
-                                : { ...tab, active: false }
-                        )
-                    }
-
                     return [
                         ...state.map((tab) => ({ ...tab, active: false, persist: true })),
                         {
@@ -72,18 +61,37 @@ export const sceneTabsLogic = kea<sceneTabsLogicType>([
                     return newState
                 },
                 persistTab: (state, { tab }) => {
-                    return state.map((t) => (t === tab ? { ...t, persist: true } : t))
+                    return state.map((t) => (t === tab && !t.persist ? { ...t, persist: true } : t))
+                },
+                activateTab: (state, { tab }) => {
+                    return state.map((t) =>
+                        t === tab && !t.active ? { ...t, active: true } : t.active ? { ...t, active: false } : t
+                    )
                 },
             },
         ],
     }),
     listeners(({ values, actions }) => ({
+        clickOnTab: ({ tab }) => {
+            const clickedIndex = values.tabs.findIndex((t) => t === tab)
+            actions.persistTab(tab)
+            // Activate before pushing so that the new title would be attributed to the right tab
+            if (!values.tabs[clickedIndex]?.active) {
+                actions.activateTab(tab)
+            }
+            router.actions.push(tab.pathname, tab.search, tab.hash)
+        },
         push: ({ url, hashInput, searchInput }) => {
             let { pathname, search, hash } = combineUrl(url, searchInput, hashInput)
             pathname = addProjectIdIfMissing(pathname)
-            const existingTabIndex = values.tabs.findIndex(
-                (tab) => tab.pathname === pathname && tab.search === search && tab.hash === hash
+            let existingTabIndex = values.tabs.findIndex(
+                (tab) => tab.pathname === pathname && tab.search === search && tab.hash === hash && tab.active
             )
+            if (existingTabIndex === -1) {
+                existingTabIndex = values.tabs.findIndex(
+                    (tab) => tab.pathname === pathname && tab.search === search && tab.hash === hash
+                )
+            }
             if (existingTabIndex !== -1) {
                 actions.setTabs(
                     values.tabs.map((tab, i) =>
@@ -211,4 +219,19 @@ export const sceneTabsLogic = kea<sceneTabsLogicType>([
             }
         },
     })),
+    afterMount(({ actions, values }) => {
+        if (values.tabs.length === 0) {
+            const { currentLocation } = router.values
+            actions.setTabs([
+                {
+                    persist: false,
+                    active: true,
+                    pathname: currentLocation.pathname,
+                    search: currentLocation.search,
+                    hash: currentLocation.hash,
+                    title: 'Loading...',
+                },
+            ])
+        }
+    }),
 ])

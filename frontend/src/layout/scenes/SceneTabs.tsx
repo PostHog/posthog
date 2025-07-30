@@ -1,7 +1,7 @@
 import { cn } from 'lib/utils/css-classes'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { IconPlus, IconX } from '@posthog/icons'
-import { router } from 'kea-router'
+
 import { useActions, useValues } from 'kea'
 import { sceneTabsLogic, SceneTab } from '~/layout/scenes/sceneTabsLogic'
 
@@ -41,12 +41,11 @@ interface SceneTabProps {
 
 function SceneTabComponent({ tab, className }: SceneTabProps): JSX.Element {
     const canRemoveTab = true
-    const { persistTab, removeTab } = useActions(sceneTabsLogic)
+    const { clickOnTab, removeTab } = useActions(sceneTabsLogic)
     return (
         <div
             onClick={() => {
-                persistTab(tab)
-                router.actions.push(tab.pathname, tab.search, tab.hash)
+                clickOnTab(tab)
             }}
             className={cn(
                 'deprecated-space-y-px p-1 flex border-b-2 flex-row items-center gap-1 hover:bg-surface-primary cursor-pointer',
