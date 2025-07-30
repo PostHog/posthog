@@ -210,23 +210,24 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
         ],
         enableOptimizedHints: [
             () => [(_, props) => props.enableOptimizedHints],
-            (enableOptimizedHints: boolean | undefined) => enableOptimizedHints ?? false,
+            (enableOptimizedHints) => !!enableOptimizedHints,
         ],
         taxonomicGroups: [
-            (s) => [
-                s.currentTeam,
-                s.currentProjectId,
-                s.groupAnalyticsTaxonomicGroups,
-                s.groupAnalyticsTaxonomicGroupNames,
-                s.eventNames,
-                s.schemaColumns,
-                s.metadataSource,
-                s.propertyFilters,
-                s.eventMetadataPropertyDefinitions,
-                s.eventOrdering,
-                s.maxContextOptions,
-                s.enableOptimizedHints,
-            ],
+            (s) =>
+                [
+                    s.currentTeam,
+                    s.currentProjectId,
+                    s.groupAnalyticsTaxonomicGroups,
+                    s.groupAnalyticsTaxonomicGroupNames,
+                    s.eventNames,
+                    s.schemaColumns,
+                    s.metadataSource,
+                    s.propertyFilters,
+                    s.eventMetadataPropertyDefinitions,
+                    s.eventOrdering,
+                    s.maxContextOptions,
+                    s.enableOptimizedHints,
+                ] as any, // workaround as Kea's SelectorTuple has a limit of 11 items: https://github.com/keajs/kea/blob/v3.1.5/src/types.ts#L162-L174
             (
                 currentTeam: TeamType,
                 projectId: number | null,
