@@ -1,5 +1,5 @@
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
-import { FilterType, NotebookNodeType, RecordingUniversalFilters, ReplayTabs } from '~/types'
+import { FilterType, RecordingUniversalFilters, ReplayTabs } from '~/types'
 import {
     DEFAULT_RECORDING_FILTERS,
     SessionRecordingPlaylistLogicProps,
@@ -10,13 +10,14 @@ import { BuiltLogic, useActions, useValues } from 'kea'
 import { useEffect, useMemo } from 'react'
 import { urls } from 'scenes/urls'
 import { notebookNodeLogic } from './notebookNodeLogic'
-import { JSONContent, NotebookNodeProps, NotebookNodeAttributeProperties } from '../Notebook/utils'
 import { SessionRecordingsPlaylist } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylist'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { sessionRecordingPlayerLogicType } from 'scenes/session-recordings/player/sessionRecordingPlayerLogicType'
 import { RecordingsUniversalFiltersEmbed } from 'scenes/session-recordings/filters/RecordingsUniversalFiltersEmbed'
 import { PostHogErrorBoundary } from 'posthog-js/react'
 import { IconComment } from '@posthog/icons'
+import { JSONContent } from 'lib/components/RichContentEditor/types'
+import { NotebookNodeAttributeProperties, NotebookNodeProps, NotebookNodeType } from '../types'
 
 const Component = ({
     attributes,
@@ -41,6 +42,7 @@ const Component = ({
                 })
             },
         }),
+        // oxlint-disable-next-line exhaustive-deps
         [playerKey, universalFilters, pinned]
     )
 
@@ -89,6 +91,7 @@ const Component = ({
                   ]
                 : []
         )
+        // oxlint-disable-next-line exhaustive-deps
     }, [activeSessionRecording])
 
     useEffect(() => {
@@ -104,6 +107,7 @@ const Component = ({
                 }, 100)
             },
         })
+        // oxlint-disable-next-line exhaustive-deps
     }, [])
 
     return <SessionRecordingsPlaylist {...recordingPlaylistLogicProps} />

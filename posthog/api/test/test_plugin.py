@@ -5,9 +5,9 @@ from unittest import mock
 
 from zoneinfo import ZoneInfo
 from freezegun import freeze_time
-from posthog.api.test.test_hog_function import _create_template_from_mock
 from rest_framework import status
 from posthog.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
+from posthog.cdp.templates.hog_function_template import sync_template_to_db
 from posthog.constants import FROZEN_POSTHOG_VERSION
 
 from posthog.models import Plugin, PluginConfig, PluginSourceFile
@@ -44,8 +44,8 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
 
     def setUp(self):
         super().setUp()
-        _create_template_from_mock(MOCK_NODE_TEMPLATES[12])
-        _create_template_from_mock(MOCK_NODE_TEMPLATES[16])
+        sync_template_to_db(MOCK_NODE_TEMPLATES[12])
+        sync_template_to_db(MOCK_NODE_TEMPLATES[16])
 
     def _get_plugin_activity(self, expected_status: int = status.HTTP_200_OK):
         activity = self.client.get(f"/api/organizations/@current/plugins/activity")
@@ -1137,7 +1137,10 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
         assert hog_function[0].type == "transformation"
         assert hog_function[0].name == "GeoIP"
         assert hog_function[0].description == "Enrich events with GeoIP data"
-        assert hog_function[0].filters == {"bytecode": ["_H", 1, 29]}  # Assert the compiled bytecode for empty filter
+        assert hog_function[0].filters == {
+            "source": "events",
+            "bytecode": ["_H", 1, 29],
+        }  # Assert the compiled bytecode for empty filter
         assert hog_function[0].hog == "return event"
         assert hog_function[0].enabled
         assert hog_function[0].team == self.team

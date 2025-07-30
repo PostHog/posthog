@@ -82,12 +82,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
 
         // New messages have been added since we last updated the thread
         if (!values.streamingActive && props.conversation.messages.length > values.threadMessageCount) {
-            actions.setThread(
-                props.conversation.messages.map((message) => ({
-                    ...message,
-                    status: 'completed',
-                }))
-            )
+            actions.setThread(updateMessagesWithCompletedStatus(props.conversation.messages))
         }
 
         // Check if the meta fields like the `status` field have changed
@@ -157,7 +152,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         ],
 
         threadRaw: [
-            (props.conversation?.messages ?? []) as ThreadMessage[],
+            updateMessagesWithCompletedStatus(props.conversation?.messages ?? []),
             {
                 addMessage: (state, { message }) => [...state, message],
                 replaceMessage: (state, { message, index }) => [
@@ -678,4 +673,14 @@ function removeConversationMessages({ messages, ...conversation }: ConversationD
  */
 function filterOutReasoningMessages(thread: ThreadMessage[]): ThreadMessage[] {
     return thread.filter((message) => !isReasoningMessage(message))
+}
+
+/**
+ * Update the status of the messages to completed, so the UI displays additional actions.
+ */
+function updateMessagesWithCompletedStatus(thread: RootAssistantMessage[]): ThreadMessage[] {
+    return thread.map((message) => ({
+        ...message,
+        status: 'completed',
+    }))
 }

@@ -1,9 +1,11 @@
 from typing import cast
 import uuid
 
-from rest_framework import response, serializers, viewsets
+from django.utils import timezone
+from rest_framework import response, serializers, status, viewsets
 from rest_framework.permissions import IsAuthenticated, BasePermission
 
+from posthog.api.utils import action
 from posthog.auth import PersonalAPIKeyAuthentication, SessionAuthentication
 from posthog.models import PersonalAPIKey, User
 from posthog.models.personal_api_key import hash_key_value
@@ -36,8 +38,9 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
             "scopes",
             "scoped_teams",
             "scoped_organizations",
+            "last_rolled_at",
         ]
-        read_only_fields = ["id", "value", "mask_value", "created_at", "last_used_at", "user_id"]
+        read_only_fields = ["id", "value", "mask_value", "created_at", "last_used_at", "user_id", "last_rolled_at"]
 
     def get_key_value(self, obj: PersonalAPIKey) -> str:
         return getattr(obj, "_value", None)  # type: ignore
@@ -111,6 +114,22 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
         personal_api_key._value = value  # type: ignore
         return personal_api_key
 
+    def roll(self, personal_api_key: PersonalAPIKey) -> PersonalAPIKey:
+        value = generate_random_token_personal()
+        mask_value = mask_key_value(value)
+        secure_value = hash_key_value(value)
+
+        personal_api_key = super().update(
+            personal_api_key,
+            {
+                "secure_value": secure_value,
+                "mask_value": mask_value,
+                "last_rolled_at": timezone.now(),
+            },
+        )
+        personal_api_key._value = value  # type: ignore
+        return personal_api_key
+
 
 class PersonalApiKeySelfAccessPermission(BasePermission):
     """
@@ -155,3 +174,10 @@ class PersonalAPIKeyViewSet(viewsets.ModelViewSet):
         queryset = self.filter_queryset(self.get_queryset())
         serializer = self.get_serializer(queryset, many=True)
         return response.Response(serializer.data)
+
+    @action(methods=["POST"], detail=True, url_path="roll")
+    def roll(self, request, *args, **kwargs):
+        instance = self.get_object()
+        serializer = cast(PersonalAPIKeySerializer, self.get_serializer(instance))
+        serializer.roll(instance)
+        return response.Response(serializer.data, status=status.HTTP_200_OK)

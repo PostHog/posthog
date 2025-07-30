@@ -8,7 +8,6 @@ import { logger } from '../../../utils/logger'
 import { captureException } from '../../../utils/posthog'
 import { promiseRetry } from '../../../utils/retries'
 import { captureIngestionWarning } from '../utils'
-import { BatchWritingPersonsStoreForBatch } from './batch-writing-person-store'
 import { PersonContext } from './person-context'
 import { PersonCreateService } from './person-create-service'
 import { applyEventPropertyUpdates, computeEventPropertyUpdates } from './person-update'
@@ -100,10 +99,8 @@ export const isDistinctIdIllegal = (id: string): boolean => {
  */
 export class PersonMergeService {
     private personCreateService: PersonCreateService
-    private usingBatchWritingStore: boolean
     constructor(private context: PersonContext) {
         this.personCreateService = new PersonCreateService(context)
-        this.usingBatchWritingStore = context.personStore instanceof BatchWritingPersonsStoreForBatch
     }
 
     async handleIdentifyOrAlias(): Promise<[InternalPerson | undefined, Promise<void>]> {
@@ -325,24 +322,22 @@ export class PersonMergeService {
                 // never needs an override.
                 const distinctId1Version = 0
 
-                return [
-                    await this.personCreateService.createPerson(
-                        // TODO: in this case we could skip the properties updates later
-                        timestamp,
-                        this.context.eventProperties['$set'] || {},
-                        this.context.eventProperties['$set_once'] || {},
-                        teamId,
-                        null,
-                        true,
-                        this.context.event.uuid,
-                        [
-                            { distinctId: distinctId1, version: distinctId1Version },
-                            { distinctId: distinctId2, version: distinctId2Version },
-                        ],
-                        tx
-                    ),
-                    Promise.resolve(),
-                ]
+                const [person, _] = await this.personCreateService.createPerson(
+                    // TODO: in this case we could skip the properties updates later
+                    timestamp,
+                    this.context.eventProperties['$set'] || {},
+                    this.context.eventProperties['$set_once'] || {},
+                    teamId,
+                    null,
+                    true,
+                    this.context.event.uuid,
+                    [
+                        { distinctId: distinctId1, version: distinctId1Version },
+                        { distinctId: distinctId2, version: distinctId2Version },
+                    ],
+                    tx
+                )
+                return [person, Promise.resolve()]
             })
         }
     }
@@ -610,12 +605,7 @@ export class PersonMergeService {
 
         // Remove the distinct ID from the cache so that we don't try to use it again, if the store is the batch writing store
         // TODO: this should be removed once we clean up the person store code
-        if (this.usingBatchWritingStore) {
-            ;(this.context.personStore as BatchWritingPersonsStoreForBatch).removeDistinctIdFromCache(
-                this.context.team.id,
-                distinctId
-            )
-        }
+        this.context.personStore.removeDistinctIdFromCache(this.context.team.id, distinctId)
 
         // Fetch the refreshed person data using the new distinct ID
         const refreshedPerson = await this.context.personStore.fetchForUpdate(this.context.team.id, distinctId)

@@ -15,17 +15,10 @@ import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { BindLogic, BuiltLogic, useActions, useMountedLogic, useValues } from 'kea'
 import { notebookLogic } from '../Notebook/notebookLogic'
 import { useInView } from 'react-intersection-observer'
-import { NotebookNodeResource } from '~/types'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { NotebookNodeLogicProps, notebookNodeLogic } from './notebookNodeLogic'
 import { posthogNodePasteRule, useSyncedAttributes } from './utils'
-import {
-    KNOWN_NODES,
-    NotebookNodeProps,
-    CustomNotebookNodeAttributes,
-    CreatePostHogWidgetNodeOptions,
-    NodeWrapperProps,
-} from '../Notebook/utils'
+import { KNOWN_NODES } from '../utils'
 import { useWhyDidIRender } from 'lib/hooks/useWhyDidIRender'
 import { NotebookNodeTitle } from './components/NotebookNodeTitle'
 import { notebookNodeLogicType } from './notebookNodeLogicType'
@@ -34,6 +27,13 @@ import posthog from 'posthog-js'
 import { NotebookNodeContext } from './NotebookNodeContext'
 import { IconCollapse, IconCopy, IconEllipsis, IconExpand, IconFilter, IconGear, IconPlus, IconX } from '@posthog/icons'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import {
+    CreatePostHogWidgetNodeOptions,
+    CustomNotebookNodeAttributes,
+    NodeWrapperProps,
+    NotebookNodeProps,
+    NotebookNodeResource,
+} from '../types'
 
 function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperProps<T>): JSX.Element {
     const {
@@ -87,12 +87,14 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
             setRef(node)
             inViewRef(node)
         },
+        // oxlint-disable-next-line exhaustive-deps
         [inViewRef]
     )
 
     useEffect(() => {
         // TRICKY: child nodes mount the parent logic so we need to control the mounting / unmounting directly in this component
         return () => unregisterNodeLogic(nodeId)
+        // oxlint-disable-next-line exhaustive-deps
     }, [])
 
     useWhyDidIRender('NodeWrapper.logicProps', {
@@ -365,6 +367,7 @@ export function createPostHogWidgetNode<T extends CustomNotebookNodeAttributes>(
             if (props.node.attrs.nodeId === null) {
                 posthog.capture('notebook node added', { node_type: props.node.type.name })
             }
+            // oxlint-disable-next-line exhaustive-deps
         }, [props.node.attrs.nodeId])
 
         const nodeProps: NotebookNodeProps<T> & Omit<NodeViewProps, 'attributes' | 'updateAttributes'> = {

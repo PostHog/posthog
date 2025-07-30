@@ -81,9 +81,9 @@ import {
     InsightLogicProps,
     InsightShortId,
     ItemMode,
-    NotebookNodeType,
     QueryBasedInsightModel,
 } from '~/types'
+import { NotebookNodeType } from 'scenes/notebooks/types'
 import { SceneSubscribeButton } from 'lib/components/Scenes/SceneSubscribeButton'
 import { SceneAlertsButton } from 'lib/components/Scenes/SceneAlertsButton'
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'

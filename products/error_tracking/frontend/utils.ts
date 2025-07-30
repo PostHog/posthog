@@ -2,7 +2,7 @@ import equal from 'fast-deep-equal'
 import { LogicWrapper } from 'kea'
 import { routerType } from 'kea-router/lib/routerType'
 import { ErrorTrackingException } from 'lib/components/Errors/types'
-import { Dayjs, dayjs, QUnitType } from 'lib/dayjs'
+import { Dayjs, dayjs } from 'lib/dayjs'
 import { componentsToDayJs, dateStringToComponents, isStringDateRegex } from 'lib/utils'
 import { MouseEvent } from 'react'
 import { Params } from 'scenes/sceneTypes'
@@ -30,9 +30,29 @@ export const INTERNAL_EXCEPTION_PROPERTY_KEYS = [
 
 export const ISSUE_STATUS_OPTIONS: ErrorTrackingIssue['status'][] = ['active', 'resolved', 'suppressed']
 
-const volumePeriods: 'volumeRange'[] = ['volumeRange']
-const sumVolumes = (...arrays: number[][]): number[] =>
-    arrays[0].map((_, i) => arrays.reduce((sum, arr) => sum + arr[i], 0))
+const sumVolumeBuckets = (
+    primaryIssue: { label: string; value: number }[] | undefined,
+    mergingIssues: ({ label: string; value: number }[] | undefined)[]
+): { label: string; value: number }[] | undefined => {
+    if (!primaryIssue) {
+        return undefined
+    }
+    return primaryIssue.map((item, i) =>
+        mergingIssues.reduce(
+            (agg, arr) => {
+                if (!arr) {
+                    return agg
+                }
+                const value = arr[i]?.value || 0
+                return {
+                    label: arr[i]?.label || '',
+                    value: agg.value + value,
+                }
+            },
+            { label: item.label || '', value: item.value }
+        )
+    )
+}
 
 export const mergeIssues = (
     primaryIssue: ErrorTrackingIssue,
@@ -54,19 +74,14 @@ export const mergeIssues = (
             return mergingIssues.reduce((sum, g) => sum + (g.aggregations?.[value] || 0), aggregations[value])
         }
 
-        volumePeriods.forEach((period) => {
-            const volume = aggregations[period]
-            if (volume) {
-                const mergingVolumes: number[][] = mergingIssues
-                    .map((issue) => (issue.aggregations ? issue.aggregations[period] : undefined))
-                    .filter((volume) => volume != undefined) as number[][]
-                aggregations[period] = sumVolumes(...mergingVolumes, volume)
-            }
-        })
-
         aggregations.users = sum('users')
         aggregations.sessions = sum('sessions')
         aggregations.occurrences = sum('occurrences')
+        aggregations.volume_buckets =
+            sumVolumeBuckets(
+                primaryIssue.aggregations?.volume_buckets,
+                mergingIssues.map((issue) => issue.aggregations?.volume_buckets)
+            ) || []
     }
 
     return {
@@ -79,74 +94,6 @@ export const mergeIssues = (
 
 export function isThirdPartyScriptError(value: ErrorTrackingException['value']): boolean {
     return value === THIRD_PARTY_SCRIPT_ERROR
-}
-
-export function generateSparklineLabels(range: DateRange, resolution: number): Dayjs[] {
-    const { date_from, date_to } = ResolvedDateRange.fromDateRange(range)
-    const bin_size = Math.floor(date_to.diff(date_from, 'milliseconds') / resolution)
-    const labels = Array.from({ length: resolution }, (_, i) => {
-        return date_from.add(i * bin_size, 'milliseconds')
-    })
-    return labels
-}
-
-export type DateRangePrecision = { unit: QUnitType; value: number }
-
-export class ResolvedDateRange {
-    date_from: Dayjs
-    date_to: Dayjs
-
-    constructor(date_from: Dayjs, date_to: Dayjs) {
-        this.date_from = date_from
-        this.date_to = date_to
-    }
-
-    toDateRange(): DateRange {
-        return {
-            date_from: this.date_from.toISOString(),
-            date_to: this.date_to.toISOString(),
-        }
-    }
-
-    static fromDateRange(dateRange: DateRange): ResolvedDateRange {
-        return new ResolvedDateRange(
-            resolveDateFrom(dayjs.utc(), dateRange.date_from),
-            resolveDateTo(dayjs.utc(), dateRange.date_to)
-        )
-    }
-}
-
-// Converts relative date range to absolute date range
-export function resolveDateRange(dateRange: DateRange): ResolvedDateRange {
-    return ResolvedDateRange.fromDateRange(dateRange)
-}
-
-// Converts relative date to absolute date.
-// Keep in sync with posthog/hogql_queries/error_tracking_query_runner.py
-export function resolveDateFrom(offset: Dayjs, date?: string | null): Dayjs {
-    if (!date) {
-        return offset.subtract(4, 'years')
-    }
-    const parsedDate = datetimeStringToDayJs(date, offset)
-    if (parsedDate) {
-        return parsedDate
-    }
-    throw new Error(`Invalid DateRange (from): ${date}`)
-}
-
-// Converts relative date to absolute date.
-export function resolveDateTo(offset: Dayjs, date?: string | null): Dayjs {
-    if (!date) {
-        return offset
-    }
-    if (date == 'all') {
-        throw new Error('Invalid date: all')
-    }
-    const parsedDate = datetimeStringToDayJs(date, offset)
-    if (parsedDate) {
-        return parsedDate
-    }
-    throw new Error(`Invalid DateRange (to): ${date}`)
 }
 
 const customOptions: Record<string, string> = {

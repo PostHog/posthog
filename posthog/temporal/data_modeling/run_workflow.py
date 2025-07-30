@@ -613,8 +613,7 @@ async def revert_materialization(saved_query: DataWarehouseSavedQuery, logger: F
         if saved_query.table is not None:
             saved_query.table = None
             table = await database_sync_to_async(DataWarehouseTable.objects.get)(id=saved_query.table_id)
-            table.deleted = True
-            await database_sync_to_async(table.save)()
+            await database_sync_to_async(table.soft_delete)()
 
         await database_sync_to_async(saved_query.save)()
 

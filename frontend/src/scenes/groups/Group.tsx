@@ -29,7 +29,6 @@ import {
     ActivityScope,
     FilterLogicalOperator,
     Group as IGroup,
-    NotebookNodeType,
     PersonsTabType,
     PropertyDefinitionType,
     PropertyFilterType,
@@ -38,6 +37,7 @@ import {
 
 import { GroupOverview } from './GroupOverview'
 import { RelatedGroups } from './RelatedGroups'
+import { NotebookNodeType } from 'scenes/notebooks/types'
 
 interface GroupSceneProps {
     groupTypeIndex?: string

@@ -1,10 +1,10 @@
 import { ExtendedRegExpMatchArray, NodeViewProps, PasteRule } from '@tiptap/core'
 import posthog from 'posthog-js'
 import { NodeType } from '@tiptap/pm/model'
-import { Editor as TTEditor } from '@tiptap/core'
-import { CustomNotebookNodeAttributes, NotebookNodeAttributes } from '../Notebook/utils'
 import { useCallback, useMemo, useRef } from 'react'
 import { tryJsonParse, uuid } from 'lib/utils'
+import { TTEditor } from 'lib/components/RichContentEditor/types'
+import { CustomNotebookNodeAttributes, NotebookNodeAttributes } from '../types'
 
 export const INTEGER_REGEX_MATCH_GROUPS = '([0-9]*)(.*)'
 export const SHORT_CODE_REGEX_MATCH_GROUPS = '([0-9a-zA-Z]*)(.*)'
@@ -117,6 +117,7 @@ export function useSyncedAttributes<T extends CustomNotebookNodeAttributes>(
             // NOTE: queueMicrotask protects us from TipTap's flushSync calls, ensuring we never modify the state whilst the flush is happening
             queueMicrotask(() => props.updateAttributes(stringifiedAttrs))
         },
+        // oxlint-disable-next-line exhaustive-deps
         [props.updateAttributes]
     )
 

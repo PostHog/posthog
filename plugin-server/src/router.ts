@@ -1,5 +1,5 @@
-import express, { Request, Response } from 'express'
 import * as prometheus from 'prom-client'
+import express, { Request, Response } from 'ultimate-express'
 
 import { PluginServerService } from '~/types'
 

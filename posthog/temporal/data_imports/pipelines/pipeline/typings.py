@@ -29,8 +29,8 @@ class SourceResponse:
     sort_mode: Optional[SortMode] = "asc"
     """our source typically return data in ascending timestamp order, but some (eg Stripe) do not"""
     rows_to_sync: Optional[int] = None
-    """Whether incremental tables have non-unique primary keys"""
     has_duplicate_primary_keys: Optional[bool] = None
+    """Whether incremental tables have non-unique primary keys"""
 
 
 @dataclasses.dataclass

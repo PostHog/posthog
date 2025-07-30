@@ -3,7 +3,7 @@ import { DateTime } from 'luxon'
 
 import { TopicMessage } from '../../../kafka/producer'
 import { InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt, Team } from '../../../types'
-import { MoveDistinctIdsResult } from '../../../utils/db/db'
+import { CreatePersonResult, MoveDistinctIdsResult } from '../../../utils/db/db'
 import { PersonsStoreForBatch } from './persons-store-for-batch'
 import { PersonRepositoryTransaction } from './repositories/person-repository-transaction'
 
@@ -24,7 +24,7 @@ export class PersonsStoreTransaction {
         isIdentified: boolean,
         uuid: string,
         distinctIds?: { distinctId: string; version?: number }[]
-    ): Promise<[InternalPerson, TopicMessage[]]> {
+    ): Promise<CreatePersonResult> {
         return await this.store.createPerson(
             createdAt,
             properties,

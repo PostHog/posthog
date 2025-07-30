@@ -54,7 +54,7 @@ async function createPerson(
     distinctIds?: { distinctId: string; version?: number }[]
 ): Promise<InternalPerson> {
     const personRepository = new PostgresPersonRepository(hub.db.postgres)
-    const [person, kafkaMessages] = await personRepository.createPerson(
+    const result = await personRepository.createPerson(
         createdAt,
         properties,
         propertiesLastUpdatedAt,
@@ -65,12 +65,15 @@ async function createPerson(
         uuid,
         distinctIds
     )
-    await hub.db.kafkaProducer.queueMessages(kafkaMessages)
-    return person
+    if (!result.success) {
+        throw new Error('Failed to create person')
+    }
+    await hub.db.kafkaProducer.queueMessages(result.messages)
+    return result.person
 }
 
 async function flushPersonStoreToKafka(hub: Hub, personStore: PersonsStoreForBatch, kafkaAcks: Promise<void>) {
-    const kafkaMessages = await (personStore as BatchWritingPersonsStoreForBatch).flush()
+    const kafkaMessages = await personStore.flush()
     await hub.db.kafkaProducer.queueMessages(kafkaMessages.map((message) => message.topicMessage))
     await hub.db.kafkaProducer.flush()
     await kafkaAcks
@@ -648,7 +651,7 @@ describe('PersonState.processEvent()', () => {
         })
 
         it('handles person being created in a race condition updates properties if needed', async () => {
-            const _newPerson = await createPerson(
+            const createdPerson = await createPerson(
                 hub,
                 timestamp,
                 { b: 3, c: 4 },
@@ -661,8 +664,13 @@ describe('PersonState.processEvent()', () => {
                 [{ distinctId: newUserDistinctId }]
             )
 
+            let callCounter = 0
             const fetchPersonSpy = jest.spyOn(personRepository, 'fetchPerson').mockImplementationOnce(() => {
-                return Promise.resolve(undefined)
+                callCounter++
+                if (callCounter < 2) {
+                    return Promise.resolve(undefined)
+                }
+                return Promise.resolve(createdPerson)
             })
 
             const propertyService = personPropertyService({
@@ -1249,12 +1257,21 @@ describe('PersonState.processEvent()', () => {
                 })
             )
 
-            expect(personRepository.updatePerson).not.toHaveBeenCalled()
+            expect(personRepository.updatePerson).toHaveBeenCalledTimes(1)
 
             // verify Postgres persons
             const persons = await fetchPostgresPersonsH()
             expect(persons.length).toEqual(1)
-            expect(persons[0]).toEqual(person)
+            expect(persons[0]).toEqual(
+                expect.objectContaining({
+                    id: expect.any(String),
+                    uuid: newUserUuid,
+                    properties: { foo: 'bar' },
+                    created_at: timestamp,
+                    version: 1,
+                    is_identified: true,
+                })
+            )
 
             // verify Postgres distinct_ids
             const distinctIds = await hub.db.fetchDistinctIdValues(persons[0])
@@ -2739,7 +2756,13 @@ describe('PersonState.processEvent()', () => {
             ])
 
             // Create a merge service with batch writing store for a $merge_dangerously event
-            const mergeService: PersonMergeService = personMergeService({})
+            const mergeService: PersonMergeService = personMergeService(
+                {
+                    event: '$merge_dangerously',
+                    distinct_id: secondUserDistinctId,
+                },
+                hub
+            )
             const context = mergeService.getContext()
 
             const batchStore = context.personStore as BatchWritingPersonsStoreForBatch
@@ -2758,16 +2781,20 @@ describe('PersonState.processEvent()', () => {
 
             // Mock moveDistinctIds to first move the distinct ID to person3 (simulating race condition), then succeed
             let moveDistinctIdsCalls = 0
-            const originalMoveDistinctIds = personRepository.moveDistinctIds
+            const originalMoveDistinctIds = batchStore.moveDistinctIds.bind(batchStore)
+
+            // Mock the batch store method which is what gets called through the transaction wrapper
             const moveDistinctIdsSpy = jest
-                .spyOn(personRepository, 'moveDistinctIds')
-                .mockImplementation(async (...args) => {
+                .spyOn(batchStore, 'moveDistinctIds')
+                .mockImplementation(async (source, target, distinctId, tx) => {
                     moveDistinctIdsCalls++
                     if (moveDistinctIdsCalls === 1) {
                         // Simulate the race condition: move firstUserDistinctId to person3
                         // This simulates another process moving the distinct ID during the merge
-                        await originalMoveDistinctIds.call(personRepository, person1, person3)
-                        await personRepository.deletePerson(person1)
+                        await personRepository.inRawTransaction('test', async (tx) => {
+                            await personRepository.moveDistinctIds(person1, person3, tx)
+                            await personRepository.deletePerson(person1, tx)
+                        })
 
                         // First call fails with SourcePersonNotFoundError (person1 no longer exists)
                         return Promise.resolve({
@@ -2777,7 +2804,7 @@ describe('PersonState.processEvent()', () => {
                         })
                     }
                     // Second call succeeds - call the original method
-                    return originalMoveDistinctIds.call(personRepository, ...args)
+                    return originalMoveDistinctIds(source, target, distinctId, tx)
                 })
 
             // Attempt to merge persons - this should trigger the retry logic
@@ -2799,9 +2826,6 @@ describe('PersonState.processEvent()', () => {
                 id: person2.id,
                 uuid: secondUserUuid,
             })
-
-            // Verify the cache is now cleared
-            expect(batchStore.getCachedPersonForUpdateByDistinctId(teamId, firstUserDistinctId)).toBeUndefined()
 
             // Verify only 1 person exists
             const persons = sortPersons(await fetchPostgresPersonsH())

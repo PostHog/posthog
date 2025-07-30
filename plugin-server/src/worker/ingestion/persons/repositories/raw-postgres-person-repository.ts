@@ -3,7 +3,7 @@ import { DateTime } from 'luxon'
 
 import { TopicMessage } from '../../../../kafka/producer'
 import { InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt, Team } from '../../../../types'
-import { MoveDistinctIdsResult } from '../../../../utils/db/db'
+import { CreatePersonResult, MoveDistinctIdsResult } from '../../../../utils/db/db'
 import { TransactionClient } from '../../../../utils/db/postgres'
 import { PersonUpdate } from '../person-update-batch'
 
@@ -25,7 +25,7 @@ export interface RawPostgresPersonRepository {
         uuid: string,
         distinctIds?: { distinctId: string; version?: number }[],
         tx?: TransactionClient
-    ): Promise<[InternalPerson, TopicMessage[]]>
+    ): Promise<CreatePersonResult>
 
     updatePerson(
         person: InternalPerson,

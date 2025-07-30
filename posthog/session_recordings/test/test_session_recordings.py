@@ -1,5 +1,4 @@
 import json
-import time
 import uuid
 import re
 from datetime import UTC, datetime, timedelta
@@ -20,7 +19,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.models import Organization, Person, SessionRecording, User, PersonalAPIKey
 from posthog.models.personal_api_key import hash_key_value
 from posthog.models.team import Team
-from posthog.models.utils import generate_random_token_personal
+from posthog.models.utils import generate_random_token_personal, uuid7
 from posthog.schema import RecordingsQuery, LogEntryPropertyFilter
 from posthog.session_recordings.models.session_recording_event import (
     SessionRecordingViewed,
@@ -70,13 +69,14 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             distinct_id=distinct_id,
             first_timestamp=timestamp,
             last_timestamp=timestamp,
+            ensure_analytics_event_in_session=False,
         )
 
     @snapshot_postgres_queries
     # we can't take snapshots of the CH queries
     # because we use `now()` in the CH queries which don't know about any frozen time
     # @snapshot_clickhouse_queries
-    def test_get_session_recordings(self):
+    def test_get_session_recordings(self) -> None:
         twelve_distinct_ids: list[str] = [f"user_one_{i}" for i in range(12)]
 
         user = Person.objects.create(
@@ -91,20 +91,22 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         )
 
         base_time = (now() - relativedelta(days=1)).replace(microsecond=0)
-        session_id_one = f"test_get_session_recordings-1"
+
+        session_id_one = str(uuid7())
         self.produce_replay_summary("user_one_0", session_id_one, base_time)
         self.produce_replay_summary("user_one_0", session_id_one, base_time + relativedelta(seconds=10))
         self.produce_replay_summary("user_one_0", session_id_one, base_time + relativedelta(seconds=30))
-        session_id_two = f"test_get_session_recordings-2"
+
+        session_id_two = str(uuid7())
         self.produce_replay_summary("user2", session_id_two, base_time + relativedelta(seconds=20))
 
-        # include `as_query` since we don't want to break while deploying the code that no longer needs it
-        response = self.client.get(f"/api/projects/{self.team.id}/session_recordings?as_query=true")
-        assert response.status_code == status.HTTP_200_OK
+        response = self.client.get(f"/api/projects/{self.team.id}/session_recordings")
+        assert response.status_code == status.HTTP_200_OK, response.json()
         response_data = response.json()
 
         results_ = response_data["results"]
         assert results_ is not None
+
         assert [
             (
                 r["id"],
@@ -140,6 +142,45 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         # user distinct id varies because we're adding more than one
         assert results_[0]["distinct_id"] == "user2"
         assert results_[1]["distinct_id"] in twelve_distinct_ids
+
+    @parameterized.expand(
+        [
+            # originally for this table all order by was DESCENDING
+            ["descending (original)", "start_time", None, ["at_base_time_plus_20", "at_base_time"]],
+            ["descending", "start_time", "DESC", ["at_base_time_plus_20", "at_base_time"]],
+            ["ascending", "start_time", "ASC", ["at_base_time", "at_base_time_plus_20"]],
+        ]
+    )
+    @snapshot_postgres_queries
+    # we can't take snapshots of the CH queries
+    # because we use `now()` in the CH queries which don't know about any frozen time
+    # @snapshot_clickhouse_queries
+    def test_get_session_recordings_sorted(
+        self, _name: str, order_field: str, order_direction: str | None, expected_id_order: list[str]
+    ) -> None:
+        base_time = (now() - relativedelta(days=1)).replace(microsecond=0)
+
+        # first session runs from base time to base time + 30
+        session_id_one = "at_base_time"
+        self.produce_replay_summary("user_one_0", session_id_one, base_time)
+        self.produce_replay_summary("user_one_0", session_id_one, base_time + relativedelta(seconds=10))
+        self.produce_replay_summary("user_one_0", session_id_one, base_time + relativedelta(seconds=30))
+
+        # second session runs from base time + 20 to base time + 30
+        session_id_two = "at_base_time_plus_20"
+        self.produce_replay_summary("user2", session_id_two, base_time + relativedelta(seconds=20))
+        self.produce_replay_summary("user2", session_id_two, base_time + relativedelta(seconds=30))
+
+        query_string = f"?order={order_field}"
+        if order_direction:
+            query_string += f"&order_direction={order_direction}"
+        response = self.client.get(f"/api/projects/{self.team.id}/session_recordings{query_string}")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        response_data = response.json()
+
+        results_ = response_data["results"]
+
+        assert [r["id"] for r in results_] == expected_id_order
 
     def test_can_list_recordings_even_when_the_person_has_multiple_distinct_ids(self):
         # almost duplicate of test_get_session_recordings above
@@ -188,7 +229,6 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             {
                 "console_log_filters": '[{"key": "console_log_level", "value": ["warn", "error"], "operator": "exact", "type": "log_entry"}]',
                 "user_modified_filters": '{"my_filter": "something"}',
-                "as_query": True,
             }
         )
         self.client.get(f"/api/projects/{self.team.id}/session_recordings?{params_string}")
@@ -1237,42 +1277,45 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         assert response.json() == {"results": []}
 
     def test_get_matching_events_with_query(self) -> None:
+        """both sessions have a pageview, but only the specified session returns a single UUID for the pageview events"""
         base_time = (now() - relativedelta(days=1)).replace(microsecond=0)
 
         # the matching session
-        session_id = f"test_get_matching_events-1-{uuid.uuid4()}"
-        self.produce_replay_summary("user", session_id, base_time)
+        matching_events_session = str(uuid7())
+        self.produce_replay_summary("user", matching_events_session, base_time)
         event_id = _create_event(
             event="$pageview",
-            properties={"$session_id": session_id},
+            properties={"$session_id": matching_events_session},
             team=self.team,
-            distinct_id=uuid.uuid4(),
+            distinct_id=str(uuid7()),
+        )
+        _create_event(
+            event="a different event that we shouldn't see",
+            properties={"$session_id": matching_events_session},
+            team=self.team,
+            distinct_id=str(uuid7()),
         )
 
         # a non-matching session
-        non_matching_session_id = f"test_get_matching_events-2-{uuid.uuid4()}"
+        non_matching_session_id = str(uuid7())
         self.produce_replay_summary("user", non_matching_session_id, base_time)
         _create_event(
             event="$pageview",
             properties={"$session_id": non_matching_session_id},
             team=self.team,
-            distinct_id=uuid.uuid4(),
+            distinct_id=str(uuid7()),
         )
 
-        flush_persons_and_events()
-        # data needs time to settle :'(
-        time.sleep(1)
-
         query_params = [
-            f'session_ids=["{session_id}"]',
+            f'session_ids=["{matching_events_session}"]',
             'events=[{"id": "$pageview", "type": "events", "order": 0, "name": "$pageview"}]',
         ]
 
         response = self.client.get(
-            f"/api/projects/{self.team.id}/session_recordings/matching_events?{'&'.join(query_params)}&as_query=true"
+            f"/api/projects/{self.team.id}/session_recordings/matching_events?{'&'.join(query_params)}"
         )
 
-        assert response.status_code == status.HTTP_200_OK
+        assert response.status_code == status.HTTP_200_OK, response.json()
         assert response.json() == {"results": [event_id]}
 
     def test_get_matching_events(self) -> None:
@@ -1298,21 +1341,16 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             distinct_id=uuid.uuid4(),
         )
 
-        flush_persons_and_events()
-        # data needs time to settle :'(
-        time.sleep(1)
-
         query_params = [
             f'session_ids=["{session_id}"]',
             'events=[{"id": "$pageview", "type": "events", "order": 0, "name": "$pageview"}]',
         ]
 
         response = self.client.get(
-            # include `as_query` since we don't want to break while deploying the code that no longer needs it
-            f"/api/projects/{self.team.id}/session_recordings/matching_events?{'&'.join(query_params)}&as_query=true"
+            f"/api/projects/{self.team.id}/session_recordings/matching_events?{'&'.join(query_params)}"
         )
 
-        assert response.status_code == status.HTTP_200_OK
+        assert response.status_code == status.HTTP_200_OK, response.json()
         assert response.json() == {"results": [event_id]}
 
     # checks that we 404 without patching the "exists" check

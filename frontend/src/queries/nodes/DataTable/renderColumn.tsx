@@ -23,7 +23,7 @@ import {
     HasPropertiesNode,
     LLMTracePerson,
 } from '~/queries/schema/schema-general'
-import { QueryContext } from '~/queries/types'
+import { QueryContext, QueryContextColumn } from '~/queries/types'
 import {
     isActorsQuery,
     isEventsQuery,
@@ -37,6 +37,22 @@ import {
 import { AnyPropertyFilter, EventType, PersonType, PropertyFilterType, PropertyOperator } from '~/types'
 import { extractExpressionComment, removeExpressionComment } from './utils'
 
+export function getContextColumn(
+    key: string,
+    columns?: QueryContext<DataTableNode>['columns']
+): {
+    queryContextColumnName: string | undefined
+    queryContextColumn: QueryContextColumn | undefined
+} {
+    const queryContextColumnName = key.startsWith('context.columns.') ? trimQuotes(key.substring(16)) : undefined
+    const queryContextColumn = queryContextColumnName ? columns?.[queryContextColumnName] : undefined
+
+    return {
+        queryContextColumnName,
+        queryContextColumn,
+    }
+}
+
 export function renderColumn(
     key: string,
     value: any,
@@ -47,8 +63,7 @@ export function renderColumn(
     setQuery?: (query: DataTableNode) => void,
     context?: QueryContext<DataTableNode>
 ): JSX.Element | string {
-    const queryContextColumnName = key.startsWith('context.columns.') ? trimQuotes(key.substring(16)) : undefined
-    const queryContextColumn = queryContextColumnName ? context?.columns?.[queryContextColumnName] : undefined
+    const { queryContextColumnName, queryContextColumn } = getContextColumn(key, context?.columns)
     key = isGroupsQuery(query.source) ? extractExpressionComment(key) : removeExpressionComment(key)
 
     if (value === loadingColumn) {

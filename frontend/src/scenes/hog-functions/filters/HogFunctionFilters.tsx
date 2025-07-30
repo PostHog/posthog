@@ -1,12 +1,11 @@
 import { IconCheck, IconX } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonLabel, LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonLabel, LemonSelect } from '@posthog/lemon-ui'
 import { id } from 'chartjs-plugin-trendline'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { useMemo } from 'react'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
@@ -18,6 +17,7 @@ import { AnyPropertyFilter, CyclotronJobFiltersType, EntityTypes, FilterType } f
 
 import { hogFunctionConfigurationLogic } from '../configuration/hogFunctionConfigurationLogic'
 import { HogFunctionFiltersInternal } from './HogFunctionFiltersInternal'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
 function sanitizeActionFilters(filters?: FilterType): Partial<CyclotronJobFiltersType> {
     if (!filters) {
@@ -56,7 +56,7 @@ export function HogFunctionFilters({
     showTriggerOptions?: boolean
 }): JSX.Element {
     const { groupsTaxonomicTypes } = useValues(groupsModel)
-    const { configuration, type, useMapping, filtersContainPersonProperties, oldFilters, newFilters, featureFlags } =
+    const { configuration, type, useMapping, filtersContainPersonProperties, oldFilters, newFilters } =
         useValues(hogFunctionConfigurationLogic)
     const {
         setOldFilters,
@@ -70,7 +70,8 @@ export function HogFunctionFilters({
 
     const isLegacyPlugin = configuration?.template?.id?.startsWith('plugin-')
     const isTransformation = type === 'transformation'
-    const aiFiltersCreation = !!featureFlags[FEATURE_FLAGS.AI_HOG_FUNCTION_CREATION]
+    const aiFiltersCreation = useFeatureFlag('AI_HOG_FUNCTION_CREATION')
+    const cdpPersonUpdatesEnabled = useFeatureFlag('CDP_PERSON_UPDATES')
 
     const taxonomicGroupTypes = useMemo(() => {
         const types = [
@@ -92,11 +93,14 @@ export function HogFunctionFilters({
     }, [isTransformation, groupsTaxonomicTypes])
 
     const showMasking = type === 'destination' && !isLegacyPlugin && showTriggerOptions
-    const showDropEvents = false // TODO coming back to this later for the dropEvents Transformation
 
     if (type === 'internal_destination') {
         return <HogFunctionFiltersInternal />
     }
+
+    // NOTE: Mappings won't work for person updates currently as they are totally event based...
+    const showSourcePicker = cdpPersonUpdatesEnabled && type === 'destination' && !useMapping
+    const showEventMatchers = !useMapping && (configuration?.filters?.source ?? 'events') === 'events'
 
     const mainContent = (
         <div
@@ -106,6 +110,36 @@ export function HogFunctionFilters({
                 embedded && 'p-2'
             )}
         >
+            {showSourcePicker && (
+                <LemonField
+                    name="filters"
+                    label="Source"
+                    info={
+                        <>
+                            Select the source of events for the destination.
+                            <br />
+                            <b>Events</b> will trigger from the real-time stream of ingested events.
+                            <br />
+                            <b>Person updates</b> will trigger whenever a Person is created, updated or deleted.
+                        </>
+                    }
+                >
+                    {({ value, onChange }) => {
+                        return (
+                            <LemonSelect
+                                options={[
+                                    { value: 'events', label: 'Events' },
+                                    { value: 'person-updates', label: 'Person updates' },
+                                ]}
+                                value={value?.source ?? 'events'}
+                                onChange={(val) => {
+                                    onChange({ ...value, source: val })
+                                }}
+                            />
+                        )
+                    }}
+                </LemonField>
+            )}
             <LemonField
                 name="filters"
                 label={useMapping ? 'Global filters' : 'Filters'}
@@ -115,9 +149,16 @@ export function HogFunctionFilters({
                         : 'Filters applied to all events'
                 }
             >
-                {({ value, onChange }) => {
+                {({ value, onChange: _onChange }) => {
                     const filters = (value ?? {}) as CyclotronJobFiltersType
                     const currentFilters = newFilters ?? filters
+
+                    const onChange = (newValue: CyclotronJobFiltersType): void => {
+                        if (oldFilters && newFilters) {
+                            clearFiltersDiff()
+                        }
+                        _onChange(newValue)
+                    }
 
                     return (
                         <>
@@ -132,9 +173,6 @@ export function HogFunctionFilters({
                                     checked={currentFilters?.filter_test_accounts ?? false}
                                     onChange={(filter_test_accounts) => {
                                         const newValue = { ...currentFilters, filter_test_accounts }
-                                        if (oldFilters && newFilters) {
-                                            clearFiltersDiff()
-                                        }
                                         onChange(newValue)
                                     }}
                                     fullWidth
@@ -148,15 +186,12 @@ export function HogFunctionFilters({
                                         ...currentFilters,
                                         properties,
                                     }
-                                    if (oldFilters && newFilters) {
-                                        clearFiltersDiff()
-                                    }
-                                    onChange(newValue)
+                                    onChange(newValue as CyclotronJobFiltersType)
                                 }}
                                 pageKey={`HogFunctionPropertyFilters.${id}`}
                             />
 
-                            {!useMapping ? (
+                            {showEventMatchers ? (
                                 <>
                                     <div className="flex gap-2 justify-between w-full">
                                         <LemonLabel>
@@ -170,14 +205,10 @@ export function HogFunctionFilters({
                                         bordered
                                         filters={currentFilters ?? {} /* TODO: this is any */}
                                         setFilters={(payload) => {
-                                            const newValue = {
+                                            onChange({
                                                 ...currentFilters,
                                                 ...sanitizeActionFilters(payload),
-                                            }
-                                            if (oldFilters && newFilters) {
-                                                clearFiltersDiff()
-                                            }
-                                            onChange(newValue)
+                                            })
                                         }}
                                         typeKey="plugin-filters"
                                         mathAvailability={MathAvailability.None}
@@ -198,39 +229,6 @@ export function HogFunctionFilters({
                                         }}
                                         buttonCopy="Add event matcher"
                                     />
-
-                                    {showDropEvents && (
-                                        <>
-                                            <LemonLabel>
-                                                <span className="flex flex-1 gap-2 justify-between items-center">
-                                                    Drop events that don't match
-                                                    <LemonSwitch
-                                                        checked={currentFilters?.drop_events ?? false}
-                                                        onChange={(drop_events) => {
-                                                            const newValue = { ...currentFilters, drop_events }
-                                                            if (oldFilters && newFilters) {
-                                                                clearFiltersDiff()
-                                                            }
-                                                            onChange(newValue)
-                                                        }}
-                                                    />
-                                                </span>
-                                            </LemonLabel>
-
-                                            {!currentFilters?.drop_events ? (
-                                                <p>
-                                                    Currently, this will run for all events that match the above
-                                                    conditions. Any that do not match will be unmodified and ingested as
-                                                    they are.
-                                                </p>
-                                            ) : (
-                                                <LemonBanner type="error">
-                                                    This will drop all events that don't match the above conditions.
-                                                    Please ensure this is definitely intended.
-                                                </LemonBanner>
-                                            )}
-                                        </>
-                                    )}
                                 </>
                             ) : null}
                             {oldFilters && newFilters && (
@@ -273,7 +271,7 @@ export function HogFunctionFilters({
                 }}
             </LemonField>
 
-            {filtersContainPersonProperties ? (
+            {filtersContainPersonProperties && showEventMatchers ? (
                 <LemonBanner type="warning">
                     You are filtering on Person properties. Be aware that this filtering applies at the time the event
                     is processed so if Person Profiles are not enabled or the person property has not been set by then

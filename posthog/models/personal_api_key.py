@@ -49,6 +49,7 @@ class PersonalAPIKey(models.Model):
     )
     created_at = models.DateTimeField(default=timezone.now)
     last_used_at = models.DateTimeField(null=True, blank=True)
+    last_rolled_at = models.DateTimeField(null=True, blank=True)
     scopes: ArrayField = ArrayField(models.CharField(max_length=100), null=True)
     scoped_teams: ArrayField = ArrayField(models.IntegerField(), null=True)
     scoped_organizations: ArrayField = ArrayField(models.CharField(max_length=100), null=True)

@@ -1,24 +1,27 @@
 import { mergeAttributes, Node, NodeViewProps } from '@tiptap/core'
 import { NodeViewWrapper, ReactNodeViewRenderer } from '@tiptap/react'
-import { NotebookNodeType } from '~/types'
 import clsx from 'clsx'
 import { LemonButton, ProfilePicture, Tooltip } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { membersLogic } from 'scenes/organization/membersLogic'
+import { RichContentNodeType } from './types'
 
-export interface NotebookNodeMentionAttrs {
+export interface RichContentNodeMentionAttrs {
     id?: number
 }
 
 const Component = (props: NodeViewProps): JSX.Element => {
-    const { id } = props.node.attrs as NotebookNodeMentionAttrs
+    const { id } = props.node.attrs as RichContentNodeMentionAttrs
 
     const { meFirstMembers } = useValues(membersLogic)
 
     const member = meFirstMembers.find((member) => member.user.id === id)
 
     return (
-        <NodeViewWrapper as="span" className={clsx('NotebookMention', props.selected && 'NotebookMention--selected')}>
+        <NodeViewWrapper
+            as="span"
+            className={clsx('RichContentEditorMention', props.selected && 'RichContentEditorMention--selected')}
+        >
             <Tooltip
                 title={
                     <div className="p-2 flex items-center gap-2">
@@ -38,13 +41,13 @@ const Component = (props: NodeViewProps): JSX.Element => {
     )
 }
 
-export const NotebookNodeMention = Node.create({
-    name: NotebookNodeType.Mention,
+export const RichContentNodeMention = Node.create({
+    name: RichContentNodeType.Mention,
     inline: true,
     group: 'inline',
     atom: true,
 
-    serializedText: (attrs: NotebookNodeMentionAttrs): string => {
+    serializedText: (attrs: RichContentNodeMentionAttrs): string => {
         // mention is not a block so `getText` does not add a separator.
         // we need to add it manually
         return `(member:${attrs.id})`
@@ -57,11 +60,11 @@ export const NotebookNodeMention = Node.create({
     },
 
     parseHTML() {
-        return [{ tag: NotebookNodeType.Mention }]
+        return [{ tag: RichContentNodeType.Mention }]
     },
 
     renderHTML({ HTMLAttributes }) {
-        return [NotebookNodeType.Mention, mergeAttributes(HTMLAttributes)]
+        return [RichContentNodeType.Mention, mergeAttributes(HTMLAttributes)]
     },
 
     addNodeView() {

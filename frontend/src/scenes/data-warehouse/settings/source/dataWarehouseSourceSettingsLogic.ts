@@ -40,8 +40,7 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
                 loadSource: async () => {
                     return await api.externalDataSources.get(values.sourceId)
                 },
-                updateSchema: async (schema: ExternalDataSourceSchema, breakpoint) => {
-                    await breakpoint(500)
+                updateSchema: async (schema: ExternalDataSourceSchema) => {
                     // Optimistic UI updates before sending updates to the backend
                     const clonedSource = JSON.parse(JSON.stringify(values.source)) as ExternalDataSource
                     const schemaIndex = clonedSource.schemas.findIndex((n) => n.id === schema.id)

@@ -455,6 +455,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 'draftConversionGoal',
                 'compareFilter as marketingCompareFilter',
                 'dateFilter as marketingDateFilter',
+                'chartDisplayType',
             ],
             marketingAnalyticsTableLogic,
             ['query', 'defaultColumns'],
@@ -978,11 +979,17 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             }),
         ],
         marketingContext: [
-            (s) => [s.createMarketingDataWarehouseNodes, s.marketingCompareFilter, s.marketingDateFilter],
-            (createMarketingDataWarehouseNodes, marketingCompareFilter, marketingDateFilter) => ({
+            (s) => [
+                s.createMarketingDataWarehouseNodes,
+                s.marketingCompareFilter,
+                s.marketingDateFilter,
+                s.chartDisplayType,
+            ],
+            (createMarketingDataWarehouseNodes, marketingCompareFilter, marketingDateFilter, chartDisplayType) => ({
                 createMarketingDataWarehouseNodes,
                 marketingCompareFilter,
                 marketingDateFilter,
+                chartDisplayType,
             }),
         ],
         tiles: [
@@ -1021,8 +1028,12 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 campaignCostsBreakdown,
                 marketingContext
             ): WebAnalyticsTile[] => {
-                const { createMarketingDataWarehouseNodes, marketingCompareFilter, marketingDateFilter } =
-                    marketingContext
+                const {
+                    createMarketingDataWarehouseNodes,
+                    marketingCompareFilter,
+                    marketingDateFilter,
+                    chartDisplayType,
+                } = marketingContext
                 const dateRange = { date_from: dateFrom, date_to: dateTo }
                 const sampling = { enabled: false, forceSamplingRate: { numerator: 1, denominator: 10 } }
 
@@ -1331,7 +1342,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 kind: NodeKind.InsightVizNode,
                                 embedded: true,
                                 hidePersonsModal: true,
-                                hideTooltipOnScroll: true,
                                 source: {
                                     kind: NodeKind.TrendsQuery,
                                     compareFilter: marketingCompareFilter,
@@ -1353,14 +1363,14 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                         date_to: marketingDateFilter.dateTo,
                                     },
                                     trendsFilter: {
-                                        display: ChartDisplayType.ActionsAreaGraph,
+                                        display: chartDisplayType,
                                         aggregationAxisFormat: 'numeric',
                                         aggregationAxisPrefix: '$',
                                     },
                                 },
                             },
                             showIntervalSelect: true,
-                            insightProps: createInsightProps(TileId.MARKETING),
+                            insightProps: createInsightProps(TileId.MARKETING, `${chartDisplayType}`),
                             canOpenInsight: true,
                             canOpenModal: false,
                             docs: {

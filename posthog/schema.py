@@ -166,32 +166,11 @@ class AssistantGenericMultipleBreakdownFilter(BaseModel):
     type: AssistantEventMultipleBreakdownFilterType
 
 
-class AssistantGenericPropertyFilter3(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    key: str = Field(..., description="Use one of the properties the user has provided in the plan.")
-    operator: AssistantArrayPropertyFilterOperator = Field(
-        ..., description="`exact` - exact match of any of the values. `is_not` - does not match any of the values."
-    )
-    type: str
-    value: list[str] = Field(
-        ...,
-        description=(
-            "Only use property values from the plan. Always use strings as values. If you have a number, convert it to"
-            ' a string first. If you have a boolean, convert it to a string "true" or "false".'
-        ),
-    )
-
-
-class AssistantGenericPropertyFilter4(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    key: str = Field(..., description="Use one of the properties the user has provided in the plan.")
-    operator: AssistantDateTimePropertyFilterOperator
-    type: str
-    value: str = Field(..., description="Value must be a date in ISO 8601 format.")
+class AssistantGenericPropertyFilterType(StrEnum):
+    EVENT = "event"
+    PERSON = "person"
+    SESSION = "session"
+    FEATURE = "feature"
 
 
 class AssistantHogQLQuery(BaseModel):
@@ -1028,7 +1007,7 @@ class VolumeBucket(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    label: datetime
+    label: str
     value: float
 
 
@@ -1039,8 +1018,8 @@ class ErrorTrackingIssueAggregations(BaseModel):
     occurrences: float
     sessions: float
     users: float
-    volumeRange: list[float]
-    volume_buckets: Optional[list[VolumeBucket]] = None
+    volumeRange: Optional[list[float]] = None
+    volume_buckets: list[VolumeBucket]
 
 
 class Type2(StrEnum):
@@ -2068,6 +2047,11 @@ class RecordingOrder(StrEnum):
     ACTIVITY_SCORE = "activity_score"
 
 
+class RecordingOrderDirection(StrEnum):
+    ASC = "ASC"
+    DESC = "DESC"
+
+
 class RecordingPropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2836,13 +2820,14 @@ class AssistantFunnelsFilter(BaseModel):
         default=[],
         description=(
             "Users may want to use exclusion events to filter out conversions in which a particular event occurred"
-            " between specific steps. These events must not be included in the main sequence. You must include start"
-            " and end indexes for each exclusion where the minimum index is one and the maximum index is the number of"
-            " steps in the funnel. For example, there is a sequence with three steps: sign up, finish onboarding,"
-            " purchase. If the user wants to exclude all conversions in which users left the page before finishing the"
-            " onboarding, the exclusion step would be the event `$pageleave` with start index 2 and end index 3. When"
-            " exclusion steps appear needed when you're planning the query, make sure to explicitly state this in the"
-            " plan."
+            " between specific steps. These events must not be included in the main sequence. This doesn't exclude"
+            " users who have completed the event before or after the funnel sequence, but often this is what users"
+            " want. (If not sure, worth clarifying.) You must include start and end indexes for each exclusion where"
+            " the minimum index is one and the maximum index is the number of steps in the funnel. For example, there"
+            " is a sequence with three steps: sign up, finish onboarding, purchase. If the user wants to exclude all"
+            " conversions in which users left the page before finishing the onboarding, the exclusion step would be the"
+            " event `$pageleave` with start index 2 and end index 3. When exclusion steps appear needed when you're"
+            " planning the query, make sure to explicitly state this in the plan."
         ),
     )
     funnelAggregateByHogQL: Optional[FunnelAggregateByHogQL] = Field(
@@ -2878,7 +2863,8 @@ class AssistantFunnelsFilter(BaseModel):
         default=14,
         description=(
             "Controls a time frame value for a conversion to be considered. Select a reasonable value based on the"
-            " user's query. Use in combination with `funnelWindowIntervalUnit`. The default value is 14 days."
+            " user's query. If needed, this can be practically unlimited by setting a large value, though it's rare to"
+            " need that. Use in combination with `funnelWindowIntervalUnit`. The default value is 14 days."
         ),
     )
     funnelWindowIntervalUnit: Optional[FunnelConversionWindowTimeUnit] = Field(
@@ -2913,7 +2899,7 @@ class AssistantGenericPropertyFilter1(BaseModel):
             " matches the regex pattern. `not_regex` - does not match the regex pattern."
         ),
     )
-    type: str
+    type: AssistantGenericPropertyFilterType
     value: str = Field(
         ...,
         description=(
@@ -2930,8 +2916,36 @@ class AssistantGenericPropertyFilter2(BaseModel):
     )
     key: str = Field(..., description="Use one of the properties the user has provided in the plan.")
     operator: AssistantNumericValuePropertyFilterOperator
-    type: str
+    type: AssistantGenericPropertyFilterType
     value: float
+
+
+class AssistantGenericPropertyFilter3(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    key: str = Field(..., description="Use one of the properties the user has provided in the plan.")
+    operator: AssistantArrayPropertyFilterOperator = Field(
+        ..., description="`exact` - exact match of any of the values. `is_not` - does not match any of the values."
+    )
+    type: AssistantGenericPropertyFilterType
+    value: list[str] = Field(
+        ...,
+        description=(
+            "Only use property values from the plan. Always use strings as values. If you have a number, convert it to"
+            ' a string first. If you have a boolean, convert it to a string "true" or "false".'
+        ),
+    )
+
+
+class AssistantGenericPropertyFilter4(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    key: str = Field(..., description="Use one of the properties the user has provided in the plan.")
+    operator: AssistantDateTimePropertyFilterOperator
+    type: AssistantGenericPropertyFilterType
+    value: str = Field(..., description="Value must be a date in ISO 8601 format.")
 
 
 class AssistantGenericPropertyFilter5(BaseModel):
@@ -2946,7 +2960,7 @@ class AssistantGenericPropertyFilter5(BaseModel):
             " collected."
         ),
     )
-    type: str
+    type: AssistantGenericPropertyFilterType
 
 
 class AssistantGroupMultipleBreakdownFilter(BaseModel):
@@ -5269,7 +5283,6 @@ class AssistantTrendsActionsNode(BaseModel):
     math_group_type_index: Optional[MathGroupTypeIndex] = None
     math_multiplier: Optional[float] = None
     math_property: Optional[str] = None
-    math_property_revenue_currency: Optional[RevenueCurrencyPropertyConfig] = None
     math_property_type: Optional[str] = None
     name: str = Field(..., description="Action name from the plan.")
     properties: Optional[
@@ -5317,7 +5330,6 @@ class AssistantTrendsEventsNode(BaseModel):
     math_group_type_index: Optional[MathGroupTypeIndex] = None
     math_multiplier: Optional[float] = None
     math_property: Optional[str] = None
-    math_property_revenue_currency: Optional[RevenueCurrencyPropertyConfig] = None
     math_property_type: Optional[str] = None
     name: Optional[str] = None
     properties: Optional[
@@ -11011,6 +11023,15 @@ class RecordingsQuery(BaseModel):
     offset: Optional[int] = None
     operand: Optional[FilterLogicalOperator] = FilterLogicalOperator.AND_
     order: Optional[RecordingOrder] = RecordingOrder.START_TIME
+    order_direction: Optional[RecordingOrderDirection] = Field(
+        default=RecordingOrderDirection.DESC,
+        description=(
+            "Replay originally had all ordering as descending by specifying the field name, this runs counter to Django"
+            " behavior where the field name specifies ascending sorting (e.g. the_field_name) and -the_field_name would"
+            " indicate descending order to avoid invalidating or migrating all existing filters we keep DESC as the"
+            " default or allow specification of an explicit order direction here"
+        ),
+    )
     person_uuid: Optional[str] = None
     properties: Optional[
         list[

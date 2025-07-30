@@ -102,6 +102,7 @@ Here is a non-exhaustive list of known event names:
 {{{events}}}
 
 If you find the event name the user is asking for in the list, use it to retrieve the event properties.
+If a user specifies a raw event name that's not in the list above, that probably is a real event too.
 </events>
 </property_filter_types>
 """.strip()

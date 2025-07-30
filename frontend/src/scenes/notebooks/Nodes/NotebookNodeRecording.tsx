@@ -3,7 +3,7 @@ import {
     SessionRecordingPlayerProps,
 } from 'scenes/session-recordings/player/SessionRecordingPlayer'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
-import { NotebookNodeType, SessionRecordingId } from '~/types'
+import { SessionRecordingId } from '~/types'
 import { urls } from 'scenes/urls'
 import {
     SessionRecordingPlayerMode,
@@ -19,11 +19,12 @@ import {
 } from 'scenes/session-recordings/playlist/SessionRecordingPreview'
 import { notebookNodeLogic } from './notebookNodeLogic'
 import { LemonSwitch } from '@posthog/lemon-ui'
-import { JSONContent, NotebookNodeProps, NotebookNodeAttributeProperties } from '../Notebook/utils'
 import { asDisplay } from 'scenes/persons/person-utils'
 import { NotFound } from 'lib/components/NotFound'
 import { IconComment, IconPerson } from '@posthog/icons'
 import { UUID_REGEX_MATCH_GROUPS } from './utils'
+import { JSONContent } from 'lib/components/RichContentEditor/types'
+import { NotebookNodeAttributeProperties, NotebookNodeProps, NotebookNodeType } from '../types'
 
 const HEIGHT = 500
 const MIN_HEIGHT = '20rem'
@@ -57,6 +58,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeRecordingAttrib
 
     useEffect(() => {
         loadRecordingMeta()
+        // oxlint-disable-next-line exhaustive-deps
     }, [])
     // TODO Only load data when in view...
 
@@ -87,6 +89,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeRecordingAttrib
                   }
                 : undefined,
         ])
+        // oxlint-disable-next-line exhaustive-deps
     }, [sessionPlayerMetaData?.person?.id])
 
     useEffect(() => {
@@ -101,6 +104,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeRecordingAttrib
                 scrollIntoView()
             },
         })
+        // oxlint-disable-next-line exhaustive-deps
     }, [])
 
     if (!sessionPlayerMetaData && !sessionPlayerMetaDataLoading) {

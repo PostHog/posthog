@@ -19,6 +19,7 @@ export const CommentComposer = (props: CommentsLogicProps): JSX.Element => {
     useEffect(() => {
         // Whenever the discussion context changes or we fully unmount we clear the item context
         return () => clearItemContext()
+        // oxlint-disable-next-line exhaustive-deps
     }, [key])
 
     return (

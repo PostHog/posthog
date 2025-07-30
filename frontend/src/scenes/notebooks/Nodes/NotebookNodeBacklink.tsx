@@ -1,6 +1,6 @@
 import { mergeAttributes, Node, NodeViewProps } from '@tiptap/core'
 import { NodeViewWrapper, ReactNodeViewRenderer } from '@tiptap/react'
-import { NotebookNodeType, NotebookTarget, QueryBasedInsightModel } from '~/types'
+import { QueryBasedInsightModel } from '~/types'
 import { Link } from '@posthog/lemon-ui'
 import { IconCohort } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
@@ -26,6 +26,7 @@ import {
     IconRewindPlay,
 } from '@posthog/icons'
 import { useEffect } from 'react'
+import { NotebookNodeType, NotebookTarget } from '../types'
 
 type BackLinkMapper = {
     regex: RegExp
@@ -171,6 +172,7 @@ const Component = (props: NodeViewProps): JSX.Element => {
             .catch((e) => {
                 console.error(e)
             })
+        // oxlint-disable-next-line exhaustive-deps
     }, [props.node.attrs.title])
 
     return (

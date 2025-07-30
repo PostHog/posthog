@@ -1,20 +1,32 @@
-import { Node, NotebookEditor } from '../Notebook/utils'
+import { RichContentEditorType, RichContentNode } from 'lib/components/RichContentEditor/types'
 
 export type InsertionSuggestionViewProps = {
-    previousNode: Node | null
-    editor: NotebookEditor
+    previousNode: RichContentNode | null
+    editor: RichContentEditorType
 }
 
 interface InsertionSuggestionConfig {
-    shouldShow: boolean | (({ previousNode }: { previousNode: Node | null }) => boolean)
+    shouldShow: boolean | (({ previousNode }: { previousNode: RichContentNode | null }) => boolean)
     Component: (props: InsertionSuggestionViewProps) => JSX.Element
-    onTab?: ({ editor, previousNode }: { editor: NotebookEditor | null; previousNode: Node | null }) => void
+    onTab?: ({
+        editor,
+        previousNode,
+    }: {
+        editor: RichContentEditorType | null
+        previousNode: RichContentNode | null
+    }) => void
 }
 
 export class InsertionSuggestion {
     dismissed = false
-    shouldShow: boolean | (({ previousNode }: { previousNode: Node | null }) => boolean) = false
-    onTab: ({ editor, previousNode }: { editor: NotebookEditor | null; previousNode: Node | null }) => void = () => {}
+    shouldShow: boolean | (({ previousNode }: { previousNode: RichContentNode | null }) => boolean) = false
+    onTab: ({
+        editor,
+        previousNode,
+    }: {
+        editor: RichContentEditorType | null
+        previousNode: RichContentNode | null
+    }) => void = () => {}
     Component: (props: InsertionSuggestionViewProps) => JSX.Element
 
     constructor(config: InsertionSuggestionConfig) {

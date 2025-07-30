@@ -5,11 +5,9 @@ import { dayjs } from 'lib/dayjs'
 import { humanFriendlyDetailedTime, humanFriendlyDuration } from 'lib/utils'
 import { useState } from 'react'
 
-// import { TimelineEntry } from '~/queries/schema/schema-general'
-import { NotebookNodeType } from '~/types'
-
 import { notebookNodeLogic } from '../notebookNodeLogic'
 import { SessionEvent } from './SessionEvent'
+import { NotebookNodeType } from 'scenes/notebooks/types'
 
 type SessionProps = {
     session: any // TimelineEntry

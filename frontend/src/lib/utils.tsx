@@ -657,6 +657,13 @@ export function humanFriendlyDetailedTime(
     return parsedDate.format(formatString)
 }
 
+export function detailedTime(date: dayjs.Dayjs | string | null | undefined): string {
+    if (!date) {
+        return ''
+    }
+    return dayjs(date).format('MMMM DD, YYYY h:mm:ss A')
+}
+
 // Pad numbers with leading zeros
 export const zeroPad = (num: number, places: number): string => String(num).padStart(places, '0')
 
