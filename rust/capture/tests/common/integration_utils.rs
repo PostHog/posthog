@@ -1097,6 +1097,7 @@ fn setup_capture_router(unit: &TestCase) -> (Router, MemorySink) {
             sink.clone(),
             redis,
             billing_limiter,
+            None, // survey_limiter - not needed for tests
             TokenDropper::default(),
             false,
             unit.mode.clone(),

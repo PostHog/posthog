@@ -35,6 +35,32 @@ use crate::{
 // let roll = thread_rng().with_borrow_mut(|rng| rng.gen_range(0.0..100.0));
 // if roll < verbose_sample_percent { ... }
 
+/// Check if an event is a survey-related event that should be subject to survey quota limiting
+fn is_survey_event(event_name: &str) -> bool {
+    matches!(event_name, "survey sent" | "survey shown" | "survey dismissed")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_is_survey_event() {
+        // Survey events should return true
+        assert!(is_survey_event("survey sent"));
+        assert!(is_survey_event("survey shown"));
+        assert!(is_survey_event("survey dismissed"));
+        
+        // Non-survey events should return false
+        assert!(!is_survey_event("pageview"));
+        assert!(!is_survey_event("$pageview"));
+        assert!(!is_survey_event("click"));
+        assert!(!is_survey_event("survey_sent")); // underscore variant
+        assert!(!is_survey_event("Survey Sent")); // case sensitivity
+        assert!(!is_survey_event(""));
+    }
+}
+
 /// handle_legacy owns the /e, /capture, /track, and /engage capture endpoints
 #[instrument(
     skip_all,
@@ -200,7 +226,7 @@ async fn handle_legacy(
     let maybe_batch_token = request.get_batch_token();
 
     // consumes the parent request, so it's no longer in scope to extract metadata from
-    let events = match request.events(path.as_str()) {
+    let mut events = match request.events(path.as_str()) {
         Ok(events) => events,
         Err(e) => return Err(e),
     };
@@ -237,6 +263,34 @@ async fn handle_legacy(
     if billing_limited {
         report_dropped_events("over_quota", events.len() as u64);
         return Err(CaptureError::BillingLimit);
+    }
+
+    // Check for survey quota limiting if any events are survey-related
+    if let Some(ref limiter) = state.survey_limiter {
+        let has_survey_events = events.iter().any(|event| is_survey_event(&event.event));
+        if has_survey_events {
+            let survey_limited = limiter
+                .is_limited(context.token.as_str())
+                .await;
+            
+            if survey_limited {
+                // Drop only survey events, allow other events through
+                let (survey_events, non_survey_events): (Vec<_>, Vec<_>) = events
+                    .into_iter()
+                    .partition(|event| is_survey_event(&event.event));
+                
+                if !survey_events.is_empty() {
+                    report_dropped_events("survey_over_quota", survey_events.len() as u64);
+                }
+                
+                // Continue with non-survey events if any exist
+                if non_survey_events.is_empty() {
+                    return Err(CaptureError::BillingLimit);
+                }
+                
+                events = non_survey_events;
+            }
+        }
     }
 
     debug!(context=?context,
@@ -341,7 +395,7 @@ async fn handle_common(
     let maybe_batch_token = request.get_batch_token();
 
     // consumes the parent request, so it's no longer in scope to extract metadata from
-    let events = match request.events(path.as_str()) {
+    let mut events = match request.events(path.as_str()) {
         Ok(events) => events,
         Err(e) => return Err(e),
     };
@@ -378,6 +432,34 @@ async fn handle_common(
     if billing_limited {
         report_dropped_events("over_quota", events.len() as u64);
         return Err(CaptureError::BillingLimit);
+    }
+
+    // Check for survey quota limiting if any events are survey-related
+    if let Some(ref limiter) = state.survey_limiter {
+        let has_survey_events = events.iter().any(|event| is_survey_event(&event.event));
+        if has_survey_events {
+            let survey_limited = limiter
+                .is_limited(context.token.as_str())
+                .await;
+            
+            if survey_limited {
+                // Drop only survey events, allow other events through
+                let (survey_events, non_survey_events): (Vec<_>, Vec<_>) = events
+                    .into_iter()
+                    .partition(|event| is_survey_event(&event.event));
+                
+                if !survey_events.is_empty() {
+                    report_dropped_events("survey_over_quota", survey_events.len() as u64);
+                }
+                
+                // Continue with non-survey events if any exist
+                if non_survey_events.is_empty() {
+                    return Err(CaptureError::BillingLimit);
+                }
+                
+                events = non_survey_events;
+            }
+        }
     }
 
     debug!(context=?context, events=?events, "decoded request");

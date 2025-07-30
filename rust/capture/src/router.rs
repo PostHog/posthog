@@ -32,6 +32,7 @@ pub struct State {
     pub timesource: Arc<dyn TimeSource + Send + Sync>,
     pub redis: Arc<dyn Client + Send + Sync>,
     pub billing_limiter: RedisLimiter,
+    pub survey_limiter: Option<RedisLimiter>,
     pub token_dropper: Arc<TokenDropper>,
     pub event_size_limit: usize,
     pub historical_cfg: HistoricalConfig,
@@ -102,6 +103,7 @@ pub fn router<
     sink: S,
     redis: Arc<R>,
     billing_limiter: RedisLimiter,
+    survey_limiter: Option<RedisLimiter>,
     token_dropper: TokenDropper,
     metrics: bool,
     capture_mode: CaptureMode,
@@ -118,6 +120,7 @@ pub fn router<
         timesource: Arc::new(timesource),
         redis,
         billing_limiter,
+        survey_limiter,
         event_size_limit,
         token_dropper: Arc::new(token_dropper),
         historical_cfg: HistoricalConfig::new(
