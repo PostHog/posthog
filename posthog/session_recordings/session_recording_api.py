@@ -81,6 +81,7 @@ from posthog.storage.session_recording_v2_object_storage import BlockFetchError
 from ..models.product_intent.product_intent import ProductIntent
 from posthog.models.activity_logging.activity_log import log_activity, Detail
 from loginas.utils import is_impersonated_session
+from opentelemetry import trace
 
 USE_BLOB_V2_LTS = "use-blob-v2-lts"
 MAX_RECORDINGS_PER_BULK_ACTION = 20
@@ -128,6 +129,7 @@ LOADING_V2_LTS_COUNTER = Counter(
 )
 
 logger = structlog.get_logger(__name__)
+tracer = trace.get_tracer(__name__)
 
 
 def filter_from_params_to_query(params: dict) -> RecordingsQuery:
@@ -517,31 +519,37 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         tag_queries(product=Product.REPLAY)
         user_distinct_id = cast(User, request.user).distinct_id
 
-        try:
-            query = filter_from_params_to_query(request.GET.dict())
+        with tracer.start_as_current_span("list_recordings", context=None, kind=trace.SpanKind.SERVER):
+            try:
+                with tracer.start_as_current_span("convert_flters"):
+                    query = filter_from_params_to_query(request.GET.dict())
 
-            self._maybe_report_recording_list_filters_changed(request, team=self.team)
-            response = list_recordings_response(
-                list_recordings_from_query(query, cast(User, request.user), team=self.team),
-                context=self.get_serializer_context(),
-            )
+                self._maybe_report_recording_list_filters_changed(request, team=self.team)
+                with tracer.start_as_current_span("query_for_recordings"):
+                    query_results = list_recordings_from_query(query, cast(User, request.user), team=self.team)
 
-            return response
-        except CHQueryErrorTooManySimultaneousQueries:
-            raise Throttled(detail="Too many simultaneous queries. Try again later.")
-        except (ServerException, Exception) as e:
-            if isinstance(e, exceptions.ValidationError):
-                raise
+                with tracer.start_as_current_span("make_response"):
+                    response = list_recordings_response(
+                        query_results,
+                        context=self.get_serializer_context(),
+                    )
 
-            if isinstance(e, ServerException) and "CHQueryErrorTimeoutExceeded" in str(e):
-                raise Throttled(detail="Query timeout exceeded. Try again later.")
+                    return response
+            except CHQueryErrorTooManySimultaneousQueries:
+                raise Throttled(detail="Too many simultaneous queries. Try again later.")
+            except (ServerException, Exception) as e:
+                if isinstance(e, exceptions.ValidationError):
+                    raise
 
-            posthoganalytics.capture_exception(
-                e,
-                distinct_id=user_distinct_id,
-                properties={"replay_feature": "listing_recordings", "unfiltered_query": request.GET.dict()},
-            )
-            return Response({"error": "An internal error has occurred. Please try again later."}, status=500)
+                if isinstance(e, ServerException) and "CHQueryErrorTimeoutExceeded" in str(e):
+                    raise Throttled(detail="Query timeout exceeded. Try again later.")
+
+                posthoganalytics.capture_exception(
+                    e,
+                    distinct_id=user_distinct_id,
+                    properties={"replay_feature": "listing_recordings", "unfiltered_query": request.GET.dict()},
+                )
+                return Response({"error": "An internal error has occurred. Please try again later."}, status=500)
 
     @extend_schema(
         exclude=True,
