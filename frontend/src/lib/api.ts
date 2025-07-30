@@ -170,6 +170,7 @@ import {
     LOGS_PORTION_LIMIT,
 } from './constants'
 import type { ProductIntentProperties } from './utils/product-intents'
+import { OptOutEntry } from 'products/messaging/frontend/OptOuts/optOutListLogic'
 import { NotebookListItemType, NotebookNodeResource, NotebookType } from 'scenes/notebooks/types'
 import { MaxBillingContext } from 'scenes/max/maxBillingContextLogic'
 
@@ -1329,6 +1330,18 @@ export class ApiRequest {
 
     public messagingCategory(categoryId: string): ApiRequest {
         return this.messagingCategories().addPathComponent(categoryId)
+    }
+
+    public messagingPreferences(): ApiRequest {
+        return this.environments().current().addPathComponent('messaging_preferences')
+    }
+
+    public messagingPreferencesLink(): ApiRequest {
+        return this.environments().current().addPathComponent('messaging_preferences').addPathComponent('generate_link')
+    }
+
+    public messagingPreferencesOptOuts(): ApiRequest {
+        return this.environments().current().addPathComponent('messaging_preferences').addPathComponent('opt_outs')
     }
 
     public oauthApplicationPublicMetadata(clientId: string): ApiRequest {
@@ -3584,6 +3597,22 @@ const api = {
         },
         async deleteCategory(categoryId: string): Promise<void> {
             return await new ApiRequest().messagingCategory(categoryId).delete()
+        },
+        async generateMessagingPreferencesLink(recipient?: string): Promise<string | null> {
+            const response = await new ApiRequest().messagingPreferencesLink().create({
+                data: {
+                    recipient,
+                },
+            })
+            return response.preferences_url || null
+        },
+        async getMessageOptOuts(categoryKey?: string): Promise<OptOutEntry[]> {
+            return await new ApiRequest()
+                .messagingPreferencesOptOuts()
+                .withQueryString({
+                    category_key: categoryKey,
+                })
+                .get()
         },
     },
     oauthApplication: {
