@@ -1482,7 +1482,7 @@ export interface CohortType {
     }
     experiment_set?: number[]
     _create_in_folder?: string | null
-    cohort_type?: 'static' | 'person_properties' | 'behavioral' | 'analytical'
+    cohort_type?: 'static' | 'person_property' | 'behavioral' | 'analytical'
 }
 
 export interface InsightHistory {

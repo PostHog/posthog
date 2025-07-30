@@ -218,9 +218,26 @@ class CohortSerializer(serializers.ModelSerializer):
             "last_calculation",
             "errors_calculating",
             "count",
-            "cohort_type",
             "experiment_set",
         ]
+
+    def validate(self, data: dict) -> dict:
+        """Determine cohort type based on validated data"""
+        # For updates, merge with existing instance data if available
+        if self.instance:
+            # This is an update - merge with existing values
+            is_static = data.get("is_static", self.instance.is_static)
+            filters = data.get("filters", self.instance.filters)
+            query = data.get("query", self.instance.query)
+        else:
+            # This is a create - use provided values or defaults
+            is_static = data.get("is_static", False)
+            filters = data.get("filters")
+            query = data.get("query")
+
+        # Determine cohort type using static method
+        data["cohort_type"] = Cohort.determine_cohort_type_from_filters(is_static, filters, query)
+        return data
 
     def _handle_static(self, cohort: Cohort, context: dict, validated_data: dict) -> None:
         request = self.context["request"]
@@ -249,10 +266,6 @@ class CohortSerializer(serializers.ModelSerializer):
             raise ValidationError("Cannot set both query and filters at the same time.")
 
         cohort = Cohort.objects.create(team_id=self.context["team_id"], **validated_data)
-
-        # Automatically determine and set cohort type
-        cohort.update_cohort_type()
-        cohort.save()
 
         if cohort.is_static:
             self._handle_static(cohort, self.context, validated_data)
@@ -371,6 +384,7 @@ class CohortSerializer(serializers.ModelSerializer):
         cohort.groups = validated_data.get("groups", cohort.groups)
         cohort.is_static = validated_data.get("is_static", cohort.is_static)
         cohort.filters = validated_data.get("filters", cohort.filters)
+        cohort.cohort_type = validated_data.get("cohort_type", cohort.cohort_type)
         deleted_state = validated_data.get("deleted", None)
 
         is_deletion_change = deleted_state is not None and cohort.deleted != deleted_state
@@ -404,10 +418,6 @@ class CohortSerializer(serializers.ModelSerializer):
 
         if will_create_loops(cohort):
             raise ValidationError("Cohorts cannot reference other cohorts in a loop.")
-
-        # Automatically update cohort type when filters or static status changes
-        if validated_data.get("filters") is not None or validated_data.get("is_static") is not None:
-            cohort.update_cohort_type()
 
         cohort.save()
 

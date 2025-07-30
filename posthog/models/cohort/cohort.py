@@ -164,18 +164,17 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
 
     is_static = models.BooleanField(default=False)
 
-    # Cohort type determines where this cohort can be used
-    COHORT_TYPE_CHOICES = [
+    COHORT_TYPE_OPTIONS = [
         ("static", "Static"),
-        ("person_properties", "Person Properties"),
+        ("person_property", "Person Property"),
         ("behavioral", "Behavioral"),
         ("analytical", "Analytical"),
     ]
     cohort_type = models.CharField(
         max_length=20,
-        choices=COHORT_TYPE_CHOICES,
+        choices=COHORT_TYPE_OPTIONS,
         default="analytical",
-        help_text="Determines where this cohort can be used. Static, person_properties, and behavioral cohorts can be used in real-time features. Analytical cohorts are for analytics only.",
+        help_text="Determines where this cohort can be used. Static, person_property, and behavioral cohorts can be used in real-time features. Analytical cohorts are for analytics only.",
     )
 
     # deprecated in favor of filters
@@ -271,8 +270,27 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         return PropertyGroup(PropertyOperatorType.AND, cast(list[Property], []))
 
     @property
-    def has_complex_behavioral_filter(self) -> bool:
-        for prop in self.properties.flat:
+    def can_be_used_in_real_time(self) -> bool:
+        """Check if cohort can be used in real-time features like feature flags"""
+        return self.cohort_type in ["static", "person_property", "behavioral"]
+
+    @staticmethod
+    def determine_cohort_type_from_filters(
+        is_static: bool, filters: Optional[dict] = None, query: Optional[dict] = None
+    ) -> str:
+        """Determine cohort type based on filters and static status"""
+        # Static cohorts are always static type
+        if is_static:
+            return "static"
+
+        # Process filters to get properties
+        if filters:
+            property_group = Filter(data={**filters, "is_simplified": True}).property_groups
+        else:
+            property_group = PropertyGroup(PropertyOperatorType.AND, cast(list[Property], []))
+
+        # Check for complex behavioral filters (i.e. "analytical" filters)
+        for prop in property_group.flat:
             if prop.type == "behavioral" and prop.value in [
                 BehavioralPropertyType.PERFORMED_EVENT_FIRST_TIME,
                 BehavioralPropertyType.PERFORMED_EVENT_REGULARLY,
@@ -280,48 +298,22 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
                 BehavioralPropertyType.STOPPED_PERFORMING_EVENT,
                 BehavioralPropertyType.RESTARTED_PERFORMING_EVENT,
             ]:
-                return True
-        return False
+                return "analytical"
 
-    def _has_behavioral_filters(self) -> bool:
-        """Check if cohort has any behavioral filters (simple or complex)"""
-        return any(prop.type == "behavioral" for prop in self.properties.flat)
-
-    def _has_only_person_properties(self) -> bool:
-        """Check if cohort has only person properties (no behavioral, cohort, or other complex filters)"""
-        if not self.properties.flat:
-            return False
-
-        for prop in self.properties.flat:
-            if prop.type not in ["person"]:
-                return False
-        return True
-
-    @property
-    def can_be_used_in_real_time(self) -> bool:
-        """Check if cohort can be used in real-time features like feature flags"""
-        return self.cohort_type in ["static", "person_properties", "behavioral"]
-
-    def determine_cohort_type(self) -> str:
-        """Automatically determine cohort type based on its filters"""
-        # Static cohorts are always static type
-        if self.is_static:
-            return "static"
-
-        # If cohort has complex behavioral filters, it must be analytical
-        if self.has_complex_behavioral_filter:
-            return "analytical"
-
-        # If cohort has simple behavioral filters, it can be behavioral
-        if self._has_behavioral_filters():
+        # Check for any behavioral filters (simple)
+        if any(prop.type == "behavioral" for prop in property_group.flat):
             return "behavioral"
 
-        # Person-only property cohorts get their own type
-        if self._has_only_person_properties():
-            return "person_properties"
+        # Check for person-only properties
+        if property_group.flat and all(prop.type == "person" for prop in property_group.flat):
+            return "person_property"
 
         # All other cohorts default to analytical
         return "analytical"
+
+    def determine_cohort_type(self) -> str:
+        """Automatically determine cohort type based on its filters"""
+        return self.determine_cohort_type_from_filters(self.is_static, self.filters, self.query)
 
     def update_cohort_type(self) -> None:
         """Update cohort type based on current filters"""
