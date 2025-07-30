@@ -354,27 +354,30 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
         # Check both query params (legacy) and settings for configuration options
         state = getattr(resource, "settings", {}) or {}
 
-        # Only check query params for configurations created before SHIP_DATE
-        SHIP_DATE = "2025-07-31"
-        created_before_ship = False
+        # Only check query params for configurations created before SETTINGS_SHIP_DATE
+        SETTINGS_SHIP_DATE = "2025-07-31"
+        created_before_settings_ship = False
         if isinstance(resource, SharingConfiguration):
-            created_before_ship = resource.created_at.strftime("%Y-%m-%d") < SHIP_DATE
+            created_before_settings_ship = resource.created_at.strftime("%Y-%m-%d") < SETTINGS_SHIP_DATE
+
+        # Exported assets don't have settings so we can continue to use query params
+        can_use_query_params = created_before_settings_ship or isinstance(resource, ExportedAsset)
 
         # Whitelabel
-        whitelabel_from_query = "whitelabel" in request.GET and created_before_ship
+        whitelabel_from_query = "whitelabel" in request.GET and can_use_query_params
         if (whitelabel_from_query or state.get("whitelabel")) and resource.team.organization.is_feature_available(
             AvailableFeature.WHITE_LABELLING
         ):
             exported_data.update({"whitelabel": True})
 
         # Other options: only allow query params for old configurations
-        if ("noHeader" in request.GET and created_before_ship) or state.get("noHeader"):
+        if ("noHeader" in request.GET and can_use_query_params) or state.get("noHeader"):
             exported_data.update({"noHeader": True})
-        if ("showInspector" in request.GET and created_before_ship) or state.get("showInspector"):
+        if ("showInspector" in request.GET and can_use_query_params) or state.get("showInspector"):
             exported_data.update({"showInspector": True})
-        if ("legend" in request.GET and created_before_ship) or state.get("legend"):
+        if ("legend" in request.GET and can_use_query_params) or state.get("legend"):
             exported_data.update({"legend": True})
-        if ("detailed" in request.GET and created_before_ship) or state.get("detailed"):
+        if ("detailed" in request.GET and can_use_query_params) or state.get("detailed"):
             exported_data.update({"detailed": True})
 
         if request.path.endswith(f".json"):
