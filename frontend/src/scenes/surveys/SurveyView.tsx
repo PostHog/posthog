@@ -287,7 +287,7 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                         }
                         caption={
                             <>
-                                {!newSceneLayout && survey && !!survey.description && (
+                                {survey && !!survey.description && (
                                     <EditableField
                                         multiline
                                         name="description"
