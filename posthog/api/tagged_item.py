@@ -124,12 +124,9 @@ class TaggedItemViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
 
 @receiver(model_activity_signal, sender=Tag)
 def handle_tag_change(sender, scope, before_update, after_update, activity, was_impersonated=False, **kwargs):
-    from threading import current_thread
+    from posthog.utils import get_current_user_from_thread
 
-    user = None
-    request = getattr(current_thread(), "request", None)
-    if request and hasattr(request, "user"):
-        user = request.user
+    user = get_current_user_from_thread()
 
     log_activity(
         organization_id=after_update.team.organization_id,
@@ -147,12 +144,9 @@ def handle_tag_change(sender, scope, before_update, after_update, activity, was_
 
 @receiver(model_activity_signal, sender=TaggedItem)
 def handle_tagged_item_change(sender, scope, before_update, after_update, activity, was_impersonated=False, **kwargs):
-    from threading import current_thread
+    from posthog.utils import get_current_user_from_thread
 
-    user = None
-    request = getattr(current_thread(), "request", None)
-    if request and hasattr(request, "user"):
-        user = request.user
+    user = get_current_user_from_thread()
 
     tagged_object = None
     for field in [

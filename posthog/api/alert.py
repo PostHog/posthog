@@ -330,14 +330,9 @@ class ThresholdViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
 def handle_alert_configuration_change(
     sender, scope, before_update, after_update, activity, was_impersonated=False, **kwargs
 ):
-    from threading import current_thread
+    from posthog.utils import get_current_user_from_thread
 
-    user = None
-    request = getattr(current_thread(), "request", None)
-    if request and hasattr(request, "user"):
-        user = request.user
-
-    # Get a descriptive name for the alert
+    user = get_current_user_from_thread()
     alert_name = after_update.name or f"Alert for {after_update.insight.name}"
 
     log_activity(

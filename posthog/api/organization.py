@@ -397,12 +397,9 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
 @receiver(model_activity_signal, sender=Organization)
 def handle_organization_change(sender, scope, before_update, after_update, activity, was_impersonated=False, **kwargs):
-    from threading import current_thread
+    from posthog.utils import get_current_user_from_thread
 
-    user = None
-    request = getattr(current_thread(), "request", None)
-    if request and hasattr(request, "user"):
-        user = request.user
+    user = get_current_user_from_thread()
 
     log_activity(
         organization_id=after_update.id,
@@ -422,14 +419,9 @@ def handle_organization_change(sender, scope, before_update, after_update, activ
 def handle_organization_membership_change(
     sender, scope, before_update, after_update, activity, was_impersonated=False, **kwargs
 ):
-    from threading import current_thread
+    from posthog.utils import get_current_user_from_thread
 
-    user = None
-    request = getattr(current_thread(), "request", None)
-    if request and hasattr(request, "user"):
-        user = request.user
-
-    # Use the membership user's email as the name for clarity
+    user = get_current_user_from_thread()
     name = f"{after_update.user.email} ({after_update.get_level_display()})"
 
     log_activity(

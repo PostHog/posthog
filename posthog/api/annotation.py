@@ -155,12 +155,9 @@ def annotation_created(sender, instance, created, raw, using, **kwargs):
 
 @receiver(model_activity_signal, sender=Annotation)
 def handle_annotation_change(sender, scope, before_update, after_update, activity, was_impersonated=False, **kwargs):
-    from threading import current_thread
+    from posthog.utils import get_current_user_from_thread
 
-    user = None
-    request = getattr(current_thread(), "request", None)
-    if request and hasattr(request, "user"):
-        user = request.user
+    user = get_current_user_from_thread()
 
     log_activity(
         organization_id=after_update.organization_id
@@ -174,6 +171,6 @@ def handle_annotation_change(sender, scope, before_update, after_update, activit
         activity=activity,
         detail=Detail(
             changes=changes_between(scope, previous=before_update, current=after_update),
-            name=after_update.content[:50] if after_update.content else "Annotation",
+            name=after_update.content,
         ),
     )
