@@ -798,7 +798,7 @@
          AND "posthog_dashboarditem"."id" = 99999)
   LIMIT 21
   FOR
-  UPDATE
+  UPDATE OF "posthog_dashboarditem"
   '''
 # ---
 # name: TestInsight.test_listing_insights_does_not_nplus1.11
