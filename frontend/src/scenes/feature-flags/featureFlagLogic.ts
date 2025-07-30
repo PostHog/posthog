@@ -1133,7 +1133,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             }
         },
         createSurveyFailure: ({ error }) => {
-            lemonToast.error(`Failed to create survey: ${error?.detail || 'Unknown error'}`)
+            lemonToast.error(`Failed to create survey: ${error || 'Unknown error'}`)
         },
         createScheduledChangeSuccess: ({ scheduledChange }) => {
             if (scheduledChange) {
