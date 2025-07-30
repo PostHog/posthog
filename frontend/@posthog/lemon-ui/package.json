@@ -14,7 +14,9 @@
     },
     "dependencies": {
         "kea": "^3.1.5",
-        "kea-router": "^3.2.2",
+        "kea-router": "^3.2.2"
+    },
+    "devDependencies": {
         "tsup": "^5.12.8",
         "typescript": "5.2.2"
     },
