@@ -73,6 +73,7 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
 
     is_remote_configuration = models.BooleanField(default=False, null=True, blank=True)
     has_encrypted_payloads = models.BooleanField(default=False, null=True, blank=True)
+    webhook_subscriptions = models.JSONField(blank=True, null=True)
 
     evaluation_runtime_CHOICES = [
         ("server", "Server"),
@@ -421,6 +422,27 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
 @mutable_receiver([post_save, post_delete], sender=FeatureFlag)
 def refresh_flag_cache_on_updates(sender, instance, **kwargs):
     set_feature_flags_for_team_in_cache(instance.team.project_id)
+
+
+@mutable_receiver([post_save, post_delete], sender=FeatureFlag)
+def send_feature_flag_webhooks_on_updates(sender, instance, created=False, **kwargs):
+    """Send webhook notifications when feature flags are created, updated, or deleted."""
+    from posthog.helpers.feature_flag_webhooks import notify_feature_flag_webhooks
+
+    # Only process webhooks if the flag has webhook subscriptions configured
+    if not instance.webhook_subscriptions:
+        return
+
+    # Determine the change type
+    if kwargs.get("signal") == post_delete:
+        change_type = "deleted"
+    elif created:
+        change_type = "created"
+    else:
+        change_type = "updated"
+
+    # Send webhooks (function handles all error cases gracefully)
+    notify_feature_flag_webhooks(instance, change_type)
 
 
 class FeatureFlagHashKeyOverride(models.Model):
