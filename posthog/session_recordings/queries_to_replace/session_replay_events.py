@@ -234,7 +234,7 @@ class SessionReplayEvents:
         # we always need a floor for the query, so we can use it to avoid loading too much data
         recording_start_time: Optional[datetime] = None,
         # but we might not always have the start time, so we use the team's ttl days value with 1 year as a fallback
-        recording_ttl_days: Optional[int] = 365,
+        recording_ttl_days: Optional[int] = None,
     ) -> Optional[RecordingMetadata]:
         query = self.get_metadata_query()
         replay_response: list[tuple] = sync_execute(
@@ -242,7 +242,7 @@ class SessionReplayEvents:
             {
                 "team_id": team_id,
                 "session_id": session_id,
-                "recording_floor": get_recording_date_floor(recording_start_time, recording_ttl_days),
+                "recording_floor": get_recording_date_floor(recording_start_time, recording_ttl_days or 366),
                 "python_now": datetime.now(pytz.timezone("UTC")),
             },
         )
