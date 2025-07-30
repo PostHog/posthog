@@ -732,6 +732,11 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         _modifiers = modifiers or extract_modifiers(query)
         self.modifiers = create_default_modifiers_for_team(team, _modifiers)
         self.query = query
+        self.__post_init__()
+
+    def __post_init__(self):
+        """Called after init, can by overriden by subclasses. Should be idempotent. Also called after dashboard overrides are set."""
+        pass
 
     @property
     def query_type(self) -> type[Q]:
@@ -1120,6 +1125,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                         f"{self.query.__class__.__name__} does not support breakdown filters out of the box"
                     )
                 )
+        self.__post_init__()
 
 
 class QueryRunnerWithHogQLContext(QueryRunner):

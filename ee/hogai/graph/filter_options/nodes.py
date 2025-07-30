@@ -44,6 +44,7 @@ from .prompts import (
     FILTER_OPTIONS_ITERATION_LIMIT_PROMPT,
 )
 from ee.hogai.llm import MaxChatOpenAI
+from ee.hogai.utils.helpers import format_events_prompt
 
 
 class FilterOptionsNode(FilterOptionsBaseNode):
@@ -105,16 +106,12 @@ class FilterOptionsNode(FilterOptionsBaseNode):
             ("system", HUMAN_IN_THE_LOOP_PROMPT),
         ]
 
-        messages = [*system_messages, ("human", USER_FILTER_OPTIONS_PROMPT)]
+        progress_messages = getattr(state, "tool_progress_messages", [])
 
-        # Add any existing tool messages from state
-        conversation = ChatPromptTemplate(messages, template_format="mustache")
-
-        progress_messages = list(getattr(state, "tool_progress_messages", []))
-        all_messages = [*conversation.messages, *progress_messages]
-
-        full_conversation = ChatPromptTemplate(all_messages, template_format="mustache")
-
+        full_conversation = ChatPromptTemplate(
+            [*system_messages, ("human", USER_FILTER_OPTIONS_PROMPT), *progress_messages],
+            template_format="mustache",
+        )
         return full_conversation
 
     def _get_filter_generation_prompt(self, injected_prompts: dict) -> str:
@@ -156,6 +153,10 @@ class FilterOptionsNode(FilterOptionsBaseNode):
         if not change.strip():
             change = "Show me all session recordings with default filters"
 
+        events_in_context = []
+        if ui_context := self._get_ui_context(state):
+            events_in_context = ui_context.events if ui_context.events else []
+
         # Use injected prompts if available, otherwise fall back to default prompts
         output_message = chain.invoke(
             {
@@ -163,6 +164,7 @@ class FilterOptionsNode(FilterOptionsBaseNode):
                 "groups": self._all_entities,
                 "change": change,
                 "current_filters": current_filters,
+                "events": format_events_prompt(events_in_context, self._team),
             },
             config,
         )
@@ -207,7 +209,6 @@ class FilterOptionsToolsNode(FilterOptionsBaseNode, ABC):
         else:
             # First check if we've reached the terminal stage and return the filter options
             if input.name == "final_answer":
-                # Extract the full response structure
                 full_response = {
                     "data": input.arguments.data,  # type: ignore
                 }
