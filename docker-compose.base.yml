@@ -400,7 +400,7 @@ services:
         ports:
             - '18081:8081'
         volumes:
-            - ./docker/echo-server/Caddyfile:/etc/caddy/Caddyfile
+            - ./rust/docker/echo-server/Caddyfile:/etc/caddy/Caddyfile
     jaeger:
         image: jaegertracing/all-in-one:latest
         container_name: jaeger-local
