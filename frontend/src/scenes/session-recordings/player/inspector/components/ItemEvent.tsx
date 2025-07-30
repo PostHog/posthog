@@ -1,7 +1,7 @@
 import './ImagePreview.scss'
 
 import { IconShare, IconWarning } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonMenu } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonMenu, Link } from '@posthog/lemon-ui'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TitledSnack } from 'lib/components/TitledSnack'
@@ -214,6 +214,40 @@ export function ItemEventDetail({ item }: ItemEventProps): JSX.Element {
                                     )
                                 case 'conversation':
                                     return <AIEventExpanded event={event} />
+                                case '$set_properties':
+                                    return (
+                                        <>
+                                            <p>
+                                                Person properties sent with this event. Will replace any property value
+                                                that may have been set on this person profile before now.{' '}
+                                                <Link to="https://posthog.com/docs/getting-started/person-properties">
+                                                    Learn more
+                                                </Link>
+                                            </p>
+                                            <SimpleKeyValueList item={properties} promotedKeys={promotedKeys} />
+                                        </>
+                                    )
+                                case '$set_once_properties':
+                                    return (
+                                        <>
+                                            <p>
+                                                "Set once" person properties sent with this event. Will replace any
+                                                property value that have never been set on this person profile before
+                                                now.{' '}
+                                                <Link to="https://posthog.com/docs/getting-started/person-properties">
+                                                    Learn more
+                                                </Link>
+                                            </p>
+                                            <SimpleKeyValueList item={properties} promotedKeys={promotedKeys} />
+                                        </>
+                                    )
+                                case 'debug_properties':
+                                    return (
+                                        <>
+                                            <p>PostHog uses some properties to help debug issues with the SDKs.</p>
+                                            <SimpleKeyValueList item={properties} promotedKeys={promotedKeys} />
+                                        </>
+                                    )
                                 default:
                                     return <SimpleKeyValueList item={properties} promotedKeys={promotedKeys} />
                             }

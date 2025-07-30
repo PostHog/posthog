@@ -1,5 +1,3 @@
-import './EventDetails.scss'
-
 import { JSONViewer } from 'lib/components/JSONViewer'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
@@ -21,6 +19,7 @@ interface EventDetailsProps {
 export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Element {
     return (
         <EventPropertyTabs
+            barClassName="px-2"
             data-attr="event-details"
             size="medium"
             event={event}

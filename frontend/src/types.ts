@@ -1566,6 +1566,8 @@ export interface RecordingEventType
     extends Pick<EventType, 'id' | 'event' | 'properties' | 'timestamp' | 'elements'>,
         RecordingTimeMixinType {
     fullyLoaded: boolean
+    // allowing for absent distinct id which events don't
+    distinct_id?: EventType['distinct_id']
 }
 
 export interface PlaylistCollectionCount {

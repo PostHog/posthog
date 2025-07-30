@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP, POSTHOG_EVENT_PROMOTED_PROPERTIES } from '~/taxonomy/taxonomy'
-import { EventType } from '~/types'
+import { EventType, RecordingEventType } from '~/types'
 import { LemonTab, LemonTabs, LemonTabsProps } from 'lib/lemon-ui/LemonTabs'
 import { ErrorDisplay } from '../Errors/ErrorDisplay'
 import { AutocaptureImageTab, autocaptureToImage } from 'lib/utils/autocapture-previews'
@@ -32,16 +32,24 @@ type EventPropertyTabKey =
     | 'debug_properties'
     | 'metadata'
 
+function idFrom(event: EventType | RecordingEventType): string {
+    if ('uuid' in event && event.uuid) {
+        return event.uuid
+    }
+    // Fallback to timestamp if uuid is not available
+    return event.timestamp ? dayjs(event.timestamp).toISOString() : event.id ?? 'error'
+}
+
 export const EventPropertyTabs = ({
-    dataAttr,
-    size,
     event,
     tabContentComponentFn,
+    ...lemonTabsProps
 }: {
-    event: Omit<EventType, 'distinct_id'>
+    event: EventType | RecordingEventType
     tabContentComponentFn: (props: TabContentComponentFnProps) => JSX.Element
     dataAttr?: LemonTabsProps<EventPropertyTabKey>['data-attr']
     size?: LemonTabsProps<EventPropertyTabKey>['size']
+    barClassName?: LemonTabsProps<EventPropertyTabKey>['barClassName']
 }): JSX.Element => {
     const isAIGenerationEvent = event.event === '$ai_generation'
     const isAIEvent = isAIGenerationEvent || event.event === '$ai_span' || event.event === '$ai_trace'
@@ -89,15 +97,7 @@ export const EventPropertyTabs = ({
         isErrorEvent && {
             key: 'error_display',
             label: 'Exception',
-            content: (
-                <ErrorDisplay
-                    eventProperties={event.properties}
-                    // fallback on timestamp as uuid is optional
-                    eventId={event.uuid ?? event.timestamp ?? 'error'}
-                    // what do we do about margin in the events table?
-                    // should have <div className="mx-3">
-                />
-            ),
+            content: <ErrorDisplay eventProperties={event.properties} eventId={idFrom(event)} />,
         },
         // Add conversation tab for $ai_generation events
         isAIEvent
@@ -157,16 +157,6 @@ export const EventPropertyTabs = ({
             ? {
                   key: '$set_properties',
                   label: 'Person properties',
-                  // TODO but how
-                  // header={
-                  //                 <p>
-                  //                     Person properties sent with this event. Will replace any property value that
-                  //                     may have been set on this person profile before now.{' '}
-                  //                     <Link to="https://posthog.com/docs/getting-started/person-properties">
-                  //                         Learn more
-                  //                     </Link>
-                  //                 </p>
-                  //             }
                   content: tabContentComponentFn({
                       properties: setProperties,
                       event,
@@ -179,23 +169,12 @@ export const EventPropertyTabs = ({
             ? {
                   key: '$set_once_properties',
                   label: 'Set once person properties',
-                  content:
-                      // TODO but how
-                      // header={
-                      //                <p>
-                      //                     "Set once" person properties sent with this event. Will replace any property
-                      //                     value that have never been set on this person profile before now.{' '}
-                      //                     <Link to="https://posthog.com/docs/getting-started/person-properties">
-                      //                         Learn more
-                      //                     </Link>
-                      //                 </p>
-                      //             }
-                      tabContentComponentFn({
-                          properties: setOnceProperties,
-                          event,
-                          promotedKeys,
-                          tabKey: '$set_once_properties',
-                      }),
+                  content: tabContentComponentFn({
+                      properties: setOnceProperties,
+                      event,
+                      promotedKeys,
+                      tabKey: '$set_once_properties',
+                  }),
               }
             : null,
         Object.keys(errorProperties).length > 0
@@ -214,14 +193,12 @@ export const EventPropertyTabs = ({
             ? {
                   key: 'debug_properties',
                   label: 'Debug properties',
-                  content:
-                      // header={<p>PostHog uses some properties to help debug issues with the SDKs.</p>}
-                      tabContentComponentFn({
-                          properties: debugProperties,
-                          event,
-                          promotedKeys,
-                          tabKey: 'debug_properties',
-                      }),
+                  content: tabContentComponentFn({
+                      properties: debugProperties,
+                      event,
+                      promotedKeys,
+                      tabKey: 'debug_properties',
+                  }),
               }
             : null,
         {
@@ -232,8 +209,7 @@ export const EventPropertyTabs = ({
     ]
     return (
         <LemonTabs
-            data-attr={dataAttr}
-            size={size}
+            {...lemonTabsProps}
             activeKey={activeTab}
             onChange={(newKey: EventPropertyTabKey) => setActiveTab(newKey)}
             tabs={tabs}
