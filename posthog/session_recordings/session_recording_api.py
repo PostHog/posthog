@@ -636,6 +636,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
     # Returns metadata about the recording
     def retrieve(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         tag_queries(product=Product.REPLAY)
+
         with tracer.start_as_current_span("retrieve_recording", kind=trace.SpanKind.SERVER):
             with tracer.start_as_current_span("get_recording_object"):
                 recording = self.get_object()

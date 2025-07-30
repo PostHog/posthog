@@ -84,7 +84,7 @@ class SessionRecording(UUIDModel):
                 team_id=self.team.pk,
                 session_id=self.session_id,
                 recording_start_time=self.start_time,
-                recording_ttl_days=ttl_days(self.team),
+                recording_ttl_days=self.ttl_days,
             )
 
             if not metadata:

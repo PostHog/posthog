@@ -34,13 +34,14 @@ class TestSessionRecordingsSharing(APIBaseTest, ClickhouseTestMixin, QueryMatchi
         SessionRecording.objects.all().delete()
         Person.objects.all().delete()
 
-        self.session_id = str(uuid7())
-        self.produce_replay_summary(
-            "user",
-            self.session_id,
-            now() - relativedelta(days=1),
-            team_id=self.team.pk,
-        )
+        with freeze_time("2023-01-01T12:00:00Z"):
+            self.session_id = str(uuid7())
+            self.produce_replay_summary(
+                "user",
+                self.session_id,
+                now() - relativedelta(days=1),
+                team_id=self.team.pk,
+            )
 
     def produce_replay_summary(
         self,
@@ -134,11 +135,20 @@ class TestSessionRecordingsSharing(APIBaseTest, ClickhouseTestMixin, QueryMatchi
     @patch("ee.session_recordings.session_recording_extensions.object_storage.copy_objects", return_value=2)
     @freeze_time("2023-01-01T12:00:00Z")
     def test_sharing_token_allows_snapshot_access_within_ttl(self, _mock_copy_objects: MagicMock) -> None:
-        token = self._enable_sharing(self.session_id)
+        session_id = str(uuid7())
 
         self.produce_replay_summary(
             "user",
-            self.session_id,
+            session_id,
+            now() - relativedelta(days=1),
+            team_id=self.team.pk,
+        )
+
+        token = self._enable_sharing(session_id)
+
+        self.produce_replay_summary(
+            "user",
+            session_id,
             # a little before now, since the DB checks if the snapshot is within TTL and before now
             # if the test runs too quickly it looks like the snapshot is not there
             now() - relativedelta(seconds=1),
@@ -148,6 +158,6 @@ class TestSessionRecordingsSharing(APIBaseTest, ClickhouseTestMixin, QueryMatchi
         self.client.logout()
 
         response = self.client.get(
-            f"/api/projects/{self.team.id}/session_recordings/{self.session_id}/snapshots?sharing_access_token={token}"
+            f"/api/projects/{self.team.id}/session_recordings/{session_id}/snapshots?sharing_access_token={token}"
         )
         assert response.status_code == status.HTTP_200_OK, response.json()
