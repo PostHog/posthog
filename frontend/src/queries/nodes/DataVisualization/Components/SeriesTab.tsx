@@ -267,7 +267,23 @@ const YSeriesDisplayTab = ({ ySeriesLogicProps }: { ySeriesLogicProps: YSeriesLo
                     )}
                     {showLabelInput && (
                         <LemonField name="label" label="Label">
-                            <LemonInput />
+                            {({ value, onChange }) => (
+                                <LemonInput
+                                    value={value}
+                                    onChange={(label) => {
+                                        onChange(label)
+                                        updateSeriesIndex(
+                                            ySeriesLogicProps.seriesIndex,
+                                            ySeriesLogicProps.series.column.name,
+                                            {
+                                                display: {
+                                                    label: label,
+                                                },
+                                            }
+                                        )
+                                    }}
+                                />
+                            )}
                         </LemonField>
                     )}
                 </div>
