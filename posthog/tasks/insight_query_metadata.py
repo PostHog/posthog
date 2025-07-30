@@ -11,7 +11,7 @@ logger = structlog.get_logger(__name__)
 def extract_insight_query_metadata(insight_id: str) -> None:
     try:
         insight = (
-            Insight.objects.select_for_update()
+            Insight.objects.select_for_update(of=("self",))
             .select_related("team")
             .only("query", "query_metadata", "team")
             .get(pk=insight_id)

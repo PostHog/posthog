@@ -113,7 +113,7 @@ class Command(BaseCommand):
                 # This ensures no one else can modify these rows while we're processing them
                 insights = list(
                     base_query.order_by("id")
-                    .select_for_update(skip_locked=True)  # Add row locking
+                    .select_for_update(skip_locked=True, of=("self",))  # Add row locking
                     .select_related("team")
                     .only("id", "query", "query_metadata", "team")[:batch_size]
                 )
