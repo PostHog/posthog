@@ -5234,13 +5234,11 @@ export type HogFunctionIconResponse = {
 export enum HogWatcherState {
     healthy = 1,
     overflowed = 2,
-    disabledForPeriod = 3,
-    disabledIndefinitely = 4,
+    disabled = 3,
 }
 
 export type HogFunctionStatus = {
     state: HogWatcherState
-    rating: number
     tokens: number
 }
 
