@@ -85,6 +85,7 @@ export class HogWatcherService2 {
         previousState: HogWatcherStateEnum
     }) {
         const team = await this.hub.teamManager.getTeam(hogFunction.team_id)
+
         if (team) {
             captureTeamEvent(team, 'hog_function_state_change', {
                 hog_function_id: hogFunction.id,
@@ -202,6 +203,10 @@ export class HogWatcherService2 {
     }
 
     public async observeResults(results: CyclotronJobInvocationResult[]): Promise<void> {
+        if (process.env.CDP_HOG_WATCHER_2_ENABLED !== 'true') {
+            return
+        }
+
         const functionCosts: Record<
             CyclotronJobInvocation['functionId'],
             {
