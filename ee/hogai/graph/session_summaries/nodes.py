@@ -9,6 +9,7 @@ from langchain_core.runnables import RunnableConfig
 from ee.hogai.graph.base import AssistantNode
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from posthog.schema import MaxRecordingUniversalFilters, RecordingsQuery, AssistantToolCallMessage
+from posthog.temporal.ai.session_summary.summarize_session import execute_summarize_session_stream
 
 
 class SessionSummarizationNode(AssistantNode):
@@ -113,11 +114,13 @@ class SessionSummarizationNode(AssistantNode):
                 return self._create_error_response(self._base_error_instructions, state.root_tool_call_id)
             # Return the summarization response
             # TODO: Replace with actual summarization logic
+            summary = list(
+                execute_summarize_session_stream(session_id=session_ids[0], user_id=self._user.id, team=self._team)
+            )
             return PartialAssistantState(
                 messages=[
                     AssistantToolCallMessage(
-                        content=f"In the provided sessions ({session_ids}) found the following insights: "
-                        f"User tried to sign up, but encountered lots of API errors, so abandoned the flow.",
+                        content=summary[-1],
                         tool_call_id=state.root_tool_call_id or "unknown",
                         id=str(uuid4()),
                     ),
