@@ -189,7 +189,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             fixSQLErrorsLogic,
             ['fixErrors', 'fixErrorsSuccess', 'fixErrorsFailure'],
             draftsLogic,
-            ['saveAsDraft', 'deleteDraft'],
+            ['saveAsDraft', 'deleteDraft', 'saveAsDraftSuccess'],
         ],
     })),
     actions(({ values }) => ({
@@ -271,8 +271,19 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 sync_frequency?: string
                 types: string[][]
             },
-            successCallback?: () => void
-        ) => ({ view, successCallback }),
+            draftId?: string
+        ) => ({ view, draftId }),
+        updateViewSuccess: (
+            view: Partial<DatabaseSchemaViewTable> & {
+                edited_history_id?: string | undefined
+                id: string
+                lifecycle?: string | undefined
+                shouldRematerialize?: boolean | undefined
+                sync_frequency?: string | undefined
+                types: string[][]
+            },
+            draftId?: string
+        ) => ({ view, draftId }),
         setUpstreamViewMode: (mode: 'graph' | 'table') => ({ mode }),
         setHoveredNode: (nodeId: string | null) => ({ nodeId }),
         setTabDraftId: (tabUri: string, draftId: string) => ({ tabUri, draftId }),
@@ -957,25 +968,26 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         saveDraft: async ({ activeTab, queryInput, viewId }) => {
             const latestActiveTab = values.allTabs.find((tab) => tab.uri.toString() === activeTab.uri.toString())
 
-            actions.saveAsDraft(
-                {
-                    kind: NodeKind.HogQLQuery,
-                    query: queryInput,
-                },
-                viewId,
-                (draft: DataWarehouseSavedQueryDraft) => {
-                    const newTabs = values.allTabs.map((tab) => {
-                        if (tab.uri.toString() === activeTab.uri.toString()) {
-                            return { ...tab, name: draft.name, draft: draft }
-                        }
-                        return tab
-                    })
-
-                    actions.setTabs(newTabs)
-                    actions.updateState()
-                },
-                latestActiveTab?.view?.latest_history_id
-            )
+            if (latestActiveTab) {
+                actions.saveAsDraft(
+                    {
+                        kind: NodeKind.HogQLQuery,
+                        query: queryInput,
+                    },
+                    viewId,
+                    latestActiveTab
+                )
+            }
+        },
+        saveAsDraftSuccess: ({ draft, tab: tabToUpdate }) => {
+            const newTabs = values.allTabs.map((tab) => {
+                if (tab.uri.toString() === tabToUpdate.uri.toString()) {
+                    return { ...tab, name: draft.name, draft: draft }
+                }
+                return tab
+            })
+            actions.setTabs(newTabs)
+            actions.updateState()
         },
         updateState: async ({ skipBreakpoint }, breakpoint) => {
             if (skipBreakpoint !== true) {
@@ -1258,7 +1270,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             }
             actions.updateState()
         },
-        updateView: async ({ view, successCallback }) => {
+        updateView: async ({ view, draftId }) => {
             const latestView = await api.dataWarehouseSavedQueries.get(view.id)
             if (
                 view.edited_history_id !== latestView?.latest_history_id &&
@@ -1275,18 +1287,18 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                             ...view,
                             edited_history_id: latestView?.latest_history_id,
                         })
-                        successCallback && successCallback()
+                        actions.updateViewSuccess(view, draftId)
                     },
                     onReject: () => {},
                 })
                 lemonToast.error('View has been edited by another user. Review changes to update.')
             } else {
                 await dataWarehouseViewsLogic.asyncActions.updateDataWarehouseSavedQuery(view)
-                successCallback && successCallback()
+                actions.updateViewSuccess(view, draftId)
             }
         },
-        publishDraft: async ({ draftId, view }) => {
-            actions.updateView(view, () => {
+        updateViewSuccess: ({ view, draftId }) => {
+            if (draftId) {
                 actions.deleteDraft(draftId)
                 // remove draft from all tabs
                 const newTabs = values.allTabs.map((tab) => ({
@@ -1295,7 +1307,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                     name: tab.draft?.id === draftId && view?.name ? view.name : tab.name,
                 }))
                 actions.setTabs(newTabs)
-            })
+            }
         },
     })),
     subscriptions(({ props, actions, values }) => ({
@@ -1370,6 +1382,12 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         },
     })),
     selectors({
+        activeTab: [
+            (s) => [s.activeModelUri, s.allTabs],
+            (activeModelUri, allTabs) => {
+                return allTabs.find((tab) => tab.uri.toString() === activeModelUri?.uri.toString())
+            },
+        ],
         suggestedSource: [
             (s) => [s.suggestionPayload],
             (suggestionPayload) => {

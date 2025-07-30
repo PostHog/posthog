@@ -44,6 +44,7 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
         currentDraft,
         changesToSave,
         inProgressViewEdits,
+        activeTab,
     } = useValues(multitabEditorLogic)
 
     const { activePanelIdentifier } = useValues(panelLayoutLogic)
@@ -61,7 +62,6 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
         setMetadataLoading,
         saveAsView,
         saveDraft,
-        publishDraft,
         updateView,
     } = useActions(multitabEditorLogic)
     const { openHistoryModal } = useActions(multitabEditorLogic)
@@ -167,7 +167,7 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
                                         },
                                         editingView.id,
                                         currentDraft?.id || undefined,
-                                        editingView.latest_history_id
+                                        activeTab
                                     )
                                 } else {
                                     saveOrUpdateDraft(
@@ -177,7 +177,7 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
                                         },
                                         undefined,
                                         currentDraft?.id || undefined,
-                                        undefined
+                                        activeTab
                                     )
                                 }
                             }}
@@ -190,18 +190,21 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
                             id="sql-editor-query-window-publish-draft"
                             disabledReason={editingViewDisabledReason}
                             onClick={() => {
-                                if (editingView && currentDraft?.id) {
-                                    publishDraft(currentDraft.id, {
-                                        id: editingView.id,
-                                        query: {
-                                            ...sourceQuery.source,
-                                            query: queryInput,
+                                if (editingView && currentDraft?.id && activeTab) {
+                                    updateView(
+                                        {
+                                            id: editingView.id,
+                                            query: {
+                                                ...sourceQuery.source,
+                                                query: queryInput,
+                                            },
+                                            name: editingView.name,
+                                            types: response && 'types' in response ? response?.types ?? [] : [],
+                                            shouldRematerialize: isMaterializedView,
+                                            edited_history_id: activeTab.view?.latest_history_id,
                                         },
-                                        name: editingView.name,
-                                        types: response && 'types' in response ? response?.types ?? [] : [],
-                                        shouldRematerialize: isMaterializedView,
-                                        edited_history_id: currentDraft.edited_history_id,
-                                    })
+                                        currentDraft.id
+                                    )
                                 } else {
                                     saveAsView(false, currentDraft?.id)
                                 }
@@ -217,16 +220,14 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
                         </LemonButton>
                     </>
                 )}
-                {editingView && !isDraft && (
+                {editingView && !isDraft && activeModelUri && (
                     <>
                         <LemonButton
                             type="tertiary"
                             size="xsmall"
                             id="sql-editor-query-window-save-draft"
                             onClick={() => {
-                                if (activeModelUri) {
-                                    saveDraft(activeModelUri, queryInput, editingView.id)
-                                }
+                                saveDraft(activeModelUri, queryInput, editingView.id)
                             }}
                         >
                             Save draft
