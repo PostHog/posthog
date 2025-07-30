@@ -17,7 +17,7 @@ import { template as incomingWebhookTemplate } from '~/cdp/templates/_sources/we
 import { compileHog } from '../templates/compiler'
 import { compileInputs } from '../templates/test/test-helpers'
 import { Team, Hub } from '~/types'
-import { DateTime } from 'luxon'
+import { DateTime, Settings } from 'luxon'
 import { forSnapshot } from '~/tests/helpers/snapshots'
 
 describe('SourceWebhooksConsumer', () => {
@@ -55,6 +55,8 @@ describe('SourceWebhooksConsumer', () => {
                 bytecode: await compileHog(incomingWebhookTemplate.code),
                 inputs: await compileInputs(incomingWebhookTemplate, {}),
             })
+
+            Settings.defaultZone = 'UTC'
 
             const fixedTime = DateTime.fromObject({ year: 2025, month: 1, day: 1 }, { zone: 'UTC' })
             jest.spyOn(Date, 'now').mockReturnValue(fixedTime.toMillis())
@@ -130,8 +132,8 @@ describe('SourceWebhooksConsumer', () => {
                       "value": {
                         "data": "{"event":"my-event","distinct_id":"test-distinct-id","properties":{"$ip":"0000:0000:0000:0000:0000:ffff:7f00:0001","$lib":"posthog-webhook","$source_url":"/project/2/functions/<REPLACED-UUID-1>","$hog_function_execution_count":1},"timestamp":"2025-01-01T00:00:00.000Z"}",
                         "distinct_id": "test-distinct-id",
-                        "now": "2025-01-01T01:00:00.000+01:00",
-                        "sent_at": "2025-01-01T01:00:00.000+01:00",
+                        "now": "2025-01-01T00:00:00.000Z",
+                        "sent_at": "2025-01-01T00:00:00.000Z",
                         "token": "THIS IS NOT A TOKEN FOR TEAM 2",
                         "uuid": "<REPLACED-UUID-0>",
                       },
