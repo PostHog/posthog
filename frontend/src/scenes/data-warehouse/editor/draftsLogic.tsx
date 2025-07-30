@@ -1,5 +1,5 @@
 import { actions, kea, listeners, path, reducers, selectors } from 'kea'
-import api, { PaginatedResponse } from 'lib/api'
+import api, { ApiError, PaginatedResponse } from 'lib/api'
 
 import { DataWarehouseSavedQueryDraft } from '~/types'
 
@@ -26,7 +26,8 @@ export const draftsLogic = kea<draftsLogicType>([
             draftId,
             activeTab,
         }),
-        deleteDraft: (draftId: string, successCallback?: () => void) => ({ draftId, successCallback }),
+        deleteDraft: (draftId: string, viewName?: string) => ({ draftId, viewName }),
+        deleteDraftSuccess: (draftId: string, viewName?: string) => ({ draftId, viewName }),
         setDrafts: (drafts: DataWarehouseSavedQueryDraft[]) => ({ drafts }),
         renameDraft: (draftId: string, name: string) => ({ draftId, name }),
         saveAsDraftSuccess: (draft: DataWarehouseSavedQueryDraft, tab: QueryTab) => ({ draft, tab }),
@@ -77,32 +78,52 @@ export const draftsLogic = kea<draftsLogicType>([
             actions.setDrafts(draftsResponse.results)
         },
         saveAsDraft: async ({ query, viewId, tab }) => {
-            const draft = await api.dataWarehouseSavedQueryDrafts.create({
-                query,
-                saved_query_id: viewId,
-                edited_history_id: tab.view?.latest_history_id,
-            })
-            lemonToast.success('Draft saved')
+            try {
+                const draft = await api.dataWarehouseSavedQueryDrafts.create({
+                    query,
+                    saved_query_id: viewId,
+                    edited_history_id: tab.view?.latest_history_id,
+                })
+                lemonToast.success('Draft saved')
 
-            const newDrafts = [...values.drafts, draft]
-            actions.setDrafts(newDrafts)
-            actions.saveAsDraftSuccess(draft, tab)
+                const newDrafts = [...values.drafts, draft]
+                actions.setDrafts(newDrafts)
+                actions.saveAsDraftSuccess(draft, tab)
+            } catch (e) {
+                const apiError = e as ApiError
+                if (apiError) {
+                    lemonToast.error(`Draft save failed: ${apiError.message}`)
+                }
+                posthog.captureException(e)
+            }
         },
         updateDraft: async ({ draft }) => {
-            const updatedDraft = await api.dataWarehouseSavedQueryDrafts.update(draft.id, draft)
-            lemonToast.success('Draft updated')
-            const newDrafts = values.drafts.map((d) => (d.id === draft.id ? updatedDraft : d))
-            actions.setDrafts(newDrafts)
+            try {
+                const updatedDraft = await api.dataWarehouseSavedQueryDrafts.update(draft.id, draft)
+                lemonToast.success('Draft updated')
+                const newDrafts = values.drafts.map((d) => (d.id === draft.id ? updatedDraft : d))
+                actions.setDrafts(newDrafts)
+            } catch (e) {
+                const apiError = e as ApiError
+                if (apiError) {
+                    lemonToast.error(`Draft update failed: ${apiError.message}`)
+                }
+                posthog.captureException(e)
+            }
         },
-        deleteDraft: async ({ draftId }) => {
+        deleteDraft: async ({ draftId, viewName }) => {
             try {
                 await api.dataWarehouseSavedQueryDrafts.delete(draftId)
                 lemonToast.success('Draft deleted')
 
                 const newDrafts = values.drafts.filter((draft) => draft.id !== draftId)
                 actions.setDrafts(newDrafts)
+                actions.deleteDraftSuccess(draftId, viewName)
             } catch (e) {
-                lemonToast.error('Failed to delete draft')
+                const apiError = e as ApiError
+                if (apiError) {
+                    lemonToast.error(`Draft delete failed: ${apiError.message}`)
+                }
                 posthog.captureException(e)
             }
         },
@@ -111,30 +132,33 @@ export const draftsLogic = kea<draftsLogicType>([
             actions.setDrafts(values.drafts.map((d) => (d.id === draftId ? { ...d, name } : d)))
         },
         saveOrUpdateDraft: async ({ query, viewId, draftId, activeTab }) => {
-            try {
-                if (draftId) {
+            if (draftId) {
+                try {
                     const updatedDraft = await api.dataWarehouseSavedQueryDrafts.update(draftId, {
                         query,
                     })
                     lemonToast.success('Draft updated')
                     const newDrafts = values.drafts.map((d) => (d.id === draftId ? updatedDraft : d))
                     actions.setDrafts(newDrafts)
-                } else {
-                    const existingDrafts = await api.dataWarehouseSavedQueryDrafts.list()
-                    const existingDraft = existingDrafts.results.find((draft) => draft.saved_query_id === viewId)
-
-                    if (existingDraft) {
-                        actions.updateDraft({
-                            ...existingDraft,
-                            query,
-                        })
-                    } else if (viewId && activeTab) {
-                        actions.saveAsDraft(query, viewId, activeTab)
+                } catch (e) {
+                    const apiError = e as ApiError
+                    if (apiError) {
+                        lemonToast.error(`Draft update failed: ${apiError.message}`)
                     }
+                    posthog.captureException(e)
                 }
-            } catch (e) {
-                lemonToast.error('Failed to save draft')
-                posthog.captureException(e)
+            } else {
+                const existingDrafts = await api.dataWarehouseSavedQueryDrafts.list()
+                const existingDraft = existingDrafts.results.find((draft) => draft.saved_query_id === viewId)
+
+                if (existingDraft) {
+                    actions.updateDraft({
+                        ...existingDraft,
+                        query,
+                    })
+                } else if (viewId && activeTab) {
+                    actions.saveAsDraft(query, viewId, activeTab)
+                }
             }
         },
     })),

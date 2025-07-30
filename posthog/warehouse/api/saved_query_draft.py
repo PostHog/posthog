@@ -39,6 +39,8 @@ class DataWarehouseSavedQueryDraftSerializer(serializers.ModelSerializer):
 
         draft = DataWarehouseSavedQueryDraft(**validated_data)
         draft.save()
+
+        raise Exception("test")
         return draft
 
 

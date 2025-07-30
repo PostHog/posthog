@@ -189,7 +189,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             fixSQLErrorsLogic,
             ['fixErrors', 'fixErrorsSuccess', 'fixErrorsFailure'],
             draftsLogic,
-            ['saveAsDraft', 'deleteDraft', 'saveAsDraftSuccess'],
+            ['saveAsDraft', 'deleteDraft', 'saveAsDraftSuccess', 'deleteDraftSuccess'],
         ],
     })),
     actions(({ values }) => ({
@@ -1116,14 +1116,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 }
 
                 if (fromDraft) {
-                    actions.deleteDraft(fromDraft)
-                    // remove draft from all tabs
-                    const newTabs = values.allTabs.map((tab) => ({
-                        ...tab,
-                        draft: tab.draft?.id === fromDraft ? undefined : tab.draft,
-                        name: tab.draft?.id === fromDraft && savedQuery?.name ? savedQuery?.name : tab.name,
-                    }))
-                    actions.setTabs(newTabs)
+                    actions.deleteDraft(fromDraft, savedQuery?.name)
                 }
             } catch {
                 lemonToast.error('Failed to save view')
@@ -1300,15 +1293,17 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         },
         updateViewSuccess: ({ view, draftId }) => {
             if (draftId) {
-                actions.deleteDraft(draftId)
-                // remove draft from all tabs
-                const newTabs = values.allTabs.map((tab) => ({
-                    ...tab,
-                    draft: tab.draft?.id === draftId ? undefined : tab.draft,
-                    name: tab.draft?.id === draftId && view?.name ? view.name : tab.name,
-                }))
-                actions.setTabs(newTabs)
+                actions.deleteDraft(draftId, view?.name)
             }
+        },
+        deleteDraftSuccess: ({ draftId, viewName }) => {
+            // remove draft from all tabs
+            const newTabs = values.allTabs.map((tab) => ({
+                ...tab,
+                draft: tab.draft?.id === draftId ? undefined : tab.draft,
+                name: tab.draft?.id === draftId && viewName ? viewName : tab.name,
+            }))
+            actions.setTabs(newTabs)
         },
     })),
     subscriptions(({ props, actions, values }) => ({

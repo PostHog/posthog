@@ -210,9 +210,9 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
                                 }
                             }}
                             tooltip={
-                                !editingView
-                                    ? 'The view this draft is based on has been deleted. Publishing will create a new view.'
-                                    : ''
+                                editingView
+                                    ? 'Publishing will update the view with these changes.'
+                                    : 'The view this draft is based on has been deleted. Publishing will create a new view.'
                             }
                         >
                             {!editingView && <IconInfo className="mr-1" color="var(--warning)" />}

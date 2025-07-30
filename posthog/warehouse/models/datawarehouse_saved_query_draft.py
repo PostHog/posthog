@@ -11,7 +11,7 @@ class DataWarehouseSavedQueryDraft(CreatedMetaFields, UpdatedMetaFields, UUIDMod
     """
 
     team = models.ForeignKey(Team, on_delete=models.CASCADE)
-    query = models.JSONField(default=dict, null=True, blank=True, help_text="HogQL query draft")
+    query = models.JSONField(default=dict, blank=True, help_text="HogQL query draft")
 
     # 255 should be safe. the max length of a view name is 128
     name = models.CharField(max_length=255, null=True, blank=True, help_text="Name of the draft")
