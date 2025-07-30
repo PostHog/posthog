@@ -1014,8 +1014,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         mock_stream_from,
         mock_presigned_url,
         mock_get_session_recording,
-        mock_exists_old,
-        mock_exists_new,
+        mock_exists,
     ) -> None:
         session_id = str(uuid.uuid4())
         """API will add session_recordings/team_id/{self.team.pk}/session_id/{session_id}"""
@@ -1043,8 +1042,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         # we do check the session before validating input
         # TODO it would be maybe cheaper to validate the input first
         assert mock_get_session_recording.call_count == 1
-        assert mock_exists_new.call_count == 1
-        assert mock_exists_old.call_count == 0
+        assert mock_exists.call_count == 1
 
     @parameterized.expand([("2024-04-30"), (None)])
     @patch(
