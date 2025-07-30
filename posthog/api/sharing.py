@@ -361,7 +361,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             created_before_settings_ship = resource.created_at.strftime("%Y-%m-%d") < SETTINGS_SHIP_DATE
 
         # Exported assets don't have settings so we can continue to use query params
-        can_use_query_params = created_before_settings_ship or isinstance(resource, ExportedAsset)
+        can_use_query_params = created_before_settings_ship or not isinstance(resource, SharingConfiguration)
 
         # Whitelabel
         whitelabel_from_query = "whitelabel" in request.GET and can_use_query_params
