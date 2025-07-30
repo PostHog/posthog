@@ -55,7 +55,7 @@ def topological_sort(nodes: list[str], edges: list[dict[str, str]]) -> list[str]
         node = queue.popleft()
         result.append(node)
 
-    # root node and its external tables
+        # root node and its external tables
         for neighbor in graph[node]:
             in_degree[neighbor] -= 1
             if in_degree[neighbor] == 0:
