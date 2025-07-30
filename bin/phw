@@ -1,0 +1,88 @@
+#!/bin/bash
+# PostHog Worktree wrapper function installer
+# Source this file in your shell profile to use the phw function
+
+# Get the directory of this script when being sourced
+_phw_script_dir=""
+if [ -n "${BASH_SOURCE[0]:-}" ]; then
+    _phw_script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+elif [ -n "${ZSH_VERSION:-}" ]; then
+    _phw_script_dir="$(cd "$(dirname "$0")" && pwd)"
+fi
+
+phw() {
+    local script_path="${_phw_script_dir}/posthog-worktree"
+    local command="$1"
+    local branch="$2"
+    
+    # Run the actual script
+    "$script_path" "$@"
+    
+    # If creating, checking out, or starting, cd to the worktree
+    if [[ "$command" == "create" || "$command" == "checkout" || "$command" == "start" ]] && [[ -n "$branch" ]]; then
+        local worktree_path="$HOME/.worktrees/posthog/$branch"
+        if [[ -d "$worktree_path" ]]; then
+            echo "Switching to worktree directory..."
+            # Clean environment variables before entering worktree to prevent Flox warnings
+            unset VIRTUAL_ENV PYTHONPATH CONDA_DEFAULT_ENV 2>/dev/null || true
+            cd "$worktree_path"
+            
+            # If direnv is not set up, activate Flox manually
+            if ! command -v direnv &>/dev/null; then
+                echo "Activating Flox environment..."
+                eval "$(flox activate)"
+            fi
+            # If direnv is set up, it will auto-activate via .envrc
+        fi
+    elif [[ "$command" == "pr" ]] && [[ -n "$branch" ]]; then
+        # For PR, the directory name is different (pr-NUMBER-author)
+        local pr_dir=$(ls -d "$HOME/.worktrees/posthog/pr-${branch}-"* 2>/dev/null | head -n1)
+        if [[ -d "$pr_dir" ]]; then
+            echo "Switching to PR worktree directory..."
+            # Clean environment variables before entering worktree to prevent Flox warnings
+            unset VIRTUAL_ENV PYTHONPATH CONDA_DEFAULT_ENV 2>/dev/null || true
+            cd "$pr_dir"
+            
+            # If direnv is not set up, activate Flox manually
+            if ! command -v direnv &>/dev/null; then
+                echo "Activating Flox environment..."
+                eval "$(flox activate)"
+            fi
+        fi
+    fi
+}
+
+# Add completion support for bash
+if [ -n "$BASH_VERSION" ]; then
+    _phw_completions() {
+        local cur="${COMP_WORDS[COMP_CWORD]}"
+        local prev="${COMP_WORDS[COMP_CWORD-1]}"
+        
+        if [[ $COMP_CWORD -eq 1 ]]; then
+            COMPREPLY=($(compgen -W "create checkout pr remove list" -- "$cur"))
+        elif [[ $COMP_CWORD -eq 2 ]]; then
+            case "$prev" in
+                remove)
+                    # Complete with existing worktree names
+                    local worktrees=$(git worktree list 2>/dev/null | grep -E "\.worktrees/posthog" | sed 's|.*/posthog/||' | awk '{print $1}')
+                    COMPREPLY=($(compgen -W "$worktrees" -- "$cur"))
+                    ;;
+                checkout)
+                    # Complete with branch names
+                    local branches=$(git branch -a 2>/dev/null | grep -v HEAD | sed 's/^[* ]*//' | sed 's/remotes\/origin\///' | sort -u)
+                    COMPREPLY=($(compgen -W "$branches" -- "$cur"))
+                    ;;
+                pr)
+                    # No completion for PR numbers
+                    ;;
+                create)
+                    # Suggest branch name format
+                    COMPREPLY=($(compgen -W "haacked/" -- "$cur"))
+                    ;;
+            esac
+        fi
+    }
+    complete -F _phw_completions phw
+fi
+
+echo "PostHog worktree helper loaded. Use 'phw' command."
