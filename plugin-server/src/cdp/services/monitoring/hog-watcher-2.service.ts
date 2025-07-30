@@ -204,7 +204,6 @@ export class HogWatcherService2 {
 
     public async observeResults(results: CyclotronJobInvocationResult[]): Promise<void> {
         if (process.env.CDP_HOG_WATCHER_2_ENABLED !== 'true') {
-            console.log('HogWatcher2 is disabled')
             return
         }
 
