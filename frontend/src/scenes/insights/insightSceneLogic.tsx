@@ -305,17 +305,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                 upgradedQuery = query
             }
 
-            values.insightLogicRef?.logic.actions.setInsight(
-                {
-                    ...createEmptyInsight('new'),
-                    ...(values.dashboardId ? { dashboards: [values.dashboardId] } : {}),
-                    query: upgradedQuery,
-                },
-                {
-                    fromPersistentApi: false,
-                    overrideQuery: true,
-                }
-            )
+            values.insightLogicRef?.logic.actions.setQuery(upgradedQuery)
         },
     })),
     urlToAction(({ actions, values }) => ({
