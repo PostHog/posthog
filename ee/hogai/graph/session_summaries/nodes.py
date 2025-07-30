@@ -1,11 +1,11 @@
-from typing import Any, Literal
+from typing import Any, Literal, cast
 from uuid import uuid4
 import time
 from langchain_core.runnables import RunnableConfig
 import structlog
 from asgiref.sync import async_to_sync
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
-from posthog.schema import AssistantToolCallMessage
+from posthog.schema import AssistantToolCallMessage, MaxRecordingUniversalFilters
 from ee.hogai.graph.base import AssistantNode
 from products.replay.backend.max_tools import (
     MULTIPLE_FILTERS_PROMPT,
@@ -14,6 +14,10 @@ from products.replay.backend.max_tools import (
     SESSION_REPLAY_RESPONSE_FORMATS_PROMPT,
 )
 from ee.hogai.graph.filter_options.graph import FilterOptionsGraph
+from posthog.schema import RecordingsQuery
+from posthog.session_recordings.queries_to_replace.session_recording_list_from_query import (
+    SessionRecordingListFromQuery,
+)
 
 
 class SessionSummarizationNode(AssistantNode):
@@ -22,7 +26,7 @@ class SessionSummarizationNode(AssistantNode):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-    async def _generate_replay_filters(self) -> dict:
+    async def _generate_replay_filters(self, plain_text_query: str) -> MaxRecordingUniversalFilters | None:
         """Generates replay filters to get session ids by querying a compiled Universal filters graph."""
         # Create the graph with injected prompts
         injected_prompts = {
@@ -35,67 +39,76 @@ class SessionSummarizationNode(AssistantNode):
         # Call with your query
         result = await graph.ainvoke(
             {
-                "change": "show me sessions of the user test@posthog.com",
+                "change": plain_text_query,
                 "current_filters": {},  # Empty state, as we need results from the query-to-filter
             }
         )
-        return result
-
-    def _get_session_ids_from_query(self, graph_result: dict[str, Any]) -> list[str]:
-        from posthog.schema import RecordingsQuery
-        from posthog.session_recordings.queries_to_replace.session_recording_list_from_query import (
-            SessionRecordingListFromQuery,
-        )
-
         # Extract the generated filters
-        max_filters = graph_result["generated_filter_options"]["data"]  # This is MaxRecordingUniversalFilters
+        filters_data = result.get("generated_filter_options", {}).get("data", None)
+        if not filters_data:
+            return None
+        max_filters = cast(MaxRecordingUniversalFilters, filters_data)
+        return max_filters
 
-        # Convert MaxRecordingUniversalFilters to RecordingsQuery format
-        # The key is to convert filter_group to properties format
+    def _get_session_ids_with_filters(self, replay_filters: MaxRecordingUniversalFilters) -> list[str] | None:
+        # Convert Max filters into recordings query format
         properties = []
-        if max_filters.filter_group and max_filters.filter_group.values:
-            for inner_group in max_filters.filter_group.values:
+        if replay_filters.filter_group and replay_filters.filter_group.values:
+            for inner_group in replay_filters.filter_group.values:
                 if hasattr(inner_group, "values"):
                     properties.extend(inner_group.values)
-
-        # Create RecordingsQuery
         recordings_query = RecordingsQuery(
-            date_from=max_filters.date_from,
-            date_to=max_filters.date_to,
+            date_from=replay_filters.date_from,
+            date_to=replay_filters.date_to,
             properties=properties,
-            filter_test_accounts=max_filters.filter_test_accounts,
-            order=max_filters.order,
+            filter_test_accounts=replay_filters.filter_test_accounts,
+            order=replay_filters.order,
             # Handle duration filters
             having_predicates=(
                 [
                     {"key": "duration", "type": "recording", "operator": dur.operator, "value": dur.value}
-                    for dur in (max_filters.duration or [])
+                    for dur in (replay_filters.duration or [])
                 ]
-                if max_filters.duration
+                if replay_filters.duration
                 else None
             ),
         )
-
         # Execute the query to get session IDs
         query_runner = SessionRecordingListFromQuery(
             team=self._team, query=recordings_query, hogql_query_modifiers=None
         )
-
-        # Get the results
         results = query_runner.run()
         # Extract session IDs
         session_ids = [recording["session_id"] for recording in results.results]
-        print("*" * 50)
-        print("SESSION IDS")
-        print(session_ids)
+        return session_ids if session_ids else None
 
     def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
         start_time = time.time()
-        session_id = state.summarization_session_id
         conversation_id = config.get("configurable", {}).get("thread_id", "unknown")
-        filter_results = async_to_sync(self._generate_replay_filters)()
-        session_ids = self._get_session_ids_from_query(filter_results)
+        # If query was not provided for some reason
+        if not state.session_summarization_query:
+            self._log_failure(
+                f"Session summarization query is not provided: {state.session_summarization_query}",
+                conversation_id, start_time
+            )
+            return self._create_error_response(self._base_error_message, state.root_tool_call_id)
         try:
+            # Generate filters to get session ids from DB
+            replay_filters = async_to_sync(self._generate_replay_filters)(state.session_summarization_query)
+            if not replay_filters:
+                self._log_failure(
+                    f"No Replay filters were generated for session summarization: {state.session_summarization_query}",
+                    conversation_id, start_time
+                )
+                return self._create_error_response(self._base_error_message, state.root_tool_call_id)
+            # Query the filters to get session ids
+            session_ids = self._get_session_ids_with_filters(replay_filters)
+            if not session_ids:
+                self._log_failure(
+                    f"No session ids found for the provided filters: {replay_filters}",
+                    conversation_id, start_time
+                )
+                return self._create_error_response(self._base_error_message, state.root_tool_call_id)
             # TODO: Replace with actual session summarization
             return PartialAssistantState(
                 messages=[
@@ -124,6 +137,21 @@ class SessionSummarizationNode(AssistantNode):
                 "INSTRUCTIONS: Tell the user that you encountered an issue while summarizing the session and suggest they try again with a different session id.",
                 state.root_tool_call_id,
             )
+
+    def _log_failure(self, message: str, conversation_id: str, start_time: float, error: Any = None):
+        self.logger.exception(
+            message,
+            extra={
+                "team_id": getattr(self._team, "id", "unknown"),
+                "conversation_id": conversation_id,
+                "execution_time_ms": round(time.time() - start_time * 1000, 2),
+                "error": str(error) if error else None,
+            },
+        )
+
+    @property
+    def _base_error_message(self) -> str:
+        return "INSTRUCTIONS: Tell the user that you encountered an issue while summarizing the session and suggest they try again with a different question."
 
     def router(self, _: AssistantState) -> Literal["end", "root"]:
         return "root"

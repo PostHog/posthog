@@ -183,9 +183,9 @@ class _SharedAssistantState(BaseState):
     """
     search_insights_query: Optional[str] = Field(default=None)
     """
-    The ID of the session to summarize.
+    The user's query for summarizing sessions.
     """
-    summarization_session_id: Optional[str] = Field(default=None)
+    session_summarization_query: Optional[str] = Field(default=None)
 
 
 class AssistantState(_SharedAssistantState):
