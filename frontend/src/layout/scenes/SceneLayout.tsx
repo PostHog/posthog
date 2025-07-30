@@ -11,6 +11,7 @@ import { SceneConfig } from 'scenes/sceneTypes'
 import { SceneHeader } from './SceneHeader'
 import './SceneLayout.css'
 import { sceneLayoutLogic } from './sceneLayoutLogic'
+import { SceneTabs } from '~/layout/scenes/SceneTabs'
 
 type SceneLayoutProps = {
     children: React.ReactNode
@@ -123,9 +124,10 @@ export function SceneLayout({ children, className, layoutConfig }: SceneLayoutPr
                     block: layoutConfig?.layout === 'app-raw-no-header',
                 })}
             >
-                {layoutConfig?.layout !== 'app-raw-no-header' && (
-                    <SceneHeader className="row-span-1 col-span-1 min-w-0" />
-                )}
+                {/*{layoutConfig?.layout !== 'app-raw-no-header' && (*/}
+                <SceneHeader className="row-span-1 col-span-1 min-w-0" />
+                {/*)}*/}
+                <SceneTabs />
 
                 {scenePanelIsPresent && (
                     <>
