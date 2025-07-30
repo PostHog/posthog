@@ -183,10 +183,8 @@ CREATE_MERGETREE_TABLE_QUERIES = (
     WEB_BOUNCES_DAILY_SQL,
     WEB_STATS_HOURLY_SQL,
     WEB_BOUNCES_HOURLY_SQL,
-    WEB_STATS_SQL(),
-    WEB_BOUNCES_SQL(),
-    WEB_STATS_SQL(table_name="web_pre_aggregated_stats_staging"),
-    WEB_BOUNCES_SQL(table_name="web_pre_aggregated_bounces_staging"),
+    WEB_STATS_SQL,
+    WEB_BOUNCES_SQL,
 )
 CREATE_DISTRIBUTED_TABLE_QUERIES = (
     WRITABLE_EVENTS_TABLE_SQL,
