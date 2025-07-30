@@ -35,7 +35,7 @@ export function MetricsTable({
     } = useValues(experimentLogic)
     const { duplicateMetric, updateExperimentMetrics } = useActions(experimentLogic)
 
-    // Calculate shared chartRadius across all metrics
+    // Calculate shared axisRange across all metrics
     const maxAbsValue = Math.max(
         ...results.flatMap((result: NewExperimentQueryResponse) => {
             const variantResults = result?.variant_results || []

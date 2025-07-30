@@ -52,7 +52,7 @@ export function Metrics({ isSecondary }: { isSecondary?: boolean }): JSX.Element
         metrics = [...metrics, ...sharedMetrics]
     }
 
-    // Calculate shared chartRadius across all metrics (only needed for old metrics table)
+    // Calculate shared axisRange across all metrics (only needed for old metrics table)
     const maxAbsValue = useNewMetricsTable
         ? 0
         : Math.max(
@@ -66,7 +66,7 @@ export function Metrics({ isSecondary }: { isSecondary?: boolean }): JSX.Element
           )
 
     const axisMargin = Math.max(maxAbsValue * 0.05, 0.1)
-    const chartRadius = maxAbsValue + axisMargin
+    const axisRange = maxAbsValue + axisMargin
 
     return (
         <div className="mb-4 -mt-2">
@@ -130,7 +130,7 @@ export function Metrics({ isSecondary }: { isSecondary?: boolean }): JSX.Element
                         <div className="w-full overflow-x-auto">
                             <div className="min-w-[1000px]">
                                 <div className="rounded bg-[var(--bg-table)]">
-                                    <ConfidenceIntervalAxis chartRadius={chartRadius} />
+                                    <ConfidenceIntervalAxis axisRange={axisRange} />
                                     {metrics.map((metric, metricIndex) => {
                                         const result = results[metricIndex]
 
@@ -143,7 +143,7 @@ export function Metrics({ isSecondary }: { isSecondary?: boolean }): JSX.Element
                                                     metric={metric}
                                                     metricType={getInsightType(metric)}
                                                     isSecondary={!!isSecondary}
-                                                    chartRadius={chartRadius}
+                                                    axisRange={axisRange}
                                                     error={errors[metricIndex]}
                                                 />
                                                 {metrics.length === 1 &&

@@ -50,7 +50,7 @@ function VariantGradient({
 export function VariantBar({
     variantResult,
     index,
-    chartRadius,
+    axisRange,
     metricIndex,
     isSecondary,
     onMouseEnter,
@@ -60,7 +60,7 @@ export function VariantBar({
 }: {
     variantResult: ExperimentVariantResult
     index: number
-    chartRadius: number
+    axisRange: number
     metricIndex: number
     isSecondary: boolean
     onMouseEnter: () => void
@@ -79,9 +79,9 @@ export function VariantBar({
     const totalContentHeight = BAR_SPACING + totalBars * (BAR_HEIGHT + BAR_SPACING)
     const verticalOffset = Math.max(0, (chartHeight - totalContentHeight) / 2)
     const y = verticalOffset + BAR_SPACING + (BAR_HEIGHT + BAR_SPACING) * index
-    const x1 = valueToXCoordinate(lower, chartRadius, VIEW_BOX_WIDTH, SVG_EDGE_MARGIN)
-    const x2 = valueToXCoordinate(upper, chartRadius, VIEW_BOX_WIDTH, SVG_EDGE_MARGIN)
-    const deltaX = valueToXCoordinate(delta, chartRadius, VIEW_BOX_WIDTH, SVG_EDGE_MARGIN)
+    const x1 = valueToXCoordinate(lower, axisRange, VIEW_BOX_WIDTH, SVG_EDGE_MARGIN)
+    const x2 = valueToXCoordinate(upper, axisRange, VIEW_BOX_WIDTH, SVG_EDGE_MARGIN)
+    const deltaX = valueToXCoordinate(delta, axisRange, VIEW_BOX_WIDTH, SVG_EDGE_MARGIN)
 
     return (
         <g key={variantResult.key} onMouseEnter={onMouseEnter} onMouseLeave={onMouseLeave} className="cursor-pointer">
@@ -149,7 +149,7 @@ export function VariantBar({
                 <>
                     {/* Variant name for no data case */}
                     <text
-                        x={valueToXCoordinate(0, chartRadius, VIEW_BOX_WIDTH, SVG_EDGE_MARGIN) - 150}
+                        x={valueToXCoordinate(0, axisRange, VIEW_BOX_WIDTH, SVG_EDGE_MARGIN) - 150}
                         y={y + BAR_HEIGHT / 2}
                         fontSize="10"
                         textAnchor="end"
@@ -162,7 +162,7 @@ export function VariantBar({
 
                     {/* "Not enough data" message */}
                     <rect
-                        x={valueToXCoordinate(0, chartRadius, VIEW_BOX_WIDTH, SVG_EDGE_MARGIN) - 50}
+                        x={valueToXCoordinate(0, axisRange, VIEW_BOX_WIDTH, SVG_EDGE_MARGIN) - 50}
                         y={y + BAR_HEIGHT / 2 - 8}
                         width="100"
                         height="16"
@@ -171,7 +171,7 @@ export function VariantBar({
                         fill="var(--border-light)"
                     />
                     <text
-                        x={valueToXCoordinate(0, chartRadius, VIEW_BOX_WIDTH, SVG_EDGE_MARGIN)}
+                        x={valueToXCoordinate(0, axisRange, VIEW_BOX_WIDTH, SVG_EDGE_MARGIN)}
                         y={y + BAR_HEIGHT / 2}
                         fontSize="10"
                         textAnchor="middle"

@@ -9,20 +9,20 @@ import { VariantTooltip } from './VariantTooltip'
 export function Chart({
     chartSvgRef,
     variantResults,
-    chartRadius,
+    axisRange,
     metricIndex,
     tickValues,
     isSecondary,
 }: {
     chartSvgRef: React.RefObject<SVGSVGElement>
     variantResults: ExperimentVariantResult[]
-    chartRadius: number
+    axisRange: number
     metricIndex: number
     tickValues: number[]
     isSecondary: boolean
 }): JSX.Element {
     const { showTooltip, hideTooltip, showTooltipFromTooltip, isTooltipVisible } = useTooltipHover()
-    const scale = useAxisScale(chartRadius, VIEW_BOX_WIDTH)
+    const scale = useAxisScale(axisRange, VIEW_BOX_WIDTH)
 
     const chartHeight = Math.max(BAR_SPACING + (BAR_HEIGHT + BAR_SPACING) * variantResults.length, 70)
 
@@ -46,7 +46,7 @@ export function Chart({
                                 key={`variant-bar-${variantResult.key}`}
                                 variantResult={variantResult}
                                 index={index}
-                                chartRadius={chartRadius}
+                                axisRange={axisRange}
                                 metricIndex={metricIndex}
                                 isSecondary={isSecondary}
                                 chartHeight={chartHeight}
@@ -64,7 +64,7 @@ export function Chart({
                     key={`tooltip-${variantResult.key}`}
                     variantResult={variantResult}
                     index={index}
-                    chartRadius={chartRadius}
+                    axisRange={axisRange}
                     chartSvgRef={chartSvgRef}
                     isVisible={isTooltipVisible(variantResult.key)}
                     onMouseEnter={() => showTooltipFromTooltip(variantResult.key)}

@@ -23,7 +23,7 @@ import { ChartGradients } from './ChartGradients'
 
 interface ChartCellProps {
     variantResult: ExperimentVariantResult
-    chartRadius: number
+    axisRange: number
     metricIndex: number
     showGridLines?: boolean
     isAlternatingRow?: boolean
@@ -33,7 +33,7 @@ interface ChartCellProps {
 
 export function ChartCell({
     variantResult,
-    chartRadius,
+    axisRange,
     metricIndex,
     showGridLines = true,
     isAlternatingRow = false,
@@ -41,7 +41,7 @@ export function ChartCell({
     isSecondary = false,
 }: ChartCellProps): JSX.Element {
     const colors = useChartColors()
-    const scale = useAxisScale(chartRadius, VIEW_BOX_WIDTH, SVG_EDGE_MARGIN)
+    const scale = useAxisScale(axisRange, VIEW_BOX_WIDTH, SVG_EDGE_MARGIN)
 
     const interval = getVariantInterval(variantResult)
     const [lower, upper] = getIntervalBounds(variantResult)
@@ -72,7 +72,7 @@ export function ChartCell({
                     {/* Grid lines for all ticks - spans full height */}
                     {showGridLines && (
                         <GridLines
-                            tickValues={getNiceTickValues(chartRadius)}
+                            tickValues={getNiceTickValues(axisRange)}
                             scale={scale}
                             height={viewBoxHeight}
                             viewBoxWidth={VIEW_BOX_WIDTH}

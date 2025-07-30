@@ -16,7 +16,7 @@ import { BAR_HEIGHT, BAR_SPACING, SVG_EDGE_MARGIN, VIEW_BOX_WIDTH } from './cons
 export function VariantTooltip({
     variantResult,
     index,
-    chartRadius,
+    axisRange,
     chartSvgRef,
     isVisible,
     onMouseEnter,
@@ -24,7 +24,7 @@ export function VariantTooltip({
 }: {
     variantResult: ExperimentVariantResult
     index: number
-    chartRadius: number
+    axisRange: number
     chartSvgRef: React.RefObject<SVGSVGElement>
     isVisible: boolean
     onMouseEnter?: () => void
@@ -40,8 +40,8 @@ export function VariantTooltip({
     const deltaPositive = isDeltaPositive(variantResult)
 
     const y = BAR_SPACING + (BAR_HEIGHT + BAR_SPACING) * index
-    const x1 = valueToXCoordinate(lower, chartRadius, VIEW_BOX_WIDTH, SVG_EDGE_MARGIN)
-    const x2 = valueToXCoordinate(upper, chartRadius, VIEW_BOX_WIDTH, SVG_EDGE_MARGIN)
+    const x1 = valueToXCoordinate(lower, axisRange, VIEW_BOX_WIDTH, SVG_EDGE_MARGIN)
+    const x2 = valueToXCoordinate(upper, axisRange, VIEW_BOX_WIDTH, SVG_EDGE_MARGIN)
 
     // Calculate middle of the bar
     const barCenterX = (x1 + x2) / 2

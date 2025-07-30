@@ -409,7 +409,7 @@ export function MetricRowGroup({
                         {/* Chart */}
                         <ChartCell
                             variantResult={variant}
-                            chartRadius={axisRange}
+                            axisRange={axisRange}
                             metricIndex={metricIndex}
                             isAlternatingRow={isAlternatingRow}
                             isLastRow={isLastRow}
