@@ -9,7 +9,6 @@ from ee.hogai.session_summaries.utils import (
     serialize_to_sse_event,
     shorten_url,
     estimate_tokens_from_strings,
-    _get_encoding_for_model,
 )
 
 
@@ -110,21 +109,3 @@ def test_estimate_tokens_from_strings():
     # Test with exact token count for o3 model
     result = estimate_tokens_from_strings(strings=["Hello world", "Test content"], model=SESSION_SUMMARIES_SYNC_MODEL)
     assert result == 4  # Exact token count for these strings with o3 model
-
-
-def test_encoding_cache():
-    """Test that tiktoken encodings are cached properly."""
-    # Clear cache before test
-    _get_encoding_for_model.cache_clear()
-
-    # First call should create new encoding
-    _get_encoding_for_model(SESSION_SUMMARIES_SYNC_MODEL)
-    initial_info = _get_encoding_for_model.cache_info()
-    assert initial_info.hits == 0
-    assert initial_info.misses == 1
-
-    # Second call should hit cache
-    _get_encoding_for_model(SESSION_SUMMARIES_SYNC_MODEL)
-    cached_info = _get_encoding_for_model.cache_info()
-    assert cached_info.hits == 1
-    assert cached_info.misses == 1

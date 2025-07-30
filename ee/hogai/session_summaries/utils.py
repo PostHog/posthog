@@ -3,7 +3,6 @@ from pathlib import Path
 from urllib.parse import urlparse
 from django.template import Engine, Context
 import tiktoken
-from functools import lru_cache
 
 
 def get_column_index(columns: list[str], column_name: str) -> int:
@@ -141,17 +140,11 @@ def strip_raw_llm_content(raw_content: str) -> str:
     return raw_content.strip("```yaml\n").strip("```").strip()  # noqa: B005
 
 
-@lru_cache(maxsize=128)
-def _get_encoding_for_model(model: str):
-    """Cached wrapper for tiktoken.encoding_for_model."""
-    return tiktoken.encoding_for_model(model)
-
-
 def estimate_tokens_from_strings(strings: list[str], model: str) -> int:
     """Estimate the token count for a list of strings."""
     if not strings:
         return 0
-    encoding = _get_encoding_for_model(model)
+    encoding = tiktoken.encoding_for_model(model)
     total_tokens = 0
     for string in strings:
         if string:
