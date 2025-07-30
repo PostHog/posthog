@@ -1,7 +1,7 @@
 {
     "name": "@posthog/products-messaging",
     "dependencies": {
-        "posthog-js": "1.258.2"
+        "posthog-js": "1.258.3"
     },
     "peerDependencies": {
         "@posthog/icons": "*",

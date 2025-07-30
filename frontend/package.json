@@ -13,7 +13,7 @@
     "homepage": "https://github.com/posthog/posthog#readme",
     "license": "MIT",
     "engines": {
-        "node": ">=18 <19"
+        "node": ">=22 <23"
     },
     "packageManager": "pnpm@9.15.5+sha256.8472168c3e1fd0bff287e694b053fccbbf20579a3ff9526b6333beab8df65a8d",
     "scripts": {
@@ -183,7 +183,7 @@
         "openai": "^4.81.0",
         "papaparse": "^5.4.1",
         "pmtiles": "^2.11.0",
-        "posthog-js": "1.258.2",
+        "posthog-js": "1.258.3",
         "posthog-js-lite": "4.1.0",
         "prettier": "^2.8.8",
         "prop-types": "^15.7.2",
@@ -249,7 +249,7 @@
         "@types/lodash.sortby": "^4.7.9",
         "@types/lodash.uniqby": "^4.7.9",
         "@types/md5": "^2.3.0",
-        "@types/node": "^18.11.9",
+        "@types/node": "^22.13.14",
         "@types/papaparse": "^5.3.8",
         "@types/pixelmatch": "^5.2.4",
         "@types/pngjs": "^6.0.1",
