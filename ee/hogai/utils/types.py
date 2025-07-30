@@ -1,7 +1,7 @@
 import uuid
 from collections.abc import Sequence
 from enum import StrEnum
-from typing import Annotated, Any, ClassVar, Literal, Optional, Self, TypeVar, Union
+from typing import Annotated, Any, Literal, Optional, Self, TypeVar, Union
 
 from langchain_core.agents import AgentAction
 from langchain_core.messages import (
@@ -125,7 +125,12 @@ class _SharedAssistantState(BaseState):
     The state of the root node.
     """
 
-    _ignored_reset_fields: ClassVar[set[str]] = {"memory_collection_messages"}
+    @staticmethod
+    def _get_ignored_reset_fields() -> set[str]:
+        """
+        Fields to ignore during state resets due to race conditions.
+        """
+        return {"memory_collection_messages"}
 
     start_id: Optional[str] = Field(default=None)
     """
