@@ -3,7 +3,7 @@ import { PluginEvent } from '@posthog/plugin-scaffold'
 import { fetch } from 'undici'
 import { v4 } from 'uuid'
 
-import { MeasuringPersonsStoreForBatch } from '~/worker/ingestion/persons/measuring-person-store'
+import { BatchWritingPersonsStoreForBatch } from '~/worker/ingestion/persons/batch-writing-person-store'
 import { PersonRepository } from '~/worker/ingestion/persons/repositories/person-repository'
 import { PostgresPersonRepository } from '~/worker/ingestion/persons/repositories/postgres-person-repository'
 
@@ -55,7 +55,7 @@ describe('Event Pipeline integration test', () => {
     let hookCannon: HookCommander
 
     const ingestEvent = async (event: PluginEvent) => {
-        const personsStoreForBatch = new MeasuringPersonsStoreForBatch(personRepository)
+        const personsStoreForBatch = new BatchWritingPersonsStoreForBatch(personRepository, hub.kafkaProducer)
         const groupStoreForBatch = new BatchWritingGroupStoreForBatch(hub.db)
         const runner = new EventPipelineRunner(
             hub,

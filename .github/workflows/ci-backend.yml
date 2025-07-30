@@ -143,7 +143,7 @@ jobs:
               uses: astral-sh/setup-uv@0c5e2b8115b80b4c7c5ddf6ffdd634974642d182 # v5.4.1
               with:
                   enable-cache: true
-                  pyproject-file: 'pyproject.toml'
+                  version: 0.7.8
 
             # First running migrations from master, to simulate the real-world scenario
             - name: Checkout master
@@ -524,7 +524,7 @@ jobs:
               uses: astral-sh/setup-uv@0c5e2b8115b80b4c7c5ddf6ffdd634974642d182 # v5.4.1
               with:
                   enable-cache: true
-                  pyproject-file: 'pyproject.toml'
+                  version: 0.7.8
 
             - name: Determine if hogql-parser has changed compared to master
               if: ${{ needs.changes.outputs.backend == 'true' }}
@@ -803,7 +803,7 @@ jobs:
               uses: astral-sh/setup-uv@0c5e2b8115b80b4c7c5ddf6ffdd634974642d182 # v5.4.1
               with:
                   enable-cache: true
-                  pyproject-file: 'pyproject.toml'
+                  version: 0.7.8
             - name: Install python dependencies
               shell: bash
               run: |
@@ -866,15 +866,3 @@ jobs:
                   posthog-token: ${{secrets.POSTHOG_API_TOKEN}}
                   event: 'posthog-ci-running-time'
                   properties: '{"runner": "depot", "duration_seconds": ${{ env.running_time_duration_seconds }}, "run_url": "${{ env.running_time_run_url }}", "run_attempt": "${{ env.running_time_run_attempt }}", "run_id": "${{ env.running_time_run_id }}", "run_started_at": "${{ env.running_time_run_started_at }}"}'
-
-    posthog-analytics:
-        name: PostHog CI analytics
-        if: always() && needs.changes.outputs.backend == 'true'
-        needs: [calculate-running-time] # last job in this workflow
-        runs-on: ubuntu-latest
-        steps:
-            - name: Checkout
-              uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
-            - uses: ./.github/actions/ci-analytics
-              with:
-                  posthog-api-key: ${{ secrets.CI_ANALYTICS_TOKEN }}

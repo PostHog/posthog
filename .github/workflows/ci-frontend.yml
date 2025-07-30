@@ -336,14 +336,32 @@ jobs:
                   event: 'posthog-ci-running-time'
                   properties: '{"runner": "depot", "duration_seconds": ${{ env.running_time_duration_seconds }}, "run_url": "${{ env.running_time_run_url }}", "run_attempt": "${{ env.running_time_run_attempt }}", "run_id": "${{ env.running_time_run_id }}", "run_started_at": "${{ env.running_time_run_started_at }}"}'
 
-    posthog-analytics:
-        name: PostHog CI analytics
-        if: always() && needs.changes.outputs.frontend == 'true'
-        needs: [calculate-running-time] # last job in this workflow
+    frontend_tests:
+        needs: [jest, frontend-format, frontend-toolbar-checks, frontend-typescript-checks]
+        name: Frontend Tests Pass
         runs-on: ubuntu-latest
+        if: always()
         steps:
-            - name: Checkout
-              uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
-            - uses: ./.github/actions/ci-analytics
-              with:
-                  posthog-api-key: ${{ secrets.CI_ANALYTICS_TOKEN }}
+            - run: exit 0
+            - name: Check outcomes
+              run: |
+                  if [[ "${{ needs.jest.result }}" != "success" ]]; then
+                    echo "Frontend jest tests failed."
+                    exit 1
+                  fi
+                  echo "Frontend jest tests passed."
+                  if [[ "${{ needs.frontend-format.result }}" != "success" ]]; then
+                    echo "Frontend linting failed."
+                    exit 1
+                  fi
+                  echo "Frontend linting passed."
+                  if [[ "${{ needs.frontend-toolbar-checks.result }}" != "success" ]]; then
+                    echo "Frontend toolbar checks failed."
+                    exit 1
+                  fi
+                  echo "Frontend toolbar checks passed."
+                  if [[ "${{ needs.frontend-typescript-checks.result }}" != "success" ]]; then
+                    echo "Frontend TypeScript checks failed."
+                    exit 1
+                  fi
+                  echo "Frontend TypeScript checks passed."
