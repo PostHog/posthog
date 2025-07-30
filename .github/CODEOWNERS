@@ -15,9 +15,9 @@ posthog/tasks/update_survey_iteration @PostHog/team-surveys
 posthog/tasks/test/test_stop_surveys_reached_target.py @PostHog/team-surveys
 
 # plugin server ownership is split between ingestion and messaging teams
+plugin-server/src/ @PostHog/team-ingestion @PostHog/team-messaging
 plugin-server/src/ingestion/ @PostHog/team-ingestion
 plugin-server/src/cdp/ @PostHog/team-messaging
-plugin-server/src/ @PostHog/team-ingestion @PostHog/team-messaging
 
 # ClickHouse team owns Clickhouse migrations
 posthog/clickhouse/migrations/** @PostHog/clickhouse
