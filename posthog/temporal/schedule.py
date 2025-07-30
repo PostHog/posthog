@@ -157,7 +157,8 @@ schedules = [
 
 if settings.EE_AVAILABLE:
     schedules.append(create_schedule_all_subscriptions_schedule)
-    schedules.append(create_salesforce_enrichment_schedule)
+    if settings.CLOUD_DEPLOYMENT == "US":
+        schedules.append(create_salesforce_enrichment_schedule)
 
 
 async def a_init_general_queue_schedules():
