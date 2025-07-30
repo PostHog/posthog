@@ -185,7 +185,6 @@ class PersonalAPIKeyViewSet(viewsets.ModelViewSet):
         serializer.roll(instance)
         return response.Response(serializer.data, status=status.HTTP_200_OK)
 
-
     @receiver(model_activity_signal, sender=PersonalAPIKey)
     def handle_personal_api_key_change(
         sender, scope, before_update, after_update, activity, was_impersonated=False, **kwargs
@@ -198,7 +197,7 @@ class PersonalAPIKeyViewSet(viewsets.ModelViewSet):
             user = request.user
 
         log_activity(
-            organization_id=None, # Personal API Keys are not scoped to an organization
+            organization_id=None,  # Personal API Keys are not scoped to an organization
             team_id=None,
             user=user,
             was_impersonated=was_impersonated,
