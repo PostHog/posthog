@@ -53,7 +53,7 @@ export const isHogFunctionResult = (
     return 'hogFunction' in result.invocation
 }
 
-export class HogWatcherService {
+export class HogWatcherService2 {
     private costsMapping: HogFunctionTimingCosts
 
     constructor(private hub: Hub, private redis: CdpRedis) {

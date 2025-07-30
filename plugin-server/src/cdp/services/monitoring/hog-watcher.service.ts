@@ -1,4 +1,4 @@
-import { Counter, Histogram } from 'prom-client'
+import { Counter } from 'prom-client'
 
 import { captureTeamEvent } from '~/utils/posthog'
 

@@ -4,17 +4,14 @@ jest.mock('~/utils/posthog', () => {
     }
 })
 
-import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
-
 import { Hub, ProjectId, Team } from '../../../types'
 import { closeHub, createHub } from '../../../utils/db/hub'
-import { delay } from '../../../utils/utils'
 import { createExampleInvocation, createHogFunction } from '../../_tests/fixtures'
 import { deleteKeysWithPrefix } from '../../_tests/redis'
 import { CdpRedis, createCdpRedisPool } from '../../redis'
 import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult, HogFunctionType } from '../../types'
 import { createInvocationResult } from '../../utils/invocation-utils'
-import { BASE_REDIS_KEY, HogWatcherService, HogWatcherStateEnum } from './hog-watcher-2.service'
+import { BASE_REDIS_KEY, HogWatcherService2, HogWatcherStateEnum } from './hog-watcher-2.service'
 
 const mockNow: jest.SpyInstance = jest.spyOn(Date, 'now')
 const mockCaptureTeamEvent: jest.Mock = require('~/utils/posthog').captureTeamEvent as any
@@ -22,7 +19,7 @@ const mockCaptureTeamEvent: jest.Mock = require('~/utils/posthog').captureTeamEv
 describe('HogWatcher', () => {
     let now: number
     let hub: Hub
-    let watcher: HogWatcherService
+    let watcher: HogWatcherService2
     let onStateChangeSpy: jest.SpyInstance
     let redis: CdpRedis
     const hogFunctionId: string = 'hog-function-id'
@@ -49,7 +46,7 @@ describe('HogWatcher', () => {
         await deleteKeysWithPrefix(redis, BASE_REDIS_KEY)
         hub.CDP_WATCHER_AUTOMATICALLY_DISABLE_FUNCTIONS = true
 
-        watcher = new HogWatcherService(hub, redis)
+        watcher = new HogWatcherService2(hub, redis)
         onStateChangeSpy = jest.spyOn(watcher as any, 'onStateChange') as jest.SpyInstance
         hogFunction = createHogFunction({ id: hogFunctionId, team_id: 2 })
     })
@@ -86,45 +83,6 @@ describe('HogWatcher', () => {
     const advanceTime = (ms: number) => {
         now += ms
         mockNow.mockReturnValue(now)
-    }
-
-    const reallyAdvanceTime = async (ms: number) => {
-        advanceTime(ms)
-        await delay(ms)
-    }
-
-    // Helper function to calculate cost based on duration and type
-    const calculateCost = (durationMs: number, kind: 'hog' | 'async_function'): number => {
-        const costsMapping = {
-            hog: {
-                lowerBound: hub.CDP_WATCHER_HOG_COST_TIMING_LOWER_MS,
-                upperBound: hub.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS,
-                cost: hub.CDP_WATCHER_HOG_COST_TIMING,
-            },
-            async_function: {
-                lowerBound: hub.CDP_WATCHER_ASYNC_COST_TIMING_LOWER_MS,
-                upperBound: hub.CDP_WATCHER_ASYNC_COST_TIMING_UPPER_MS,
-                cost: hub.CDP_WATCHER_ASYNC_COST_TIMING,
-            },
-        }
-
-        const costConfig = costsMapping[kind]
-        const ratio = Math.max(durationMs - costConfig.lowerBound, 0) / (costConfig.upperBound - costConfig.lowerBound)
-        return Math.round(costConfig.cost * ratio)
-    }
-
-    const observe = async (options: {
-        id: string
-        duration?: number
-        kind?: 'hog' | 'async_function'
-        count?: number
-    }): Promise<void> => {
-        await watcher.observeResults(Array(options.count ?? 1).fill(createResult(options as any)))
-    }
-
-    const tokensUsed = async (id: string): Promise<number> => {
-        const { tokens } = await watcher.getPersistedState(id)
-        return hub.CDP_WATCHER_BUCKET_SIZE - tokens
     }
 
     describe('constructor', () => {
