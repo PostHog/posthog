@@ -31,12 +31,6 @@ export type HogWatcherFunctionState = {
     rating: number
 }
 
-export const hogFunctionExecutionTimeSummary = new Histogram({
-    name: 'cdp_hog_watcher_duration',
-    help: 'Processing time of hog function execution by kind',
-    labelNames: ['kind'],
-})
-
 export const hogFunctionStateChange = new Counter({
     name: 'hog_function_state_change',
     help: 'Number of times a transformation state changed',
@@ -217,7 +211,6 @@ export class HogWatcherService {
                 // Process each timing entry individually instead of totaling them
                 for (const timing of result.invocation.state.timings) {
                     // Record metrics for this timing entry
-                    hogFunctionExecutionTimeSummary.labels({ kind: timing.kind }).observe(timing.duration_ms)
 
                     const costConfig = this.costsMapping[timing.kind]
                     if (costConfig) {
