@@ -1,16 +1,15 @@
 import { JSONViewer } from 'lib/components/JSONViewer'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
-import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonTableProps } from 'lib/lemon-ui/LemonTable'
 import { Link } from 'lib/lemon-ui/Link'
 import { ConversationDisplay } from 'products/llm_observability/frontend/ConversationDisplay/ConversationDisplay'
-import { urls } from 'scenes/urls'
 
 import { KNOWN_PROMOTED_PROPERTY_PARENTS } from '~/taxonomy/taxonomy'
 import { EventType, PropertyDefinitionType } from '~/types'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { EventPropertyTabs } from 'lib/components/EventPropertyTabs/EventPropertyTabs'
 import { ErrorDisplay, idFrom } from 'lib/components/Errors/ErrorDisplay'
+import ViewRecordingButton from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 
 interface EventDetailsProps {
     event: EventType
@@ -28,16 +27,18 @@ export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Elem
                 switch (tabKey) {
                     case 'conversation':
                         return (
-                            <div className="mx-3 -mt-2 mb-2 deprecated-space-y-2">
+                            <div className="mx-3 -mt-2 mb-2 gap-y-2">
                                 {properties.$session_id ? (
                                     <div className="flex flex-row items-center gap-2">
-                                        <Link
-                                            to={urls.replay(undefined, undefined, properties.$session_id)}
-                                            className="flex flex-row gap-1 items-center"
-                                        >
-                                            <IconOpenInNew />
-                                            <span>View session recording</span>
-                                        </Link>
+                                        <ViewRecordingButton
+                                            sessionId={properties.$session_id}
+                                            recordingStatus={properties.$recording_status}
+                                            timestamp={event.timestamp}
+                                            inModal={false}
+                                            size="small"
+                                            type="secondary"
+                                            data-attr="conversation-view-session-recording-button"
+                                        />
                                     </div>
                                 ) : null}
                                 <ConversationDisplay eventProperties={properties} />
@@ -66,7 +67,7 @@ export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Elem
                         )
                     case '$set_properties':
                         return (
-                            <div className="ml-10 mt-2">
+                            <div className="mx-3 -mt-4">
                                 <p>
                                     Person properties sent with this event. Will replace any property value that may
                                     have been set on this person profile before now.{' '}
@@ -85,7 +86,7 @@ export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Elem
                         )
                     case '$set_once_properties':
                         return (
-                            <div className="ml-10 mt-2">
+                            <div className="mx-3 -mt-4">
                                 <p>
                                     "Set once" person properties sent with this event. Will replace any property value
                                     that have never been set on this person profile before now.{' '}

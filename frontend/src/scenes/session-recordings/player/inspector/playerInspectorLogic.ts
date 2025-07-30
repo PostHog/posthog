@@ -807,7 +807,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                         search: search,
                         data: {
                             ...event,
-                            distinct_id: sessionPlayerData.distinct_id,
+                            distinct_id: sessionPlayerData.person?.distinct_ids?.[0] || event.distinct_id,
                         },
                         highlightColor: isMatchingEvent
                             ? 'primary'
