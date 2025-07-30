@@ -36,3 +36,26 @@ export function trendLine(values: number[]): number[] {
 
     return values.map((_, x) => m * x + b)
 }
+
+/**
+ * Calculates a moving average for the given set of values.
+ *
+ * @param values - An array of numbers for which to calculate the moving average.
+ * @param intervals - The number of intervals to use for the moving average calculation. Defaults to 7.
+ * @returns An array of numbers representing the moving average.
+ */
+export function movingAverage(values: number[], intervals: number = 7): number[] {
+    const n = values.length
+    if (n < intervals) {
+        return values
+    }
+
+    return values.map((_, index) => {
+        const start = Math.max(0, index - Math.floor(intervals / 2))
+        const end = Math.min(n, start + intervals)
+        const actualStart = Math.max(0, end - intervals)
+
+        const slice = values.slice(actualStart, end)
+        return slice.reduce((sum, val) => sum + val, 0) / slice.length
+    })
+}

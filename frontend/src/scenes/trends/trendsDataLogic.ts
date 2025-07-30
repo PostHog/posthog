@@ -286,6 +286,32 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
             },
         ],
 
+        showMovingAverage: [
+            (s) => [s.trendsFilter, s.isTrends, s.hasDataWarehouseSeries, s.yAxisScaleType],
+            (
+                trendsFilter: TrendsFilter | undefined | null,
+                isTrends: boolean,
+                hasDataWarehouseSeries: boolean,
+                yAxisScaleType: string | undefined
+            ): boolean => {
+                const isLinearScale = !yAxisScaleType || yAxisScaleType === 'linear'
+                const display = trendsFilter?.display || ChartDisplayType.ActionsLineGraph
+                const isLineGraph =
+                    isTrends &&
+                    !hasDataWarehouseSeries &&
+                    [ChartDisplayType.ActionsLineGraph, ChartDisplayType.ActionsLineGraphCumulative].includes(display)
+
+                return (trendsFilter?.showMovingAverage && isLineGraph && isLinearScale) || false
+            },
+        ],
+
+        movingAverageIntervals: [
+            (s) => [s.trendsFilter],
+            (trendsFilter: TrendsFilter | undefined | null): number => {
+                return trendsFilter?.movingAverageIntervals || 7
+            },
+        ],
+
         confidenceLevel: [
             (s) => [s.trendsFilter],
             (trendsFilter: TrendsFilter | undefined | null): number => {

@@ -104,6 +104,8 @@ def to_dict(query: BaseModel) -> dict:
                                 "showConfidenceIntervals",
                                 "confidenceLevel",
                                 "showTrendLines",
+                                "showMovingAverage",
+                                "movingAverageIntervals",
                             ]
                         }
 

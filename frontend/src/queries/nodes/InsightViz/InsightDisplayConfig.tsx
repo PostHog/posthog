@@ -37,6 +37,7 @@ import { resultCustomizationsModalLogic } from '~/queries/nodes/InsightViz/resul
 import { isValidBreakdown } from '~/queries/utils'
 import { ChartDisplayType } from '~/types'
 import { ConfidenceLevelInput } from 'scenes/insights/views/LineGraph/ConfidenceLevelInput'
+import { MovingAverageIntervalsInput } from 'scenes/insights/views/LineGraph/MovingAverageIntervalsInput'
 import { LemonSwitch } from '@posthog/lemon-ui'
 import { isTrendsQuery } from '~/queries/utils'
 
@@ -84,9 +85,14 @@ export function InsightDisplayConfig(): JSX.Element {
     const showAlertThresholdLinesConfig = isTrends
     const isLineGraph = display === ChartDisplayType.ActionsLineGraph || (!display && isTrendsQuery(querySource))
     const isLinearScale = !yAxisScaleType || yAxisScaleType === 'linear'
-    const showConfidenceIntervals = isLineGraph && !!trendsFilter?.showConfidenceIntervals && isLinearScale
 
-    const { showValuesOnSeries, mightContainFractionalNumbers } = useValues(trendsDataLogic(insightProps))
+    const {
+        showValuesOnSeries,
+        mightContainFractionalNumbers,
+        showConfidenceIntervals,
+        showTrendLines,
+        showMovingAverage,
+    } = useValues(trendsDataLogic(insightProps))
 
     const advancedOptions: LemonMenuItems = [
         ...(supportsValueOnSeries || supportsPercentStackView || hasLegend || supportsResultCustomizationBy
@@ -179,7 +185,14 @@ export function InsightDisplayConfig(): JSX.Element {
                                       label="Show trend lines"
                                       className="pb-2"
                                       fullWidth
-                                      checked={trendsFilter?.showTrendLines || false}
+                                      disabledReason={
+                                          !isLineGraph
+                                              ? 'Trend lines are only available for line graphs'
+                                              : !isLinearScale
+                                              ? 'Trend lines are only supported for linear scale.'
+                                              : undefined
+                                      }
+                                      checked={showTrendLines}
                                       onChange={(checked) => {
                                           if (isTrendsQuery(querySource)) {
                                               const newQuery = { ...querySource }
@@ -193,6 +206,40 @@ export function InsightDisplayConfig(): JSX.Element {
                                   />
                               ),
                           },
+                          {
+                              label: () => (
+                                  <LemonSwitch
+                                      label="Show moving average"
+                                      className="pb-2"
+                                      fullWidth
+                                      checked={showMovingAverage}
+                                      disabledReason={
+                                          !isLineGraph
+                                              ? 'Moving average is only available for line graphs'
+                                              : !isLinearScale
+                                              ? 'Moving average is only supported for linear scale.'
+                                              : undefined
+                                      }
+                                      onChange={(checked) => {
+                                          if (isTrendsQuery(querySource)) {
+                                              const newQuery = { ...querySource }
+                                              newQuery.trendsFilter = {
+                                                  ...trendsFilter,
+                                                  showMovingAverage: checked,
+                                              }
+                                              updateQuerySource(newQuery)
+                                          }
+                                      }}
+                                  />
+                              ),
+                          },
+                          ...(showMovingAverage
+                              ? [
+                                    {
+                                        label: () => <MovingAverageIntervalsInput />,
+                                    },
+                                ]
+                              : []),
                       ],
                   },
               ]

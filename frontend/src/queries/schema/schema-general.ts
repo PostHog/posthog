@@ -1072,6 +1072,8 @@ export type TrendsFilter = {
     showConfidenceIntervals?: boolean
     confidenceLevel?: number
     showTrendLines?: boolean
+    showMovingAverage?: boolean
+    movingAverageIntervals?: number
 }
 
 export type CalendarHeatmapFilter = {

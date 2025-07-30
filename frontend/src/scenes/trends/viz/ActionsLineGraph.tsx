@@ -15,7 +15,7 @@ import { LineGraph } from '../../insights/views/LineGraph/LineGraph'
 import { openPersonsModal } from '../persons-modal/PersonsModal'
 import { trendsDataLogic } from '../trendsDataLogic'
 import { teamLogic } from 'scenes/teamLogic'
-import { ciRanges, trendLine } from 'lib/statistics'
+import { ciRanges, trendLine, movingAverage } from 'lib/statistics'
 
 export function ActionsLineGraph({
     inSharedMode = false,
@@ -48,6 +48,8 @@ export function ActionsLineGraph({
         showConfidenceIntervals,
         confidenceLevel,
         showTrendLines,
+        showMovingAverage,
+        movingAverageIntervals,
         getTrendsColor,
     } = useValues(trendsDataLogic(insightProps))
     const { weekStartDay, timezone } = useValues(teamLogic)
@@ -150,6 +152,27 @@ export function ActionsLineGraph({
                 yAxisID,
             }
             datasets.push(trendDataset)
+        }
+
+        if (showMovingAverage) {
+            const movingAverageData = movingAverage(originalDataset.data, movingAverageIntervals)
+            const movingAverageDataset = {
+                ...originalDataset,
+                label: `${originalDataset.label} (Moving avg)`,
+                action: {
+                    ...originalDataset.action,
+                    name: `${originalDataset.label} (Moving avg)`,
+                },
+                data: movingAverageData,
+                borderColor: color,
+                backgroundColor: 'transparent',
+                pointRadius: 0,
+                borderWidth: 2,
+                borderDash: [10, 3],
+                hideTooltip: true,
+                yAxisID,
+            }
+            datasets.push(movingAverageDataset)
         }
         return datasets
     })
