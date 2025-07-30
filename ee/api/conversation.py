@@ -43,6 +43,7 @@ class MessageSerializer(serializers.Serializer):
     ui_context = serializers.JSONField(required=False)
     trace_id = serializers.UUIDField(required=True)
     session_id = serializers.CharField(required=False)
+    deep_research_mode = serializers.BooleanField(required=False, default=False)
 
     def validate(self, data):
         if data["content"] is not None:
@@ -75,7 +76,7 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
             return qs
 
         # But retrieval must only return conversations from the assistant and with a title.
-        return qs.filter(title__isnull=False, type=Conversation.Type.ASSISTANT).order_by("-updated_at")
+        return qs.filter(type=Conversation.Type.ASSISTANT).order_by("-updated_at")
 
     def get_throttles(self):
         if (
@@ -150,7 +151,9 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
             is_new_conversation=is_new_conversation,
             trace_id=serializer.validated_data["trace_id"],
             session_id=request.headers.get("X-POSTHOG-SESSION-ID"),  # Relies on posthog-js __add_tracing_headers
-            mode=AssistantMode.ASSISTANT,
+            mode=AssistantMode.DEEP_RESEARCH
+            if serializer.validated_data.get("deep_research_mode", False)
+            else AssistantMode.ASSISTANT,
         )
 
         async def async_stream(

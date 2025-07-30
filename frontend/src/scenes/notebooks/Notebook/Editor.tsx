@@ -5,6 +5,8 @@ import { FloatingMenu } from '@tiptap/extension-floating-menu'
 import ExtensionPlaceholder from '@tiptap/extension-placeholder'
 import TaskItem from '@tiptap/extension-task-item'
 import TaskList from '@tiptap/extension-task-list'
+import Underline from '@tiptap/extension-underline'
+import Link from '@tiptap/extension-link'
 import { EditorContent, useEditor } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import { useActions, useMountedLogic, useValues } from 'kea'
@@ -68,7 +70,7 @@ export function Editor(): JSX.Element {
         if (editor) {
             setPreviousNode(getNodeBeforeActiveNode(editor))
         }
-    }, [editorRef.current])
+    }, [editorRef.current, setPreviousNode])
 
     const _editor = useEditor({
         extensions: [
@@ -109,6 +111,8 @@ export function Editor(): JSX.Element {
             TaskItem.configure({
                 nested: true,
             }),
+            Underline,
+            Link,
             NotebookMarkLink,
             NotebookMarkComment,
             NotebookNodeLatex,

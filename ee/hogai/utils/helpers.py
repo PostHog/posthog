@@ -170,14 +170,14 @@ def format_events_prompt(events_in_context: list[MaxEventContext], team: Team) -
     return ET.tostring(root, encoding="unicode")
 
 
-def extract_content_from_ai_message(response: LangchainAIMessage) -> str:
+def extract_content_from_ai_message(message: LangchainAIMessage) -> str:
     """
     Extracts the content from a LangchainAIMessage, supporting both reasoning and non-reasoning responses.
     """
-    if isinstance(response.content, list):
+    if isinstance(message.content, list):
         text_parts = []
-        for content_item in response.content:
+        for content_item in message.content:
             if isinstance(content_item, dict) and "text" in content_item:
                 text_parts.append(content_item["text"])
         return "".join(text_parts)
-    return str(response.content)
+    return str(message.content)
