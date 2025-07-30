@@ -79,7 +79,6 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
         const hogFunction = await this.getWebhook(webhookId)
 
         if (!hogFunction) {
-            // TODO: Maybe better error types?
             throw new SourceWebhookError(404, 'Not found')
         }
 
