@@ -206,8 +206,6 @@ export class HogWatcherService2 {
             return
         }
 
-        console.log('res', res)
-
         const numOperations = forceReset ? 4 : 2
 
         await Promise.all(
