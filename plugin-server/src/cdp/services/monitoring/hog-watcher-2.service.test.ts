@@ -38,6 +38,7 @@ describe('HogWatcher', () => {
         hub = await createHub()
         jest.spyOn(hub.teamManager, 'getTeam').mockResolvedValue(team)
         redis = createCdpRedisPool(hub)
+        process.env.CDP_HOG_WATCHER_2_ENABLED = 'true'
     })
 
     beforeEach(async () => {
