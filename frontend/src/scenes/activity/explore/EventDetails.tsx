@@ -10,6 +10,7 @@ import { KNOWN_PROMOTED_PROPERTY_PARENTS } from '~/taxonomy/taxonomy'
 import { EventType, PropertyDefinitionType } from '~/types'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { EventPropertyTabs } from 'lib/components/EventPropertyTabs/EventPropertyTabs'
+import { ErrorDisplay, idFrom } from 'lib/components/Errors/ErrorDisplay'
 
 interface EventDetailsProps {
     event: EventType
@@ -40,6 +41,12 @@ export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Elem
                                     </div>
                                 ) : null}
                                 <ConversationDisplay eventProperties={properties} />
+                            </div>
+                        )
+                    case 'error_display':
+                        return (
+                            <div className="mx-3">
+                                <ErrorDisplay eventProperties={properties} eventId={idFrom(event)} />
                             </div>
                         )
                     case 'exception_properties':

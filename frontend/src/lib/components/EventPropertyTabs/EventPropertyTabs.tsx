@@ -2,7 +2,6 @@ import { useState } from 'react'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP, POSTHOG_EVENT_PROMOTED_PROPERTIES } from '~/taxonomy/taxonomy'
 import { EventType, RecordingEventType } from '~/types'
 import { LemonTab, LemonTabs, LemonTabsProps } from 'lib/lemon-ui/LemonTabs'
-import { ErrorDisplay } from '../Errors/ErrorDisplay'
 import { AutocaptureImageTab, autocaptureToImage } from 'lib/utils/autocapture-previews'
 import { HTMLElementsDisplay } from 'lib/components/HTMLElementsDisplay/HTMLElementsDisplay'
 import { useValues } from 'kea'
@@ -12,7 +11,7 @@ import { INTERNAL_EXCEPTION_PROPERTY_KEYS } from 'products/error_tracking/fronte
 import { dayjs } from 'lib/dayjs'
 
 export interface TabContentComponentFnProps {
-    event: Omit<EventType, 'distinct_id'>
+    event: EventType | RecordingEventType
     properties: Record<string, any>
     promotedKeys?: string[]
     tabKey: EventPropertyTabKey
@@ -31,14 +30,6 @@ type EventPropertyTabKey =
     | 'error_display'
     | 'debug_properties'
     | 'metadata'
-
-function idFrom(event: EventType | RecordingEventType): string {
-    if ('uuid' in event && event.uuid) {
-        return event.uuid
-    }
-    // Fallback to timestamp if uuid is not available
-    return event.timestamp ? dayjs(event.timestamp).toISOString() : event.id ?? 'error'
-}
 
 export const EventPropertyTabs = ({
     event,
@@ -97,9 +88,8 @@ export const EventPropertyTabs = ({
         isErrorEvent && {
             key: 'error_display',
             label: 'Exception',
-            content: <ErrorDisplay eventProperties={event.properties} eventId={idFrom(event)} />,
+            content: tabContentComponentFn({ event, properties, tabKey: 'error_display' }),
         },
-        // Add conversation tab for $ai_generation events
         isAIEvent
             ? {
                   key: 'conversation',
@@ -120,8 +110,7 @@ export const EventPropertyTabs = ({
                 promotedKeys,
                 properties: {
                     event: event.event,
-                    // ah, recordings don't add this... do we need it?
-                    // distinct_id: event.distinct_id,
+                    distinct_id: event.distinct_id,
                     timestamp: event.timestamp,
                 },
                 tabKey: 'metadata',

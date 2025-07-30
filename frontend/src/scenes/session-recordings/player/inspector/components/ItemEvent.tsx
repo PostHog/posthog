@@ -18,6 +18,7 @@ import { AIEventExpanded, AIEventSummary } from './AIEventItems'
 import { getExceptionAttributes } from 'lib/components/Errors/utils'
 import { EventPropertyTabs } from 'lib/components/EventPropertyTabs/EventPropertyTabs'
 import { SimpleKeyValueList } from 'lib/components/SimpleKeyValueList'
+import { ErrorDisplay, idFrom } from 'lib/components/Errors/ErrorDisplay'
 
 export interface ItemEventProps {
     item: InspectorListItemEvent
@@ -248,6 +249,8 @@ export function ItemEventDetail({ item }: ItemEventProps): JSX.Element {
                                             <SimpleKeyValueList item={properties} promotedKeys={promotedKeys} />
                                         </>
                                     )
+                                case 'error_display':
+                                    return <ErrorDisplay eventProperties={properties} eventId={idFrom(event)} />
                                 default:
                                     return <SimpleKeyValueList item={properties} promotedKeys={promotedKeys} />
                             }
