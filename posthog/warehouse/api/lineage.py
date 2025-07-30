@@ -112,19 +112,24 @@ def get_upstream_dag(team_id: int, model_id: str) -> dict[str, list[Any]]:
         all_dependencies = list(dict.fromkeys(external_tables + saved_query_names))
 
         unseen_dependencies = [dep for dep in all_dependencies if dep not in seen_nodes]
+        saved_queries: dict[str, DataWarehouseSavedQuery] = {}
+        tables: dict[str, DataWarehouseTable] = {}
         if unseen_dependencies:
-            saved_query_names = []
-            table_names = []
+            unseen_saved_query_names = []
+            unseen_table_names = []
             for dep in unseen_dependencies:
                 if DataWarehouseSavedQuery.objects.filter(name=dep, team_id=team_id).exists():
-                    saved_query_names.append(dep)
+                    unseen_saved_query_names.append(dep)
                 else:
-                    table_names.append(dep)
+                    unseen_table_names.append(dep)
 
             saved_queries = {
-                q.name: q for q in DataWarehouseSavedQuery.objects.filter(name__in=saved_query_names, team_id=team_id)
+                q.name: q
+                for q in DataWarehouseSavedQuery.objects.filter(name__in=unseen_saved_query_names, team_id=team_id)
             }
-            tables = {t.name: t for t in DataWarehouseTable.objects.filter(name__in=table_names, team_id=team_id)}
+            tables = {
+                t.name: t for t in DataWarehouseTable.objects.filter(name__in=unseen_table_names, team_id=team_id)
+            }
 
         for dependency in all_dependencies:
             if dependency != current_name:
