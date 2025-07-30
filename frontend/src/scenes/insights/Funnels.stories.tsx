@@ -105,4 +105,22 @@ export const FunnelTimeToConvertEdit: Story = createInsightStory(
 )
 FunnelTimeToConvertEdit.parameters = { testOptions: { waitForSelector: '[data-attr=funnel-histogram] svg' } }
 
+export const FunnelTopToBottomBreakdown: Story = createInsightStory(
+    require('../../mocks/fixtures/api/projects/team_id/insights/funnelTopToBottomBreakdown.json')
+)
+FunnelTopToBottomBreakdown.parameters = {
+    testOptions: {
+        waitForSelector: ['[data-attr=funnel-bar-horizontal] > .funnel-step', '.PayGateMini'],
+    },
+}
+export const FunnelTopToBottomBreakdownEdit: Story = createInsightStory(
+    require('../../mocks/fixtures/api/projects/team_id/insights/funnelTopToBottomBreakdown.json'),
+    'edit'
+)
+FunnelTopToBottomBreakdownEdit.parameters = {
+    testOptions: {
+        waitForSelector: ['[data-attr=funnel-bar-horizontal] > .funnel-step', '.PayGateMini'],
+    },
+}
+
 /* eslint-enable @typescript-eslint/no-var-requires */
