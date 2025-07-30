@@ -70,7 +70,6 @@ export const QueryDatabase = (): JSX.Element => {
                 if (item.name !== name) {
                     renameDraft(item.record?.id, name)
                 }
-                // Clear the editing item id when the name changes
                 setEditingDraft('')
             }}
             onItemClick={(item) => {
