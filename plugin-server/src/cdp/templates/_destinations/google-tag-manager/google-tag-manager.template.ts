@@ -37,7 +37,8 @@ export function onEvent({ inputs, posthog }) {
             label: 'Container ID',
             secret: false,
             required: true,
-            description: 'You can find your Container ID in your [Accounts page](https://www.google.com/tagmanager/web/#management/Accounts/).',
+            description:
+                'You can find your Container ID in your [Accounts page](https://www.google.com/tagmanager/web/#management/Accounts/).',
             default: '',
         },
     ],
@@ -53,7 +54,11 @@ export function onEvent({ inputs, posthog }) {
                     key: 'payload',
                     type: 'dictionary',
                     label: 'payload',
-                    default: { event: '{event.event}', title: '{event.properties.title}', url: '{event.properties.$current_url}' },
+                    default: {
+                        event: '{event.event}',
+                        title: '{event.properties.title}',
+                        url: '{event.properties.$current_url}',
+                    },
                     secret: false,
                     required: false,
                     description: 'Payload to send to Google Tag Manager.',
