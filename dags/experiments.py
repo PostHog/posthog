@@ -37,11 +37,13 @@ def _get_experiment_metrics() -> list[tuple[int, str, dict[str, Any]]]:
     """
     experiment_metrics = []
 
-    # Query experiments that are eligible for timeseries analysis
+    # Query experiments that are eligible for timeseries analysis (running experiments only)
     experiments = Experiment.objects.filter(
         deleted=False,
         metrics__isnull=False,
-        stats_config__timeseries="true",
+        stats_config__timeseries=True,
+        start_date__isnull=False,
+        end_date__isnull=True,
     ).exclude(metrics=[])
 
     for experiment in experiments:
