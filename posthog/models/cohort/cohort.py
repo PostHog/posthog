@@ -315,12 +315,6 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         """Automatically determine cohort type based on its filters"""
         return self.determine_cohort_type_from_filters(self.is_static, self.filters, self.query)
 
-    def update_cohort_type(self) -> None:
-        """Update cohort type based on current filters"""
-        new_type = self.determine_cohort_type()
-        if self.cohort_type != new_type:
-            self.cohort_type = new_type
-
     def get_analytics_metadata(self):
         return {
             "filters": self.properties.to_dict(),

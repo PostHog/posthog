@@ -5028,8 +5028,6 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             },
             name="person_cohort",
         )
-        person_cohort.update_cohort_type()
-        person_cohort.save()
 
         # Person properties cohort should be accepted
         person_request = self._create_flag_with_properties(
@@ -5041,8 +5039,6 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
         # Test static cohort
         static_cohort = Cohort.objects.create(team=self.team, is_static=True, name="static_cohort")
-        static_cohort.update_cohort_type()
-        static_cohort.save()
 
         # Static cohort should be accepted
         static_request = self._create_flag_with_properties(
