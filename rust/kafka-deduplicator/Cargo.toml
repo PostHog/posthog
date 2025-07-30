@@ -1,0 +1,22 @@
+[package]
+name = "kafka-deduplicator"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = { workspace = true }
+async-trait = { workspace = true }
+aws-config = { workspace = true }
+aws-sdk-s3 = { workspace = true }
+bincode = "1.3.3"
+metrics = { workspace = true }
+num_cpus = "1.17.0"
+rocksdb = "0.23.0"
+serde = { workspace = true }
+time = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3.8"
