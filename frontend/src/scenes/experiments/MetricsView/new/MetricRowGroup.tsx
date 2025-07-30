@@ -269,7 +269,7 @@ export function MetricRowGroup({
 
                 {/* Details column - with rowspan */}
                 <td
-                    className={`p-3 align-top relative overflow-hidden ${!isLastMetric ? 'border-b' : ''} ${
+                    className={`pt-3 align-top relative overflow-hidden ${!isLastMetric ? 'border-b' : ''} ${
                         isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
                     }`}
                     rowSpan={totalRows}
