@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from 'react'
-import { NewExperimentQueryResponse } from '~/queries/schema/schema-general'
 import { useSvgResizeObserver } from '../hooks/useSvgResizeObserver'
 import { getNiceTickValues } from '../shared/utils'
 import { SVG_EDGE_MARGIN, TICK_FONT_SIZE_NEW, TICK_PANEL_HEIGHT, VIEW_BOX_WIDTH } from './constants'
@@ -7,7 +6,6 @@ import { TickLabels } from './TickLabels'
 import { useAxisScale } from './useAxisScale'
 
 interface TableHeaderProps {
-    results: NewExperimentQueryResponse[]
     chartRadius?: number
 }
 

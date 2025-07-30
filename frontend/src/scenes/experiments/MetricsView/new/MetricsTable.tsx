@@ -75,7 +75,7 @@ export function MetricsTable({
                     <col />
                     <col className="min-w-[400px]" />
                 </colgroup>
-                <TableHeader results={results} chartRadius={chartRadius} />
+                <TableHeader chartRadius={chartRadius} />
                 <tbody>
                     {metrics.map((metric, metricIndex) => {
                         const result = results[metricIndex]
