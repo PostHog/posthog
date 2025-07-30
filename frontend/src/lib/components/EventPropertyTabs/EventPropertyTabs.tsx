@@ -127,7 +127,6 @@ export const EventPropertyTabs = ({
                   label: 'Elements',
                   content: (
                       <HTMLElementsDisplay
-                          // todo: need to not be xsmall for events table
                           size="xsmall"
                           elements={event.elements}
                           selectedText={event.properties['$selected_content']}
