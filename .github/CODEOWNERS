@@ -37,3 +37,28 @@ products/revenue_analytics/** @PostHog/team-revenue-analytics
 posthog/session_recordings/ @PostHog/team-replay
 ee/session_recordings/ @PostHog/team-replay
 ee/frontend/mobile-replay @PostHog/team-replay
+
+# Feature Flags team
+
+# Platform (the `/flags` and `/decide` endpoints + associated utils)
+rust/feature-flags/ @PostHog/team-feature-flags
+posthog/api/decide.py @PostHog/team-feature-flags
+posthog/models/flag_matching.py @PostHog/team-feature-flags
+
+# Feature Flags CRUD operations
+posthog/models/feature_flag/ @PostHog/team-feature-flags
+posthog/api/feature_flag.py @PostHog/team-feature-flags
+posthog/api/test/test_feature_flag_dependency_deletion.py @PostHog/team-feature-flags
+posthog/api/test/test_feature_flag_utils.py @PostHog/team-feature-flags
+posthog/api/test/test_feature_flag.py @PostHog/team-feature-flags
+posthog/test/test_feature_flag_analytics.py @PostHog/team-feature-flags
+posthog/test/test_feature_flag.py @PostHog/team-feature-flags
+
+# Cohorts
+posthog/api/cohort.py @PostHog/team-feature-flags
+posthog/models/cohort/ @PostHog/team-feature-flags
+frontend/src/scenes/cohorts/ @PostHog/team-feature-flags
+
+# Feature Flags frontend
+frontend/src/scenes/feature-flags/ @PostHog/team-feature-flags
+
