@@ -824,8 +824,8 @@ importers:
         specifier: ^3.1.0
         version: 3.1.0(kea@3.1.5(react@18.2.0))
       kea-router:
-        specifier: ^3.2.2
-        version: 3.2.2(kea@3.1.5(react@18.2.0))
+        specifier: ^3.3.0
+        version: 3.3.0(kea@3.1.5(react@18.2.0))
       kea-subscriptions:
         specifier: ^3.0.1
         version: 3.0.1(kea@3.1.5(react@18.2.0))
@@ -1592,8 +1592,8 @@ importers:
         specifier: ^3.1.1
         version: 3.1.1(kea@3.1.5(react@18.2.0))
       kea-router:
-        specifier: ^3.2.2
-        version: 3.2.2(kea@3.1.5(react@18.2.0))
+        specifier: ^3.3.0
+        version: 3.3.0(kea@3.1.5(react@18.2.0))
       react:
         specifier: '*'
         version: 18.2.0
@@ -1619,8 +1619,8 @@ importers:
         specifier: ^3.1.1
         version: 3.1.1(kea@3.1.5(react@18.2.0))
       kea-router:
-        specifier: ^3.2.2
-        version: 3.2.2(kea@3.1.5(react@18.2.0))
+        specifier: ^3.3.0
+        version: 3.3.0(kea@3.1.5(react@18.2.0))
       react:
         specifier: '*'
         version: 18.2.0
@@ -1646,8 +1646,8 @@ importers:
         specifier: ^3.1.1
         version: 3.1.1(kea@3.1.5(react@18.2.0))
       kea-router:
-        specifier: ^3.2.2
-        version: 3.2.2(kea@3.1.5(react@18.2.0))
+        specifier: ^3.3.0
+        version: 3.3.0(kea@3.1.5(react@18.2.0))
       react:
         specifier: '*'
         version: 18.2.0
@@ -1676,8 +1676,8 @@ importers:
         specifier: ^3.1.1
         version: 3.1.1(kea@3.1.5(react@18.2.0))
       kea-router:
-        specifier: ^3.2.2
-        version: 3.2.2(kea@3.1.5(react@18.2.0))
+        specifier: ^3.3.0
+        version: 3.3.0(kea@3.1.5(react@18.2.0))
       react:
         specifier: '*'
         version: 18.2.0
@@ -1736,8 +1736,8 @@ importers:
         specifier: ^3.1.1
         version: 3.1.1(kea@3.1.5(react@18.2.0))
       kea-router:
-        specifier: ^3.2.2
-        version: 3.2.2(kea@3.1.5(react@18.2.0))
+        specifier: ^3.3.0
+        version: 3.3.0(kea@3.1.5(react@18.2.0))
       kea-subscriptions:
         specifier: ^3.0.1
         version: 3.0.1(kea@3.1.5(react@18.2.0))
@@ -1781,8 +1781,8 @@ importers:
         specifier: ^3.1.1
         version: 3.1.1(kea@3.1.5(react@18.2.0))
       kea-router:
-        specifier: ^3.2.2
-        version: 3.2.2(kea@3.1.5(react@18.2.0))
+        specifier: ^3.3.0
+        version: 3.3.0(kea@3.1.5(react@18.2.0))
       react:
         specifier: '*'
         version: 18.2.0
@@ -1808,8 +1808,8 @@ importers:
         specifier: ^3.1.1
         version: 3.1.1(kea@3.1.5(react@18.2.0))
       kea-router:
-        specifier: ^3.2.2
-        version: 3.2.2(kea@3.1.5(react@18.2.0))
+        specifier: ^3.3.0
+        version: 3.3.0(kea@3.1.5(react@18.2.0))
       react:
         specifier: '*'
         version: 18.2.0
@@ -1835,8 +1835,8 @@ importers:
         specifier: ^3.1.1
         version: 3.1.1(kea@3.1.5(react@18.2.0))
       kea-router:
-        specifier: ^3.2.2
-        version: 3.2.2(kea@3.1.5(react@18.2.0))
+        specifier: ^3.3.0
+        version: 3.3.0(kea@3.1.5(react@18.2.0))
       react:
         specifier: '*'
         version: 18.2.0
@@ -1862,8 +1862,8 @@ importers:
         specifier: ^3.1.1
         version: 3.1.1(kea@3.1.5(react@18.2.0))
       kea-router:
-        specifier: ^3.2.2
-        version: 3.2.2(kea@3.1.5(react@18.2.0))
+        specifier: ^3.3.0
+        version: 3.3.0(kea@3.1.5(react@18.2.0))
       react:
         specifier: '*'
         version: 18.2.0
@@ -1892,8 +1892,8 @@ importers:
         specifier: ^3.1.1
         version: 3.1.1(kea@3.1.5(react@18.2.0))
       kea-router:
-        specifier: ^3.2.2
-        version: 3.2.2(kea@3.1.5(react@18.2.0))
+        specifier: ^3.3.0
+        version: 3.3.0(kea@3.1.5(react@18.2.0))
       qrcode.react:
         specifier: ^4.2.0
         version: 4.2.0(react@18.2.0)
@@ -1931,8 +1931,8 @@ importers:
         specifier: ^3.1.1
         version: 3.1.1(kea@3.1.5(react@18.2.0))
       kea-router:
-        specifier: ^3.2.2
-        version: 3.2.2(kea@3.1.5(react@18.2.0))
+        specifier: ^3.3.0
+        version: 3.3.0(kea@3.1.5(react@18.2.0))
       prettier:
         specifier: '*'
         version: 3.4.2
@@ -1985,8 +1985,8 @@ importers:
         specifier: ^3.1.1
         version: 3.1.1(kea@3.1.5(react@18.2.0))
       kea-router:
-        specifier: ^3.2.2
-        version: 3.2.2(kea@3.1.5(react@18.2.0))
+        specifier: ^3.3.0
+        version: 3.3.0(kea@3.1.5(react@18.2.0))
       prettier:
         specifier: '*'
         version: 3.4.2
@@ -2024,8 +2024,8 @@ importers:
         specifier: ^3.1.1
         version: 3.1.1(kea@3.1.5(react@18.2.0))
       kea-router:
-        specifier: ^3.2.2
-        version: 3.2.2(kea@3.1.5(react@18.2.0))
+        specifier: ^3.3.0
+        version: 3.3.0(kea@3.1.5(react@18.2.0))
       react:
         specifier: '*'
         version: 18.2.0
@@ -2063,8 +2063,8 @@ importers:
         specifier: ^3.1.1
         version: 3.1.1(kea@3.1.5(react@18.2.0))
       kea-router:
-        specifier: ^3.2.2
-        version: 3.2.2(kea@3.1.5(react@18.2.0))
+        specifier: ^3.3.0
+        version: 3.3.0(kea@3.1.5(react@18.2.0))
       kea-subscriptions:
         specifier: ^3.0.1
         version: 3.0.1(kea@3.1.5(react@18.2.0))
@@ -2099,8 +2099,8 @@ importers:
         specifier: ^3.1.1
         version: 3.1.1(kea@3.1.5(react@18.2.0))
       kea-router:
-        specifier: ^3.2.2
-        version: 3.2.2(kea@3.1.5(react@18.2.0))
+        specifier: ^3.3.0
+        version: 3.3.0(kea@3.1.5(react@18.2.0))
       react:
         specifier: '*'
         version: 18.2.0
@@ -2126,8 +2126,8 @@ importers:
         specifier: ^3.1.1
         version: 3.1.1(kea@3.1.5(react@18.2.0))
       kea-router:
-        specifier: ^3.2.2
-        version: 3.2.2(kea@3.1.5(react@18.2.0))
+        specifier: ^3.3.0
+        version: 3.3.0(kea@3.1.5(react@18.2.0))
       react:
         specifier: '*'
         version: 18.2.0
@@ -2153,8 +2153,8 @@ importers:
         specifier: ^3.1.1
         version: 3.1.1(kea@3.1.5(react@18.2.0))
       kea-router:
-        specifier: ^3.2.2
-        version: 3.2.2(kea@3.1.5(react@18.2.0))
+        specifier: ^3.3.0
+        version: 3.3.0(kea@3.1.5(react@18.2.0))
       react:
         specifier: '*'
         version: 18.2.0
@@ -2180,8 +2180,8 @@ importers:
         specifier: ^3.1.1
         version: 3.1.1(kea@3.1.5(react@18.2.0))
       kea-router:
-        specifier: ^3.2.2
-        version: 3.2.2(kea@3.1.5(react@18.2.0))
+        specifier: ^3.3.0
+        version: 3.3.0(kea@3.1.5(react@18.2.0))
       react:
         specifier: '*'
         version: 18.2.0
@@ -2210,8 +2210,8 @@ importers:
         specifier: ^3.1.1
         version: 3.1.1(kea@3.1.5(react@18.2.0))
       kea-router:
-        specifier: ^3.2.2
-        version: 3.2.2(kea@3.1.5(react@18.2.0))
+        specifier: ^3.3.0
+        version: 3.3.0(kea@3.1.5(react@18.2.0))
       react:
         specifier: '*'
         version: 18.2.0
@@ -2237,8 +2237,8 @@ importers:
         specifier: ^3.1.1
         version: 3.1.1(kea@3.1.5(react@18.2.0))
       kea-router:
-        specifier: ^3.2.2
-        version: 3.2.2(kea@3.1.5(react@18.2.0))
+        specifier: ^3.3.0
+        version: 3.3.0(kea@3.1.5(react@18.2.0))
       react:
         specifier: '*'
         version: 18.2.0
@@ -2261,8 +2261,8 @@ importers:
         specifier: ^3.1.1
         version: 3.1.1(kea@3.1.5(react@18.2.0))
       kea-router:
-        specifier: ^3.2.2
-        version: 3.2.2(kea@3.1.5(react@18.2.0))
+        specifier: ^3.3.0
+        version: 3.3.0(kea@3.1.5(react@18.2.0))
       posthog-js:
         specifier: 1.258.3
         version: 1.258.3(@rrweb/types@2.0.0-alpha.17)
@@ -2291,8 +2291,8 @@ importers:
         specifier: ^3.1.1
         version: 3.1.1(kea@3.1.5(react@18.2.0))
       kea-router:
-        specifier: ^3.2.2
-        version: 3.2.2(kea@3.1.5(react@18.2.0))
+        specifier: ^3.3.0
+        version: 3.3.0(kea@3.1.5(react@18.2.0))
       react:
         specifier: '*'
         version: 18.2.0
@@ -12233,6 +12233,11 @@ packages:
     peerDependencies:
       kea: '>= 3'
 
+  kea-router@3.3.0:
+    resolution: {integrity: sha512-lcun+z/MFVaK/FK6rFSr1/Epu/cpHir1X7nW9Cr4XMBbbNS6t0MA0SsgAiKY35eM5Vd6c0Y33uI2BIWg/dXBfA==}
+    peerDependencies:
+      kea: '>= 3'
+
   kea-subscriptions@3.0.1:
     resolution: {integrity: sha512-uBJ0L+oPlthV2FBPpB+gUmZj8p0tdFH6cSLWTEBRkDgruOTmQjKXWsSRN5cxL8MUq2naihMBL8MSqK8IY6f8/g==}
     peerDependencies:
@@ -20398,6 +20403,41 @@ snapshots:
       jest-util: 29.7.0
       slash: 3.0.0
 
+  '@jest/core@29.7.0':
+    dependencies:
+      '@jest/console': 29.7.0
+      '@jest/reporters': 29.7.0
+      '@jest/test-result': 29.7.0
+      '@jest/transform': 29.7.0
+      '@jest/types': 29.6.3
+      '@types/node': 22.15.17
+      ansi-escapes: 4.3.2
+      chalk: 4.1.2
+      ci-info: 3.8.0
+      exit: 0.1.2
+      graceful-fs: 4.2.11
+      jest-changed-files: 29.7.0
+      jest-config: 29.7.0(@types/node@22.15.17)(ts-node@10.9.1(@swc/core@1.10.14(@swc/helpers@0.5.15))(@types/node@22.15.17)(typescript@5.2.2))
+      jest-haste-map: 29.7.0
+      jest-message-util: 29.7.0
+      jest-regex-util: 29.6.3
+      jest-resolve: 29.7.0
+      jest-resolve-dependencies: 29.7.0
+      jest-runner: 29.7.0
+      jest-runtime: 29.7.0
+      jest-snapshot: 29.7.0
+      jest-util: 29.7.0
+      jest-validate: 29.7.0
+      jest-watcher: 29.7.0
+      micromatch: 4.0.8
+      pretty-format: 29.7.0
+      slash: 3.0.0
+      strip-ansi: 6.0.1
+    transitivePeerDependencies:
+      - babel-plugin-macros
+      - supports-color
+      - ts-node
+
   '@jest/core@29.7.0(ts-node@10.9.1(@swc/core@1.10.14(@swc/helpers@0.5.15))(@types/node@22.15.17)(typescript@5.2.2))':
     dependencies:
       '@jest/console': 29.7.0
@@ -24282,7 +24322,7 @@ snapshots:
       commander: 9.4.1
       expect-playwright: 0.8.0
       glob: 10.4.5
-      jest: 29.7.0(@types/node@22.15.17)(ts-node@10.9.1(@swc/core@1.10.14(@swc/helpers@0.5.15))(@types/node@22.15.17)(typescript@5.2.2))
+      jest: 29.7.0
       jest-circus: 29.7.0
       jest-environment-node: 29.7.0
       jest-junit: 16.0.0
@@ -27129,6 +27169,21 @@ snapshots:
       ripemd160: 2.0.2
       safe-buffer: 5.2.1
       sha.js: 2.4.11
+
+  create-jest@29.7.0:
+    dependencies:
+      '@jest/types': 29.6.3
+      chalk: 4.1.2
+      exit: 0.1.2
+      graceful-fs: 4.2.11
+      jest-config: 29.7.0(@types/node@22.15.17)(ts-node@10.9.1(@swc/core@1.10.14(@swc/helpers@0.5.15))(@types/node@22.15.17)(typescript@5.2.2))
+      jest-util: 29.7.0
+      prompts: 2.4.2
+    transitivePeerDependencies:
+      - '@types/node'
+      - babel-plugin-macros
+      - supports-color
+      - ts-node
 
   create-jest@29.7.0(@types/node@22.15.17)(ts-node@10.9.1(@swc/core@1.10.14(@swc/helpers@0.5.15))(@types/node@22.15.17)(typescript@5.2.2)):
     dependencies:
@@ -30113,6 +30168,25 @@ snapshots:
       - babel-plugin-macros
       - supports-color
 
+  jest-cli@29.7.0:
+    dependencies:
+      '@jest/core': 29.7.0
+      '@jest/test-result': 29.7.0
+      '@jest/types': 29.6.3
+      chalk: 4.1.2
+      create-jest: 29.7.0
+      exit: 0.1.2
+      import-local: 3.1.0
+      jest-config: 29.7.0(@types/node@22.15.17)(ts-node@10.9.1(@swc/core@1.10.14(@swc/helpers@0.5.15))(@types/node@22.15.17)(typescript@5.2.2))
+      jest-util: 29.7.0
+      jest-validate: 29.7.0
+      yargs: 17.7.1
+    transitivePeerDependencies:
+      - '@types/node'
+      - babel-plugin-macros
+      - supports-color
+      - ts-node
+
   jest-cli@29.7.0(@types/node@22.15.17)(ts-node@10.9.1(@swc/core@1.10.14(@swc/helpers@0.5.15))(@types/node@22.15.17)(typescript@5.2.2)):
     dependencies:
       '@jest/core': 29.7.0(ts-node@10.9.1(@swc/core@1.10.14(@swc/helpers@0.5.15))(@types/node@22.15.17)(typescript@5.2.2))
@@ -30327,7 +30401,7 @@ snapshots:
   jest-playwright-preset@4.0.0(jest-circus@29.7.0)(jest-environment-node@29.7.0)(jest-runner@29.7.0)(jest@29.7.0):
     dependencies:
       expect-playwright: 0.8.0
-      jest: 29.7.0(@types/node@22.15.17)(ts-node@10.9.1(@swc/core@1.10.14(@swc/helpers@0.5.15))(@types/node@22.15.17)(typescript@5.2.2))
+      jest: 29.7.0
       jest-circus: 29.7.0
       jest-environment-node: 29.7.0
       jest-process-manager: 0.4.0
@@ -30485,7 +30559,7 @@ snapshots:
     dependencies:
       ansi-escapes: 6.0.0
       chalk: 5.4.1
-      jest: 29.7.0(@types/node@22.15.17)(ts-node@10.9.1(@swc/core@1.10.14(@swc/helpers@0.5.15))(@types/node@22.15.17)(typescript@5.2.2))
+      jest: 29.7.0
       jest-regex-util: 29.6.3
       jest-watcher: 29.7.0
       slash: 5.1.0
@@ -30515,6 +30589,18 @@ snapshots:
       jest-util: 29.7.0
       merge-stream: 2.0.0
       supports-color: 8.1.1
+
+  jest@29.7.0:
+    dependencies:
+      '@jest/core': 29.7.0
+      '@jest/types': 29.6.3
+      import-local: 3.1.0
+      jest-cli: 29.7.0
+    transitivePeerDependencies:
+      - '@types/node'
+      - babel-plugin-macros
+      - supports-color
+      - ts-node
 
   jest@29.7.0(@types/node@22.15.17)(ts-node@10.9.1(@swc/core@1.10.14(@swc/helpers@0.5.15))(@types/node@22.15.17)(typescript@5.2.2)):
     dependencies:
@@ -30716,6 +30802,11 @@ snapshots:
       kea: 3.1.5(react@18.2.0)
 
   kea-router@3.2.2(kea@3.1.5(react@18.2.0)):
+    dependencies:
+      kea: 3.1.5(react@18.2.0)
+      url-pattern: 1.0.3
+
+  kea-router@3.3.0(kea@3.1.5(react@18.2.0)):
     dependencies:
       kea: 3.1.5(react@18.2.0)
       url-pattern: 1.0.3
