@@ -144,6 +144,7 @@ export function TaxonomicPropertyFilter({
             excludedProperties={excludedProperties}
             optionsFromProp={taxonomicFilterOptionsFromProp}
             hideBehavioralCohorts={hideBehavioralCohorts}
+            selectFirstItem={!cohortOrOtherValue}
         />
     )
 
