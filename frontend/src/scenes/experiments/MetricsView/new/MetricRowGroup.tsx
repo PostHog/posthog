@@ -1,17 +1,16 @@
+import { IconTrending } from '@posthog/icons'
+import { IconTrendingDown } from 'lib/lemon-ui/icons'
+import { humanFriendlyNumber } from 'lib/utils'
+import { useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { ExperimentMetric, NewExperimentQueryResponse } from '~/queries/schema/schema-general'
 import { Experiment, InsightType } from '~/types'
-import { formatPercentageChange, getNiceTickValues } from '../shared/utils'
-import { MetricHeader } from '../shared/MetricHeader'
-import { useState, useRef } from 'react'
-import { humanFriendlyNumber } from 'lib/utils'
-import { useChartColors } from '../shared/colors'
-import { ChartCell } from './ChartCell'
-import { createPortal } from 'react-dom'
-import { type ExperimentVariantResult } from '../shared/utils'
-import { IconTrendingDown } from 'lib/lemon-ui/icons'
-import { IconTrending } from '@posthog/icons'
-import { ChartLoadingState } from '../shared/ChartLoadingState'
 import { ChartEmptyState } from '../shared/ChartEmptyState'
+import { ChartLoadingState } from '../shared/ChartLoadingState'
+import { useChartColors } from '../shared/colors'
+import { MetricHeader } from '../shared/MetricHeader'
+import { formatPercentageChange, getNiceTickValues, type ExperimentVariantResult } from '../shared/utils'
+import { ChartCell } from './ChartCell'
 
 import {
     CELL_HEIGHT,
@@ -23,8 +22,8 @@ import {
 import { DetailsButton } from './DetailsButton'
 import { DetailsModal } from './DetailsModal'
 import { GridLines } from './GridLines'
-import { useAxisScale } from './useAxisScale'
 import { renderTooltipContent } from './MetricRowGroupTooltip'
+import { useAxisScale } from './useAxisScale'
 
 interface MetricRowGroupProps {
     metric: ExperimentMetric

@@ -1,4 +1,5 @@
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
+import { humanFriendlyNumber } from 'lib/utils'
 import {
     formatChanceToWin,
     formatPValue,
@@ -7,7 +8,6 @@ import {
     isBayesianResult,
     type ExperimentVariantResult,
 } from '../shared/utils'
-import { humanFriendlyNumber } from 'lib/utils'
 
 export const renderTooltipContent = (variantResult: ExperimentVariantResult): JSX.Element => {
     const interval = getVariantInterval(variantResult)
