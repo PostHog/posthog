@@ -26,10 +26,7 @@ describe('SourceWebhooksConsumer', () => {
 
     beforeEach(async () => {
         await resetTestDatabase()
-        hub = await createHub({
-            MAILJET_SECRET_KEY: 'mailjet-secret-key',
-            MAILJET_PUBLIC_KEY: 'mailjet-public-key',
-        })
+        hub = await createHub({})
         team = await getFirstTeam(hub)
 
         mockFetch.mockClear()
