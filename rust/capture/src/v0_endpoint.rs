@@ -239,7 +239,7 @@ async fn handle_legacy(
         let start_len = events.len();
         // TODO - right now the exception billing limits are applied only in ET's pipeline,
         // we should apply both ET and PA limits here, and remove both types of events as needed.
-        events.retain(|e| e.event != "$exception");
+        events.retain(|e| e.event == "$exception");
         report_dropped_events("over_quota", (start_len - events.len()) as u64);
         if events.is_empty() {
             return Err(CaptureError::BillingLimit);
@@ -387,7 +387,7 @@ async fn handle_common(
         let start_len = events.len();
         // TODO - right now the exception billing limits are applied only in ET's pipeline,
         // we should apply both ET and PA limits here, and remove both types of events as needed.
-        events.retain(|e| e.event != "$exception");
+        events.retain(|e| e.event == "$exception");
         report_dropped_events("over_quota", (start_len - events.len()) as u64);
         if events.is_empty() {
             return Err(CaptureError::BillingLimit);
