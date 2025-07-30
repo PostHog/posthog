@@ -1,4 +1,4 @@
-import { IconLock } from '@posthog/icons'
+import { IconLock, IconSurveys } from '@posthog/icons'
 import { LemonDialog, LemonInput, LemonSelect, LemonTag, lemonToast } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
@@ -304,6 +304,20 @@ export function OverViewTab({
 
                                 <LemonButton to={tryInInsightsUrl(featureFlag)} data-attr="usage" fullWidth>
                                     Try out in Insights
+                                </LemonButton>
+
+                                <LemonButton
+                                    icon={<IconSurveys />}
+                                    onClick={() => {
+                                        if (featureFlag.id) {
+                                            featureFlagLogic({ id: featureFlag.id }).mount()
+                                            featureFlagLogic({ id: featureFlag.id }).actions.createSurvey()
+                                        }
+                                    }}
+                                    data-attr="create-survey"
+                                    fullWidth
+                                >
+                                    Create survey
                                 </LemonButton>
 
                                 <LemonDivider />
