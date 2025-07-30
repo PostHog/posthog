@@ -124,9 +124,6 @@ from posthog.warehouse.models.external_data_job import ExternalDataJob
 from posthog.warehouse.models.external_data_schema import ExternalDataSchema
 from posthog.warehouse.models.external_data_source import ExternalDataSource
 from posthog.warehouse.models.table import DataWarehouseTable, DataWarehouseTableColumns
-from products.revenue_analytics.backend.views.revenue_analytics_base_view import (
-    RevenueAnalyticsBaseView,
-)
 
 if TYPE_CHECKING:
     from posthog.models import Team
@@ -385,6 +382,9 @@ def create_hogql_database(
     from posthog.hogql.query import create_default_modifiers_for_team
     from posthog.models import Team
     from posthog.warehouse.models import DataWarehouseJoin, DataWarehouseSavedQuery
+    from products.revenue_analytics.backend.views.revenue_analytics_base_view import (
+        RevenueAnalyticsBaseView,
+    )
 
     if timings is None:
         timings = HogQLTimings()
@@ -879,6 +879,9 @@ def serialize_database(
 ) -> dict[str, DatabaseSchemaTable]:
     from posthog.warehouse.models.datawarehouse_saved_query import (
         DataWarehouseSavedQuery,
+    )
+    from products.revenue_analytics.backend.views.revenue_analytics_base_view import (
+        RevenueAnalyticsBaseView,
     )
 
     tables: dict[str, DatabaseSchemaTable] = {}

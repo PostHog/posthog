@@ -1,6 +1,6 @@
-from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
+from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
 
-template: HogFunctionTemplate = HogFunctionTemplate(
+template: HogFunctionTemplateDC = HogFunctionTemplateDC(
     status="beta",
     free=True,
     type="site_app",
@@ -10,7 +10,7 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     icon_url="https://raw.githubusercontent.com/PostHog/bug-report-app/refs/heads/main/logo.png",
     category=["Custom"],
     code_language="javascript",
-    hog="""
+    code="""
 const style = (inputs) => `
     .form, .button, .thanks {
         position: fixed;

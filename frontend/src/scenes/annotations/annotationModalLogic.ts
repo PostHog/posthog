@@ -20,7 +20,6 @@ export const annotationScopeToName: Record<AnnotationScope, string> = {
     [AnnotationScope.Dashboard]: 'Dashboard',
     [AnnotationScope.Project]: 'Project',
     [AnnotationScope.Organization]: 'Organization',
-    [AnnotationScope.Recording]: 'Recording',
 }
 
 export const annotationScopeToLevel: Record<AnnotationScope, number> = {
@@ -28,7 +27,6 @@ export const annotationScopeToLevel: Record<AnnotationScope, number> = {
     [AnnotationScope.Dashboard]: 1,
     [AnnotationScope.Project]: 2,
     [AnnotationScope.Organization]: 3,
-    [AnnotationScope.Recording]: 4,
 }
 
 export interface AnnotationModalForm {
@@ -37,7 +35,6 @@ export interface AnnotationModalForm {
     content: AnnotationType['content']
     dashboardItemId: AnnotationType['dashboard_item'] | null
     dashboardId: AnnotationType['dashboard_id'] | null
-    recordingId: AnnotationType['recording_id'] | null
 }
 
 export const annotationModalLogic = kea<annotationModalLogicType>([
