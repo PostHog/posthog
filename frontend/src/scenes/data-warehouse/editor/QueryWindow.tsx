@@ -195,9 +195,13 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
                                     saveAsView(false, currentDraft?.id)
                                 }
                             }}
-                            tooltip="The view this draft is based on has been deleted. Publishing will create a new view."
+                            tooltip={
+                                !editingView
+                                    ? 'The view this draft is based on has been deleted. Publishing will create a new view.'
+                                    : ''
+                            }
                         >
-                            <IconInfo className="mr-1" color="var(--warning)" />
+                            {!editingView && <IconInfo className="mr-1" color="var(--warning)" />}
                             Publish
                         </LemonButton>
                     </>

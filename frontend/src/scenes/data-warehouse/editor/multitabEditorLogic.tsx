@@ -751,10 +751,15 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 return
             }
 
-            actions.updateTab({
-                ...values.activeModelUri,
-                sourceQuery,
-            })
+            const currentTab = values.allTabs.find(
+                (tab) => tab.uri.toString() === values.activeModelUri?.uri.toString()
+            )
+            if (currentTab) {
+                actions.updateTab({
+                    ...currentTab,
+                    sourceQuery,
+                })
+            }
         },
         deleteTab: ({ tab: tabToRemove }) => {
             if (
@@ -1178,7 +1183,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             actions.updateState()
         },
         deleteDataWarehouseSavedQuerySuccess: ({ payload: viewId }) => {
-            const tabToRemove = values.allTabs.find((tab) => tab.view?.id === viewId)
+            const tabToRemove = values.allTabs.find((tab) => tab.view?.id === viewId || !tab.draft)
             if (tabToRemove) {
                 actions._deleteTab(tabToRemove)
             }
@@ -1407,9 +1412,12 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             },
         ],
         editingView: [
-            (s) => [s.activeModelUri],
-            (activeModelUri) => {
-                return activeModelUri?.view
+            (s) => [s.activeModelUri, s.allTabs],
+            (activeModelUri, allTabs) => {
+                const currentTab = allTabs.find(
+                    (tab: QueryTab) => tab.uri.toString() === activeModelUri?.uri.toString()
+                )
+                return currentTab?.view
             },
         ],
         changesToSave: [
