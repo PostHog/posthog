@@ -156,6 +156,15 @@ export interface SuggestionPayload {
     ) => void
 }
 
+export type UpdateViewPayload = Partial<DatabaseSchemaViewTable> & {
+    edited_history_id?: string
+    id: string
+    lifecycle?: string
+    shouldRematerialize?: boolean
+    sync_frequency?: string
+    types: string[][]
+}
+
 export const multitabEditorLogic = kea<multitabEditorLogicType>([
     path(['data-warehouse', 'editor', 'multitabEditorLogic']),
     props({} as MultitabEditorLogicProps),
@@ -262,28 +271,8 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             inProgressDraftEdits,
         }),
         deleteInProgressDraftEdit: (draftId: string) => ({ draftId }),
-        updateView: (
-            view: Partial<DatabaseSchemaViewTable> & {
-                edited_history_id?: string
-                id: string
-                lifecycle?: string
-                shouldRematerialize?: boolean
-                sync_frequency?: string
-                types: string[][]
-            },
-            draftId?: string
-        ) => ({ view, draftId }),
-        updateViewSuccess: (
-            view: Partial<DatabaseSchemaViewTable> & {
-                edited_history_id?: string | undefined
-                id: string
-                lifecycle?: string | undefined
-                shouldRematerialize?: boolean | undefined
-                sync_frequency?: string | undefined
-                types: string[][]
-            },
-            draftId?: string
-        ) => ({ view, draftId }),
+        updateView: (view: UpdateViewPayload, draftId?: string) => ({ view, draftId }),
+        updateViewSuccess: (view: UpdateViewPayload, draftId?: string) => ({ view, draftId }),
         setUpstreamViewMode: (mode: 'graph' | 'table') => ({ mode }),
         setHoveredNode: (nodeId: string | null) => ({ nodeId }),
         setTabDraftId: (tabUri: string, draftId: string) => ({ tabUri, draftId }),
@@ -292,17 +281,6 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             queryInput,
             viewId,
         }),
-        publishDraft: (
-            draftId: string,
-            view: Partial<DatabaseSchemaViewTable> & {
-                edited_history_id?: string
-                id: string
-                lifecycle?: string
-                shouldRematerialize?: boolean
-                sync_frequency?: string
-                types: string[][]
-            }
-        ) => ({ draftId, view }),
     })),
     propsChanged(({ actions, props }, oldProps) => {
         if (!oldProps.monaco && !oldProps.editor && props.monaco && props.editor) {
