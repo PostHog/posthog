@@ -1,24 +1,17 @@
 from threading import local
-from typing import Any
+from typing import Any, TYPE_CHECKING
 from django.db import models
 from posthog.models.signals import model_activity_signal
-from posthog.models.activity_logging.activity_log import signal_exclusions, changes_between
+
+if TYPE_CHECKING:
+    from loginas.utils import is_impersonated_session
+    from posthog.models.activity_logging.activity_log import signal_exclusions, changes_between
 
 _thread_local = local()
 
 
 def get_was_impersonated():
     return getattr(_thread_local, "was_impersonated", False)
-
-
-def is_impersonated_session(request):
-    """Lazy import to avoid circular import issues during Django setup"""
-    try:
-        from loginas.utils import is_impersonated_session as _is_impersonated_session
-
-        return _is_impersonated_session(request)
-    except ImportError:
-        return False
 
 
 class ModelActivityMixin(models.Model):

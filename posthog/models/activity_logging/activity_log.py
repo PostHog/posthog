@@ -2,7 +2,7 @@ import dataclasses
 import json
 from datetime import datetime
 from decimal import Decimal
-from typing import Any, Literal, Optional, Union
+from typing import Any, Literal, Optional, Union, TYPE_CHECKING
 from uuid import UUID
 
 from django.db.models.signals import post_save
@@ -16,11 +16,13 @@ from django.db import models
 from django.utils import timezone
 from django.conf import settings
 
-from posthog.models.dashboard import Dashboard
-from posthog.models.dashboard_tile import DashboardTile
-from posthog.models.feature_flag.feature_flag import FeatureFlag
-from posthog.models.user import User
 from posthog.models.utils import UUIDT, UUIDModel
+
+if TYPE_CHECKING:
+    from posthog.models.dashboard import Dashboard
+    from posthog.models.dashboard_tile import DashboardTile
+    from posthog.models.feature_flag.feature_flag import FeatureFlag
+    from posthog.models.user import User
 
 
 logger = structlog.get_logger(__name__)
