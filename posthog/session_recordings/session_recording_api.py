@@ -83,6 +83,7 @@ from posthog.models.activity_logging.activity_log import log_activity, Detail
 from loginas.utils import is_impersonated_session
 
 USE_BLOB_V2_LTS = "use-blob-v2-lts"
+MAX_RECORDINGS_PER_BULK_ACTION = 20
 
 SNAPSHOTS_BY_PERSONAL_API_KEY_COUNTER = Counter(
     "snapshots_personal_api_key_counter",
@@ -413,8 +414,8 @@ class SourceVaryingSnapshotThrottle(PersonalApiKeyRateThrottle):
         num_requests, duration = self.parse_rate(self.get_rate())
 
         divisors = {
-            "realtime": 4,
-            "blob": 2,
+            "realtime": 8,
+            "blob": 4,
             "blob_v2": 1,
         }
 
@@ -448,6 +449,11 @@ def query_as_params_to_dict(params_dict: dict) -> dict:
         except JSONDecodeError:
             converted[key] = params_dict[key]
 
+    # we used to accept this value,
+    # but very unlikely to receive it now
+    # it's safe to pop
+    # to make sure any old URLs or filters don't error
+    # if they still include it
     converted.pop("as_query", None)
 
     return converted
@@ -717,8 +723,10 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         if not session_recording_ids or not isinstance(session_recording_ids, list):
             raise exceptions.ValidationError("session_recording_ids must be provided as a non-empty array")
 
-        if len(session_recording_ids) > 20:
-            raise exceptions.ValidationError("Cannot process more than 20 recordings at once")
+        if len(session_recording_ids) > MAX_RECORDINGS_PER_BULK_ACTION:
+            raise exceptions.ValidationError(
+                f"Cannot process more than {MAX_RECORDINGS_PER_BULK_ACTION} recordings at once"
+            )
 
         # Load recordings from ClickHouse to get distinct_ids for ones that don't exist in Postgres
         # Create minimal query with only session_ids
@@ -786,6 +794,86 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
 
         return Response(
             {"success": True, "deleted_count": deleted_count, "total_requested": len(session_recording_ids)}
+        )
+
+    @extend_schema(exclude=True)
+    @action(methods=["POST"], detail=False, url_path="bulk_viewed")
+    def bulk_viewed(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
+        """Bulk mark recordings as viewed by providing a list of recording IDs."""
+
+        session_recording_ids = request.data.get("session_recording_ids", [])
+
+        if not session_recording_ids or not isinstance(session_recording_ids, list):
+            raise exceptions.ValidationError("session_recording_ids must be provided as a non-empty array")
+
+        if len(session_recording_ids) > MAX_RECORDINGS_PER_BULK_ACTION:
+            raise exceptions.ValidationError(
+                f"Cannot process more than {MAX_RECORDINGS_PER_BULK_ACTION} recordings at once"
+            )
+
+        user = cast(User, request.user)
+
+        # Create SessionRecordingViewed records for all session_recording_ids
+        # ignore_conflicts=True handles duplicates efficiently using the unique_together constraint
+        session_recordings_viewed_to_create = [
+            SessionRecordingViewed(
+                team=self.team,
+                user=user,
+                session_id=session_id,
+                bulk_viewed=True,
+            )
+            for session_id in session_recording_ids
+        ]
+
+        created_records = SessionRecordingViewed.objects.bulk_create(
+            session_recordings_viewed_to_create, ignore_conflicts=True
+        )
+
+        viewed_count = len(created_records)
+
+        logger.info(
+            "bulk_recordings_viewed",
+            team_id=self.team.id,
+            user_id=user.id,
+            viewed_count=viewed_count,
+            total_requested=len(session_recording_ids),
+        )
+
+        return Response({"success": True, "viewed_count": viewed_count, "total_requested": len(session_recording_ids)})
+
+    @extend_schema(exclude=True)
+    @action(methods=["POST"], detail=False, url_path="bulk_not_viewed")
+    def bulk_not_viewed(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
+        """Bulk mark recordings as not viewed by providing a list of recording IDs."""
+
+        session_recording_ids = request.data.get("session_recording_ids", [])
+
+        if not session_recording_ids or not isinstance(session_recording_ids, list):
+            raise exceptions.ValidationError("session_recording_ids must be provided as a non-empty array")
+
+        if len(session_recording_ids) > MAX_RECORDINGS_PER_BULK_ACTION:
+            raise exceptions.ValidationError(
+                f"Cannot process more than {MAX_RECORDINGS_PER_BULK_ACTION} recordings at once"
+            )
+
+        user = cast(User, request.user)
+
+        deleted_count, _ = SessionRecordingViewed.objects.filter(
+            team=self.team,
+            user=user,
+            session_id__in=session_recording_ids,
+        ).delete()
+
+        logger.info(
+            "bulk_recordings_not_viewed",
+            team_id=self.team.id,
+            user_id=user.id,
+            not_viewed_count=deleted_count,
+            total_requested=len(session_recording_ids),
+        )
+
+        return Response(
+            {"success": True, "not_viewed_count": deleted_count, "total_requested": len(session_recording_ids)}
         )
 
     @extend_schema(exclude=True)

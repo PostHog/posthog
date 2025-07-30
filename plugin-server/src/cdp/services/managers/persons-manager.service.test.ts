@@ -26,7 +26,7 @@ describe('PersonsManager', () => {
         team2 = (await getTeam(hub, team2Id))!
 
         const TIMESTAMP = DateTime.fromISO('2000-10-14T11:42:06.502Z').toUTC()
-        const [person1] = await personRepository.createPerson(
+        const result = await personRepository.createPerson(
             TIMESTAMP,
             { foo: '1' },
             {},
@@ -37,7 +37,11 @@ describe('PersonsManager', () => {
             new UUIDT().toString(),
             [{ distinctId: 'distinct_id_A_1' }, { distinctId: 'distinct_id_A_2' }, { distinctId: 'distinct_id_A_3' }]
         )
-        const [person2] = await personRepository.createPerson(
+        if (!result.success) {
+            throw new Error('Failed to create person')
+        }
+        const person1 = result.person
+        const result2 = await personRepository.createPerson(
             TIMESTAMP,
             { foo: '2' },
             {},
@@ -48,7 +52,11 @@ describe('PersonsManager', () => {
             new UUIDT().toString(),
             [{ distinctId: 'distinct_id_B_1' }]
         )
-        const [person3] = await personRepository.createPerson(
+        if (!result2.success) {
+            throw new Error('Failed to create person')
+        }
+        const person2 = result2.person
+        const result3 = await personRepository.createPerson(
             TIMESTAMP,
             { foo: '3' },
             {},
@@ -59,7 +67,10 @@ describe('PersonsManager', () => {
             new UUIDT().toString(),
             [{ distinctId: 'distinct_id_A_1' }]
         )
-
+        if (!result3.success) {
+            throw new Error('Failed to create person')
+        }
+        const person3 = result3.person
         persons = [person1, person2, person3]
     })
 

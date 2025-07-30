@@ -27,20 +27,14 @@ import { urls } from 'scenes/urls'
 
 import { Query } from '~/queries/Query/Query'
 
-import {
-    ActivityScope,
-    NotebookNodeType,
-    PersonsTabType,
-    PersonType,
-    ProductKey,
-    PropertyDefinitionType,
-} from '~/types'
+import { ActivityScope, PersonsTabType, PersonType, ProductKey, PropertyDefinitionType } from '~/types'
 
 import { MergeSplitPerson } from './MergeSplitPerson'
 import { PersonCohorts } from './PersonCohorts'
 import PersonFeedCanvas from './PersonFeedCanvas'
 import { personsLogic } from './personsLogic'
 import { RelatedFeatureFlags } from './RelatedFeatureFlags'
+import { NotebookNodeType } from 'scenes/notebooks/types'
 
 export const scene: SceneExport = {
     component: PersonScene,

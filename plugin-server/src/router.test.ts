@@ -14,6 +14,8 @@ describe('router', () => {
             PLUGIN_SERVER_MODE: PluginServerMode.ingestion_v2,
         })
         await server.start()
+
+        server.httpServer = server.expressApp.listen(0, () => {})
     })
 
     afterAll(async () => {

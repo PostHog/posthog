@@ -44,9 +44,24 @@ import { PostgresRouter, PostgresUse, TransactionClient } from './postgres'
 import { safeClickhouseString, shouldStoreLog, timeoutGuard } from './utils'
 
 export type MoveDistinctIdsResult =
-    | { readonly success: true; readonly messages: TopicMessage[] }
+    | { readonly success: true; readonly messages: TopicMessage[]; readonly distinctIdsMoved: string[] }
     | { readonly success: false; readonly error: 'TargetNotFound' }
     | { readonly success: false; readonly error: 'SourceNotFound' }
+
+export type CreatePersonResult =
+    | {
+          readonly success: true
+          readonly person: InternalPerson
+          readonly messages: TopicMessage[]
+          readonly created: true
+      }
+    | {
+          readonly success: true
+          readonly person: InternalPerson
+          readonly messages: TopicMessage[]
+          readonly created: false
+      }
+    | { readonly success: false; readonly error: 'CreationConflict'; readonly distinctIds: string[] }
 
 export interface LogEntryPayload {
     pluginConfig: PluginConfig

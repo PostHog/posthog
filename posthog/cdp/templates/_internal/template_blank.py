@@ -52,7 +52,6 @@ export function onEvent({ inputs, posthog }) {
             "required": True,
         },
     ],
-    mappings=[],
     mapping_templates=[
         HogFunctionMappingTemplate(
             name="Aquisition",
