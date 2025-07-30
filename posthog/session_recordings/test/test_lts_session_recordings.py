@@ -23,13 +23,9 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         "posthog.session_recordings.queries_to_replace.session_replay_events.SessionReplayEvents.exists",
         return_value=True,
     )
-    @patch(
-        "posthog.session_recordings.queries_to_delete.session_replay_events.SessionReplayEvents.exists",
-        return_value=True,
-    )
     @patch("posthog.session_recordings.session_recording_api.object_storage.list_objects")
     def test_2023_08_01_version_stored_snapshots_can_be_gathered(
-        self, mock_list_objects: MagicMock, _mock_exists_old: MagicMock, _mock_exists_new: MagicMock
+        self, mock_list_objects: MagicMock, _mock_exists: MagicMock
     ) -> None:
         session_id = str(uuid.uuid4())
         lts_storage_path = "purposefully/not/what/we/would/calculate/to/prove/this/is/used"
@@ -83,10 +79,6 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         "posthog.session_recordings.queries_to_replace.session_replay_events.SessionReplayEvents.exists",
         return_value=True,
     )
-    @patch(
-        "posthog.session_recordings.queries_to_delete.session_replay_events.SessionReplayEvents.exists",
-        return_value=True,
-    )
     @patch("posthog.session_recordings.session_recording_api.stream_from", return_value=setup_stream_from())
     @patch("posthog.session_recordings.session_recording_api.object_storage.get_presigned_url")
     @patch("posthog.session_recordings.session_recording_api.object_storage.list_objects")
@@ -95,8 +87,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         mock_list_objects: MagicMock,
         mock_get_presigned_url: MagicMock,
         _mock_stream_from: MagicMock,
-        _mock_exists_old: MagicMock,
-        _mock_exists_new: MagicMock,
+        _mock_exists: MagicMock,
     ) -> None:
         session_id = str(uuid.uuid4())
         lts_storage_path = "purposefully/not/what/we/would/calculate/to/prove/this/is/used"
