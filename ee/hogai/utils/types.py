@@ -1,7 +1,7 @@
 import uuid
 from collections.abc import Sequence
 from enum import StrEnum
-from typing import Annotated, Any, Literal, Optional, TypeVar, Union
+from typing import Annotated, Any, ClassVar, Literal, Optional, Self, TypeVar, Union
 
 from langchain_core.agents import AgentAction
 from langchain_core.messages import (
@@ -106,16 +106,23 @@ PartialStateType = TypeVar("PartialStateType", bound=BaseModel)
 class BaseState(BaseModel):
     """Base state class with reset functionality."""
 
+    _ignored_reset_fields: ClassVar[set[str]] = set()
+    """
+    Fields to ignore during state resets due to race conditions.
+    """
+
     @classmethod
-    def get_reset_state(cls: type[StateType]) -> StateType:
+    def get_reset_state(cls) -> Self:
         """Returns a new instance with all fields reset to their default values."""
-        return cls(**{k: v.default for k, v in cls.model_fields.items()})
+        return cls(**{k: v.default for k, v in cls.model_fields.items() if k not in cls._ignored_reset_fields})
 
 
 class _SharedAssistantState(BaseState):
     """
     The state of the root node.
     """
+
+    _ignored_reset_fields: ClassVar[set[str]] = {"memory_collection_messages"}
 
     start_id: Optional[str] = Field(default=None)
     """
