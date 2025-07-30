@@ -91,12 +91,10 @@ export const QueryDatabase = (): JSX.Element => {
 
                         createTab(draft.query.query, associatedView, undefined, draft)
 
-                        setTimeout(() => {
-                            const newTab = allTabs[allTabs.length - 1] // Get the most recently created tab
-                            if (newTab) {
-                                setTabDraftId(newTab.uri.toString(), draft.id)
-                            }
-                        }, 0)
+                        const newTab = allTabs[allTabs.length - 1]
+                        if (newTab) {
+                            setTabDraftId(newTab.uri.toString(), draft.id)
+                        }
                     }
                     return
                 }

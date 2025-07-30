@@ -1197,10 +1197,6 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             if (props.root.startsWith('project://')) {
                 actions.loadFolder(props.root.slice('project://'.length))
             }
-
-            if (props.root.startsWith('datawarehouse://')) {
-                actions.loadFolder(props.root.slice('datawarehouse://'.length))
-            }
         } else {
             actions.loadFolder('')
         }
