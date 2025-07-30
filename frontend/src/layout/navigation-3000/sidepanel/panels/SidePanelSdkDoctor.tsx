@@ -188,6 +188,16 @@ export function SidePanelSdkDoctor(): JSX.Element {
             dataIndex: 'version',
             align: 'right',
             render: function RenderVersion(_, record) {
+                // Debug logging for version comparison
+                console.info(`[SDK Doctor UI] Rendering version for ${record.type}:`, {
+                    version: record.version,
+                    latestVersion: record.latestVersion,
+                    isOutdated: record.isOutdated,
+                    exactMatch: record.version === record.latestVersion,
+                    versionType: typeof record.version,
+                    latestVersionType: typeof record.latestVersion,
+                })
+
                 return (
                     <div className="flex items-center gap-2 justify-end">
                         <code className="text-xs font-mono bg-muted-highlight rounded-sm px-1 py-0.5">

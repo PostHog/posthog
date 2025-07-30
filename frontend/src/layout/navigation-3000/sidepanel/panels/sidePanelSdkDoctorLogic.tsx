@@ -109,9 +109,11 @@ async function updateReleasesCache(): Promise<void> {
         const thirtyMinutes = 30 * 60 * 1000
 
         if (releasesCache.data && cacheAge < thirtyMinutes) {
+            console.info(`[SDK Doctor] Using cached releases data (${Math.round(cacheAge / 1000)}s old)`)
             return // Cache still fresh
         }
 
+        console.info(`[SDK Doctor] Fetching fresh releases data from GitHub...`)
         const controller = new AbortController()
         const timeoutId = setTimeout(() => controller.abort(), 1500) // 1.5s timeout
 
@@ -128,6 +130,14 @@ async function updateReleasesCache(): Promise<void> {
         if (response.ok) {
             const releases = await response.json()
             releasesCache = { data: releases, timestamp: now }
+            console.info(`[SDK Doctor] Successfully cached ${releases.length} releases`)
+            // Log first few releases for debugging
+            console.info(
+                `[SDK Doctor] First 5 releases:`,
+                releases.slice(0, 5).map((r: any) => r.tag_name)
+            )
+        } else {
+            console.error(`[SDK Doctor] Failed to fetch releases: ${response.status}`)
         }
     } catch {
         // Keep existing cache or leave empty - fallback will handle it
@@ -321,10 +331,11 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                 loadLatestSdkVersions: async () => {
                     // console.log('[SDK Doctor] Loading latest SDK versions')
 
-                    // Check cache first
+                    // Check cache first (but with short expiry for debugging)
                     const cachedData = getGitHubCache()
-                    if (cachedData) {
-                        // console.log('[SDK Doctor] Using cached GitHub data')
+                    if (cachedData && Date.now() - cachedData.timestamp < 5 * 60 * 1000) {
+                        // 5 minute expiry for debugging
+                        console.info('[SDK Doctor] Using cached GitHub data (debug mode)')
                         return cachedData.data
                     }
 
@@ -363,7 +374,7 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                                 // Add cache busting parameter to avoid GitHub's aggressive caching
                                 const cacheBuster = Date.now()
                                 const tagsPromise = fetch(
-                                    `https://api.github.com/repos/PostHog/${repo}/tags?_=${cacheBuster}`,
+                                    `https://api.github.com/repos/PostHog/${repo}/releases?_=${cacheBuster}`,
                                     {
                                         headers: {
                                             Accept: 'application/vnd.github.v3+json',
@@ -378,26 +389,53 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                                         }
                                         return r.json()
                                     })
-                                    .then((tags) => {
-                                        if (tags && Array.isArray(tags) && tags.length > 0) {
-                                            // Extract versions from tags
-                                            const versions = tags
-                                                .map((tag: any) => {
-                                                    const name = tag.name.replace(/^v/, '')
+                                    .then((releases) => {
+                                        if (releases && Array.isArray(releases) && releases.length > 0) {
+                                            // Extract versions from releases
+                                            const versions = releases
+                                                .map((release: any) => {
+                                                    const tagName = release.tag_name
+                                                    if (!tagName) {
+                                                        return null
+                                                    }
+
                                                     // For Node.js SDK, only consider tags with the "node-" prefix
                                                     if (isNodeSdk) {
-                                                        if (tag.name.startsWith('node-')) {
+                                                        if (tagName.startsWith('node-')) {
                                                             // Remove the "node-" prefix for comparison
-                                                            const nodeVersion = tag.name.replace(/^node-/, '')
+                                                            const nodeVersion = tagName.replace(/^node-/, '')
                                                             return tryParseVersion(nodeVersion) ? nodeVersion : null
                                                         }
                                                         return null
                                                     }
+
+                                                    // For web SDK (posthog-js), handle both old and new tag formats
+                                                    if (sdkType === 'web') {
+                                                        // New format: posthog-js@1.258.3
+                                                        if (tagName.startsWith('posthog-js@')) {
+                                                            const version = tagName.replace(/^posthog-js@/, '')
+                                                            return tryParseVersion(version) ? version : null
+                                                        }
+                                                        // Old format: v1.257.2 (fallback for older releases)
+                                                        if (tagName.startsWith('v')) {
+                                                            const version = tagName.replace(/^v/, '')
+                                                            return tryParseVersion(version) ? version : null
+                                                        }
+                                                        return null
+                                                    }
+
+                                                    // For other SDKs, use the original logic
+                                                    const name = tagName.replace(/^v/, '')
                                                     return tryParseVersion(name) ? name : null
                                                 })
                                                 .filter(isNotNil)
 
                                             if (versions.length > 0) {
+                                                console.info(
+                                                    `[SDK Doctor] ${sdkType} versions found:`,
+                                                    versions.slice(0, 5)
+                                                )
+                                                console.info(`[SDK Doctor] ${sdkType} latestVersion: "${versions[0]}"`)
                                                 return {
                                                     sdkType,
                                                     versions: versions,
@@ -435,6 +473,10 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
 
                     // Save to cache if we have data
                     if (Object.keys(result).length > 0) {
+                        console.info(
+                            '[SDK Doctor] Final result summary:',
+                            Object.keys(result).map((key) => `${key}: ${result[key as SdkType]?.latestVersion}`)
+                        )
                         setGitHubCache(result)
                     }
 
@@ -471,6 +513,11 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
 
                     const limitedEvents = recentEvents.slice(0, 15)
 
+                    // Filter out PostHog's internal UI events (URLs containing /project/1/) when in development
+                    const customerEvents = limitedEvents.filter(
+                        (event) => !event.properties?.$current_url?.includes('/project/1/')
+                    )
+
                     // Check for multiple initialization patterns
                     let newDetection = false
                     let exampleEventId: string | undefined
@@ -480,7 +527,7 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
 
                     // Only look at events from the last 10 minutes to avoid cross-contamination between test scenarios
                     const tenMinutesAgo = Date.now() - 10 * 60 * 1000
-                    const eventsByUser = limitedEvents
+                    const eventsByUser = customerEvents
                         .filter(
                             (e) =>
                                 e.properties?.$lib === 'web' &&
@@ -584,7 +631,7 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                     // If we had a previous detection but see sustained normal behavior, consider clearing it
                     if (state.detected && !newDetection) {
                         // Check if we have recent normal web events (single session across multiple events)
-                        const recentWebEvents = limitedEvents
+                        const recentWebEvents = customerEvents
                             .filter((e) => e.properties?.$lib === 'web' && e.properties?.$session_id)
                             .slice(0, 10) // Look at the 10 most recent web events
 
@@ -802,7 +849,12 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                     // Ensure we only look at the most recent 15 events maximum
                     const limitedEvents = recentEvents.slice(0, 15)
 
-                    const webEvents = limitedEvents.filter((e) => e.properties?.$lib === 'web')
+                    // Filter out PostHog's internal UI events (URLs containing /project/1/) when in development
+                    const customerEvents = limitedEvents.filter(
+                        (event) => !event.properties?.$current_url?.includes('/project/1/')
+                    )
+
+                    const webEvents = customerEvents.filter((e) => e.properties?.$lib === 'web')
 
                     // Detect multiple SDK versions within the same session - a strong indicator of misconfiguration
                     // TODO: Implement multiple version detection logic
@@ -867,7 +919,7 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                     const initProblematicUrls = new Set<string>()
 
                     // Sort events by timestamp for temporal analysis
-                    const eventsByUser = limitedEvents
+                    const eventsByUser = customerEvents
                         .filter(
                             (e) =>
                                 e.properties?.$lib === 'web' && e.properties?.$session_id && e.properties?.$current_url
@@ -925,7 +977,7 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                     // That's now handled by the separate multipleInitDetection reducer
 
                     // Process all events to extract SDK versions
-                    limitedEvents.forEach((event) => {
+                    customerEvents.forEach((event) => {
                         const lib = event.properties?.$lib
                         const libVersion = event.properties?.$lib_version
 
@@ -1136,12 +1188,12 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
     }),
 
     listeners(({ actions }) => ({
-        loadRecentEventsSuccess: () => {
-            // Once we have loaded events, fetch the latest versions to compare against
-            actions.loadLatestSdkVersions()
+        loadRecentEventsSuccess: async () => {
+            // Update GitHub releases cache FIRST for better version gap detection and latest version fetching
+            await updateReleasesCache()
 
-            // Update GitHub releases cache for better version gap detection
-            void updateReleasesCache()
+            // Once we have loaded events and updated cache, fetch the latest versions to compare against
+            actions.loadLatestSdkVersions()
         },
     })),
 
@@ -1218,8 +1270,14 @@ function checkVersionAgainstLatest(
     version: string,
     latestVersionsData: Record<SdkType, { latestVersion: string; versions: string[] }>
 ): { isOutdated: boolean; releasesAhead?: number; latestVersion?: string } {
-    // console.log(`[SDK Doctor] checkVersionAgainstLatest for ${type} version ${version}`)
-    // console.log(`[SDK Doctor] Available data:`, Object.keys(latestVersionsData))
+    console.info(`[SDK Doctor] checkVersionAgainstLatest for ${type} version ${version}`)
+    console.info(`[SDK Doctor] Available data:`, Object.keys(latestVersionsData))
+
+    // Log web SDK data specifically for debugging
+    if (type === 'web' && latestVersionsData.web) {
+        console.info(`[SDK Doctor] Web SDK latestVersion: "${latestVersionsData.web.latestVersion}"`)
+        console.info(`[SDK Doctor] Web SDK first 5 versions:`, latestVersionsData.web.versions.slice(0, 5))
+    }
 
     // Convert type to lib name for consistency
     let lib = 'web'
@@ -1299,6 +1357,9 @@ function checkVersionAgainstLatest(
     const latestVersion = latestVersionsData[type].latestVersion
     const allVersions = latestVersionsData[type].versions
 
+    console.info(`[SDK Doctor] Comparing ${version} against latest ${latestVersion}`)
+    console.info(`[SDK Doctor] All versions available:`, allVersions)
+
     try {
         // Parse versions for comparison
         const currentVersionParsed = parseVersion(version)
@@ -1311,6 +1372,10 @@ function checkVersionAgainstLatest(
         const versionIndex = allVersions.indexOf(version)
         let releasesBehind = versionIndex === -1 ? -1 : versionIndex
 
+        console.info(`[SDK Doctor] Version ${version} is at index ${versionIndex} in versions array`)
+        console.info(`[SDK Doctor] Releases behind: ${releasesBehind}`)
+        console.info(`[SDK Doctor] Version diff:`, diff)
+
         // Or estimate based on semantic version difference if we don't have the exact version
         if (releasesBehind === -1 && diff) {
             if (diff.kind === 'major') {
@@ -1322,9 +1387,17 @@ function checkVersionAgainstLatest(
             }
         }
 
+        const isOutdated = releasesBehind > 2
+        console.info(
+            `[SDK Doctor] Final result: isOutdated=${isOutdated}, releasesAhead=${releasesBehind}, latestVersion=${latestVersion}`
+        )
+        console.info(
+            `[SDK Doctor] String comparison: "${version}" === "${latestVersion}" = ${version === latestVersion}`
+        )
+
         // Consider outdated if 3+ versions behind (more than 2 releases)
         return {
-            isOutdated: releasesBehind > 2,
+            isOutdated: isOutdated,
             releasesAhead: Math.max(0, releasesBehind),
             latestVersion,
         }
