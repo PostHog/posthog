@@ -52,14 +52,12 @@ export const LemonColorPickerOverlay = ({
     customColorValue,
 }: LemonColorPickerOverlayProps): JSX.Element => {
     const [color, setColor] = useState<string | null>(customColorValue || selectedColor || null)
-    const [lastValidColor, setLastValidColor] = useState<string | null>(selectedColor || null)
     const { getAvailableColorTokens } = useValues(dataThemeLogic)
 
     useEffect(() => {
         const newColor = customColorValue || selectedColor
         if (newColor) {
             setColor(newColor)
-            setLastValidColor(newColor)
         }
     }, [customColorValue, selectedColor])
 
@@ -93,7 +91,7 @@ export const LemonColorPickerOverlay = ({
                 <div>
                     <LemonLabel className="mt-2 mb-0.5">Custom color</LemonLabel>
                     <div className="flex items-center gap-2">
-                        <LemonColorGlyph color={lastValidColor} className="ml-1.5" />
+                        <LemonColorGlyph color={color} className="ml-1.5" />
                         <LemonInput
                             className="mt-1 font-mono"
                             size="small"
@@ -101,7 +99,6 @@ export const LemonColorPickerOverlay = ({
                             onChange={(color) => {
                                 setColor(color)
                                 if (color != null && color != selectedColor && /^#[0-9A-Fa-f]{6}$/.test(color)) {
-                                    setLastValidColor(color)
                                     onSelectColor?.(color)
                                 }
                             }}
