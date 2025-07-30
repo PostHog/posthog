@@ -12,7 +12,6 @@ interface TableHeaderProps {
 }
 
 export function TableHeader({ chartRadius }: TableHeaderProps): JSX.Element {
-    const significanceHeader = 'Change'
     const [svgWidth, setSvgWidth] = useState<number | undefined>(undefined)
 
     // Set up tick values and scaling for the header
@@ -49,7 +48,7 @@ export function TableHeader({ chartRadius }: TableHeaderProps): JSX.Element {
                     Value
                 </th>
                 <th className="w-1/15 border-b-2 bg-bg-table p-3 text-left text-xs font-semibold text-text-secondary sticky top-0 z-10">
-                    {significanceHeader}
+                    Delta
                 </th>
                 <th className="border-b-2 bg-bg-table p-3 text-left text-xs font-semibold text-text-secondary sticky top-0 z-10" />
                 <th className="border-b-2 bg-bg-table p-0 text-center text-xs font-semibold text-text-secondary sticky top-0 z-10">
