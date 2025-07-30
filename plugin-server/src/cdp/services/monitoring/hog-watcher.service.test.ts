@@ -12,7 +12,7 @@ import { deleteKeysWithPrefix } from '../../_tests/redis'
 import { CdpRedis, createCdpRedisPool } from '../../redis'
 import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult } from '../../types'
 import { createInvocationResult } from '../../utils/invocation-utils'
-import { BASE_REDIS_KEY, CELERY_TASK_ID, HogWatcherService, HogWatcherState } from './hog-watcher.service'
+import { BASE_REDIS_KEY, HogWatcherService, HogWatcherState } from './hog-watcher.service'
 
 const mockNow: jest.SpyInstance = jest.spyOn(Date, 'now')
 const mockCaptureTeamEvent: jest.Mock = require('~/utils/posthog').captureTeamEvent as any
