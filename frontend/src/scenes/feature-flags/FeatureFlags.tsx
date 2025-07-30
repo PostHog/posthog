@@ -284,7 +284,7 @@ export function OverViewTab({
                                         disabled={!featureFlag.can_edit}
                                         onClick={() => {
                                             if (featureFlag.id) {
-                                                // featureFlagLogic({ id: featureFlag.id }).mount()
+                                                featureFlagLogic({ id: featureFlag.id }).mount()
                                                 featureFlagLogic({ id: featureFlag.id }).actions.editFeatureFlag(true)
                                                 router.actions.push(urls.featureFlag(featureFlag.id))
                                             }
