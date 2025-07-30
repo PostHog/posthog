@@ -62,6 +62,7 @@ export type CreatePersonResult =
           readonly created: false
       }
     | { readonly success: false; readonly error: 'CreationConflict'; readonly distinctIds: string[] }
+    | { readonly success: false; readonly error: 'PropertiesSizeViolation'; readonly distinctIds: string[] }
 
 export interface LogEntryPayload {
     pluginConfig: PluginConfig

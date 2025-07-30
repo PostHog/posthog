@@ -48,6 +48,52 @@ export class PostgresPersonRepository
         this.options = { ...DEFAULT_OPTIONS, ...options }
     }
 
+    private async handleOversizedPersonProperties(
+        teamId: number,
+        personId?: string,
+        distinctId?: string,
+        error?: Error
+    ): Promise<void> {
+        const currentSize = await this.personPropertiesSize(personId)
+
+        if (currentSize < PERSON_PROPERTIES_SIZE_LIMIT) {
+            personPropertiesSizeViolationCounter.inc({
+                team_id: teamId.toString(),
+                violation_type: 'attempt_to_violate_limit',
+            })
+
+            logger.warn('Rejecting person properties update, exceeds size limit', {
+                team_id: teamId,
+                person_id: personId,
+                distinct_id: distinctId,
+                current_size: currentSize,
+                error: error?.message,
+            })
+            // NICKS TODO: define the error class
+            throw new PersonPropertiesSizeViolationError(
+                `Person properties update would exceed size limit`,
+                teamId,
+                personId,
+                distinctId
+            )
+        } else {
+            // current size is already over the limit, we need to handle this case because if we don't this record
+            // will never get updated again
+
+            personPropertiesSizeViolationCounter.inc({
+                team_id: teamId.toString(),
+                violation_type: 'existing_limit_violation',
+            })
+        }
+    }
+
+    private isPropertiesSizeConstraintViolation(error: any): boolean {
+        return (
+            error?.code === '23514' && // PostgreSQL check constraint violation
+            error?.constraint === 'check_properties_size'
+        )
+    }
+
     private toPerson(row: RawPerson): InternalPerson {
         return {
             ...row,
@@ -209,6 +255,21 @@ export class PostgresPersonRepository
                 return {
                     success: false,
                     error: 'CreationConflict',
+                    distinctIds: distinctIds.map((d) => d.distinctId),
+                }
+            }
+
+            // Handle properties size constraint violation
+            if (this.isPropertiesSizeConstraintViolation(error)) {
+                await this.handleOversizedPersonProperties(
+                    teamId,
+                    undefined, // person doesn't exist yet
+                    distinctIds?.[0]?.distinctId,
+                    error as Error
+                )
+                return {
+                    success: false,
+                    error: 'PropertiesSizeViolation',
                     distinctIds: distinctIds.map((d) => d.distinctId),
                 }
             }
@@ -493,81 +554,115 @@ export class PostgresPersonRepository
 
         const selectedQueryString = shouldCalculatePropertiesSize ? queryStringWithPropertiesSize : queryString
 
-        const { rows } = await this.postgres.query<RawPerson & { properties_size_bytes?: string }>(
-            tx ?? PostgresUse.PERSONS_WRITE,
-            selectedQueryString,
-            values,
-            `updatePerson${tag ? `-${tag}` : ''}`
-        )
-        if (rows.length === 0) {
-            throw new NoRowsUpdatedError(
-                `Person with id="${person.id}", team_id="${person.team_id}" and uuid="${person.uuid}" couldn't be updated`
+        try {
+            const { rows } = await this.postgres.query<RawPerson & { properties_size_bytes?: string }>(
+                tx ?? PostgresUse.PERSONS_WRITE,
+                selectedQueryString,
+                values,
+                `updatePerson${tag ? `-${tag}` : ''}`
             )
+            if (rows.length === 0) {
+                throw new NoRowsUpdatedError(
+                    `Person with id="${person.id}", team_id="${person.team_id}" and uuid="${person.uuid}" couldn't be updated`
+                )
+            }
+            const updatedPerson = this.toPerson(rows[0])
+
+            // Record properties size metric if we used the properties size query
+            if (shouldCalculatePropertiesSize && rows[0].properties_size_bytes) {
+                const propertiesSizeBytes = Number(rows[0].properties_size_bytes)
+                personPropertiesSizeHistogram.labels({ at: 'updatePerson' }).observe(propertiesSizeBytes)
+            }
+
+            // Track the disparity between the version on the database and the version of the person we have in memory
+            // Without races, the returned person (updatedPerson) should have a version that's only +1 the person in memory
+            const versionDisparity = updatedPerson.version - person.version - 1
+            if (versionDisparity > 0) {
+                logger.info('🧑‍🦰', 'Person update version mismatch', {
+                    team_id: updatedPerson.team_id,
+                    person_id: updatedPerson.id,
+                    version_disparity: versionDisparity,
+                })
+                personUpdateVersionMismatchCounter.inc()
+            }
+
+            const kafkaMessage = generateKafkaPersonUpdateMessage(updatedPerson)
+
+            logger.debug(
+                '🧑‍🦰',
+                `Updated person ${updatedPerson.uuid} of team ${updatedPerson.team_id} to version ${updatedPerson.version}.`
+            )
+
+            return [updatedPerson, [kafkaMessage], versionDisparity > 0]
+        } catch (error) {
+            // Handle properties size constraint violation
+            if (this.isPropertiesSizeConstraintViolation(error)) {
+                await this.handleOversizedPersonProperties(
+                    person.team_id,
+                    person.id,
+                    undefined, // we don't have distinct_id in update context
+                    error as Error
+                )
+                // Re-throw the error after handling
+                throw error
+            }
+
+            // Re-throw other errors
+            throw error
         }
-        const updatedPerson = this.toPerson(rows[0])
-
-        // Record properties size metric if we used the properties size query
-        if (shouldCalculatePropertiesSize && rows[0].properties_size_bytes) {
-            const propertiesSizeBytes = Number(rows[0].properties_size_bytes)
-            personPropertiesSizeHistogram.labels({ at: 'updatePerson' }).observe(propertiesSizeBytes)
-        }
-
-        // Track the disparity between the version on the database and the version of the person we have in memory
-        // Without races, the returned person (updatedPerson) should have a version that's only +1 the person in memory
-        const versionDisparity = updatedPerson.version - person.version - 1
-        if (versionDisparity > 0) {
-            logger.info('🧑‍🦰', 'Person update version mismatch', {
-                team_id: updatedPerson.team_id,
-                person_id: updatedPerson.id,
-                version_disparity: versionDisparity,
-            })
-            personUpdateVersionMismatchCounter.inc()
-        }
-
-        const kafkaMessage = generateKafkaPersonUpdateMessage(updatedPerson)
-
-        logger.debug(
-            '🧑‍🦰',
-            `Updated person ${updatedPerson.uuid} of team ${updatedPerson.team_id} to version ${updatedPerson.version}.`
-        )
-
-        return [updatedPerson, [kafkaMessage], versionDisparity > 0]
     }
 
     async updatePersonAssertVersion(personUpdate: PersonUpdate): Promise<[number | undefined, TopicMessage[]]> {
-        const { rows } = await this.postgres.query<RawPerson>(
-            PostgresUse.PERSONS_WRITE,
-            `
-            UPDATE posthog_person SET
-                properties = $1,
-                properties_last_updated_at = $2,
-                properties_last_operation = $3,
-                is_identified = $4,
-                version = COALESCE(version, 0)::numeric + 1
-            WHERE team_id = $5 AND uuid = $6 AND version = $7
-            RETURNING *
-            `,
-            [
-                JSON.stringify(personUpdate.properties),
-                JSON.stringify(personUpdate.properties_last_updated_at),
-                JSON.stringify(personUpdate.properties_last_operation),
-                personUpdate.is_identified,
-                personUpdate.team_id,
-                personUpdate.uuid,
-                personUpdate.version,
-            ],
-            'updatePersonAssertVersion'
-        )
+        try {
+            const { rows } = await this.postgres.query<RawPerson>(
+                PostgresUse.PERSONS_WRITE,
+                `
+                UPDATE posthog_person SET
+                    properties = $1,
+                    properties_last_updated_at = $2,
+                    properties_last_operation = $3,
+                    is_identified = $4,
+                    version = COALESCE(version, 0)::numeric + 1
+                WHERE team_id = $5 AND uuid = $6 AND version = $7
+                RETURNING *
+                `,
+                [
+                    JSON.stringify(personUpdate.properties),
+                    JSON.stringify(personUpdate.properties_last_updated_at),
+                    JSON.stringify(personUpdate.properties_last_operation),
+                    personUpdate.is_identified,
+                    personUpdate.team_id,
+                    personUpdate.uuid,
+                    personUpdate.version,
+                ],
+                'updatePersonAssertVersion'
+            )
 
-        if (rows.length === 0) {
-            return [undefined, []]
+            if (rows.length === 0) {
+                return [undefined, []]
+            }
+
+            const updatedPerson = this.toPerson(rows[0])
+
+            const kafkaMessage = generateKafkaPersonUpdateMessage(updatedPerson)
+
+            return [updatedPerson.version, [kafkaMessage]]
+        } catch (error) {
+            // Handle properties size constraint violation
+            if (this.isPropertiesSizeConstraintViolation(error)) {
+                await this.handleOversizedPersonProperties(
+                    personUpdate.team_id,
+                    undefined, // we don't have person.id in this context
+                    undefined, // we don't have distinct_id in this context
+                    error as Error
+                )
+                // Re-throw the error after handling
+                throw error
+            }
+
+            // Re-throw other errors
+            throw error
         }
-
-        const updatedPerson = this.toPerson(rows[0])
-
-        const kafkaMessage = generateKafkaPersonUpdateMessage(updatedPerson)
-
-        return [updatedPerson.version, [kafkaMessage]]
     }
 
     async updateCohortsAndFeatureFlagsForMerge(
