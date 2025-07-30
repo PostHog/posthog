@@ -465,6 +465,13 @@
             font-weight: 500;
         }
 
+        .disable-ad-block-text {
+            font-size: 0.875rem;
+            font-weight: 500;
+            color: var(--ph-survey-text-subtle-color);
+            opacity: 0.8;
+        }
+
         /* Hide loading when survey is rendered */
         #posthog-survey-container:has(.ph-survey) .loading {
             display: none;
@@ -581,6 +588,9 @@
                     <div class="loading">
                         <div class="loading-spinner"></div>
                         <div class="loading-text">Loading survey...</div>
+                        <div class="disable-ad-block-text">
+                            If you are using an ad blocker, please disable it to continue.
+                        </div>
                     </div>
                 </div>
             </div>
@@ -909,7 +919,8 @@
             capture_heatmaps: false,
             capture_dead_clicks: false,
             capture_exceptions: false,
-            advanced_disable_feature_flags: true,
+            advanced_disable_flags: true,
+            advanced_enable_surveys: true,
         };
 
         const distinctID = searchParams.get('distinct_id');
