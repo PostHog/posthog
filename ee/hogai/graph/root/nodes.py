@@ -300,35 +300,30 @@ class RootNode(RootNodeUIContextMixin):
 
         history, new_window_id = self._construct_and_update_messages_window(state, config)
 
-        # Check if we should detect insight modification intent
-        insight_modification_context = self._detect_insight_modification_intent(state)
-
-        prompt_messages = [
-            ("system", ROOT_SYSTEM_PROMPT),
-            (
-                "system",
-                CORE_MEMORY_PROMPT
-                + "\nNew memories will automatically be added to the core memory as the conversation progresses. "
-                + " If users ask to save, update, or delete the core memory, say you have done it.",
-            ),
-        ]
-
-        # Add insight modification context if detected
-        if insight_modification_context:
-            prompt_messages.append(("system", insight_modification_context))
-
-        # Add contextual tools
-        prompt_messages.extend(
-            [
-                (
-                    "system",
-                    f"<{tool_name}>\n"
-                    f"{get_contextual_tool_class(tool_name)(team=self._team, user=self._user).format_system_prompt_injection(tool_context)}\n"  # type: ignore
-                    f"</{tool_name}>",
-                )
-                for tool_name, tool_context in self._get_contextual_tools(config).items()
-                if get_contextual_tool_class(tool_name) is not None
-            ]
+        prompt = (
+            ChatPromptTemplate.from_messages(
+                [
+                    ("system", ROOT_SYSTEM_PROMPT),
+                    (
+                        "system",
+                        CORE_MEMORY_PROMPT
+                        + "\nNew memories will automatically be added to the core memory as the conversation progresses. "
+                        + " If users ask to save, update, or delete the core memory, say you have done it.",
+                    ),
+                    *[
+                        (
+                            "system",
+                            f"<{tool_name}>\n"
+                            f"{get_contextual_tool_class(tool_name)(team=self._team, user=self._user).format_system_prompt_injection(tool_context)}\n"  # type: ignore
+                            f"</{tool_name}>",
+                        )
+                        for tool_name, tool_context in self._get_contextual_tools(config).items()
+                        if get_contextual_tool_class(tool_name) is not None
+                    ],
+                ],
+                template_format="mustache",
+            )
+            + history
         )
 
         ui_context = self._format_ui_context(self._get_ui_context(state), config)
@@ -541,90 +536,6 @@ class RootNode(RootNodeUIContextMixin):
                 return messages[idx:]
         return messages
 
-    def _detect_insight_modification_intent(self, state: AssistantState) -> str | None:
-        """
-        Detect if the user wants to modify an existing insight after seeing search results.
-
-        Returns a system prompt addition if modification intent is detected.
-        """
-        if len(state.messages) < 2:
-            return None
-
-        # Look for recent search results followed by user intent to modify
-        recent_messages = state.messages[-10:]  # Check last 10 messages
-
-        # Check if we recently showed insight search results
-        search_results_message = None
-        for message in reversed(recent_messages):
-            if (
-                isinstance(message, AssistantToolCallMessage)
-                and "Found" in message.content
-                and "insight" in message.content
-                and "modify" in message.content
-            ):
-                search_results_message = message
-                break
-
-        if not search_results_message:
-            return None
-
-        # Check if the most recent human message indicates intent to modify
-        last_human_message = None
-        for message in reversed(recent_messages):
-            if isinstance(message, HumanMessage):
-                last_human_message = message
-                break
-
-        if not last_human_message:
-            return None
-
-        user_content = last_human_message.content.lower()
-
-        # Detect modification intent keywords
-        modification_keywords = [
-            "modify",
-            "edit",
-            "change",
-            "update",
-            "adjust",
-            "alter",
-            "i want to modify",
-            "i'd like to change",
-            "can you modify",
-            "use the first",
-            "use insight",
-            "start with",
-            "based on",
-        ]
-
-        has_modification_intent = any(keyword in user_content for keyword in modification_keywords)
-
-        logger.info(f"Checking modification intent for user content: '{user_content}'")
-        logger.info(f"has_modification_intent: {has_modification_intent}")
-
-        if has_modification_intent:
-            context = f"""
-<insight_modification_context>
-The user has just seen insight search results and is interested in using an existing insight.
-
-User's exact request: "{last_human_message.content}"
-
-Previous search results showed: {search_results_message.content[:200]}...
-
-Respond naturally to the user about the existing insight they're interested in.
-ALWAYS include the relevant hyperlink in your response so they can access the insight.
-Be conversational and helpful, mentioning what the insight does and offering to help them view it or create modifications.
-
-Example response format:
-"I found an existing insight called [insight name] that already [does what they want]. You can [view the insight here](HYPERLINK) or let me know if you want to modify it..."
-
-DO NOT call create_and_query_insight tool - just respond conversationally with the hyperlink included.
-</insight_modification_context>"""
-
-            return context
-
-        return None
-
 
 class RootNodeTools(AssistantNode):
     async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
@@ -723,6 +634,8 @@ class RootNodeTools(AssistantNode):
                     return "billing"
             if state.root_tool_insight_plan:
                 return "insights"
+            # elif state.root_tool_insight_plan:
+            #     return "insights"
             elif state.search_insights_query:
                 # TODO: Maybe not needed?
                 return "insights_search"

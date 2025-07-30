@@ -47,8 +47,10 @@ Consider:
 
 Respond with either:
 - YES: If one or more insights can serve as a good starting point. Include which specific insights IDs and explain why.
-When mentioning an insight, include its hyperlink in markdown format: [Insight name](URL)
+CRITICAL: When you mention an insight name, you MUST use the exact text from "HYPERLINK FORMAT" instead of just the name.
+For example, if you see "HYPERLINK FORMAT: [Weekly signups](/project/123/insights/abc)", write "[Weekly signups](/project/123/insights/abc)" in your response, NOT just "Weekly signups".
 - NO: If none of the insights are suitable and a new insight should be created from scratch.
 
-Your response MUST be clear and decisive. KEEP THE INSIGHT LINK IN THE RESPONSE TO THE USER.
+Your response MUST be clear and decisive.
+MANDATORY EXAMPLE: "The insight [Weekly signups](/project/123/insights/abc) is perfect because..." NOT "The insight Weekly signups is perfect because..."
 """

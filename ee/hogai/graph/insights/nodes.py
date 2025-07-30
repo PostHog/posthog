@@ -79,8 +79,11 @@ class InsightSearchNode(AssistantNode):
     def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
         start_time = time.time()
         search_query = state.search_insights_query
-        insight_plan = state.root_tool_insight_plan
+        insight_plan = state.root_tool_insight_plan  # this is not set anymore...
         conversation_id = config.get("configurable", {}).get("thread_id", "unknown")
+
+        # FORCING THIS FOR NOW
+        insight_plan = search_query
 
         try:
             self._current_iteration = 0
@@ -101,11 +104,7 @@ class InsightSearchNode(AssistantNode):
                     # Create visualization messages for the insights to show actual charts
                     messages_to_return = []
 
-                    # Add the text evaluation explanation first
-                    formatted_content = f"**Evaluation Result**: {evaluation_result['explanation']}"
-                    formatted_content += (
-                        f"\nCRITICAL: Attach the URL to the insight in the format [Insight Name](Insight URL)"
-                    )
+                    formatted_content = f"🔗**MANDATORY HYPERLINK RULE**: Always use clickable links for insight names. Replace 'Weekly signups' with '[Weekly signups](URL)', 'User Signups' with '[User Signups](Insight URL)', etc.\n\n**Evaluation Result**: {evaluation_result['explanation']}"
 
                     messages_to_return.append(
                         AssistantToolCallMessage(
@@ -362,18 +361,24 @@ class InsightSearchNode(AssistantNode):
 
     def _format_search_results(
         self, selected_insights: list[int], search_query: str
-    ) -> str | tuple[str, list[VisualizationMessage]]:
+    ) -> tuple[str, list[VisualizationMessage]]:
         """Format final search results for display."""
         if not selected_insights:
-            return f"No insights found matching '{search_query or 'your search'}'.\n\nSuggest that the user try:\n- Using different keywords\n- Searching for broader terms\n- Creating a new insight instead"
+            content = f"No insights found matching '{search_query or 'your search'}'.\n\nSuggest that the user try:\n- Using different keywords\n- Searching for broader terms\n- Creating a new insight instead"
+            return content, []
 
         insight_details = []
         query_executor = AssistantQueryExecutor(self._team, self._utc_now_datetime)
+        visualization_messages = []
 
         for insight_id in selected_insights:
             insight = next((i for i in self._all_insights if i["insight_id"] == insight_id), None)
             if insight:
                 insight_details.append(insight)
+                # Create visualization message for each insight
+                viz_message = self._create_visualization_message_for_insight(insight)
+                if viz_message:
+                    visualization_messages.append(viz_message)
 
         header = f"Found {len(insight_details)} insight{'s' if len(insight_details) != 1 else ''}"
         if search_query:
@@ -421,7 +426,7 @@ class InsightSearchNode(AssistantNode):
         content += "\n\nBe natural and conversational - don't present this as a rigid list of options."
         content += "\n\nINSTRUCTIONS: Add a link to the insight in the format [Insight Name](Insight URL) where mentioning an insight to the user."
 
-        return content
+        return content, visualization_messages
 
     def _convert_insight_to_query(self, insight: dict) -> tuple[dict | None, str | None]:
         """
@@ -652,6 +657,8 @@ class InsightSearchNode(AssistantNode):
 
         # Format insights for LLM evaluation with hyperlinks
         formatted_insights = []
+        insight_hyperlinks = {}  # Store hyperlinks for later use
+
         for _, insight in enumerate(insights_with_results, 1):
             insight_short_id = None
             # Find the original insight data to get the short_id for hyperlink
@@ -667,13 +674,16 @@ class InsightSearchNode(AssistantNode):
                 else "URL unavailable"
             )
 
+            # Store the hyperlink for this insight
+            insight_hyperlinks[insight["name"]] = f"[{insight['name']}]({insight_url})"
+
             formatted_insight = f"""
-**Insight:  {insight['name']} ID: {insight['insight_id']}**
-Description: {insight['description'] or 'No description'}
-Query: {insight['query']}
-Results: {insight['results']}
-Filters: {insight['filters']}
-URL: {insight_url}
+**Insight: {insight['name']} (ID: {insight['insight_id']})**
+- Description: {insight['description'] or 'No description'}
+- Query: {insight['query']}
+- Results: {insight['results']}
+- Filters: {insight['filters']}
+- **HYPERLINK FORMAT: [{insight['name']}]({insight_url})**
 """
             formatted_insights.append(formatted_insight)
 
@@ -689,7 +699,7 @@ URL: {insight_url}
             response = self._model.invoke(messages)
             response_text = response.content if isinstance(response.content, str) else str(response.content)
 
-            # Parse response to determine if we should use existing insights
+            # Parse response to determine if we should use existing insights, not great but works for now
             should_use_existing = response_text.upper().startswith("YES")
 
             self.__class__.logger.info(f"***USING EXISTING INSIGHT***")
@@ -702,6 +712,7 @@ URL: {insight_url}
 
         except Exception as e:
             self.__class__.logger.warning(f"Failed to evaluate insights: {e}")
+
             return {
                 "should_use_existing": False,
                 "explanation": "Could not evaluate insights due to an error.",
