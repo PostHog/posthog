@@ -88,7 +88,7 @@ describe('HogWatcher', () => {
     describe('constructor', () => {
         it('should validate the bounds configuration', () => {
             expect(() => {
-                const _badWatcher = new HogWatcherService(
+                const _badWatcher = new HogWatcherService2(
                     {
                         ...hub,
                         CDP_WATCHER_HOG_COST_TIMING_LOWER_MS: 100,
