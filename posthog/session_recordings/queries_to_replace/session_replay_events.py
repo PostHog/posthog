@@ -36,6 +36,10 @@ def seconds_until_midnight():
     return difference.seconds
 
 
+def get_recording_date_floor(recording_start_time: Optional[datetime], recording_ttl_days: int) -> datetime:
+    return recording_start_time or datetime.now(pytz.timezone("UTC")) - timedelta(days=recording_ttl_days)
+
+
 class SessionReplayEvents:
     def exists(self, session_id: str, team: Team) -> bool:
         cache_key = f"summarize_recording_existence_team_{team.pk}_id_{session_id}"
@@ -129,9 +133,7 @@ class SessionReplayEvents:
         return sessions_found
 
     @staticmethod
-    def get_metadata_query(
-        recording_start_time: Optional[datetime] = None,
-    ) -> LiteralString:
+    def get_metadata_query() -> LiteralString:
         """
         Helper function to build a query for session metadata, to be able to use
         both in production and locally (for example, when testing session summary)
@@ -160,15 +162,11 @@ class SessionReplayEvents:
                 team_id = %(team_id)s
                 AND session_id = %(session_id)s
                 AND min_first_timestamp <= %(python_now)s
-                {optional_timestamp_clause}
+                AND min_first_timestamp >= %(recording_floor)s
             GROUP BY
                 session_id
         """
-        query = query.format(
-            optional_timestamp_clause=(
-                "AND min_first_timestamp >= %(recording_start_time)s" if recording_start_time else ""
-            )
-        )
+
         return query
 
     @staticmethod
@@ -233,15 +231,18 @@ class SessionReplayEvents:
         self,
         session_id: str,
         team_id: int,
+        # we always need a floor for the query, so we can use it to avoid loading too much data
         recording_start_time: Optional[datetime] = None,
+        # but we might not always have the start time, so we use the team's ttl days value with 1 year as a fallback
+        recording_ttl_days: Optional[int] = 365,
     ) -> Optional[RecordingMetadata]:
-        query = self.get_metadata_query(recording_start_time)
+        query = self.get_metadata_query()
         replay_response: list[tuple] = sync_execute(
             query,
             {
                 "team_id": team_id,
                 "session_id": session_id,
-                "recording_start_time": recording_start_time,
+                "recording_floor": get_recording_date_floor(recording_start_time, recording_ttl_days),
                 "python_now": datetime.now(pytz.timezone("UTC")),
             },
         )
