@@ -26,7 +26,7 @@ def fatal_plugin_error(
 # Called from plugin-server/../hog-watcher.service.ts
 @shared_task(ignore_result=True, queue=queue)
 def hog_function_state_transition(hog_function_id: str, state: int) -> None:
-    logger.info("hog_function_state_transition (disabled)")
+    logger.info("hog_function_state_transition (disabled)", hog_function_id=hog_function_id, state=state)
     return
     # from posthog.models.hog_functions.hog_function import HogFunction
 
