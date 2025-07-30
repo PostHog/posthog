@@ -166,9 +166,9 @@ class QueryEventsExtractor:
     def _extract_events_from_paths_query(self, query: PathsQuery) -> list[str]:
         included_events = []
         if query.pathsFilter.includeEventTypes and PathType.FIELD_PAGEVIEW in query.pathsFilter.includeEventTypes:
-            included_events.append(str(PathType.FIELD_PAGEVIEW))
+            included_events.append("$pageview")
         if query.pathsFilter.includeEventTypes and PathType.FIELD_SCREEN in query.pathsFilter.includeEventTypes:
-            included_events.append(str(PathType.FIELD_SCREEN))
+            included_events.append("$screen")
 
         excluded_events = (
             [event for event in query.pathsFilter.excludeEvents if not self._is_valid_url(event)]
