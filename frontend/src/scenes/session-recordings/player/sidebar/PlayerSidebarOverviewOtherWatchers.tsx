@@ -1,7 +1,11 @@
-import { IconPeople } from '@posthog/icons'
+import { IconPeople, IconChevronDown } from '@posthog/icons'
 import { useValues } from 'kea'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { ProfileBubbles } from 'lib/lemon-ui/ProfilePicture'
+import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { useState } from 'react'
+import { userLogic } from 'scenes/userLogic'
 
 import { SessionRecordingType } from '~/types'
 
@@ -17,19 +21,53 @@ function OtherWatchersLoading(): JSX.Element {
 }
 
 function OtherWatchersDisplay({ metadata }: { metadata?: SessionRecordingType }): JSX.Element | null {
+    const { user: currentUser } = useValues(userLogic)
+    const [isExpanded, setIsExpanded] = useState(false)
+
     if (!metadata?.viewers) {
-        // to keep TS happy
         return null
     }
 
-    const count = metadata.viewers.length
+    // Filter out the current user from the viewers list
+    const otherViewers = metadata.viewers.filter((viewer) => viewer !== currentUser?.email)
+    const count = otherViewers.length
+
+    if (count === 0) {
+        return null
+    }
+
     const varyingText = count > 1 ? 'users have' : 'user has'
+
+    const toggleExpanded = (): void => {
+        setIsExpanded(!isExpanded)
+    }
+
     return (
-        <div className="flex flex-row deprecated-space-x-2 items-center justify-center px-2 py-1">
-            <ProfileBubbles people={metadata.viewers.map((v) => ({ email: v }))} />
-            <span>
-                {count} other {varyingText} watched this recording.
-            </span>
+        <div className="flex flex-col gap-2 px-2 py-1">
+            <div className="flex flex-row deprecated-space-x-2 items-center justify-center">
+                <ProfileBubbles people={otherViewers.map((v) => ({ email: v }))} />
+                <span>
+                    {count} other {varyingText} watched this recording.
+                </span>
+                {count > 0 && (
+                    <LemonButton
+                        size="small"
+                        icon={<IconChevronDown className={isExpanded ? 'rotate-180' : ''} />}
+                        onClick={toggleExpanded}
+                        className="ml-2"
+                    />
+                )}
+            </div>
+
+            {isExpanded && count > 0 && (
+                <div className="flex flex-col gap-1 mt-2 border-t pt-2">
+                    {otherViewers.map((viewer) => (
+                        <div key={viewer} className="flex items-center gap-2">
+                            <ProfilePicture user={{ email: viewer }} showName={true} size="sm" />
+                        </div>
+                    ))}
+                </div>
+            )}
         </div>
     )
 }
