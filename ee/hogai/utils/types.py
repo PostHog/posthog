@@ -106,15 +106,18 @@ PartialStateType = TypeVar("PartialStateType", bound=BaseModel)
 class BaseState(BaseModel):
     """Base state class with reset functionality."""
 
-    _ignored_reset_fields: ClassVar[set[str]] = set()
-    """
-    Fields to ignore during state resets due to race conditions.
-    """
+    @staticmethod
+    def _get_ignored_reset_fields() -> set[str]:
+        """
+        Fields to ignore during state resets due to race conditions.
+        """
+        return set()
 
     @classmethod
     def get_reset_state(cls) -> Self:
         """Returns a new instance with all fields reset to their default values."""
-        return cls(**{k: v.default for k, v in cls.model_fields.items() if k not in cls._ignored_reset_fields})
+        ignored_fields = cls._get_ignored_reset_fields()
+        return cls(**{k: v.default for k, v in cls.model_fields.items() if k not in ignored_fields})
 
 
 class _SharedAssistantState(BaseState):
