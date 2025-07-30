@@ -108,6 +108,7 @@ export type CdpConfig = {
     CDP_WATCHER_REFILL_RATE: number // The number of tokens to be refilled per second
     CDP_WATCHER_DISABLED_TEMPORARY_TTL: number // How long a function should be temporarily disabled for
     CDP_WATCHER_DISABLED_TEMPORARY_MAX_COUNT: number // How many times a function can be disabled before it is disabled permanently
+    CDP_WATCHER_AUTOMATICALLY_DISABLE_FUNCTIONS: boolean // If true then degraded functions will be automatically disabled
     CDP_HOG_FILTERS_TELEMETRY_TEAMS: string
     CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_KIND: CyclotronJobQueueKind
     CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE: CyclotronJobQueueSource
@@ -134,6 +135,7 @@ export type CdpConfig = {
     CDP_FETCH_RETRIES: number
     CDP_FETCH_BACKOFF_BASE_MS: number
     CDP_FETCH_BACKOFF_MAX_MS: number
+    CDP_OVERFLOW_QUEUE_ENABLED: boolean
 
     // topic that plugin VM capture events are produced to
     CDP_PLUGIN_CAPTURE_EVENTS_TOPIC: string
