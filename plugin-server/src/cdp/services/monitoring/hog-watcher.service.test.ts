@@ -394,7 +394,7 @@ describe('HogWatcher', () => {
     })
 
     describe('disable logic', () => {
-        jest.retryTimes(3) // Timings are flakey and hard to test but we don't need it to be perfect
+        // jest.retryTimes(3) // Timings are flakey and hard to test but we don't need it to be perfect
         beforeEach(() => {
             hub.CDP_WATCHER_BUCKET_SIZE = 100
             hub.CDP_WATCHER_DISABLED_TEMPORARY_TTL = 1 // Shorter ttl to help with testing
@@ -429,12 +429,11 @@ describe('HogWatcher', () => {
             // Trigger the temporary disabled state 3 times
             for (let i = 0; i < 2; i++) {
                 await watcher.observeResults([createResult({ id: 'id1', duration: 25000, kind: 'async_function' })])
-                expect((await watcher.getState('id1')).state).toEqual(HogWatcherState.disabledForPeriod)
+                expect((await watcher.getState('id1')).state).toEqual(HogWatcherState.degraded)
                 await reallyAdvanceTime(1000)
                 expect((await watcher.getState('id1')).state).toEqual(HogWatcherState.degraded)
             }
 
-            console.log(onStateChangeSpy.mock.calls)
             expect(onStateChangeSpy).toHaveBeenCalledTimes(0)
         })
     })

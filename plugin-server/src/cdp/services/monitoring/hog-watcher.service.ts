@@ -242,6 +242,10 @@ export class HogWatcherService {
         // that we disable the function temporarily and eventually permanently. As this is only called when the function
         // transitions to a disabled state, it is not a performance concern.
 
+        if (!this.hub.CDP_WATCHER_AUTOMATICALLY_DISABLE_FUNCTIONS) {
+            return
+        }
+
         const disabledFunctionIds = Object.entries(costs)
             .filter((_, index) => (res ? res[index][1] <= 0 : false))
             .map(([id]) => id)
