@@ -13,7 +13,6 @@ import { urls } from 'scenes/urls'
 import { SSOProvider } from '~/types'
 
 import type { loginLogicType } from './loginLogicType'
-import { addProjectIdIfMissing } from 'lib/utils/router-utils'
 
 export interface AuthenticateResponseType {
     success: boolean
@@ -28,7 +27,7 @@ export interface PrecheckResponseType {
 }
 
 export function handleLoginRedirect(): void {
-    let nextURL = addProjectIdIfMissing('/')
+    let nextURL = '/'
     try {
         const nextPath = getRelativeNextPath(router.values.searchParams['next'], location) || '/'
 
