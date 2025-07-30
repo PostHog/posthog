@@ -77,7 +77,7 @@ def activity_environment():
     return ActivityEnvironment()
 
 
-@pytest_asyncio.fixture(scope="session")
+@pytest_asyncio.fixture(scope="module")
 async def clickhouse_client(event_loop):
     """Provide a ClickHouseClient to use in tests."""
     async with ClickHouseClient(
@@ -141,10 +141,7 @@ async def activities(request):
 
 @pytest.fixture(scope="session")
 def event_loop():
-    try:
-        loop = asyncio.get_running_loop()
-    except RuntimeError:
-        loop = asyncio.new_event_loop()
+    loop = asyncio.new_event_loop()
     yield loop
     loop.close()
 
