@@ -34,7 +34,6 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.utils.encoders import JSONEncoder
 
-import posthog
 from ee.hogai.session_summaries.llm.call import get_openai_client
 from ee.hogai.session_summaries.session.stream import stream_recording_summary
 from posthog.cloud_utils import is_cloud
@@ -75,6 +74,7 @@ from posthog.session_recordings.utils import clean_prompt_whitespace
 from posthog.settings.session_replay import SESSION_REPLAY_AI_REGEX_MODEL
 from posthog.storage import object_storage, session_recording_v2_object_storage
 from posthog.storage.session_recording_v2_object_storage import BlockFetchError
+from .queries.sub_queries.events_subquery import ReplayFiltersEventsSubQuery
 from ..models.product_intent.product_intent import ProductIntent
 from posthog.models.activity_logging.activity_log import log_activity, Detail
 from loginas.utils import is_impersonated_session
@@ -571,11 +571,9 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         distinct_id = str(cast(User, request.user).distinct_id)
         modifiers = safely_read_modifiers_overrides(distinct_id, self.team)
 
-        results, _, timings = (
-            posthog.session_recordings.queries_to_replace.sub_queries.events_subquery.ReplayFiltersEventsSubQuery(
-                query=query, team=self.team, hogql_query_modifiers=modifiers
-            ).get_event_ids_for_session()
-        )
+        results, _, timings = ReplayFiltersEventsSubQuery(
+            query=query, team=self.team, hogql_query_modifiers=modifiers
+        ).get_event_ids_for_session()
 
         response = JsonResponse(data={"results": results})
 
