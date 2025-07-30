@@ -32,7 +32,7 @@ import {
 } from './featureFlagReleaseConditionsLogic'
 
 function PropertyValueComponent({ property }: { property: AnyPropertyFilter }): JSX.Element {
-    if (property.type === 'cohort') {
+    if (property.type === PropertyFilterType.Cohort) {
         return (
             <LemonButton
                 type="secondary"
@@ -141,7 +141,9 @@ export function FeatureFlagReleaseConditions({
 
     const hasNonInstantProperty = (properties: AnyPropertyFilter[]): boolean => {
         return !!properties.find(
-            (property) => property.type === 'cohort' || !INSTANTLY_AVAILABLE_PROPERTIES.includes(property.key || '')
+            (property) =>
+                property.type === PropertyFilterType.Cohort ||
+                !INSTANTLY_AVAILABLE_PROPERTIES.includes(property.key || '')
         )
     }
 
@@ -291,7 +293,9 @@ export function FeatureFlagReleaseConditions({
                                             )
                                         })()}
                                     {property.type !== PropertyFilterType.Flag && (
-                                        <LemonSnack>{property.type === 'cohort' ? 'Cohort' : property.key}</LemonSnack>
+                                        <LemonSnack>
+                                            {property.type === PropertyFilterType.Cohort ? 'Cohort' : property.key}
+                                        </LemonSnack>
                                     )}
                                     {isPropertyFilterWithOperator(property) ? (
                                         <span>{allOperatorsToHumanName(property.operator)} </span>
