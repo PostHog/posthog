@@ -52,14 +52,14 @@ export function TableHeader({ chartRadius }: TableHeaderProps): JSX.Element {
                     {significanceHeader}
                 </th>
                 <th className="border-b-2 bg-bg-table p-3 text-left text-xs font-semibold text-text-secondary sticky top-0 z-10" />
-                <th className="min-w-[600px] border-b-2 bg-bg-table p-0 text-center text-xs font-semibold text-text-secondary sticky top-0 z-10">
+                <th className="border-b-2 bg-bg-table p-0 text-center text-xs font-semibold text-text-secondary sticky top-0 z-10">
                     {chartRadius && chartRadius > 0 ? (
-                        <div className="min-w-[600px]">
+                        <div>
                             <svg
                                 ref={ticksSvgRef}
                                 viewBox={`0 0 ${VIEW_BOX_WIDTH} ${TICK_PANEL_HEIGHT + 10}`}
                                 preserveAspectRatio="xMidYMid meet"
-                                className="w-full max-w-[1000px]"
+                                className="w-full"
                                 style={{
                                     minHeight: `${TICK_PANEL_HEIGHT + 10}px`,
                                 }}

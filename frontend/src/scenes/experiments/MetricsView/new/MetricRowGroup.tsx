@@ -294,7 +294,7 @@ export function MetricRowGroup({
 
                 {/* Chart (grid lines only for baseline) */}
                 <td
-                    className={`min-w-[400px] w-full p-0 align-top text-center relative overflow-hidden ${
+                    className={`p-0 align-top text-center relative overflow-hidden ${
                         isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
                     } ${variantResults.length === 0 ? 'border-b' : ''}`}
                     style={{ height: `${CELL_HEIGHT}px`, maxHeight: `${CELL_HEIGHT}px` }}

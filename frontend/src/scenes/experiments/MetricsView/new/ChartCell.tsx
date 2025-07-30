@@ -51,7 +51,7 @@ export function ChartCell({
 
     return (
         <td
-            className={`min-w-[400px] p-0 align-top text-center relative overflow-hidden ${
+            className={`p-0 align-top text-center relative overflow-hidden ${
                 isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
             } ${isLastRow ? 'border-b' : ''}`}
             style={{ height: `${CELL_HEIGHT}px`, maxHeight: `${CELL_HEIGHT}px` }}

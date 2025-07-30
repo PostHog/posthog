@@ -67,6 +67,14 @@ export function MetricsTable({
     return (
         <div className="w-full overflow-x-auto rounded-md border">
             <table className="w-full border-collapse text-sm">
+                <colgroup>
+                    <col />
+                    <col />
+                    <col />
+                    <col />
+                    <col />
+                    <col className="min-w-[400px]" />
+                </colgroup>
                 <TableHeader results={results} chartRadius={chartRadius} />
                 <tbody>
                     {metrics.map((metric, metricIndex) => {
