@@ -573,6 +573,7 @@ export const redirects: Record<
     '/messaging': urls.messaging('campaigns'),
     '/settings/organization-rbac': urls.settings('organization-roles'),
     '/data-pipelines': urls.dataPipelines('overview'),
+    '/data-warehouse': urls.dataWarehouse(),
     '/data-warehouse/sources/:id': ({ id }) => urls.dataWarehouseSource(id, 'schemas'),
     ...productRedirects,
 }
@@ -708,6 +709,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.oauthAuthorize()]: [Scene.OAuthAuthorize, 'oauthAuthorize'],
     [urls.dataPipelines(':kind')]: [Scene.DataPipelines, 'dataPipelines'],
     [urls.dataPipelinesNew(':kind')]: [Scene.DataPipelinesNew, 'dataPipelinesNew'],
+    [urls.dataWarehouse()]: [Scene.DataWarehouse, 'dataWarehouse'],
     [urls.dataWarehouseSourceNew()]: [Scene.DataWarehouseSourceNew, 'dataWarehouseSourceNew'],
     [urls.dataWarehouseSource(':id', ':tab')]: [Scene.DataWarehouseSource, 'dataWarehouseSource'],
     [urls.batchExport(':id')]: [Scene.BatchExport, 'batchExport'],
