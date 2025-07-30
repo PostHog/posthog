@@ -1,4 +1,4 @@
-import { IconLock, IconSurveys } from '@posthog/icons'
+import { IconLock } from '@posthog/icons'
 import { LemonDialog, LemonInput, LemonSelect, LemonTag, lemonToast } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
@@ -45,6 +45,7 @@ import {
 
 import { featureFlagLogic } from './featureFlagLogic'
 import { featureFlagsLogic, FeatureFlagsTab, FLAGS_PER_PAGE } from './featureFlagsLogic'
+import { IconSurveys } from 'lib/lemon-ui/icons/icons'
 
 export const scene: SceneExport = {
     component: FeatureFlags,

@@ -7,7 +7,6 @@ import {
     IconInfo,
     IconPlus,
     IconRewindPlay,
-    IconSurveys,
     IconTrash,
     IconGlobe,
     IconServer,
@@ -92,6 +91,7 @@ import { featureFlagsLogic, FeatureFlagsTab } from './featureFlagsLogic'
 import { FeatureFlagStatusIndicator } from './FeatureFlagStatusIndicator'
 import { RecentFeatureFlagInsights } from './RecentFeatureFlagInsightsCard'
 import { NotebookNodeType } from 'scenes/notebooks/types'
+import { IconSurveys } from 'lib/lemon-ui/icons/icons'
 
 export const scene: SceneExport = {
     component: FeatureFlag,
