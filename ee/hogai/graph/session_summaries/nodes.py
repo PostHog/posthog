@@ -7,6 +7,13 @@ from asgiref.sync import async_to_sync
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from posthog.schema import AssistantToolCallMessage
 from ee.hogai.graph.base import AssistantNode
+from products.replay.backend.max_tools import (
+    MULTIPLE_FILTERS_PROMPT,
+    PRODUCT_DESCRIPTION_PROMPT,
+    SESSION_REPLAY_EXAMPLES_PROMPT,
+    SESSION_REPLAY_RESPONSE_FORMATS_PROMPT,
+)
+from ee.hogai.graph.filter_options.graph import FilterOptionsGraph
 
 
 class SessionSummarizationNode(AssistantNode):
@@ -16,14 +23,7 @@ class SessionSummarizationNode(AssistantNode):
         super().__init__(*args, **kwargs)
 
     async def _generate_replay_filters(self) -> dict:
-        from products.replay.backend.max_tools import (
-            MULTIPLE_FILTERS_PROMPT,
-            PRODUCT_DESCRIPTION_PROMPT,
-            SESSION_REPLAY_EXAMPLES_PROMPT,
-            SESSION_REPLAY_RESPONSE_FORMATS_PROMPT,
-        )
-        from ee.hogai.graph.filter_options.graph import FilterOptionsGraph
-
+        """Generates replay filters to get session ids by querying a compiled Universal filters graph."""
         # Create the graph with injected prompts
         injected_prompts = {
             "product_description_prompt": PRODUCT_DESCRIPTION_PROMPT,
@@ -36,17 +36,9 @@ class SessionSummarizationNode(AssistantNode):
         result = await graph.ainvoke(
             {
                 "change": "show me sessions of the user test@posthog.com",
-                "current_filters": {},  # Empty state
+                "current_filters": {},  # Empty state, as we need results from the query-to-filter
             }
         )
-        print("*" * 50)
-        print("RESULT")
-        print(result)
-        # RESULT
-        # {'intermediate_steps': None, 'generated_filter_options': {'data': MaxRecordingUniversalFilters(date_from='-5d', date_to=None, duration=[RecordingDurationFilter(key=<DurationType.DURATION: 'duration'>, label=None, operator=<PropertyOperator.GT: 'gt'>, type='recording', value=60.0)], filter_group=MaxOuterUniversalFiltersGroup(type=<FilterLogicalOperator.AND_: 'AND'>, values=[MaxInnerUniversalFiltersGroup(type=<FilterLogicalOperator.AND_: 'AND'>, values=[PersonPropertyFilter(key='email', label=None, operator=<PropertyOperator.EXACT: 'exact'>, type='person', value=['test@posthog.com'])])]), filter_test_accounts=None, order=<RecordingOrder.START_TIME: 'start_time'>)}, 'change': 'show me sessions of the user test@posthog.com', 'current_filters': {}, 'tool_progress_messages': []}
-        # **************************************************
-        # SESSION IDS
-        # ['01985643-1360-740f-8702-ecfc2fd7da91']
         return result
 
     def _get_session_ids_from_query(self, graph_result: dict[str, Any]) -> list[str]:

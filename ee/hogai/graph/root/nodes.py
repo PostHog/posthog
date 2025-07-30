@@ -374,10 +374,10 @@ class RootNode(RootNodeUIContextMixin):
             get_contextual_tool_class,
             search_documentation,
             search_insights,
-            summarize_session,
+            session_summarization,
         )
 
-        available_tools: list[type[BaseModel]] = [search_insights, summarize_session]
+        available_tools: list[type[BaseModel]] = [search_insights, session_summarization]
         if settings.INKEEP_API_KEY:
             available_tools.append(search_documentation)
         tool_names = self._get_contextual_tools(config).keys()
@@ -535,7 +535,7 @@ class RootNodeTools(AssistantNode):
                 search_insights_query=tool_call.args["search_query"],
                 root_tool_calls_count=tool_call_count + 1,
             )
-        elif tool_call.name == "summarize_session":
+        elif tool_call.name == "session_summarization":
             return PartialAssistantState(
                 root_tool_call_id=tool_call.id,
                 summarization_session_id=tool_call.args["session_id"],
@@ -597,7 +597,7 @@ class RootNodeTools(AssistantNode):
                 return "insights"
             elif state.search_insights_query:
                 return "insights_search"
-            elif state.summarization_session_id:
+            elif state.session_summarization_query:
                 return "session_summarization"
             else:
                 return "search_documentation"
