@@ -147,12 +147,15 @@ export function ItemEventDetail({ item }: ItemEventProps): JSX.Element {
     const properties = {}
     const featureFlagProperties = {}
     const errorProperties = {}
+    const debugProperties = {}
     let setProperties = {}
     let setOnceProperties = {}
 
     for (const key of Object.keys(item.data.properties)) {
         if (!CORE_FILTER_DEFINITIONS_BY_GROUP.events[key] || !CORE_FILTER_DEFINITIONS_BY_GROUP.events[key].system) {
-            if (key.startsWith('$feature') || key === '$active_feature_flags') {
+            if (CORE_FILTER_DEFINITIONS_BY_GROUP.event_properties[key].used_for_debug) {
+                debugProperties[key] = item.data.properties[key]
+            } else if (key.startsWith('$feature') || key === '$active_feature_flags') {
                 featureFlagProperties[key] = item.data.properties[key]
             } else if (key === '$set') {
                 setProperties = item.data.properties[key]
@@ -366,6 +369,23 @@ export function ItemEventDetail({ item }: ItemEventProps): JSX.Element {
                                                   <p>
                                                       PostHog uses properties that start with $exception to carry
                                                       information about errors.
+                                                  </p>
+                                              }
+                                          />
+                                      ),
+                                  }
+                                : null,
+                            Object.keys(debugProperties).length > 0
+                                ? {
+                                      key: 'debug_properties',
+                                      label: 'Debug properties',
+                                      content: (
+                                          <SimpleKeyValueList
+                                              item={debugProperties}
+                                              promotedKeys={promotedKeys}
+                                              header={
+                                                  <p>
+                                                      PostHog uses some properties to help debug issues with the SDKs.
                                                   </p>
                                               }
                                           />
