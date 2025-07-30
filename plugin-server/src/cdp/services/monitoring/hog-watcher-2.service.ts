@@ -16,6 +16,8 @@ import {
 export const BASE_REDIS_KEY = process.env.NODE_ENV == 'test' ? '@posthog-test/hog-watcher-2' : '@posthog/hog-watcher-2'
 const REDIS_KEY_TOKENS = `${BASE_REDIS_KEY}/tokens`
 const REDIS_KEY_STATE = `${BASE_REDIS_KEY}/state`
+const REDIS_KEY_STATE_LOCK = `${BASE_REDIS_KEY}/state-lock`
+const STATE_LOCK_TTL_SECONDS = 60
 
 export enum HogWatcherStateEnum {
     healthy = 1,
@@ -254,9 +256,12 @@ export class HogWatcherService2 {
         const res = await this.redis.usePipeline({ name: 'updateRateLimits' }, (pipeline) => {
             for (const functionCost of Object.values(functionCosts)) {
                 pipeline.get(`${REDIS_KEY_STATE}/${functionCost.functionId}`)
+                pipeline.get(`${REDIS_KEY_STATE_LOCK}/${functionCost.functionId}`)
                 pipeline.checkRateLimit(...this.rateLimitArgs(functionCost.functionId, functionCost.cost))
             }
         })
+
+        const indexOffset = 3
 
         await Promise.all(
             Object.values(functionCosts).map(async (functionCost, index) => {
