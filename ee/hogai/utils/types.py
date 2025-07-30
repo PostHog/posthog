@@ -38,7 +38,7 @@ AssistantOutput = (
 )
 
 
-def merge(left: Any | None, right: Any | None) -> Any | None:
+def merge(_: Any | None, right: Any | None) -> Any | None:
     return right
 
 
@@ -140,7 +140,7 @@ class _SharedAssistantState(BaseState):
     A clarifying question asked during the onboarding process.
     """
 
-    memory_collection_messages: Annotated[Sequence[LangchainBaseMessage], merge] = Field(default=[])
+    memory_collection_messages: Annotated[Optional[Sequence[LangchainBaseMessage]], merge] = Field(default=[])
     """
     The messages with tool calls to collect memory in the `MemoryCollectorToolsNode`.
     """
