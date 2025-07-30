@@ -8,7 +8,7 @@ import posthog.models.utils
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0811_personalapikey_last_rolled_at"),
+        ("posthog", "0813_alter_messagecategory_category_type_and_more"),
     ]
 
     operations = [

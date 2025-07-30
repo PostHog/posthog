@@ -12,7 +12,17 @@ from ee.models.assistant import Conversation
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
-from posthog.schema import AssistantEventType, AssistantMessage
+from posthog.schema import (
+    AssistantEventType,
+    AssistantMessage,
+    MaxBillingContextBillingPeriod,
+    MaxBillingContextBillingPeriodInterval,
+    MaxBillingContext,
+    MaxProductInfo,
+    MaxBillingContextSettings,
+    MaxBillingContextSubscriptionLevel,
+    MaxBillingContextTrial,
+)
 from posthog.test.base import APIBaseTest
 
 
@@ -37,6 +47,33 @@ class TestConversation(APIBaseTest):
             email="other@posthog.com",
             password="password",
             first_name="Other",
+        )
+        self.billing_context = MaxBillingContext(
+            subscription_level=MaxBillingContextSubscriptionLevel.PAID,
+            billing_plan="paid",
+            has_active_subscription=True,
+            is_deactivated=False,
+            billing_period=MaxBillingContextBillingPeriod(
+                current_period_start=str(datetime.date(2023, 1, 1)),
+                current_period_end=str(datetime.date(2023, 1, 31)),
+                interval=MaxBillingContextBillingPeriodInterval.MONTH,
+            ),
+            total_current_amount_usd="100.00",
+            products=[
+                MaxProductInfo(
+                    name="Product A",
+                    type="type_a",
+                    description="Desc A",
+                    current_usage=50,
+                    usage_limit=100,
+                    percentage_usage=0.5,
+                    has_exceeded_limit=False,
+                    is_used=True,
+                    addons=[],
+                )
+            ],
+            trial=MaxBillingContextTrial(is_active=True, expires_at=str(datetime.date(2023, 2, 1)), target="scale"),
+            settings=MaxBillingContextSettings(autocapture_on=True, active_destinations=2),
         )
 
     def _get_streaming_content(self, response):
@@ -548,3 +585,51 @@ class TestConversation(APIBaseTest):
         throttles = viewset.get_throttles()
         self.assertNotIsInstance(throttles[0], AIBurstRateThrottle)
         self.assertNotIsInstance(throttles[1], AISustainedRateThrottle)
+
+    def test_billing_context_validation_valid_data(self):
+        """Test that valid billing context data is accepted."""
+        conversation = Conversation.objects.create(user=self.user, team=self.team)
+
+        with patch(
+            "ee.hogai.stream.conversation_stream.ConversationStreamManager.astream",
+            return_value=_async_generator(),
+        ) as mock_start_workflow_and_stream:
+            with patch("ee.api.conversation.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
+                trace_id = str(uuid.uuid4())
+                response = self.client.post(
+                    f"/api/environments/{self.team.id}/conversations/",
+                    {
+                        "content": "test query",
+                        "trace_id": trace_id,
+                        "conversation": conversation.id,
+                        "billing_context": self.billing_context.model_dump(),
+                    },
+                )
+                self.assertEqual(response.status_code, status.HTTP_200_OK)
+                call_args = mock_start_workflow_and_stream.call_args
+                workflow_inputs = call_args[0][0]
+                self.assertEqual(workflow_inputs.billing_context, self.billing_context)
+
+    def test_billing_context_validation_invalid_data(self):
+        """Test that invalid billing context data is rejected."""
+        conversation = Conversation.objects.create(user=self.user, team=self.team)
+
+        with patch(
+            "ee.hogai.stream.conversation_stream.ConversationStreamManager.astream",
+            return_value=_async_generator(),
+        ) as mock_start_workflow_and_stream:
+            with patch("ee.api.conversation.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
+                trace_id = str(uuid.uuid4())
+                response = self.client.post(
+                    f"/api/environments/{self.team.id}/conversations/",
+                    {
+                        "content": "test query",
+                        "trace_id": trace_id,
+                        "conversation": conversation.id,
+                        "billing_context": {"invalid_key": "invalid_value"},
+                    },
+                )
+                self.assertEqual(response.status_code, status.HTTP_200_OK)
+                call_args = mock_start_workflow_and_stream.call_args
+                workflow_inputs = call_args[0][0]
+                self.assertEqual(workflow_inputs.billing_context, None)
