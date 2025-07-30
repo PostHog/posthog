@@ -35,6 +35,7 @@ def topological_sort(nodes: list[str], edges: list[dict[str, str]]) -> list[str]
     Performs a topological sort on the DAG to determine execution order.
     Returns nodes ordered from most upstream to the node itself.
     """
+    # Build adjacency list and in-degree count
     graph = defaultdict(list)
     in_degree: dict[str, int] = defaultdict(int)
 
@@ -45,13 +46,16 @@ def topological_sort(nodes: list[str], edges: list[dict[str, str]]) -> list[str]
         if source not in in_degree:
             in_degree[source] = 0
 
+    # Initialize queue with nodes that have no incoming edges
     queue = deque([node for node in nodes if in_degree[node] == 0])
     result = []
 
+    # Process nodes
     while queue:
         node = queue.popleft()
         result.append(node)
 
+    # root node and its external tables
         for neighbor in graph[node]:
             in_degree[neighbor] -= 1
             if in_degree[neighbor] == 0:
@@ -78,6 +82,8 @@ def get_upstream_dag(team_id: int, model_id: str) -> dict[str, list[Any]]:
         "status": root_query.status,
     }
     seen_nodes.add(root_query.name)
+    # Fetch all dependencies with a bfs
+    # Fetch everything by names, ids and names are the same right now
     to_process = [(root_query.name, root_query.external_tables, [])]
 
     while to_process:
