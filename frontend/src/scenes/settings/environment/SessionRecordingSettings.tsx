@@ -18,7 +18,7 @@ import { EventSelect } from 'lib/components/EventSelect/EventSelect'
 import { InternalMultipleChoiceSurvey } from 'lib/components/InternalSurvey/InternalMultipleChoiceSurvey'
 import { PropertySelect } from 'lib/components/PropertySelect/PropertySelect'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { SESSION_RECORDING_OPT_OUT_SURVEY_ID_2 } from 'lib/constants'
+import { SESSION_RECORDING_OPT_OUT_SURVEY_ID_3 } from 'lib/constants'
 import { IconSelectEvents } from 'lib/lemon-ui/icons'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { isObject, objectsEqual } from 'lib/utils'
@@ -642,7 +642,7 @@ export function ReplayGeneral(): JSX.Element {
                     bordered
                     checked={!!currentTeam?.session_recording_opt_in}
                 />
-                {showSurvey && <InternalMultipleChoiceSurvey surveyId={SESSION_RECORDING_OPT_OUT_SURVEY_ID_2} />}
+                {showSurvey && <InternalMultipleChoiceSurvey surveyId={SESSION_RECORDING_OPT_OUT_SURVEY_ID_3} />}
             </div>
             <LogCaptureSettings />
             <CanvasCaptureSettings />
