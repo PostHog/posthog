@@ -167,7 +167,7 @@ pub async fn try_grouping_rules(
             serde_json::to_value(exception_list.get_unique_functions())?,
         );
         props.insert(
-            "handled".to_string(),
+            "$exception_handled".to_string(),
             serde_json::to_value(exception_list.get_is_handled())?,
         );
     }
