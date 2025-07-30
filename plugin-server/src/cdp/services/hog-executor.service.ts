@@ -39,6 +39,12 @@ const cdpHttpRequests = new Counter({
     labelNames: ['status'],
 })
 
+const cdpHttpRequestTiming = new Histogram({
+    name: 'cdp_http_request_timing_ms',
+    help: 'Timing of HTTP requests',
+    buckets: [0, 10, 20, 50, 100, 200, 500, 1000, 2000, 3000, 5000, 10000],
+})
+
 export const RETRIABLE_STATUS_CODES = [
     408, // Request Timeout
     429, // Too Many Requests (rate limiting)
@@ -541,7 +547,6 @@ export class HogExecutorService {
         )
         const addLog = createAddLogFunction(result.logs)
 
-        const start = performance.now()
         const method = params.method.toUpperCase()
         const headers = params.headers ?? {}
 
@@ -558,8 +563,10 @@ export class HogExecutorService {
             fetchParams.body = params.body
         }
 
+        const start = performance.now()
         const [fetchError, fetchResponse] = await tryCatch(async () => await fetch(params.url, fetchParams))
         const duration = performance.now() - start
+        cdpHttpRequestTiming.observe(duration)
         cdpHttpRequests.inc({ status: fetchResponse?.status?.toString() ?? 'error' })
 
         result.invocation.state.timings.push({
