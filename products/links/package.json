@@ -1,10 +1,6 @@
 {
     "name": "@posthog/products-links",
     "dependencies": {
-        "kea": "^3.1.5",
-        "kea-forms": "^3.2.0",
-        "kea-loaders": "^3.1.1",
-        "kea-router": "^3.2.2",
         "qrcode.react": "^4.2.0"
     },
     "peerDependencies": {
@@ -12,6 +8,10 @@
         "@storybook/react": "*",
         "@types/react": "*",
         "clsx": "*",
+        "kea": "*",
+        "kea-forms": "*",
+        "kea-loaders": "*",
+        "kea-router": "*",
         "react": "*"
     }
 }

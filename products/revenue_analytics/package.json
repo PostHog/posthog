@@ -1,16 +1,14 @@
 {
     "name": "@posthog/products-revenue-analytics",
-    "dependencies": {
-        "kea": "^3.1.5",
-        "kea-forms": "^3.2.0",
-        "kea-loaders": "^3.1.1",
-        "kea-router": "^3.2.2"
-    },
     "peerDependencies": {
         "@posthog/icons": "*",
         "@storybook/react": "*",
         "@types/react": "*",
         "clsx": "*",
+        "kea": "*",
+        "kea-forms": "*",
+        "kea-loaders": "*",
+        "kea-router": "*",
         "react": "*"
     }
 }
