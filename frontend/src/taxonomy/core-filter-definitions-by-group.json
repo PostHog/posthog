@@ -830,6 +830,11 @@
             "examples": ["Google", "Bing", "Twitter", "Facebook"],
             "label": "Initial UTM source"
         },
+        "$initialization_time": {
+            "description": "The iso formatted timestamp of SDK initialization.",
+            "label": "initialization time",
+            "type": "String"
+        },
         "$insert_id": {
             "description": "Unique insert ID for the event.",
             "label": "Insert ID",
@@ -1105,6 +1110,17 @@
             "examples": ["1440", "1920"],
             "label": "Screen width"
         },
+        "$sdk_debug_current_session_duration": {
+            "description": "The current session duration in milliseconds.",
+            "label": "Current session duration",
+            "type": "Number"
+        },
+        "$sdk_debug_replay_event_trigger_status": {
+            "description": "The status of the recording event trigger.",
+            "examples": ["trigger_disabled", "trigger_pending", "trigger_matched"],
+            "label": "event trigger status",
+            "type": "String"
+        },
         "$sdk_debug_replay_internal_buffer_length": {
             "description": "Useful for debugging. The internal buffer length for replay.",
             "examples": ["100"],
@@ -1119,12 +1135,35 @@
             "label": "Replay internal buffer size",
             "system": true
         },
+        "$sdk_debug_replay_linked_flag_trigger_status": {
+            "description": "The status of the linked flag trigger.",
+            "examples": ["trigger_disabled", "trigger_pending", "trigger_matched"],
+            "label": "linked flag trigger status",
+            "type": "String"
+        },
+        "$sdk_debug_replay_remote_trigger_matching_config": {
+            "description": "Whether to match on all or any triggers.",
+            "examples": ["all", "any"],
+            "label": "remote trigger matching config",
+            "type": "String"
+        },
+        "$sdk_debug_replay_url_trigger_status": {
+            "description": "The status of the recording url trigger.",
+            "examples": ["trigger_disabled", "trigger_pending", "trigger_matched"],
+            "label": "URL trigger status",
+            "type": "String"
+        },
         "$sdk_debug_retry_queue_size": {
             "description": "Useful for debugging. The size of the retry queue.",
             "examples": ["100"],
             "ignored_in_assistant": true,
             "label": "Retry queue size",
             "system": true
+        },
+        "$sdk_debug_session_start": {
+            "description": "The timestamp of the session start for the current session id. Not necessarily the same as SDK init time.",
+            "label": "Session start",
+            "type": "Number"
         },
         "$search_engine": {
             "description": "The search engine the user came in from (if any).",
@@ -1325,6 +1364,11 @@
             "label": "Session recording canvas recording",
             "system": true
         },
+        "$session_recording_masking": {
+            "description": "The masking configuration for the session recording.",
+            "label": "Replay config - masking",
+            "type": "String"
+        },
         "$session_recording_network_payload_capture": {
             "description": "Session recording network payload capture config.",
             "examples": ["{\"recordHeaders\": false}"],
@@ -1434,6 +1478,14 @@
         "$touch_y": {
             "description": "The location of a Touch event on the Y axis",
             "label": "Touch Y"
+        },
+        "$transformations_skipped": {
+            "description": "Array of transformations skipped during ingestion.",
+            "label": "Transformations skipped"
+        },
+        "$transformations_succeeded": {
+            "description": "Array of transformations that succeeded during ingestion.",
+            "label": "Transformations succeeded"
         },
         "$user_agent": {
             "description": "Some SDKs (like Android) send the raw user agent as $user_agent.",
@@ -2921,6 +2973,11 @@
             "description": "Google Ads, app to web Data from the first time this user was seen.",
             "label": "Initial wbraid"
         },
+        "$initialization_time": {
+            "description": "The iso formatted timestamp of SDK initialization.",
+            "label": "initialization time",
+            "type": "String"
+        },
         "$insert_id": {
             "description": "Unique insert ID for the event.",
             "label": "Insert ID",
@@ -3196,6 +3253,17 @@
             "examples": ["1440", "1920"],
             "label": "Latest screen width"
         },
+        "$sdk_debug_current_session_duration": {
+            "description": "The current session duration in milliseconds.",
+            "label": "Current session duration",
+            "type": "Number"
+        },
+        "$sdk_debug_replay_event_trigger_status": {
+            "description": "The status of the recording event trigger.",
+            "examples": ["trigger_disabled", "trigger_pending", "trigger_matched"],
+            "label": "event trigger status",
+            "type": "String"
+        },
         "$sdk_debug_replay_internal_buffer_length": {
             "description": "Useful for debugging. The internal buffer length for replay.",
             "examples": ["100"],
@@ -3210,12 +3278,35 @@
             "label": "Replay internal buffer size",
             "system": true
         },
+        "$sdk_debug_replay_linked_flag_trigger_status": {
+            "description": "The status of the linked flag trigger.",
+            "examples": ["trigger_disabled", "trigger_pending", "trigger_matched"],
+            "label": "linked flag trigger status",
+            "type": "String"
+        },
+        "$sdk_debug_replay_remote_trigger_matching_config": {
+            "description": "Whether to match on all or any triggers.",
+            "examples": ["all", "any"],
+            "label": "remote trigger matching config",
+            "type": "String"
+        },
+        "$sdk_debug_replay_url_trigger_status": {
+            "description": "The status of the recording url trigger.",
+            "examples": ["trigger_disabled", "trigger_pending", "trigger_matched"],
+            "label": "URL trigger status",
+            "type": "String"
+        },
         "$sdk_debug_retry_queue_size": {
             "description": "Useful for debugging. The size of the retry queue.",
             "examples": ["100"],
             "ignored_in_assistant": true,
             "label": "Retry queue size",
             "system": true
+        },
+        "$sdk_debug_session_start": {
+            "description": "The timestamp of the session start for the current session id. Not necessarily the same as SDK init time.",
+            "label": "Session start",
+            "type": "Number"
         },
         "$search_engine": {
             "description": "The search engine the user came in from (if any).",
@@ -3416,6 +3507,11 @@
             "label": "Session recording canvas recording",
             "system": true
         },
+        "$session_recording_masking": {
+            "description": "The masking configuration for the session recording.",
+            "label": "Replay config - masking",
+            "type": "String"
+        },
         "$session_recording_network_payload_capture": {
             "description": "Session recording network payload capture config.",
             "examples": ["{\"recordHeaders\": false}"],
@@ -3525,6 +3621,14 @@
         "$touch_y": {
             "description": "The location of a Touch event on the Y axis",
             "label": "Touch Y"
+        },
+        "$transformations_skipped": {
+            "description": "Array of transformations skipped during ingestion.",
+            "label": "Transformations skipped"
+        },
+        "$transformations_succeeded": {
+            "description": "Array of transformations that succeeded during ingestion.",
+            "label": "Transformations succeeded"
         },
         "$user_agent": {
             "description": "Some SDKs (like Android) send the raw user agent as $user_agent.",

@@ -318,6 +318,58 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
     },
     "event_properties": {
+        "$session_recording_masking": {
+            "label": "Replay config - masking",
+            "description": "The masking configuration for the session recording.",
+            "type": "String",
+        },
+        "$sdk_debug_session_start": {
+            "label": "Session start",
+            "description": "The timestamp of the session start for the current session id. Not necessarily the same as SDK init time.",
+            "type": "Number",
+        },
+        "$sdk_debug_current_session_duration": {
+            "label": "Current session duration",
+            "description": "The current session duration in milliseconds.",
+            "type": "Number",
+        },
+        "$sdk_debug_replay_event_trigger_status": {
+            "label": "event trigger status",
+            "description": "The status of the recording event trigger.",
+            "examples": ["trigger_disabled", "trigger_pending", "trigger_matched"],
+            "type": "String",
+        },
+        "$sdk_debug_replay_linked_flag_trigger_status": {
+            "label": "linked flag trigger status",
+            "description": "The status of the linked flag trigger.",
+            "examples": ["trigger_disabled", "trigger_pending", "trigger_matched"],
+            "type": "String",
+        },
+        "$sdk_debug_replay_remote_trigger_matching_config": {
+            "label": "remote trigger matching config",
+            "description": "Whether to match on all or any triggers.",
+            "examples": ["all", "any"],
+            "type": "String",
+        },
+        "$sdk_debug_replay_url_trigger_status": {
+            "label": "URL trigger status",
+            "description": "The status of the recording url trigger.",
+            "examples": ["trigger_disabled", "trigger_pending", "trigger_matched"],
+            "type": "String",
+        },
+        "$initialization_time": {
+            "label": "initialization time",
+            "description": "The iso formatted timestamp of SDK initialization.",
+            "type": "String",
+        },
+        "$transformations_skipped": {
+            "label": "Transformations skipped",
+            "description": "Array of transformations skipped during ingestion.",
+        },
+        "$transformations_succeeded": {
+            "label": "Transformations succeeded",
+            "description": "Array of transformations that succeeded during ingestion.",
+        },
         "$config_defaults": {
             "label": "Config defaults",
             "description": "The version of the PostHog config defaults that were used when capturing the event.",
