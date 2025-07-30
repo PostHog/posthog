@@ -2002,7 +2002,7 @@
          AND "posthog_dashboarditem"."id" = 99999)
   LIMIT 21
   FOR
-  UPDATE
+  UPDATE OF "posthog_dashboarditem"
   '''
 # ---
 # name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.9
@@ -2217,7 +2217,7 @@
          AND "posthog_dashboarditem"."id" = 99999)
   LIMIT 21
   FOR
-  UPDATE
+  UPDATE OF "posthog_dashboarditem"
   '''
 # ---
 # name: TestDashboard.test_listing_dashboards_is_not_nplus1.11
@@ -5338,7 +5338,7 @@
          AND "posthog_dashboarditem"."id" = 99999)
   LIMIT 21
   FOR
-  UPDATE
+  UPDATE OF "posthog_dashboarditem"
   '''
 # ---
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.127
@@ -7173,7 +7173,7 @@
          AND "posthog_dashboarditem"."id" = 99999)
   LIMIT 21
   FOR
-  UPDATE
+  UPDATE OF "posthog_dashboarditem"
   '''
 # ---
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.163
@@ -10857,7 +10857,7 @@
          AND "posthog_dashboarditem"."id" = 99999)
   LIMIT 21
   FOR
-  UPDATE
+  UPDATE OF "posthog_dashboarditem"
   '''
 # ---
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.49
@@ -12871,7 +12871,7 @@
          AND "posthog_dashboarditem"."id" = 99999)
   LIMIT 21
   FOR
-  UPDATE
+  UPDATE OF "posthog_dashboarditem"
   '''
 # ---
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.91
