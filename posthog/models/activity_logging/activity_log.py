@@ -530,7 +530,7 @@ def log_activity(
     *,
     organization_id: Optional[UUID],
     team_id: int,
-    user: Optional[User],
+    user: Optional["User"],
     item_id: Optional[Union[int, str, UUID]],
     scope: str,
     activity: str,
