@@ -578,7 +578,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             distinct_ids=["d1"],
             properties={"$some_prop": "something", "email": "bob@bob.com"},
         )
-        session_recording_id = uuid7()
+        session_recording_id = str(uuid7())
         base_time = (now() - relativedelta(days=1)).replace(microsecond=0)
         produce_replay_summary(
             session_id=session_recording_id,

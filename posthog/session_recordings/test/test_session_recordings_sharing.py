@@ -1,4 +1,3 @@
-import uuid
 from unittest.mock import MagicMock, patch
 
 from dateutil.relativedelta import relativedelta
@@ -10,6 +9,7 @@ from rest_framework import status
 from posthog.api.test.test_team import create_team
 from posthog.clickhouse.client import sync_execute
 from posthog.models import Person, SessionRecording
+from posthog.models.utils import uuid7
 from posthog.session_recordings.models.session_recording_event import (
     SessionRecordingViewed,
 )
@@ -54,18 +54,18 @@ class TestSessionRecordingsSharing(APIBaseTest, ClickhouseTestMixin, QueryMatchi
         )
 
     @patch("ee.session_recordings.session_recording_extensions.object_storage.copy_objects")
+    @freeze_time("2023-01-01T12:00:00Z")
     def test_enable_sharing_creates_access_token(self, mock_copy_objects: MagicMock) -> None:
         """Test that enabling sharing on a recording creates an access token"""
         mock_copy_objects.return_value = 2
 
-        session_id = str(uuid.uuid4())
-        with freeze_time("2023-01-01T12:00:00Z"):
-            self.produce_replay_summary(
-                "user",
-                session_id,
-                now() - relativedelta(days=1),
-                team_id=self.team.pk,
-            )
+        session_id = str(uuid7())
+        self.produce_replay_summary(
+            "user",
+            session_id,
+            now() - relativedelta(days=1),
+            team_id=self.team.pk,
+        )
 
         response = self.client.patch(
             f"/api/projects/{self.team.id}/session_recordings/{session_id}/sharing",
@@ -105,6 +105,7 @@ class TestSessionRecordingsSharing(APIBaseTest, ClickhouseTestMixin, QueryMatchi
         ]
     )
     @patch("ee.session_recordings.session_recording_extensions.object_storage.copy_objects")
+    @freeze_time("2023-01-01T12:00:00Z")
     def test_sharing_token_forbidden_access_scenarios(
         self, _name: str, url_builder, expected_status: int, mock_copy_objects: MagicMock
     ) -> None:
@@ -113,15 +114,14 @@ class TestSessionRecordingsSharing(APIBaseTest, ClickhouseTestMixin, QueryMatchi
 
         # Setup
         self.other_team = create_team(organization=self.organization)
-        self.session_id = str(uuid.uuid4())
+        self.session_id = str(uuid7())
 
-        with freeze_time("2023-01-01T12:00:00Z"):
-            self.produce_replay_summary(
-                "user",
-                self.session_id,
-                now() - relativedelta(days=1),
-                team_id=self.team.pk,
-            )
+        self.produce_replay_summary(
+            "user",
+            self.session_id,
+            now() - relativedelta(days=1),
+            team_id=self.team.pk,
+        )
 
         # Enable sharing and get token
         patch_response = self.client.patch(
@@ -139,18 +139,19 @@ class TestSessionRecordingsSharing(APIBaseTest, ClickhouseTestMixin, QueryMatchi
         assert response.status_code == expected_status
 
     @patch("ee.session_recordings.session_recording_extensions.object_storage.copy_objects")
+    @freeze_time("2023-01-01T12:00:00Z")
     def test_sharing_token_allows_authorized_access(self, mock_copy_objects: MagicMock) -> None:
         """Test that a valid sharing token allows access to the shared recording"""
         mock_copy_objects.return_value = 2
 
-        session_id = str(uuid.uuid4())
-        with freeze_time("2023-01-01T12:00:00Z"):
-            self.produce_replay_summary(
-                "user",
-                session_id,
-                now() - relativedelta(days=1),
-                team_id=self.team.pk,
-            )
+        session_id = str(uuid7())
+
+        self.produce_replay_summary(
+            "user",
+            session_id,
+            now() - relativedelta(days=1),
+            team_id=self.team.pk,
+        )
 
         # Enable sharing and get token
         patch_response = self.client.patch(
@@ -175,20 +176,21 @@ class TestSessionRecordingsSharing(APIBaseTest, ClickhouseTestMixin, QueryMatchi
         }
 
     @patch("ee.session_recordings.session_recording_extensions.object_storage.copy_objects")
+    @freeze_time("2023-01-01T12:00:00Z")
     def test_sharing_token_allows_snapshot_access_within_ttl(self, mock_copy_objects: MagicMock) -> None:
         """Test that sharing token allows access to snapshots within TTL"""
         mock_copy_objects.return_value = 2
 
-        session_id = str(uuid.uuid4())
+        session_id = str(uuid7())
 
         # Create initial recording
-        with freeze_time("2023-01-01T12:00:00Z"):
-            self.produce_replay_summary(
-                "user",
-                session_id,
-                now() - relativedelta(days=1),
-                team_id=self.team.pk,
-            )
+
+        self.produce_replay_summary(
+            "user",
+            session_id,
+            now() - relativedelta(days=1),
+            team_id=self.team.pk,
+        )
 
         # Enable sharing
         patch_response = self.client.patch(
