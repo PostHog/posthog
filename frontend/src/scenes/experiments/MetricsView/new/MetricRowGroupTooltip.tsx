@@ -4,16 +4,14 @@ import {
     formatChanceToWin,
     formatPValue,
     getIntervalLabel,
-    getVariantInterval,
+    formatIntervalPercent,
     getDeltaPercent,
     isBayesianResult,
     type ExperimentVariantResult,
 } from '../shared/utils'
 
 export const renderTooltipContent = (variantResult: ExperimentVariantResult): JSX.Element => {
-    const interval = getVariantInterval(variantResult)
-    const [lower, upper] = interval ? [interval[0], interval[1]] : [0, 0]
-    const intervalPercent = interval ? `[${(lower * 100).toFixed(2)}%, ${(upper * 100).toFixed(2)}%]` : 'N/A'
+    const intervalPercent = formatIntervalPercent(variantResult)
     const intervalLabel = getIntervalLabel(variantResult)
     const deltaPercent = getDeltaPercent(variantResult)
 

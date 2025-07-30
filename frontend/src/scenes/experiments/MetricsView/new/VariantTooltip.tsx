@@ -3,7 +3,8 @@ import {
     formatChanceToWin,
     formatPValue,
     getIntervalLabel,
-    getVariantInterval,
+    getIntervalBounds,
+    formatIntervalPercent,
     getDeltaPercent,
     isBayesianResult,
     valueToXCoordinate,
@@ -32,8 +33,7 @@ export function VariantTooltip({
     }
 
     // Calculate SVG coordinates (same as VariantBar)
-    const interval = getVariantInterval(variantResult)
-    const [lower, upper] = interval ? [interval[0], interval[1]] : [0, 0]
+    const [lower, upper] = getIntervalBounds(variantResult)
     const deltaPercent = getDeltaPercent(variantResult)
 
     const y = BAR_SPACING + (BAR_HEIGHT + BAR_SPACING) * index
@@ -51,7 +51,7 @@ export function VariantTooltip({
     const screenX = svgRect.left + (barCenterX / svgViewBox.width) * svgRect.width
     const screenY = svgRect.top + (barTopY / svgViewBox.height) * svgRect.height
 
-    const intervalPercent = interval ? `[${(lower * 100).toFixed(2)}%, ${(upper * 100).toFixed(2)}%]` : 'N/A'
+    const intervalPercent = formatIntervalPercent(variantResult)
     const intervalLabel = getIntervalLabel(variantResult)
 
     return (

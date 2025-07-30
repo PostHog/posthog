@@ -2,6 +2,7 @@ import { useChartColors } from '../shared/colors'
 import {
     type ExperimentVariantResult,
     getVariantInterval,
+    getIntervalBounds,
     getDelta,
     isBayesianResult,
     valueToXCoordinate,
@@ -68,11 +69,8 @@ export function VariantBar({
     totalBars: number
 }): JSX.Element {
     const interval = getVariantInterval(variantResult)
-
-    const [lower, upper] = interval ? [interval[0], interval[1]] : [0, 0]
-
+    const [lower, upper] = getIntervalBounds(variantResult)
     const delta = getDelta(variantResult)
-
     const hasEnoughData = !!interval
 
     const colors = useChartColors()

@@ -180,44 +180,18 @@ export function getIntervalLabel(result: ExperimentVariantResult): string {
     return isBayesianResult(result) ? 'Credible interval' : 'Confidence interval'
 }
 
-export interface PercentageChangeResult {
-    text: string
-    isSignificant?: boolean
-    isPositive?: boolean
-    pointEstimate?: number
+export function getIntervalBounds(result: ExperimentVariantResult): [number, number] {
+    const interval = getVariantInterval(result)
+    return interval ? [interval[0], interval[1]] : [0, 0]
 }
 
-export function formatPercentageChange(result: ExperimentVariantResult): PercentageChangeResult {
+export function formatIntervalPercent(result: ExperimentVariantResult): string {
     const interval = getVariantInterval(result)
     if (!interval) {
-        return {
-            text: '—',
-            isSignificant: false,
-            isPositive: undefined,
-            pointEstimate: undefined,
-        }
-    }
-
-    // Calculate the point estimate as the middle of the interval
-    const [lower, upper] = interval
-    const pointEstimate = (lower + upper) / 2
-    const pointEstimatePercent = (pointEstimate * 100).toFixed(2)
-
-    return {
-        text: `${pointEstimate > 0 ? '+' : ''}${pointEstimatePercent}%`,
-        isSignificant: result.significant,
-        isPositive: pointEstimate > 0,
-        pointEstimate,
-    }
-}
-
-export function getDeltaPercent(result: ExperimentVariantResult): number {
-    const interval = getVariantInterval(result)
-    if (!interval) {
-        return 0
+        return 'N/A'
     }
     const [lower, upper] = interval
-    return ((lower + upper) / 2) * 100
+    return `[${(lower * 100).toFixed(2)}%, ${(upper * 100).toFixed(2)}%]`
 }
 
 export function getDelta(result: ExperimentVariantResult): number {
@@ -227,4 +201,36 @@ export function getDelta(result: ExperimentVariantResult): number {
     }
     const [lower, upper] = interval
     return (lower + upper) / 2
+}
+
+export function getDeltaPercent(result: ExperimentVariantResult): number {
+    return getDelta(result) * 100
+}
+
+export interface PercentageChangeResult {
+    text: string
+    isSignificant?: boolean
+    isPositive?: boolean
+    pointEstimate?: number
+}
+
+export function formatPercentageChange(result: ExperimentVariantResult): PercentageChangeResult {
+    const pointEstimate = getDelta(result)
+    if (!getVariantInterval(result)) {
+        return {
+            text: '—',
+            isSignificant: false,
+            isPositive: undefined,
+            pointEstimate: undefined,
+        }
+    }
+
+    const pointEstimatePercent = getDeltaPercent(result).toFixed(2)
+
+    return {
+        text: `${pointEstimate > 0 ? '+' : ''}${pointEstimatePercent}%`,
+        isSignificant: result.significant,
+        isPositive: pointEstimate > 0,
+        pointEstimate,
+    }
 }

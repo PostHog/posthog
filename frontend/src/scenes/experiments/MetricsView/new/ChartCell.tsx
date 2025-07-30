@@ -2,6 +2,7 @@ import { useChartColors } from '../shared/colors'
 import {
     type ExperimentVariantResult,
     getVariantInterval,
+    getIntervalBounds,
     getDelta,
     isBayesianResult,
     getNiceTickValues,
@@ -43,7 +44,7 @@ export function ChartCell({
     const scale = useAxisScale(chartRadius, VIEW_BOX_WIDTH, SVG_EDGE_MARGIN)
 
     const interval = getVariantInterval(variantResult)
-    const [lower, upper] = interval ? [interval[0], interval[1]] : [0, 0]
+    const [lower, upper] = getIntervalBounds(variantResult)
     const delta = getDelta(variantResult)
     const hasEnoughData = !!interval
 
