@@ -1,17 +1,23 @@
 from threading import local
-from typing import Any, TYPE_CHECKING
+from typing import Any
 from django.db import models
 from posthog.models.signals import model_activity_signal
-
-if TYPE_CHECKING:
-    from loginas.utils import is_impersonated_session
-    from posthog.models.activity_logging.activity_log import signal_exclusions, changes_between
 
 _thread_local = local()
 
 
 def get_was_impersonated():
     return getattr(_thread_local, "was_impersonated", False)
+
+
+def is_impersonated_session(request):
+    """Lazy import to avoid circular import issues during Django setup"""
+    try:
+        from loginas.utils import is_impersonated_session as _is_impersonated_session
+
+        return _is_impersonated_session(request)
+    except ImportError:
+        return False
 
 
 class ModelActivityMixin(models.Model):
@@ -39,6 +45,9 @@ class ModelActivityMixin(models.Model):
         # For updates, check if only signal-excluded fields changed
         should_log = True
         if change_type == "updated" and before_update:
+            # Lazy import to avoid circular import issues
+            from posthog.models.activity_logging.activity_log import signal_exclusions, changes_between
+
             signal_excluded_fields = signal_exclusions.get(self.__class__.__name__, [])
             if signal_excluded_fields:
                 changes = changes_between(self.__class__.__name__, before_update, self)
