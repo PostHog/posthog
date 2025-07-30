@@ -673,6 +673,6 @@ class AdminCSPMiddleware:
             response.headers["Reporting-Endpoints"] = (
                 'posthog="https://us.i.posthog.com/report/?token=sTMFPsFhdP1Ssg&v=2"'
             )
-            response.headers["Content-Security-Policy-Report-Only"] = "; ".join(csp_parts)
+            response.headers["Content-Security-Policy"] = "; ".join(csp_parts)
 
         return response
