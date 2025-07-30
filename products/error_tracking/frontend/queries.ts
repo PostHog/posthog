@@ -16,7 +16,11 @@ import {
     UniversalFiltersGroup,
 } from '~/types'
 
-import { SEARCHABLE_EXCEPTION_PROPERTIES } from './utils'
+import {
+    ERROR_TRACKING_DETAILS_RESOLUTION,
+    ERROR_TRACKING_LISTING_RESOLUTION,
+    SEARCHABLE_EXCEPTION_PROPERTIES,
+} from './utils'
 
 export const errorTrackingQuery = ({
     orderBy,
@@ -26,7 +30,7 @@ export const errorTrackingQuery = ({
     filterTestAccounts,
     filterGroup,
     searchQuery,
-    volumeResolution = 0,
+    volumeResolution = ERROR_TRACKING_LISTING_RESOLUTION,
     columns,
     orderDirection,
     limit = 50,
@@ -70,7 +74,7 @@ export const errorTrackingIssueQuery = ({
     filterGroup,
     filterTestAccounts,
     searchQuery,
-    volumeResolution = 0,
+    volumeResolution = ERROR_TRACKING_DETAILS_RESOLUTION,
     withFirstEvent = false,
     withLastEvent = false,
     withAggregations = false,

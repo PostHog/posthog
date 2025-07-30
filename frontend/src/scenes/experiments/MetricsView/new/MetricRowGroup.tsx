@@ -1,26 +1,26 @@
+import { IconTrending } from '@posthog/icons'
+import { IconTrendingDown } from 'lib/lemon-ui/icons'
+import { humanFriendlyNumber } from 'lib/utils'
+import { useState } from 'react'
 import { ExperimentMetric, NewExperimentQueryResponse } from '~/queries/schema/schema-general'
 import { Experiment, InsightType } from '~/types'
-import { formatPercentageChange, getNiceTickValues } from '../shared/utils'
-import { MetricHeader } from '../shared/MetricHeader'
-import { DetailsButton } from './DetailsButton'
-import { DetailsModal } from './DetailsModal'
-import { useState } from 'react'
-import { humanFriendlyNumber } from 'lib/utils'
-import { useChartColors } from '../shared/colors'
-import { useAxisScale } from './useAxisScale'
-import { GridLines } from './GridLines'
-import { ChartCell } from './ChartCell'
-import { IconTrendingDown } from 'lib/lemon-ui/icons'
-import { IconTrending } from '@posthog/icons'
-import { ChartLoadingState } from '../shared/ChartLoadingState'
 import { ChartEmptyState } from '../shared/ChartEmptyState'
+import { ChartLoadingState } from '../shared/ChartLoadingState'
+import { useChartColors } from '../shared/colors'
+import { MetricHeader } from '../shared/MetricHeader'
+import { formatPercentageChange, getNiceTickValues } from '../shared/utils'
+import { ChartCell } from './ChartCell'
 import {
     CELL_HEIGHT,
-    VIEW_BOX_WIDTH,
-    SVG_EDGE_MARGIN,
     CHART_CELL_VIEW_BOX_HEIGHT,
     GRID_LINES_OPACITY,
+    SVG_EDGE_MARGIN,
+    VIEW_BOX_WIDTH,
 } from './constants'
+import { DetailsButton } from './DetailsButton'
+import { DetailsModal } from './DetailsModal'
+import { GridLines } from './GridLines'
+import { useAxisScale } from './useAxisScale'
 
 interface MetricRowGroupProps {
     metric: ExperimentMetric
@@ -189,6 +189,31 @@ export function MetricRowGroup({
                     <div className="text-xs text-muted" />
                 </td>
 
+                {/* Details column - with rowspan */}
+                <td
+                    className={`p-3 align-top relative overflow-hidden ${!isLastMetric ? 'border-b' : ''} ${
+                        isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
+                    }`}
+                    rowSpan={totalRows}
+                    style={{
+                        height: `${CELL_HEIGHT * totalRows}px`,
+                        maxHeight: `${CELL_HEIGHT * totalRows}px`,
+                    }}
+                >
+                    <div className="flex justify-end">
+                        <DetailsButton metric={metric} setIsModalOpen={setIsModalOpen} />
+                    </div>
+                    <DetailsModal
+                        isOpen={isModalOpen}
+                        onClose={() => setIsModalOpen(false)}
+                        metric={metric}
+                        result={result}
+                        experiment={experiment}
+                        metricIndex={metricIndex}
+                        isSecondary={isSecondary}
+                    />
+                </td>
+
                 {/* Chart (grid lines only for baseline) */}
                 <td
                     className={`min-w-[400px] w-full p-0 align-top text-center relative overflow-hidden ${
@@ -219,31 +244,6 @@ export function MetricRowGroup({
                     ) : (
                         <div className="flex items-center justify-center h-full text-muted text-xs">—</div>
                     )}
-                </td>
-
-                {/* Details column - with rowspan */}
-                <td
-                    className={`w-1/5 p-3 align-top relative overflow-hidden ${!isLastMetric ? 'border-b' : ''} ${
-                        isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
-                    }`}
-                    rowSpan={totalRows}
-                    style={{
-                        height: `${CELL_HEIGHT * totalRows}px`,
-                        maxHeight: `${CELL_HEIGHT * totalRows}px`,
-                    }}
-                >
-                    <div className="flex justify-end">
-                        <DetailsButton metric={metric} setIsModalOpen={setIsModalOpen} />
-                    </div>
-                    <DetailsModal
-                        isOpen={isModalOpen}
-                        onClose={() => setIsModalOpen(false)}
-                        metric={metric}
-                        result={result}
-                        experiment={experiment}
-                        metricIndex={metricIndex}
-                        isSecondary={isSecondary}
-                    />
                 </td>
             </tr>
 
