@@ -73,7 +73,7 @@ jobs:
               if: needs.changes.outputs.python == 'true'
               with:
                   enable-cache: true
-                  pyproject-file: 'pyproject.toml'
+                  version: 0.7.9
 
             - name: Install SAML (python3-saml) dependencies
               if: needs.changes.outputs.python == 'true'

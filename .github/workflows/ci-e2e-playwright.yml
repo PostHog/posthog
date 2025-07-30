@@ -325,7 +325,7 @@ jobs:
               uses: astral-sh/setup-uv@0c5e2b8115b80b4c7c5ddf6ffdd634974642d182 # v5.4.1
               with:
                   enable-cache: true
-                  pyproject-file: 'pyproject.toml'
+                  version: 0.7.9
 
             - name: Determine if hogql-parser has changed compared to master
               if: needs.changes.outputs.shouldRun == 'true'
