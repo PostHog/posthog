@@ -645,6 +645,18 @@ export function HogFunctionConfiguration({ templateId, id, logicKey }: HogFuncti
                                                                         the event object instead.
                                                                     </LemonBanner>
                                                                 )}
+                                                                {type === 'source_webhook' && (
+                                                                    <LemonBanner type="info" className="mt-2">
+                                                                        <b>HTTP requests:</b> Webhook sources can call{' '}
+                                                                        <code>postHogCapture</code> to ingest events to
+                                                                        PostHog. You can also do HTTP calls with{' '}
+                                                                        <code>fetch</code>. In this case however, the
+                                                                        request will be queued to a background task, a{' '}
+                                                                        <code>201 Created</code> response will be
+                                                                        returned and the event will be ingested
+                                                                        asynchronously.
+                                                                    </LemonBanner>
+                                                                )}
                                                                 <CodeEditorResizeable
                                                                     language={
                                                                         type.startsWith('site_') ? 'typescript' : 'hog'
@@ -768,6 +780,7 @@ export function HogFunctionConfiguration({ templateId, id, logicKey }: HogFuncti
                                                                     event object instead.
                                                                 </LemonBanner>
                                                             )}
+
                                                             <CodeEditorResizeable
                                                                 language={
                                                                     type.startsWith('site_') ? 'typescript' : 'hog'
