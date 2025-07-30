@@ -7,6 +7,7 @@ import {
     isBayesianResult,
     type ExperimentVariantResult,
 } from '../shared/utils'
+import { humanFriendlyNumber } from 'lib/utils'
 
 export const renderTooltipContent = (variantResult: ExperimentVariantResult): JSX.Element => {
     const interval = getVariantInterval(variantResult)
@@ -17,7 +18,7 @@ export const renderTooltipContent = (variantResult: ExperimentVariantResult): JS
     return (
         <div className="flex flex-col gap-1">
             <div className="flex justify-between items-center">
-                <div className="font-semibold">{variantResult.key}</div>
+                <div className="font-semibold pb-2">{variantResult.key}</div>
                 {variantResult.key !== 'control' && (
                     <LemonTag
                         type={
@@ -44,7 +45,7 @@ export const renderTooltipContent = (variantResult: ExperimentVariantResult): JS
 
             <div className="flex justify-between items-center">
                 <span className="text-muted-alt font-semibold">Total value:</span>
-                <span className="font-semibold">{variantResult.sum}</span>
+                <span className="font-semibold">{humanFriendlyNumber(variantResult.sum)}</span>
             </div>
 
             <div className="flex justify-between items-center">
