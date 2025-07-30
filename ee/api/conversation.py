@@ -26,6 +26,7 @@ from posthog.schema import HumanMessage, MaxBillingContext
 from posthog.temporal.ai.conversation import AssistantConversationRunnerWorkflowInputs
 from posthog.utils import get_instance_region
 from posthog.exceptions import Conflict
+from posthog.exceptions_capture import capture_exception
 
 logger = structlog.get_logger(__name__)
 
@@ -64,7 +65,7 @@ class MessageSerializer(serializers.Serializer):
                 billing_context = MaxBillingContext.model_validate(billing_context)
                 data["billing_context"] = billing_context
             except pydantic.ValidationError as e:
-                logger.exception("Invalid billing context", billing_context=billing_context, error=str(e))
+                capture_exception(e)
                 # billing data relies on a lot of legacy code, this might break and we don't want to block the conversation
                 data["billing_context"] = None
         return data
