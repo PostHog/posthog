@@ -287,8 +287,6 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                         sourceY: sourceNode.position.y + (sourceHandle?.y || 0),
                         targetX: targetNode.position.x + (targetHandle?.x || 0),
                         targetY: targetNode.position.y + (targetHandle?.y || 0),
-                        sourcePosition: sourceHandle?.position || Position.Bottom,
-                        targetPosition: targetHandle?.position || Position.Top,
                         edges,
                         currentEdgeId: edge.id,
                     })
