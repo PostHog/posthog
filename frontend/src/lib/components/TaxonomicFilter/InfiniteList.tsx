@@ -240,7 +240,29 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
         const item = results[rowIndex]
         const itemGroup = getItemGroup(item, taxonomicGroups, group)
         const itemValue = item ? itemGroup?.getValue?.(item) : null
-        const isSelected = listGroupType === groupType && itemValue === value
+
+        // Normalize value to match itemValue type before comparison
+        const normalizedValue = typeof itemValue === 'number' && typeof value === 'string' ? Number(value) : value
+
+        const isSelected = listGroupType === groupType && itemValue === normalizedValue
+
+        // Debug logging for flag dependencies selection
+        if (listGroupType === TaxonomicFilterGroupType.FeatureFlags && typeof window !== 'undefined') {
+            // eslint-disable-next-line no-console
+            console.log(`[InfiniteList] Selection debug for row ${rowIndex}:`, {
+                listGroupType,
+                groupType,
+                itemValue,
+                itemValueType: typeof itemValue,
+                value,
+                valueType: typeof value,
+                normalizedValue,
+                normalizedValueType: typeof normalizedValue,
+                isSelected,
+                itemName: item?.name || item?.key,
+            })
+        }
+
         const isHighlighted = rowIndex === index && isActiveTab
 
         // Show create custom event option when there are no results
