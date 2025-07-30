@@ -1,9 +1,9 @@
 import { Counter } from 'prom-client'
 
+import { logger } from '~/utils/logger'
 import { captureTeamEvent } from '~/utils/posthog'
 
 import { Hub } from '../../../types'
-import { UUIDT } from '../../../utils/utils'
 import { CdpRedis } from '../../redis'
 import {
     CyclotronJobInvocation,
@@ -154,6 +154,7 @@ export class HogWatcherService {
         changes: [HogFunctionType, HogWatcherStateEnum][],
         resetPool: boolean = false
     ): Promise<void> {
+        logger.info('[HogWatcherService] Performing state changes', { changes, resetPool })
         const res = await this.redis.usePipeline({ name: 'forceStateChange' }, (pipeline) => {
             for (const [hogFunction, state] of changes) {
                 const id = hogFunction.id
@@ -246,8 +247,6 @@ export class HogWatcherService {
                 const newState = this.calculateNewState(tokens)
 
                 if (currentState !== newState) {
-                    console.log('state changed!', functionCost.hogFunction, newState, currentState)
-
                     if (currentState === HogWatcherStateEnum.disabled) {
                         // We never modify the state of a disabled function automatically
                         return

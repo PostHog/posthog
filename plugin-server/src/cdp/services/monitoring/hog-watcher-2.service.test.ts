@@ -4,7 +4,9 @@ jest.mock('~/utils/posthog', () => {
     }
 })
 
-import { Hub } from '../../../types'
+import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
+
+import { Hub, ProjectId, Team } from '../../../types'
 import { closeHub, createHub } from '../../../utils/db/hub'
 import { delay } from '../../../utils/utils'
 import { createExampleInvocation, createHogFunction } from '../../_tests/fixtures'
@@ -26,8 +28,18 @@ describe('HogWatcher', () => {
     const hogFunctionId: string = 'hog-function-id'
     let hogFunction: HogFunctionType
 
+    let team: Team
+
     beforeAll(async () => {
+        team = {
+            id: 2,
+            project_id: 1 as ProjectId,
+            uuid: 'test-uuid',
+            organization_id: 'organization-id',
+            name: 'testTeam',
+        } as Team
         hub = await createHub()
+        jest.spyOn(hub.teamManager, 'getTeam').mockResolvedValue(team)
         redis = createCdpRedisPool(hub)
     })
 
@@ -39,7 +51,7 @@ describe('HogWatcher', () => {
 
         watcher = new HogWatcherService(hub, redis)
         onStateChangeSpy = jest.spyOn(watcher as any, 'onStateChange') as jest.SpyInstance
-        hogFunction = createHogFunction({ id: hogFunctionId })
+        hogFunction = createHogFunction({ id: hogFunctionId, team_id: 2 })
     })
 
     afterAll(async () => {
@@ -53,7 +65,7 @@ describe('HogWatcher', () => {
         error?: string
         kind?: 'hog' | 'async_function'
     }): CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction> => {
-        const invocation = createExampleInvocation({ id: options.id ?? hogFunctionId, team_id: 1 })
+        const invocation = createExampleInvocation({ id: options.id ?? hogFunctionId, team_id: 2 })
         invocation.state.timings = [
             {
                 kind: options.kind ?? 'hog',
@@ -188,7 +200,6 @@ describe('HogWatcher', () => {
             async (name, expectedScore, results) => {
                 await watcher.observeResults(results)
                 const result = await watcher.getPersistedState(hogFunctionId)
-                console.log(result)
                 expect(hub.CDP_WATCHER_BUCKET_SIZE - result.tokens).toEqual(expectedScore.cost)
                 expect(result.state).toEqual(expectedScore.state)
             }
@@ -350,6 +361,16 @@ describe('HogWatcher', () => {
     })
 
     describe('doStateChanges - with resetPool', () => {
+        const expectMockCaptureTeamEvent = (state: string) => {
+            expect(mockCaptureTeamEvent).toHaveBeenCalledWith(team, 'hog_function_state_change', {
+                hog_function_id: hogFunction.id,
+                hog_function_type: hogFunction.type,
+                hog_function_name: hogFunction.name,
+                hog_function_template_id: hogFunction.template_id,
+                state,
+            })
+        }
+
         it('should change the state of a hog function', async () => {
             expect(await watcher.getPersistedState(hogFunction.id)).toEqual({
                 state: HogWatcherStateEnum.healthy,
@@ -368,13 +389,14 @@ describe('HogWatcher', () => {
             await watcher.doStageChanges([[hogFunction, HogWatcherStateEnum.degraded]], true)
             expect(onStateChangeSpy).toHaveBeenCalledTimes(1)
             expect(onStateChangeSpy).toHaveBeenLastCalledWith(hogFunction, HogWatcherStateEnum.degraded)
+            expectMockCaptureTeamEvent('degraded')
 
             await watcher.doStageChanges([[hogFunction, HogWatcherStateEnum.degraded]], true)
             expect(onStateChangeSpy).toHaveBeenCalledTimes(1)
             await watcher.doStageChanges([[hogFunction, HogWatcherStateEnum.disabled]], true)
             expect(onStateChangeSpy).toHaveBeenCalledTimes(2)
             expect(onStateChangeSpy).toHaveBeenLastCalledWith(hogFunction, HogWatcherStateEnum.disabled)
-
+            expectMockCaptureTeamEvent('disabled')
             await watcher.doStageChanges([[hogFunction, HogWatcherStateEnum.disabled]], true)
             expect(onStateChangeSpy).toHaveBeenCalledTimes(2)
         })
