@@ -3336,7 +3336,7 @@
       total_session_duration_state AggregateFunction(sum, Int64),
       total_session_count_state AggregateFunction(sum, UInt64)
   
-      ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/f0b076c1-f19d-41ee-83c1-a08bd3a750c0_noshard/posthog.web_pre_aggregated_bounces', '{replica}-{shard}')
+      ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/700704a4-bc9f-4499-88c1-71935f93b599_noshard/posthog.web_pre_aggregated_bounces', '{replica}-{shard}')
       PARTITION BY toYYYYMMDD(period_bucket)
       ORDER BY (
       team_id,
@@ -3402,7 +3402,7 @@
       total_session_duration_state AggregateFunction(sum, Int64),
       total_session_count_state AggregateFunction(sum, UInt64)
   
-      ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/5418b42c-090b-4ed0-af6f-5a49b4e2662d_noshard/posthog.web_pre_aggregated_bounces_staging', '{replica}-{shard}')
+      ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/e626cc0c-0569-4ead-a3c1-7ab0f9ab42f5_noshard/posthog.web_pre_aggregated_bounces_staging', '{replica}-{shard}')
       PARTITION BY toYYYYMMDD(period_bucket)
       ORDER BY (
       team_id,
@@ -3466,7 +3466,7 @@
       sessions_uniq_state AggregateFunction(uniq, String),
       pageviews_count_state AggregateFunction(sum, UInt64),
   
-      ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/c4ea2795-d804-400b-8bda-d90458e460cf_noshard/posthog.web_pre_aggregated_stats', '{replica}-{shard}')
+      ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/94ba9428-fe77-4c79-8866-c165b7663f39_noshard/posthog.web_pre_aggregated_stats', '{replica}-{shard}')
       PARTITION BY toYYYYMMDD(period_bucket)
       ORDER BY (
       team_id,
@@ -3531,7 +3531,7 @@
       sessions_uniq_state AggregateFunction(uniq, String),
       pageviews_count_state AggregateFunction(sum, UInt64),
   
-      ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/bea1ea2d-422c-48b2-9821-eb4694189020_noshard/posthog.web_pre_aggregated_stats_staging', '{replica}-{shard}')
+      ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/3f978376-fa04-49a9-b0e2-4f0b1597d06c_noshard/posthog.web_pre_aggregated_stats_staging', '{replica}-{shard}')
       PARTITION BY toYYYYMMDD(period_bucket)
       ORDER BY (
       team_id,
@@ -5155,7 +5155,7 @@
       total_session_duration_state AggregateFunction(sum, Int64),
       total_session_count_state AggregateFunction(sum, UInt64)
   
-      ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/f0b076c1-f19d-41ee-83c1-a08bd3a750c0_noshard/posthog.web_pre_aggregated_bounces', '{replica}-{shard}')
+      ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/700704a4-bc9f-4499-88c1-71935f93b599_noshard/posthog.web_pre_aggregated_bounces', '{replica}-{shard}')
       PARTITION BY toYYYYMMDD(period_bucket)
       ORDER BY (
       team_id,
@@ -5221,7 +5221,7 @@
       total_session_duration_state AggregateFunction(sum, Int64),
       total_session_count_state AggregateFunction(sum, UInt64)
   
-      ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/5418b42c-090b-4ed0-af6f-5a49b4e2662d_noshard/posthog.web_pre_aggregated_bounces_staging', '{replica}-{shard}')
+      ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/e626cc0c-0569-4ead-a3c1-7ab0f9ab42f5_noshard/posthog.web_pre_aggregated_bounces_staging', '{replica}-{shard}')
       PARTITION BY toYYYYMMDD(period_bucket)
       ORDER BY (
       team_id,
@@ -5285,7 +5285,7 @@
       sessions_uniq_state AggregateFunction(uniq, String),
       pageviews_count_state AggregateFunction(sum, UInt64),
   
-      ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/c4ea2795-d804-400b-8bda-d90458e460cf_noshard/posthog.web_pre_aggregated_stats', '{replica}-{shard}')
+      ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/94ba9428-fe77-4c79-8866-c165b7663f39_noshard/posthog.web_pre_aggregated_stats', '{replica}-{shard}')
       PARTITION BY toYYYYMMDD(period_bucket)
       ORDER BY (
       team_id,
@@ -5350,7 +5350,7 @@
       sessions_uniq_state AggregateFunction(uniq, String),
       pageviews_count_state AggregateFunction(sum, UInt64),
   
-      ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/bea1ea2d-422c-48b2-9821-eb4694189020_noshard/posthog.web_pre_aggregated_stats_staging', '{replica}-{shard}')
+      ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/3f978376-fa04-49a9-b0e2-4f0b1597d06c_noshard/posthog.web_pre_aggregated_stats_staging', '{replica}-{shard}')
       PARTITION BY toYYYYMMDD(period_bucket)
       ORDER BY (
       team_id,
