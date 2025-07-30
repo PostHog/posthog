@@ -86,6 +86,13 @@ export class HogWatcherService2 {
     }) {
         const team = await this.hub.teamManager.getTeam(hogFunction.team_id)
 
+        logger.info('[HogWatcherService] onStateChange', {
+            hogFunctionId: hogFunction.id,
+            hogFunctionName: hogFunction.name,
+            state,
+            previousState,
+        })
+
         if (team) {
             captureTeamEvent(team, 'hog_function_state_change', {
                 hog_function_id: hogFunction.id,
