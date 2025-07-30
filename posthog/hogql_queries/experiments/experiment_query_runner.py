@@ -51,6 +51,7 @@ from posthog.hogql_queries.experiments.trends_statistics_v2_count import (
 )
 from posthog.hogql_queries.experiments.utils import (
     get_bayesian_experiment_result_new_format,
+    get_experiment_stats_method,
     get_frequentist_experiment_result_new_format,
     get_legacy_funnels_variant_results,
     get_legacy_trends_variant_results,
@@ -115,14 +116,7 @@ class ExperimentQueryRunner(QueryRunner):
             and self.query.metric.source.kind == "ExperimentDataWarehouseNode"
         )
 
-        # Determine which statistical method to use
-        if self.experiment.stats_config is None:
-            # Default to "bayesian" if not specified
-            self.stats_method = "bayesian"
-        else:
-            self.stats_method = self.experiment.stats_config.get("method", "bayesian")
-            if self.stats_method not in ["bayesian", "frequentist"]:
-                self.stats_method = "bayesian"
+        self.stats_method = get_experiment_stats_method(self.experiment)
 
         # Determine how to handle entities exposed to multiple variants
         self.multiple_variant_handling = get_multiple_variant_handling_from_experiment(self.experiment)

@@ -26,6 +26,15 @@ from posthog.errors import ExposedCHQueryError
 V = TypeVar("V", ExperimentVariantTrendsBaseStats, ExperimentVariantFunnelsBaseStats, ExperimentStatsBase)
 
 
+def get_experiment_stats_method(experiment) -> str:
+    if experiment.stats_config is None:
+        return "bayesian"
+    else:
+        stats_method = experiment.stats_config.get("method", "bayesian")
+        if stats_method not in ["bayesian", "frequentist"]:
+            return "bayesian"
+        return stats_method
+
 def split_baseline_and_test_variants(
     variants: list[V],
 ) -> tuple[V, list[V]]:
