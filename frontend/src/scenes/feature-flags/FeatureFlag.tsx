@@ -91,7 +91,6 @@ import { featureFlagsLogic, FeatureFlagsTab } from './featureFlagsLogic'
 import { FeatureFlagStatusIndicator } from './FeatureFlagStatusIndicator'
 import { RecentFeatureFlagInsights } from './RecentFeatureFlagInsightsCard'
 import { NotebookNodeType } from 'scenes/notebooks/types'
-import { IconSurveys } from 'lib/lemon-ui/icons/icons'
 
 export const scene: SceneExport = {
     component: FeatureFlag,
@@ -584,7 +583,6 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                                     </LemonButton>
 
                                                     <LemonButton
-                                                        icon={<IconSurveys />}
                                                         onClick={() => {
                                                             createSurvey()
                                                         }}

@@ -45,7 +45,6 @@ import {
 
 import { featureFlagLogic } from './featureFlagLogic'
 import { featureFlagsLogic, FeatureFlagsTab, FLAGS_PER_PAGE } from './featureFlagsLogic'
-import { IconSurveys } from 'lib/lemon-ui/icons/icons'
 
 export const scene: SceneExport = {
     component: FeatureFlags,
@@ -285,7 +284,7 @@ export function OverViewTab({
                                         disabled={!featureFlag.can_edit}
                                         onClick={() => {
                                             if (featureFlag.id) {
-                                                featureFlagLogic({ id: featureFlag.id }).mount()
+                                                // featureFlagLogic({ id: featureFlag.id }).mount()
                                                 featureFlagLogic({ id: featureFlag.id }).actions.editFeatureFlag(true)
                                                 router.actions.push(urls.featureFlag(featureFlag.id))
                                             }
@@ -308,7 +307,6 @@ export function OverViewTab({
                                 </LemonButton>
 
                                 <LemonButton
-                                    icon={<IconSurveys />}
                                     onClick={() => {
                                         if (featureFlag.id) {
                                             featureFlagLogic({ id: featureFlag.id }).mount()
