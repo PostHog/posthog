@@ -47,7 +47,7 @@ export function MetricsTable({
     )
 
     const axisMargin = Math.max(maxAbsValue * 0.05, 0.1)
-    const chartRadius = maxAbsValue + axisMargin
+    const axisRange = maxAbsValue + axisMargin
 
     // Check if duplicating would exceed the metric limit
     const currentMetricCount = isSecondary
@@ -75,7 +75,7 @@ export function MetricsTable({
                     <col />
                     <col className="min-w-[400px]" />
                 </colgroup>
-                <TableHeader chartRadius={chartRadius} />
+                <TableHeader axisRange={axisRange} />
                 <tbody>
                     {metrics.map((metric, metricIndex) => {
                         const result = results[metricIndex]
@@ -91,7 +91,7 @@ export function MetricsTable({
                                 experiment={experiment}
                                 metricType={getInsightType(metric)}
                                 metricIndex={metricIndex}
-                                chartRadius={chartRadius}
+                                axisRange={axisRange}
                                 isSecondary={isSecondary}
                                 isLastMetric={metricIndex === metrics.length - 1}
                                 isAlternatingRow={metricIndex % 2 === 1}

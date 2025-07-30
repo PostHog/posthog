@@ -37,7 +37,7 @@ interface MetricRowGroupProps {
     experiment: Experiment
     metricType: InsightType
     metricIndex: number
-    chartRadius: number
+    axisRange: number
     isSecondary: boolean
     isLastMetric: boolean
     isAlternatingRow: boolean
@@ -54,7 +54,7 @@ export function MetricRowGroup({
     experiment,
     metricType,
     metricIndex,
-    chartRadius,
+    axisRange,
     isSecondary,
     isLastMetric,
     isAlternatingRow,
@@ -78,7 +78,7 @@ export function MetricRowGroup({
     })
     const tooltipRef = useRef<HTMLDivElement>(null)
     const colors = useChartColors()
-    const scale = useAxisScale(chartRadius, VIEW_BOX_WIDTH, SVG_EDGE_MARGIN)
+    const scale = useAxisScale(axisRange, VIEW_BOX_WIDTH, SVG_EDGE_MARGIN)
 
     // Calculate total rows for loading/error states
     const totalRows = isLoading || error || !result ? 1 : 1 + (result.variant_results?.length || 0)
@@ -304,7 +304,7 @@ export function MetricRowGroup({
                     } ${variantResults.length === 0 ? 'border-b' : ''}`}
                     style={{ height: `${CELL_HEIGHT}px`, maxHeight: `${CELL_HEIGHT}px` }}
                 >
-                    {chartRadius && chartRadius > 0 ? (
+                    {axisRange && axisRange > 0 ? (
                         <div className="relative h-full">
                             <svg
                                 viewBox={`0 0 ${VIEW_BOX_WIDTH} ${CHART_CELL_VIEW_BOX_HEIGHT}`}
@@ -312,7 +312,7 @@ export function MetricRowGroup({
                                 className="h-full w-full"
                             >
                                 <GridLines
-                                    tickValues={getNiceTickValues(chartRadius)}
+                                    tickValues={getNiceTickValues(axisRange)}
                                     scale={scale}
                                     height={CHART_CELL_VIEW_BOX_HEIGHT}
                                     viewBoxWidth={VIEW_BOX_WIDTH}
@@ -409,7 +409,7 @@ export function MetricRowGroup({
                         {/* Chart */}
                         <ChartCell
                             variantResult={variant}
-                            chartRadius={chartRadius}
+                            chartRadius={axisRange}
                             metricIndex={metricIndex}
                             isAlternatingRow={isAlternatingRow}
                             isLastRow={isLastRow}
