@@ -24,7 +24,7 @@ from posthog.schema import RecordingsQuery, LogEntryPropertyFilter
 from posthog.session_recordings.models.session_recording_event import (
     SessionRecordingViewed,
 )
-from posthog.session_recordings.queries_to_replace.test.session_replay_sql import (
+from posthog.session_recordings.queries.test.session_replay_sql import (
     produce_replay_summary,
 )
 from posthog.session_recordings.test import setup_stream_from
@@ -784,7 +784,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
     # New snapshot loading method
     @freeze_time("2023-01-01T00:00:00Z")
     @patch(
-        "posthog.session_recordings.queries_to_replace.session_replay_events.SessionReplayEvents.exists",
+        "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
         return_value=True,
     )
     @patch("posthog.session_recordings.session_recording_api.object_storage.list_objects")
@@ -824,7 +824,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
 
     @freeze_time("2023-01-01T00:00:00Z")
     @patch(
-        "posthog.session_recordings.queries_to_replace.session_replay_events.SessionReplayEvents.exists",
+        "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
         return_value=True,
     )
     @patch("posthog.session_recordings.session_recording_api.object_storage.list_objects")
@@ -879,7 +879,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
 
     @freeze_time("2023-01-01T00:00:00Z")
     @patch(
-        "posthog.session_recordings.queries_to_replace.session_replay_events.SessionReplayEvents.exists",
+        "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
         return_value=True,
     )
     @patch("posthog.session_recordings.session_recording_api.object_storage.list_objects")
@@ -905,7 +905,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         }
 
     @patch(
-        "posthog.session_recordings.queries_to_replace.session_replay_events.SessionReplayEvents.exists",
+        "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
         return_value=True,
     )
     @patch("posthog.session_recordings.session_recording_api.SessionRecording.get_or_build")
@@ -955,7 +955,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         }
 
     @patch(
-        "posthog.session_recordings.queries_to_replace.session_replay_events.SessionReplayEvents.exists",
+        "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
         return_value=True,
     )
     @patch("posthog.session_recordings.session_recording_api.SessionRecording.get_or_build")
@@ -1003,7 +1003,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         assert response.headers.get("cache-control") == "more specific cache control"
 
     @patch(
-        "posthog.session_recordings.queries_to_replace.session_replay_events.SessionReplayEvents.exists",
+        "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
         return_value=True,
     )
     @patch("posthog.session_recordings.session_recording_api.SessionRecording.get_or_build")
@@ -1048,7 +1048,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
 
     @parameterized.expand([("2024-04-30"), (None)])
     @patch(
-        "posthog.session_recordings.queries_to_replace.session_replay_events.SessionReplayEvents.exists",
+        "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
         return_value=True,
     )
     @patch("posthog.session_recordings.session_recording_api.SessionRecording.get_or_build")
@@ -1393,9 +1393,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             ),
         ]
     )
-    @patch(
-        "posthog.session_recordings.queries_to_replace.session_recording_list_from_query.SessionRecordingListFromQuery.run"
-    )
+    @patch("posthog.session_recordings.queries.session_recording_list_from_query.SessionRecordingListFromQuery.run")
     def test_session_recordings_query_errors(self, _name, exception, expected_message, mock_run):
         mock_run.side_effect = exception
         response = self.client.get(f"/api/projects/{self.team.id}/session_recordings")
@@ -1421,7 +1419,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         ]
     )
     @patch(
-        "posthog.session_recordings.queries_to_replace.session_replay_events.SessionReplayEvents.exists",
+        "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
         return_value=True,
     )
     @patch("posthog.session_recordings.session_recording_api.SessionRecording.get_or_build")
@@ -1468,7 +1466,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             assert "detail" in response_data or "error" in response_data
 
     @patch(
-        "posthog.session_recordings.queries_to_replace.session_replay_events.SessionReplayEvents.exists",
+        "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
         return_value=True,
     )
     @patch("posthog.session_recordings.session_recording_api.SessionRecording.get_or_build")
@@ -1516,7 +1514,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
 
     @parameterized.expand([("0", ""), ("", "1")])
     @patch(
-        "posthog.session_recordings.queries_to_replace.session_replay_events.SessionReplayEvents.exists",
+        "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
         return_value=True,
     )
     @patch("posthog.session_recordings.session_recording_api.SessionRecording.get_or_build")
@@ -1544,7 +1542,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         [(0, "a"), ("a", 1)],
     )
     @patch(
-        "posthog.session_recordings.queries_to_replace.session_replay_events.SessionReplayEvents.exists",
+        "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
         return_value=True,
     )
     @patch("posthog.session_recordings.session_recording_api.SessionRecording.get_or_build")
@@ -1565,7 +1563,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         assert "Blob key must be an integer" in response.json()["detail"]
 
     @patch(
-        "posthog.session_recordings.queries_to_replace.session_replay_events.SessionReplayEvents.exists",
+        "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
         return_value=True,
     )
     @patch("posthog.session_recordings.session_recording_api.SessionRecording.get_or_build")
@@ -1586,7 +1584,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         assert "Cannot request more than 100 blob keys" in response.json()["detail"]
 
     @patch(
-        "posthog.session_recordings.queries_to_replace.session_replay_events.SessionReplayEvents.exists",
+        "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
         return_value=True,
     )
     @patch("posthog.session_recordings.session_recording_api.SessionRecording.get_or_build")
@@ -1616,7 +1614,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         assert "Cannot request more than 20 blob keys at once" in response.json()["detail"]
 
     @patch(
-        "posthog.session_recordings.queries_to_replace.session_replay_events.SessionReplayEvents.exists",
+        "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
         return_value=True,
     )
     @patch("posthog.session_recordings.session_recording_api.SessionRecording.get_or_build")
@@ -1638,7 +1636,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         assert "Must provide a single blob key or start and end blob keys, not both" in response.json()["detail"]
 
     @patch(
-        "posthog.session_recordings.queries_to_replace.session_replay_events.SessionReplayEvents.exists",
+        "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
         return_value=True,
     )
     @patch("posthog.session_recordings.session_recording_api.SessionRecording.get_or_build")
@@ -1675,7 +1673,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         ),
     )
     @patch(
-        "posthog.session_recordings.queries_to_replace.session_replay_events.SessionReplayEvents.exists",
+        "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
         return_value=True,
     )
     @patch("posthog.session_recordings.session_recording_api.object_storage.list_objects")

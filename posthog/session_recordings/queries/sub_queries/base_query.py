@@ -5,7 +5,7 @@ from posthog.hogql import ast
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models import Team
 from posthog.schema import RecordingsQuery, DateRange
-from posthog.session_recordings.queries_to_replace.session_replay_events import ttl_days
+from posthog.session_recordings.queries.session_replay_events import ttl_days
 
 
 class SessionRecordingsListingBaseQuery:

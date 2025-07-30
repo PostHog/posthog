@@ -10,8 +10,8 @@ from posthog.schema import (
     RecordingsQuery,
     HogQLQueryModifiers,
 )
-from posthog.session_recordings.queries_to_replace.sub_queries.base_query import SessionRecordingsListingBaseQuery
-from posthog.session_recordings.queries_to_replace.utils import (
+from posthog.session_recordings.queries.sub_queries.base_query import SessionRecordingsListingBaseQuery
+from posthog.session_recordings.queries.utils import (
     INVERSE_OPERATOR_FOR,
     NEGATIVE_OPERATORS,
     SessionRecordingQueryResult,

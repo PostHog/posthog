@@ -2,7 +2,7 @@ import datetime
 
 from posthog.models import Team
 from posthog.schema import RecordingsQuery
-from posthog.session_recordings.queries_to_replace.session_recording_list_from_query import (
+from posthog.session_recordings.queries.session_recording_list_from_query import (
     SessionRecordingQueryResult,
     SessionRecordingListFromQuery,
 )

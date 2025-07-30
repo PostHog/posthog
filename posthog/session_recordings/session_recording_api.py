@@ -61,10 +61,10 @@ from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.session_recordings.models.session_recording_event import (
     SessionRecordingViewed,
 )
-from posthog.session_recordings.queries_to_replace.session_recording_list_from_query import (
+from posthog.session_recordings.queries.session_recording_list_from_query import (
     SessionRecordingListFromQuery,
 )
-from posthog.session_recordings.queries_to_replace.session_replay_events import SessionReplayEvents
+from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 from posthog.session_recordings.realtime_snapshots import (
     get_realtime_snapshots,
     publish_subscription,

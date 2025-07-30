@@ -20,7 +20,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         self.team = Team.objects.create(organization=self.organization, name="New Team")
 
     @patch(
-        "posthog.session_recordings.queries_to_replace.session_replay_events.SessionReplayEvents.exists",
+        "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
         return_value=True,
     )
     @patch("posthog.session_recordings.session_recording_api.object_storage.list_objects")
@@ -76,7 +76,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         }
 
     @patch(
-        "posthog.session_recordings.queries_to_replace.session_replay_events.SessionReplayEvents.exists",
+        "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
         return_value=True,
     )
     @patch("posthog.session_recordings.session_recording_api.stream_from", return_value=setup_stream_from())
