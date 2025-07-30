@@ -118,13 +118,21 @@ export class HogWatcherService {
         tokens = tokens ?? this.hub.CDP_WATCHER_BUCKET_SIZE
         const rating = tokens / this.hub.CDP_WATCHER_BUCKET_SIZE
 
-        const state =
-            stateOverride ??
-            (rating >= this.hub.CDP_WATCHER_THRESHOLD_DEGRADED
-                ? HogWatcherState.healthy
-                : rating > 0
-                ? HogWatcherState.degraded
-                : HogWatcherState.disabledForPeriod)
+        let state: HogWatcherState
+
+        if (stateOverride) {
+            state = stateOverride
+        } else if (rating >= this.hub.CDP_WATCHER_THRESHOLD_DEGRADED) {
+            state = HogWatcherState.healthy
+        } else if (rating > 0) {
+            state = HogWatcherState.degraded
+        } else {
+            if (this.hub.CDP_WATCHER_AUTOMATICALLY_DISABLE_FUNCTIONS) {
+                state = HogWatcherState.disabledForPeriod
+            } else {
+                state = HogWatcherState.degraded
+            }
+        }
 
         return { state, tokens, rating }
     }
@@ -147,15 +155,13 @@ export class HogWatcherService {
             const tokens = res ? res[resIndex][1] : undefined
             const disabled = res ? res[resIndex + 1][1] : false
             const disabledTemporarily = disabled && res ? res[resIndex + 2][1] !== -1 : false
+            const stateOverride = disabled
+                ? disabledTemporarily
+                    ? HogWatcherState.disabledForPeriod
+                    : HogWatcherState.disabledIndefinitely
+                : undefined
 
-            acc[id] = this.tokensToFunctionState(
-                tokens,
-                disabled
-                    ? disabledTemporarily
-                        ? HogWatcherState.disabledForPeriod
-                        : HogWatcherState.disabledIndefinitely
-                    : undefined
-            )
+            acc[id] = this.tokensToFunctionState(tokens, stateOverride)
 
             return acc
         }, {} as Record<HogFunctionType['id'], HogWatcherFunctionState>)

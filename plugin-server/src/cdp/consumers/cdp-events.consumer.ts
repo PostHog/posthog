@@ -140,7 +140,7 @@ export class CdpEventsConsumer extends CdpConsumerBase {
 
                 const state = states[item.hogFunction.id].state
 
-                if (state >= HogWatcherState.disabledForPeriod) {
+                if ([HogWatcherState.disabledForPeriod, HogWatcherState.disabledIndefinitely].includes(state)) {
                     this.hogFunctionMonitoringService.queueAppMetric(
                         {
                             team_id: item.teamId,
@@ -278,7 +278,7 @@ export class CdpEventsConsumer extends CdpConsumerBase {
             // Iterate over adding them to the list and updating their priority
             possibleInvocations.forEach((item) => {
                 const state = states[item.hogFlow.id].state
-                if (state >= HogWatcherState.disabledForPeriod) {
+                if ([HogWatcherState.disabledForPeriod, HogWatcherState.disabledIndefinitely].includes(state)) {
                     this.hogFunctionMonitoringService.queueAppMetric(
                         {
                             team_id: item.teamId,
