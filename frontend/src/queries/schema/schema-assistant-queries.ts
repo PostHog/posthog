@@ -121,8 +121,16 @@ export type AssistantBasePropertyFilter =
     | AssistantDateTimePropertyFilter
     | AssistantSetPropertyFilter
 
+// TRICKY: Keep this property as enum to avoid converting to a string.
+export enum AssistantGenericPropertyFilterType {
+    event = PropertyFilterType.Event,
+    person = PropertyFilterType.Person,
+    session = PropertyFilterType.Session,
+    feature = PropertyFilterType.Feature,
+}
+
 export type AssistantGenericPropertyFilter = AssistantBasePropertyFilter & {
-    type: PropertyFilterType.Event | PropertyFilterType.Person | PropertyFilterType.Session | PropertyFilterType.Feature
+    type: AssistantGenericPropertyFilterType
     /**
      * Use one of the properties the user has provided in the plan.
      */
@@ -175,7 +183,14 @@ export interface AssistantInsightsQueryBase {
 export interface AssistantTrendsEventsNode
     extends Omit<
         EventsNode,
-        'fixedProperties' | 'properties' | 'math_hogql' | 'limit' | 'groupBy' | 'orderBy' | 'response'
+        | 'fixedProperties'
+        | 'properties'
+        | 'math_hogql'
+        | 'limit'
+        | 'groupBy'
+        | 'orderBy'
+        | 'response'
+        | 'math_property_revenue_currency'
     > {
     properties?: AssistantPropertyFilter[]
 }
@@ -186,7 +201,15 @@ export interface AssistantTrendsEventsNode
 export interface AssistantTrendsActionsNode
     extends Omit<
         ActionsNode,
-        'fixedProperties' | 'properties' | 'math_hogql' | 'limit' | 'groupBy' | 'orderBy' | 'response' | 'name'
+        | 'fixedProperties'
+        | 'properties'
+        | 'math_hogql'
+        | 'limit'
+        | 'groupBy'
+        | 'orderBy'
+        | 'response'
+        | 'name'
+        | 'math_property_revenue_currency'
     > {
     properties?: AssistantPropertyFilter[]
     /**
@@ -420,6 +443,7 @@ export interface AssistantFunnelsFilter {
     funnelVizType?: FunnelsFilterLegacy['funnel_viz_type']
     /**
      * Users may want to use exclusion events to filter out conversions in which a particular event occurred between specific steps. These events must not be included in the main sequence.
+     * This doesn't exclude users who have completed the event before or after the funnel sequence, but often this is what users want. (If not sure, worth clarifying.)
      * You must include start and end indexes for each exclusion where the minimum index is one and the maximum index is the number of steps in the funnel.
      * For example, there is a sequence with three steps: sign up, finish onboarding, purchase. If the user wants to exclude all conversions in which users left the page before finishing the onboarding, the exclusion step would be the event `$pageleave` with start index 2 and end index 3.
      * When exclusion steps appear needed when you're planning the query, make sure to explicitly state this in the plan.
@@ -437,12 +461,15 @@ export interface AssistantFunnelsFilter {
      */
     binCount?: FunnelsFilterLegacy['bin_count']
     /**
-     * Controls a time frame value for a conversion to be considered. Select a reasonable value based on the user's query. Use in combination with `funnelWindowIntervalUnit`. The default value is 14 days.
+     * Controls a time frame value for a conversion to be considered. Select a reasonable value based on the user's query.
+     * If needed, this can be practically unlimited by setting a large value, though it's rare to need that.
+     * Use in combination with `funnelWindowIntervalUnit`. The default value is 14 days.
      * @default 14
      */
     funnelWindowInterval?: integer
     /**
-     * Controls a time frame interval for a conversion to be considered. Select a reasonable value based on the user's query. Use in combination with `funnelWindowInterval`. The default value is 14 days.
+     * Controls a time frame interval for a conversion to be considered. Select a reasonable value based on the user's query.
+     * Use in combination with `funnelWindowInterval`. The default value is 14 days.
      * @default day
      */
     funnelWindowIntervalUnit?: FunnelsFilterLegacy['funnel_window_interval_unit']

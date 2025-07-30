@@ -30,7 +30,6 @@ import {
     PropertyFilterType,
     UserBlastRadiusType,
 } from '~/types'
-
 import type { featureFlagReleaseConditionsLogicType } from './featureFlagReleaseConditionsLogicType'
 
 // Helper function to move a condition set to a new index
