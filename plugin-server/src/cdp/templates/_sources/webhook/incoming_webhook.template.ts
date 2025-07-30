@@ -27,7 +27,7 @@ if(notEmpty(inputs.auth_header) and notEquals(inputs.auth_header, request.header
 }
 
 if(empty(inputs.event)) {
-return {
+  return {
     'httpResponse': {
       'status': 400,
       'body': {
@@ -49,9 +49,9 @@ if(empty(inputs.distinct_id)) {
 }
 
 postHogCapture({
-    'event': inputs.event,
-    'distinct_id': inputs.distinct_id,
-    'properties': inputs.properties
+  'event': inputs.event,
+  'distinct_id': inputs.distinct_id,
+  'properties': inputs.properties
 })
 `,
     inputs_schema: [

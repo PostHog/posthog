@@ -147,7 +147,8 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
 
             const customHttpResponse = getCustomHttpResponse(result)
             if (customHttpResponse) {
-                addLog('error', `Responded with response status - ${customHttpResponse.status}`)
+                const level = customHttpResponse.status >= 400 ? 'warn' : 'info'
+                addLog(level, `Responded with response status - ${customHttpResponse.status}`)
             }
 
             void this.promiseScheduler.schedule(
