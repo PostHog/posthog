@@ -519,7 +519,8 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         tag_queries(product=Product.REPLAY)
         user_distinct_id = cast(User, request.user).distinct_id
 
-        with tracer.start_as_current_span("list_recordings", context=None, kind=trace.SpanKind.SERVER):
+        # i think we can override the sample rate by setting context none, but then we also lose previous context
+        with tracer.start_as_current_span("list_recordings", kind=trace.SpanKind.SERVER):
             try:
                 with tracer.start_as_current_span("convert_flters"):
                     query = filter_from_params_to_query(request.GET.dict())
@@ -1483,7 +1484,7 @@ def list_recordings_from_query(
     timer = ServerTimingsGathered()
 
     if all_session_ids:
-        with timer("load_persisted_recordings"):
+        with timer("load_persisted_recordings"), tracer.start_as_current_span("load_persisted_recordings"):
             # If we specify the session ids (like from pinned recordings) we can optimise by only going to Postgres
             sorted_session_ids = sorted(all_session_ids)
 
@@ -1510,7 +1511,11 @@ def list_recordings_from_query(
             else False
         )
 
-        with timer("load_recordings_from_hogql"), posthoganalytics.new_context():
+        with (
+            timer("load_recordings_from_hogql"),
+            posthoganalytics.new_context(),
+            tracer.start_as_current_span("load_recordings_from_hogql"),
+        ):
             posthoganalytics.tag("use_multiple_sub_queries", use_multiple_sub_queries)
             if use_multiple_sub_queries:
                 (ch_session_recordings, more_recordings_available, hogql_timings) = (
@@ -1523,7 +1528,7 @@ def list_recordings_from_query(
                     OriginalSessionRecordingListFromQuery(query=query, team=team, hogql_query_modifiers=modifiers).run()
                 )
 
-        with timer("build_recordings"):
+        with timer("build_recordings"), tracer.start_as_current_span("build_recordings"):
             recordings_from_clickhouse = SessionRecording.get_or_build_from_clickhouse(team, ch_session_recordings)
             recordings = recordings + recordings_from_clickhouse
 
@@ -1541,13 +1546,13 @@ def list_recordings_from_query(
 
     recording_ids_in_list: list[str] = [str(r.session_id) for r in recordings]
     # Update the viewed status for all loaded recordings
-    with timer("load_viewed_recordings"):
+    with timer("load_viewed_recordings"), tracer.start_as_current_span("load_viewed_recordings"):
         viewed_session_recordings = current_user_viewed(recording_ids_in_list, user, team)
 
-    with timer("load_other_viewers_by_recording"):
+    with timer("load_other_viewers_by_recording"), tracer.start_as_current_span("load_other_viewers_by_recording"):
         other_viewers = _other_users_viewed(recording_ids_in_list, user, team)
 
-    with timer("load_persons"):
+    with timer("load_persons"), tracer.start_as_current_span("load_persons"):
         # Get the related persons for all the recordings
         distinct_ids = sorted([x.distinct_id for x in recordings if x.distinct_id])
         person_distinct_ids = (
@@ -1556,7 +1561,7 @@ def list_recordings_from_query(
             .select_related("person")
         )
 
-    with timer("process_persons"):
+    with timer("process_persons"), tracer.start_as_current_span("process_persons"):
         distinct_id_to_person = {}
         for person_distinct_id in person_distinct_ids:
             person_distinct_id.person._distinct_ids = [
