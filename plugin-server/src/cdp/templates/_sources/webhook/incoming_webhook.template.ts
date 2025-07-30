@@ -31,7 +31,7 @@ if(empty(inputs.event)) {
     'httpResponse': {
       'status': 400,
       'body': {
-        'error': '"event" cannot be empty',
+        'error': '"event" could not be parsed correctly',
       }
     }
   }
@@ -42,7 +42,7 @@ if(empty(inputs.distinct_id)) {
     'httpResponse': {
       'status': 400,
       'body': {
-        'error': '"distinct_id" cannot be empty',
+        'error': '"distinct_id" could not be parsed correctly',
       }
     }
   }
