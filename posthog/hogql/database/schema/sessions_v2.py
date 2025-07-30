@@ -582,9 +582,6 @@ def get_lazy_session_table_properties_v2(search: Optional[str]):
         if is_match(field_name)
     ]
 
-    # Sort results so optimized properties come first
-    results.sort(key=lambda x: (not x["is_optimized"], x["name"]))
-
     return results
 
 
