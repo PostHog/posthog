@@ -2,7 +2,7 @@
     "name": "@posthog/products-error-tracking",
     "scripts": {},
     "dependencies": {
-        "posthog-js": "1.258.2",
+        "posthog-js": "1.258.3",
         "kea": "^3.1.5",
         "kea-forms": "^3.2.0",
         "kea-loaders": "^3.1.1",
