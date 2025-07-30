@@ -250,7 +250,7 @@ export function CodeInstructions({
                     <>
                         <Tooltip
                             title="Bootstrapping is only available client side in our JavaScript and React Native
-                                libraries."
+                                libraries and without flag persistence."
                         >
                             <div className="flex items-center gap-1">
                                 <LemonCheckbox
