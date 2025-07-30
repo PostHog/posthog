@@ -114,6 +114,7 @@
         "@tiptap/pm": "^2.1.16",
         "@tiptap/react": "^2.1.16",
         "@tiptap/starter-kit": "^2.1.16",
+        "@tiptap/static-renderer": "^3.0.7",
         "@tiptap/suggestion": "^2.1.16",
         "@types/lodash.debounce": "^4.0.9",
         "@types/lodash.isequal": "^4.5.8",

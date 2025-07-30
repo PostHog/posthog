@@ -10,6 +10,7 @@ import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardSh
 import { CommentType } from '~/types'
 
 import { commentsLogic, CommentWithRepliesType } from './commentsLogic'
+import { renderToReactElement } from '@tiptap/static-renderer'
 
 export type CommentProps = {
     commentWithReplies: CommentWithRepliesType
@@ -72,7 +73,11 @@ const Comment = ({ comment }: { comment: CommentType }): JSX.Element => {
                             <LemonButton icon={<IconEllipsis />} size="xsmall" />
                         </LemonMenu>
                     </div>
-                    <LemonMarkdown lowKeyHeadings>{comment.content}</LemonMarkdown>
+                    {comment.content ? (
+                        <LemonMarkdown lowKeyHeadings>{comment.content}</LemonMarkdown>
+                    ) : comment.rich_content ? (
+                        renderToReactElement({ content: comment.rich_content, extensions: [] })
+                    ) : null}
                     {comment.version ? <span className="text-xs text-secondary italic">(edited)</span> : null}
                 </div>
             </div>

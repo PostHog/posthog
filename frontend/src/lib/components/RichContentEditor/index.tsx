@@ -11,17 +11,21 @@ export const RichContentEditor = ({
     logicKey,
     extensions,
     className,
+    disabled = false,
     children,
     onCreate = () => {},
     onUpdate = () => {},
+    onPressCmdEnter = () => {},
     onSelectionUpdate = () => {},
 }: PropsWithChildren<{
     logicKey: string
     onCreate?: (editor: TTEditor) => void
     onUpdate?: (content: JSONContent) => void
+    onPressCmdEnter?: () => void
     onSelectionUpdate?: () => void
     extensions: Extensions
     className?: string
+    disabled?: boolean
 }>): JSX.Element => {
     const editor = useEditor({
         extensions,
@@ -31,7 +35,19 @@ export const RichContentEditor = ({
     })
 
     return (
-        <EditorContent editor={editor} className={cn('RichContentEditor', className)}>
+        <EditorContent
+            editor={editor}
+            className={cn('RichContentEditor', className)}
+            disabled={disabled}
+            onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                    if ((e.metaKey || e.ctrlKey) && onPressCmdEnter) {
+                        onPressCmdEnter()
+                        e.preventDefault()
+                    }
+                }
+            }}
+        >
             {editor && (
                 <BindLogic logic={richContentEditorLogic} props={{ logicKey, editor }}>
                     {children}

@@ -3,4 +3,52 @@
         display: inline-flex;
         max-height: 22px;
     }
+
+    .ProseMirror {
+        &-focused {
+            outline: none;
+        }
+
+        > p {
+            margin-bottom: 0;
+        }
+
+        > ol {
+            list-style-type: decimal;
+
+            ol {
+                list-style-type: lower-alpha;
+            }
+        }
+
+        > ul {
+            list-style-type: disc;
+
+            ul {
+                list-style-type: circle;
+            }
+        }
+
+        > ul,
+        > ol {
+            padding-left: 2rem;
+
+            ul,
+            ol {
+                padding-left: 2rem;
+            }
+
+            li {
+                p {
+                    margin-bottom: 0.2rem;
+                }
+            }
+        }
+    }
+
+    &[contenteditable='true'] {
+        a {
+            cursor: text;
+        }
+    }
 }

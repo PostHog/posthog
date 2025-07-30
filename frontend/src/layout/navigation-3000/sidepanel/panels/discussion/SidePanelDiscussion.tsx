@@ -31,7 +31,7 @@ const DiscussionContent = ({ logicProps }: { logicProps: CommentsLogicProps }): 
         if (selectedTabOptions) {
             setReplyingComment(selectedTabOptions)
         }
-    }, [selectedTabOptions])
+    }, [selectedTabOptions, setReplyingComment])
 
     return (
         <div className="flex flex-col flex-1 overflow-hidden">

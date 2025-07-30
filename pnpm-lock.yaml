@@ -679,6 +679,9 @@ importers:
       '@tiptap/starter-kit':
         specifier: ^2.1.16
         version: 2.1.16(@tiptap/pm@2.1.16)
+      '@tiptap/static-renderer':
+        specifier: ^3.0.7
+        version: 3.0.7(@tiptap/core@2.1.16(@tiptap/pm@2.1.16))(@tiptap/pm@2.1.16)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@tiptap/suggestion':
         specifier: ^2.1.16
         version: 2.1.16(@tiptap/core@2.1.16(@tiptap/pm@2.1.16))(@tiptap/pm@2.1.16)
@@ -7510,6 +7513,14 @@ packages:
 
   '@tiptap/starter-kit@2.1.16':
     resolution: {integrity: sha512-DudGvkNEB1IwfMAqBKCcT49BY275hKF6SwjTWN89cLvVBd2TBe4R6wWMNKDhwfR8fmXz/aXpGJWWO2AFimY3jg==}
+
+  '@tiptap/static-renderer@3.0.7':
+    resolution: {integrity: sha512-jhDXejBvZjHmlbdmPIolnvVMjWKKjvq7JssYSRx+VKyhumeIGCgTTwz04m37smFy38FC/WzUxbgUrZNV2NkdUA==}
+    peerDependencies:
+      '@tiptap/core': ^3.0.7
+      '@tiptap/pm': ^3.0.7
+      react: ^17.0.0 || ^18.0.0 || ^19.0.0
+      react-dom: ^17.0.0 || ^18.0.0 || ^19.0.0
 
   '@tiptap/suggestion@2.1.16':
     resolution: {integrity: sha512-3kYgpT1oTSgjLesAU3rV3lkcqVRV9K520/tA1IhXAC+UsofUEkflXftoMnaJjwgEfKM3n87uJlyPFEUBiC7xYg==}
@@ -24880,6 +24891,13 @@ snapshots:
       '@tiptap/extension-text': 2.1.16(@tiptap/core@2.1.16(@tiptap/pm@2.1.16))
     transitivePeerDependencies:
       - '@tiptap/pm'
+
+  '@tiptap/static-renderer@3.0.7(@tiptap/core@2.1.16(@tiptap/pm@2.1.16))(@tiptap/pm@2.1.16)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)':
+    dependencies:
+      '@tiptap/core': 2.1.16(@tiptap/pm@2.1.16)
+      '@tiptap/pm': 2.1.16
+      react: 18.2.0
+      react-dom: 18.2.0(react@18.2.0)
 
   '@tiptap/suggestion@2.1.16(@tiptap/core@2.1.16(@tiptap/pm@2.1.16))(@tiptap/pm@2.1.16)':
     dependencies:

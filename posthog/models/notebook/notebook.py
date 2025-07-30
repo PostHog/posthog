@@ -24,6 +24,7 @@ class Notebook(FileSystemSyncMixin, RootTeamMixin, UUIDModel):
     version = models.IntegerField(default=0)
     created_at = models.DateTimeField(auto_now_add=True, blank=True)
     created_by = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
+    hidden = models.BooleanField(default=False)
     last_modified_at = models.DateTimeField(default=timezone.now)
     last_modified_by = models.ForeignKey(
         "User",
