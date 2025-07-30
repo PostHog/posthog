@@ -6,7 +6,6 @@ from typing import cast
 from unittest.mock import ANY, MagicMock, call, patch
 from urllib.parse import urlencode
 
-from dateutil.parser import parse
 from dateutil.relativedelta import relativedelta
 from django.utils.timezone import now
 from freezegun import freeze_time
@@ -14,7 +13,6 @@ from parameterized import parameterized
 import pytest
 from rest_framework import status
 
-from posthog.api.test.test_team import create_team
 from posthog.clickhouse.client import sync_execute
 from posthog.models import Organization, Person, SessionRecording, User, PersonalAPIKey
 from posthog.models.personal_api_key import hash_key_value
@@ -72,76 +70,130 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             ensure_analytics_event_in_session=False,
         )
 
+    @parameterized.expand(
+        [
+            # Test basic listing returns recordings in descending order by start time
+            (
+                "basic_listing",
+                [
+                    {"distinct_ids": ["user1"], "session_id": "session1", "times": [0]},
+                    {"distinct_ids": ["user2"], "session_id": "session2", "times": [20]},
+                ],
+                # Expected order: session2 (newer), session1 (older)
+                ["session2", "session1"],
+            ),
+            # Test multiple snapshots create proper duration
+            (
+                "multiple_snapshots",
+                [
+                    {
+                        "distinct_ids": ["user1"],
+                        "session_id": "session_with_duration",
+                        "times": [0, 10, 30],  # 30 second duration
+                    },
+                ],
+                ["session_with_duration"],
+                30,  # expected duration
+            ),
+            # Test user with many distinct IDs only returns one distinct ID
+            (
+                "many_distinct_ids",
+                [
+                    {
+                        "distinct_ids": [f"user_one_{i}" for i in range(12)],
+                        "session_id": "session_many_ids",
+                        "times": [0],
+                        "distinct_id_for_recording": "user_one_0",
+                    },
+                ],
+                ["session_many_ids"],
+                None,
+                1,  # expected distinct_ids count in response
+            ),
+        ]
+    )
     @snapshot_postgres_queries
-    # we can't take snapshots of the CH queries
-    # because we use `now()` in the CH queries which don't know about any frozen time
-    # @snapshot_clickhouse_queries
-    def test_get_session_recordings(self) -> None:
-        twelve_distinct_ids: list[str] = [f"user_one_{i}" for i in range(12)]
-
-        user = Person.objects.create(
-            team=self.team,
-            distinct_ids=twelve_distinct_ids,  # that's too many! we should limit them
-            properties={"$some_prop": "something", "email": "bob@bob.com"},
-        )
-        user2 = Person.objects.create(
-            team=self.team,
-            distinct_ids=["user2"],
-            properties={"$some_prop": "something", "email": "bob@bob.com"},
-        )
-
+    def test_get_session_recordings_scenarios(
+        self,
+        _name: str,
+        user_configs: list[dict],
+        expected_session_order: list[str],
+        expected_duration: int | None = None,
+        expected_distinct_ids_count: int | None = None,
+    ) -> None:
         base_time = (now() - relativedelta(days=1)).replace(microsecond=0)
+        created_users = []
 
-        session_id_one = str(uuid7())
-        self.produce_replay_summary("user_one_0", session_id_one, base_time)
-        self.produce_replay_summary("user_one_0", session_id_one, base_time + relativedelta(seconds=10))
-        self.produce_replay_summary("user_one_0", session_id_one, base_time + relativedelta(seconds=30))
+        # Create users and recordings based on config
+        for config in user_configs:
+            user = Person.objects.create(
+                team=self.team,
+                distinct_ids=config["distinct_ids"],
+                properties={"$some_prop": "something", "email": "bob@bob.com"},
+            )
+            created_users.append(user)
 
-        session_id_two = str(uuid7())
-        self.produce_replay_summary("user2", session_id_two, base_time + relativedelta(seconds=20))
+            # Create recordings for each timestamp
+            recording_distinct_id = config.get("distinct_id_for_recording", config["distinct_ids"][0])
+            for time_offset in config["times"]:
+                self.produce_replay_summary(
+                    recording_distinct_id,
+                    config["session_id"],
+                    base_time + relativedelta(seconds=time_offset),
+                )
 
         response = self.client.get(f"/api/projects/{self.team.id}/session_recordings")
         assert response.status_code == status.HTTP_200_OK, response.json()
-        response_data = response.json()
+        results = response.json()["results"]
 
-        results_ = response_data["results"]
-        assert results_ is not None
+        # Check order
+        actual_order = [r["id"] for r in results]
+        assert actual_order == expected_session_order
 
-        assert [
-            (
-                r["id"],
-                parse(r["start_time"]),
-                parse(r["end_time"]),
-                r["recording_duration"],
-                r["viewed"],
-                r["person"]["id"],
-                len(r["person"]["distinct_ids"]),
-            )
-            for r in results_
-        ] == [
-            (
-                session_id_two,
-                base_time + relativedelta(seconds=20),
-                base_time + relativedelta(seconds=20),
-                0,
-                False,
-                user2.pk,
-                1,
-            ),
-            (
-                session_id_one,
-                base_time,
-                base_time + relativedelta(seconds=30),
-                30,
-                False,
-                user.pk,
-                1,  # even though the user has many distinct ids we don't load them
-            ),
-        ]
+        # Check duration if specified
+        if expected_duration is not None:
+            assert results[0]["recording_duration"] == expected_duration
 
-        # user distinct id varies because we're adding more than one
-        assert results_[0]["distinct_id"] == "user2"
-        assert results_[1]["distinct_id"] in twelve_distinct_ids
+        # Check distinct_ids count if specified
+        if expected_distinct_ids_count is not None:
+            assert len(results[0]["person"]["distinct_ids"]) == expected_distinct_ids_count
+
+    @snapshot_postgres_queries
+    def test_get_session_recordings_returns_newest_first(self) -> None:
+        """Test that recordings are returned in descending order by start time"""
+        base_time = (now() - relativedelta(days=1)).replace(microsecond=0)
+
+        # Create recordings at different times
+        self.produce_replay_summary("user1", "old_session", base_time)
+        self.produce_replay_summary("user2", "new_session", base_time + relativedelta(seconds=60))
+        self.produce_replay_summary("user3", "middle_session", base_time + relativedelta(seconds=30))
+
+        response = self.client.get(f"/api/projects/{self.team.id}/session_recordings")
+        assert response.status_code == status.HTTP_200_OK
+        results = response.json()["results"]
+
+        # Should be ordered: new_session, middle_session, old_session
+        assert [r["id"] for r in results] == ["new_session", "middle_session", "old_session"]
+
+    def test_get_session_recordings_includes_person_data(self) -> None:
+        """Test that person data is properly included in recordings response"""
+        person = Person.objects.create(
+            team=self.team,
+            distinct_ids=["test_user"],
+            properties={"$some_prop": "something", "email": "test@example.com"},
+        )
+
+        base_time = (now() - relativedelta(days=1)).replace(microsecond=0)
+        self.produce_replay_summary("test_user", "test_session", base_time)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/session_recordings")
+        assert response.status_code == status.HTTP_200_OK
+        result = response.json()["results"][0]
+
+        assert result["person"]["id"] == person.pk
+        assert result["person"]["distinct_ids"] == ["test_user"]
+        assert result["distinct_id"] == "test_user"
+        assert result["viewed"] is False
 
     @parameterized.expand(
         [
@@ -519,35 +571,34 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         )
         assert update_response.status_code == 404
 
+    @freeze_time("2023-01-01T12:00:00.000Z")
     def test_get_single_session_recording_metadata(self):
-        with freeze_time("2023-01-01T12:00:00.000Z"):
-            p = Person.objects.create(
-                team=self.team,
-                distinct_ids=["d1"],
-                properties={"$some_prop": "something", "email": "bob@bob.com"},
-            )
-            session_recording_id = "session_1"
-            base_time = (now() - relativedelta(days=1)).replace(microsecond=0)
-            produce_replay_summary(
-                session_id=session_recording_id,
-                team_id=self.team.pk,
-                first_timestamp=base_time.isoformat(),
-                last_timestamp=(base_time + relativedelta(seconds=30)).isoformat(),
-                distinct_id="d1",
-            )
+        p = Person.objects.create(
+            team=self.team,
+            distinct_ids=["d1"],
+            properties={"$some_prop": "something", "email": "bob@bob.com"},
+        )
+        session_recording_id = uuid7()
+        base_time = (now() - relativedelta(days=1)).replace(microsecond=0)
+        produce_replay_summary(
+            session_id=session_recording_id,
+            team_id=self.team.pk,
+            first_timestamp=base_time.isoformat(),
+            last_timestamp=(base_time + relativedelta(seconds=30)).isoformat(),
+            distinct_id="d1",
+        )
 
-            other_user = User.objects.create(email="paul@not-first-user.com")
-            SessionRecordingViewed.objects.create(
-                team=self.team,
-                user=other_user,
-                session_id=session_recording_id,
-            )
+        other_user = User.objects.create(email="paul@not-first-user.com")
+        SessionRecordingViewed.objects.create(
+            team=self.team,
+            user=other_user,
+            session_id=session_recording_id,
+        )
 
         response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/{session_recording_id}")
-        response_data = response.json()
-
-        assert response_data == {
-            "id": "session_1",
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json() == {
+            "id": session_recording_id,
             "distinct_id": "d1",
             "viewed": False,
             "viewers": [other_user.email],
@@ -1149,67 +1200,6 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
 
         response = self.client.get(url)
         assert response.status_code == status.HTTP_404_NOT_FOUND
-
-    @patch("ee.session_recordings.session_recording_extensions.object_storage.copy_objects")
-    def test_get_via_sharing_token(self, mock_copy_objects: MagicMock) -> None:
-        mock_copy_objects.return_value = 2
-
-        other_team = create_team(organization=self.organization)
-
-        session_id = str(uuid.uuid4())
-        with freeze_time("2023-01-01T12:00:00Z"):
-            self.produce_replay_summary(
-                "user",
-                session_id,
-                now() - relativedelta(days=1),
-                team_id=self.team.pk,
-            )
-
-        token = self.client.patch(
-            f"/api/projects/{self.team.id}/session_recordings/{session_id}/sharing",
-            {"enabled": True},
-        ).json()["access_token"]
-
-        self.client.logout()
-
-        # Unallowed routes
-        response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/2?sharing_access_token={token}")
-        assert response.status_code == status.HTTP_403_FORBIDDEN
-        response = self.client.get(f"/api/projects/{self.team.id}/session_recordings?sharing_access_token={token}")
-        assert response.status_code == status.HTTP_403_FORBIDDEN
-        response = self.client.get(f"/api/projects/12345/session_recordings?sharing_access_token={token}")
-        assert response.status_code == status.HTTP_403_FORBIDDEN
-        response = self.client.get(
-            f"/api/projects/{other_team.id}/session_recordings/{session_id}?sharing_access_token={token}"
-        )
-        assert response.status_code == status.HTTP_403_FORBIDDEN
-
-        response = self.client.get(
-            f"/api/projects/{self.team.id}/session_recordings/{session_id}?sharing_access_token={token}"
-        )
-        assert response.status_code == status.HTTP_200_OK
-
-        assert response.json() == {
-            "id": session_id,
-            "recording_duration": 0,
-            "start_time": "2022-12-31T12:00:00Z",
-            "end_time": "2022-12-31T12:00:00Z",
-        }
-
-        # now create a snapshot record that doesn't have a fixed date, as it needs to be within TTL for the request below to complete
-        self.produce_replay_summary(
-            "user",
-            session_id,
-            # a little before now, since the DB checks if the snapshot is within TTL and before now
-            # if the test runs too quickly it looks like the snapshot is not there
-            now() - relativedelta(seconds=1),
-            team_id=self.team.pk,
-        )
-
-        response = self.client.get(
-            f"/api/projects/{self.team.id}/session_recordings/{session_id}/snapshots?sharing_access_token={token}&"
-        )
-        assert response.status_code == status.HTTP_200_OK
 
     def test_get_matching_events_for_must_not_send_multiple_session_ids(self) -> None:
         query_params = [

@@ -37,7 +37,11 @@ def seconds_until_midnight():
 
 
 def get_recording_date_floor(recording_start_time: Optional[datetime], recording_ttl_days: int) -> datetime:
-    return recording_start_time or datetime.now(pytz.timezone("UTC")) - timedelta(days=recording_ttl_days)
+    if recording_start_time:
+        # If we have a recording start time, use it as the floor
+        return recording_start_time
+    else:
+        return datetime.now(pytz.timezone("UTC")) - timedelta(days=recording_ttl_days)
 
 
 class SessionReplayEvents:
@@ -237,12 +241,14 @@ class SessionReplayEvents:
         recording_ttl_days: Optional[int] = None,
     ) -> Optional[RecordingMetadata]:
         query = self.get_metadata_query()
+
+        recording_date_floor = get_recording_date_floor(recording_start_time, recording_ttl_days or 366)
         replay_response: list[tuple] = sync_execute(
             query,
             {
                 "team_id": team_id,
                 "session_id": session_id,
-                "recording_floor": get_recording_date_floor(recording_start_time, recording_ttl_days or 366),
+                "recording_floor": recording_date_floor,
                 "python_now": datetime.now(pytz.timezone("UTC")),
             },
         )

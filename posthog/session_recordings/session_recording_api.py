@@ -519,11 +519,12 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         tag_queries(product=Product.REPLAY)
         user_distinct_id = cast(User, request.user).distinct_id
 
-        # i think we can override the sample rate by setting context none, but then we also lose previous context
-        with tracer.start_as_current_span("list_recordings", kind=trace.SpanKind.SERVER):
-            trace.get_current_span().set_attribute("team_id", self.team_id)
-            trace.get_current_span().set_attribute("distinct_id", user_distinct_id or "unknown")
-            try:
+        try:
+            # i think we can override the sample rate by setting context none, but then we also lose previous context
+            with tracer.start_as_current_span("list_recordings", kind=trace.SpanKind.SERVER):
+                trace.get_current_span().set_attribute("team_id", self.team_id)
+                trace.get_current_span().set_attribute("distinct_id", user_distinct_id or "unknown")
+
                 with tracer.start_as_current_span("convert_filters"):
                     query = filter_from_params_to_query(request.GET.dict())
 
@@ -538,21 +539,21 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
                     )
 
                     return response
-            except CHQueryErrorTooManySimultaneousQueries:
-                raise Throttled(detail="Too many simultaneous queries. Try again later.")
-            except (ServerException, Exception) as e:
-                if isinstance(e, exceptions.ValidationError):
-                    raise
+        except CHQueryErrorTooManySimultaneousQueries:
+            raise Throttled(detail="Too many simultaneous queries. Try again later.")
+        except (ServerException, Exception) as e:
+            if isinstance(e, exceptions.ValidationError):
+                raise
 
-                if isinstance(e, ServerException) and "CHQueryErrorTimeoutExceeded" in str(e):
-                    raise Throttled(detail="Query timeout exceeded. Try again later.")
+            if isinstance(e, ServerException) and "CHQueryErrorTimeoutExceeded" in str(e):
+                raise Throttled(detail="Query timeout exceeded. Try again later.")
 
-                posthoganalytics.capture_exception(
-                    e,
-                    distinct_id=user_distinct_id,
-                    properties={"replay_feature": "listing_recordings", "unfiltered_query": request.GET.dict()},
-                )
-                return Response({"error": "An internal error has occurred. Please try again later."}, status=500)
+            posthoganalytics.capture_exception(
+                e,
+                distinct_id=user_distinct_id,
+                properties={"replay_feature": "listing_recordings", "unfiltered_query": request.GET.dict()},
+            )
+            return Response({"error": "An internal error has occurred. Please try again later."}, status=500)
 
     @extend_schema(
         exclude=True,
