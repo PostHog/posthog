@@ -223,7 +223,7 @@ export function InternalMultipleChoiceSurvey({ surveyId }: InternalSurveyProps):
                                         {isHelpEnabled && (
                                             <MaxTool
                                                 name="session_recording_settings_help"
-                                                displayName="Session recording settingshelp"
+                                                displayName="Session recording settings help"
                                                 description="Max can help you with your session recording issues"
                                                 context={{}}
                                                 callback={() => {
