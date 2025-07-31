@@ -137,6 +137,7 @@ class UserAdmin(DjangoUserAdmin):
                 user = self.get_object(request, object_id)
                 if user and not user.is_email_verified:
                     EmailVerifier.create_token_and_send_email_verification(user)
+                    self.log_change(request, user, f"Sent verification email.")
                     messages.success(request, f"Verification email sent to {user.email}")
                 else:
                     messages.warning(request, "User is already verified or not found.")
@@ -151,6 +152,7 @@ class UserAdmin(DjangoUserAdmin):
                 user = self.get_object(request, object_id)
                 if user:
                     num_revoked = self.delete_user_sessions(user)
+                    self.log_change(request, user, f"Revoked {num_revoked} web session(s).")
                     messages.success(request, f"Revoked {num_revoked} session(s)")
                 else:
                     messages.warning(request, "User not found.")
