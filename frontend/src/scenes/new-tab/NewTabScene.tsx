@@ -1,34 +1,19 @@
 import { SceneExport } from 'scenes/sceneTypes'
 import { useValues } from 'kea'
-import {
-    IconCode,
-    IconCode2,
-    IconCodeInsert,
-    IconCorrelationAnalysis,
-    IconDatabase,
-    IconDrag,
-    IconGanttChart,
-    IconHogQL,
-    IconNotebook,
-    IconPlus,
-    IconSquareRoot,
-} from '@posthog/icons'
-import { IconTableChart } from 'lib/lemon-ui/icons'
-import { ReactNode, useState } from 'react'
-import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
+import { useState } from 'react'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Link } from 'lib/lemon-ui/Link'
+import { newTabSceneLogic } from 'scenes/new-tab/newTabSceneLogic'
 
 export const scene: SceneExport = {
     component: NewTabScene,
 }
 
 export function NewTabScene(): JSX.Element {
-    const { treeItemsNew } = useValues(projectTreeDataLogic)
-    const queryTypes =
-        treeItemsNew
-            .find(({ name }) => name === 'Insight')
-            ?.children?.sort((a, b) => (a.visualOrder ?? 0) - (b.visualOrder ?? 0)) ?? []
+    const { itemsGrid } = useValues(newTabSceneLogic)
+
+    const [question, setQuestion] = useState('')
+    const handleSubmit = (): void => {}
 
     // pastel palette (cycle through)
     const swatches = [
@@ -39,37 +24,6 @@ export function NewTabScene(): JSX.Element {
         'bg-pink-500/10 text-pink-700 dark:bg-pink-500/20 dark:text-pink-100',
         'bg-stone-500/10 text-stone-700 dark:bg-stone-500/20 dark:text-stone-100',
     ]
-
-    const queryTree: { category: string; types: { name: string; icon?: ReactNode }[] }[] = [
-        {
-            category: 'Popular',
-            types: [{ name: 'SQL', icon: <IconDatabase /> }, ...queryTypes],
-        },
-        {
-            category: 'Custom',
-            types: [
-                { name: 'Pivot Table', icon: <IconTableChart /> },
-                { name: 'Correlation Analysis', icon: <IconCorrelationAnalysis /> },
-                { name: 'Scatterplot', icon: <IconDrag /> },
-                { name: 'Gantt chart', icon: <IconGanttChart /> },
-                { name: 'Formula', icon: <IconSquareRoot /> },
-                { name: 'Add your own', icon: <IconPlus /> },
-            ],
-        },
-        {
-            category: 'Advanced',
-            types: [
-                { name: 'Hog', icon: <IconHogQL /> },
-                { name: 'Python', icon: <IconCode /> },
-                { name: 'R', icon: <IconCode2 /> },
-                { name: 'Jupyter Notebook', icon: <IconNotebook /> },
-                { name: 'API Query', icon: <IconCodeInsert /> },
-            ],
-        },
-    ]
-
-    const [question, setQuestion] = useState('')
-    const handleSubmit = (): void => {}
 
     return (
         <div className="w-full py-24">
@@ -98,7 +52,7 @@ export function NewTabScene(): JSX.Element {
                 </LemonButton>
             </div>
 
-            {queryTree.map(({ category, types }, catIndex) => (
+            {itemsGrid.map(({ category, types }, catIndex) => (
                 <div className="w-full overflow-auto p-4 px-12 max-w-[880px] m-auto">
                     <div className="px-2 py-8 text-center">{category}</div>
                     <div
@@ -110,7 +64,7 @@ export function NewTabScene(): JSX.Element {
                         {types.map((qt, i) => (
                             <div key={qt.name} className="text-center m-auto">
                                 <Link
-                                    onClick={() => {}}
+                                    to={qt.href}
                                     className="group flex flex-col items-center text-center cursor-pointer select-none focus:outline-none"
                                 >
                                     <div
