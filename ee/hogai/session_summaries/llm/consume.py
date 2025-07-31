@@ -171,7 +171,6 @@ async def get_llm_session_group_patterns_combination(
         session_id=sessions_identifier,
         system_prompt=prompt.system_prompt,
         model=SESSION_SUMMARIES_SYNC_MODEL,
-        reasoning=True,
         trace_id=trace_id,
     )
     raw_content = _get_raw_content(result)

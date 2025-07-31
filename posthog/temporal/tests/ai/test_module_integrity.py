@@ -6,6 +6,7 @@ class TestAITemporalModuleIntegrity:
         """Ensure all expected workflows are present in the module."""
         expected_workflows = [
             "SyncVectorsWorkflow",
+            "SummarizeSingleSessionStreamWorkflow",
             "SummarizeSingleSessionWorkflow",
             "SummarizeSessionGroupWorkflow",
             "AssistantConversationRunnerWorkflow",

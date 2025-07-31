@@ -10,7 +10,7 @@ from ee.hogai.session_summaries.session.summarize_session import (
 )
 from ee.hogai.session_summaries.utils import load_custom_template
 from posthog.models import Team
-from posthog.session_recordings.queries_to_replace.session_replay_events import SessionReplayEvents
+from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 from rest_framework import exceptions
 
 
