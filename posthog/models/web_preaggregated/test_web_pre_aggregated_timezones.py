@@ -438,24 +438,10 @@ class TestTimezonePreAggregatedIntegration(WebAnalyticsPreAggregatedTestBase, Fl
             comparison = self._calculate_browser_breakdown(india_team)
             results = self._sort_results(comparison["preagg_response"].results)
 
-            # Expected aggregate results (actual data shows 4 total events, 1 per browser)
-            expected_results = [
-                ["Chrome", (1.0, None), (1.0, None), 0.25, ""],
-                ["Edge", (1.0, None), (1.0, None), 0.25, ""],
-                ["Firefox", (1.0, None), (1.0, None), 0.25, ""],
-                ["Safari", (1.0, None), (1.0, None), 0.25, ""],
-            ]
-
-            assert results == self._sort_results(expected_results), (
-                f"India half-hour timezone results: {results}. "
-                f"Aggregates work but hourly breakdowns may not align with IST business hours."
-            )
-
-            # Document the core limitation: hourly buckets don't align with IST expectations
-            # Business users expect IST to UTC hour boundaries (00:30, 01:30, 02:30...)
-            # But system provides UTC hour boundaries (00:00, 01:00, 02:00...)
-
-            # The key issue demonstrated: If a user in India queries for "9 AM to 10 AM IST" data,
+            # We created 5 events but expect only 4 in the Jan 15 IST query results
+            # The missing event demonstrates half-hour timezone bucketing limitations
+            #
+            # The issue is: If a user in India queries for "9 AM to 10 AM IST" data,
             # they won't get intuitive results because the system buckets by UTC hours.
             # For India (UTC+05:30), this creates a 30-minute offset in all hourly reports
             # and is more visible in trends when the period_bucket is used to group by.
@@ -470,15 +456,33 @@ class TestTimezonePreAggregatedIntegration(WebAnalyticsPreAggregatedTestBase, Fl
             preagg_results = self._sort_results(comparison["preagg_response"].results)
             raw_results = self._sort_results(comparison["raw_response"].results)
 
-            # This discrepancy demonstrates the half-hour timezone limitation:
-            # Pre-aggregated tables use different date range logic than raw queries
-            # causing potential inconsistencies for half-hour offset timezones
+            total_events_created = len(half_hour_events)
+            assert total_events_created == 5, f"Should have created 5 events, got {total_events_created}"
 
-            if preagg_results != raw_results:
-                # TODO: How should we approach this?
-                # Now that the buckets are hourly, this means just an half an hour off difference that we could probably warn about over the UI
-                # instead of forcing this to fail.
-                pass
+            # One event falls outside the Jan 15 IST date range due to UTC bucketing
+            # IST Midnight (18:30 UTC Jan 14) gets bucketed to Jan 14 in the query range
+            expected_results = [
+                ["Chrome", (1.0, None), (1.0, None), 0.25, ""],  # Only 1 Chrome event in range
+                ["Edge", (1.0, None), (1.0, None), 0.25, ""],  # 1 Edge event in range
+                ["Firefox", (1.0, None), (1.0, None), 0.25, ""],  # 1 Firefox event in range
+                ["Safari", (1.0, None), (1.0, None), 0.25, ""],  # 1 Safari event in range
+            ]
+
+            total_events_in_results = sum(row[1][0] for row in expected_results)
+
+            assert results == self._sort_results(expected_results)
+
+            # Assert we're missing exactly 1 event due to half-hour timezone bucketing
+            assert total_events_in_results == 4
+            assert total_events_created - total_events_in_results == 1
+
+            # Chrome should have 2 events in raw (both Chrome events) but only 1 in pre-aggregated
+            chrome_preagg = next((row for row in preagg_results if row[0] == "Chrome"), None)
+            chrome_raw = next((row for row in raw_results if row[0] == "Chrome"), None)
+
+            assert chrome_preagg and chrome_raw
+            assert chrome_preagg[1][0] == 1.0
+            assert chrome_raw[1][0] == 2.0
 
         finally:
             india_team.delete()
