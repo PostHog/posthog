@@ -73,8 +73,6 @@ class SessionRecording(UUIDModel):
         if self._metadata:
             return True
 
-        self.ttl_days = ttl_days(self.team)
-
         if self.object_storage_path:
             # Nothing todo as we have all the metadata in the model
             pass
@@ -84,13 +82,13 @@ class SessionRecording(UUIDModel):
                 team_id=self.team.pk,
                 session_id=self.session_id,
                 recording_start_time=self.start_time,
-                recording_ttl_days=self.ttl_days,
             )
 
             if not metadata:
                 return False
 
             self._metadata = metadata
+            self.ttl_days = ttl_days(self.team)
 
             # Some fields of the metadata are persisted fully in the model
             self.distinct_id = metadata["distinct_id"]
