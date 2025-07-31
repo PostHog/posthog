@@ -2,6 +2,7 @@ from typing import Any, cast, Optional, Union, Literal
 from datetime import datetime, timedelta, UTC
 
 from posthog.hogql import ast
+
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.parser import parse_select
 from posthog.hogql.property import property_to_expr
@@ -18,12 +19,12 @@ from posthog.schema import (
 import structlog
 
 from posthog.exceptions_capture import capture_exception
-from posthog.session_recordings.queries_to_delete.sub_queries.base_query import SessionRecordingsListingBaseQuery
-from posthog.session_recordings.queries_to_delete.sub_queries.cohort_subquery import CohortPropertyGroupsSubQuery
-from posthog.session_recordings.queries_to_delete.sub_queries.events_subquery import ReplayFiltersEventsSubQuery
-from posthog.session_recordings.queries_to_delete.sub_queries.person_ids_subquery import PersonsIdCompareOperation
-from posthog.session_recordings.queries_to_delete.sub_queries.person_props_subquery import PersonsPropertiesSubQuery
-from posthog.session_recordings.queries_to_delete.utils import (
+from posthog.session_recordings.queries.sub_queries.base_query import SessionRecordingsListingBaseQuery
+from posthog.session_recordings.queries.sub_queries.cohort_subquery import CohortPropertyGroupsSubQuery
+from posthog.session_recordings.queries.sub_queries.events_subquery import ReplayFiltersEventsSubQuery
+from posthog.session_recordings.queries.sub_queries.person_ids_subquery import PersonsIdCompareOperation
+from posthog.session_recordings.queries.sub_queries.person_props_subquery import PersonsPropertiesSubQuery
+from posthog.session_recordings.queries.utils import (
     SessionRecordingQueryResult,
     UnexpectedQueryProperties,
     _strip_person_and_event_and_cohort_properties,
@@ -224,8 +225,8 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         optional_exprs: list[ast.Expr] = []
 
         # if in PoE mode then we should be pushing person property queries into here
-        events_sub_query = ReplayFiltersEventsSubQuery(self._team, self._query).get_query_for_session_id_matching()
-        if events_sub_query:
+        events_sub_queries = ReplayFiltersEventsSubQuery(self._team, self._query).get_queries_for_session_id_matching()
+        for events_sub_query in events_sub_queries:
             optional_exprs.append(
                 ast.CompareOperation(
                     # this hits the distributed events table from the distributed session_replay_events table
@@ -290,7 +291,7 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
             )
 
         if optional_exprs:
-            exprs.append(self.ast_operand(exprs=optional_exprs))
+            exprs.append(self.wrapped_with_query_operand(exprs=optional_exprs))
 
         return ast.And(exprs=exprs)
 

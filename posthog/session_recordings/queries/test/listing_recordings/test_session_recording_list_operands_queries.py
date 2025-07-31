@@ -5,11 +5,11 @@ from freezegun import freeze_time
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.log_entries import TRUNCATE_LOG_ENTRIES_TABLE_SQL
 from posthog.models.utils import uuid7
-from posthog.session_recordings.queries_to_replace.test.listing_recordings.test_utils import (
+from posthog.session_recordings.queries.test.listing_recordings.test_utils import (
     create_event,
     assert_query_matches_session_ids,
 )
-from posthog.session_recordings.queries_to_replace.test.session_replay_sql import (
+from posthog.session_recordings.queries.test.session_replay_sql import (
     produce_replay_summary,
 )
 from posthog.session_recordings.sql.session_replay_event_sql import (
