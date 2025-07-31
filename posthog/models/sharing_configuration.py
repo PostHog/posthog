@@ -1,14 +1,44 @@
 import secrets
-from typing import cast
+from typing import cast, Any
 from datetime import timedelta
 from django.utils import timezone
 from django.conf import settings
 from django.db import models
 import structlog
+from pydantic import BaseModel, Field
 
 from posthog.models.insight import Insight
 
 logger = structlog.get_logger(__name__)
+
+
+class SharingConfigurationSettings(BaseModel):
+    """Pydantic model for sharing configuration settings with clear defaults."""
+
+    whitelabel: bool = Field(default=False, description="Hide PostHog branding")
+    noHeader: bool = Field(default=False, description="Hide the header section")
+    showInspector: bool = Field(default=False, description="Show the data inspector panel")
+    legend: bool = Field(default=False, description="Show chart legend")
+    detailed: bool = Field(default=False, description="Show detailed view")
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "SharingConfigurationSettings":
+        """Create SharingConfigurationSettings from a dictionary, filtering only known fields."""
+        known_fields = cls.model_fields.keys()
+        filtered_data = {k: v for k, v in data.items() if k in known_fields}
+        return cls(**filtered_data)
+
+    def merge_with_query_params(self, query_params: dict[str, Any]) -> "SharingConfigurationSettings":
+        """Merge current settings with query parameters, with query params taking precedence."""
+        merged_data = self.model_dump()
+
+        # Only update fields that exist in query_params and are known fields
+        for field_name in self.model_fields.keys():
+            if field_name in query_params:
+                # Convert query param presence to boolean (query params are strings)
+                merged_data[field_name] = bool(query_params[field_name])
+
+        return SharingConfigurationSettings(**merged_data)
 
 
 def get_default_access_token() -> str:

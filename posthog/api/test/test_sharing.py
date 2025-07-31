@@ -539,11 +539,23 @@ class TestSharing(APIBaseTest):
         )
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
-        assert data["settings"] == settings_data
+        assert data["settings"] == {
+            "whitelabel": True,
+            "noHeader": False,
+            "showInspector": False,
+            "legend": False,
+            "detailed": False,
+        }
 
         # Verify settings persists
         response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}/sharing")
-        assert response.json()["settings"] == settings_data
+        assert response.json()["settings"] == {
+            "whitelabel": True,
+            "noHeader": False,
+            "showInspector": False,
+            "legend": False,
+            "detailed": False,
+        }
 
     @patch("posthog.api.exports.exporter.export_asset.delay")
     def test_settings_preserved_on_token_rotation(self, patched_exporter_task: Mock):
@@ -555,13 +567,17 @@ class TestSharing(APIBaseTest):
             "showInspector": False,
             "legend": True,
             "detailed": False,
-            "customOption": "test",
+        }
+        settings_data_with_custom_option = {
+            **settings_data,
+            "customOption": "test2",
         }
         response = self.client.patch(
             f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}/sharing",
-            {"enabled": True, "settings": settings_data},
+            {"enabled": True, "settings": settings_data_with_custom_option},
         )
         assert response.status_code == status.HTTP_200_OK
+        assert response.json()["settings"] == settings_data
 
         # Refresh the token
         response = self.client.post(f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}/sharing/refresh/")
@@ -706,12 +722,15 @@ class TestSharing(APIBaseTest):
             "showInspector": True,
             "legend": False,
             "detailed": True,
+        }
+        settings_data_with_custom_option = {
+            **settings_data,
             "customOption": "test",
         }
 
         response = self.client.patch(
             f"/api/projects/{self.team.id}/{type}/{target.pk}/sharing",
-            {"enabled": True, "settings": settings_data},
+            {"enabled": True, "settings": settings_data_with_custom_option},
         )
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["settings"] == settings_data
@@ -761,3 +780,158 @@ class TestSharing(APIBaseTest):
         assert new_config.settings == settings_data
         assert new_config.access_token != original_config.access_token
         assert new_config.enabled == original_config.enabled
+
+
+class TestSharingConfigurationSerializerValidation(APIBaseTest):
+    """Test the serializer validation for settings field"""
+
+    dashboard: Dashboard = None  # type: ignore
+
+    @classmethod
+    def setUpTestData(cls):
+        super().setUpTestData()
+        cls.dashboard = Dashboard.objects.create(team=cls.team, name="test dashboard", created_by=cls.user)
+
+    @patch("posthog.api.exports.exporter.export_asset.delay")
+    def test_valid_settings_are_accepted(self, patched_exporter_task: Mock):
+        """Test that valid settings are accepted and validated"""
+        valid_settings = {
+            "whitelabel": True,
+            "noHeader": False,
+            "showInspector": True,
+            "legend": False,
+            "detailed": True,
+        }
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}/sharing",
+            {"enabled": True, "settings": valid_settings},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["settings"] == valid_settings
+
+    @patch("posthog.api.exports.exporter.export_asset.delay")
+    def test_partial_settings_are_filled_with_defaults(self, patched_exporter_task: Mock):
+        """Test that partial settings are filled with defaults during validation"""
+        partial_settings = {"whitelabel": True, "legend": True}
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}/sharing",
+            {"enabled": True, "settings": partial_settings},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+
+        # Should have defaults filled in
+        expected_settings = {
+            "whitelabel": True,
+            "noHeader": False,  # default
+            "showInspector": False,  # default
+            "legend": True,
+            "detailed": False,  # default
+        }
+        assert data["settings"] == expected_settings
+
+    @patch("posthog.api.exports.exporter.export_asset.delay")
+    def test_unknown_settings_are_filtered_out(self, patched_exporter_task: Mock):
+        """Test that unknown settings fields are filtered out during validation"""
+        settings_with_unknown = {
+            "whitelabel": True,
+            "unknownField": "should be removed",
+            "anotherBadField": 123,
+            "legend": False,
+        }
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}/sharing",
+            {"enabled": True, "settings": settings_with_unknown},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+
+        # Unknown fields should be filtered out, defaults filled in
+        expected_settings = {
+            "whitelabel": True,
+            "noHeader": False,
+            "showInspector": False,
+            "legend": False,
+            "detailed": False,
+        }
+        assert data["settings"] == expected_settings
+
+    @patch("posthog.api.exports.exporter.export_asset.delay")
+    def test_null_settings_are_accepted(self, patched_exporter_task: Mock):
+        """Test that null settings are accepted"""
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}/sharing",
+            {"enabled": True, "settings": None},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["settings"] is None
+
+    @patch("posthog.api.exports.exporter.export_asset.delay")
+    def test_empty_settings_get_defaults(self, patched_exporter_task: Mock):
+        """Test that empty settings dictionary gets filled with defaults"""
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}/sharing",
+            {"enabled": True, "settings": {}},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+
+        # Empty dict should be filled with defaults
+        expected_settings = {
+            "whitelabel": False,
+            "noHeader": False,
+            "showInspector": False,
+            "legend": False,
+            "detailed": False,
+        }
+        assert data["settings"] == expected_settings
+
+    def test_invalid_settings_type_rejected(self):
+        """Test that invalid settings type is rejected"""
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}/sharing",
+            {"enabled": True, "settings": "invalid string"},
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        errors = response.json()
+        assert "settings" in errors["detail"]
+        assert "Invalid settings format" in str(errors["detail"])
+
+    def test_settings_validation_works_for_insights_too(self):
+        """Test that settings validation works for insights as well as dashboards"""
+        insight = Insight.objects.create(
+            filters={"events": [{"id": "$pageview"}]},
+            team=self.team,
+            created_by=self.user,
+        )
+
+        valid_settings = {"whitelabel": True, "detailed": True}
+
+        with patch("posthog.api.exports.exporter.export_asset.delay"):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/insights/{insight.id}/sharing",
+                {"enabled": True, "settings": valid_settings},
+            )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+
+        expected_settings = {
+            "whitelabel": True,
+            "noHeader": False,
+            "showInspector": False,
+            "legend": False,
+            "detailed": True,
+        }
+        assert data["settings"] == expected_settings

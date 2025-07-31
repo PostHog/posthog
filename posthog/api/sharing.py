@@ -24,6 +24,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.client.async_task_chain import task_chain_context
 from posthog.constants import AvailableFeature
 from posthog.models import SessionRecording, SharingConfiguration, Team, InsightViewed
+from posthog.models.sharing_configuration import SharingConfigurationSettings
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.dashboard import Dashboard
 from posthog.models.exported_asset import (
@@ -85,10 +86,23 @@ def get_themes_for_team(team: Team):
 
 
 class SharingConfigurationSerializer(serializers.ModelSerializer):
+    settings = serializers.JSONField(required=False, allow_null=True)
+
     class Meta:
         model = SharingConfiguration
         fields = ["created_at", "enabled", "access_token", "settings"]
         read_only_fields = ["created_at", "access_token"]
+
+    def validate_settings(self, value):
+        """Validate settings using our Pydantic model."""
+        if value is None:
+            return None
+        try:
+            # This validates the structure and applies defaults
+            validated_settings = SharingConfigurationSettings.from_dict(value)
+            return validated_settings.model_dump()
+        except Exception as e:
+            raise serializers.ValidationError(f"Invalid settings format: {str(e)}")
 
 
 class SharingConfigurationViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.GenericViewSet):
@@ -351,8 +365,8 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
         else:
             raise NotFound()
 
-        # Check both query params (legacy) and settings for configuration options
-        state = getattr(resource, "settings", {}) or {}
+        # Get sharing settings using Pydantic model for validation and defaults
+        base_settings = SharingConfigurationSettings.from_dict(getattr(resource, "settings", {}) or {})
 
         # Only check query params for configurations created before SETTINGS_SHIP_DATE
         SETTINGS_SHIP_DATE = "2025-07-31"
@@ -363,21 +377,25 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
         # Exported assets don't have settings so we can continue to use query params
         can_use_query_params = created_before_settings_ship or not isinstance(resource, SharingConfiguration)
 
-        # Whitelabel
-        whitelabel_from_query = "whitelabel" in request.GET and can_use_query_params
-        if (whitelabel_from_query or state.get("whitelabel")) and resource.team.organization.is_feature_available(
+        # Merge query params with base settings if allowed
+        if can_use_query_params:
+            final_settings = base_settings.merge_with_query_params(request.GET)
+        else:
+            final_settings = base_settings
+
+        # Apply settings to exported data
+        if final_settings.whitelabel and resource.team.organization.is_feature_available(
             AvailableFeature.WHITE_LABELLING
         ):
             exported_data.update({"whitelabel": True})
 
-        # Other options: only allow query params for old configurations
-        if ("noHeader" in request.GET and can_use_query_params) or state.get("noHeader"):
+        if final_settings.noHeader:
             exported_data.update({"noHeader": True})
-        if ("showInspector" in request.GET and can_use_query_params) or state.get("showInspector"):
+        if final_settings.showInspector:
             exported_data.update({"showInspector": True})
-        if ("legend" in request.GET and can_use_query_params) or state.get("legend"):
+        if final_settings.legend:
             exported_data.update({"legend": True})
-        if ("detailed" in request.GET and can_use_query_params) or state.get("detailed"):
+        if final_settings.detailed:
             exported_data.update({"detailed": True})
 
         if request.path.endswith(f".json"):
