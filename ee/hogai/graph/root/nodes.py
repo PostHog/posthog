@@ -1,5 +1,4 @@
 import math
-import structlog
 from typing import Literal, Optional, TypeVar, cast
 from uuid import uuid4
 
@@ -13,7 +12,6 @@ from langchain_core.messages import (
 )
 from langchain_core.prompts import ChatPromptTemplate, PromptTemplate
 from langchain_core.runnables import RunnableConfig
-from langchain_openai import ChatOpenAI
 from langgraph.errors import NodeInterrupt
 from posthoganalytics import capture_exception
 from pydantic import BaseModel
@@ -73,8 +71,6 @@ RouteName = Literal["insights", "root", "end", "search_documentation", "insights
 
 RootMessageUnion = HumanMessage | AssistantMessage | FailureMessage | AssistantToolCallMessage
 T = TypeVar("T", RootMessageUnion, BaseMessage)
-
-logger = structlog.get_logger(__name__)
 
 
 class RootNodeUIContextMixin(AssistantNode):
@@ -623,7 +619,6 @@ class RootNodeTools(AssistantNode):
         last_message = state.messages[-1]
 
         if isinstance(last_message, AssistantToolCallMessage):
-            logger.info("TOOL CALL MESSAGE, returning to root!!")
             return "root"  # Let the root either proceed or finish, since it now can see the tool call result
         if isinstance(last_message, AssistantMessage) and state.root_tool_call_id:
             tool_calls = getattr(last_message, "tool_calls", None)
@@ -638,123 +633,4 @@ class RootNodeTools(AssistantNode):
                 return "insights_search"
             else:
                 return "search_documentation"
-
-        # Check if user wants to modify insights after seeing search results
-        if self._detect_insight_modification_intent_for_routing(state):
-            logger.info("USER WANTS TO MODIFY INSIGHT, returning to root!!")
-            return "root"
-
-        logger.info("ENDING!!")
         return "end"
-
-    def _detect_insight_modification_intent_for_routing(self, state: AssistantState) -> bool:
-        """
-        Simplified version of insight modification detection for routing decisions.
-
-        Returns True if the user likely wants to modify an insight after seeing search results.
-        """
-        if len(state.messages) < 2:
-            return False
-
-        # Look for recent search results followed by user intent to modify
-        recent_messages = state.messages[-6:]  # Check last 6 messages
-
-        # Check if we recently showed insight search results
-        has_recent_search_results = False
-        for message in reversed(recent_messages):
-            if (
-                isinstance(message, AssistantToolCallMessage)
-                and "Found" in message.content
-                and "insight" in message.content
-                and ("modify" in message.content or "What would you like to do?" in message.content)
-            ):
-                has_recent_search_results = True
-                break
-
-        if not has_recent_search_results:
-            return False
-
-        # Check if the most recent human message indicates intent to modify/create
-        last_human_message = None
-        for message in reversed(recent_messages):
-            if isinstance(message, HumanMessage):
-                last_human_message = message
-                break
-
-        if not last_human_message:
-            return False
-
-        user_content = last_human_message.content.lower()
-
-        # Detect modification/creation intent keywords
-        intent_keywords = [
-            "modify",
-            "edit",
-            "change",
-            "update",
-            "adjust",
-            "alter",
-            "create new",
-            "i want to modify",
-            "i'd like to change",
-            "can you modify",
-            "make a new",
-            "use the first",
-            "use insight",
-            "start with",
-            "based on",
-            "first one",
-        ]
-
-        return any(keyword in user_content for keyword in intent_keywords)
-
-    async def _detect_modification_intent(self, query_description: str) -> bool:
-        """
-        Determine if the query description is asking to modify an existing insight.
-        """
-        classification_prompt = f"""Analyze this query description and determine if it's asking to modify an existing insight or create a new one.
-
-Query: "{query_description}"
-
-INSTRUCTIONS:
-- Return "MODIFY" if the query is asking to modify/update/change an existing insight
-- Return "CREATE" if the query is asking to create a new insight from scratch
-
-Examples:
-- "Modify the existing Bills paid insight to show last 5 days" → MODIFY
-- "Update that insight to use different filters" → MODIFY
-- "Change the time range on the existing chart" → MODIFY
-- "Create a new insight showing user behavior" → CREATE
-- "Build a trends chart for tracking events" → CREATE
-- "Show me signup metrics over time" → CREATE
-
-Answer with just MODIFY or CREATE (one word only):"""
-
-        try:
-            classification_model = ChatOpenAI(
-                model="gpt-4o-mini",
-                temperature=0,
-                max_tokens=10,
-                timeout=5,
-            )
-
-            response = await classification_model.ainvoke([LangchainHumanMessage(content=classification_prompt)])
-
-            result = response.content.strip().upper()
-            logger.info(f"LLM classification response: '{result}'")
-
-            return "MODIFY" in result
-
-        except Exception as e:
-            logger.warning(f"LLM classification failed, falling back to pattern matching: {e}")
-            # Fallback
-            query_lower = query_description.lower()
-            fallback_patterns = [
-                "modify the existing",
-                "modify existing",
-                "update the existing",
-                "update existing",
-                "change the existing",
-                "change existing",
-            ]
-            return any(pattern in query_lower for pattern in fallback_patterns)
