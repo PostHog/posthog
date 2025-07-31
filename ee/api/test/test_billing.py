@@ -57,6 +57,7 @@ def create_missing_billing_customer(**kwargs) -> CustomerInfo:
             "rows_synced": {"limit": None, "usage": 0},
             "feature_flag_requests": {"limit": None, "usage": 0},
             "api_queries_read_bytes": {"limit": None, "usage": 0},
+            "surveys": {"limit": None, "usage": 0},
         },
         free_trial_until=None,
         available_product_features=[],
@@ -156,6 +157,7 @@ def create_billing_customer(**kwargs) -> CustomerInfo:
             "rows_synced": {"limit": None, "usage": 0},
             "feature_flag_requests": {"limit": None, "usage": 0},
             "api_queries_read_bytes": {"limit": None, "usage": 0},
+            "surveys": {"limit": None, "usage": 0},
         },
         free_trial_until=None,
     )
@@ -452,6 +454,7 @@ class TestBillingAPI(APILicensedTest):
                 "rows_synced": {"limit": None, "usage": 0},
                 "feature_flag_requests": {"limit": None, "usage": 0},
                 "api_queries_read_bytes": {"limit": None, "usage": 0},
+                "surveys": {"limit": None, "usage": 0},
             },
             "free_trial_until": None,
         }
@@ -579,6 +582,7 @@ class TestBillingAPI(APILicensedTest):
                 "rows_synced": {"limit": None, "usage": 0},
                 "feature_flag_requests": {"limit": None, "usage": 0},
                 "api_queries_read_bytes": {"limit": None, "usage": 0},
+                "surveys": {"limit": None, "usage": 0},
             },
             "free_trial_until": None,
             "current_total_amount_usd": "0.00",
