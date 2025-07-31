@@ -139,9 +139,9 @@ class TestTimezonePreAggregatedIntegration(WebAnalyticsPreAggregatedTestBase, Fl
             "raw_used": raw_runner.used_preaggregated_tables,
         }
 
-    def _sort_results(self, results):
-        """Sort results by browser name for consistent comparison."""
-        return sorted(results, key=lambda x: x[0] if x and len(x) > 0 else "")
+    # x[0] in the test context is the browser name as we're only dealing with browser breakdowns
+    def _sort_results(self, results, key=lambda x: x[0] if x and len(x) > 0 else ""):
+        return sorted(results, key=key)
 
     @parameterized.expand(
         [
@@ -468,7 +468,7 @@ class TestTimezonePreAggregatedIntegration(WebAnalyticsPreAggregatedTestBase, Fl
                 ["Safari", (1.0, None), (1.0, None), 0.25, ""],  # 1 Safari event in range
             ]
 
-            total_events_in_results = sum(row[1][0] for row in expected_results)
+            total_events_in_results = sum(row[1][0] for row in expected_results)  # type: ignore[index]
 
             assert results == self._sort_results(expected_results)
 
