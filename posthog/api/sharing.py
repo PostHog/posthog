@@ -37,6 +37,7 @@ from posthog.models.user import User
 from posthog.session_recordings.session_recording_api import SessionRecordingSerializer
 from posthog.user_permissions import UserPermissions
 from posthog.utils import render_template
+from posthog.exceptions_capture import capture_exception
 
 
 def shared_url_as_png(url: str = "") -> str:
@@ -106,7 +107,8 @@ class SharingConfigurationSerializer(serializers.ModelSerializer):
             result = validated_settings.model_dump(exclude_none=True)
             return result
         except Exception as e:
-            raise serializers.ValidationError(f"Invalid settings format: {str(e)}")
+            capture_exception(e)
+            raise serializers.ValidationError("Invalid settings format")
 
 
 class SharingConfigurationViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.GenericViewSet):
