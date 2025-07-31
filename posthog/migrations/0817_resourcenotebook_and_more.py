@@ -26,14 +26,14 @@ class Migration(migrations.Migration):
                         blank=True,
                         null=True,
                         on_delete=django.db.models.deletion.CASCADE,
-                        related_name="notebook_relationships",
+                        related_name="notebooks",
                         to="posthog.group",
                     ),
                 ),
                 (
                     "notebook",
                     models.ForeignKey(
-                        on_delete=django.db.models.deletion.CASCADE, related_name="relationships", to="posthog.notebook"
+                        on_delete=django.db.models.deletion.CASCADE, related_name="resources", to="posthog.notebook"
                     ),
                 ),
             ],
