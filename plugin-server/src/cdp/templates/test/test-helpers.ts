@@ -49,7 +49,7 @@ const compileObject = async (obj: any): Promise<any> => {
     }
 }
 
-const compileInputs = async (
+export const compileInputs = async (
     template: HogFunctionTemplate | NativeTemplate,
     _inputs: Record<string, any>
 ): Promise<Record<string, CyclotronInputType>> => {
@@ -151,7 +151,7 @@ export class TemplateTester {
 
         this.template = {
             ...this._template,
-            bytecode: await compileHog(this._template.hog),
+            bytecode: await compileHog(this._template.code),
         }
 
         this.executor = new HogExecutorService(this.mockHub)
@@ -176,8 +176,10 @@ export class TemplateTester {
         const compiledInputs = await compileInputs(this.template, _inputs)
         const globals = this.createGlobals(_globals)
 
+        const { code, ...partialTemplate } = this.template
         const hogFunction: HogFunctionType = {
-            ...this.template,
+            ...partialTemplate,
+            hog: code,
             inputs: compiledInputs,
             bytecode: this.template.bytecode,
             team_id: 1,
@@ -248,8 +250,10 @@ export class TemplateTester {
 
         compiledMappingInputs.inputs = inputsObj
 
+        const { code, ...partialTemplate } = this.template
         const hogFunction: HogFunctionType = {
-            ...this.template,
+            ...partialTemplate,
+            hog: code,
             team_id: 1,
             enabled: true,
             created_at: '2024-01-01T00:00:00Z',
@@ -282,15 +286,7 @@ export class TemplateTester {
             body: response.body,
         })
 
-        const result = await this.executor.execute(modifiedInvocation)
-
-        result.logs.forEach((x) => {
-            if (typeof x.message === 'string' && x.message.includes('Function completed in')) {
-                x.message = 'Function completed in [REPLACED]'
-            }
-        })
-
-        return result
+        return this.executor.execute(modifiedInvocation)
     }
 }
 

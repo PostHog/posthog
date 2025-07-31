@@ -1,4 +1,4 @@
-import { LemonBanner } from '@posthog/lemon-ui'
+import { LemonBanner, LemonTag, Tooltip } from '@posthog/lemon-ui'
 import api from 'lib/api'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import { IntegrationScopesWarning } from 'lib/integrations/IntegrationScopesWarning'
@@ -9,10 +9,14 @@ export function IntegrationView({
     integration,
     suffix,
     schema,
+    isVerificationRequired,
+    isVerified,
 }: {
     integration: IntegrationType
     suffix?: JSX.Element
     schema?: CyclotronJobInputSchemaType
+    isVerificationRequired?: boolean
+    isVerified?: boolean
 }): JSX.Element {
     const errors = (integration.errors && integration.errors?.split(',')) || []
 
@@ -22,8 +26,23 @@ export function IntegrationView({
                 <div className="flex gap-4 items-center ml-2">
                     <img src={integration.icon_url} className="w-10 h-10 rounded" />
                     <div>
-                        <div>
-                            Connected to <strong>{integration.display_name}</strong>
+                        <div className="flex gap-2">
+                            <span>
+                                Connected to <strong>{integration.display_name}</strong>
+                            </span>
+                            {isVerificationRequired && (
+                                <Tooltip
+                                    title={
+                                        isVerified
+                                            ? 'This channel is ready to use'
+                                            : 'You cannot send messages from this channel until it has been verified'
+                                    }
+                                >
+                                    <LemonTag type={isVerified ? 'success' : 'warning'}>
+                                        {isVerified ? 'Verified' : 'Unverified'}
+                                    </LemonTag>
+                                </Tooltip>
+                            )}
                         </div>
                         {integration.created_by ? (
                             <UserActivityIndicator

@@ -4,7 +4,7 @@ import { GridLines } from './GridLines'
 import { TickLabels } from './TickLabels'
 
 interface ChartAxisProps {
-    chartRadius: number
+    axisRange: number
     height: number
     viewBoxWidth?: number
     edgeMargin?: number
@@ -20,7 +20,7 @@ interface ChartAxisProps {
  * Provides a simple API for common axis rendering needs.
  */
 export function ChartAxis({
-    chartRadius,
+    axisRange,
     height,
     viewBoxWidth = 800,
     edgeMargin = 20,
@@ -30,8 +30,8 @@ export function ChartAxis({
     gridLinesProps = {},
     tickLabelsProps = {},
 }: ChartAxisProps): JSX.Element {
-    const tickValues = getNiceTickValues(chartRadius)
-    const scale = useAxisScale(chartRadius, viewBoxWidth, edgeMargin)
+    const tickValues = getNiceTickValues(axisRange)
+    const scale = useAxisScale(axisRange, viewBoxWidth, edgeMargin)
 
     return (
         <>

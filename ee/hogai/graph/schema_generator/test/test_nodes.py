@@ -26,13 +26,13 @@ class DummyGeneratorNode(SchemaGeneratorNode[AssistantTrendsQuery]):
     OUTPUT_MODEL = SchemaGeneratorOutput[AssistantTrendsQuery]
     OUTPUT_SCHEMA = {}
 
-    def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
+    async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
         prompt = ChatPromptTemplate.from_messages(
             [
                 ("system", "system_prompt"),
             ],
         )
-        return super()._run_with_prompt(state, prompt, config=config)
+        return await super()._run_with_prompt(state, prompt, config=config)
 
 
 @override_settings(IN_UNIT_TESTING=True)
@@ -41,11 +41,11 @@ class TestSchemaGeneratorNode(BaseTest):
         super().setUp()
         self.schema = AssistantTrendsQuery(series=[])
 
-    def test_node_runs(self):
+    async def test_node_runs(self):
         node = DummyGeneratorNode(self.team, self.user)
         with patch.object(DummyGeneratorNode, "_model") as generator_model_mock:
             generator_model_mock.return_value = RunnableLambda(lambda _: DummySchema(query=self.schema).model_dump())
-            new_state = node.run(
+            new_state = await node.arun(
                 AssistantState(
                     messages=[HumanMessage(content="Text", id="0")],
                     plan="Plan",
@@ -59,9 +59,9 @@ class TestSchemaGeneratorNode(BaseTest):
             self.assertEqual(new_state.messages[0].type, "ai/viz")
             self.assertEqual(new_state.messages[0].answer, self.schema)
 
-    def test_agent_reconstructs_conversation_and_does_not_add_an_empty_plan(self):
+    async def test_agent_reconstructs_conversation_and_does_not_add_an_empty_plan(self):
         node = DummyGeneratorNode(self.team, self.user)
-        history = node._construct_messages(
+        history = await node._construct_messages(
             AssistantState(messages=[HumanMessage(content="Text", id="0")], start_id="0")
         )
         self.assertEqual(len(history), 2)
@@ -71,9 +71,9 @@ class TestSchemaGeneratorNode(BaseTest):
         self.assertIn("Answer to this question:", history[1].content)
         self.assertNotIn("{{question}}", history[1].content)
 
-    def test_agent_reconstructs_conversation_adds_plan(self):
+    async def test_agent_reconstructs_conversation_adds_plan(self):
         node = DummyGeneratorNode(self.team, self.user)
-        history = node._construct_messages(
+        history = await node._construct_messages(
             AssistantState(
                 messages=[HumanMessage(content="Text", id="0")],
                 plan="randomplan",
@@ -93,9 +93,9 @@ class TestSchemaGeneratorNode(BaseTest):
         self.assertNotIn("{{question}}", history[2].content)
         self.assertIn("Text", history[2].content)
 
-    def test_agent_reconstructs_conversation_can_handle_follow_ups(self):
+    async def test_agent_reconstructs_conversation_can_handle_follow_ups(self):
         node = DummyGeneratorNode(self.team, self.user)
-        history = node._construct_messages(
+        history = await node._construct_messages(
             AssistantState(
                 messages=[
                     HumanMessage(content="Multiple questions", id="0"),
@@ -129,9 +129,9 @@ class TestSchemaGeneratorNode(BaseTest):
         self.assertNotIn("{{question}}", history[5].content)
         self.assertIn("Follow Up", history[5].content)
 
-    def test_agent_reconstructs_typical_conversation(self):
+    async def test_agent_reconstructs_typical_conversation(self):
         node = DummyGeneratorNode(self.team, self.user)
-        history = node._construct_messages(
+        history = await node._construct_messages(
             AssistantState(
                 messages=[
                     HumanMessage(content="Question 1", id="0"),
@@ -172,7 +172,7 @@ class TestSchemaGeneratorNode(BaseTest):
         self.assertEqual(history[8].type, "human")
         self.assertIn("Query 3", history[8].content)
 
-    def test_prompt_messages_merged(self):
+    async def test_prompt_messages_merged(self):
         node = DummyGeneratorNode(self.team, self.user)
         state = AssistantState(
             messages=[
@@ -199,9 +199,9 @@ class TestSchemaGeneratorNode(BaseTest):
                 self.assertEqual(prompt[5].type, "human")
 
             generator_model_mock.return_value = RunnableLambda(assert_prompt)
-            node.run(state, {})
+            await node.arun(state, {})
 
-    def test_failover_with_incorrect_schema(self):
+    async def test_failover_with_incorrect_schema(self):
         node = DummyGeneratorNode(self.team, self.user)
         with patch.object(DummyGeneratorNode, "_model") as generator_model_mock:
             schema = DummySchema(query=None).model_dump()
@@ -209,10 +209,10 @@ class TestSchemaGeneratorNode(BaseTest):
             schema["query"] = []
             generator_model_mock.return_value = RunnableLambda(lambda _: json.dumps(schema))
 
-            new_state = node.run(AssistantState(messages=[HumanMessage(content="Text")]), {})
+            new_state = await node.arun(AssistantState(messages=[HumanMessage(content="Text")]), {})
             self.assertEqual(len(new_state.intermediate_steps), 1)
 
-            new_state = node.run(
+            new_state = await node.arun(
                 AssistantState(
                     messages=[HumanMessage(content="Text")],
                     intermediate_steps=[(AgentAction(tool="", tool_input="", log="exception"), "exception")],
@@ -221,14 +221,14 @@ class TestSchemaGeneratorNode(BaseTest):
             )
             self.assertEqual(len(new_state.intermediate_steps), 2)
 
-    def test_node_leaves_failover(self):
+    async def test_node_leaves_failover(self):
         node = DummyGeneratorNode(self.team, self.user)
         with patch.object(
             DummyGeneratorNode,
             "_model",
             return_value=RunnableLambda(lambda _: DummySchema(query=self.schema).model_dump()),
         ):
-            new_state = node.run(
+            new_state = await node.arun(
                 AssistantState(
                     messages=[HumanMessage(content="Text")],
                     intermediate_steps=[(AgentAction(tool="", tool_input="", log="exception"), "exception")],
@@ -237,7 +237,7 @@ class TestSchemaGeneratorNode(BaseTest):
             )
             self.assertEqual(new_state.intermediate_steps, None)
 
-            new_state = node.run(
+            new_state = await node.arun(
                 AssistantState(
                     messages=[HumanMessage(content="Text")],
                     intermediate_steps=[
@@ -249,7 +249,7 @@ class TestSchemaGeneratorNode(BaseTest):
             )
             self.assertEqual(new_state.intermediate_steps, None)
 
-    def test_node_leaves_failover_after_second_unsuccessful_attempt(self):
+    async def test_node_leaves_failover_after_second_unsuccessful_attempt(self):
         node = DummyGeneratorNode(self.team, self.user)
         with patch.object(DummyGeneratorNode, "_model") as generator_model_mock:
             schema = DummySchema(query=None).model_dump()
@@ -257,7 +257,7 @@ class TestSchemaGeneratorNode(BaseTest):
             schema["query"] = []
             generator_model_mock.return_value = RunnableLambda(lambda _: json.dumps(schema))
 
-            new_state = node.run(
+            new_state = await node.arun(
                 AssistantState(
                     messages=[HumanMessage(content="Text")],
                     intermediate_steps=[
@@ -272,10 +272,10 @@ class TestSchemaGeneratorNode(BaseTest):
             self.assertIsInstance(new_state.messages[0], FailureMessage)
             self.assertEqual(new_state.plan, None)
 
-    def test_agent_reconstructs_conversation_with_failover(self):
+    async def test_agent_reconstructs_conversation_with_failover(self):
         action = AgentAction(tool="fix", tool_input="validation error", log="exception")
         node = DummyGeneratorNode(self.team, self.user)
-        history = node._construct_messages(
+        history = await node._construct_messages(
             AssistantState(
                 messages=[HumanMessage(content="Text", id="0")],
                 plan="randomplan",
@@ -299,9 +299,9 @@ class TestSchemaGeneratorNode(BaseTest):
         self.assertIn("Pydantic", history[3].content)
         self.assertIn("uniqexception", history[3].content)
 
-    def test_agent_reconstructs_conversation_with_failed_messages(self):
+    async def test_agent_reconstructs_conversation_with_failed_messages(self):
         node = DummyGeneratorNode(self.team, self.user)
-        history = node._construct_messages(
+        history = await node._construct_messages(
             AssistantState(
                 messages=[
                     HumanMessage(content="Text"),
@@ -332,9 +332,9 @@ class TestSchemaGeneratorNode(BaseTest):
         )
         self.assertEqual(state, "tools")
 
-    def test_injects_insight_description(self):
+    async def test_injects_insight_description(self):
         node = DummyGeneratorNode(self.team, self.user)
-        history = node._construct_messages(
+        history = await node._construct_messages(
             AssistantState(
                 messages=[HumanMessage(content="Text", id="0")],
                 start_id="0",
@@ -349,9 +349,9 @@ class TestSchemaGeneratorNode(BaseTest):
         self.assertIn("Foobar", history[1].content)
         self.assertNotIn("{{question}}", history[1].content)
 
-    def test_injects_insight_description_and_keeps_original_question(self):
+    async def test_injects_insight_description_and_keeps_original_question(self):
         node = DummyGeneratorNode(self.team, self.user)
-        history = node._construct_messages(
+        history = await node._construct_messages(
             AssistantState(
                 messages=[
                     HumanMessage(content="Original question", id="1"),
@@ -379,10 +379,10 @@ class TestSchemaGeneratorNode(BaseTest):
         self.assertIn("Foobar", history[4].content)
         self.assertNotIn("{{question}}", history[4].content)
 
-    def test_keeps_maximum_number_of_viz_messages(self):
+    async def test_keeps_maximum_number_of_viz_messages(self):
         node = DummyGeneratorNode(self.team, self.user)
         query = AssistantTrendsQuery(series=[])
-        history = node._construct_messages(
+        history = await node._construct_messages(
             AssistantState(
                 messages=[
                     VisualizationMessage(query="Query 1", answer=query, plan="Plan 1", id="1"),
@@ -440,12 +440,24 @@ class TestSchemaGeneratorNode(BaseTest):
         self.assertEqual(history[16].type, "human")
         self.assertIn("Query 8", history[16].content)
 
+    async def test_agent_handles_incomplete_json(self):
+        node = DummyGeneratorNode(self.team, self.user)
+        with patch.object(
+            DummyGeneratorNode,
+            "_model",
+            return_value=RunnableLambda(
+                lambda _: """\n\n{\"query\":{\"kind\":\"RetentionQuery\",\"dateRange\":{\"date_from\":\"2024-01-01\",\"date_to\":\"2024-12-31\"},\"retentionFilter\":{\"period\":\"Week\",\"totalIntervals\":11,\"targetEntity\":{\"name\":\"Application Opened\",\"type\":\"events\"},\"returningEntity\":{\"name\":\"Application Opened\",\"type\":\"events\"}},\"filterTestAccounts\":false}\t \t\t \t\t \t \t"""
+            ),
+        ):
+            new_state = await node.arun(AssistantState(messages=[HumanMessage(content="Text")]), {})
+            self.assertEqual(len(new_state.intermediate_steps), 1)
+
 
 class TestSchemaGeneratorToolsNode(BaseTest):
-    def test_tools_node(self):
+    async def test_tools_node(self):
         node = SchemaGeneratorToolsNode(self.team, self.user)
         action = AgentAction(tool="fix", tool_input="validationerror", log="pydanticexception")
-        state = node.run(AssistantState(messages=[], intermediate_steps=[(action, None)]), {})
+        state = await node.arun(AssistantState(messages=[], intermediate_steps=[(action, None)]), {})
         self.assertIsNotNone("validationerror", state.intermediate_steps[0][1])
         self.assertIn("validationerror", state.intermediate_steps[0][1])
         self.assertIn("pydanticexception", state.intermediate_steps[0][1])

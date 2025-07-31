@@ -33,11 +33,10 @@ from rest_framework.renderers import JSONRenderer
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.utils.encoders import JSONEncoder
+
 from ee.hogai.session_summaries.llm.call import get_openai_client
 from ee.hogai.session_summaries.session.stream import stream_recording_summary
 from posthog.cloud_utils import is_cloud
-import posthog.session_recordings.queries.session_recording_list_from_query
-import posthog.session_recordings.queries.sub_queries.events_subquery
 from posthog.api.person import MinimalPersonSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import ServerTimingsGathered, action, safe_clickhouse_string
@@ -62,10 +61,7 @@ from posthog.session_recordings.models.session_recording_event import (
     SessionRecordingViewed,
 )
 from posthog.session_recordings.queries.session_recording_list_from_query import (
-    SessionRecordingListFromQuery as OriginalSessionRecordingListFromQuery,
-)
-from posthog.session_recordings.queries_to_replace.session_recording_list_from_query import (
-    SessionRecordingListFromQuery as RewrittenSessionRecordingListFromQuery,
+    SessionRecordingListFromQuery,
 )
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 from posthog.session_recordings.realtime_snapshots import (
@@ -78,11 +74,13 @@ from posthog.session_recordings.utils import clean_prompt_whitespace
 from posthog.settings.session_replay import SESSION_REPLAY_AI_REGEX_MODEL
 from posthog.storage import object_storage, session_recording_v2_object_storage
 from posthog.storage.session_recording_v2_object_storage import BlockFetchError
+from .queries.sub_queries.events_subquery import ReplayFiltersEventsSubQuery
 from ..models.product_intent.product_intent import ProductIntent
 from posthog.models.activity_logging.activity_log import log_activity, Detail
 from loginas.utils import is_impersonated_session
 
 USE_BLOB_V2_LTS = "use-blob-v2-lts"
+MAX_RECORDINGS_PER_BULK_ACTION = 20
 
 SNAPSHOTS_BY_PERSONAL_API_KEY_COUNTER = Counter(
     "snapshots_personal_api_key_counter",
@@ -406,12 +404,32 @@ def stream_from(url: str, headers: dict | None = None) -> Generator[requests.Res
         session.close()
 
 
-class SnapshotsBurstRateThrottle(PersonalApiKeyRateThrottle):
+class SourceVaryingSnapshotThrottle(PersonalApiKeyRateThrottle):
+    source: str | None = None
+
+    def get_rate(self):
+        num_requests, duration = self.parse_rate(self.get_rate())
+
+        divisors = {
+            "realtime": 8,
+            "blob": 4,
+            "blob_v2": 1,
+        }
+
+        divisor: int = divisors.get(self.source if self.source else "", 1)
+        return None if num_requests is None else num_requests / divisor, duration
+
+    def allow_request(self, request, view):
+        self.source = request.GET.get("source", None)
+        return super().allow_request(request, view)
+
+
+class SnapshotsBurstRateThrottle(SourceVaryingSnapshotThrottle):
     scope = "snapshots_burst"
     rate = "120/minute"
 
 
-class SnapshotsSustainedRateThrottle(PersonalApiKeyRateThrottle):
+class SnapshotsSustainedRateThrottle(SourceVaryingSnapshotThrottle):
     scope = "snapshots_sustained"
     rate = "600/hour"
 
@@ -428,6 +446,11 @@ def query_as_params_to_dict(params_dict: dict) -> dict:
         except JSONDecodeError:
             converted[key] = params_dict[key]
 
+    # we used to accept this value,
+    # but very unlikely to receive it now
+    # it's safe to pop
+    # to make sure any old URLs or filters don't error
+    # if they still include it
     converted.pop("as_query", None)
 
     return converted
@@ -547,11 +570,10 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
 
         distinct_id = str(cast(User, request.user).distinct_id)
         modifiers = safely_read_modifiers_overrides(distinct_id, self.team)
-        results, _, timings = (
-            posthog.session_recordings.queries.sub_queries.events_subquery.ReplayFiltersEventsSubQuery(
-                query=query, team=self.team, hogql_query_modifiers=modifiers
-            ).get_event_ids_for_session()
-        )
+
+        results, _, timings = ReplayFiltersEventsSubQuery(
+            query=query, team=self.team, hogql_query_modifiers=modifiers
+        ).get_event_ids_for_session()
 
         response = JsonResponse(data={"results": results})
 
@@ -680,8 +702,10 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         if not session_recording_ids or not isinstance(session_recording_ids, list):
             raise exceptions.ValidationError("session_recording_ids must be provided as a non-empty array")
 
-        if len(session_recording_ids) > 20:
-            raise exceptions.ValidationError("Cannot process more than 20 recordings at once")
+        if len(session_recording_ids) > MAX_RECORDINGS_PER_BULK_ACTION:
+            raise exceptions.ValidationError(
+                f"Cannot process more than {MAX_RECORDINGS_PER_BULK_ACTION} recordings at once"
+            )
 
         # Load recordings from ClickHouse to get distinct_ids for ones that don't exist in Postgres
         # Create minimal query with only session_ids
@@ -749,6 +773,86 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
 
         return Response(
             {"success": True, "deleted_count": deleted_count, "total_requested": len(session_recording_ids)}
+        )
+
+    @extend_schema(exclude=True)
+    @action(methods=["POST"], detail=False, url_path="bulk_viewed")
+    def bulk_viewed(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
+        """Bulk mark recordings as viewed by providing a list of recording IDs."""
+
+        session_recording_ids = request.data.get("session_recording_ids", [])
+
+        if not session_recording_ids or not isinstance(session_recording_ids, list):
+            raise exceptions.ValidationError("session_recording_ids must be provided as a non-empty array")
+
+        if len(session_recording_ids) > MAX_RECORDINGS_PER_BULK_ACTION:
+            raise exceptions.ValidationError(
+                f"Cannot process more than {MAX_RECORDINGS_PER_BULK_ACTION} recordings at once"
+            )
+
+        user = cast(User, request.user)
+
+        # Create SessionRecordingViewed records for all session_recording_ids
+        # ignore_conflicts=True handles duplicates efficiently using the unique_together constraint
+        session_recordings_viewed_to_create = [
+            SessionRecordingViewed(
+                team=self.team,
+                user=user,
+                session_id=session_id,
+                bulk_viewed=True,
+            )
+            for session_id in session_recording_ids
+        ]
+
+        created_records = SessionRecordingViewed.objects.bulk_create(
+            session_recordings_viewed_to_create, ignore_conflicts=True
+        )
+
+        viewed_count = len(created_records)
+
+        logger.info(
+            "bulk_recordings_viewed",
+            team_id=self.team.id,
+            user_id=user.id,
+            viewed_count=viewed_count,
+            total_requested=len(session_recording_ids),
+        )
+
+        return Response({"success": True, "viewed_count": viewed_count, "total_requested": len(session_recording_ids)})
+
+    @extend_schema(exclude=True)
+    @action(methods=["POST"], detail=False, url_path="bulk_not_viewed")
+    def bulk_not_viewed(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
+        """Bulk mark recordings as not viewed by providing a list of recording IDs."""
+
+        session_recording_ids = request.data.get("session_recording_ids", [])
+
+        if not session_recording_ids or not isinstance(session_recording_ids, list):
+            raise exceptions.ValidationError("session_recording_ids must be provided as a non-empty array")
+
+        if len(session_recording_ids) > MAX_RECORDINGS_PER_BULK_ACTION:
+            raise exceptions.ValidationError(
+                f"Cannot process more than {MAX_RECORDINGS_PER_BULK_ACTION} recordings at once"
+            )
+
+        user = cast(User, request.user)
+
+        deleted_count, _ = SessionRecordingViewed.objects.filter(
+            team=self.team,
+            user=user,
+            session_id__in=session_recording_ids,
+        ).delete()
+
+        logger.info(
+            "bulk_recordings_not_viewed",
+            team_id=self.team.id,
+            user_id=user.id,
+            not_viewed_count=deleted_count,
+            total_requested=len(session_recording_ids),
+        )
+
+        return Response(
+            {"success": True, "not_viewed_count": deleted_count, "total_requested": len(session_recording_ids)}
         )
 
     @extend_schema(exclude=True)
@@ -1379,16 +1483,10 @@ def list_recordings_from_query(
 
         with timer("load_recordings_from_hogql"), posthoganalytics.new_context():
             posthoganalytics.tag("use_multiple_sub_queries", use_multiple_sub_queries)
-            if use_multiple_sub_queries:
-                (ch_session_recordings, more_recordings_available, hogql_timings) = (
-                    RewrittenSessionRecordingListFromQuery(
-                        query=query, team=team, hogql_query_modifiers=modifiers
-                    ).run()
-                )
-            else:
-                (ch_session_recordings, more_recordings_available, hogql_timings) = (
-                    OriginalSessionRecordingListFromQuery(query=query, team=team, hogql_query_modifiers=modifiers).run()
-                )
+
+            (ch_session_recordings, more_recordings_available, hogql_timings) = SessionRecordingListFromQuery(
+                query=query, team=team, hogql_query_modifiers=modifiers
+            ).run()
 
         with timer("build_recordings"):
             recordings_from_clickhouse = SessionRecording.get_or_build_from_clickhouse(team, ch_session_recordings)
