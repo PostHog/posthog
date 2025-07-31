@@ -241,7 +241,7 @@ export function InternalMultipleChoiceSurvey({ surveyId }: InternalSurveyProps):
                                                     onClick={() => {
                                                         openSidePanel(SidePanelTab.Max)
                                                         askMax(
-                                                            `I am turning off sesssion replay because of "${openChoice}". Is there a way to fix this?`
+                                                            `I am turning off session replay because of "${openChoice}". Is there a way to fix this?`
                                                         )
                                                     }}
                                                 >
