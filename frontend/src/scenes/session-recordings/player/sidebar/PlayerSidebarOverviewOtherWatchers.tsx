@@ -20,9 +20,15 @@ function OtherWatchersLoading(): JSX.Element {
     )
 }
 
-function OtherWatchersDisplay({ metadata }: { metadata?: SessionRecordingType }): JSX.Element | null {
+function OtherWatchersDisplay({
+    metadata,
+    startExpanded = false,
+}: {
+    metadata?: SessionRecordingType
+    startExpanded?: boolean
+}): JSX.Element | null {
     const { user: currentUser } = useValues(userLogic)
-    const [isExpanded, setIsExpanded] = useState(false)
+    const [isExpanded, setIsExpanded] = useState(startExpanded)
 
     if (!metadata?.viewers) {
         return null
@@ -79,7 +85,11 @@ function NoOtherWatchers(): JSX.Element {
     )
 }
 
-export function PlayerSidebarOverviewOtherWatchers(): JSX.Element {
+export function PlayerSidebarOverviewOtherWatchers({
+    startExpanded = false,
+}: {
+    startExpanded?: boolean
+}): JSX.Element {
     const { sessionPlayerMetaDataLoading, sessionPlayerMetaData } = useValues(sessionRecordingPlayerLogic)
 
     return (
@@ -87,7 +97,7 @@ export function PlayerSidebarOverviewOtherWatchers(): JSX.Element {
             {sessionPlayerMetaDataLoading ? (
                 <OtherWatchersLoading />
             ) : sessionPlayerMetaData?.viewers?.length ? (
-                <OtherWatchersDisplay metadata={sessionPlayerMetaData} />
+                <OtherWatchersDisplay metadata={sessionPlayerMetaData} startExpanded={startExpanded} />
             ) : (
                 <NoOtherWatchers />
             )}
