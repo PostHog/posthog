@@ -32,39 +32,13 @@ class ModelActivityMixin(models.Model):
         abstract = True
 
     def save(self, *args: Any, **kwargs: Any) -> None:
-        # Get a copy of the existing instance before saving
-        if self.pk:
-            before_update = self.__class__.objects.filter(pk=self.pk).first()  # type: ignore[attr-defined]
-            if before_update:
-                before_update._state.adding = False  # Ensure the copy knows it's not a new instance
-                before_update.pk = before_update.pk  # Ensure pk is copied
-        else:
-            before_update = None
-
         change_type = "updated" if self.pk else "created"
-
-        # For updates, check if only signal-excluded fields changed
         should_log = True
-        if change_type == "updated" and before_update:
-            # Lazy import to avoid circular import issues
-            from posthog.models.activity_logging.activity_log import signal_exclusions, changes_between, ActivityScope
-            from typing import cast
+        before_update = None
 
-            model_name = cast(ActivityScope, self.__class__.__name__)
-            signal_excluded_fields = signal_exclusions.get(model_name, [])
-            if signal_excluded_fields:
-                changed_fields = get_changed_fields_local(before_update, self)
-
-                # If no non-excluded fields changed, skip activity logging entirely
-                if not changed_fields:
-                    should_log = False
-                else:
-                    # Some non-excluded fields changed, need full analysis
-                    changes = changes_between(model_name, before_update, self)
-                    changes_triggering_logging = [
-                        change for change in changes if change.field not in signal_excluded_fields
-                    ]
-                    should_log = len(changes_triggering_logging) > 0
+        # For updates, check if we need activity logging at all
+        if change_type == "updated" and self.pk:
+            should_log, before_update = self._should_log_activity_for_update(**kwargs)
 
         super().save(*args, **kwargs)
 
@@ -77,6 +51,29 @@ class ModelActivityMixin(models.Model):
                 activity=change_type,
                 was_impersonated=get_was_impersonated(),
             )
+
+    def _should_log_activity_for_update(self, **kwargs) -> tuple[bool, Any]:
+        from posthog.models.activity_logging.activity_log import signal_exclusions, ActivityScope
+        from typing import cast
+
+        model_name = cast(ActivityScope, self.__class__.__name__)
+        signal_excluded_fields = signal_exclusions.get(model_name, [])
+
+        if not signal_excluded_fields:
+            return True, None
+
+        update_fields = kwargs.get("update_fields")
+        if update_fields and all(field in signal_excluded_fields for field in update_fields):
+            return False, None
+
+        before_update = self.__class__.objects.filter(pk=self.pk).first()  # type: ignore[attr-defined]
+        if not before_update:
+            return True, None
+
+        changed_fields = get_changed_fields_local(before_update, self)
+        should_log = len(changed_fields) > 0
+
+        return should_log, before_update
 
 
 class ImpersonatedContext:
