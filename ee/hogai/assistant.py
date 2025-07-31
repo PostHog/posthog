@@ -422,7 +422,7 @@ class Assistant:
                 if tool_call.name == "retrieve_billing_information":
                     return ReasoningMessage(content="Checking your billing data")
                 if tool_call.name == "search_insights":
-                    return ReasoningMessage(content="Looking for insights")
+                    return ReasoningMessage(content="Searching for insights")
                 # This tool should be in CONTEXTUAL_TOOL_NAME_TO_TOOL, but it might not be in the rare case
                 # when the tool has been removed from the backend since the user's frontent was loaded
                 ToolClass = CONTEXTUAL_TOOL_NAME_TO_TOOL.get(tool_call.name)  # type: ignore
