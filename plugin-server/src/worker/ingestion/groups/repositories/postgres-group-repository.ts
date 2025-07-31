@@ -11,6 +11,7 @@ import {
     TeamId,
 } from '../../../../types'
 import { PostgresRouter, PostgresUse, TransactionClient } from '../../../../utils/db/postgres'
+import { RaceConditionError } from '../../../../utils/utils'
 import { GroupRepository } from './group-repository.interface'
 import { GroupRepositoryTransaction } from './group-repository-transaction.interface'
 import { PostgresGroupRepositoryTransaction } from './postgres-group-repository-transaction'
@@ -51,17 +52,42 @@ export class PostgresGroupRepository
         }
     }
 
-    insertGroup(
-        _teamId: TeamId,
-        _groupTypeIndex: GroupTypeIndex,
-        _groupKey: string,
-        _groupProperties: Properties,
-        _createdAt: DateTime,
-        _propertiesLastUpdatedAt: PropertiesLastUpdatedAt,
-        _propertiesLastOperation: PropertiesLastOperation,
-        _tx?: TransactionClient
+    async insertGroup(
+        teamId: TeamId,
+        groupTypeIndex: GroupTypeIndex,
+        groupKey: string,
+        groupProperties: Properties,
+        createdAt: DateTime,
+        propertiesLastUpdatedAt: PropertiesLastUpdatedAt,
+        propertiesLastOperation: PropertiesLastOperation,
+        tx?: TransactionClient
     ): Promise<number> {
-        throw new Error('insertGroup not implemented yet')
+        const result = await this.postgres.query<{ version: string }>(
+            tx ?? PostgresUse.PERSONS_WRITE,
+            `
+            INSERT INTO posthog_group (team_id, group_key, group_type_index, group_properties, created_at, properties_last_updated_at, properties_last_operation, version)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            ON CONFLICT (team_id, group_key, group_type_index) DO NOTHING
+            RETURNING version
+            `,
+            [
+                teamId,
+                groupKey,
+                groupTypeIndex,
+                JSON.stringify(groupProperties),
+                createdAt.toISO(),
+                JSON.stringify(propertiesLastUpdatedAt),
+                JSON.stringify(propertiesLastOperation),
+                1,
+            ],
+            'upsertGroup'
+        )
+
+        if (result.rows.length === 0) {
+            throw new RaceConditionError('Parallel posthog_group inserts, retry')
+        }
+
+        return Number(result.rows[0].version || 0)
     }
 
     updateGroup(
