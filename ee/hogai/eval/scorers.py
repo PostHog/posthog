@@ -452,6 +452,8 @@ class InsightSearchRelevance(ScorerWithPartial):
             selected_set = set(selected_insights)
 
             if not expected_set:
+                # returns 1.0 when both expected and selected are empty (perfect match),
+                # but 0.0 when expected is empty but selected is not (over-selection penalty)
                 return Score(name=self._name(), score=1.0 if not selected_set else 0.0)
 
             intersection = expected_set.intersection(selected_set)
