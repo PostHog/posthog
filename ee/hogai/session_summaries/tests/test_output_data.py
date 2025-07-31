@@ -79,6 +79,8 @@ class TestLoadRawSessionSummary:
             summary = load_raw_session_summary_from_llm_content(
                 mock_valid_llm_yaml_response, allowed_event_ids, mock_session_id, True
             )
+            assert summary is not None
+            assert summary.data is not None
             # Ensure all the key action events were filtered out
             assert summary.data["key_actions"] == [
                 {

@@ -173,7 +173,7 @@ class TestSessionSummariesAPI(APIBaseTest):
         )
 
         self.assertEqual(response.status_code, 400)
-        error: dict[str, Any] = response.json()  # type: ignore[attr-defined]
+        error: dict[str, Any] = response.json()
         self.assertEqual(error["attr"], "session_ids")
 
     @patch("ee.api.session_summaries.posthoganalytics.feature_enabled")
