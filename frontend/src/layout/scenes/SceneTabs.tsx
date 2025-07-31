@@ -7,29 +7,46 @@ import { sceneTabsLogic, SceneTab } from '~/layout/scenes/sceneTabsLogic'
 import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
+import { DndContext, PointerSensor, useSensor, useSensors, DragEndEvent } from '@dnd-kit/core'
+import { SortableContext, useSortable, horizontalListSortingStrategy } from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
+
 export interface SceneTabsProps {
     className?: string
 }
 
 export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
     const { tabs } = useValues(sceneTabsLogic)
-    const { newTab } = useActions(sceneTabsLogic)
+    const { newTab, reorderTabs } = useActions(sceneTabsLogic)
+
+    const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
+
+    const handleDragEnd = ({ active, over }: DragEndEvent): void => {
+        if (over && active.id !== over.id) {
+            reorderTabs(active.id as string, over.id as string)
+        }
+    }
 
     return (
         <div
             className={cn(
-                'flex items-center w-full sticky top-0 bg-surface-secondary z-[var(--z-top-navigation)] border-b border-primary h-[var(--scene-layout-header-height)]',
+                'flex items-center w-full sticky top-0 bg-surface-secondary z-[var(--z-top-navigation)] border-b border-primary gap-1',
                 className
             )}
         >
-            <div className={cn('flex flex-row overflow-auto hide-scrollbar h-[40px]', className)}>
-                {tabs.map((tab, index) => (
-                    <SceneTabComponent key={index} tab={tab} />
-                ))}
-            </div>
+            <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
+                <SortableContext items={tabs.map((t) => t.id)} strategy={horizontalListSortingStrategy}>
+                    <div className={cn('flex flex-row', className)}>
+                        {tabs.map((tab) => (
+                            <SortableSceneTab key={tab.id} tab={tab} />
+                        ))}
+                    </div>
+                </SortableContext>
+            </DndContext>
+
             <Link
                 to={urls.newTab()}
-                className="rounded-none px-1.5 pt-0.5 pb-1 text-primary hover:text-primary-hover focus:text-primary-hover focus:outline-none"
+                className="rounded px-1.5 py-0.5 mb-0.5 text-primary hover:text-primary-hover hover:bg-surface-primary focus:text-primary-hover focus:outline-none"
                 data-attr="sql-editor-new-tab-button"
                 onClick={(e) => {
                     e.preventDefault()
@@ -42,21 +59,41 @@ export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
     )
 }
 
+function SortableSceneTab({ tab }: { tab: SceneTab }): JSX.Element {
+    const { setNodeRef, attributes, listeners, transform, transition, isDragging } = useSortable({ id: tab.id })
+
+    const style: React.CSSProperties = {
+        transform: CSS.Translate.toString(transform),
+        transition,
+        opacity: isDragging ? 0.5 : undefined,
+    }
+
+    return (
+        <div ref={setNodeRef} style={style} {...attributes} {...listeners}>
+            <SceneTabComponent tab={tab} isDragging={isDragging} />
+        </div>
+    )
+}
+
 interface SceneTabProps {
     tab: SceneTab
     className?: string
+    isDragging?: boolean
 }
 
-function SceneTabComponent({ tab, className }: SceneTabProps): JSX.Element {
+function SceneTabComponent({ tab, className, isDragging }: SceneTabProps): JSX.Element {
     const canRemoveTab = true
     const { clickOnTab, removeTab } = useActions(sceneTabsLogic)
     return (
         <Link
             onClick={(e) => {
+                e.stopPropagation()
                 e.preventDefault()
-                clickOnTab(tab)
+                if (!isDragging) {
+                    clickOnTab(tab)
+                }
             }}
-            to={`${tab.pathname}${tab.search}${tab.hash}`}
+            to={isDragging ? undefined : `${tab.pathname}${tab.search}${tab.hash}`}
             className={cn(
                 'deprecated-space-y-px p-1 flex border-b-2 flex-row items-center gap-1 cursor-pointer',
                 tab.active

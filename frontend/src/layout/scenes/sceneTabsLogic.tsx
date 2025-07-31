@@ -2,12 +2,14 @@ import { actions, connect, kea, listeners, reducers, path, afterMount } from 'ke
 import { combineUrl, router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
+import { arrayMove } from '@dnd-kit/sortable'
 
 import type { sceneTabsLogicType } from './sceneTabsLogicType'
 import { addProjectIdIfMissing } from 'lib/utils/router-utils'
 import { urls } from 'scenes/urls'
 
 export interface SceneTab {
+    id: string
     pathname: string
     search: string
     hash: string
@@ -30,6 +32,7 @@ const getPersistedTabs: () => SceneTab[] | null = () => {
     }
     return null
 }
+const generateTabId = (): string => crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`
 
 export const sceneTabsLogic = kea<sceneTabsLogicType>([
     path(['layout', 'scenes', 'sceneTabsLogic']),
@@ -43,6 +46,7 @@ export const sceneTabsLogic = kea<sceneTabsLogicType>([
         removeTab: (tab: SceneTab) => ({ tab }),
         activateTab: (tab: SceneTab) => ({ tab }),
         clickOnTab: (tab: SceneTab) => ({ tab }),
+        reorderTabs: (activeId: string, overId: string) => ({ activeId, overId }),
     }),
     reducers({
         tabs: [
@@ -53,6 +57,7 @@ export const sceneTabsLogic = kea<sceneTabsLogicType>([
                     return [
                         ...state.map((tab) => (tab.active ? { ...tab, active: false } : tab)),
                         {
+                            id: generateTabId(),
                             active: true,
                             pathname: addProjectIdIfMissing('/new'),
                             search: '',
@@ -89,6 +94,14 @@ export const sceneTabsLogic = kea<sceneTabsLogicType>([
                     )
                     return newState
                 },
+                reorderTabs: (state, { activeId, overId }) => {
+                    const oldIndex = state.findIndex((t) => t.id === activeId)
+                    const newIndex = state.findIndex((t) => t.id === overId)
+                    if (oldIndex === -1 || newIndex === -1 || oldIndex === newIndex) {
+                        return state
+                    }
+                    return arrayMove(state, oldIndex, newIndex)
+                },
             },
         ],
     }),
@@ -118,26 +131,32 @@ export const sceneTabsLogic = kea<sceneTabsLogicType>([
             router.actions.push(tab.pathname, tab.search, tab.hash)
             persistTabs(values.tabs)
         },
+        reoderTabs: () => {
+            persistTabs(values.tabs)
+        },
         push: ({ url, hashInput, searchInput }) => {
             let { pathname, search, hash } = combineUrl(url, searchInput, hashInput)
             pathname = addProjectIdIfMissing(pathname)
 
             const activeTabIndex = values.tabs.findIndex((tab) => tab.active)
             if (activeTabIndex !== -1) {
-                actions.setTabs(
-                    values.tabs.map((tab, i) =>
-                        i === activeTabIndex
-                            ? { ...tab, active: true, pathname, search, hash }
-                            : tab.active
-                            ? {
-                                  ...tab,
-                                  active: false,
-                              }
-                            : tab
-                    )
+                const newTabs = values.tabs.map((tab, i) =>
+                    i === activeTabIndex
+                        ? { ...tab, active: true, pathname, search, hash }
+                        : tab.active
+                        ? {
+                              ...tab,
+                              active: false,
+                          }
+                        : tab
                 )
+
+                actions.setTabs(newTabs)
             } else {
-                actions.setTabs([...values.tabs, { active: true, pathname, search, hash, title: 'Loading...' }])
+                actions.setTabs([
+                    ...values.tabs,
+                    { id: generateTabId(), active: true, pathname, search, hash, title: 'Loading...' },
+                ])
             }
             persistTabs(values.tabs)
         },
@@ -162,7 +181,10 @@ export const sceneTabsLogic = kea<sceneTabsLogicType>([
                     )
                 )
             } else {
-                actions.setTabs([...values.tabs, { active: true, pathname, search, hash, title: 'Loading...' }])
+                actions.setTabs([
+                    ...values.tabs,
+                    { id: generateTabId(), active: true, pathname, search, hash, title: 'Loading...' },
+                ])
             }
             persistTabs(values.tabs)
         },
@@ -172,8 +194,9 @@ export const sceneTabsLogic = kea<sceneTabsLogicType>([
             // this fires before afterMount below, so... doing the logic here
             if (!cache.tagsLoaded) {
                 const savedTabs = getPersistedTabs()
-                if (savedTabs) {
-                    actions.setTabs(savedTabs)
+                const withIds = savedTabs?.map((t) => (t.id ? t : { ...t, id: generateTabId() }))
+                if (withIds) {
+                    actions.setTabs(withIds)
                 }
                 cache.tagsLoaded = true
             }
@@ -183,6 +206,7 @@ export const sceneTabsLogic = kea<sceneTabsLogicType>([
                 const { currentLocation } = router.values
                 actions.setTabs([
                     {
+                        id: generateTabId(),
                         active: true,
                         pathname: currentLocation.pathname,
                         search: currentLocation.search,
@@ -199,8 +223,9 @@ export const sceneTabsLogic = kea<sceneTabsLogicType>([
         // this logic is fired above in "title", but keeping here just in case
         if (!cache.tagsLoaded) {
             const savedTabs = getPersistedTabs()
-            if (savedTabs) {
-                actions.setTabs(savedTabs)
+            const withIds = savedTabs?.map((t) => (t.id ? t : { ...t, id: generateTabId() }))
+            if (withIds) {
+                actions.setTabs(withIds)
             }
             cache.tagsLoaded = true
         }
@@ -208,6 +233,7 @@ export const sceneTabsLogic = kea<sceneTabsLogicType>([
             const { currentLocation } = router.values
             actions.setTabs([
                 {
+                    id: generateTabId(),
                     active: true,
                     pathname: currentLocation.pathname,
                     search: currentLocation.search,
