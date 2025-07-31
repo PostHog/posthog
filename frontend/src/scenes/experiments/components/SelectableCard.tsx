@@ -26,9 +26,12 @@ export function SelectableCard({
         <div
             className={cn(
                 'flex-1 cursor-pointer p-4 rounded border transition-colors',
-                selected ? 'border-accent bg-accent-highlight-secondary' : 'border-primary',
-                !disabled && 'hover:border-accent-dark',
-                disabled && 'opacity-50 cursor-not-allowed',
+                {
+                    'border-accent bg-accent-highlight-secondary': selected,
+                    'border-primary': !selected,
+                    'hover:border-accent-dark': !disabled,
+                    'opacity-50 cursor-not-allowed': disabled,
+                },
                 className
             )}
             onClick={disabled ? undefined : onClick}
