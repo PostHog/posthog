@@ -354,7 +354,12 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                 const validIds = uncachedIds
                     .map((id: string) => {
                         const parsed = parseInt(id, 10)
-                        return !isNaN(parsed) ? parsed : null
+                        if (!isNaN(parsed)) {
+                            return parsed
+                        }
+                        // This should pretty much never happen, but we'll log it just in case
+                        console.warn(`Non-numeric flag ID detected and skipped: "${id}"`)
+                        return null
                     })
                     .filter((id): id is number => id !== null)
 
@@ -376,6 +381,7 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                 // For any IDs that weren't returned (not found), use the ID as fallback
                 uncachedIds.forEach((id: string) => {
                     if (!keys[id]) {
+                        // This should rarely happen.
                         console.warn(`Flag with ID ${id} not found. Using ID as fallback key.`)
                         flagKeyMapping[id] = id
                     }
