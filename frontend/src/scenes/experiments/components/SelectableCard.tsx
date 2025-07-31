@@ -1,6 +1,6 @@
 import { IconCheckCircle } from '@posthog/icons'
-import clsx from 'clsx'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { cn } from 'lib/utils/css-classes'
 import { ReactNode } from 'react'
 
 interface SelectableCardProps {
@@ -11,6 +11,7 @@ interface SelectableCardProps {
     disabled?: boolean
     disabledReason?: string
     className?: string
+    'data-attr'?: string
 }
 
 export function SelectableCard({
@@ -21,10 +22,11 @@ export function SelectableCard({
     disabled = false,
     disabledReason,
     className,
+    'data-attr': dataAttr,
 }: SelectableCardProps): JSX.Element {
     const card = (
         <div
-            className={clsx(
+            className={cn(
                 'flex-1 cursor-pointer p-4 rounded border transition-colors',
                 selected ? 'border-accent bg-accent-highlight-secondary' : 'border-primary',
                 !disabled && 'hover:border-accent-dark',
@@ -42,6 +44,7 @@ export function SelectableCard({
             }}
             aria-pressed={selected}
             aria-disabled={disabled}
+            data-attr={dataAttr}
         >
             <div className="font-semibold flex justify-between items-center">
                 <span>{title}</span>
