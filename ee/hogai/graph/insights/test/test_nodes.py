@@ -219,39 +219,39 @@ class TestInsightSearchNode(BaseTest):
             # Mock _search_insights_iteratively to return our test insights
             with patch.object(self.node, "_search_insights_iteratively") as mock_search:
                 with patch.object(self.node, "_get_total_insights_count") as mock_count:
-                    mock_search.return_value = selected_insights
-                    mock_count.return_value = 2  # Simulate that we have insights
-                    # Set up paginated data for the first page
-                    self.node._loaded_pages[0] = [  # Set up some test data
-                        {"insight_id": self.insight1.id, "insight__name": "Daily Pageviews"},
-                        {"insight_id": self.insight2.id, "insight__name": "User Signup Funnel"},
-                    ]
+                    with patch.object(self.node, "_load_insights_page") as mock_load_page:
+                        mock_search.return_value = selected_insights
+                        mock_count.return_value = 2  # Simulate that we have insights
+                        # Mock the insights page data
+                        mock_load_page.return_value = [
+                            {"insight_id": self.insight1.id, "insight__name": "Daily Pageviews"},
+                            {"insight_id": self.insight2.id, "insight__name": "User Signup Funnel"},
+                        ]
 
-                    # Set up state for evaluation flow (both search_query and insight_plan trigger evaluation)
-                    state = AssistantState(
-                        messages=[HumanMessage(content="test message")],
-                        search_insights_query=search_query,
-                        root_tool_insight_plan=insight_plan,
-                        root_tool_call_id="test_call_id",
-                    )
+                        # Set up state for evaluation flow (both search_query and insight_plan trigger evaluation)
+                        state = AssistantState(
+                            messages=[HumanMessage(content="test message")],
+                            search_insights_query=search_query,
+                            root_tool_insight_plan=insight_plan,
+                            root_tool_call_id="test_call_id",
+                        )
 
-                    config = {"configurable": {"thread_id": "test_thread"}}
-                    result = self.node.run(state, config)
+                        config = {"configurable": {"thread_id": "test_thread"}}
+                        result = self.node.run(state, config)
 
-                    # Debug: Check what result looks like
-                    if result is None:
-                        self.fail("run() returned None")
-                    if result.messages is None:
-                        result.messages = []
+                        if result is None:
+                            self.fail("run() returned None")
+                        if result.messages is None:
+                            result.messages = []
 
-                    # Verify that we get at least one message with the evaluation explanation
-                    self.assertGreaterEqual(len(result.messages), 1, "Expected at least one message")
+                        # Verify that we get at least one message with the evaluation explanation
+                        self.assertGreaterEqual(len(result.messages), 1, "Expected at least one message")
 
-                    # First message should be the evaluation explanation
-                    first_message = result.messages[0]
-                    self.assertIsInstance(first_message, AssistantToolCallMessage)
-                    self.assertIn("Evaluation Result", first_message.content)
-                    self.assertIn("YES: This insight is perfect for your needs.", first_message.content)
+                        # First message should be the evaluation explanation
+                        first_message = result.messages[0]
+                        self.assertIsInstance(first_message, AssistantToolCallMessage)
+                        self.assertIn("Evaluation Result", first_message.content)
+                        self.assertIn("YES: This insight is perfect for your needs.", first_message.content)
 
                 # Note: Additional visualization messages depend on query type support in test data
 
@@ -383,51 +383,54 @@ class TestInsightSearchNode(BaseTest):
             # Mock _search_insights_iteratively to return our test insights
             with patch.object(self.node, "_search_insights_iteratively") as mock_search:
                 with patch.object(self.node, "_get_total_insights_count") as mock_count:
-                    mock_search.return_value = selected_insights
-                    mock_count.return_value = 2  # Simulate that we have insights
-                    # Set up paginated data for the first page
-                    self.node._loaded_pages[0] = [
-                        {"insight_id": self.insight1.id, "insight__name": "Daily Pageviews"},
-                        {"insight_id": self.insight2.id, "insight__name": "User Signup Funnel"},
-                    ]
+                    with patch.object(self.node, "_load_insights_page") as mock_load_page:
+                        mock_search.return_value = selected_insights
+                        mock_count.return_value = 2  # Simulate that we have insights
+                        # Mock the insights page data
+                        mock_load_page.return_value = [
+                            {"insight_id": self.insight1.id, "insight__name": "Daily Pageviews"},
+                            {"insight_id": self.insight2.id, "insight__name": "User Signup Funnel"},
+                        ]
 
-                    # Set up state for evaluation flow (both search_query and insight_plan trigger evaluation)
-                    state = AssistantState(
-                        messages=[HumanMessage(content="test message")],
-                        search_insights_query=search_query,
-                        root_tool_insight_plan=insight_plan,
-                        root_tool_call_id="test_call_id",
-                    )
+                        # Set up state for evaluation flow (both search_query and insight_plan trigger evaluation)
+                        state = AssistantState(
+                            messages=[HumanMessage(content="test message")],
+                            search_insights_query=search_query,
+                            root_tool_insight_plan=insight_plan,
+                            root_tool_call_id="test_call_id",
+                        )
 
-                    config = {"configurable": {"thread_id": "test_thread"}}
-                    result = self.node.run(state, config)
+                        config = {"configurable": {"thread_id": "test_thread"}}
+                        result = self.node.run(state, config)
 
-                    # Verify that search_insights_query is cleared and root_tool_insight_plan is set to search_query
-                    self.assertIsNotNone(result)
-                    self.assertIsInstance(result, PartialAssistantState)
-                    self.assertIsNone(result.search_insights_query, "search_insights_query should be cleared")
-                    # root_tool_insight_plan should be set to search_query to trigger creation
-                    self.assertEqual(
-                        result.root_tool_insight_plan,
-                        search_query,
-                        "root_tool_insight_plan should be set to search_query",
-                    )
+                        # Verify that search_insights_query is cleared and root_tool_insight_plan is set to search_query
+                        self.assertIsNotNone(result)
+                        self.assertIsInstance(result, PartialAssistantState)
+                        self.assertIsNone(result.search_insights_query, "search_insights_query should be cleared")
+                        # root_tool_insight_plan should be set to search_query to trigger creation
+                        self.assertEqual(
+                            result.root_tool_insight_plan,
+                            search_query,
+                            "root_tool_insight_plan should be set to search_query",
+                        )
 
-                    # Test router behavior with the returned state
-                    # Create a new state that simulates what happens after this node runs
-                    post_evaluation_state = AssistantState(
-                        messages=state.messages,
-                        root_tool_insight_plan=search_query,  # This gets set to search_query
-                        search_insights_query=None,  # This gets cleared
-                    )
+                        # Test router behavior with the returned state
+                        # Create a new state that simulates what happens after this node runs
+                        post_evaluation_state = AssistantState(
+                            messages=state.messages,
+                            root_tool_insight_plan=search_query,  # This gets set to search_query
+                            search_insights_query=None,  # This gets cleared
+                        )
 
-                    router_result = self.node.router(post_evaluation_state)
-                    self.assertEqual(
-                        router_result, "insights", "Router should direct to insights creation when evaluation says NO"
-                    )
+                        router_result = self.node.router(post_evaluation_state)
+                        self.assertEqual(
+                            router_result,
+                            "insights",
+                            "Router should direct to insights creation when evaluation says NO",
+                        )
 
-                    # Verify that _evaluate_insights_for_creation was called with the search_query (current implementation)
-                    mock_evaluate.assert_called_once_with(selected_insights, search_query)
+                        # Verify that _evaluate_insights_for_creation was called with the search_query (current implementation)
+                        mock_evaluate.assert_called_once_with(selected_insights, search_query)
 
     def test_evaluation_always_called_with_search_query(self):
         """Test that evaluation is always called with search_query in current implementation."""
@@ -438,39 +441,40 @@ class TestInsightSearchNode(BaseTest):
         with patch.object(self.node, "_search_insights_iteratively") as mock_search:
             with patch.object(self.node, "_get_total_insights_count") as mock_count:
                 with patch.object(self.node, "_evaluate_insights_for_creation") as mock_evaluate:
-                    mock_search.return_value = selected_insights
-                    mock_count.return_value = 1  # Simulate that we have insights
-                    # Set up paginated data for the first page
-                    self.node._loaded_pages[0] = [{"insight_id": self.insight1.id}]
+                    with patch.object(self.node, "_load_insights_page") as mock_load_page:
+                        mock_search.return_value = selected_insights
+                        mock_count.return_value = 1  # Simulate that we have insights
+                        # Mock the insights page data
+                        mock_load_page.return_value = [{"insight_id": self.insight1.id}]
 
-                    # Mock evaluation to return "use existing" to avoid format_search_results call
-                    mock_evaluate.return_value = {
-                        "should_use_existing": True,
-                        "explanation": "YES: Found matching insights",
-                        "visualization_messages": [],
-                    }
+                        # Mock evaluation to return "use existing" to avoid format_search_results call
+                        mock_evaluate.return_value = {
+                            "should_use_existing": True,
+                            "explanation": "YES: Found matching insights",
+                            "visualization_messages": [],
+                        }
 
-                    # Set up state with search_query
-                    state = AssistantState(
-                        messages=[HumanMessage(content="find insights")],
-                        search_insights_query=search_query,
-                        root_tool_call_id="test_call_id",
-                    )
+                        # Set up state with search_query
+                        state = AssistantState(
+                            messages=[HumanMessage(content="find insights")],
+                            search_insights_query=search_query,
+                            root_tool_call_id="test_call_id",
+                        )
 
-                    config = {"configurable": {"thread_id": "test_thread"}}
-                    result = self.node.run(state, config)
+                        config = {"configurable": {"thread_id": "test_thread"}}
+                        result = self.node.run(state, config)
 
-                    # Verify that evaluation was called with search_query (current implementation behavior)
-                    mock_evaluate.assert_called_once_with(selected_insights, search_query)
+                        # Verify that evaluation was called with search_query (current implementation behavior)
+                        mock_evaluate.assert_called_once_with(selected_insights, search_query)
 
-                    # Verify that we get the evaluation response
-                    self.assertIsNotNone(result)
-                    self.assertIsInstance(result, PartialAssistantState)
-                    self.assertGreaterEqual(len(result.messages), 1)
+                        # Verify that we get the evaluation response
+                        self.assertIsNotNone(result)
+                        self.assertIsInstance(result, PartialAssistantState)
+                        self.assertGreaterEqual(len(result.messages), 1)
 
-                    # Verify state cleanup
-                    self.assertIsNone(result.search_insights_query)
-                    self.assertIsNone(result.root_tool_call_id)
+                        # Verify state cleanup
+                        self.assertIsNone(result.search_insights_query)
+                        self.assertIsNone(result.root_tool_call_id)
 
     def test_run_with_no_insights(self):
         """Test run method when no insights exist."""
