@@ -1,26 +1,26 @@
+import { IconTrending } from '@posthog/icons'
+import { IconTrendingDown } from 'lib/lemon-ui/icons'
+import { humanFriendlyNumber } from 'lib/utils'
+import { useState } from 'react'
 import { ExperimentMetric, NewExperimentQueryResponse } from '~/queries/schema/schema-general'
 import { Experiment, InsightType } from '~/types'
-import { formatPercentageChange, getNiceTickValues } from '../shared/utils'
-import { MetricHeader } from '../shared/MetricHeader'
-import { DetailsButton } from './DetailsButton'
-import { DetailsModal } from './DetailsModal'
-import { useState } from 'react'
-import { humanFriendlyNumber } from 'lib/utils'
-import { useChartColors } from '../shared/colors'
-import { useAxisScale } from './useAxisScale'
-import { GridLines } from './GridLines'
-import { ChartCell } from './ChartCell'
-import { IconTrendingDown } from 'lib/lemon-ui/icons'
-import { IconTrending } from '@posthog/icons'
-import { ChartLoadingState } from '../shared/ChartLoadingState'
 import { ChartEmptyState } from '../shared/ChartEmptyState'
+import { ChartLoadingState } from '../shared/ChartLoadingState'
+import { useChartColors } from '../shared/colors'
+import { MetricHeader } from '../shared/MetricHeader'
+import { formatPercentageChange, getNiceTickValues } from '../shared/utils'
+import { ChartCell } from './ChartCell'
 import {
     CELL_HEIGHT,
-    VIEW_BOX_WIDTH,
-    SVG_EDGE_MARGIN,
     CHART_CELL_VIEW_BOX_HEIGHT,
     GRID_LINES_OPACITY,
+    SVG_EDGE_MARGIN,
+    VIEW_BOX_WIDTH,
 } from './constants'
+import { DetailsButton } from './DetailsButton'
+import { DetailsModal } from './DetailsModal'
+import { GridLines } from './GridLines'
+import { useAxisScale } from './useAxisScale'
 
 interface MetricRowGroupProps {
     metric: ExperimentMetric
@@ -189,41 +189,9 @@ export function MetricRowGroup({
                     <div className="text-xs text-muted" />
                 </td>
 
-                {/* Chart (grid lines only for baseline) */}
-                <td
-                    className={`min-w-[400px] w-full p-0 align-top text-center relative overflow-hidden ${
-                        isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
-                    } ${variantResults.length === 0 ? 'border-b' : ''}`}
-                    style={{ height: `${CELL_HEIGHT}px`, maxHeight: `${CELL_HEIGHT}px` }}
-                >
-                    {chartRadius && chartRadius > 0 ? (
-                        <div className="relative h-full">
-                            <svg
-                                viewBox={`0 0 ${VIEW_BOX_WIDTH} ${CHART_CELL_VIEW_BOX_HEIGHT}`}
-                                preserveAspectRatio="none"
-                                className="h-full w-full max-w-[1000px]"
-                            >
-                                <GridLines
-                                    tickValues={getNiceTickValues(chartRadius)}
-                                    scale={scale}
-                                    height={CHART_CELL_VIEW_BOX_HEIGHT}
-                                    viewBoxWidth={VIEW_BOX_WIDTH}
-                                    zeroLineColor={colors.ZERO_LINE}
-                                    gridLineColor={colors.BOUNDARY_LINES}
-                                    zeroLineWidth={1.25}
-                                    gridLineWidth={0.75}
-                                    opacity={GRID_LINES_OPACITY}
-                                />
-                            </svg>
-                        </div>
-                    ) : (
-                        <div className="flex items-center justify-center h-full text-muted text-xs">—</div>
-                    )}
-                </td>
-
                 {/* Details column - with rowspan */}
                 <td
-                    className={`w-1/5 p-3 align-top relative overflow-hidden ${!isLastMetric ? 'border-b' : ''} ${
+                    className={`p-3 align-top relative overflow-hidden ${!isLastMetric ? 'border-b' : ''} ${
                         isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
                     }`}
                     rowSpan={totalRows}
@@ -244,6 +212,38 @@ export function MetricRowGroup({
                         metricIndex={metricIndex}
                         isSecondary={isSecondary}
                     />
+                </td>
+
+                {/* Chart (grid lines only for baseline) */}
+                <td
+                    className={`min-w-[400px] w-full p-0 align-top text-center relative overflow-hidden ${
+                        isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
+                    } ${variantResults.length === 0 ? 'border-b' : ''}`}
+                    style={{ height: `${CELL_HEIGHT}px`, maxHeight: `${CELL_HEIGHT}px` }}
+                >
+                    {chartRadius && chartRadius > 0 ? (
+                        <div className="relative h-full">
+                            <svg
+                                viewBox={`0 0 ${VIEW_BOX_WIDTH} ${CHART_CELL_VIEW_BOX_HEIGHT}`}
+                                preserveAspectRatio="none"
+                                className="h-full w-full"
+                            >
+                                <GridLines
+                                    tickValues={getNiceTickValues(chartRadius)}
+                                    scale={scale}
+                                    height={CHART_CELL_VIEW_BOX_HEIGHT}
+                                    viewBoxWidth={VIEW_BOX_WIDTH}
+                                    zeroLineColor={colors.ZERO_LINE}
+                                    gridLineColor={colors.BOUNDARY_LINES}
+                                    zeroLineWidth={1.25}
+                                    gridLineWidth={0.75}
+                                    opacity={GRID_LINES_OPACITY}
+                                />
+                            </svg>
+                        </div>
+                    ) : (
+                        <div className="flex items-center justify-center h-full text-muted text-xs">—</div>
+                    )}
                 </td>
             </tr>
 

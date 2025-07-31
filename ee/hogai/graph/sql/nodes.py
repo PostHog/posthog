@@ -1,10 +1,10 @@
 from langchain_core.runnables import RunnableConfig
 
-from ee.hogai.graph.schema_generator.parsers import parse_pydantic_structured_output
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from posthog.hogql.context import HogQLContext
 from posthog.schema import AssistantHogQLQuery
 
+from ..schema_generator.parsers import parse_pydantic_structured_output
 from ..schema_generator.nodes import SchemaGeneratorNode, SchemaGeneratorToolsNode
 from ..schema_generator.utils import SchemaGeneratorOutput
 from .mixins import HogQLGeneratorMixin

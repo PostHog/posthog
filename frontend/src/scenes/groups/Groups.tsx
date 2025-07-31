@@ -1,19 +1,30 @@
 import { useActions, useValues } from 'kea'
 import { groupsAccessLogic, GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
 import { Link } from 'lib/lemon-ui/Link'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { GroupsIntroduction } from 'scenes/groups/GroupsIntroduction'
 import { SceneExport } from 'scenes/sceneTypes'
+import { LemonModal } from 'lib/lemon-ui/LemonModal'
+import { LemonInput } from 'lib/lemon-ui/LemonInput'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
 import { Query } from '~/queries/Query/Query'
 import { GroupTypeIndex } from '~/types'
 
 import { groupsListLogic } from './groupsListLogic'
 import { groupsSceneLogic } from './groupsSceneLogic'
+import { QueryContext } from '~/queries/types'
+import { getCRMColumns } from './crm/utils'
+import { groupViewLogic } from './groupViewLogic'
+
 export function Groups({ groupTypeIndex }: { groupTypeIndex: GroupTypeIndex }): JSX.Element {
     const { groupTypeName, groupTypeNamePlural } = useValues(groupsSceneLogic)
     const { query, queryWasModified } = useValues(groupsListLogic({ groupTypeIndex }))
     const { setQuery } = useActions(groupsListLogic({ groupTypeIndex }))
+    const { saveGroupViewModalOpen, groupViewName } = useValues(groupViewLogic)
+    const { setSaveGroupViewModalOpen, setGroupViewName, saveGroupView } = useActions(groupViewLogic)
     const { groupsAccessStatus } = useValues(groupsAccessLogic)
+    const hasCrmIterationOneEnabled = useFeatureFlag('CRM_ITERATION_ONE')
 
     if (groupTypeIndex === undefined) {
         throw new Error('groupTypeIndex is undefined')
@@ -31,35 +42,74 @@ export function Groups({ groupTypeIndex }: { groupTypeIndex: GroupTypeIndex }): 
         )
     }
 
+    let columns = {
+        group_name: {
+            title: groupTypeName,
+        },
+    } as QueryContext['columns']
+    let hiddenColumns = [] as string[]
+    if (hasCrmIterationOneEnabled) {
+        columns = getCRMColumns(groupTypeName, groupTypeIndex)
+        hiddenColumns.push('key')
+    }
+
     return (
-        <Query
-            query={query}
-            setQuery={setQuery}
-            context={{
-                refresh: 'blocking',
-                emptyStateHeading: queryWasModified
-                    ? `No ${groupTypeNamePlural} found`
-                    : `No ${groupTypeNamePlural} exist because none have been identified`,
-                emptyStateDetail: queryWasModified ? (
-                    'Try changing the date range or property filters.'
-                ) : (
-                    <>
-                        Go to the{' '}
-                        <Link to="https://posthog.com/docs/product-analytics/group-analytics#how-to-create-groups">
-                            group analytics docs
-                        </Link>{' '}
-                        to learn what needs to be done
-                    </>
-                ),
-                columns: {
-                    group_name: {
-                        title: groupTypeName,
-                    },
-                },
-                groupTypeLabel: groupTypeNamePlural,
-            }}
-            dataAttr="groups-table"
-        />
+        <>
+            <Query
+                query={{ ...query, hiddenColumns }}
+                setQuery={setQuery}
+                context={{
+                    refresh: 'blocking',
+                    emptyStateHeading: queryWasModified
+                        ? `No ${groupTypeNamePlural} found`
+                        : `No ${groupTypeNamePlural} exist because none have been identified`,
+                    emptyStateDetail: queryWasModified ? (
+                        'Try changing the date range or property filters.'
+                    ) : (
+                        <>
+                            Go to the{' '}
+                            <Link to="https://posthog.com/docs/product-analytics/group-analytics#how-to-create-groups">
+                                group analytics docs
+                            </Link>{' '}
+                            to learn what needs to be done
+                        </>
+                    ),
+                    columns,
+                    groupTypeLabel: groupTypeNamePlural,
+                }}
+                dataAttr="groups-table"
+            />
+
+            {hasCrmIterationOneEnabled && (
+                <LemonModal
+                    isOpen={saveGroupViewModalOpen}
+                    onClose={() => setSaveGroupViewModalOpen(false)}
+                    title="Save filtered groups view"
+                    footer={
+                        <>
+                            <LemonButton onClick={() => setSaveGroupViewModalOpen(false)}>Cancel</LemonButton>
+                            <LemonButton
+                                type="primary"
+                                onClick={() => saveGroupView(window.location.href, groupTypeIndex)}
+                                disabledReason={!groupViewName.trim() ? 'Name is required' : undefined}
+                            >
+                                Save
+                            </LemonButton>
+                        </>
+                    }
+                >
+                    <div className="space-y-4">
+                        <p>Save this filtered view as a shortcut in the People panel.</p>
+                        <LemonInput
+                            placeholder="Enter view name"
+                            value={groupViewName}
+                            onChange={setGroupViewName}
+                            autoFocus
+                        />
+                    </div>
+                </LemonModal>
+            )}
+        </>
     )
 }
 

@@ -12,6 +12,7 @@ import {
     ProductKey,
     SDKKey,
     OnboardingStepKey,
+    CommentType,
 } from '~/types'
 
 import type { BillingSectionId } from './billing/types'
@@ -95,6 +96,8 @@ export const urls = {
     },
     annotations: (): string => '/data-management/annotations',
     annotation: (id: AnnotationType['id'] | ':id'): string => `/data-management/annotations/${id}`,
+    comments: (): string => '/data-management/comments',
+    comment: (id: CommentType['id'] | ':id'): string => `/data-management/comments/${id}`,
     organizationCreateFirst: (): string => '/create-organization',
     projectCreateFirst: (): string => '/organization/create-project',
     projectHomepage: (): string => '/',

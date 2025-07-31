@@ -25,6 +25,8 @@ function useButtonGroupContext(): ButtonGroupContextValue | null {
     return context
 }
 
+export type DisabledReasonsObject = Record<string, boolean>
+
 type ButtonGroupProps = {
     children: ReactNode
     className?: string
@@ -35,6 +37,10 @@ type ButtonBaseProps = {
     iconOnly?: boolean
     showDivider?: boolean
     disabled?: boolean
+    // Like clsx, but for disabled reasons
+    // Takes precedence over tooltip
+    // Example: { 'Save the cohort first': isNewCohort, 'Cohort must be static to duplicate': !cohort.is_static }
+    disabledReasons?: DisabledReasonsObject
     active?: boolean
     tooltip?: TooltipProps['title']
     tooltipDocLink?: TooltipProps['docLink']
@@ -212,16 +218,37 @@ export const buttonPrimitiveVariants = cva({
     ],
 })
 
+// Renders the list of disabled reasons if value is true, otherwise returns null
+function renderDisabledReasons(disabledReasons: DisabledReasonsObject): JSX.Element | null {
+    const reasons = Object.entries(disabledReasons).filter(([_, value]) => value)
+
+    if (!reasons.length) {
+        return null
+    }
+
+    return (
+        <>
+            Disabled reasons:
+            <ul className="pl-3 list-disc">
+                {reasons.map(([reason]) => (
+                    <li key={reason}>{reason}</li>
+                ))}
+            </ul>
+        </>
+    )
+}
+
 export const ButtonPrimitive = forwardRef<HTMLButtonElement, ButtonPrimitiveProps>((props, ref) => {
     const {
         className,
         variant,
-        size,
+        size = 'base',
         fullWidth,
         children,
         iconOnly,
         menuItem,
         disabled,
+        disabledReasons,
         active,
         buttonWrapper,
         hasSideActionRight,
@@ -237,6 +264,7 @@ export const ButtonPrimitive = forwardRef<HTMLButtonElement, ButtonPrimitiveProp
     const context = useButtonGroupContext()
     const effectiveSize = context?.sizeContext || size
     const effectiveVariant = context?.variantContext || variant
+    let effectiveDisabled = disabledReasons ? Object.values(disabledReasons).some((value) => value) : disabled
 
     let buttonComponent: JSX.Element = React.createElement(
         'button',
@@ -248,7 +276,7 @@ export const ButtonPrimitive = forwardRef<HTMLButtonElement, ButtonPrimitiveProp
                     fullWidth,
                     iconOnly,
                     menuItem,
-                    disabled,
+                    disabled: effectiveDisabled,
                     hasSideActionRight,
                     isSideActionRight,
                     autoHeight,
@@ -257,17 +285,29 @@ export const ButtonPrimitive = forwardRef<HTMLButtonElement, ButtonPrimitiveProp
                 })
             ),
             ref,
-            disabled,
+            disabled: effectiveDisabled,
             ...rest,
-            'aria-disabled': disabled,
+            'aria-disabled': effectiveDisabled,
             'data-active': active,
+            style: {
+                '--button-height': `var(--button-icon-size-${effectiveSize})`,
+            },
         },
         children
     )
 
-    if (tooltip || tooltipDocLink) {
+    if (tooltip || tooltipDocLink || disabledReasons) {
         buttonComponent = (
-            <Tooltip title={tooltip} placement={tooltipPlacement} docLink={tooltipDocLink}>
+            <Tooltip
+                // If there are disabled reasons which are true, render them, otherwise render the tooltip
+                title={
+                    disabledReasons && Object.values(disabledReasons).some(Boolean)
+                        ? renderDisabledReasons(disabledReasons)
+                        : tooltip
+                }
+                placement={tooltipPlacement}
+                docLink={tooltipDocLink}
+            >
                 {buttonComponent}
             </Tooltip>
         )

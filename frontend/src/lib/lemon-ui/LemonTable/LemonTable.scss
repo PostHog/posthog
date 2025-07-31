@@ -1,6 +1,6 @@
 .LemonTable {
     --row-base-height: auto;
-    --row-horizontal-padding: 1rem;
+    --row-horizontal-padding: 0.5rem;
     --lemon-table-background-color: var(--bg-surface-primary);
 
     position: relative;
@@ -197,15 +197,16 @@
             > th,
             > td {
                 padding-right: var(--row-horizontal-padding);
+                padding-left: var(--row-horizontal-padding);
                 overflow: hidden;
                 text-overflow: ellipsis;
 
                 &:first-child {
-                    padding-left: calc(var(--row-horizontal-padding) + var(--row-ribbon-width, 0px));
+                    padding-left: calc(var(--row-horizontal-padding) * 2 + var(--row-ribbon-width, 0px));
                 }
 
-                &.LemonTable__boundary:not(:first-child) {
-                    padding-left: var(--row-horizontal-padding);
+                &:last-child {
+                    padding-right: calc(var(--row-horizontal-padding) * 2 + var(--row-ribbon-width, 0px));
                 }
 
                 &.LemonTable__boundary:not(:first-of-type) {
@@ -213,7 +214,7 @@
                 }
 
                 &.LemonTable__toggle {
-                    padding-right: 0;
+                    padding-right: var(--row-horizontal-padding);
                 }
 
                 &.LemonTable__toggle + * {

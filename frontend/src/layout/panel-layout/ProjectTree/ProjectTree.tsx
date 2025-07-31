@@ -131,7 +131,7 @@ export function ProjectTree({
         if (projectSortMethod !== (sortMethod ?? 'folder')) {
             setSortMethod(sortMethod ?? 'folder')
         }
-    }, [sortMethod, projectSortMethod])
+    }, [sortMethod, projectSortMethod, setSortMethod])
 
     // When logic requests a scroll, focus the item and clear the request
     useEffect(() => {
@@ -388,7 +388,8 @@ export function ProjectTree({
             onItemChecked={onItemChecked}
             checkedItemCount={checkedItemCountNumeric}
             disableScroll={onlyTree ? true : false}
-            onItemClick={(item) => {
+            onItemClick={(item, event) => {
+                event.preventDefault()
                 if (item?.type === 'empty-folder' || item?.type === 'loading-indicator') {
                     return
                 }
@@ -635,7 +636,7 @@ export function ProjectTree({
                 const user = item.record?.user as UserBasicType | undefined
                 const nameNode: JSX.Element = <span className="font-semibold">{item.displayName}</span>
                 if (root === 'products://' || root === 'data://' || root === 'persons://') {
-                    return <>View {nameNode}</>
+                    return <>{nameNode}</>
                 }
                 if (root === 'new://') {
                     if (item.children) {
