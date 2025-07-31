@@ -149,7 +149,6 @@ export function EventConfiguration({ buttonRef }: { buttonRef?: React.RefObject<
                         render: (_, item: RevenueAnalyticsEventItem) => {
                             return (
                                 <TaxonomicPopover
-                                    showNumericalPropsOnly
                                     size="small"
                                     className="my-1"
                                     groupType={TaxonomicFilterGroupType.EventProperties}
@@ -176,7 +175,6 @@ export function EventConfiguration({ buttonRef }: { buttonRef?: React.RefObject<
                         render: (_, item: RevenueAnalyticsEventItem) => {
                             return (
                                 <TaxonomicPopover
-                                    showNumericalPropsOnly
                                     size="small"
                                     className="my-1"
                                     groupType={TaxonomicFilterGroupType.EventProperties}
