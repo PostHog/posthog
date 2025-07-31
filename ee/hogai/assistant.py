@@ -67,6 +67,7 @@ from posthog.schema import (
     AssistantMessageType,
     FailureMessage,
     HumanMessage,
+    MaxBillingContext,
     ReasoningMessage,
     VisualizationMessage,
 )
@@ -129,6 +130,7 @@ class Assistant:
     """Like a message chunk, but specifically for the reasoning headline (and just a plain string)."""
     _last_reasoning_headline: Optional[str]
     """Last emittted reasoning headline, to be able to carry it over."""
+    _billing_context: Optional[MaxBillingContext]
 
     def __init__(
         self,
@@ -143,6 +145,7 @@ class Assistant:
         is_new_conversation: bool = False,
         trace_id: Optional[str | UUID] = None,
         tool_call_partial_state: Optional[AssistantState] = None,
+        billing_context: Optional[MaxBillingContext] = None,
     ):
         self._team = team
         self._contextual_tools = contextual_tools or {}
@@ -181,6 +184,7 @@ class Assistant:
         self._custom_update_ids = set()
         self._reasoning_headline_chunk = None
         self._last_reasoning_headline = None
+        self._billing_context = billing_context
 
     async def ainvoke(self) -> list[tuple[Literal[AssistantEventType.MESSAGE], AssistantMessageUnion]]:
         """Returns all messages in once without streaming."""
@@ -308,6 +312,7 @@ class Assistant:
                 "contextual_tools": self._contextual_tools,
                 "team": self._team,
                 "user": self._user,
+                "billing_context": self._billing_context,
                 # Metadata to be sent to PostHog SDK (error tracking, etc).
                 "sdk_metadata": {
                     "assistant_mode": self._mode.value,
@@ -414,6 +419,8 @@ class Assistant:
                     return ReasoningMessage(content="Coming up with an insight")
                 if tool_call.name == "search_documentation":
                     return ReasoningMessage(content="Checking PostHog docs")
+                if tool_call.name == "retrieve_billing_information":
+                    return ReasoningMessage(content="Checking your billing data")
                 # This tool should be in CONTEXTUAL_TOOL_NAME_TO_TOOL, but it might not be in the rare case
                 # when the tool has been removed from the backend since the user's frontent was loaded
                 ToolClass = CONTEXTUAL_TOOL_NAME_TO_TOOL.get(tool_call.name)  # type: ignore
