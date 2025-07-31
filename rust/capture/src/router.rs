@@ -155,13 +155,13 @@ pub fn router<
     let batch_router = Router::new()
         .route(
             "/batch",
-            post(v0_endpoint::event_legacy)
+            post(v0_endpoint::event_next)
                 .get(v0_endpoint::event)
                 .options(v0_endpoint::options),
         )
         .route(
             "/batch/",
-            post(v0_endpoint::event_legacy)
+            post(v0_endpoint::event_next)
                 .get(v0_endpoint::event)
                 .options(v0_endpoint::options),
         )
@@ -171,62 +171,62 @@ pub fn router<
         // legacy endpoints registered here
         .route(
             "/e",
-            post(v0_endpoint::event_legacy)
-                .get(v0_endpoint::event_legacy)
+            post(v0_endpoint::event_next)
+                .get(v0_endpoint::event_next)
                 .options(v0_endpoint::options),
         )
         .route(
             "/e/",
-            post(v0_endpoint::event_legacy)
-                .get(v0_endpoint::event_legacy)
+            post(v0_endpoint::event_next)
+                .get(v0_endpoint::event_next)
                 .options(v0_endpoint::options),
         )
         .route(
             "/track",
-            post(v0_endpoint::event_legacy)
-                .get(v0_endpoint::event_legacy)
+            post(v0_endpoint::event_next)
+                .get(v0_endpoint::event_next)
                 .options(v0_endpoint::options),
         )
         .route(
             "/track/",
-            post(v0_endpoint::event_legacy)
-                .get(v0_endpoint::event_legacy)
+            post(v0_endpoint::event_next)
+                .get(v0_endpoint::event_next)
                 .options(v0_endpoint::options),
         )
         .route(
             "/engage",
-            post(v0_endpoint::event_legacy)
-                .get(v0_endpoint::event_legacy)
+            post(v0_endpoint::event_next)
+                .get(v0_endpoint::event_next)
                 .options(v0_endpoint::options),
         )
         .route(
             "/engage/",
-            post(v0_endpoint::event_legacy)
-                .get(v0_endpoint::event_legacy)
+            post(v0_endpoint::event_next)
+                .get(v0_endpoint::event_next)
                 .options(v0_endpoint::options),
         )
         .route(
             "/capture",
-            post(v0_endpoint::event_legacy)
-                .get(v0_endpoint::event_legacy)
+            post(v0_endpoint::event_next)
+                .get(v0_endpoint::event_next)
                 .options(v0_endpoint::options),
         )
         .route(
             "/capture/",
-            post(v0_endpoint::event_legacy)
-                .get(v0_endpoint::event_legacy)
+            post(v0_endpoint::event_next)
+                .get(v0_endpoint::event_next)
                 .options(v0_endpoint::options),
         )
         .route(
             "/i/v0/e",
-            post(v0_endpoint::event_legacy)
-                .get(v0_endpoint::event_legacy)
+            post(v0_endpoint::event_next)
+                .get(v0_endpoint::event_next)
                 .options(v0_endpoint::options),
         )
         .route(
             "/i/v0/e/",
-            post(v0_endpoint::event_legacy)
-                .get(v0_endpoint::event_legacy)
+            post(v0_endpoint::event_next)
+                .get(v0_endpoint::event_next)
                 .options(v0_endpoint::options),
         )
         .layer(DefaultBodyLimit::max(EVENT_BODY_SIZE));
