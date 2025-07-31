@@ -796,7 +796,7 @@
                       arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
                       arrayMap(i -> if(ifNull(ifNull(greaterOrEquals(row_number, 25), 0), 0), '$$_posthog_breakdown_other_$$', i), breakdown_value) AS breakdown_value
   FROM
-    (SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2025-05-30 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2025-05-30 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2025-07-31 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
+    (SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2025-05-30 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2025-05-30 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
             arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
                                                                                                                                                                                                       and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total,
             breakdown_value AS breakdown_value,
@@ -912,7 +912,7 @@
                  WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
                  ORDER BY timestamp DESC) AS revenue_analytics_invoice_item ON equals(revenue_analytics_customer.id, revenue_analytics_invoice_item.customer_id)
               GROUP BY person_id) AS e__pdi__person__revenue_analytics ON equals(e__pdi__person.e__pdi__person___id, e__pdi__person__revenue_analytics.person_id)
-           WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2025-05-30 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-07-31 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
+           WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2025-05-30 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
            GROUP BY day_start,
                     breakdown_value_1)
         GROUP BY day_start,
@@ -933,28 +933,6 @@
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1
-  '''
-# ---
-# name: TestRevenueAnalytics.test_virtual_property_in_trend_0_disabled.2
-  '''
-  
-  SELECT timestamp
-  from events
-  WHERE team_id = 99999
-    AND timestamp > '2015-01-01'
-  order by timestamp
-  limit 1
-  '''
-# ---
-# name: TestRevenueAnalytics.test_virtual_property_in_trend_0_disabled.3
-  '''
-  
-  SELECT timestamp
-  from events
-  WHERE team_id = 99999
-    AND timestamp > '2015-01-01'
-  order by timestamp
-  limit 1
   '''
 # ---
 # name: TestRevenueAnalytics.test_virtual_property_in_trend_1_person_id_no_override_properties_on_events
@@ -980,7 +958,7 @@
                       arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
                       arrayMap(i -> if(ifNull(ifNull(greaterOrEquals(row_number, 25), 0), 0), '$$_posthog_breakdown_other_$$', i), breakdown_value) AS breakdown_value
   FROM
-    (SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2025-05-30 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2025-05-30 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2025-07-31 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
+    (SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2025-05-30 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2025-05-30 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
             arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
                                                                                                                                                                                                       and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total,
             breakdown_value AS breakdown_value,
@@ -994,7 +972,7 @@
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
                   ifNull(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.person_properties, '$virt_revenue'), ''), 'null'), '^"|"$', '')), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
            FROM events AS e SAMPLE 1
-           WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2025-05-30 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-07-31 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
+           WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2025-05-30 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
            GROUP BY day_start,
                     breakdown_value_1)
         GROUP BY day_start,
@@ -1015,28 +993,6 @@
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1
-  '''
-# ---
-# name: TestRevenueAnalytics.test_virtual_property_in_trend_1_person_id_no_override_properties_on_events.2
-  '''
-  
-  SELECT timestamp
-  from events
-  WHERE team_id = 99999
-    AND timestamp > '2015-01-01'
-  order by timestamp
-  limit 1
-  '''
-# ---
-# name: TestRevenueAnalytics.test_virtual_property_in_trend_1_person_id_no_override_properties_on_events.3
-  '''
-  
-  SELECT timestamp
-  from events
-  WHERE team_id = 99999
-    AND timestamp > '2015-01-01'
-  order by timestamp
-  limit 1
   '''
 # ---
 # name: TestRevenueAnalytics.test_virtual_property_in_trend_2_person_id_override_properties_on_events
@@ -1062,7 +1018,7 @@
                       arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
                       arrayMap(i -> if(ifNull(ifNull(greaterOrEquals(row_number, 25), 0), 0), '$$_posthog_breakdown_other_$$', i), breakdown_value) AS breakdown_value
   FROM
-    (SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2025-05-30 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2025-05-30 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2025-07-31 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
+    (SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2025-05-30 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2025-05-30 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
             arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
                                                                                                                                                                                                       and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total,
             breakdown_value AS breakdown_value,
@@ -1076,7 +1032,7 @@
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
                   ifNull(nullIf(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.person_properties, '$virt_revenue'), ''), 'null'), '^"|"$', '')), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
            FROM events AS e SAMPLE 1
-           WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2025-05-30 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-07-31 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
+           WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2025-05-30 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
            GROUP BY day_start,
                     breakdown_value_1)
         GROUP BY day_start,
@@ -1097,28 +1053,6 @@
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1
-  '''
-# ---
-# name: TestRevenueAnalytics.test_virtual_property_in_trend_2_person_id_override_properties_on_events.2
-  '''
-  
-  SELECT timestamp
-  from events
-  WHERE team_id = 99999
-    AND timestamp > '2015-01-01'
-  order by timestamp
-  limit 1
-  '''
-# ---
-# name: TestRevenueAnalytics.test_virtual_property_in_trend_2_person_id_override_properties_on_events.3
-  '''
-  
-  SELECT timestamp
-  from events
-  WHERE team_id = 99999
-    AND timestamp > '2015-01-01'
-  order by timestamp
-  limit 1
   '''
 # ---
 # name: TestRevenueAnalytics.test_virtual_property_in_trend_3_person_id_override_properties_joined
@@ -1144,7 +1078,7 @@
                       arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
                       arrayMap(i -> if(ifNull(ifNull(greaterOrEquals(row_number, 25), 0), 0), '$$_posthog_breakdown_other_$$', i), breakdown_value) AS breakdown_value
   FROM
-    (SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2025-05-30 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2025-05-30 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2025-07-31 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
+    (SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2025-05-30 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2025-05-30 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
             arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
                                                                                                                                                                                                       and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total,
             breakdown_value AS breakdown_value,
@@ -1258,7 +1192,7 @@
                  WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
                  ORDER BY timestamp DESC) AS revenue_analytics_invoice_item ON equals(revenue_analytics_customer.id, revenue_analytics_invoice_item.customer_id)
               GROUP BY person_id) AS e__person__revenue_analytics ON equals(e__person.e__person___id, e__person__revenue_analytics.person_id)
-           WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2025-05-30 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-07-31 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
+           WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2025-05-30 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
            GROUP BY day_start,
                     breakdown_value_1)
         GROUP BY day_start,
@@ -1279,27 +1213,5 @@
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
                        allow_experimental_join_condition=1
-  '''
-# ---
-# name: TestRevenueAnalytics.test_virtual_property_in_trend_3_person_id_override_properties_joined.2
-  '''
-  
-  SELECT timestamp
-  from events
-  WHERE team_id = 99999
-    AND timestamp > '2015-01-01'
-  order by timestamp
-  limit 1
-  '''
-# ---
-# name: TestRevenueAnalytics.test_virtual_property_in_trend_3_person_id_override_properties_joined.3
-  '''
-  
-  SELECT timestamp
-  from events
-  WHERE team_id = 99999
-    AND timestamp > '2015-01-01'
-  order by timestamp
-  limit 1
   '''
 # ---

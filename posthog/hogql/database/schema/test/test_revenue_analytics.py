@@ -361,8 +361,10 @@ class TestRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
             dateRange=DateRange(date_from="all", date_to=None),
             modifiers=HogQLQueryModifiers(personsOnEventsMode=mode),
         )
-        tqr = TrendsQueryRunner(team=self.team, query=query)
-        results = tqr.calculate().results
+
+        with freeze_time(self.QUERY_TIMESTAMP):
+            tqr = TrendsQueryRunner(team=self.team, query=query)
+            results = tqr.calculate().results
 
         # Doesnt make sense to breakdown by this, but this is just proving it works
         poe_modes = [
