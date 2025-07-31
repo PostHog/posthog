@@ -369,7 +369,7 @@ class TestSummarizeSingleSessionStreamWorkflow:
                 return_value=input_data,
             ),
             patch(
-                "posthog.temporal.ai.session_summary.summarize_session._start_workflow",
+                "posthog.temporal.ai.session_summary.summarize_session._start_single_session_summary_workflow_stream",
                 return_value=mock_workflow_handle,
             ),
             patch.object(sync_redis_test_setup.redis_client, "get", side_effect=mock_redis_get),
@@ -447,7 +447,7 @@ class TestSummarizeSingleSessionStreamWorkflow:
                 return_value=input_data,
             ),
             patch(
-                "posthog.temporal.ai.session_summary.summarize_session._start_workflow",
+                "posthog.temporal.ai.session_summary.summarize_session._start_single_session_summary_workflow_stream",
                 return_value=mock_workflow_handle,
             ),
             patch.object(sync_redis_test_setup.redis_client, "get", side_effect=mock_redis_get),
@@ -536,7 +536,7 @@ class TestSummarizeSingleSessionStreamWorkflow:
                 return_value=input_data,
             ),
             patch(
-                "posthog.temporal.ai.session_summary.summarize_session._start_workflow",
+                "posthog.temporal.ai.session_summary.summarize_session._start_single_session_summary_workflow_stream",
                 return_value=mock_workflow_handle,
             ),
             patch.object(sync_redis_test_setup.redis_client, "get", side_effect=mock_redis_get),
