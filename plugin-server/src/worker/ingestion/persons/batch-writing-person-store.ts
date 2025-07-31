@@ -1086,6 +1086,12 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
                         return { success: true, messages: [] }
                     }
 
+                    // Don't retry size violations - they will never succeed
+                    // throw the error so that we capture an ingestion warning
+                    if (error instanceof PersonPropertiesSizeViolationError) {
+                        throw error
+                    }
+
                     // For any other error type, still retry but with generic logging
                     logger.warn(`Database error for ${operation}, retrying...`, {
                         attempt,
