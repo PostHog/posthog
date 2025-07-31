@@ -238,7 +238,7 @@ def _evolve_pyarrow_schema(table: pa.Table, delta_schema: deltalake.Schema | Non
                         casted_column = table.column(field.name).cast(field.type)
                         table = table.set_column(
                             table.schema.get_field_index(field.name),
-                            field.name,
+                            field.with_nullable(True),
                             casted_column.combine_chunks(),
                         )
                     else:
@@ -250,6 +250,13 @@ def _evolve_pyarrow_schema(table: pa.Table, delta_schema: deltalake.Schema | Non
                             field.name,
                             timestamp_array,
                         )
+                        py_arrow_table_field = table.field(field.name)
+                        if pc.any(pc.is_null(timestamp_array)).as_py() and not py_arrow_table_field.nullable:
+                            table = table.cast(
+                                table.schema.set(
+                                    table.schema.get_field_index(field.name), py_arrow_table_field.with_nullable(True)
+                                )
+                            )
                 else:
                     table = table.set_column(
                         table.schema.get_field_index(field.name),
@@ -478,10 +485,6 @@ def table_from_py_list(table_data: list[Any], schema: Optional[pa.Schema] = None
     Convert a list of Python dictionaries to a PyArrow Table.
     This is a wrapper around table_from_iterator for backward compatibility.
     """
-    if schema:
-        nullable_fields = [field.with_nullable(True) for field in schema]
-        schema = pa.schema(nullable_fields)
-
     return table_from_iterator(iter(table_data), schema=schema)
 
 
