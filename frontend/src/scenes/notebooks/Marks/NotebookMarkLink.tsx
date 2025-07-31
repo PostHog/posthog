@@ -2,6 +2,9 @@ import { getMarkRange, Mark, mergeAttributes } from '@tiptap/core'
 import { Plugin, PluginKey } from '@tiptap/pm/state'
 
 import { linkPasteRule } from '../Nodes/utils'
+import { Attributes } from '@tiptap/core'
+import { DOMOutputSpec, TagParseRule } from '@tiptap/pm/model'
+import { PasteRule } from '@tiptap/core'
 
 export const NotebookMarkLink = Mark.create({
     name: 'link',
@@ -9,27 +12,27 @@ export const NotebookMarkLink = Mark.create({
     keepOnSplit: false,
     inclusive: true,
 
-    addAttributes() {
+    addAttributes(): Attributes {
         return {
             href: { default: null },
             target: { default: undefined },
         }
     },
 
-    parseHTML() {
+    parseHTML(): TagParseRule[] {
         return [{ tag: 'a[href]:not([href *= "javascript:" i])' }]
     },
 
-    renderHTML({ HTMLAttributes }) {
+    renderHTML({ HTMLAttributes }: { HTMLAttributes: Record<string, any> }): DOMOutputSpec {
         const target = isPostHogLink(HTMLAttributes.href) ? undefined : '_blank'
         return ['a', mergeAttributes(HTMLAttributes, { target }), 0]
     },
 
-    addPasteRules() {
+    addPasteRules(): PasteRule[] {
         return [linkPasteRule()]
     },
 
-    addProseMirrorPlugins() {
+    addProseMirrorPlugins(): Plugin[] {
         const { editor, type: markType } = this
         return [
             new Plugin({
