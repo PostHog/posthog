@@ -456,6 +456,9 @@ def login_from_new_device_notification(
     user_id: int, login_time: datetime, short_user_agent: str, ip_address: str
 ) -> None:
     """Send login notification email if login is from a new device"""
+    if not is_email_available(with_absolute_urls=True):
+        return
+
     is_new_device = check_and_cache_login_device(user_id, ip_address, short_user_agent)
     if not is_new_device:
         return
