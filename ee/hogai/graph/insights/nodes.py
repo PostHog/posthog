@@ -21,7 +21,17 @@ from posthog.schema import (
     AssistantHogQLQuery,
 )
 from ee.hogai.graph.base import AssistantNode
-from .prompts import INSIGHT_EVALUATION_SYSTEM_PROMPT, ITERATIVE_SEARCH_SYSTEM_PROMPT, ITERATIVE_SEARCH_USER_PROMPT
+from .prompts import (
+    INSIGHT_EVALUATION_SYSTEM_PROMPT,
+    ITERATIVE_SEARCH_SYSTEM_PROMPT,
+    ITERATIVE_SEARCH_USER_PROMPT,
+    PAGINATION_INSTRUCTIONS_TEMPLATE,
+    NO_SEARCH_RESULTS_TEMPLATE,
+    SEARCH_RESULTS_FOOTER_TEMPLATE,
+    INSIGHT_BLOCK_WITH_DESCRIPTION_TEMPLATE,
+    INSIGHT_BLOCK_NO_DESCRIPTION_TEMPLATE,
+    CURRENT_DATA_TEMPLATE,
+)
 from .utils import convert_filters_to_query
 
 from posthog.models import InsightViewed
@@ -177,9 +187,7 @@ class InsightSearchNode(AssistantNode):
         has_pagination = total_pages > 1
 
         pagination_instructions = (
-            "You can read additional pages using the read_insights_page(page_number) tool. "
-            "Read additional pages until you have found the most relevant insights."
-            f"There are {total_pages} total pages available (0-indexed)."
+            PAGINATION_INSTRUCTIONS_TEMPLATE.format(total_pages=total_pages)
             if has_pagination
             else "This is the only page of insights available."
         )
@@ -300,7 +308,7 @@ class InsightSearchNode(AssistantNode):
     ) -> tuple[str, list[VisualizationMessage]]:
         """Format final search results for display."""
         if not selected_insights:
-            content = f"No insights found matching '{search_query or 'your search'}'.\n\nSuggest that the user try:\n- Using different keywords\n- Searching for broader terms\n- Creating a new insight instead"
+            content = NO_SEARCH_RESULTS_TEMPLATE.format(search_query=search_query or "your search")
             return content, []
 
         insight_details = []
@@ -335,31 +343,31 @@ class InsightSearchNode(AssistantNode):
             execution_results = ""
             executed_results = self._execute_insight_for_display(insight, query_executor)
             if executed_results:
-                execution_results = f"\n\n    **Current Data:**\n    ```\n    {executed_results}\n    ```"
+                execution_results = CURRENT_DATA_TEMPLATE.format(results=executed_results)
 
             if description:
-                result_block = f"""**{i}. {name}**
-    Description: {description}{metadata}{execution_results}
-    [View Insight →]({insight_url})"""
+                result_block = INSIGHT_BLOCK_WITH_DESCRIPTION_TEMPLATE.format(
+                    index=i,
+                    name=name,
+                    description=description,
+                    metadata=metadata,
+                    execution_results=execution_results,
+                    insight_url=insight_url,
+                )
             else:
-                result_block = f"""**{i}. {name}**{metadata}{execution_results}
-    [View Insight →]({insight_url})"""
+                result_block = INSIGHT_BLOCK_NO_DESCRIPTION_TEMPLATE.format(
+                    index=i, name=name, metadata=metadata, execution_results=execution_results, insight_url=insight_url
+                )
 
             formatted_results.append(result_block)
 
         content = header + "\n\n".join(formatted_results)
 
-        content += f"\n\nYou found {len(insight_details)} existing insight{'s' if len(insight_details) != 1 else ''}"
-        if search_query:
-            content += f" related to '{search_query}'"
-        content += ". Present these results to the user and ask them how they'd like to proceed. You can:"
-        content += "\n- Use one of these insights as-is"
-        content += (
-            "\n- Modify an existing insight (propose to make the change yourself: change filters, time range, etc.)"
+        search_context = f" related to '{search_query}'" if search_query else ""
+        plural = "s" if len(insight_details) != 1 else ""
+        content += "\n\n" + SEARCH_RESULTS_FOOTER_TEMPLATE.format(
+            count=len(insight_details), plural=plural, search_context=search_context
         )
-        content += "\n- Create a completely new insight"
-        content += "\n\nBe natural and conversational - don't present this as a rigid list of options."
-        content += "\n\nINSTRUCTIONS: Add a link to the insight in the format [Insight Name](Insight URL) where mentioning an insight."
 
         return content, visualization_messages
 

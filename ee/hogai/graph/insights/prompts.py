@@ -55,3 +55,35 @@ For example, if you see "HYPERLINK FORMAT: [Weekly signups](/project/123/insight
 Your response MUST be clear and decisive.
 MANDATORY EXAMPLE: "The insight [Weekly signups](/project/123/insights/abc) is perfect because..." NOT "The insight Weekly signups is perfect because..."
 """
+
+PAGINATION_INSTRUCTIONS_TEMPLATE = """You can read additional pages using the read_insights_page(page_number) tool. Read additional pages until you have found the most relevant insights. There are {total_pages} total pages available (0-indexed)."""
+
+NO_SEARCH_RESULTS_TEMPLATE = """No insights found matching '{search_query}'.
+
+Suggest that the user try:
+- Using different keywords
+- Searching for broader terms
+- Creating a new insight instead"""
+
+SEARCH_RESULTS_FOOTER_TEMPLATE = """You found {count} existing insight{plural}{search_context}. Present these results to the user and ask them how they'd like to proceed. You can:
+- Use one of these insights as-is
+- Modify an existing insight (propose to make the change yourself: change filters, time range, etc.)
+- Create a completely new insight
+
+Be natural and conversational - don't present this as a rigid list of options.
+
+INSTRUCTIONS: Add a link to the insight in the format [Insight Name](Insight URL) where mentioning an insight."""
+
+INSIGHT_BLOCK_WITH_DESCRIPTION_TEMPLATE = """**{index}. {name}**
+    Description: {description}{metadata}{execution_results}
+    [View Insight →]({insight_url})"""
+
+INSIGHT_BLOCK_NO_DESCRIPTION_TEMPLATE = """**{index}. {name}**{metadata}{execution_results}
+    [View Insight →]({insight_url})"""
+
+CURRENT_DATA_TEMPLATE = """
+
+    **Current Data:**
+    ```
+    {results}
+    ```"""
