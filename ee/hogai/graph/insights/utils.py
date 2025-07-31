@@ -162,12 +162,11 @@ def _convert_trends_filters(filters_dict: dict[str, Any], query_dict: dict[str, 
     if "show_values_on_series" in filters_dict:
         trends_filter["showValuesOnSeries"] = filters_dict["show_values_on_series"]
 
-    # Compare to previous period
-    if filters_dict.get("compare"):
-        trends_filter["compare"] = filters_dict["compare"]
-
     if trends_filter:
         query_dict["trendsFilter"] = trends_filter
+
+    if filters_dict.get("compare"):
+        query_dict["compareFilter"] = {"compare": filters_dict["compare"]}
 
     # Add breakdown filter
     breakdown_filter = {}

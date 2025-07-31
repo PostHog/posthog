@@ -1,6 +1,5 @@
 import json
 import re
-import time
 from typing import Literal
 from uuid import uuid4
 
@@ -9,7 +8,6 @@ from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
 from langchain_core.tools import tool
 
 from langchain_openai import ChatOpenAI
-import structlog
 
 
 from ee.hogai.graph.query_executor.query_executor import AssistantQueryExecutor
@@ -30,8 +28,6 @@ from posthog.models import InsightViewed
 
 
 class InsightSearchNode(AssistantNode):
-    logger = structlog.get_logger(__name__)
-
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._current_page = 0
@@ -39,6 +35,7 @@ class InsightSearchNode(AssistantNode):
         self._max_iterations = 6
         self._current_iteration = 0
         self._all_insights = []
+        self._max_insights = 3
 
     def _create_read_insights_tool(self):
         """Create tool for reading insights pages during agentic RAG loop."""
@@ -77,13 +74,7 @@ class InsightSearchNode(AssistantNode):
         return read_insights_page
 
     def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
-        start_time = time.time()
         search_query = state.search_insights_query
-        insight_plan = state.root_tool_insight_plan  # this is not set anymore...
-        conversation_id = config.get("configurable", {}).get("thread_id", "unknown")
-
-        # FORCING THIS FOR NOW
-        insight_plan = search_query
 
         try:
             self._current_iteration = 0
@@ -94,119 +85,39 @@ class InsightSearchNode(AssistantNode):
 
             selected_insights = self._search_insights_iteratively(search_query or "")
 
-            # If this is a create_and_query_insight request (both search_query and insight_plan are set),
-            # evaluate whether found insights can be used as a starting point
-            if insight_plan and search_query:
-                self.__class__.logger.info("Evaluating insights for CREATION")
-                evaluation_result = self._evaluate_insights_for_creation(selected_insights, insight_plan)
+            evaluation_result = self._evaluate_insights_for_creation(selected_insights, search_query)
 
-                if evaluation_result["should_use_existing"]:
-                    # Create visualization messages for the insights to show actual charts
-                    messages_to_return = []
+            if evaluation_result["should_use_existing"]:
+                # Create visualization messages for the insights to show actual charts
+                messages_to_return = []
 
-                    formatted_content = f"🔗**MANDATORY HYPERLINK RULE**: Always use clickable links for insight names. Replace 'Weekly signups' with '[Weekly signups](URL)', 'User Signups' with '[User Signups](Insight URL)', etc.\n\n**Evaluation Result**: {evaluation_result['explanation']}"
+                formatted_content = f"**MANDATORY HYPERLINK RULE**: Always use clickable links for insight names. Replace 'Weekly signups' with '[Weekly signups](URL)', 'User Signups' with '[User Signups](Insight URL)', etc.\n\n**Evaluation Result**: {evaluation_result['explanation']}"
 
-                    messages_to_return.append(
-                        AssistantToolCallMessage(
-                            content=formatted_content,
-                            tool_call_id=state.root_tool_call_id or "unknown",
-                            id=str(uuid4()),
-                        )
-                    )
-
-                    # Add visualization messages returned from evaluation
-                    messages_to_return.extend(evaluation_result["visualization_messages"])
-
-                    execution_time = time.time() - start_time
-                    self.__class__.logger.info(
-                        f"Insight search and evaluation completed - using existing insights",
-                        extra={
-                            "team_id": getattr(self._team, "id", "unknown"),
-                            "conversation_id": conversation_id,
-                            "query_length": len(search_query) if search_query else 0,
-                            "results_count": len(selected_insights),
-                            "execution_time_ms": round(execution_time * 1000, 2),
-                            "iterations": self._current_iteration,
-                        },
-                    )
-
-                    return PartialAssistantState(
-                        messages=messages_to_return,
-                        search_insights_query=None,
-                        root_tool_call_id=None,
-                        root_tool_insight_plan=None,
-                    )
-                else:
-                    # No suitable insights found, continue with normal creation flow
-                    execution_time = time.time() - start_time
-                    self.__class__.logger.info(
-                        f"Insight search and evaluation completed - creating new insight",
-                        extra={
-                            "team_id": getattr(self._team, "id", "unknown"),
-                            "conversation_id": conversation_id,
-                            "query_length": len(search_query) if search_query else 0,
-                            "results_count": len(selected_insights),
-                            "execution_time_ms": round(execution_time * 1000, 2),
-                            "iterations": self._current_iteration,
-                        },
-                    )
-
-                    # Clear search_insights_query but keep root_tool_insight_plan to trigger creation
-                    return PartialAssistantState(
-                        search_insights_query=None,
-                    )
-
-            else:
-                # Get formatted content and visualization messages
-                formatted_content, viz_messages = self._format_search_results(
-                    selected_insights,
-                    search_query or "",
-                )
-
-                # Create messages list with text explanation and visualizations
-                messages_to_return = [
+                messages_to_return.append(
                     AssistantToolCallMessage(
                         content=formatted_content,
                         tool_call_id=state.root_tool_call_id or "unknown",
                         id=str(uuid4()),
-                    ),
-                ]
-
-                # Add visualization messages
-                messages_to_return.extend(viz_messages)
-
-                execution_time = time.time() - start_time
-                self.logger.info(
-                    f"Iterative insight search completed",
-                    extra={
-                        "team_id": getattr(self._team, "id", "unknown"),
-                        "conversation_id": conversation_id,
-                        "query_length": len(search_query) if search_query else 0,
-                        "results_count": len(selected_insights),
-                        "execution_time_ms": round(execution_time * 1000, 2),
-                        "iterations": self._current_iteration,
-                    },
+                    )
                 )
+
+                # Add visualization messages returned from evaluation
+                messages_to_return.extend(evaluation_result["visualization_messages"])
 
                 return PartialAssistantState(
                     messages=messages_to_return,
                     search_insights_query=None,
                     root_tool_call_id=None,
+                    root_tool_insight_plan=None,
+                )
+            else:
+                # No suitable insights found, triggering creation of a new insight
+                return PartialAssistantState(
+                    root_tool_insight_plan=search_query,
+                    search_insights_query=None,
                 )
 
-        except Exception as e:
-            execution_time = time.time() - start_time
-            self.logger.exception(
-                f"Iterative insight search failed",
-                extra={
-                    "team_id": getattr(self._team, "id", "unknown"),
-                    "conversation_id": conversation_id,
-                    "query_length": len(search_query) if search_query else 0,
-                    "execution_time_ms": round(execution_time * 1000, 2),
-                    "error": str(e),
-                },
-            )
-
+        except Exception:
             return self._create_error_response(
                 "INSTRUCTIONS: Tell the user that you encountered an issue while searching for insights and suggest they try again with a different search term.",
                 state.root_tool_call_id,
@@ -296,19 +207,16 @@ class InsightSearchNode(AssistantNode):
                     # Parse final response for insight IDs
                     content = response.content if isinstance(response.content, str) else str(response.content)
                     selected_insights = self._parse_insight_ids(content)
-                    self.logger.info(f"Parsed insight IDs from LLM response: {selected_insights}")
                     break
 
-            except Exception as e:
-                self.logger.warning(f"Search iteration failed: {e}")
+            except Exception:
                 break
 
-        # Fallback to first 3 insights if no results
+        # Fallback to max_insights if no results
         if not selected_insights:
-            selected_insights = [insight["insight_id"] for insight in self._all_insights[:3]]
+            selected_insights = [insight["insight_id"] for insight in self._all_insights[: self._max_insights]]
 
-        # Limit to 3 insights
-        return selected_insights[:3]
+        return selected_insights[: self._max_insights]
 
     def _format_insights_page(self, page_number: int) -> str:
         """Format a page of insights for display."""
@@ -335,7 +243,6 @@ class InsightSearchNode(AssistantNode):
 
     def _parse_insight_ids(self, response_content: str) -> list[int]:
         """Parse insight IDs from LLM response, removing duplicates and preserving order."""
-        # Look for numbers in the response
         numbers = re.findall(r"\b\d+\b", response_content)
 
         # Convert to integers and validate against available insights
@@ -346,15 +253,13 @@ class InsightSearchNode(AssistantNode):
         for num_str in numbers:
             try:
                 insight_id = int(num_str)
-                # Only add if it's valid and not already seen
                 if insight_id in available_ids and insight_id not in seen_ids:
                     valid_ids.append(insight_id)
                     seen_ids.add(insight_id)
-                    # Stop if we've found 3 unique insights
-                    if len(valid_ids) >= 3:
+                    # Stop if we've found enough unique insights
+                    if len(valid_ids) >= self._max_insights:
                         break
             except ValueError:
-                # Skip invalid numbers
                 continue
 
         return valid_ids
@@ -413,7 +318,6 @@ class InsightSearchNode(AssistantNode):
 
         content = header + "\n\n".join(formatted_results)
 
-        # Add contextual guidance based on search results
         content += f"\n\nYou found {len(insight_details)} existing insight{'s' if len(insight_details) != 1 else ''}"
         if search_query:
             content += f" related to '{search_query}'"
@@ -424,16 +328,13 @@ class InsightSearchNode(AssistantNode):
         )
         content += "\n- Create a completely new insight"
         content += "\n\nBe natural and conversational - don't present this as a rigid list of options."
-        content += "\n\nINSTRUCTIONS: Add a link to the insight in the format [Insight Name](Insight URL) where mentioning an insight to the user."
+        content += "\n\nINSTRUCTIONS: Add a link to the insight in the format [Insight Name](Insight URL) where mentioning an insight."
 
         return content, visualization_messages
 
     def _convert_insight_to_query(self, insight: dict) -> tuple[dict | None, str | None]:
         """
         Convert an insight (with query or legacy filters) to a modern query format.
-
-        Returns:
-            tuple: (query_dict, query_kind) or (None, None) if conversion fails
         """
         try:
             insight_query = insight.get("insight__query")
@@ -441,7 +342,6 @@ class InsightSearchNode(AssistantNode):
 
             # If we have a query, use it
             if insight_query:
-                # Handle both string and dict formats for insight_query
                 if isinstance(insight_query, str):
                     query_dict = json.loads(insight_query)
                 elif isinstance(insight_query, dict):
@@ -462,8 +362,7 @@ class InsightSearchNode(AssistantNode):
             query_kind = query_dict.get("kind")
             return query_dict, query_kind
 
-        except Exception as e:
-            self.logger.warning(f"Failed to convert insight {insight.get('insight_id')} to query: {e}")
+        except Exception:
             return None, None
 
     def _process_insight_for_evaluation(self, insight: dict, query_executor: AssistantQueryExecutor) -> dict:
@@ -487,11 +386,10 @@ class InsightSearchNode(AssistantNode):
             query_dict, query_kind = self._convert_insight_to_query(insight)
 
             if query_dict and query_kind:
-                # Import moved inside method to avoid circular imports
                 from ee.hogai.graph.root.nodes import MAX_SUPPORTED_QUERY_KIND_TO_MODEL
 
                 if query_kind in MAX_SUPPORTED_QUERY_KIND_TO_MODEL:
-                    # Execute the query
+                    # Execute query
                     try:
                         QueryModel = MAX_SUPPORTED_QUERY_KIND_TO_MODEL[query_kind]
                         query_obj = QueryModel.model_validate(query_dict)
@@ -508,7 +406,6 @@ class InsightSearchNode(AssistantNode):
                     insight_info["query"] = f"Query type '{query_kind}' not supported for execution"
                     insight_info["results"] = f"Query type '{query_kind}' not supported for execution"
 
-                # Create visualization message
                 viz_message = self._create_visualization_message_for_insight(insight)
                 insight_info["visualization_message"] = viz_message
 
@@ -522,21 +419,19 @@ class InsightSearchNode(AssistantNode):
                     insight_info["query"] = "No query data available"
                     insight_info["results"] = "Cannot execute - no query or filter data"
 
-        except Exception as e:
-            self.logger.warning(f"Failed to process insight {insight.get('insight_id')}: {e}")
+        except Exception:
             insight_info["query"] = insight.get("insight__query", "")
             insight_info["results"] = "Failed to process insight"
 
         return insight_info
 
     def _create_visualization_message_for_insight(self, insight: dict) -> VisualizationMessage | None:
-        """Create a VisualizationMessage for an existing insight to render the chart UI."""
+        """Create a VisualizationMessage to render the insight UI."""
         try:
             query_dict, query_kind = self._convert_insight_to_query(insight)
             if not query_dict or not query_kind:
                 return None
 
-            # Map query kinds to Assistant query types for VisualizationMessage
             assistant_query_type_map = {
                 "TrendsQuery": AssistantTrendsQuery,
                 "FunnelsQuery": AssistantFunnelsQuery,
@@ -550,7 +445,6 @@ class InsightSearchNode(AssistantNode):
             AssistantQueryModel = assistant_query_type_map[query_kind]
             query_obj = AssistantQueryModel.model_validate(query_dict)
 
-            # Create VisualizationMessage with the insight's query
             insight_name = insight.get("insight__name") or insight.get("insight__derived_name", "Unnamed Insight")
             viz_message = VisualizationMessage(
                 query=f"Existing insight: {insight_name}",
@@ -561,8 +455,7 @@ class InsightSearchNode(AssistantNode):
 
             return viz_message
 
-        except Exception as e:
-            self.logger.warning(f"Failed to create visualization for insight {insight.get('insight_id')}: {e}")
+        except Exception:
             return None
 
     def _execute_insight_for_display(self, insight: dict, query_executor: AssistantQueryExecutor) -> str | None:
@@ -572,7 +465,6 @@ class InsightSearchNode(AssistantNode):
             if not query_dict or not query_kind:
                 return "No query data available or could not convert"
 
-            # Import moved inside method to avoid circular imports
             from ee.hogai.graph.root.nodes import MAX_SUPPORTED_QUERY_KIND_TO_MODEL
 
             if query_kind not in MAX_SUPPORTED_QUERY_KIND_TO_MODEL:
@@ -583,8 +475,7 @@ class InsightSearchNode(AssistantNode):
             results, _ = query_executor.run_and_format_query(query_obj)
             return results
 
-        except Exception as e:
-            self.logger.warning(f"Failed to execute insight {insight.get('insight_id')}: {e}")
+        except Exception:
             return "Could not execute query"
 
     def _create_error_response(self, content: str, tool_call_id: str | None) -> PartialAssistantState:
@@ -620,19 +511,18 @@ class InsightSearchNode(AssistantNode):
             }
 
         # Remove duplicates while preserving order
-        unique_insights = []
-        seen_ids = set()
-        for insight_id in selected_insights:
-            if insight_id not in seen_ids:
-                unique_insights.append(insight_id)
-                seen_ids.add(insight_id)
-        self.__class__.logger.info(f"Evaluating insights - original: {selected_insights}, unique: {unique_insights}")
+        # unique_insights = []
+        # seen_ids = set()
+        # for insight_id in selected_insights:
+        #     if insight_id not in seen_ids:
+        #         unique_insights.append(insight_id)
+        #         seen_ids.add(insight_id)
 
         query_executor = AssistantQueryExecutor(self._team, self._utc_now_datetime)
         insights_with_results = []
         visualization_messages = []
 
-        for insight_id in unique_insights:
+        for insight_id in selected_insights:
             insight = next((i for i in self._all_insights if i["insight_id"] == insight_id), None)
             if not insight:
                 continue
@@ -643,8 +533,6 @@ class InsightSearchNode(AssistantNode):
             eval_insight_info = {k: v for k, v in insight_info.items() if k != "visualization_message"}
             insights_with_results.append(eval_insight_info)
 
-            # TODO: here we loose some visualizationmessages
-            # Collect visualization message if available
             if insight_info["visualization_message"]:
                 visualization_messages.append(insight_info["visualization_message"])
 
@@ -655,7 +543,6 @@ class InsightSearchNode(AssistantNode):
                 "visualization_messages": [],
             }
 
-        # Format insights for LLM evaluation with hyperlinks
         formatted_insights = []
         insight_hyperlinks = {}  # Store hyperlinks for later use
 
@@ -702,28 +589,18 @@ class InsightSearchNode(AssistantNode):
             # Parse response to determine if we should use existing insights, not great but works for now
             should_use_existing = response_text.upper().startswith("YES")
 
-            self.__class__.logger.info(f"***USING EXISTING INSIGHT***")
-
             return {
                 "should_use_existing": should_use_existing,
                 "explanation": response_text,
                 "visualization_messages": visualization_messages,
             }
 
-        except Exception as e:
-            self.__class__.logger.warning(f"Failed to evaluate insights: {e}")
-
+        except Exception:
             return {
                 "should_use_existing": False,
                 "explanation": "Could not evaluate insights due to an error.",
                 "visualization_messages": visualization_messages,
             }
-
-    def router(self, state: AssistantState) -> Literal["end", "root", "insights"]:
-        # Check if we need to continue with insight creation after evaluation
-        if state.root_tool_insight_plan and not state.search_insights_query:
-            return "insights"
-        return "root"
 
     def _format_insight_metadata(self, insight: dict) -> str:
         """
@@ -775,7 +652,7 @@ class InsightSearchNode(AssistantNode):
                 if properties and len(properties) > 0:
                     metadata_parts.append(f"**Filters:** {len(properties)} filter(s) applied")
 
-                # Breakdown
+                # Breakdown filters
                 breakdown = filters_dict.get("breakdown")
                 if breakdown:
                     metadata_parts.append(f"**Breakdown:** {breakdown}")
@@ -787,6 +664,13 @@ class InsightSearchNode(AssistantNode):
             return "\n" + "\n".join(metadata_parts)
         else:
             return ""
+
+    def router(self, state: AssistantState) -> Literal["end", "root", "insights"]:
+        # Check if we need to continue with insight creation after evaluation
+        # if state.root_tool_insight_plan and not state.search_insights_query:
+        if state.root_tool_insight_plan:
+            return "insights"
+        return "root"
 
     @property
     def _model(self):

@@ -634,10 +634,7 @@ class RootNodeTools(AssistantNode):
                     return "billing"
             if state.root_tool_insight_plan:
                 return "insights"
-            # elif state.root_tool_insight_plan:
-            #     return "insights"
             elif state.search_insights_query:
-                # TODO: Maybe not needed?
                 return "insights_search"
             else:
                 return "search_documentation"

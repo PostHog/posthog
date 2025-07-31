@@ -38,6 +38,7 @@ Here are the insights found from the search with their query results:
 {insights_with_results}
 
 Your task is to determine if any of these existing insights can serve as a good starting point or base for the user's request.
+Select a **single** insight ID to use as a starting point.
 
 Consider:
 1. Do the insights address similar questions or metrics?
@@ -46,7 +47,7 @@ Consider:
 4. Do the query results show relevant data patterns?
 
 Respond with either:
-- YES: If one or more insights can serve as a good starting point. Include which specific insights IDs and explain why.
+- YES: If one insight can serve as a good starting point. Include which specific insight ID and explain why.
 CRITICAL: When you mention an insight name, you MUST use the exact text from "HYPERLINK FORMAT" instead of just the name.
 For example, if you see "HYPERLINK FORMAT: [Weekly signups](/project/123/insights/abc)", write "[Weekly signups](/project/123/insights/abc)" in your response, NOT just "Weekly signups".
 - NO: If none of the insights are suitable and a new insight should be created from scratch.
