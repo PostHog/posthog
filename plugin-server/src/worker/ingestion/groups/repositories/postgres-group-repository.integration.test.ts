@@ -1,7 +1,14 @@
 import { DateTime } from 'luxon'
 
 import { insertRow, resetTestDatabase } from '../../../../../tests/helpers/sql'
-import { GroupTypeIndex, Hub, PropertiesLastOperation, PropertiesLastUpdatedAt, TeamId } from '../../../../types'
+import {
+    GroupTypeIndex,
+    Hub,
+    PropertiesLastOperation,
+    PropertiesLastUpdatedAt,
+    PropertyUpdateOperation,
+    TeamId,
+} from '../../../../types'
 import { closeHub, createHub } from '../../../../utils/db/hub'
 import { PostgresRouter, PostgresUse } from '../../../../utils/db/postgres'
 import { UUIDT } from '../../../../utils/utils'
@@ -320,6 +327,163 @@ describe('PostgresGroupRepository Integration', () => {
             expect(result1?.group_key).not.toBe(result2?.group_key)
             expect(result1?.group_type_index).not.toBe(result2?.group_type_index)
             expect(result1?.team_id).not.toBe(result2?.team_id)
+        })
+    })
+
+    describe('insertGroup', () => {
+        it('should insert a group successfully', async () => {
+            await insertTestTeam(teamId)
+
+            const result = await repository.insertGroup(
+                teamId,
+                groupTypeIndex,
+                groupKey,
+                groupProperties,
+                createdAt,
+                propertiesLastUpdatedAt,
+                propertiesLastOperation
+            )
+
+            expect(result).toBe(1)
+
+            // Verify the group was actually inserted
+            const fetchedGroup = await repository.fetchGroup(teamId, groupTypeIndex, groupKey)
+            expect(fetchedGroup).toMatchObject({
+                team_id: teamId,
+                group_type_index: groupTypeIndex,
+                group_key: groupKey,
+                group_properties: groupProperties,
+                properties_last_updated_at: propertiesLastUpdatedAt,
+                properties_last_operation: propertiesLastOperation,
+                created_at: createdAt,
+                version: 1,
+            })
+        })
+
+        it('should handle duplicate insert with ON CONFLICT DO NOTHING', async () => {
+            await insertTestTeam(teamId)
+
+            // First insert should succeed
+            const result1 = await repository.insertGroup(
+                teamId,
+                groupTypeIndex,
+                groupKey,
+                groupProperties,
+                createdAt,
+                propertiesLastUpdatedAt,
+                propertiesLastOperation
+            )
+            expect(result1).toBe(1)
+
+            // Second insert should throw RaceConditionError due to ON CONFLICT DO NOTHING
+            await expect(
+                repository.insertGroup(
+                    teamId,
+                    groupTypeIndex,
+                    groupKey,
+                    groupProperties,
+                    createdAt,
+                    propertiesLastUpdatedAt,
+                    propertiesLastOperation
+                )
+            ).rejects.toThrow('Parallel posthog_group inserts, retry')
+        })
+
+        it('should handle different group properties', async () => {
+            await insertTestTeam(teamId)
+
+            const customProperties = { name: 'Custom Group', type: 'organization', size: 'large' }
+            const customCreatedAt = DateTime.fromISO('2023-03-01T00:00:00Z').toUTC()
+            const customPropertiesLastUpdatedAt = { name: '2023-03-01T00:00:00Z' }
+            const customPropertiesLastOperation = { name: PropertyUpdateOperation.Set }
+
+            const result = await repository.insertGroup(
+                teamId,
+                groupTypeIndex,
+                groupKey,
+                customProperties,
+                customCreatedAt,
+                customPropertiesLastUpdatedAt,
+                customPropertiesLastOperation
+            )
+
+            expect(result).toBe(1)
+
+            // Verify the group was inserted with custom properties
+            const fetchedGroup = await repository.fetchGroup(teamId, groupTypeIndex, groupKey)
+            expect(fetchedGroup).toMatchObject({
+                team_id: teamId,
+                group_type_index: groupTypeIndex,
+                group_key: groupKey,
+                group_properties: customProperties,
+                properties_last_updated_at: customPropertiesLastUpdatedAt,
+                properties_last_operation: customPropertiesLastOperation,
+                created_at: customCreatedAt,
+                version: 1,
+            })
+        })
+
+        it('should handle insertGroup with transaction', async () => {
+            await insertTestTeam(teamId)
+
+            const result = await repository.inTransaction('insert group with transaction', async (tx) => {
+                return await tx.insertGroup(
+                    teamId,
+                    groupTypeIndex,
+                    groupKey,
+                    groupProperties,
+                    createdAt,
+                    propertiesLastUpdatedAt,
+                    propertiesLastOperation
+                )
+            })
+
+            expect(result).toBe(1)
+
+            // Verify the group was actually inserted
+            const fetchedGroup = await repository.fetchGroup(teamId, groupTypeIndex, groupKey)
+            expect(fetchedGroup).toMatchObject({
+                team_id: teamId,
+                group_type_index: groupTypeIndex,
+                group_key: groupKey,
+                group_properties: groupProperties,
+                properties_last_updated_at: propertiesLastUpdatedAt,
+                properties_last_operation: propertiesLastOperation,
+                created_at: createdAt,
+                version: 1,
+            })
+        })
+
+        it('should handle insertGroup with raw transaction', async () => {
+            await insertTestTeam(teamId)
+
+            const result = await repository.inRawTransaction('insert group with raw transaction', async (tx) => {
+                return await repository.insertGroup(
+                    teamId,
+                    groupTypeIndex,
+                    groupKey,
+                    groupProperties,
+                    createdAt,
+                    propertiesLastUpdatedAt,
+                    propertiesLastOperation,
+                    tx
+                )
+            })
+
+            expect(result).toBe(1)
+
+            // Verify the group was actually inserted
+            const fetchedGroup = await repository.fetchGroup(teamId, groupTypeIndex, groupKey)
+            expect(fetchedGroup).toMatchObject({
+                team_id: teamId,
+                group_type_index: groupTypeIndex,
+                group_key: groupKey,
+                group_properties: groupProperties,
+                properties_last_updated_at: propertiesLastUpdatedAt,
+                properties_last_operation: propertiesLastOperation,
+                created_at: createdAt,
+                version: 1,
+            })
         })
     })
 })
