@@ -52,9 +52,11 @@ class TeamRevenueAnalyticsConfig(models.Model):
         except Exception as e:
             raise ValidationError(f"Invalid goals schema: {str(e)}")
 
+    # `goals` arent included here because they aren't used for computations (yet)
     def to_cache_key_dict(self) -> dict:
         return {
             "base_currency": self.base_currency,
+            "filter_test_accounts": self.filter_test_accounts,
             "events": [event.model_dump() for event in self.events],
         }
 

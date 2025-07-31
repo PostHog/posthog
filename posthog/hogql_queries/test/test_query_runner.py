@@ -123,9 +123,10 @@ class TestQueryRunner(BaseTest):
                 "useMaterializedViews": True,
                 "usePresortedEventsTable": False,
             },
-            "data_warehouse_config": {
+            "products_modifiers": {
                 "revenue_analytics": {
                     "base_currency": "GBP",
+                    "filter_test_accounts": False,
                     "events": [
                         {
                             "couponProperty": "coupon",
@@ -170,7 +171,7 @@ class TestQueryRunner(BaseTest):
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=team)
 
         cache_key = runner.get_cache_key()
-        assert cache_key == "cache_30442bd01d5b94064b86989f68ab0339"
+        assert cache_key == "cache_0c4f58e7c85ba77bdc3b7ffe0ccd093e"
 
     def test_cache_key_runner_subclass(self):
         TestQueryRunner = self.setup_test_query_runner_class()
@@ -184,7 +185,7 @@ class TestQueryRunner(BaseTest):
         runner = TestSubclassQueryRunner(query={"some_attr": "bla"}, team=team)
 
         cache_key = runner.get_cache_key()
-        assert cache_key == "cache_f27c08c9ae6ccd734c59aae40391eafc"
+        assert cache_key == "cache_2b956a65b01830e3217a8e5aff6804b8"
 
     def test_cache_key_different_timezone(self):
         TestQueryRunner = self.setup_test_query_runner_class()
@@ -195,7 +196,7 @@ class TestQueryRunner(BaseTest):
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=team)
 
         cache_key = runner.get_cache_key()
-        assert cache_key == "cache_826d008a218cab5dfe02cc464165fd69"
+        assert cache_key == "cache_b028a00dddb45d4cd28e3733cfcf83e6"
 
     @mock.patch("django.db.transaction.on_commit")
     def test_cache_response(self, mock_on_commit):

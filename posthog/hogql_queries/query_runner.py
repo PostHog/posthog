@@ -1022,7 +1022,9 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             "query": query,
             "team_id": self.team.pk,
             "hogql_modifiers": to_dict(self.modifiers),
-            "data_warehouse_config": {"revenue_analytics": self.team.revenue_analytics_config.to_cache_key_dict()},
+            "products_modifiers": {
+                "revenue_analytics": self.team.revenue_analytics_config.to_cache_key_dict(),
+            },
             "limit_context": self._limit_context_aliased_for_cache,
             "timezone": self.team.timezone,
             "week_start_day": self.team.week_start_day or WeekStartDay.SUNDAY,
