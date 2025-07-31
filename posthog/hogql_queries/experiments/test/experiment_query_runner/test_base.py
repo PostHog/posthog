@@ -1,13 +1,9 @@
-import json
 from datetime import datetime, timedelta
-from typing import cast
 
 from django.test import override_settings
 from freezegun import freeze_time
 from parameterized import parameterized
-from rest_framework.exceptions import ValidationError
 
-from posthog.constants import ExperimentNoResultsErrorKeys
 from posthog.hogql_queries.experiments.experiment_query_runner import (
     ExperimentQueryRunner,
 )
@@ -768,17 +764,10 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         flush_persons_and_events()
 
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
-        with self.assertRaises(ValidationError) as context:
+        with self.assertRaises(ValueError) as context:
             query_runner.calculate()
 
-        expected_errors = json.dumps(
-            {
-                ExperimentNoResultsErrorKeys.NO_EXPOSURES: True,
-                ExperimentNoResultsErrorKeys.NO_CONTROL_VARIANT: True,
-                ExperimentNoResultsErrorKeys.NO_TEST_VARIANT: True,
-            }
-        )
-        self.assertEqual(cast(list, context.exception.detail)[0], expected_errors)
+        self.assertEqual(str(context.exception), "No control variant found")
 
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
@@ -820,17 +809,10 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         flush_persons_and_events()
 
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
-        with self.assertRaises(ValidationError) as context:
+        with self.assertRaises(ValueError) as context:
             query_runner.calculate()
 
-        expected_errors = json.dumps(
-            {
-                ExperimentNoResultsErrorKeys.NO_EXPOSURES: True,  # Should be False but the query doesn't support it yet
-                ExperimentNoResultsErrorKeys.NO_CONTROL_VARIANT: True,
-                ExperimentNoResultsErrorKeys.NO_TEST_VARIANT: True,
-            }
-        )
-        self.assertEqual(cast(list, context.exception.detail)[0], expected_errors)
+        self.assertEqual(str(context.exception), "No control variant found")
 
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
@@ -880,17 +862,10 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         flush_persons_and_events()
 
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
-        with self.assertRaises(ValidationError) as context:
+        with self.assertRaises(ValueError) as context:
             query_runner.calculate()
 
-        expected_errors = json.dumps(
-            {
-                ExperimentNoResultsErrorKeys.NO_EXPOSURES: False,
-                ExperimentNoResultsErrorKeys.NO_CONTROL_VARIANT: True,
-                ExperimentNoResultsErrorKeys.NO_TEST_VARIANT: False,
-            }
-        )
-        self.assertEqual(cast(list, context.exception.detail)[0], expected_errors)
+        self.assertEqual(str(context.exception), "No control variant found")
 
     @parameterized.expand(
         [
@@ -1116,17 +1091,10 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
 
         # Handle cases where filters result in no exposures
         if expected_results["control_absolute_exposure"] == 0 and expected_results["test_absolute_exposure"] == 0:
-            with self.assertRaises(ValidationError) as context:
+            with self.assertRaises(ValueError) as context:
                 query_runner.calculate()
 
-            expected_errors = json.dumps(
-                {
-                    ExperimentNoResultsErrorKeys.NO_EXPOSURES: True,
-                    ExperimentNoResultsErrorKeys.NO_CONTROL_VARIANT: True,
-                    ExperimentNoResultsErrorKeys.NO_TEST_VARIANT: True,
-                }
-            )
-            self.assertEqual(cast(list, context.exception.detail)[0], expected_errors)
+            self.assertEqual(str(context.exception), "No control variant found")
         else:
             result = query_runner.calculate()
             assert result.variant_results is not None

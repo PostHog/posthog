@@ -19,7 +19,6 @@ from posthog.hogql_queries.experiments import (
     MULTIPLE_VARIANT_KEY,
 )
 from posthog.hogql_queries.experiments.base_query_utils import (
-    is_continuous,
     get_experiment_date_range,
     get_experiment_exposure_query,
     get_metric_events_query,
@@ -29,12 +28,6 @@ from posthog.hogql_queries.experiments.base_query_utils import (
 from posthog.hogql_queries.experiments.exposure_query_logic import (
     get_entity_key,
     get_multiple_variant_handling_from_experiment,
-    get_test_accounts_filter,
-    get_variant_selection_expr,
-)
-from posthog.hogql_queries.experiments.funnel_query_utils import (
-    funnel_evaluation_expr,
-    funnel_steps_to_filter,
 )
 from posthog.hogql_queries.experiments.utils import (
     get_bayesian_experiment_result_new_format,
@@ -47,7 +40,6 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.experiment import Experiment
 from posthog.schema import (
     CachedExperimentQueryResponse,
-    ExperimentFunnelMetric,
     ExperimentMeanMetric,
     ExperimentQuery,
     ExperimentQueryResponse,
