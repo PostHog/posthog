@@ -43,34 +43,127 @@ fn is_survey_event(event_name: &str) -> bool {
     )
 }
 
+/// Check if an event is a "survey sent" event that should count toward survey quota
+fn is_survey_sent_event(event_name: &str) -> bool {
+    event_name == "survey sent"
+}
+
 /// Check for survey quota limiting and filter out survey events if quota exceeded
+/// Groups survey events by $survey_submission_id and counts unique survey submissions
+/// against quota instead of individual events. Uses Redis to track submissions across
+/// different batches. Only "survey sent" events count toward quota - "survey shown" and
+/// "survey dismissed" events are always allowed through. Events without $survey_submission_id
+/// count individually for backward compatibility.
 async fn check_survey_quota_and_filter(
     state: &crate::router::State,
     context: &ProcessingContext,
     mut events: Vec<RawEvent>,
 ) -> Result<Vec<RawEvent>, CaptureError> {
-    if let Some(ref limiter) = state.survey_limiter {
+    if let Some(ref _limiter) = state.survey_limiter {
         let has_survey_events = events.iter().any(|event| is_survey_event(&event.event));
         if has_survey_events {
-            let survey_limited = limiter.is_limited(context.token.as_str()).await;
+            use std::collections::HashMap;
 
-            if survey_limited {
-                // Drop only survey events, allow other events through
-                let (survey_events, non_survey_events): (Vec<_>, Vec<_>) = events
-                    .into_iter()
-                    .partition(|event| is_survey_event(&event.event));
+            // Separate survey events from non-survey events
+            let (survey_events, non_survey_events): (Vec<_>, Vec<_>) = events
+                .into_iter()
+                .partition(|event| is_survey_event(&event.event));
 
-                if !survey_events.is_empty() {
-                    report_dropped_events("survey_over_quota", survey_events.len() as u64);
+            // Further separate survey events into "survey sent" vs other survey events
+            let (survey_sent_events, other_survey_events): (Vec<_>, Vec<_>) = survey_events
+                .into_iter()
+                .partition(|event| is_survey_sent_event(&event.event));
+
+            // Group "survey sent" events by $survey_submission_id
+            // Events without submission_id are treated individually for backward compatibility
+            let mut submission_groups: HashMap<String, Vec<RawEvent>> = HashMap::new();
+            let mut survey_sent_without_submission_id: Vec<RawEvent> = Vec::new();
+
+            for event in survey_sent_events {
+                if let Some(submission_id) = event
+                    .properties
+                    .get("$survey_submission_id")
+                    .and_then(|v| v.as_str())
+                    .filter(|s| !s.is_empty())
+                {
+                    submission_groups
+                        .entry(submission_id.to_string())
+                        .or_default()
+                        .push(event);
+                } else {
+                    // For backward compatibility, survey sent events without submission_id are processed individually
+                    survey_sent_without_submission_id.push(event);
                 }
-
-                // Continue with non-survey events if any exist
-                if non_survey_events.is_empty() {
-                    return Err(CaptureError::BillingLimit);
-                }
-
-                events = non_survey_events;
             }
+
+            // Check which submissions have already been processed using Redis
+            let mut events_to_keep = Vec::new();
+            let mut total_dropped_events = 0;
+            let mut new_survey_sent_to_check = Vec::new();
+
+            // Process grouped submissions
+            for (submission_id, group_events) in submission_groups {
+                let redis_key = format!("survey-submission:{}:{}", context.token, submission_id);
+
+                // Check if this submission has already been processed
+                match state
+                    .redis
+                    .set_nx_ex(redis_key, "processed".to_string(), 24 * 60 * 60)
+                    .await
+                {
+                    Ok(true) => {
+                        // Key was set successfully, meaning this is the first time we see this submission
+                        // These "survey sent" events should be subject to normal quota limiting
+                        new_survey_sent_to_check.extend(group_events);
+                    }
+                    Ok(false) => {
+                        // Key already exists, meaning this submission was already processed and counted
+                        // Drop these "survey sent" events to avoid double-counting
+                        total_dropped_events += group_events.len();
+                    }
+                    Err(_) => {
+                        // Redis error - fail open for safety, allow events through to normal quota check
+                        new_survey_sent_to_check.extend(group_events);
+                    }
+                }
+            }
+
+            // Add survey sent events without submission_id to be checked against quota (backward compatibility)
+            new_survey_sent_to_check.extend(survey_sent_without_submission_id);
+
+            // Now apply normal survey quota limiting to new "survey sent" events only
+            if !new_survey_sent_to_check.is_empty() {
+                let survey_limited = state
+                    .survey_limiter
+                    .as_ref()
+                    .unwrap()
+                    .is_limited(context.token.as_str())
+                    .await;
+                if survey_limited {
+                    // Drop new "survey sent" events due to quota limit
+                    total_dropped_events += new_survey_sent_to_check.len();
+                } else {
+                    // Keep new "survey sent" events
+                    events_to_keep.extend(new_survey_sent_to_check);
+                }
+            }
+
+            // Always keep other survey events ("survey shown", "survey dismissed") regardless of quota
+            events_to_keep.extend(other_survey_events);
+
+            if total_dropped_events > 0 {
+                report_dropped_events("survey_over_quota", total_dropped_events as u64);
+            }
+
+            // Combine non-survey events with survey events that should be kept
+            events_to_keep.extend(non_survey_events);
+
+            // If no events remain, return billing limit error
+            if events_to_keep.is_empty() {
+                return Err(CaptureError::BillingLimit);
+            }
+
+            events = events_to_keep;
         }
     }
 
@@ -98,6 +191,24 @@ mod tests {
         assert!(!is_survey_event("survey_sent")); // underscore variant
         assert!(!is_survey_event("Survey Sent")); // case sensitivity
         assert!(!is_survey_event(""));
+    }
+
+    #[test]
+    fn test_is_survey_sent_event() {
+        // Only "survey sent" should return true
+        assert!(is_survey_sent_event("survey sent"));
+
+        // Other survey events should return false
+        assert!(!is_survey_sent_event("survey shown"));
+        assert!(!is_survey_sent_event("survey dismissed"));
+
+        // Non-survey events should return false
+        assert!(!is_survey_sent_event("pageview"));
+        assert!(!is_survey_sent_event("$pageview"));
+        assert!(!is_survey_sent_event("click"));
+        assert!(!is_survey_sent_event("survey_sent")); // underscore variant
+        assert!(!is_survey_sent_event("Survey Sent")); // case sensitivity
+        assert!(!is_survey_sent_event(""));
     }
 }
 
