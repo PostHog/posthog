@@ -433,7 +433,7 @@
          "posthog_externaldatasource"."prefix",
          "posthog_externaldatasource"."revenue_analytics_enabled"
   FROM "posthog_externaldatasource"
-  WHERE ("posthog_externaldatasource"."source_type" = 'Stripe'
+  WHERE ("posthog_externaldatasource"."source_type" IN ('Stripe')
          AND "posthog_externaldatasource"."team_id" = 99999
          AND NOT ("posthog_externaldatasource"."deleted"
                   AND "posthog_externaldatasource"."deleted" IS NOT NULL))
@@ -707,7 +707,7 @@
          "posthog_externaldatasource"."prefix",
          "posthog_externaldatasource"."revenue_analytics_enabled"
   FROM "posthog_externaldatasource"
-  WHERE ("posthog_externaldatasource"."source_type" = 'Stripe'
+  WHERE ("posthog_externaldatasource"."source_type" IN ('Stripe')
          AND "posthog_externaldatasource"."team_id" = 99999
          AND NOT ("posthog_externaldatasource"."deleted"
                   AND "posthog_externaldatasource"."deleted" IS NOT NULL))
@@ -1771,7 +1771,7 @@
          "posthog_externaldatasource"."prefix",
          "posthog_externaldatasource"."revenue_analytics_enabled"
   FROM "posthog_externaldatasource"
-  WHERE ("posthog_externaldatasource"."source_type" = 'Stripe'
+  WHERE ("posthog_externaldatasource"."source_type" IN ('Stripe')
          AND "posthog_externaldatasource"."team_id" = 99999
          AND NOT ("posthog_externaldatasource"."deleted"
                   AND "posthog_externaldatasource"."deleted" IS NOT NULL))
@@ -2534,7 +2534,7 @@
          "posthog_externaldatasource"."prefix",
          "posthog_externaldatasource"."revenue_analytics_enabled"
   FROM "posthog_externaldatasource"
-  WHERE ("posthog_externaldatasource"."source_type" = 'Stripe'
+  WHERE ("posthog_externaldatasource"."source_type" IN ('Stripe')
          AND "posthog_externaldatasource"."team_id" = 99999
          AND NOT ("posthog_externaldatasource"."deleted"
                   AND "posthog_externaldatasource"."deleted" IS NOT NULL))
@@ -3731,7 +3731,7 @@
          "posthog_externaldatasource"."prefix",
          "posthog_externaldatasource"."revenue_analytics_enabled"
   FROM "posthog_externaldatasource"
-  WHERE ("posthog_externaldatasource"."source_type" = 'Stripe'
+  WHERE ("posthog_externaldatasource"."source_type" IN ('Stripe')
          AND "posthog_externaldatasource"."team_id" = 99999
          AND NOT ("posthog_externaldatasource"."deleted"
                   AND "posthog_externaldatasource"."deleted" IS NOT NULL))
@@ -4235,7 +4235,7 @@
          "posthog_externaldatasource"."prefix",
          "posthog_externaldatasource"."revenue_analytics_enabled"
   FROM "posthog_externaldatasource"
-  WHERE ("posthog_externaldatasource"."source_type" = 'Stripe'
+  WHERE ("posthog_externaldatasource"."source_type" IN ('Stripe')
          AND "posthog_externaldatasource"."team_id" = 99999
          AND NOT ("posthog_externaldatasource"."deleted"
                   AND "posthog_externaldatasource"."deleted" IS NOT NULL))
@@ -4739,7 +4739,7 @@
          "posthog_externaldatasource"."prefix",
          "posthog_externaldatasource"."revenue_analytics_enabled"
   FROM "posthog_externaldatasource"
-  WHERE ("posthog_externaldatasource"."source_type" = 'Stripe'
+  WHERE ("posthog_externaldatasource"."source_type" IN ('Stripe')
          AND "posthog_externaldatasource"."team_id" = 99999
          AND NOT ("posthog_externaldatasource"."deleted"
                   AND "posthog_externaldatasource"."deleted" IS NOT NULL))
@@ -4973,7 +4973,7 @@
          "posthog_externaldatasource"."prefix",
          "posthog_externaldatasource"."revenue_analytics_enabled"
   FROM "posthog_externaldatasource"
-  WHERE ("posthog_externaldatasource"."source_type" = 'Stripe'
+  WHERE ("posthog_externaldatasource"."source_type" IN ('Stripe')
          AND "posthog_externaldatasource"."team_id" = 99999
          AND NOT ("posthog_externaldatasource"."deleted"
                   AND "posthog_externaldatasource"."deleted" IS NOT NULL))
@@ -5665,7 +5665,7 @@
          "posthog_externaldatasource"."prefix",
          "posthog_externaldatasource"."revenue_analytics_enabled"
   FROM "posthog_externaldatasource"
-  WHERE ("posthog_externaldatasource"."source_type" = 'Stripe'
+  WHERE ("posthog_externaldatasource"."source_type" IN ('Stripe')
          AND "posthog_externaldatasource"."team_id" = 99999
          AND NOT ("posthog_externaldatasource"."deleted"
                   AND "posthog_externaldatasource"."deleted" IS NOT NULL))
@@ -6387,7 +6387,7 @@
          "posthog_externaldatasource"."prefix",
          "posthog_externaldatasource"."revenue_analytics_enabled"
   FROM "posthog_externaldatasource"
-  WHERE ("posthog_externaldatasource"."source_type" = 'Stripe'
+  WHERE ("posthog_externaldatasource"."source_type" IN ('Stripe')
          AND "posthog_externaldatasource"."team_id" = 99999
          AND NOT ("posthog_externaldatasource"."deleted"
                   AND "posthog_externaldatasource"."deleted" IS NOT NULL))
@@ -7041,7 +7041,7 @@
          "posthog_externaldatasource"."prefix",
          "posthog_externaldatasource"."revenue_analytics_enabled"
   FROM "posthog_externaldatasource"
-  WHERE ("posthog_externaldatasource"."source_type" = 'Stripe'
+  WHERE ("posthog_externaldatasource"."source_type" IN ('Stripe')
          AND "posthog_externaldatasource"."team_id" = 99999
          AND NOT ("posthog_externaldatasource"."deleted"
                   AND "posthog_externaldatasource"."deleted" IS NOT NULL))
@@ -7743,7 +7743,7 @@
          "posthog_externaldatasource"."prefix",
          "posthog_externaldatasource"."revenue_analytics_enabled"
   FROM "posthog_externaldatasource"
-  WHERE ("posthog_externaldatasource"."source_type" = 'Stripe'
+  WHERE ("posthog_externaldatasource"."source_type" IN ('Stripe')
          AND "posthog_externaldatasource"."team_id" = 99999
          AND NOT ("posthog_externaldatasource"."deleted"
                   AND "posthog_externaldatasource"."deleted" IS NOT NULL))
@@ -8083,7 +8083,7 @@
          "posthog_externaldatasource"."prefix",
          "posthog_externaldatasource"."revenue_analytics_enabled"
   FROM "posthog_externaldatasource"
-  WHERE ("posthog_externaldatasource"."source_type" = 'Stripe'
+  WHERE ("posthog_externaldatasource"."source_type" IN ('Stripe')
          AND "posthog_externaldatasource"."team_id" = 99999
          AND NOT ("posthog_externaldatasource"."deleted"
                   AND "posthog_externaldatasource"."deleted" IS NOT NULL))
@@ -8715,7 +8715,7 @@
          "posthog_externaldatasource"."prefix",
          "posthog_externaldatasource"."revenue_analytics_enabled"
   FROM "posthog_externaldatasource"
-  WHERE ("posthog_externaldatasource"."source_type" = 'Stripe'
+  WHERE ("posthog_externaldatasource"."source_type" IN ('Stripe')
          AND "posthog_externaldatasource"."team_id" = 99999
          AND NOT ("posthog_externaldatasource"."deleted"
                   AND "posthog_externaldatasource"."deleted" IS NOT NULL))
@@ -9375,7 +9375,7 @@
          "posthog_externaldatasource"."prefix",
          "posthog_externaldatasource"."revenue_analytics_enabled"
   FROM "posthog_externaldatasource"
-  WHERE ("posthog_externaldatasource"."source_type" = 'Stripe'
+  WHERE ("posthog_externaldatasource"."source_type" IN ('Stripe')
          AND "posthog_externaldatasource"."team_id" = 99999
          AND NOT ("posthog_externaldatasource"."deleted"
                   AND "posthog_externaldatasource"."deleted" IS NOT NULL))
@@ -9984,7 +9984,7 @@
          "posthog_externaldatasource"."prefix",
          "posthog_externaldatasource"."revenue_analytics_enabled"
   FROM "posthog_externaldatasource"
-  WHERE ("posthog_externaldatasource"."source_type" = 'Stripe'
+  WHERE ("posthog_externaldatasource"."source_type" IN ('Stripe')
          AND "posthog_externaldatasource"."team_id" = 99999
          AND NOT ("posthog_externaldatasource"."deleted"
                   AND "posthog_externaldatasource"."deleted" IS NOT NULL))
@@ -10497,7 +10497,7 @@
          "posthog_externaldatasource"."prefix",
          "posthog_externaldatasource"."revenue_analytics_enabled"
   FROM "posthog_externaldatasource"
-  WHERE ("posthog_externaldatasource"."source_type" = 'Stripe'
+  WHERE ("posthog_externaldatasource"."source_type" IN ('Stripe')
          AND "posthog_externaldatasource"."team_id" = 99999
          AND NOT ("posthog_externaldatasource"."deleted"
                   AND "posthog_externaldatasource"."deleted" IS NOT NULL))
@@ -10632,7 +10632,7 @@
          "posthog_externaldatasource"."prefix",
          "posthog_externaldatasource"."revenue_analytics_enabled"
   FROM "posthog_externaldatasource"
-  WHERE ("posthog_externaldatasource"."source_type" = 'Stripe'
+  WHERE ("posthog_externaldatasource"."source_type" IN ('Stripe')
          AND "posthog_externaldatasource"."team_id" = 99999
          AND NOT ("posthog_externaldatasource"."deleted"
                   AND "posthog_externaldatasource"."deleted" IS NOT NULL))

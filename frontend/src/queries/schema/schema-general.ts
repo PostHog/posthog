@@ -14,6 +14,7 @@ import {
     ChartDisplayCategory,
     ChartDisplayType,
     CountPerActorMathType,
+    DataWarehouseViewLink,
     EventPropertyFilter,
     EventType,
     ExperimentHoldoutType,
@@ -2790,6 +2791,7 @@ export type DatabaseSchemaTable =
 
 export interface DatabaseSchemaQueryResponse {
     tables: Record<string, DatabaseSchemaTable>
+    joins: DataWarehouseViewLink[]
 }
 
 export interface DatabaseSchemaQuery extends DataNode<DatabaseSchemaQueryResponse> {
