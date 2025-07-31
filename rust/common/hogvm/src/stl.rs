@@ -322,7 +322,7 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
             "JSONExtract",
             native_func(err_to_null(|vm, args| {
                 assert(
-                    args.len() > 2,
+                    args.len() > 1,
                     "JSONExtract requires at least two arguments",
                 )?;
                 let val = args[0].deref(&vm.heap)?;
