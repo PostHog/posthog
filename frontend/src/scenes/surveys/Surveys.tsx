@@ -325,7 +325,7 @@ function Surveys(): JSX.Element {
                                               {
                                                   title: 'Status',
                                                   width: 100,
-                                                  render: function Render(_, survey: Survey) {
+                                                  render: function Render(_: any, survey: Survey) {
                                                       return <StatusTag survey={survey} />
                                                   },
                                               },
