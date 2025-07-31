@@ -19,6 +19,23 @@ This guide explains how to create isolated PostHog development environments usin
 3. **GitHub CLI** (optional, for PR checkout): `brew install gh`
 4. **direnv** (recommended): `brew install direnv`
 
+## Configuration
+
+### Worktree Location
+
+By default, worktrees are created in `~/.worktrees/posthog/`. You can customize this location by setting the `POSTHOG_WORKTREE_BASE` environment variable:
+
+```bash
+# In your shell profile (~/.zshrc or ~/.bashrc)
+export POSTHOG_WORKTREE_BASE="/path/to/your/preferred/location"
+```
+
+For example:
+```bash
+export POSTHOG_WORKTREE_BASE="$HOME/code/worktrees"
+# Worktrees will be created in ~/code/worktrees/<branch-name>
+```
+
 ## Quick Start
 
 ### 1. One-Time Setup

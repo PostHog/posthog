@@ -10,8 +10,8 @@ COMMAND=${1:-"help"}
 BRANCH_NAME=${2}
 BASE_BRANCH=${3:-"master"}
 
-# Worktree base directory
-WORKTREE_BASE="${HOME}/.worktrees/posthog"
+# Worktree base directory (configurable via POSTHOG_WORKTREE_BASE)
+WORKTREE_BASE="${POSTHOG_WORKTREE_BASE:-${HOME}/.worktrees/posthog}"
 
 
 # Function to create a new worktree
@@ -243,13 +243,17 @@ case "$COMMAND" in
         echo "  $0 list                              # List all worktrees"
         echo ""
         echo "Working with worktrees:"
-        echo "  cd ~/.worktrees/posthog/<branch>     # Enter worktree directory"
+        echo "  cd ${WORKTREE_BASE}/<branch>         # Enter worktree directory"
         echo "  bin/start                            # Start PostHog (standard command)"
         echo ""
         echo "Notes:"
         echo "  - Worktrees are created in: ${WORKTREE_BASE}/<branch-name>"
         echo "  - Each worktree has its own isolated Flox environment"
         echo "  - Use standard 'bin/start' command within each worktree"
+        echo ""
+        echo "Configuration:"
+        echo "  - Set POSTHOG_WORKTREE_BASE to customize worktree location"
+        echo "  - Default: ~/.worktrees/posthog"
         echo ""
         print_color yellow "💡 For auto-cd functionality, add to ~/.zshrc or ~/.bashrc:"
         print_color yellow "   source $(dirname "$0")/phw"
