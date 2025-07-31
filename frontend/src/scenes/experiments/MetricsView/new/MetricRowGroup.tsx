@@ -1,26 +1,35 @@
+import { IconTrending } from '@posthog/icons'
+import { IconTrendingDown } from 'lib/lemon-ui/icons'
+import { humanFriendlyNumber } from 'lib/utils'
+import { useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { ExperimentMetric, NewExperimentQueryResponse } from '~/queries/schema/schema-general'
 import { Experiment, InsightType } from '~/types'
-import { formatPercentageChange, getNiceTickValues } from '../shared/utils'
-import { MetricHeader } from '../shared/MetricHeader'
-import { DetailsButton } from './DetailsButton'
-import { DetailsModal } from './DetailsModal'
-import { useState } from 'react'
-import { humanFriendlyNumber } from 'lib/utils'
-import { useChartColors } from '../shared/colors'
-import { useAxisScale } from './useAxisScale'
-import { GridLines } from './GridLines'
-import { ChartCell } from './ChartCell'
-import { IconTrendingDown } from 'lib/lemon-ui/icons'
-import { IconTrending } from '@posthog/icons'
-import { ChartLoadingState } from '../shared/ChartLoadingState'
 import { ChartEmptyState } from '../shared/ChartEmptyState'
+import { ChartLoadingState } from '../shared/ChartLoadingState'
+import { useChartColors } from '../shared/colors'
+import { MetricHeader } from '../shared/MetricHeader'
+import {
+    formatDeltaPercent,
+    isSignificant,
+    isDeltaPositive,
+    getNiceTickValues,
+    type ExperimentVariantResult,
+} from '../shared/utils'
+import { ChartCell } from './ChartCell'
+
 import {
     CELL_HEIGHT,
-    VIEW_BOX_WIDTH,
-    SVG_EDGE_MARGIN,
     CHART_CELL_VIEW_BOX_HEIGHT,
     GRID_LINES_OPACITY,
+    SVG_EDGE_MARGIN,
+    VIEW_BOX_WIDTH,
 } from './constants'
+import { DetailsButton } from './DetailsButton'
+import { DetailsModal } from './DetailsModal'
+import { GridLines } from './GridLines'
+import { renderTooltipContent } from './MetricRowGroupTooltip'
+import { useAxisScale } from './useAxisScale'
 
 interface MetricRowGroupProps {
     metric: ExperimentMetric
@@ -28,7 +37,7 @@ interface MetricRowGroupProps {
     experiment: Experiment
     metricType: InsightType
     metricIndex: number
-    chartRadius: number
+    axisRange: number
     isSecondary: boolean
     isLastMetric: boolean
     isAlternatingRow: boolean
@@ -45,7 +54,7 @@ export function MetricRowGroup({
     experiment,
     metricType,
     metricIndex,
-    chartRadius,
+    axisRange,
     isSecondary,
     isLastMetric,
     isAlternatingRow,
@@ -56,8 +65,20 @@ export function MetricRowGroup({
     hasMinimumExposureForResults = true,
 }: MetricRowGroupProps): JSX.Element {
     const [isModalOpen, setIsModalOpen] = useState(false)
+    const [tooltipState, setTooltipState] = useState<{
+        isVisible: boolean
+        variantResult: ExperimentVariantResult | null
+        position: { x: number; y: number }
+        isPositioned: boolean
+    }>({
+        isVisible: false,
+        variantResult: null,
+        position: { x: 0, y: 0 },
+        isPositioned: false,
+    })
+    const tooltipRef = useRef<HTMLDivElement>(null)
     const colors = useChartColors()
-    const scale = useAxisScale(chartRadius, VIEW_BOX_WIDTH, SVG_EDGE_MARGIN)
+    const scale = useAxisScale(axisRange, VIEW_BOX_WIDTH, SVG_EDGE_MARGIN)
 
     // Calculate total rows for loading/error states
     const totalRows = isLoading || error || !result ? 1 : 1 + (result.variant_results?.length || 0)
@@ -68,6 +89,50 @@ export function MetricRowGroup({
         return metric && 'metric_type' in metric && metric.metric_type === 'mean'
             ? primaryValue.toFixed(2)
             : `${(primaryValue * 100).toFixed(2)}%`
+    }
+
+    // Tooltip handlers
+    const handleTooltipMouseEnter = (variantResult: ExperimentVariantResult): void => {
+        setTooltipState((prev) => ({
+            ...prev,
+            isVisible: true,
+            variantResult,
+            isPositioned: false,
+        }))
+    }
+
+    const handleTooltipMouseLeave = (): void => {
+        setTooltipState((prev) => ({
+            ...prev,
+            isVisible: false,
+            variantResult: null,
+            isPositioned: false,
+        }))
+    }
+
+    const handleTooltipMouseMove = (e: React.MouseEvent, containerRect: DOMRect): void => {
+        // Only position the tooltip if it hasn't been positioned yet
+        if (tooltipRef.current && !tooltipState.isPositioned) {
+            const tooltipRect = tooltipRef.current.getBoundingClientRect()
+
+            // Position tooltip horizontally at mouse cursor
+            let x = e.clientX - tooltipRect.width / 2
+            const y = containerRect.top - tooltipRect.height - 8
+
+            // Keep tooltip within viewport bounds
+            const padding = 8
+            if (x < padding) {
+                x = padding
+            } else if (x + tooltipRect.width > window.innerWidth - padding) {
+                x = window.innerWidth - tooltipRect.width - padding
+            }
+
+            setTooltipState((prev) => ({
+                ...prev,
+                position: { x, y },
+                isPositioned: true,
+            }))
+        }
     }
 
     // Handle loading or error states
@@ -127,6 +192,24 @@ export function MetricRowGroup({
 
     return (
         <>
+            {/* Tooltip portal */}
+            {tooltipState.isVisible &&
+                tooltipState.variantResult &&
+                createPortal(
+                    <div
+                        ref={tooltipRef}
+                        className="fixed bg-bg-light border border-border px-3 py-2 rounded-md text-[13px] shadow-md z-[100] min-w-[280px]"
+                        style={{
+                            left: tooltipState.position.x,
+                            top: tooltipState.position.y,
+                            visibility: tooltipState.isPositioned ? 'visible' : 'hidden',
+                        }}
+                    >
+                        {renderTooltipContent(tooltipState.variantResult)}
+                    </div>,
+                    document.body
+                )}
+
             {/* Baseline row */}
             <tr
                 className="hover:bg-bg-hover group [&:last-child>td]:border-b-0"
@@ -189,41 +272,9 @@ export function MetricRowGroup({
                     <div className="text-xs text-muted" />
                 </td>
 
-                {/* Chart (grid lines only for baseline) */}
-                <td
-                    className={`min-w-[400px] w-full p-0 align-top text-center relative overflow-hidden ${
-                        isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
-                    } ${variantResults.length === 0 ? 'border-b' : ''}`}
-                    style={{ height: `${CELL_HEIGHT}px`, maxHeight: `${CELL_HEIGHT}px` }}
-                >
-                    {chartRadius && chartRadius > 0 ? (
-                        <div className="relative h-full">
-                            <svg
-                                viewBox={`0 0 ${VIEW_BOX_WIDTH} ${CHART_CELL_VIEW_BOX_HEIGHT}`}
-                                preserveAspectRatio="none"
-                                className="h-full w-full"
-                            >
-                                <GridLines
-                                    tickValues={getNiceTickValues(chartRadius)}
-                                    scale={scale}
-                                    height={CHART_CELL_VIEW_BOX_HEIGHT}
-                                    viewBoxWidth={VIEW_BOX_WIDTH}
-                                    zeroLineColor={colors.ZERO_LINE}
-                                    gridLineColor={colors.BOUNDARY_LINES}
-                                    zeroLineWidth={1.25}
-                                    gridLineWidth={0.75}
-                                    opacity={GRID_LINES_OPACITY}
-                                />
-                            </svg>
-                        </div>
-                    ) : (
-                        <div className="flex items-center justify-center h-full text-muted text-xs">—</div>
-                    )}
-                </td>
-
                 {/* Details column - with rowspan */}
                 <td
-                    className={`w-1/5 p-3 align-top relative overflow-hidden ${!isLastMetric ? 'border-b' : ''} ${
+                    className={`pt-3 align-top relative overflow-hidden ${!isLastMetric ? 'border-b' : ''} ${
                         isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
                     }`}
                     rowSpan={totalRows}
@@ -245,18 +296,58 @@ export function MetricRowGroup({
                         isSecondary={isSecondary}
                     />
                 </td>
+
+                {/* Chart (grid lines only for baseline) */}
+                <td
+                    className={`p-0 align-top text-center relative overflow-hidden ${
+                        isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
+                    } ${variantResults.length === 0 ? 'border-b' : ''}`}
+                    style={{ height: `${CELL_HEIGHT}px`, maxHeight: `${CELL_HEIGHT}px` }}
+                >
+                    {axisRange && axisRange > 0 ? (
+                        <div className="relative h-full">
+                            <svg
+                                viewBox={`0 0 ${VIEW_BOX_WIDTH} ${CHART_CELL_VIEW_BOX_HEIGHT}`}
+                                preserveAspectRatio="none"
+                                className="h-full w-full"
+                            >
+                                <GridLines
+                                    tickValues={getNiceTickValues(axisRange)}
+                                    scale={scale}
+                                    height={CHART_CELL_VIEW_BOX_HEIGHT}
+                                    viewBoxWidth={VIEW_BOX_WIDTH}
+                                    zeroLineColor={colors.ZERO_LINE}
+                                    gridLineColor={colors.BOUNDARY_LINES}
+                                    zeroLineWidth={1.25}
+                                    gridLineWidth={0.75}
+                                    opacity={GRID_LINES_OPACITY}
+                                />
+                            </svg>
+                        </div>
+                    ) : (
+                        <div className="flex items-center justify-center h-full text-muted text-xs">—</div>
+                    )}
+                </td>
             </tr>
 
             {/* Variant rows */}
             {variantResults.map((variant, index) => {
-                const changeResult = formatPercentageChange(variant)
                 const isLastRow = index === variantResults.length - 1
+                const significant = isSignificant(variant)
+                const deltaPositive = isDeltaPositive(variant)
+                const deltaText = formatDeltaPercent(variant)
 
                 return (
                     <tr
                         key={`${metricIndex}-${variant.key}`}
                         className="hover:bg-bg-hover group [&:last-child>td]:border-b-0"
                         style={{ height: `${CELL_HEIGHT}px`, maxHeight: `${CELL_HEIGHT}px` }}
+                        onMouseEnter={() => handleTooltipMouseEnter(variant)}
+                        onMouseLeave={handleTooltipMouseLeave}
+                        onMouseMove={(e) => {
+                            const rect = e.currentTarget.getBoundingClientRect()
+                            handleTooltipMouseMove(e, rect)
+                        }}
                     >
                         {/* Variant name */}
                         <td
@@ -294,22 +385,18 @@ export function MetricRowGroup({
                             <div className="flex items-center gap-1 text-sm">
                                 <span
                                     className={`${
-                                        changeResult.isSignificant
-                                            ? changeResult.isPositive
+                                        significant
+                                            ? deltaPositive
                                                 ? 'text-success font-semibold'
                                                 : 'text-danger font-semibold'
                                             : 'text-text-primary'
                                     }`}
                                 >
-                                    {changeResult.text}
+                                    {deltaText}
                                 </span>
-                                {changeResult.isSignificant && changeResult.isPositive !== null && (
-                                    <span
-                                        className={`flex-shrink-0 ${
-                                            changeResult.isPositive ? 'text-success' : 'text-danger'
-                                        }`}
-                                    >
-                                        {changeResult.isPositive ? (
+                                {significant && deltaPositive !== undefined && (
+                                    <span className={`flex-shrink-0 ${deltaPositive ? 'text-success' : 'text-danger'}`}>
+                                        {deltaPositive ? (
                                             <IconTrending className="w-4 h-4" />
                                         ) : (
                                             <IconTrendingDown className="w-4 h-4" />
@@ -322,7 +409,7 @@ export function MetricRowGroup({
                         {/* Chart */}
                         <ChartCell
                             variantResult={variant}
-                            chartRadius={chartRadius}
+                            axisRange={axisRange}
                             metricIndex={metricIndex}
                             isAlternatingRow={isAlternatingRow}
                             isLastRow={isLastRow}

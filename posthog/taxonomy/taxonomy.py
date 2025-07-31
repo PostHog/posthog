@@ -2211,13 +2211,13 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "initial_coupon": {
             "label": "Initial coupon",
-            "description": "The name of the coupon on the initial revenue event for the customer.",
+            "description": "The name of the coupon on the initial revenue event for the customer. Not supported for event sources.",
             "type": "String",
             "virtual": True,
         },
         "initial_coupon_id": {
             "label": "Initial coupon ID",
-            "description": "The ID of the coupon on the initial revenue event for the customer.",
+            "description": "The ID of the coupon on the initial revenue event for the customer. Not supported for event sources.",
             "type": "String",
             "virtual": True,
         },
