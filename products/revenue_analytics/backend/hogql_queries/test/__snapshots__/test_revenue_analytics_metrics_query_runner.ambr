@@ -1,5 +1,5 @@
 # serializer version: 1
-# name: TestRevenueAnalyticsCustomerCountQueryRunner.test_no_crash_when_no_data
+# name: TestRevenueAnalyticsMetricsQueryRunner.test_no_crash_when_no_data
   '''
   SELECT 1 AS breakdown_by,
          1 AS period_start,
@@ -24,7 +24,7 @@
                      allow_experimental_join_condition=1
   '''
 # ---
-# name: TestRevenueAnalyticsCustomerCountQueryRunner.test_no_crash_when_no_source_is_selected
+# name: TestRevenueAnalyticsMetricsQueryRunner.test_no_crash_when_no_source_is_selected
   '''
   SELECT subquery.breakdown_by AS breakdown_by,
          subquery.period_start AS period_start,
@@ -311,7 +311,7 @@
                        allow_experimental_join_condition=1
   '''
 # ---
-# name: TestRevenueAnalyticsCustomerCountQueryRunner.test_with_country_filter
+# name: TestRevenueAnalyticsMetricsQueryRunner.test_with_country_filter
   '''
   SELECT subquery.breakdown_by AS breakdown_by,
          subquery.period_start AS period_start,
@@ -598,7 +598,7 @@
                        allow_experimental_join_condition=1
   '''
 # ---
-# name: TestRevenueAnalyticsCustomerCountQueryRunner.test_with_data
+# name: TestRevenueAnalyticsMetricsQueryRunner.test_with_data
   '''
   SELECT subquery.breakdown_by AS breakdown_by,
          subquery.period_start AS period_start,
@@ -788,7 +788,7 @@
                        allow_experimental_join_condition=1
   '''
 # ---
-# name: TestRevenueAnalyticsCustomerCountQueryRunner.test_with_data_and_date_range
+# name: TestRevenueAnalyticsMetricsQueryRunner.test_with_data_and_date_range
   '''
   SELECT subquery.breakdown_by AS breakdown_by,
          subquery.period_start AS period_start,
@@ -978,7 +978,7 @@
                        allow_experimental_join_condition=1
   '''
 # ---
-# name: TestRevenueAnalyticsCustomerCountQueryRunner.test_with_data_and_product_grouping
+# name: TestRevenueAnalyticsMetricsQueryRunner.test_with_data_and_product_grouping
   '''
   SELECT subquery.breakdown_by AS breakdown_by,
          subquery.period_start AS period_start,
@@ -1177,7 +1177,7 @@
                        allow_experimental_join_condition=1
   '''
 # ---
-# name: TestRevenueAnalyticsCustomerCountQueryRunner.test_with_empty_date_range
+# name: TestRevenueAnalyticsMetricsQueryRunner.test_with_empty_date_range
   '''
   SELECT subquery.breakdown_by AS breakdown_by,
          subquery.period_start AS period_start,
@@ -1367,7 +1367,7 @@
                        allow_experimental_join_condition=1
   '''
 # ---
-# name: TestRevenueAnalyticsCustomerCountQueryRunner.test_with_product_filter
+# name: TestRevenueAnalyticsMetricsQueryRunner.test_with_product_filter
   '''
   SELECT subquery.breakdown_by AS breakdown_by,
          subquery.period_start AS period_start,
@@ -1567,7 +1567,7 @@
                        allow_experimental_join_condition=1
   '''
 # ---
-# name: TestRevenueAnalyticsCustomerCountQueryRunner.test_with_product_filter.1
+# name: TestRevenueAnalyticsMetricsQueryRunner.test_with_product_filter.1
   '''
   SELECT subquery.breakdown_by AS breakdown_by,
          subquery.period_start AS period_start,
