@@ -14,7 +14,7 @@ class ResourceNotebook(UUIDModel):
     and type safety.
     """
 
-    notebook = models.ForeignKey("Notebook", on_delete=models.CASCADE, related_name="relationships")
+    notebook = models.ForeignKey("Notebook", on_delete=models.CASCADE, related_name="resources")
 
     # Relationships (exactly one must be set)
     # When adding a new foreign key, make sure to add the foreign key field and append field name
@@ -24,7 +24,7 @@ class ResourceNotebook(UUIDModel):
         on_delete=models.CASCADE,
         null=True,
         blank=True,
-        related_name="notebook_relationships",
+        related_name="notebooks",
     )
 
     class Meta:
