@@ -1,4 +1,3 @@
-from datetime import datetime
 import os
 from typing import cast
 
@@ -12,6 +11,8 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.viewsets import GenericViewSet
+
+from ee.hogai.session_summaries.session_group.summarize_session_group import find_sessions_timestamps
 from posthog.cloud_utils import is_cloud
 from ee.hogai.session_summaries.session_group.summary_notebooks import create_summary_notebook
 from ee.hogai.session_summaries.session.summarize_session import ExtraSummaryContext
@@ -19,7 +20,6 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.query_tagging import tag_queries, Product
 from posthog.models import User
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
-from posthog.session_recordings.queries_to_replace.session_replay_events import SessionReplayEvents
 from posthog.temporal.ai.session_summary.summarize_session_group import execute_summarize_session_group
 
 logger = structlog.get_logger(__name__)
@@ -70,7 +70,7 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         session_ids = serializer.validated_data["session_ids"]
         focus_area = serializer.validated_data.get("focus_area")
         # Check that sessions exist and get min/max timestamps for follow-up queries
-        min_timestamp, max_timestamp = self._find_sessions_timestamps(session_ids)
+        min_timestamp, max_timestamp = find_sessions_timestamps(session_ids=session_ids, team=self.team)
         # Prepare extra context, if provided
         extra_summary_context = None
         if focus_area:
@@ -99,22 +99,3 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             raise exceptions.APIException(
                 f"Failed to generate session summaries for sessions {session_ids}. Please try again later."
             )
-
-    def _find_sessions_timestamps(self, session_ids: list[str]) -> tuple[datetime, datetime]:
-        """Validate that all session IDs exist and belong to the team and return min/max timestamps for the entire list of sessions"""
-        replay_events = SessionReplayEvents()
-        sessions_found, min_timestamp, max_timestamp = replay_events.sessions_found_with_timestamps(
-            session_ids, self.team
-        )
-        # Check for missing sessions
-        if len(sessions_found) != len(session_ids):
-            missing_sessions = set(session_ids) - sessions_found
-            raise exceptions.ValidationError(
-                f"Sessions not found or do not belong to this team: {', '.join(missing_sessions)}"
-            )
-        # Check for missing timestamps
-        if min_timestamp is None or max_timestamp is None:
-            raise exceptions.ValidationError(
-                f"Failed to get min ({min_timestamp}) or max ({max_timestamp}) timestamps for sessions: {', '.join(session_ids)}"
-            )
-        return min_timestamp, max_timestamp

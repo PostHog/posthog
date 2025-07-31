@@ -1,4 +1,5 @@
 import json
+from datetime import datetime
 from pathlib import Path
 from ee.hogai.session_summaries.session.output_data import IntermediateSessionSummarySerializer
 from ee.hogai.session_summaries.session_group.patterns import RawSessionGroupSummaryPatternsList
@@ -8,6 +9,9 @@ from ee.hogai.session_summaries.session.summarize_session import (
     SessionSummaryPrompt,
 )
 from ee.hogai.session_summaries.utils import load_custom_template
+from posthog.models import Team
+from posthog.session_recordings.queries_to_replace.session_replay_events import SessionReplayEvents
+from rest_framework import exceptions
 
 
 def remove_excessive_content_from_session_summary_for_llm(session_summary_str: str) -> str:
@@ -102,3 +106,21 @@ def generate_session_group_patterns_assignment_prompt(
         patterns_prompt=patterns_prompt,
         system_prompt=system_prompt,
     )
+
+
+def find_sessions_timestamps(session_ids: list[str], team: Team) -> tuple[datetime, datetime]:
+    """Validate that all session IDs exist and belong to the team and return min/max timestamps for the entire list of sessions"""
+    replay_events = SessionReplayEvents()
+    sessions_found, min_timestamp, max_timestamp = replay_events.sessions_found_with_timestamps(session_ids, team)
+    # Check for missing sessions
+    if len(sessions_found) != len(session_ids):
+        missing_sessions = set(session_ids) - sessions_found
+        raise exceptions.ValidationError(
+            f"Sessions not found or do not belong to this team: {', '.join(missing_sessions)}"
+        )
+    # Check for missing timestamps
+    if min_timestamp is None or max_timestamp is None:
+        raise exceptions.ValidationError(
+            f"Failed to get min ({min_timestamp}) or max ({max_timestamp}) timestamps for sessions: {', '.join(session_ids)}"
+        )
+    return min_timestamp, max_timestamp
