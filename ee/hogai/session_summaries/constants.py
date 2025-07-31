@@ -1,5 +1,5 @@
 # LLM models
-SESSION_SUMMARIES_STREAMING_MODEL = "gpt-4.1-mini"  # Model to use when streaming (usually, single session summaries)
+SESSION_SUMMARIES_STREAMING_MODEL = "gpt-4.1"  # Model to use when streaming (usually, single session summaries)
 SESSION_SUMMARIES_STREAMING_MODELS = [SESSION_SUMMARIES_STREAMING_MODEL]
 SESSION_SUMMARIES_SYNC_MODEL = (
     "o3"  # Model to use for sync calls (usually, reasoning, like pattern extraction for session group summaries)
