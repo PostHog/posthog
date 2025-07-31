@@ -171,7 +171,13 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         return ast.OrderExpr(expr=ast.Field(chain=[order_by]), order=direction)
 
     def _where_predicates(self) -> Union[ast.And, ast.Or]:
-        exprs: list[ast.Expr] = []
+        exprs: list[ast.Expr] = [
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.GtEq,
+                left=ast.Field(chain=["s", "min_first_timestamp"]),
+                right=ast.Constant(value=datetime.now(UTC) - timedelta(days=self.ttl_days)),
+            )
+        ]
 
         if self._query.distinct_ids:
             exprs.append(
@@ -195,15 +201,6 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
                     right=ast.Constant(value=self._query.session_ids),
                 )
             )
-        #
-        # # and regardless of the date_from, you can't have a session older than 52 weeks
-        # exprs.append(
-        #     ast.CompareOperation(
-        #         op=ast.CompareOperationOp.GtEq,
-        #         left=ast.Field(chain=["s", "min_first_timestamp"]),
-        #         right=ast.Constant(value=datetime.now(UTC) - timedelta(weeks=52)),
-        #     )
-        # )
 
         query_date_from = self.query_date_range.date_from()
         if query_date_from:
@@ -212,15 +209,6 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
                     op=ast.CompareOperationOp.GtEq,
                     left=ast.Field(chain=["s", "min_first_timestamp"]),
                     right=ast.Constant(value=query_date_from),
-                )
-            )
-        else:
-            # want to make sure we can't have a query with no floor on the date range
-            exprs.append(
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.GtEq,
-                    left=ast.Field(chain=["s", "min_first_timestamp"]),
-                    right=ast.Constant(value=datetime.now(UTC) - timedelta(days=self.ttl_days)),
                 )
             )
 
