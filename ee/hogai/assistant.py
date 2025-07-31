@@ -13,6 +13,7 @@ from langgraph.errors import GraphRecursionError
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import StreamMode
 from posthoganalytics.ai.langchain.callbacks import CallbackHandler
+from posthog.exceptions_capture import capture_exception
 from pydantic import BaseModel
 
 from ee.hogai.graph import (
@@ -539,8 +540,9 @@ class Assistant:
         """Process a chunk of OpenAI `reasoning`, and if a new headline was just finalized, return it."""
         try:
             summary_text_chunk = reasoning["summary"][0]["text"]
-        except (KeyError, IndexError):
-            self._reasoning_headline_chunk = None
+        except (KeyError, IndexError) as e:
+            capture_exception(e)
+            self._reasoning_headline_chunk = None  # not expected, so let's just reset
             return None
 
         bold_marker_index = summary_text_chunk.find("**")
