@@ -1019,4 +1019,265 @@ describe('PostgresGroupRepository Integration', () => {
             expect(group).toBeUndefined()
         })
     })
+
+    describe('error handling', () => {
+        it('should handle database connection errors gracefully', async () => {
+            // Mock postgres to simulate connection error
+            const mockPostgres = {
+                query: jest.fn().mockRejectedValue(new Error('Connection terminated unexpectedly')),
+            }
+
+            const repositoryWithMockPostgres = new PostgresGroupRepository(mockPostgres as any)
+
+            await expect(repositoryWithMockPostgres.fetchGroup(teamId, groupTypeIndex, groupKey)).rejects.toThrow(
+                'Connection terminated unexpectedly'
+            )
+
+            expect(mockPostgres.query).toHaveBeenCalledWith(
+                PostgresUse.PERSONS_WRITE,
+                expect.stringContaining('SELECT * FROM posthog_group'),
+                [teamId, groupTypeIndex, groupKey],
+                'fetchGroup'
+            )
+        })
+
+        it('should handle constraint violations', async () => {
+            await insertTestTeam(teamId)
+            await insertTestGroup()
+
+            // Try to insert the same group again (should fail due to unique constraint)
+            await expect(
+                repository.insertGroup(
+                    teamId,
+                    groupTypeIndex,
+                    groupKey,
+                    groupProperties,
+                    createdAt,
+                    propertiesLastUpdatedAt,
+                    propertiesLastOperation
+                )
+            ).rejects.toThrow('Parallel posthog_group inserts, retry')
+        })
+    })
+
+    describe('edge cases', () => {
+        it('should handle empty group properties', async () => {
+            await insertTestTeam(teamId)
+
+            const emptyProperties = {}
+
+            const result = await repository.insertGroup(
+                teamId,
+                groupTypeIndex,
+                groupKey,
+                emptyProperties,
+                createdAt,
+                propertiesLastUpdatedAt,
+                propertiesLastOperation
+            )
+
+            expect(result).toBe(1)
+
+            const fetchedGroup = await repository.fetchGroup(teamId, groupTypeIndex, groupKey)
+            expect(fetchedGroup?.group_properties).toEqual(emptyProperties)
+        })
+
+        it('should handle null values in properties', async () => {
+            await insertTestTeam(teamId)
+
+            const nullProperties = {
+                nullValue: null,
+                undefinedValue: undefined,
+                emptyString: '',
+                zeroValue: 0,
+                falseValue: false,
+            }
+
+            const result = await repository.insertGroup(
+                teamId,
+                groupTypeIndex,
+                groupKey,
+                nullProperties,
+                createdAt,
+                propertiesLastUpdatedAt,
+                propertiesLastOperation
+            )
+
+            expect(result).toBe(1)
+
+            // Note: undefined values are stripped during JSON serialization
+            const fetchedGroup = await repository.fetchGroup(teamId, groupTypeIndex, groupKey)
+            expect(fetchedGroup?.group_properties).toMatchObject({
+                nullValue: null,
+                emptyString: '',
+                zeroValue: 0,
+                falseValue: false,
+            })
+            expect(fetchedGroup?.group_properties).not.toHaveProperty('undefinedValue')
+        })
+
+        it('should handle very large properties', async () => {
+            await insertTestTeam(teamId)
+
+            const largeProperties = {
+                largeString: 'x'.repeat(10000),
+                largeArray: Array(1000).fill('test'),
+                nestedObject: {
+                    level1: {
+                        level2: {
+                            level3: {
+                                value: 'deep nested value',
+                            },
+                        },
+                    },
+                },
+            }
+
+            const result = await repository.insertGroup(
+                teamId,
+                groupTypeIndex,
+                groupKey,
+                largeProperties,
+                createdAt,
+                propertiesLastUpdatedAt,
+                propertiesLastOperation
+            )
+
+            expect(result).toBe(1)
+
+            const fetchedGroup = await repository.fetchGroup(teamId, groupTypeIndex, groupKey)
+            expect(fetchedGroup?.group_properties).toMatchObject(largeProperties)
+        })
+
+        it('should handle special characters in group key', async () => {
+            await insertTestTeam(teamId)
+
+            const specialGroupKey = 'group-key-with-special-chars!@#$%^&*()_+-=[]{}|;:,.<>?'
+
+            const result = await repository.insertGroup(
+                teamId,
+                groupTypeIndex,
+                specialGroupKey,
+                groupProperties,
+                createdAt,
+                propertiesLastUpdatedAt,
+                propertiesLastOperation
+            )
+
+            expect(result).toBe(1)
+
+            const fetchedGroup = await repository.fetchGroup(teamId, groupTypeIndex, specialGroupKey)
+            expect(fetchedGroup?.group_key).toBe(specialGroupKey)
+        })
+
+        it('should handle empty group key', async () => {
+            await insertTestTeam(teamId)
+
+            const emptyGroupKey = ''
+
+            const result = await repository.insertGroup(
+                teamId,
+                groupTypeIndex,
+                emptyGroupKey,
+                groupProperties,
+                createdAt,
+                propertiesLastUpdatedAt,
+                propertiesLastOperation
+            )
+
+            expect(result).toBe(1)
+
+            const fetchedGroup = await repository.fetchGroup(teamId, groupTypeIndex, emptyGroupKey)
+            expect(fetchedGroup?.group_key).toBe(emptyGroupKey)
+        })
+
+        it('should handle extreme group type indices', async () => {
+            await insertTestTeam(teamId)
+
+            const extremeGroupTypeIndex = 4 as GroupTypeIndex // Maximum valid value
+
+            const result = await repository.insertGroup(
+                teamId,
+                extremeGroupTypeIndex,
+                groupKey,
+                groupProperties,
+                createdAt,
+                propertiesLastUpdatedAt,
+                propertiesLastOperation
+            )
+
+            expect(result).toBe(1)
+
+            const fetchedGroup = await repository.fetchGroup(teamId, extremeGroupTypeIndex, groupKey)
+            expect(fetchedGroup?.group_type_index).toBe(extremeGroupTypeIndex)
+        })
+
+        it('should handle empty properties in update', async () => {
+            await insertTestTeam(teamId)
+            await insertTestGroup()
+
+            const emptyProperties = {}
+
+            const result = await repository.updateGroup(
+                teamId,
+                groupTypeIndex,
+                groupKey,
+                emptyProperties,
+                createdAt,
+                propertiesLastUpdatedAt,
+                propertiesLastOperation,
+                'empty-update'
+            )
+
+            expect(result).toBe(2)
+
+            const fetchedGroup = await repository.fetchGroup(teamId, groupTypeIndex, groupKey)
+            expect(fetchedGroup?.group_properties).toEqual(emptyProperties)
+        })
+
+        it('should handle optimistic update with version 0', async () => {
+            await insertTestTeam(teamId)
+            await insertTestGroup({ version: 0 })
+
+            const result = await repository.updateGroupOptimistically(
+                teamId,
+                groupTypeIndex,
+                groupKey,
+                0, // expectedVersion
+                { name: 'Updated from version 0' },
+                createdAt,
+                propertiesLastUpdatedAt,
+                propertiesLastOperation
+            )
+
+            expect(result).toBe(1)
+
+            const fetchedGroup = await repository.fetchGroup(teamId, groupTypeIndex, groupKey)
+            expect(fetchedGroup?.version).toBe(1)
+            expect(fetchedGroup?.group_properties).toMatchObject({ name: 'Updated from version 0' })
+        })
+
+        it('should handle optimistic update with wrong version', async () => {
+            await insertTestTeam(teamId)
+            await insertTestGroup()
+
+            const result = await repository.updateGroupOptimistically(
+                teamId,
+                groupTypeIndex,
+                groupKey,
+                999, // wrong expectedVersion
+                { name: 'This should not update' },
+                createdAt,
+                propertiesLastUpdatedAt,
+                propertiesLastOperation
+            )
+
+            expect(result).toBeUndefined()
+
+            // Verify the group was not updated
+            const fetchedGroup = await repository.fetchGroup(teamId, groupTypeIndex, groupKey)
+            expect(fetchedGroup?.version).toBe(1)
+            expect(fetchedGroup?.group_properties).toMatchObject(groupProperties)
+        })
+    })
 })
