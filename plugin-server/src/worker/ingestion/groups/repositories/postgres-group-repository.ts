@@ -30,7 +30,7 @@ export class PostgresGroupRepository
         tx?: TransactionClient
     ): Promise<Group | undefined> {
         if (options.forUpdate && options.useReadReplica) {
-            throw new Error("can't enable both forUpdate and useReadReplica in db::fetchGroup")
+            throw new Error("can't enable both forUpdate and useReadReplica in fetchGroup")
         }
 
         let queryString = `SELECT * FROM posthog_group WHERE team_id = $1 AND group_type_index = $2 AND group_key = $3`
