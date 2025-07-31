@@ -31,12 +31,18 @@ import {
     ReasoningMessage,
     RootAssistantMessage,
 } from '~/queries/schema/schema-assistant-messages'
-import { Conversation, ConversationDetail, ConversationStatus } from '~/types'
+import { Conversation, ConversationDetail, ConversationStatus, NotebookTarget } from '~/types'
 
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { maxLogic } from './maxLogic'
 import type { maxThreadLogicType } from './maxThreadLogicType'
-import { isAssistantMessage, isAssistantToolCallMessage, isHumanMessage, isReasoningMessage } from './utils'
+import {
+    isAssistantMessage,
+    isAssistantToolCallMessage,
+    isHumanMessage,
+    isNotebookUpdateMessage,
+    isReasoningMessage,
+} from './utils'
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 import { maxBillingContextLogic } from './maxBillingContextLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -135,6 +141,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         setConversation: (conversation: Conversation) => ({ conversation }),
         resetThread: true,
         setTraceId: (traceId: string) => ({ traceId }),
+        processNotebookUpdate: (notebookId: string, notebookContent: JSONContent) => ({ notebookId, notebookContent }),
     }),
 
     reducers(({ props }) => ({
@@ -313,6 +320,8 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                                     ...parsedResponse,
                                     status: 'completed',
                                 })
+                            } else if (isNotebookUpdateMessage(parsedResponse)) {
+                                actions.processNotebookUpdate(parsedResponse.notebook_id, parsedResponse.content)
                             } else if (
                                 values.threadRaw[values.threadRaw.length - 1]?.status === 'completed' ||
                                 values.threadRaw.length === 0
@@ -464,6 +473,28 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 setTimeout(() => {
                     actions.reconnectToStream()
                 }, 0)
+            }
+        },
+
+        processNotebookUpdate: async ({ notebookId, notebookContent }) => {
+            try {
+                const currentPath = router.values.location.pathname
+                const notebookPath = urls.notebook(notebookId)
+
+                if (currentPath.includes(notebookPath)) {
+                    // We're already on the notebook page, refresh it
+                    let logic = notebookLogic.findMounted({ shortId: notebookId })
+                    if (logic) {
+                        logic.actions.setLocalContent(notebookContent, true)
+                    }
+                } else {
+                    // Navigate to the notebook
+                    await openNotebook(notebookId, NotebookTarget.Scene, undefined, (logic) => {
+                        logic.actions.setLocalContent(notebookContent, true)
+                    })
+                }
+            } catch (error) {
+                console.error('Failed to navigate to notebook:', error)
             }
         },
     })),

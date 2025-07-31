@@ -8,6 +8,7 @@ import {
     AssistantToolCallMessage,
     FailureMessage,
     HumanMessage,
+    NotebookUpdateMessage,
     ReasoningMessage,
     RootAssistantMessage,
     VisualizationMessage,
@@ -49,6 +50,12 @@ export function isAssistantToolCallMessage(
 
 export function isFailureMessage(message: RootAssistantMessage | undefined | null): message is FailureMessage {
     return message?.type === AssistantMessageType.Failure
+}
+
+export function isNotebookUpdateMessage(
+    message: RootAssistantMessage | undefined | null
+): message is NotebookUpdateMessage {
+    return message?.type === AssistantMessageType.Notebook
 }
 
 export function castAssistantQuery(

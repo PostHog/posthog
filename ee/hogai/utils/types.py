@@ -20,6 +20,7 @@ from posthog.schema import (
     HumanMessage,
     ReasoningMessage,
     VisualizationMessage,
+    NotebookUpdateMessage,
 )
 
 AIMessageUnion = Union[
@@ -29,7 +30,7 @@ AIMessageUnion = Union[
     ReasoningMessage,
     AssistantToolCallMessage,
 ]
-AssistantMessageUnion = Union[HumanMessage, AIMessageUnion]
+AssistantMessageUnion = Union[HumanMessage, AIMessageUnion, NotebookUpdateMessage]
 AssistantMessageOrStatusUnion = Union[AssistantMessageUnion, AssistantGenerationStatusEvent]
 
 AssistantOutput = (
