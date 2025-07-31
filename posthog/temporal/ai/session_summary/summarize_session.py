@@ -403,7 +403,7 @@ async def execute_summarize_session(
     redis_client = get_async_client()
     # Wait for the workflow to complete
     await _execute_single_session_summary_workflow(inputs=session_input, workflow_id=workflow_id)
-    redis_data_raw = redis_client.get(redis_output_key)
+    redis_data_raw = await redis_client.get(redis_output_key)
     if not redis_data_raw:
         raise ValueError(
             f"No data found in Redis for key {redis_output_key} when "
