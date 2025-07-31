@@ -4,6 +4,7 @@ from rest_framework import serializers
 import yaml
 import structlog
 from ee.hogai.session_summaries import SummaryValidationError
+from ee.hogai.session_summaries.constants import HALLUCINATED_EVENTS_MIN_RATIO
 from ee.hogai.session_summaries.utils import (
     get_column_index,
     prepare_datetime,
@@ -169,8 +170,35 @@ class SessionSummarySerializer(IntermediateSessionSummarySerializer):
     )
 
 
+def _remove_hallucinated_events(
+    hallucinated_events: list[tuple[int, int, dict[str, Any]]],
+    raw_session_summary: RawSessionSummarySerializer,
+    total_summary_events: int,
+    session_id: str,
+    final_validation: bool,
+) -> RawSessionSummarySerializer:
+    """
+    Remove hallucinated events from the key actions in the raw session summary.
+    """
+    # If too many events are hallucinated for the final check - fail the summarization
+    if (
+        final_validation
+        and total_summary_events > 0
+        and len(hallucinated_events) / total_summary_events > HALLUCINATED_EVENTS_MIN_RATIO
+    ):
+        raise SummaryValidationError(
+            f"Too many hallucinated events ({len(hallucinated_events)}/{total_summary_events}) for session id ({session_id})"
+            f"in the raw session summary: {[x[-1] for x in hallucinated_events]} "  # Log events
+        )
+    # Reverse to not break indexes
+    for group_index, event_index, event in reversed(hallucinated_events):
+        logger.warning(f"Removing hallucinated event {event} from the raw session summary for session_id {session_id}")
+        del raw_session_summary.data["key_actions"][group_index]["events"][event_index]
+    return raw_session_summary
+
+
 def load_raw_session_summary_from_llm_content(
-    raw_content: str, allowed_event_ids: list[str], session_id: str
+    raw_content: str, allowed_event_ids: list[str], session_id: str, final_validation: bool
 ) -> RawSessionSummarySerializer | None:
     if not raw_content:
         raise SummaryValidationError(f"No LLM content found when summarizing session_id {session_id}")
@@ -192,7 +220,8 @@ def load_raw_session_summary_from_llm_content(
         return raw_session_summary
     segments_indices = [segment.get("index") for segment in segments]
     key_actions = raw_session_summary.data.get("key_actions")
-    hallucinated_event_indexes = []
+    total_summary_events = 0
+    hallucinated_events: list[tuple[int, int, dict[str, Any]]] = []
     if not key_actions:
         # If key actions aren't generated yet - return the current state
         return raw_session_summary
@@ -211,6 +240,7 @@ def load_raw_session_summary_from_llm_content(
             # If key group events aren't generated yet - skip this group
             continue
         for event_index, event in enumerate(key_group_events):
+            total_summary_events += 1
             # Ensure that LLM didn't hallucinate events
             event_id = event.get("event_id")
             if not event_id or len(event_id) != 8:
@@ -218,12 +248,16 @@ def load_raw_session_summary_from_llm_content(
                 continue
             # Skip hallucinated events
             if event_id not in allowed_event_ids:
-                hallucinated_event_indexes.append((group_index, event_index))
+                hallucinated_events.append((group_index, event_index, event))
                 continue
-    # Remove hallucinated events from the key actions (reverse to not break indexes)
-    for group_index, event_index in reversed(hallucinated_event_indexes):
-        # TODO: Investigate how to reduce their appearance in the first place
-        del raw_session_summary.data["key_actions"][group_index]["events"][event_index]
+    # TODO: Investigate how to reduce their appearance in the first placeÍ
+    raw_session_summary = _remove_hallucinated_events(
+        hallucinated_events=hallucinated_events,
+        raw_session_summary=raw_session_summary,
+        total_summary_events=total_summary_events,
+        session_id=session_id,
+        final_validation=final_validation,
+    )
     return raw_session_summary
 
 

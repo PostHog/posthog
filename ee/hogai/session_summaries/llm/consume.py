@@ -83,7 +83,10 @@ def _convert_llm_content_to_session_summary_json_str(
     """Parse and enrich LLM YAML output, returning a JSON string."""
     # Try to parse the accumulated text as YAML
     raw_session_summary = load_raw_session_summary_from_llm_content(
-        raw_content=content, allowed_event_ids=allowed_event_ids, session_id=session_id
+        raw_content=content,
+        allowed_event_ids=allowed_event_ids,
+        session_id=session_id,
+        final_validation=final_validation,
     )
     if not raw_session_summary:
         # If parsing fails, this chunk is incomplete or call response is hallucinated, so skipping it.
