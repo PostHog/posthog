@@ -83,7 +83,7 @@ function CannotConfigureHelpMessage(): JSX.Element {
                     <li>
                         Programmatically start and stop recordings -{' '}
                         <Link
-                            to="https://posthog.com/docs/session-replay/recording-controlhttps://posthog.com/docs/session-replay/how-to-control-which-sessions-you-record#programmatically-start-and-stop-recordings"
+                            to="https://posthog.com/docs/session-replay/how-to-control-which-sessions-you-record#programmatically-start-and-stop-recordings"
                             target="_blank"
                         >
                             Learn more
