@@ -50,75 +50,50 @@ class TestTimezonePreAggregatedIntegration(WebAnalyticsPreAggregatedTestBase, Fl
         )
 
     def _setup_cross_timezone_test_data(self, team):
-        sessions = [str(uuid7("2024-01-15")) for _ in range(4)]
+        # Create comprehensive hourly events across multiple days to showcase timezone shifts
+        events = [
+            # Day 1: Jan 14 - Events that will cross timezone boundaries
+            ("2024-01-14T15:00:00Z", "Chrome", "user_0", "day1_afternoon"),  # JST midnight boundary
+            ("2024-01-14T20:00:00Z", "Safari", "user_1", "day1_evening"),  # Creates PT/JST differences
+            ("2024-01-14T23:59:00Z", "Firefox", "user_2", "day1_midnight"),  # Near UTC midnight
+            # Day 2: Jan 15 - Main test day with hourly progression
+            ("2024-01-15T00:00:00Z", "Chrome", "user_3", "day2_utc_midnight"),  # UTC midnight exactly
+            ("2024-01-15T06:00:00Z", "Edge", "user_4", "day2_early"),  # PT prev day, JST afternoon
+            ("2024-01-15T08:00:00Z", "Safari", "user_5", "day2_pt_midnight"),  # PT midnight exactly
+            ("2024-01-15T12:00:00Z", "Firefox", "user_6", "day2_noon"),  # Universal midday
+            ("2024-01-15T15:00:00Z", "Chrome", "user_7", "day2_jst_midnight"),  # JST next day midnight
+            ("2024-01-15T18:00:00Z", "Edge", "user_8", "day2_evening"),  # PT morning, JST next day
+            ("2024-01-15T20:00:00Z", "Safari", "user_9", "day2_pt_noon"),  # PT midday
+            ("2024-01-15T23:30:00Z", "Firefox", "user_10", "day2_late"),  # End of UTC day
+            # Day 3: Jan 16 - Events to test boundary crossover
+            ("2024-01-16T01:00:00Z", "Chrome", "user_11", "day3_early"),  # Next day in all timezones
+        ]
 
-        for i in range(4):
+        sessions = [str(uuid7("2024-01-15")) for _ in range(len(events))]
+
+        # Create users
+        for i in range(len(events)):
             _create_person(team_id=team.pk, distinct_ids=[f"user_{i}"])
 
-        # Create events at specific UTC times that will bucket differently in different timezones
-        # 2024-01-15 06:00:00 UTC = 22:00 PT (prev day) / 15:00 JST / 06:00 UTC
-        _create_event(
-            team=team,
-            event="$pageview",
-            distinct_id="user_0",
-            timestamp="2024-01-15T06:00:00Z",
-            properties={
-                "$session_id": sessions[0],
-                "$current_url": "https://example.com/early",
-                "$pathname": "/early",
-                "$device_type": "Desktop",
-                "$browser": "Chrome",
-                "$os": "Windows",
-            },
-        )
-
-        # 2024-01-15 12:00:00 UTC = 04:00 PT / 21:00 JST / 12:00 UTC
-        _create_event(
-            team=team,
-            event="$pageview",
-            distinct_id="user_1",
-            timestamp="2024-01-15T12:00:00Z",
-            properties={
-                "$session_id": sessions[1],
-                "$current_url": "https://example.com/noon",
-                "$pathname": "/noon",
-                "$device_type": "Mobile",
-                "$browser": "Safari",
-                "$os": "iOS",
-            },
-        )
-
-        # 2024-01-15 18:00:00 UTC = 10:00 PT / 03:00 JST (next day) / 18:00 UTC
-        _create_event(
-            team=team,
-            event="$pageview",
-            distinct_id="user_2",
-            timestamp="2024-01-15T18:00:00Z",
-            properties={
-                "$session_id": sessions[2],
-                "$current_url": "https://example.com/evening",
-                "$pathname": "/evening",
-                "$device_type": "Desktop",
-                "$browser": "Firefox",
-                "$os": "macOS",
-            },
-        )
-
-        # 2024-01-15 23:00:00 UTC = 15:00 PT / 08:00 JST (next day) / 23:00 UTC
-        _create_event(
-            team=team,
-            event="$pageview",
-            distinct_id="user_3",
-            timestamp="2024-01-15T23:00:00Z",
-            properties={
-                "$session_id": sessions[3],
-                "$current_url": "https://example.com/late",
-                "$pathname": "/late",
-                "$device_type": "Desktop",
-                "$browser": "Chrome",
-                "$os": "Windows",
-            },
-        )
+        # Create events with detailed properties for timezone analysis
+        for i, (timestamp, browser, user_id, label) in enumerate(events):
+            _create_event(
+                team=team,
+                event="$pageview",
+                distinct_id=user_id,
+                timestamp=timestamp,
+                properties={
+                    "$session_id": sessions[i],
+                    "$current_url": f"https://example.com/{label}",
+                    "$pathname": f"/{label}",
+                    "$device_type": "Desktop" if i % 2 == 0 else "Mobile",
+                    "$browser": browser,
+                    "$os": "Windows" if browser == "Chrome" else "macOS" if browser == "Safari" else "Linux",
+                    "test_label": label,
+                    "utc_hour": timestamp.split("T")[1][:2],
+                    "utc_date": timestamp.split("T")[0],
+                },
+            )
 
         flush_persons_and_events()
 
@@ -139,7 +114,7 @@ class TestTimezonePreAggregatedIntegration(WebAnalyticsPreAggregatedTestBase, Fl
         sync_execute(stats_insert)
         sync_execute(bounces_insert)
 
-    def _calculate_browser_breakdown(self, team, compare_approaches=False):
+    def _calculate_browser_breakdown(self, team):
         query = WebStatsTableQuery(
             dateRange=DateRange(date_from="2024-01-15", date_to="2024-01-16"),
             properties=[],
@@ -147,139 +122,148 @@ class TestTimezonePreAggregatedIntegration(WebAnalyticsPreAggregatedTestBase, Fl
             limit=100,
         )
 
-        if compare_approaches:
-            # Run both pre-aggregated and raw queries
-            preagg_modifiers = HogQLQueryModifiers(useWebAnalyticsPreAggregatedTables=True)
-            raw_modifiers = HogQLQueryModifiers(useWebAnalyticsPreAggregatedTables=False)
+        # Run both pre-aggregated and raw queries for comparison
+        preagg_modifiers = HogQLQueryModifiers(useWebAnalyticsPreAggregatedTables=True)
+        raw_modifiers = HogQLQueryModifiers(useWebAnalyticsPreAggregatedTables=False)
 
-            preagg_runner = WebStatsTableQueryRunner(query=query, team=team, modifiers=preagg_modifiers)
-            raw_runner = WebStatsTableQueryRunner(query=query, team=team, modifiers=raw_modifiers)
+        preagg_runner = WebStatsTableQueryRunner(query=query, team=team, modifiers=preagg_modifiers)
+        raw_runner = WebStatsTableQueryRunner(query=query, team=team, modifiers=raw_modifiers)
 
-            preagg_response = preagg_runner.calculate()
-            raw_response = raw_runner.calculate()
+        preagg_response = preagg_runner.calculate()
+        raw_response = raw_runner.calculate()
 
-            return {
-                "preagg_response": preagg_response,
-                "raw_response": raw_response,
-                "preagg_used": preagg_runner.used_preaggregated_tables,
-                "raw_used": raw_runner.used_preaggregated_tables,
-            }
-        else:
-            # Single pre-aggregated query (original behavior)
-            modifiers = HogQLQueryModifiers(useWebAnalyticsPreAggregatedTables=True)
-            runner = WebStatsTableQueryRunner(query=query, team=team, modifiers=modifiers)
-            return runner.calculate()
+        return {
+            "preagg_response": preagg_response,
+            "raw_response": raw_response,
+            "preagg_used": preagg_runner.used_preaggregated_tables,
+            "raw_used": raw_runner.used_preaggregated_tables,
+        }
+
+    def _sort_results(self, results):
+        """Sort results by browser name for consistent comparison."""
+        return sorted(results, key=lambda x: x[0] if x and len(x) > 0 else "")
 
     @parameterized.expand(
         [
             (
                 "Pacific (UTC-08:00)",
                 "America/Los_Angeles",
-                # Pacific timezone: 06:00 UTC = 22:00 PT (prev day), so only 3 events in date range
+                # UTC-8: Large negative offset excludes some UTC events that fall on Jan 14 PT
                 [
-                    ["Chrome", (1.0, None), (1.0, None), 1 / 3, ""],  # user_3 only (user_0 is prev day in PT)
-                    ["Firefox", (1.0, None), (1.0, None), 1 / 3, ""],  # user_2
-                    ["Safari", (1.0, None), (1.0, None), 1 / 3, ""],  # user_1
+                    ["Chrome", (2.0, None), (2.0, None), 2 / 7, ""],
+                    ["Edge", (1.0, None), (1.0, None), 1 / 7, ""],
+                    ["Firefox", (2.0, None), (2.0, None), 2 / 7, ""],
+                    ["Safari", (2.0, None), (2.0, None), 2 / 7, ""],
                 ],
             ),
             (
                 "New York (UTC-05:00)",
                 "America/New_York",
-                # Eastern timezone: All events should fall within Jan 15 local time
+                # UTC-5: Moderate negative offset still excludes some early UTC events
                 [
-                    ["Chrome", (2.0, None), (2.0, None), 1 / 2, ""],  # user_0, user_3
-                    ["Firefox", (1.0, None), (1.0, None), 1 / 4, ""],  # user_2
-                    ["Safari", (1.0, None), (1.0, None), 1 / 4, ""],  # user_1
+                    ["Chrome", (2.0, None), (2.0, None), 0.25, ""],
+                    ["Edge", (2.0, None), (2.0, None), 0.25, ""],
+                    ["Firefox", (2.0, None), (2.0, None), 0.25, ""],
+                    ["Safari", (2.0, None), (2.0, None), 0.25, ""],
                 ],
             ),
             (
                 "Sao Paulo (UTC-03:00)",
                 "America/Sao_Paulo",
-                # Brazil timezone: All events should fall within Jan 15 local time
+                # UTC-3: Similar to NYC, excludes 1 early UTC event that falls on Jan 14 local time
                 [
-                    ["Chrome", (2.0, None), (2.0, None), 1 / 2, ""],  # user_0, user_3
-                    ["Firefox", (1.0, None), (1.0, None), 1 / 4, ""],  # user_2
-                    ["Safari", (1.0, None), (1.0, None), 1 / 4, ""],  # user_1
+                    ["Chrome", (2.0, None), (2.0, None), 0.25, ""],
+                    ["Edge", (2.0, None), (2.0, None), 0.25, ""],
+                    ["Firefox", (2.0, None), (2.0, None), 0.25, ""],
+                    ["Safari", (2.0, None), (2.0, None), 0.25, ""],
                 ],
             ),
             (
                 "UTC (UTC+00:00)",
                 "UTC",
-                # UTC timezone: all 4 events fall within 2024-01-15 in UTC
+                # UTC baseline: Jan 15 00:00-23:59 includes most events except those crossing to Jan 16
                 [
-                    ["Chrome", (2.0, None), (2.0, None), 1 / 2, ""],  # user_0, user_3
-                    ["Firefox", (1.0, None), (1.0, None), 1 / 4, ""],  # user_2
-                    ["Safari", (1.0, None), (1.0, None), 1 / 4, ""],  # user_1
+                    ["Chrome", (3.0, None), (3.0, None), 1 / 3, ""],
+                    ["Edge", (2.0, None), (2.0, None), 2 / 9, ""],
+                    ["Firefox", (2.0, None), (2.0, None), 2 / 9, ""],
+                    ["Safari", (2.0, None), (2.0, None), 2 / 9, ""],
                 ],
             ),
             (
                 "Berlin (UTC+01:00)",
                 "Europe/Berlin",
-                # Berlin timezone: All events to be included in the date range
+                # UTC+1: Picks up 1 additional Firefox event compared to UTC due to shift
                 [
-                    ["Chrome", (2.0, None), (2.0, None), 1 / 2, ""],  # user_0, user_3
-                    ["Firefox", (1.0, None), (1.0, None), 1 / 4, ""],  # user_2
-                    ["Safari", (1.0, None), (1.0, None), 1 / 4, ""],  # user_1
+                    ["Chrome", (3.0, None), (3.0, None), 0.3, ""],
+                    ["Edge", (2.0, None), (2.0, None), 0.2, ""],
+                    ["Firefox", (3.0, None), (3.0, None), 0.3, ""],
+                    ["Safari", (2.0, None), (2.0, None), 0.2, ""],
                 ],
             ),
             (
-                "Africa/Cairo (UTC+02:00)",
+                "Cairo (UTC+02:00)",
                 "Africa/Cairo",
-                # Cairo timezone: All events to be included in the date range
+                # UTC+2: Similar shift pattern to Berlin
                 [
-                    ["Chrome", (2.0, None), (2.0, None), 1 / 2, ""],  # user_0, user_3
-                    ["Firefox", (1.0, None), (1.0, None), 1 / 4, ""],  # user_2
-                    ["Safari", (1.0, None), (1.0, None), 1 / 4, ""],  # user_1
+                    ["Chrome", (3.0, None), (3.0, None), 0.3, ""],
+                    ["Edge", (2.0, None), (2.0, None), 0.2, ""],
+                    ["Firefox", (3.0, None), (3.0, None), 0.3, ""],
+                    ["Safari", (2.0, None), (2.0, None), 0.2, ""],
                 ],
             ),
             (
                 "Moscow (UTC+03:00)",
                 "Europe/Moscow",
-                # Moscow timezone: All events to be included in the date range
+                # UTC+3: Similar shift pattern to Berlin/Cairo
                 [
-                    ["Chrome", (2.0, None), (2.0, None), 1 / 2, ""],  # user_0, user_3
-                    ["Firefox", (1.0, None), (1.0, None), 1 / 4, ""],  # user_2
-                    ["Safari", (1.0, None), (1.0, None), 1 / 4, ""],  # user_1
+                    ["Chrome", (3.0, None), (3.0, None), 0.3, ""],
+                    ["Edge", (2.0, None), (2.0, None), 0.2, ""],
+                    ["Firefox", (3.0, None), (3.0, None), 0.3, ""],
+                    ["Safari", (2.0, None), (2.0, None), 0.2, ""],
                 ],
             ),
             (
                 "Pakistan (UTC+05:00)",
                 "Asia/Karachi",
-                # Pakistan timezone: All events to be included in the date range
+                # UTC+5: Picks up 1 more event than Berlin/Cairo/Moscow (11 total vs 10)
                 [
-                    ["Chrome", (2.0, None), (2.0, None), 1 / 2, ""],  # user_0, user_3
-                    ["Firefox", (1.0, None), (1.0, None), 1 / 4, ""],  # user_2
-                    ["Safari", (1.0, None), (1.0, None), 1 / 4, ""],  # user_1
+                    ["Chrome", (3.0, None), (3.0, None), 3 / 11, ""],
+                    ["Edge", (2.0, None), (2.0, None), 2 / 11, ""],
+                    ["Firefox", (3.0, None), (3.0, None), 3 / 11, ""],
+                    ["Safari", (3.0, None), (3.0, None), 3 / 11, ""],
                 ],
             ),
             (
                 "Tokyo (UTC+09:00)",
                 "Asia/Tokyo",
-                # Tokyo timezone: All events to be included in the date range
+                # UTC+9: Large positive offset captures many events from Jan 14 UTC as Jan 15 JST
                 [
-                    ["Chrome", (2.0, None), (2.0, None), 1 / 2, ""],  # user_0, user_3
-                    ["Firefox", (1.0, None), (1.0, None), 1 / 4, ""],  # user_2
-                    ["Safari", (1.0, None), (1.0, None), 1 / 4, ""],  # user_1
+                    ["Chrome", (4.0, None), (4.0, None), 1 / 3, ""],
+                    ["Edge", (2.0, None), (2.0, None), 1 / 6, ""],
+                    ["Firefox", (3.0, None), (3.0, None), 0.25, ""],
+                    ["Safari", (3.0, None), (3.0, None), 0.25, ""],
                 ],
             ),
             (
                 "Sydney (UTC+11:00)",
                 "Australia/Sydney",
-                # Sydney timezone: All events to be included in the date range
+                # UTC+11: Even larger offset, similar pattern to Tokyo
                 [
-                    ["Chrome", (2.0, None), (2.0, None), 1 / 2, ""],  # user_0, user_3
-                    ["Firefox", (1.0, None), (1.0, None), 1 / 4, ""],  # user_2
-                    ["Safari", (1.0, None), (1.0, None), 1 / 4, ""],  # user_1
+                    ["Chrome", (4.0, None), (4.0, None), 1 / 3, ""],
+                    ["Edge", (2.0, None), (2.0, None), 1 / 6, ""],
+                    ["Firefox", (3.0, None), (3.0, None), 0.25, ""],
+                    ["Safari", (3.0, None), (3.0, None), 0.25, ""],
                 ],
             ),
             (
                 "Auckland (UTC+12:00)",
                 "Pacific/Auckland",
-                # Auckland timezone: All events to be included in the date range
+                # UTC+12: Maximum positive offset, captures most events from previous UTC day
                 [
-                    ["Chrome", (2.0, None), (2.0, None), 1 / 2, ""],  # user_0, user_3
-                    ["Firefox", (1.0, None), (1.0, None), 1 / 4, ""],  # user_2
-                    ["Safari", (1.0, None), (1.0, None), 1 / 4, ""],  # user_1
+                    ["Chrome", (4.0, None), (4.0, None), 1 / 3, ""],
+                    ["Edge", (2.0, None), (2.0, None), 1 / 6, ""],
+                    ["Firefox", (3.0, None), (3.0, None), 0.25, ""],
+                    ["Safari", (3.0, None), (3.0, None), 0.25, ""],
                 ],
             ),
         ]
@@ -292,7 +276,7 @@ class TestTimezonePreAggregatedIntegration(WebAnalyticsPreAggregatedTestBase, Fl
             self._populate_preaggregated_tables(team)
 
             # Test both pre-aggregated and raw queries
-            comparison = self._calculate_browser_breakdown(team, compare_approaches=True)
+            comparison = self._calculate_browser_breakdown(team)
 
             preagg_results = self._sort_results(comparison["preagg_response"].results)
             raw_results = self._sort_results(comparison["raw_response"].results)
@@ -311,32 +295,155 @@ class TestTimezonePreAggregatedIntegration(WebAnalyticsPreAggregatedTestBase, Fl
         finally:
             team.delete()
 
-    def test_timezone_consistency_verification(self):
+    def test_timezone_boundary_behavior_explicit(self):
         utc_team = self._create_timezone_team("UTC")
-        pt_team = self._create_timezone_team("America/Los_Angeles")
+        pt_team = self._create_timezone_team("America/Los_Angeles")  # UTC-8
+        jst_team = self._create_timezone_team("Asia/Tokyo")  # UTC+9
 
         try:
-            self._setup_cross_timezone_test_data(utc_team)
-            self._setup_cross_timezone_test_data(pt_team)
+            # Create precise boundary events
+            boundary_events = [
+                # UTC Midnight boundary - Jan 15 00:00:00 UTC
+                ("boundary_utc_midnight", "2024-01-15T00:00:00Z", "Chrome", "utc_midnight"),
+                # PT Midnight boundary - Jan 15 00:00:00 PT = Jan 15 08:00:00 UTC
+                ("boundary_pt_midnight", "2024-01-15T08:00:00Z", "Safari", "pt_midnight"),
+                # JST Midnight boundary - Jan 15 00:00:00 JST = Jan 14 15:00:00 UTC
+                ("boundary_jst_midnight", "2024-01-14T15:00:00Z", "Firefox", "jst_midnight"),
+                # Cross-day event: 23:59 UTC Jan 14 (still Jan 14 in PT, but Jan 15 in JST)
+                ("cross_day_edge", "2024-01-14T23:59:00Z", "Edge", "cross_day"),
+            ]
 
-            self._populate_preaggregated_tables(utc_team)
-            self._populate_preaggregated_tables(pt_team)
+            sessions = [str(uuid7("2024-01-15")) for _ in range(len(boundary_events))]
 
-            utc_response = self._calculate_browser_breakdown(utc_team)
-            pt_response = self._calculate_browser_breakdown(pt_team)
+            # Create users and events for all teams
+            for team in [utc_team, pt_team, jst_team]:
+                for i in range(len(boundary_events)):
+                    _create_person(team_id=team.pk, distinct_ids=[f"boundary_user_{i}"])
 
-            # Extract total pageviews
-            utc_total = sum(result[2][0] for result in utc_response.results if result[2][0] is not None)
-            pt_total = sum(result[2][0] for result in pt_response.results if result[2][0] is not None)
+                for i, (_, timestamp, browser, label) in enumerate(boundary_events):
+                    _create_event(
+                        team=team,
+                        event="$pageview",
+                        distinct_id=f"boundary_user_{i}",
+                        timestamp=timestamp,
+                        properties={
+                            "$session_id": sessions[i],
+                            "$current_url": f"https://example.com/{label}",
+                            "$pathname": f"/{label}",
+                            "$browser": browser,
+                            "boundary_test": label,  # Label for debugging
+                            "utc_hour": timestamp.split("T")[1][:2],  # Extract hour for validation
+                        },
+                    )
 
-            # UTC should see all 4 events, PT should see only 3 (one event is in prev day PT)
-            assert utc_total == 4.0
-            assert pt_total == 3.0
+            flush_persons_and_events()
 
-            # Both should use pre-aggregated tables
-            assert utc_response.usedPreAggregatedTables
-            assert pt_response.usedPreAggregatedTables
+            # Populate pre-aggregated tables for all teams
+            for team in [utc_team, pt_team, jst_team]:
+                self._populate_preaggregated_tables(team)
+
+            # Test each team's results with explicit boundary expectations
+            utc_comparison = self._calculate_browser_breakdown(utc_team)
+            pt_comparison = self._calculate_browser_breakdown(pt_team)
+            jst_comparison = self._calculate_browser_breakdown(jst_team)
+
+            # UTC Team results for Jan 15 UTC (00:00 to 23:59 UTC)
+            utc_expected = [
+                ["Chrome", (1.0, None), (1.0, None), 0.5, ""],  # utc_midnight event
+                ["Safari", (1.0, None), (1.0, None), 0.5, ""],  # pt_midnight event
+            ]
+            utc_actual = self._sort_results(utc_comparison["preagg_response"].results)
+            assert utc_actual == self._sort_results(utc_expected), f"UTC boundary mismatch: {utc_actual}"
+
+            # PT Team results for Jan 15 PT (08:00 UTC to 07:59+1 UTC)
+            pt_expected = [
+                ["Safari", (1.0, None), (1.0, None), 1.0, ""],  # pt_midnight event only
+            ]
+            pt_actual = self._sort_results(pt_comparison["preagg_response"].results)
+            assert pt_actual == self._sort_results(pt_expected), f"PT boundary mismatch: {pt_actual}"
+
+            # JST Team results for Jan 15 JST (15:00 UTC prev day to 14:59 UTC)
+            jst_expected = [
+                ["Chrome", (1.0, None), (1.0, None), 0.25, ""],  # utc_midnight event
+                ["Edge", (1.0, None), (1.0, None), 0.25, ""],  # cross_day event
+                ["Firefox", (1.0, None), (1.0, None), 0.25, ""],  # jst_midnight event
+                ["Safari", (1.0, None), (1.0, None), 0.25, ""],  # pt_midnight event
+            ]
+            jst_actual = self._sort_results(jst_comparison["preagg_response"].results)
+            assert jst_actual == self._sort_results(jst_expected), f"JST boundary mismatch: {jst_actual}"
+
+            # Verify pre-aggregated and raw results match for boundary cases
+            for team_name, comparison in [("UTC", utc_comparison), ("PT", pt_comparison), ("JST", jst_comparison)]:
+                preagg_results = self._sort_results(comparison["preagg_response"].results)
+                raw_results = self._sort_results(comparison["raw_response"].results)
+                assert (
+                    preagg_results == raw_results
+                ), f"Boundary behavior mismatch in {team_name}: preagg={preagg_results} vs raw={raw_results}"
 
         finally:
             utc_team.delete()
             pt_team.delete()
+            jst_team.delete()
+
+    def test_india_half_hour_timezone_edge_case(self):
+        """Test India's UTC+05:30 timezone to document half-hour offset behavior.
+
+        This test documents a known limitation: half-hour timezones create edge cases
+        in hourly bucketing where events may not align perfectly with hour boundaries.
+        """
+        india_team = self._create_timezone_team("Asia/Kolkata")  # UTC+05:30
+
+        try:
+            # Create events around critical half-hour boundaries
+            half_hour_events = [
+                ("2024-01-15T18:30:00Z", "Chrome", "user_0", "india_midnight"),  # 00:00 IST exactly
+                ("2024-01-15T18:29:59Z", "Safari", "user_1", "before_midnight"),  # 23:59:59 prev day IST
+                ("2024-01-15T18:31:00Z", "Firefox", "user_2", "after_midnight"),  # 00:01 IST next day
+                ("2024-01-15T06:30:00Z", "Edge", "user_3", "noon_ist"),  # 12:00 IST
+            ]
+
+            sessions = [str(uuid7("2024-01-15")) for _ in range(len(half_hour_events))]
+
+            for i in range(len(half_hour_events)):
+                _create_person(team_id=india_team.pk, distinct_ids=[f"user_{i}"])
+
+            for i, (timestamp, browser, user_id, label) in enumerate(half_hour_events):
+                _create_event(
+                    team=india_team,
+                    event="$pageview",
+                    distinct_id=user_id,
+                    timestamp=timestamp,
+                    properties={
+                        "$session_id": sessions[i],
+                        "$current_url": f"https://example.com/{label}",
+                        "$pathname": f"/{label}",
+                        "$browser": browser,
+                        "half_hour_test": label,
+                        "ist_offset": "+05:30",
+                    },
+                )
+
+            flush_persons_and_events()
+            self._populate_preaggregated_tables(india_team)
+
+            # Test results - half-hour timezone creates unique bucketing behavior
+            comparison = self._calculate_browser_breakdown(india_team)
+            results = self._sort_results(comparison["preagg_response"].results)
+
+            # Document the behavior: all events fall within Jan 15 IST despite half-hour offset
+            expected_results = [
+                ["Chrome", (1.0, None), (1.0, None), 0.25, ""],  # india_midnight
+                ["Edge", (1.0, None), (1.0, None), 0.25, ""],  # noon_ist
+                ["Firefox", (1.0, None), (1.0, None), 0.25, ""],  # after_midnight
+                ["Safari", (1.0, None), (1.0, None), 0.25, ""],  # before_midnight
+            ]
+
+            assert results == self._sort_results(expected_results)
+
+            # Verify pre-aggregated matches raw for consistency
+            preagg_results = self._sort_results(comparison["preagg_response"].results)
+            raw_results = self._sort_results(comparison["raw_response"].results)
+            assert preagg_results == raw_results
+
+        finally:
+            india_team.delete()

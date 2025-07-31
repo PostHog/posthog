@@ -1,4 +1,296 @@
 # serializer version: 1
+# name: TestTimezonePreAggregatedIntegration.test_india_half_hour_timezone_edge_case
+  '''
+  SELECT nullIf(nullIf(web_stats_combined.browser, ''), 'null') AS `context.columns.breakdown_value`,
+         tuple(uniqMergeIf(web_stats_combined.persons_uniq_state, and(greaterOrEquals(web_stats_combined.period_bucket, toDateTime64('2024-01-14 18:30:00.000000', 6, 'UTC')), lessOrEquals(web_stats_combined.period_bucket, toDateTime64('2024-01-16 18:29:59.999999', 6, 'UTC')))), NULL) AS `context.columns.visitors`,
+         tuple(sumMergeIf(web_stats_combined.pageviews_count_state, and(greaterOrEquals(web_stats_combined.period_bucket, toDateTime64('2024-01-14 18:30:00.000000', 6, 'UTC')), lessOrEquals(web_stats_combined.period_bucket, toDateTime64('2024-01-16 18:29:59.999999', 6, 'UTC')))), NULL) AS `context.columns.views`,
+         divide(`context.columns.visitors`.1, sum(`context.columns.visitors`.1) OVER ()) AS `context.columns.ui_fill_fraction`
+  FROM web_stats_combined
+  WHERE and(equals(web_stats_combined.team_id, 99999), greaterOrEquals(web_stats_combined.period_bucket, toDateTime64('2024-01-14 18:30:00.000000', 6, 'UTC')), lessOrEquals(web_stats_combined.period_bucket, toDateTime64('2024-01-16 18:29:59.999999', 6, 'UTC')))
+  GROUP BY `context.columns.breakdown_value`
+  ORDER BY `context.columns.visitors` DESC
+  LIMIT 101
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestTimezonePreAggregatedIntegration.test_india_half_hour_timezone_edge_case.1
+  '''
+  SELECT breakdown_value AS `context.columns.breakdown_value`,
+         tuple(uniq(filtered_person_id), NULL) AS `context.columns.visitors`,
+         tuple(sum(filtered_pageview_count), NULL) AS `context.columns.views`,
+         divide(`context.columns.visitors`.1, sum(`context.columns.visitors`.1) OVER ()) AS `context.columns.ui_fill_fraction`
+  FROM
+    (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
+            count() AS filtered_pageview_count,
+            nullIf(nullIf(events.`mat_$browser`, ''), 'null') AS breakdown_value,
+            events__session.session_id AS session_id,
+            any(events__session.`$is_bounce`) AS is_bounce,
+            min(events__session.`$start_timestamp`) AS start_timestamp
+     FROM events
+     LEFT JOIN
+       (SELECT toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id,
+               if(ifNull(equals(uniqMerge(raw_sessions.pageview_uniq), 0), 0), NULL, not(or(ifNull(greater(uniqMerge(raw_sessions.pageview_uniq), 1), 0), ifNull(greater(uniqMerge(raw_sessions.autocapture_uniq), 0), 0), greaterOrEquals(dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'Asia/Kolkata')), max(toTimeZone(raw_sessions.max_timestamp, 'Asia/Kolkata'))), 10)))) AS `$is_bounce`,
+               min(toTimeZone(raw_sessions.min_timestamp, 'Asia/Kolkata')) AS `$start_timestamp`,
+               raw_sessions.session_id_v7 AS session_id_v7
+        FROM raw_sessions
+        WHERE and(equals(raw_sessions.team_id, 99999), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(assumeNotNull(toDateTime('2024-01-15 00:00:00', 'Asia/Kolkata')), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime('2024-01-16 23:59:59', 'Asia/Kolkata')), toIntervalDay(3))))
+        GROUP BY raw_sessions.session_id_v7,
+                 raw_sessions.session_id_v7) AS events__session ON equals(toUInt128(accurateCastOrNull(events.`$session_id`, 'UUID')), events__session.session_id_v7)
+     LEFT OUTER JOIN
+       (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+               person_distinct_id_overrides.distinct_id AS distinct_id
+        FROM person_distinct_id_overrides
+        WHERE equals(person_distinct_id_overrides.team_id, 99999)
+        GROUP BY person_distinct_id_overrides.distinct_id
+        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+     WHERE and(equals(events.team_id, 99999), and(or(and(greaterOrEquals(toTimeZone(events.timestamp, 'Asia/Kolkata'), assumeNotNull(toDateTime('2024-01-15 00:00:00', 'Asia/Kolkata'))), lessOrEquals(toTimeZone(events.timestamp, 'Asia/Kolkata'), assumeNotNull(toDateTime('2024-01-16 23:59:59', 'Asia/Kolkata')))), 0), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), 1, isNotNull(breakdown_value)))
+     GROUP BY session_id,
+              breakdown_value)
+  GROUP BY `context.columns.breakdown_value`
+  ORDER BY `context.columns.visitors` DESC,
+           `context.columns.views` DESC,
+           `context.columns.breakdown_value` ASC
+  LIMIT 101
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestTimezonePreAggregatedIntegration.test_timezone_boundary_behavior_explicit
+  '''
+  SELECT nullIf(nullIf(web_stats_combined.browser, ''), 'null') AS `context.columns.breakdown_value`,
+         tuple(uniqMergeIf(web_stats_combined.persons_uniq_state, and(greaterOrEquals(web_stats_combined.period_bucket, toDateTime64('2024-01-15 00:00:00.000000', 6, 'UTC')), lessOrEquals(web_stats_combined.period_bucket, toDateTime64('2024-01-16 23:59:59.999999', 6, 'UTC')))), NULL) AS `context.columns.visitors`,
+         tuple(sumMergeIf(web_stats_combined.pageviews_count_state, and(greaterOrEquals(web_stats_combined.period_bucket, toDateTime64('2024-01-15 00:00:00.000000', 6, 'UTC')), lessOrEquals(web_stats_combined.period_bucket, toDateTime64('2024-01-16 23:59:59.999999', 6, 'UTC')))), NULL) AS `context.columns.views`,
+         divide(`context.columns.visitors`.1, sum(`context.columns.visitors`.1) OVER ()) AS `context.columns.ui_fill_fraction`
+  FROM web_stats_combined
+  WHERE and(equals(web_stats_combined.team_id, 99999), greaterOrEquals(web_stats_combined.period_bucket, toDateTime64('2024-01-15 00:00:00.000000', 6, 'UTC')), lessOrEquals(web_stats_combined.period_bucket, toDateTime64('2024-01-16 23:59:59.999999', 6, 'UTC')))
+  GROUP BY `context.columns.breakdown_value`
+  ORDER BY `context.columns.visitors` DESC
+  LIMIT 101
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestTimezonePreAggregatedIntegration.test_timezone_boundary_behavior_explicit.1
+  '''
+  SELECT breakdown_value AS `context.columns.breakdown_value`,
+         tuple(uniq(filtered_person_id), NULL) AS `context.columns.visitors`,
+         tuple(sum(filtered_pageview_count), NULL) AS `context.columns.views`,
+         divide(`context.columns.visitors`.1, sum(`context.columns.visitors`.1) OVER ()) AS `context.columns.ui_fill_fraction`
+  FROM
+    (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
+            count() AS filtered_pageview_count,
+            nullIf(nullIf(events.`mat_$browser`, ''), 'null') AS breakdown_value,
+            events__session.session_id AS session_id,
+            any(events__session.`$is_bounce`) AS is_bounce,
+            min(events__session.`$start_timestamp`) AS start_timestamp
+     FROM events
+     LEFT JOIN
+       (SELECT toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id,
+               if(ifNull(equals(uniqMerge(raw_sessions.pageview_uniq), 0), 0), NULL, not(or(ifNull(greater(uniqMerge(raw_sessions.pageview_uniq), 1), 0), ifNull(greater(uniqMerge(raw_sessions.autocapture_uniq), 0), 0), greaterOrEquals(dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))), 10)))) AS `$is_bounce`,
+               min(toTimeZone(raw_sessions.min_timestamp, 'UTC')) AS `$start_timestamp`,
+               raw_sessions.session_id_v7 AS session_id_v7
+        FROM raw_sessions
+        WHERE and(equals(raw_sessions.team_id, 99999), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(assumeNotNull(toDateTime('2024-01-15 00:00:00', 'UTC')), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime('2024-01-16 23:59:59', 'UTC')), toIntervalDay(3))))
+        GROUP BY raw_sessions.session_id_v7,
+                 raw_sessions.session_id_v7) AS events__session ON equals(toUInt128(accurateCastOrNull(events.`$session_id`, 'UUID')), events__session.session_id_v7)
+     LEFT OUTER JOIN
+       (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+               person_distinct_id_overrides.distinct_id AS distinct_id
+        FROM person_distinct_id_overrides
+        WHERE equals(person_distinct_id_overrides.team_id, 99999)
+        GROUP BY person_distinct_id_overrides.distinct_id
+        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+     WHERE and(equals(events.team_id, 99999), and(or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-15 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-16 23:59:59', 'UTC')))), 0), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), 1, isNotNull(breakdown_value)))
+     GROUP BY session_id,
+              breakdown_value)
+  GROUP BY `context.columns.breakdown_value`
+  ORDER BY `context.columns.visitors` DESC,
+           `context.columns.views` DESC,
+           `context.columns.breakdown_value` ASC
+  LIMIT 101
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestTimezonePreAggregatedIntegration.test_timezone_boundary_behavior_explicit.2
+  '''
+  SELECT nullIf(nullIf(web_stats_combined.browser, ''), 'null') AS `context.columns.breakdown_value`,
+         tuple(uniqMergeIf(web_stats_combined.persons_uniq_state, and(greaterOrEquals(web_stats_combined.period_bucket, toDateTime64('2024-01-15 08:00:00.000000', 6, 'UTC')), lessOrEquals(web_stats_combined.period_bucket, toDateTime64('2024-01-17 07:59:59.999999', 6, 'UTC')))), NULL) AS `context.columns.visitors`,
+         tuple(sumMergeIf(web_stats_combined.pageviews_count_state, and(greaterOrEquals(web_stats_combined.period_bucket, toDateTime64('2024-01-15 08:00:00.000000', 6, 'UTC')), lessOrEquals(web_stats_combined.period_bucket, toDateTime64('2024-01-17 07:59:59.999999', 6, 'UTC')))), NULL) AS `context.columns.views`,
+         divide(`context.columns.visitors`.1, sum(`context.columns.visitors`.1) OVER ()) AS `context.columns.ui_fill_fraction`
+  FROM web_stats_combined
+  WHERE and(equals(web_stats_combined.team_id, 99999), greaterOrEquals(web_stats_combined.period_bucket, toDateTime64('2024-01-15 08:00:00.000000', 6, 'UTC')), lessOrEquals(web_stats_combined.period_bucket, toDateTime64('2024-01-17 07:59:59.999999', 6, 'UTC')))
+  GROUP BY `context.columns.breakdown_value`
+  ORDER BY `context.columns.visitors` DESC
+  LIMIT 101
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestTimezonePreAggregatedIntegration.test_timezone_boundary_behavior_explicit.3
+  '''
+  SELECT breakdown_value AS `context.columns.breakdown_value`,
+         tuple(uniq(filtered_person_id), NULL) AS `context.columns.visitors`,
+         tuple(sum(filtered_pageview_count), NULL) AS `context.columns.views`,
+         divide(`context.columns.visitors`.1, sum(`context.columns.visitors`.1) OVER ()) AS `context.columns.ui_fill_fraction`
+  FROM
+    (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
+            count() AS filtered_pageview_count,
+            nullIf(nullIf(events.`mat_$browser`, ''), 'null') AS breakdown_value,
+            events__session.session_id AS session_id,
+            any(events__session.`$is_bounce`) AS is_bounce,
+            min(events__session.`$start_timestamp`) AS start_timestamp
+     FROM events
+     LEFT JOIN
+       (SELECT toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id,
+               if(ifNull(equals(uniqMerge(raw_sessions.pageview_uniq), 0), 0), NULL, not(or(ifNull(greater(uniqMerge(raw_sessions.pageview_uniq), 1), 0), ifNull(greater(uniqMerge(raw_sessions.autocapture_uniq), 0), 0), greaterOrEquals(dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'America/Los_Angeles')), max(toTimeZone(raw_sessions.max_timestamp, 'America/Los_Angeles'))), 10)))) AS `$is_bounce`,
+               min(toTimeZone(raw_sessions.min_timestamp, 'America/Los_Angeles')) AS `$start_timestamp`,
+               raw_sessions.session_id_v7 AS session_id_v7
+        FROM raw_sessions
+        WHERE and(equals(raw_sessions.team_id, 99999), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(assumeNotNull(toDateTime('2024-01-15 00:00:00', 'America/Los_Angeles')), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime('2024-01-16 23:59:59', 'America/Los_Angeles')), toIntervalDay(3))))
+        GROUP BY raw_sessions.session_id_v7,
+                 raw_sessions.session_id_v7) AS events__session ON equals(toUInt128(accurateCastOrNull(events.`$session_id`, 'UUID')), events__session.session_id_v7)
+     LEFT OUTER JOIN
+       (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+               person_distinct_id_overrides.distinct_id AS distinct_id
+        FROM person_distinct_id_overrides
+        WHERE equals(person_distinct_id_overrides.team_id, 99999)
+        GROUP BY person_distinct_id_overrides.distinct_id
+        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+     WHERE and(equals(events.team_id, 99999), and(or(and(greaterOrEquals(toTimeZone(events.timestamp, 'America/Los_Angeles'), assumeNotNull(toDateTime('2024-01-15 00:00:00', 'America/Los_Angeles'))), lessOrEquals(toTimeZone(events.timestamp, 'America/Los_Angeles'), assumeNotNull(toDateTime('2024-01-16 23:59:59', 'America/Los_Angeles')))), 0), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), 1, isNotNull(breakdown_value)))
+     GROUP BY session_id,
+              breakdown_value)
+  GROUP BY `context.columns.breakdown_value`
+  ORDER BY `context.columns.visitors` DESC,
+           `context.columns.views` DESC,
+           `context.columns.breakdown_value` ASC
+  LIMIT 101
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestTimezonePreAggregatedIntegration.test_timezone_boundary_behavior_explicit.4
+  '''
+  SELECT nullIf(nullIf(web_stats_combined.browser, ''), 'null') AS `context.columns.breakdown_value`,
+         tuple(uniqMergeIf(web_stats_combined.persons_uniq_state, and(greaterOrEquals(web_stats_combined.period_bucket, toDateTime64('2024-01-14 15:00:00.000000', 6, 'UTC')), lessOrEquals(web_stats_combined.period_bucket, toDateTime64('2024-01-16 14:59:59.999999', 6, 'UTC')))), NULL) AS `context.columns.visitors`,
+         tuple(sumMergeIf(web_stats_combined.pageviews_count_state, and(greaterOrEquals(web_stats_combined.period_bucket, toDateTime64('2024-01-14 15:00:00.000000', 6, 'UTC')), lessOrEquals(web_stats_combined.period_bucket, toDateTime64('2024-01-16 14:59:59.999999', 6, 'UTC')))), NULL) AS `context.columns.views`,
+         divide(`context.columns.visitors`.1, sum(`context.columns.visitors`.1) OVER ()) AS `context.columns.ui_fill_fraction`
+  FROM web_stats_combined
+  WHERE and(equals(web_stats_combined.team_id, 99999), greaterOrEquals(web_stats_combined.period_bucket, toDateTime64('2024-01-14 15:00:00.000000', 6, 'UTC')), lessOrEquals(web_stats_combined.period_bucket, toDateTime64('2024-01-16 14:59:59.999999', 6, 'UTC')))
+  GROUP BY `context.columns.breakdown_value`
+  ORDER BY `context.columns.visitors` DESC
+  LIMIT 101
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestTimezonePreAggregatedIntegration.test_timezone_boundary_behavior_explicit.5
+  '''
+  SELECT breakdown_value AS `context.columns.breakdown_value`,
+         tuple(uniq(filtered_person_id), NULL) AS `context.columns.visitors`,
+         tuple(sum(filtered_pageview_count), NULL) AS `context.columns.views`,
+         divide(`context.columns.visitors`.1, sum(`context.columns.visitors`.1) OVER ()) AS `context.columns.ui_fill_fraction`
+  FROM
+    (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
+            count() AS filtered_pageview_count,
+            nullIf(nullIf(events.`mat_$browser`, ''), 'null') AS breakdown_value,
+            events__session.session_id AS session_id,
+            any(events__session.`$is_bounce`) AS is_bounce,
+            min(events__session.`$start_timestamp`) AS start_timestamp
+     FROM events
+     LEFT JOIN
+       (SELECT toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id,
+               if(ifNull(equals(uniqMerge(raw_sessions.pageview_uniq), 0), 0), NULL, not(or(ifNull(greater(uniqMerge(raw_sessions.pageview_uniq), 1), 0), ifNull(greater(uniqMerge(raw_sessions.autocapture_uniq), 0), 0), greaterOrEquals(dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'Asia/Tokyo')), max(toTimeZone(raw_sessions.max_timestamp, 'Asia/Tokyo'))), 10)))) AS `$is_bounce`,
+               min(toTimeZone(raw_sessions.min_timestamp, 'Asia/Tokyo')) AS `$start_timestamp`,
+               raw_sessions.session_id_v7 AS session_id_v7
+        FROM raw_sessions
+        WHERE and(equals(raw_sessions.team_id, 99999), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(assumeNotNull(toDateTime('2024-01-15 00:00:00', 'Asia/Tokyo')), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime('2024-01-16 23:59:59', 'Asia/Tokyo')), toIntervalDay(3))))
+        GROUP BY raw_sessions.session_id_v7,
+                 raw_sessions.session_id_v7) AS events__session ON equals(toUInt128(accurateCastOrNull(events.`$session_id`, 'UUID')), events__session.session_id_v7)
+     LEFT OUTER JOIN
+       (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+               person_distinct_id_overrides.distinct_id AS distinct_id
+        FROM person_distinct_id_overrides
+        WHERE equals(person_distinct_id_overrides.team_id, 99999)
+        GROUP BY person_distinct_id_overrides.distinct_id
+        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+     WHERE and(equals(events.team_id, 99999), and(or(and(greaterOrEquals(toTimeZone(events.timestamp, 'Asia/Tokyo'), assumeNotNull(toDateTime('2024-01-15 00:00:00', 'Asia/Tokyo'))), lessOrEquals(toTimeZone(events.timestamp, 'Asia/Tokyo'), assumeNotNull(toDateTime('2024-01-16 23:59:59', 'Asia/Tokyo')))), 0), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), 1, isNotNull(breakdown_value)))
+     GROUP BY session_id,
+              breakdown_value)
+  GROUP BY `context.columns.breakdown_value`
+  ORDER BY `context.columns.visitors` DESC,
+           `context.columns.views` DESC,
+           `context.columns.breakdown_value` ASC
+  LIMIT 101
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
+  '''
+# ---
 # name: TestTimezonePreAggregatedIntegration.test_timezone_consistency_verification
   '''
   SELECT nullIf(nullIf(web_stats_combined.browser, ''), 'null') AS `context.columns.breakdown_value`,
@@ -24,6 +316,56 @@
 # ---
 # name: TestTimezonePreAggregatedIntegration.test_timezone_consistency_verification.1
   '''
+  SELECT breakdown_value AS `context.columns.breakdown_value`,
+         tuple(uniq(filtered_person_id), NULL) AS `context.columns.visitors`,
+         tuple(sum(filtered_pageview_count), NULL) AS `context.columns.views`,
+         divide(`context.columns.visitors`.1, sum(`context.columns.visitors`.1) OVER ()) AS `context.columns.ui_fill_fraction`
+  FROM
+    (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
+            count() AS filtered_pageview_count,
+            nullIf(nullIf(events.`mat_$browser`, ''), 'null') AS breakdown_value,
+            events__session.session_id AS session_id,
+            any(events__session.`$is_bounce`) AS is_bounce,
+            min(events__session.`$start_timestamp`) AS start_timestamp
+     FROM events
+     LEFT JOIN
+       (SELECT toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id,
+               if(ifNull(equals(uniqMerge(raw_sessions.pageview_uniq), 0), 0), NULL, not(or(ifNull(greater(uniqMerge(raw_sessions.pageview_uniq), 1), 0), ifNull(greater(uniqMerge(raw_sessions.autocapture_uniq), 0), 0), greaterOrEquals(dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))), 10)))) AS `$is_bounce`,
+               min(toTimeZone(raw_sessions.min_timestamp, 'UTC')) AS `$start_timestamp`,
+               raw_sessions.session_id_v7 AS session_id_v7
+        FROM raw_sessions
+        WHERE and(equals(raw_sessions.team_id, 99999), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(assumeNotNull(toDateTime('2024-01-15 00:00:00', 'UTC')), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime('2024-01-16 23:59:59', 'UTC')), toIntervalDay(3))))
+        GROUP BY raw_sessions.session_id_v7,
+                 raw_sessions.session_id_v7) AS events__session ON equals(toUInt128(accurateCastOrNull(events.`$session_id`, 'UUID')), events__session.session_id_v7)
+     LEFT OUTER JOIN
+       (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+               person_distinct_id_overrides.distinct_id AS distinct_id
+        FROM person_distinct_id_overrides
+        WHERE equals(person_distinct_id_overrides.team_id, 99999)
+        GROUP BY person_distinct_id_overrides.distinct_id
+        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+     WHERE and(equals(events.team_id, 99999), and(or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-15 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-16 23:59:59', 'UTC')))), 0), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), 1, isNotNull(breakdown_value)))
+     GROUP BY session_id,
+              breakdown_value)
+  GROUP BY `context.columns.breakdown_value`
+  ORDER BY `context.columns.visitors` DESC,
+           `context.columns.views` DESC,
+           `context.columns.breakdown_value` ASC
+  LIMIT 101
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestTimezonePreAggregatedIntegration.test_timezone_consistency_verification.2
+  '''
   SELECT nullIf(nullIf(web_stats_combined.browser, ''), 'null') AS `context.columns.breakdown_value`,
          tuple(uniqMergeIf(web_stats_combined.persons_uniq_state, and(greaterOrEquals(web_stats_combined.period_bucket, toDateTime64('2024-01-15 08:00:00.000000', 6, 'UTC')), lessOrEquals(web_stats_combined.period_bucket, toDateTime64('2024-01-17 07:59:59.999999', 6, 'UTC')))), NULL) AS `context.columns.visitors`,
          tuple(sumMergeIf(web_stats_combined.pageviews_count_state, and(greaterOrEquals(web_stats_combined.period_bucket, toDateTime64('2024-01-15 08:00:00.000000', 6, 'UTC')), lessOrEquals(web_stats_combined.period_bucket, toDateTime64('2024-01-17 07:59:59.999999', 6, 'UTC')))), NULL) AS `context.columns.views`,
@@ -32,6 +374,56 @@
   WHERE and(equals(web_stats_combined.team_id, 99999), greaterOrEquals(web_stats_combined.period_bucket, toDateTime64('2024-01-15 08:00:00.000000', 6, 'UTC')), lessOrEquals(web_stats_combined.period_bucket, toDateTime64('2024-01-17 07:59:59.999999', 6, 'UTC')))
   GROUP BY `context.columns.breakdown_value`
   ORDER BY `context.columns.visitors` DESC
+  LIMIT 101
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestTimezonePreAggregatedIntegration.test_timezone_consistency_verification.3
+  '''
+  SELECT breakdown_value AS `context.columns.breakdown_value`,
+         tuple(uniq(filtered_person_id), NULL) AS `context.columns.visitors`,
+         tuple(sum(filtered_pageview_count), NULL) AS `context.columns.views`,
+         divide(`context.columns.visitors`.1, sum(`context.columns.visitors`.1) OVER ()) AS `context.columns.ui_fill_fraction`
+  FROM
+    (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
+            count() AS filtered_pageview_count,
+            nullIf(nullIf(events.`mat_$browser`, ''), 'null') AS breakdown_value,
+            events__session.session_id AS session_id,
+            any(events__session.`$is_bounce`) AS is_bounce,
+            min(events__session.`$start_timestamp`) AS start_timestamp
+     FROM events
+     LEFT JOIN
+       (SELECT toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id,
+               if(ifNull(equals(uniqMerge(raw_sessions.pageview_uniq), 0), 0), NULL, not(or(ifNull(greater(uniqMerge(raw_sessions.pageview_uniq), 1), 0), ifNull(greater(uniqMerge(raw_sessions.autocapture_uniq), 0), 0), greaterOrEquals(dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'America/Los_Angeles')), max(toTimeZone(raw_sessions.max_timestamp, 'America/Los_Angeles'))), 10)))) AS `$is_bounce`,
+               min(toTimeZone(raw_sessions.min_timestamp, 'America/Los_Angeles')) AS `$start_timestamp`,
+               raw_sessions.session_id_v7 AS session_id_v7
+        FROM raw_sessions
+        WHERE and(equals(raw_sessions.team_id, 99999), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(assumeNotNull(toDateTime('2024-01-15 00:00:00', 'America/Los_Angeles')), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime('2024-01-16 23:59:59', 'America/Los_Angeles')), toIntervalDay(3))))
+        GROUP BY raw_sessions.session_id_v7,
+                 raw_sessions.session_id_v7) AS events__session ON equals(toUInt128(accurateCastOrNull(events.`$session_id`, 'UUID')), events__session.session_id_v7)
+     LEFT OUTER JOIN
+       (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+               person_distinct_id_overrides.distinct_id AS distinct_id
+        FROM person_distinct_id_overrides
+        WHERE equals(person_distinct_id_overrides.team_id, 99999)
+        GROUP BY person_distinct_id_overrides.distinct_id
+        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+     WHERE and(equals(events.team_id, 99999), and(or(and(greaterOrEquals(toTimeZone(events.timestamp, 'America/Los_Angeles'), assumeNotNull(toDateTime('2024-01-15 00:00:00', 'America/Los_Angeles'))), lessOrEquals(toTimeZone(events.timestamp, 'America/Los_Angeles'), assumeNotNull(toDateTime('2024-01-16 23:59:59', 'America/Los_Angeles')))), 0), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), 1, isNotNull(breakdown_value)))
+     GROUP BY session_id,
+              breakdown_value)
+  GROUP BY `context.columns.breakdown_value`
+  ORDER BY `context.columns.visitors` DESC,
+           `context.columns.views` DESC,
+           `context.columns.breakdown_value` ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -483,6 +875,79 @@
                     allow_experimental_join_condition=1
   '''
 # ---
+# name: TestTimezonePreAggregatedIntegration.test_timezone_hourly_bucketing_05_Cairo_UTC_02_00_
+  '''
+  SELECT nullIf(nullIf(web_stats_combined.browser, ''), 'null') AS `context.columns.breakdown_value`,
+         tuple(uniqMergeIf(web_stats_combined.persons_uniq_state, and(greaterOrEquals(web_stats_combined.period_bucket, toDateTime64('2024-01-14 22:00:00.000000', 6, 'UTC')), lessOrEquals(web_stats_combined.period_bucket, toDateTime64('2024-01-16 21:59:59.999999', 6, 'UTC')))), NULL) AS `context.columns.visitors`,
+         tuple(sumMergeIf(web_stats_combined.pageviews_count_state, and(greaterOrEquals(web_stats_combined.period_bucket, toDateTime64('2024-01-14 22:00:00.000000', 6, 'UTC')), lessOrEquals(web_stats_combined.period_bucket, toDateTime64('2024-01-16 21:59:59.999999', 6, 'UTC')))), NULL) AS `context.columns.views`,
+         divide(`context.columns.visitors`.1, sum(`context.columns.visitors`.1) OVER ()) AS `context.columns.ui_fill_fraction`
+  FROM web_stats_combined
+  WHERE and(equals(web_stats_combined.team_id, 99999), greaterOrEquals(web_stats_combined.period_bucket, toDateTime64('2024-01-14 22:00:00.000000', 6, 'UTC')), lessOrEquals(web_stats_combined.period_bucket, toDateTime64('2024-01-16 21:59:59.999999', 6, 'UTC')))
+  GROUP BY `context.columns.breakdown_value`
+  ORDER BY `context.columns.visitors` DESC
+  LIMIT 101
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestTimezonePreAggregatedIntegration.test_timezone_hourly_bucketing_05_Cairo_UTC_02_00_.1
+  '''
+  SELECT breakdown_value AS `context.columns.breakdown_value`,
+         tuple(uniq(filtered_person_id), NULL) AS `context.columns.visitors`,
+         tuple(sum(filtered_pageview_count), NULL) AS `context.columns.views`,
+         divide(`context.columns.visitors`.1, sum(`context.columns.visitors`.1) OVER ()) AS `context.columns.ui_fill_fraction`
+  FROM
+    (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
+            count() AS filtered_pageview_count,
+            nullIf(nullIf(events.`mat_$browser`, ''), 'null') AS breakdown_value,
+            events__session.session_id AS session_id,
+            any(events__session.`$is_bounce`) AS is_bounce,
+            min(events__session.`$start_timestamp`) AS start_timestamp
+     FROM events
+     LEFT JOIN
+       (SELECT toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id,
+               if(ifNull(equals(uniqMerge(raw_sessions.pageview_uniq), 0), 0), NULL, not(or(ifNull(greater(uniqMerge(raw_sessions.pageview_uniq), 1), 0), ifNull(greater(uniqMerge(raw_sessions.autocapture_uniq), 0), 0), greaterOrEquals(dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'Africa/Cairo')), max(toTimeZone(raw_sessions.max_timestamp, 'Africa/Cairo'))), 10)))) AS `$is_bounce`,
+               min(toTimeZone(raw_sessions.min_timestamp, 'Africa/Cairo')) AS `$start_timestamp`,
+               raw_sessions.session_id_v7 AS session_id_v7
+        FROM raw_sessions
+        WHERE and(equals(raw_sessions.team_id, 99999), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(assumeNotNull(toDateTime('2024-01-15 00:00:00', 'Africa/Cairo')), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime('2024-01-16 23:59:59', 'Africa/Cairo')), toIntervalDay(3))))
+        GROUP BY raw_sessions.session_id_v7,
+                 raw_sessions.session_id_v7) AS events__session ON equals(toUInt128(accurateCastOrNull(events.`$session_id`, 'UUID')), events__session.session_id_v7)
+     LEFT OUTER JOIN
+       (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+               person_distinct_id_overrides.distinct_id AS distinct_id
+        FROM person_distinct_id_overrides
+        WHERE equals(person_distinct_id_overrides.team_id, 99999)
+        GROUP BY person_distinct_id_overrides.distinct_id
+        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+     WHERE and(equals(events.team_id, 99999), and(or(and(greaterOrEquals(toTimeZone(events.timestamp, 'Africa/Cairo'), assumeNotNull(toDateTime('2024-01-15 00:00:00', 'Africa/Cairo'))), lessOrEquals(toTimeZone(events.timestamp, 'Africa/Cairo'), assumeNotNull(toDateTime('2024-01-16 23:59:59', 'Africa/Cairo')))), 0), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), 1, isNotNull(breakdown_value)))
+     GROUP BY session_id,
+              breakdown_value)
+  GROUP BY `context.columns.breakdown_value`
+  ORDER BY `context.columns.visitors` DESC,
+           `context.columns.views` DESC,
+           `context.columns.breakdown_value` ASC
+  LIMIT 101
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
+  '''
+# ---
 # name: TestTimezonePreAggregatedIntegration.test_timezone_hourly_bucketing_06_Moscow_UTC_03_00_
   '''
   SELECT nullIf(nullIf(web_stats_combined.browser, ''), 'null') AS `context.columns.breakdown_value`,
@@ -775,6 +1240,79 @@
                     allow_experimental_join_condition=1
   '''
 # ---
+# name: TestTimezonePreAggregatedIntegration.test_timezone_hourly_bucketing_0_Pacific_UTC_08_00_
+  '''
+  SELECT nullIf(nullIf(web_stats_combined.browser, ''), 'null') AS `context.columns.breakdown_value`,
+         tuple(uniqMergeIf(web_stats_combined.persons_uniq_state, and(greaterOrEquals(web_stats_combined.period_bucket, toDateTime64('2024-01-15 08:00:00.000000', 6, 'UTC')), lessOrEquals(web_stats_combined.period_bucket, toDateTime64('2024-01-17 07:59:59.999999', 6, 'UTC')))), NULL) AS `context.columns.visitors`,
+         tuple(sumMergeIf(web_stats_combined.pageviews_count_state, and(greaterOrEquals(web_stats_combined.period_bucket, toDateTime64('2024-01-15 08:00:00.000000', 6, 'UTC')), lessOrEquals(web_stats_combined.period_bucket, toDateTime64('2024-01-17 07:59:59.999999', 6, 'UTC')))), NULL) AS `context.columns.views`,
+         divide(`context.columns.visitors`.1, sum(`context.columns.visitors`.1) OVER ()) AS `context.columns.ui_fill_fraction`
+  FROM web_stats_combined
+  WHERE and(equals(web_stats_combined.team_id, 99999), greaterOrEquals(web_stats_combined.period_bucket, toDateTime64('2024-01-15 08:00:00.000000', 6, 'UTC')), lessOrEquals(web_stats_combined.period_bucket, toDateTime64('2024-01-17 07:59:59.999999', 6, 'UTC')))
+  GROUP BY `context.columns.breakdown_value`
+  ORDER BY `context.columns.visitors` DESC
+  LIMIT 101
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestTimezonePreAggregatedIntegration.test_timezone_hourly_bucketing_0_Pacific_UTC_08_00_.1
+  '''
+  SELECT breakdown_value AS `context.columns.breakdown_value`,
+         tuple(uniq(filtered_person_id), NULL) AS `context.columns.visitors`,
+         tuple(sum(filtered_pageview_count), NULL) AS `context.columns.views`,
+         divide(`context.columns.visitors`.1, sum(`context.columns.visitors`.1) OVER ()) AS `context.columns.ui_fill_fraction`
+  FROM
+    (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
+            count() AS filtered_pageview_count,
+            nullIf(nullIf(events.`mat_$browser`, ''), 'null') AS breakdown_value,
+            events__session.session_id AS session_id,
+            any(events__session.`$is_bounce`) AS is_bounce,
+            min(events__session.`$start_timestamp`) AS start_timestamp
+     FROM events
+     LEFT JOIN
+       (SELECT toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id,
+               if(ifNull(equals(uniqMerge(raw_sessions.pageview_uniq), 0), 0), NULL, not(or(ifNull(greater(uniqMerge(raw_sessions.pageview_uniq), 1), 0), ifNull(greater(uniqMerge(raw_sessions.autocapture_uniq), 0), 0), greaterOrEquals(dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'America/Los_Angeles')), max(toTimeZone(raw_sessions.max_timestamp, 'America/Los_Angeles'))), 10)))) AS `$is_bounce`,
+               min(toTimeZone(raw_sessions.min_timestamp, 'America/Los_Angeles')) AS `$start_timestamp`,
+               raw_sessions.session_id_v7 AS session_id_v7
+        FROM raw_sessions
+        WHERE and(equals(raw_sessions.team_id, 99999), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(assumeNotNull(toDateTime('2024-01-15 00:00:00', 'America/Los_Angeles')), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime('2024-01-16 23:59:59', 'America/Los_Angeles')), toIntervalDay(3))))
+        GROUP BY raw_sessions.session_id_v7,
+                 raw_sessions.session_id_v7) AS events__session ON equals(toUInt128(accurateCastOrNull(events.`$session_id`, 'UUID')), events__session.session_id_v7)
+     LEFT OUTER JOIN
+       (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+               person_distinct_id_overrides.distinct_id AS distinct_id
+        FROM person_distinct_id_overrides
+        WHERE equals(person_distinct_id_overrides.team_id, 99999)
+        GROUP BY person_distinct_id_overrides.distinct_id
+        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+     WHERE and(equals(events.team_id, 99999), and(or(and(greaterOrEquals(toTimeZone(events.timestamp, 'America/Los_Angeles'), assumeNotNull(toDateTime('2024-01-15 00:00:00', 'America/Los_Angeles'))), lessOrEquals(toTimeZone(events.timestamp, 'America/Los_Angeles'), assumeNotNull(toDateTime('2024-01-16 23:59:59', 'America/Los_Angeles')))), 0), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), 1, isNotNull(breakdown_value)))
+     GROUP BY session_id,
+              breakdown_value)
+  GROUP BY `context.columns.breakdown_value`
+  ORDER BY `context.columns.visitors` DESC,
+           `context.columns.views` DESC,
+           `context.columns.breakdown_value` ASC
+  LIMIT 101
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
+  '''
+# ---
 # name: TestTimezonePreAggregatedIntegration.test_timezone_hourly_bucketing_10_Auckland_UTC_12_00_
   '''
   SELECT nullIf(nullIf(web_stats_combined.browser, ''), 'null') AS `context.columns.breakdown_value`,
@@ -829,6 +1367,152 @@
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      WHERE and(equals(events.team_id, 99999), and(or(and(greaterOrEquals(toTimeZone(events.timestamp, 'Pacific/Auckland'), assumeNotNull(toDateTime('2024-01-15 00:00:00', 'Pacific/Auckland'))), lessOrEquals(toTimeZone(events.timestamp, 'Pacific/Auckland'), assumeNotNull(toDateTime('2024-01-16 23:59:59', 'Pacific/Auckland')))), 0), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), 1, isNotNull(breakdown_value)))
+     GROUP BY session_id,
+              breakdown_value)
+  GROUP BY `context.columns.breakdown_value`
+  ORDER BY `context.columns.visitors` DESC,
+           `context.columns.views` DESC,
+           `context.columns.breakdown_value` ASC
+  LIMIT 101
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestTimezonePreAggregatedIntegration.test_timezone_hourly_bucketing_1_UTC_UTC_00_00_
+  '''
+  SELECT nullIf(nullIf(web_stats_combined.browser, ''), 'null') AS `context.columns.breakdown_value`,
+         tuple(uniqMergeIf(web_stats_combined.persons_uniq_state, and(greaterOrEquals(web_stats_combined.period_bucket, toDateTime64('2024-01-15 00:00:00.000000', 6, 'UTC')), lessOrEquals(web_stats_combined.period_bucket, toDateTime64('2024-01-16 23:59:59.999999', 6, 'UTC')))), NULL) AS `context.columns.visitors`,
+         tuple(sumMergeIf(web_stats_combined.pageviews_count_state, and(greaterOrEquals(web_stats_combined.period_bucket, toDateTime64('2024-01-15 00:00:00.000000', 6, 'UTC')), lessOrEquals(web_stats_combined.period_bucket, toDateTime64('2024-01-16 23:59:59.999999', 6, 'UTC')))), NULL) AS `context.columns.views`,
+         divide(`context.columns.visitors`.1, sum(`context.columns.visitors`.1) OVER ()) AS `context.columns.ui_fill_fraction`
+  FROM web_stats_combined
+  WHERE and(equals(web_stats_combined.team_id, 99999), greaterOrEquals(web_stats_combined.period_bucket, toDateTime64('2024-01-15 00:00:00.000000', 6, 'UTC')), lessOrEquals(web_stats_combined.period_bucket, toDateTime64('2024-01-16 23:59:59.999999', 6, 'UTC')))
+  GROUP BY `context.columns.breakdown_value`
+  ORDER BY `context.columns.visitors` DESC
+  LIMIT 101
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestTimezonePreAggregatedIntegration.test_timezone_hourly_bucketing_1_UTC_UTC_00_00_.1
+  '''
+  SELECT breakdown_value AS `context.columns.breakdown_value`,
+         tuple(uniq(filtered_person_id), NULL) AS `context.columns.visitors`,
+         tuple(sum(filtered_pageview_count), NULL) AS `context.columns.views`,
+         divide(`context.columns.visitors`.1, sum(`context.columns.visitors`.1) OVER ()) AS `context.columns.ui_fill_fraction`
+  FROM
+    (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
+            count() AS filtered_pageview_count,
+            nullIf(nullIf(events.`mat_$browser`, ''), 'null') AS breakdown_value,
+            events__session.session_id AS session_id,
+            any(events__session.`$is_bounce`) AS is_bounce,
+            min(events__session.`$start_timestamp`) AS start_timestamp
+     FROM events
+     LEFT JOIN
+       (SELECT toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id,
+               if(ifNull(equals(uniqMerge(raw_sessions.pageview_uniq), 0), 0), NULL, not(or(ifNull(greater(uniqMerge(raw_sessions.pageview_uniq), 1), 0), ifNull(greater(uniqMerge(raw_sessions.autocapture_uniq), 0), 0), greaterOrEquals(dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))), 10)))) AS `$is_bounce`,
+               min(toTimeZone(raw_sessions.min_timestamp, 'UTC')) AS `$start_timestamp`,
+               raw_sessions.session_id_v7 AS session_id_v7
+        FROM raw_sessions
+        WHERE and(equals(raw_sessions.team_id, 99999), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(assumeNotNull(toDateTime('2024-01-15 00:00:00', 'UTC')), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime('2024-01-16 23:59:59', 'UTC')), toIntervalDay(3))))
+        GROUP BY raw_sessions.session_id_v7,
+                 raw_sessions.session_id_v7) AS events__session ON equals(toUInt128(accurateCastOrNull(events.`$session_id`, 'UUID')), events__session.session_id_v7)
+     LEFT OUTER JOIN
+       (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+               person_distinct_id_overrides.distinct_id AS distinct_id
+        FROM person_distinct_id_overrides
+        WHERE equals(person_distinct_id_overrides.team_id, 99999)
+        GROUP BY person_distinct_id_overrides.distinct_id
+        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+     WHERE and(equals(events.team_id, 99999), and(or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-15 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-16 23:59:59', 'UTC')))), 0), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), 1, isNotNull(breakdown_value)))
+     GROUP BY session_id,
+              breakdown_value)
+  GROUP BY `context.columns.breakdown_value`
+  ORDER BY `context.columns.visitors` DESC,
+           `context.columns.views` DESC,
+           `context.columns.breakdown_value` ASC
+  LIMIT 101
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestTimezonePreAggregatedIntegration.test_timezone_hourly_bucketing_2_Tokyo_UTC_09_00_
+  '''
+  SELECT nullIf(nullIf(web_stats_combined.browser, ''), 'null') AS `context.columns.breakdown_value`,
+         tuple(uniqMergeIf(web_stats_combined.persons_uniq_state, and(greaterOrEquals(web_stats_combined.period_bucket, toDateTime64('2024-01-14 15:00:00.000000', 6, 'UTC')), lessOrEquals(web_stats_combined.period_bucket, toDateTime64('2024-01-16 14:59:59.999999', 6, 'UTC')))), NULL) AS `context.columns.visitors`,
+         tuple(sumMergeIf(web_stats_combined.pageviews_count_state, and(greaterOrEquals(web_stats_combined.period_bucket, toDateTime64('2024-01-14 15:00:00.000000', 6, 'UTC')), lessOrEquals(web_stats_combined.period_bucket, toDateTime64('2024-01-16 14:59:59.999999', 6, 'UTC')))), NULL) AS `context.columns.views`,
+         divide(`context.columns.visitors`.1, sum(`context.columns.visitors`.1) OVER ()) AS `context.columns.ui_fill_fraction`
+  FROM web_stats_combined
+  WHERE and(equals(web_stats_combined.team_id, 99999), greaterOrEquals(web_stats_combined.period_bucket, toDateTime64('2024-01-14 15:00:00.000000', 6, 'UTC')), lessOrEquals(web_stats_combined.period_bucket, toDateTime64('2024-01-16 14:59:59.999999', 6, 'UTC')))
+  GROUP BY `context.columns.breakdown_value`
+  ORDER BY `context.columns.visitors` DESC
+  LIMIT 101
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestTimezonePreAggregatedIntegration.test_timezone_hourly_bucketing_2_Tokyo_UTC_09_00_.1
+  '''
+  SELECT breakdown_value AS `context.columns.breakdown_value`,
+         tuple(uniq(filtered_person_id), NULL) AS `context.columns.visitors`,
+         tuple(sum(filtered_pageview_count), NULL) AS `context.columns.views`,
+         divide(`context.columns.visitors`.1, sum(`context.columns.visitors`.1) OVER ()) AS `context.columns.ui_fill_fraction`
+  FROM
+    (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS filtered_person_id,
+            count() AS filtered_pageview_count,
+            nullIf(nullIf(events.`mat_$browser`, ''), 'null') AS breakdown_value,
+            events__session.session_id AS session_id,
+            any(events__session.`$is_bounce`) AS is_bounce,
+            min(events__session.`$start_timestamp`) AS start_timestamp
+     FROM events
+     LEFT JOIN
+       (SELECT toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id,
+               if(ifNull(equals(uniqMerge(raw_sessions.pageview_uniq), 0), 0), NULL, not(or(ifNull(greater(uniqMerge(raw_sessions.pageview_uniq), 1), 0), ifNull(greater(uniqMerge(raw_sessions.autocapture_uniq), 0), 0), greaterOrEquals(dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'Asia/Tokyo')), max(toTimeZone(raw_sessions.max_timestamp, 'Asia/Tokyo'))), 10)))) AS `$is_bounce`,
+               min(toTimeZone(raw_sessions.min_timestamp, 'Asia/Tokyo')) AS `$start_timestamp`,
+               raw_sessions.session_id_v7 AS session_id_v7
+        FROM raw_sessions
+        WHERE and(equals(raw_sessions.team_id, 99999), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(assumeNotNull(toDateTime('2024-01-15 00:00:00', 'Asia/Tokyo')), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime('2024-01-16 23:59:59', 'Asia/Tokyo')), toIntervalDay(3))))
+        GROUP BY raw_sessions.session_id_v7,
+                 raw_sessions.session_id_v7) AS events__session ON equals(toUInt128(accurateCastOrNull(events.`$session_id`, 'UUID')), events__session.session_id_v7)
+     LEFT OUTER JOIN
+       (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+               person_distinct_id_overrides.distinct_id AS distinct_id
+        FROM person_distinct_id_overrides
+        WHERE equals(person_distinct_id_overrides.team_id, 99999)
+        GROUP BY person_distinct_id_overrides.distinct_id
+        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+     WHERE and(equals(events.team_id, 99999), and(or(and(greaterOrEquals(toTimeZone(events.timestamp, 'Asia/Tokyo'), assumeNotNull(toDateTime('2024-01-15 00:00:00', 'Asia/Tokyo'))), lessOrEquals(toTimeZone(events.timestamp, 'Asia/Tokyo'), assumeNotNull(toDateTime('2024-01-16 23:59:59', 'Asia/Tokyo')))), 0), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), 1, isNotNull(breakdown_value)))
      GROUP BY session_id,
               breakdown_value)
   GROUP BY `context.columns.breakdown_value`
