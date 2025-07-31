@@ -118,7 +118,6 @@ async def get_llm_single_session_summary_activity(
     # TODO: Should be solved by storing the summary in DB (long-term for using in UI)
     try:
         # Check if the summary is already in Redis. If it is - it's within TTL, so no need to re-generate it with LLM
-        # TODO: Think about edge-cases like failed summaries
         await get_data_str_from_redis(
             redis_client=redis_client,
             redis_key=redis_output_key,
