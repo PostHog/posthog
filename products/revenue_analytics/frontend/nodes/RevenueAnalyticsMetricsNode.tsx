@@ -7,8 +7,8 @@ import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import {
     AnyResponseType,
-    RevenueAnalyticsCustomerCountQuery,
-    RevenueAnalyticsCustomerCountQueryResponse,
+    RevenueAnalyticsMetricsQuery,
+    RevenueAnalyticsMetricsQueryResponse,
 } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import { GraphDataset } from '~/types'
@@ -25,13 +25,13 @@ import {
 import { getCurrencySymbol } from 'lib/utils/geography/currency'
 
 let uniqueNode = 0
-export function RevenueAnalyticsCustomerCountNode(props: {
-    query: RevenueAnalyticsCustomerCountQuery
+export function RevenueAnalyticsMetricsNode(props: {
+    query: RevenueAnalyticsMetricsQuery
     cachedResults?: AnyResponseType
     context: QueryContext
 }): JSX.Element | null {
     const { onData, loadPriority, dataNodeCollectionId } = props.context.insightProps ?? {}
-    const [key] = useState(() => `RevenueAnalyticsCustomerCount.${uniqueNode++}`)
+    const [key] = useState(() => `RevenueAnalyticsMetrics.${uniqueNode++}`)
     const logic = dataNodeLogic({
         query: props.query,
         key,
@@ -47,25 +47,25 @@ export function RevenueAnalyticsCustomerCountNode(props: {
         <BindLogic logic={insightLogic} props={props.context.insightProps ?? {}}>
             <BindLogic logic={insightVizDataLogic} props={props.context.insightProps ?? {}}>
                 <ARPUTile
-                    response={response as RevenueAnalyticsCustomerCountQueryResponse}
+                    response={response as RevenueAnalyticsMetricsQueryResponse}
                     responseLoading={responseLoading}
                     queryId={queryId ?? ''}
                     context={props.context}
                 />
                 <LTVTile
-                    response={response as RevenueAnalyticsCustomerCountQueryResponse}
+                    response={response as RevenueAnalyticsMetricsQueryResponse}
                     responseLoading={responseLoading}
                     queryId={queryId ?? ''}
                     context={props.context}
                 />
                 <SubscriptionCountTile
-                    response={response as RevenueAnalyticsCustomerCountQueryResponse}
+                    response={response as RevenueAnalyticsMetricsQueryResponse}
                     responseLoading={responseLoading}
                     queryId={queryId ?? ''}
                     context={props.context}
                 />
                 <CustomerCountTile
-                    response={response as RevenueAnalyticsCustomerCountQueryResponse}
+                    response={response as RevenueAnalyticsMetricsQueryResponse}
                     responseLoading={responseLoading}
                     queryId={queryId ?? ''}
                     context={props.context}
@@ -95,13 +95,13 @@ const makeTile = (
     tooltip: JSX.Element | string,
     labelMatcher: string,
     { isCurrency = false }: { isCurrency?: boolean } = {}
-): React.FC<TileProps<RevenueAnalyticsCustomerCountQueryResponse>> => {
+): React.FC<TileProps<RevenueAnalyticsMetricsQueryResponse>> => {
     const Component = ({
         response,
         responseLoading,
         queryId,
         context,
-    }: TileProps<RevenueAnalyticsCustomerCountQueryResponse>): JSX.Element => {
+    }: TileProps<RevenueAnalyticsMetricsQueryResponse>): JSX.Element => {
         const { baseCurrency, insightsDisplayMode } = useValues(revenueAnalyticsLogic)
         const { setInsightsDisplayMode } = useActions(revenueAnalyticsLogic)
 

@@ -1,5 +1,5 @@
 # serializer version: 1
-# name: TestRevenueAnalyticsCustomerCountQueryRunner.test_no_crash_when_no_data
+# name: TestRevenueAnalyticsMetricsQueryRunner.test_no_crash_when_no_data
   '''
   SELECT 1 AS breakdown_by,
          1 AS period_start,
@@ -24,7 +24,7 @@
                      allow_experimental_join_condition=1
   '''
 # ---
-# name: TestRevenueAnalyticsCustomerCountQueryRunner.test_no_crash_when_no_source_is_selected
+# name: TestRevenueAnalyticsMetricsQueryRunner.test_no_crash_when_no_source_is_selected
   '''
   SELECT subquery.breakdown_by AS breakdown_by,
          subquery.period_start AS period_start,
@@ -167,14 +167,14 @@
                   toTimeZone(events.timestamp, 'UTC') AS timestamp,
                   timestamp AS created_at,
                   0 AS is_recurring,
-                  NULL AS product_id,
+                  replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'product'), ''), 'null'), '^"|"$', '') AS product_id,
                   toString(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS customer_id,
                   NULL AS invoice_id,
                   NULL AS subscription_id,
                   toString(events.`$session_id`) AS session_id,
                   events.event AS event_name,
-                  NULL AS coupon,
-                  NULL AS coupon_id,
+                  replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'coupon'), ''), 'null'), '^"|"$', '') AS coupon,
+                  coupon AS coupon_id,
                   upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')) AS original_currency,
                   accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Decimal64(10)') AS original_amount,
                   1 AS enable_currency_aware_divider,
@@ -311,7 +311,7 @@
                        allow_experimental_join_condition=1
   '''
 # ---
-# name: TestRevenueAnalyticsCustomerCountQueryRunner.test_with_country_filter
+# name: TestRevenueAnalyticsMetricsQueryRunner.test_with_country_filter
   '''
   SELECT subquery.breakdown_by AS breakdown_by,
          subquery.period_start AS period_start,
@@ -454,14 +454,14 @@
                   toTimeZone(events.timestamp, 'UTC') AS timestamp,
                   timestamp AS created_at,
                   0 AS is_recurring,
-                  NULL AS product_id,
+                  replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'product'), ''), 'null'), '^"|"$', '') AS product_id,
                   toString(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS customer_id,
                   NULL AS invoice_id,
                   NULL AS subscription_id,
                   toString(events.`$session_id`) AS session_id,
                   events.event AS event_name,
-                  NULL AS coupon,
-                  NULL AS coupon_id,
+                  replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'coupon'), ''), 'null'), '^"|"$', '') AS coupon,
+                  coupon AS coupon_id,
                   upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')) AS original_currency,
                   accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Decimal64(10)') AS original_amount,
                   1 AS enable_currency_aware_divider,
@@ -598,7 +598,7 @@
                        allow_experimental_join_condition=1
   '''
 # ---
-# name: TestRevenueAnalyticsCustomerCountQueryRunner.test_with_data
+# name: TestRevenueAnalyticsMetricsQueryRunner.test_with_data
   '''
   SELECT subquery.breakdown_by AS breakdown_by,
          subquery.period_start AS period_start,
@@ -741,14 +741,14 @@
                   toTimeZone(events.timestamp, 'UTC') AS timestamp,
                   timestamp AS created_at,
                   0 AS is_recurring,
-                  NULL AS product_id,
+                  replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'product'), ''), 'null'), '^"|"$', '') AS product_id,
                   toString(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS customer_id,
                   NULL AS invoice_id,
                   NULL AS subscription_id,
                   toString(events.`$session_id`) AS session_id,
                   events.event AS event_name,
-                  NULL AS coupon,
-                  NULL AS coupon_id,
+                  replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'coupon'), ''), 'null'), '^"|"$', '') AS coupon,
+                  coupon AS coupon_id,
                   upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')) AS original_currency,
                   accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Decimal64(10)') AS original_amount,
                   1 AS enable_currency_aware_divider,
@@ -788,7 +788,7 @@
                        allow_experimental_join_condition=1
   '''
 # ---
-# name: TestRevenueAnalyticsCustomerCountQueryRunner.test_with_data_and_date_range
+# name: TestRevenueAnalyticsMetricsQueryRunner.test_with_data_and_date_range
   '''
   SELECT subquery.breakdown_by AS breakdown_by,
          subquery.period_start AS period_start,
@@ -931,14 +931,14 @@
                   toTimeZone(events.timestamp, 'UTC') AS timestamp,
                   timestamp AS created_at,
                   0 AS is_recurring,
-                  NULL AS product_id,
+                  replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'product'), ''), 'null'), '^"|"$', '') AS product_id,
                   toString(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS customer_id,
                   NULL AS invoice_id,
                   NULL AS subscription_id,
                   toString(events.`$session_id`) AS session_id,
                   events.event AS event_name,
-                  NULL AS coupon,
-                  NULL AS coupon_id,
+                  replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'coupon'), ''), 'null'), '^"|"$', '') AS coupon,
+                  coupon AS coupon_id,
                   upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')) AS original_currency,
                   accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Decimal64(10)') AS original_amount,
                   1 AS enable_currency_aware_divider,
@@ -978,7 +978,7 @@
                        allow_experimental_join_condition=1
   '''
 # ---
-# name: TestRevenueAnalyticsCustomerCountQueryRunner.test_with_data_and_product_grouping
+# name: TestRevenueAnalyticsMetricsQueryRunner.test_with_data_and_product_grouping
   '''
   SELECT subquery.breakdown_by AS breakdown_by,
          subquery.period_start AS period_start,
@@ -991,7 +991,7 @@
          ifNull(if(or(isNull(customer_count), ifNull(equals(customer_count, 0), 0)), 0, divide(sum(subquery.revenue), customer_count)), 0) AS arpu,
          multiIf(ifNull(equals(customer_count, 0), 0), 0, ifNull(equals(churned_customer_count, 0), 0), NaN, divide(arpu, divide(churned_customer_count, customer_count))) AS ltv
   FROM
-    (SELECT concat(ifNull(toString(revenue_analytics_subscription.source_label), ''), ' - ', ifNull(toString(coalesce(revenue_analytics_product.name, '<none>')), '')) AS breakdown_by,
+    (SELECT concat(ifNull(toString(revenue_analytics_subscription.source_label), ''), ' - ', ifNull(toString(if(or(isNull(revenue_analytics_product.name), empty(revenue_analytics_product.name)), '<none>', revenue_analytics_product.name)), '')) AS breakdown_by,
             revenue_analytics_subscription.customer_id AS customer_id,
             toStartOfMonth(parseDateTime64BestEffortOrNull(arrayJoin(['2024-11-01 00:00:00', '2024-12-01 00:00:00', '2025-01-01 00:00:00', '2025-02-01 00:00:00', '2025-03-01 00:00:00', '2025-04-01 00:00:00', '2025-05-01 00:00:00']), 6, 'UTC')) AS period_start,
             countIf(DISTINCT revenue_analytics_subscription.id, and(ifNull(lessOrEquals(toStartOfMonth(revenue_analytics_subscription.started_at), period_start), 0), or(isNull(revenue_analytics_subscription.ended_at), ifNull(greaterOrEquals(toStartOfMonth(revenue_analytics_subscription.ended_at), period_start), 0)))) AS subscription_count,
@@ -1121,14 +1121,14 @@
                   toTimeZone(events.timestamp, 'UTC') AS timestamp,
                   timestamp AS created_at,
                   0 AS is_recurring,
-                  NULL AS product_id,
+                  replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'product'), ''), 'null'), '^"|"$', '') AS product_id,
                   toString(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS customer_id,
                   NULL AS invoice_id,
                   NULL AS subscription_id,
                   toString(events.`$session_id`) AS session_id,
                   events.event AS event_name,
-                  NULL AS coupon,
-                  NULL AS coupon_id,
+                  replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'coupon'), ''), 'null'), '^"|"$', '') AS coupon,
+                  coupon AS coupon_id,
                   upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')) AS original_currency,
                   accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Decimal64(10)') AS original_amount,
                   1 AS enable_currency_aware_divider,
@@ -1154,7 +1154,19 @@
           (SELECT posthog_test_stripe_product.id AS id,
                   'stripe.posthog_test' AS source_label,
                   posthog_test_stripe_product.name AS name
-           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_products/posthog_test_stripe_product/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `name` String, `type` String, `active` UInt8, `images` String, `object` String, `created` DateTime, `features` String, `livemode` UInt8, `metadata` String, `tax_code` String, `attributes` String, `updated_at` DateTime, `description` String, `default_price_id` String') AS posthog_test_stripe_product) AS `stripe.posthog_test.product_revenue_view`) AS revenue_analytics_product ON equals(revenue_analytics_subscription.product_id, revenue_analytics_product.id)
+           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_products/posthog_test_stripe_product/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `name` String, `type` String, `active` UInt8, `images` String, `object` String, `created` DateTime, `features` String, `livemode` UInt8, `metadata` String, `tax_code` String, `attributes` String, `updated_at` DateTime, `description` String, `default_price_id` String') AS posthog_test_stripe_product) AS `stripe.posthog_test.product_revenue_view`
+        UNION ALL SELECT `revenue_analytics.purchase.product_events_revenue_view`.id AS id,
+                         `revenue_analytics.purchase.product_events_revenue_view`.source_label AS source_label,
+                         `revenue_analytics.purchase.product_events_revenue_view`.name AS name
+        FROM
+          (SELECT product_id AS id,
+                  'revenue_analytics.purchase' AS source_label,
+                  product_id AS name
+           FROM
+             (SELECT DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'product'), ''), 'null'), '^"|"$', '') AS product_id
+              FROM events
+              WHERE and(equals(events.team_id, 99999), 1))
+           ORDER BY id ASC) AS `revenue_analytics.purchase.product_events_revenue_view`) AS revenue_analytics_product ON equals(revenue_analytics_subscription.product_id, revenue_analytics_product.id)
      GROUP BY revenue_analytics_subscription.customer_id,
               breakdown_by,
               period_start
@@ -1177,7 +1189,7 @@
                        allow_experimental_join_condition=1
   '''
 # ---
-# name: TestRevenueAnalyticsCustomerCountQueryRunner.test_with_empty_date_range
+# name: TestRevenueAnalyticsMetricsQueryRunner.test_with_empty_date_range
   '''
   SELECT subquery.breakdown_by AS breakdown_by,
          subquery.period_start AS period_start,
@@ -1320,14 +1332,14 @@
                   toTimeZone(events.timestamp, 'UTC') AS timestamp,
                   timestamp AS created_at,
                   0 AS is_recurring,
-                  NULL AS product_id,
+                  replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'product'), ''), 'null'), '^"|"$', '') AS product_id,
                   toString(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS customer_id,
                   NULL AS invoice_id,
                   NULL AS subscription_id,
                   toString(events.`$session_id`) AS session_id,
                   events.event AS event_name,
-                  NULL AS coupon,
-                  NULL AS coupon_id,
+                  replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'coupon'), ''), 'null'), '^"|"$', '') AS coupon,
+                  coupon AS coupon_id,
                   upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')) AS original_currency,
                   accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Decimal64(10)') AS original_amount,
                   1 AS enable_currency_aware_divider,
@@ -1367,7 +1379,7 @@
                        allow_experimental_join_condition=1
   '''
 # ---
-# name: TestRevenueAnalyticsCustomerCountQueryRunner.test_with_product_filter
+# name: TestRevenueAnalyticsMetricsQueryRunner.test_with_product_filter
   '''
   SELECT subquery.breakdown_by AS breakdown_by,
          subquery.period_start AS period_start,
@@ -1510,14 +1522,14 @@
                   toTimeZone(events.timestamp, 'UTC') AS timestamp,
                   timestamp AS created_at,
                   0 AS is_recurring,
-                  NULL AS product_id,
+                  replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'product'), ''), 'null'), '^"|"$', '') AS product_id,
                   toString(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS customer_id,
                   NULL AS invoice_id,
                   NULL AS subscription_id,
                   toString(events.`$session_id`) AS session_id,
                   events.event AS event_name,
-                  NULL AS coupon,
-                  NULL AS coupon_id,
+                  replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'coupon'), ''), 'null'), '^"|"$', '') AS coupon,
+                  coupon AS coupon_id,
                   upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')) AS original_currency,
                   accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Decimal64(10)') AS original_amount,
                   1 AS enable_currency_aware_divider,
@@ -1543,7 +1555,19 @@
           (SELECT posthog_test_stripe_product.id AS id,
                   'stripe.posthog_test' AS source_label,
                   posthog_test_stripe_product.name AS name
-           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_products/posthog_test_stripe_product/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `name` String, `type` String, `active` UInt8, `images` String, `object` String, `created` DateTime, `features` String, `livemode` UInt8, `metadata` String, `tax_code` String, `attributes` String, `updated_at` DateTime, `description` String, `default_price_id` String') AS posthog_test_stripe_product) AS `stripe.posthog_test.product_revenue_view`) AS revenue_analytics_product ON equals(revenue_analytics_subscription.product_id, revenue_analytics_product.id)
+           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_products/posthog_test_stripe_product/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `name` String, `type` String, `active` UInt8, `images` String, `object` String, `created` DateTime, `features` String, `livemode` UInt8, `metadata` String, `tax_code` String, `attributes` String, `updated_at` DateTime, `description` String, `default_price_id` String') AS posthog_test_stripe_product) AS `stripe.posthog_test.product_revenue_view`
+        UNION ALL SELECT `revenue_analytics.purchase.product_events_revenue_view`.id AS id,
+                         `revenue_analytics.purchase.product_events_revenue_view`.source_label AS source_label,
+                         `revenue_analytics.purchase.product_events_revenue_view`.name AS name
+        FROM
+          (SELECT product_id AS id,
+                  'revenue_analytics.purchase' AS source_label,
+                  product_id AS name
+           FROM
+             (SELECT DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'product'), ''), 'null'), '^"|"$', '') AS product_id
+              FROM events
+              WHERE and(equals(events.team_id, 99999), 1))
+           ORDER BY id ASC) AS `revenue_analytics.purchase.product_events_revenue_view`) AS revenue_analytics_product ON equals(revenue_analytics_subscription.product_id, revenue_analytics_product.id)
      WHERE ifNull(equals(revenue_analytics_product.name, 'Product C'), 0)
      GROUP BY revenue_analytics_subscription.customer_id,
               breakdown_by,
@@ -1567,7 +1591,7 @@
                        allow_experimental_join_condition=1
   '''
 # ---
-# name: TestRevenueAnalyticsCustomerCountQueryRunner.test_with_product_filter.1
+# name: TestRevenueAnalyticsMetricsQueryRunner.test_with_product_filter.1
   '''
   SELECT subquery.breakdown_by AS breakdown_by,
          subquery.period_start AS period_start,
@@ -1580,7 +1604,7 @@
          ifNull(if(or(isNull(customer_count), ifNull(equals(customer_count, 0), 0)), 0, divide(sum(subquery.revenue), customer_count)), 0) AS arpu,
          multiIf(ifNull(equals(customer_count, 0), 0), 0, ifNull(equals(churned_customer_count, 0), 0), NaN, divide(arpu, divide(churned_customer_count, customer_count))) AS ltv
   FROM
-    (SELECT concat(ifNull(toString(revenue_analytics_subscription.source_label), ''), ' - ', ifNull(toString(coalesce(revenue_analytics_product.name, '<none>')), '')) AS breakdown_by,
+    (SELECT concat(ifNull(toString(revenue_analytics_subscription.source_label), ''), ' - ', ifNull(toString(if(or(isNull(revenue_analytics_product.name), empty(revenue_analytics_product.name)), '<none>', revenue_analytics_product.name)), '')) AS breakdown_by,
             revenue_analytics_subscription.customer_id AS customer_id,
             toStartOfMonth(parseDateTime64BestEffortOrNull(arrayJoin(['2024-11-01 00:00:00', '2024-12-01 00:00:00', '2025-01-01 00:00:00', '2025-02-01 00:00:00', '2025-03-01 00:00:00', '2025-04-01 00:00:00', '2025-05-01 00:00:00']), 6, 'UTC')) AS period_start,
             countIf(DISTINCT revenue_analytics_subscription.id, and(ifNull(lessOrEquals(toStartOfMonth(revenue_analytics_subscription.started_at), period_start), 0), or(isNull(revenue_analytics_subscription.ended_at), ifNull(greaterOrEquals(toStartOfMonth(revenue_analytics_subscription.ended_at), period_start), 0)))) AS subscription_count,
@@ -1710,14 +1734,14 @@
                   toTimeZone(events.timestamp, 'UTC') AS timestamp,
                   timestamp AS created_at,
                   0 AS is_recurring,
-                  NULL AS product_id,
+                  replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'product'), ''), 'null'), '^"|"$', '') AS product_id,
                   toString(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS customer_id,
                   NULL AS invoice_id,
                   NULL AS subscription_id,
                   toString(events.`$session_id`) AS session_id,
                   events.event AS event_name,
-                  NULL AS coupon,
-                  NULL AS coupon_id,
+                  replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'coupon'), ''), 'null'), '^"|"$', '') AS coupon,
+                  coupon AS coupon_id,
                   upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')) AS original_currency,
                   accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Decimal64(10)') AS original_amount,
                   1 AS enable_currency_aware_divider,
@@ -1743,7 +1767,19 @@
           (SELECT posthog_test_stripe_product.id AS id,
                   'stripe.posthog_test' AS source_label,
                   posthog_test_stripe_product.name AS name
-           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_products/posthog_test_stripe_product/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `name` String, `type` String, `active` UInt8, `images` String, `object` String, `created` DateTime, `features` String, `livemode` UInt8, `metadata` String, `tax_code` String, `attributes` String, `updated_at` DateTime, `description` String, `default_price_id` String') AS posthog_test_stripe_product) AS `stripe.posthog_test.product_revenue_view`) AS revenue_analytics_product ON equals(revenue_analytics_subscription.product_id, revenue_analytics_product.id)
+           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_products/posthog_test_stripe_product/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `name` String, `type` String, `active` UInt8, `images` String, `object` String, `created` DateTime, `features` String, `livemode` UInt8, `metadata` String, `tax_code` String, `attributes` String, `updated_at` DateTime, `description` String, `default_price_id` String') AS posthog_test_stripe_product) AS `stripe.posthog_test.product_revenue_view`
+        UNION ALL SELECT `revenue_analytics.purchase.product_events_revenue_view`.id AS id,
+                         `revenue_analytics.purchase.product_events_revenue_view`.source_label AS source_label,
+                         `revenue_analytics.purchase.product_events_revenue_view`.name AS name
+        FROM
+          (SELECT product_id AS id,
+                  'revenue_analytics.purchase' AS source_label,
+                  product_id AS name
+           FROM
+             (SELECT DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'product'), ''), 'null'), '^"|"$', '') AS product_id
+              FROM events
+              WHERE and(equals(events.team_id, 99999), 1))
+           ORDER BY id ASC) AS `revenue_analytics.purchase.product_events_revenue_view`) AS revenue_analytics_product ON equals(revenue_analytics_subscription.product_id, revenue_analytics_product.id)
      WHERE ifNull(equals(revenue_analytics_product.name, 'Product C'), 0)
      GROUP BY revenue_analytics_subscription.customer_id,
               breakdown_by,

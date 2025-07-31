@@ -8,7 +8,7 @@ import { BehavioralCounterRepository } from '../../utils/db/cassandra/behavioura
 import { closeHub, createHub } from '../../utils/db/hub'
 import { createIncomingEvent } from '../_tests/fixtures'
 import { convertClickhouseRawEventToFilterGlobals } from '../utils/hog-function-filtering'
-import { BehavioralEvent, CdpBehaviouralEventsConsumer, counterEventsDropped } from './cdp-behavioural-events.consumer'
+import { BehavioralEvent, CdpBehaviouralEventsConsumer } from './cdp-behavioural-events.consumer'
 
 class TestCdpBehaviouralEventsConsumer extends CdpBehaviouralEventsConsumer {
     public getCassandraClient(): CassandraClient | null {
@@ -348,45 +348,6 @@ describe('CdpBehaviouralEventsConsumer', () => {
                 })
 
                 expect(counter).toBeNull()
-            })
-
-            it('should drop events with missing person ID at parsing stage', async () => {
-                // Create a raw event without person_id (simulating what comes from Kafka)
-                const rawEventWithoutPersonId = {
-                    uuid: '12345',
-                    event: '$pageview',
-                    team_id: team.id,
-                    properties: JSON.stringify({ $browser: 'Chrome' }),
-                    // person_id is undefined
-                }
-
-                // Get initial metric value
-                const initialDroppedCount = await counterEventsDropped.get()
-                const initialMissingPersonIdCount =
-                    initialDroppedCount.values.find((v) => v.labels.reason === 'missing_person_id')?.value || 0
-
-                const messages = [
-                    {
-                        value: Buffer.from(JSON.stringify(rawEventWithoutPersonId)),
-                    },
-                ] as any[]
-
-                // Act - parse the batch (should drop the event)
-                const parsedEvents = await (processor as any)._parseKafkaBatch(messages)
-
-                // Assert - no events should be parsed due to missing person_id
-                expect(parsedEvents).toHaveLength(0)
-
-                // Assert - metric should be incremented
-                const finalDroppedCount = await counterEventsDropped.get()
-                const finalMissingPersonIdCount =
-                    finalDroppedCount.values.find((v) => v.labels.reason === 'missing_person_id')?.value || 0
-                expect(finalMissingPersonIdCount).toBe(initialMissingPersonIdCount + 1)
-
-                // Assert - no counter should be written to Cassandra since event was dropped
-                const counters = await repository.getCountersForTeam(team.id)
-
-                expect(counters).toHaveLength(0)
             })
         })
     })
