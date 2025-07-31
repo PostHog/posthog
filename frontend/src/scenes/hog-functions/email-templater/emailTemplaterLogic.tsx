@@ -187,6 +187,13 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
             } as EmailTemplate)
         },
 
+        setEmailTemplateValues: ({ values }) => {
+            props.onChange({
+                ...props.value,
+                ...values,
+            } as EmailTemplate)
+        },
+
         applyTemplate: ({ template }) => {
             const emailTemplateContent = template.content.email
             actions.setEmailTemplateValues(emailTemplateContent)
