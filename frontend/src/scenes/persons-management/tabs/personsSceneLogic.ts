@@ -92,38 +92,36 @@ export const personsSceneLogic = kea<personsSceneLogicType>([
 
     urlToAction(({ actions, values }) => ({
         [urls.persons()]: async (_, searchParams) => {
-            const searchInUrl = searchParams['search']
             if (values.query.source.kind !== NodeKind.ActorsQuery) {
                 return
             }
-            const newSearch = searchInUrl ?? values.query.source.search
-            let newProperties = values.query.source.properties
-            if (searchParams['properties']) {
+
+            const queryOverrides = {} as Record<string, Array<string> | object>
+            const parseParam = (paramName: string): void => {
+                const rawParam = searchParams[`${paramName}`]
+                if (!rawParam) {
+                    return
+                }
                 try {
-                    const parsedProperties = JSON.parse(searchParams['properties'])
-                    if (parsedProperties && Array.isArray(parsedProperties)) {
-                        newProperties = parsedProperties
+                    const parsedParam = JSON.parse(rawParam)
+                    if (parsedParam) {
+                        queryOverrides[paramName] = parsedParam
                     }
                 } catch (error: any) {
-                    posthog.captureException('Failed to parse properties', error)
+                    posthog.captureException('Failed to parse query overrides from URL', error)
                 }
             }
-            let newOrderBy = values.query.source.orderBy
-            if (searchParams['order_by']) {
-                try {
-                    const parsedOrderBy = JSON.parse(searchParams['order_by'])
-                    if (parsedOrderBy && Array.isArray(parsedOrderBy)) {
-                        newOrderBy = parsedOrderBy
-                    }
-                } catch (error: any) {
-                    posthog.captureException('Failed to parse orderBy', error)
-                }
+
+            parseParam('properties')
+            parseParam('orderby')
+
+            if (searchParams['search'] != null) {
+                queryOverrides['search'] = searchParams['search']
             }
+
             const newSource: ActorsQuery = {
                 ...values.query.source,
-                search: newSearch,
-                properties: newProperties,
-                orderBy: newOrderBy,
+                ...queryOverrides,
             }
             actions.setQuery({
                 ...values.query,
