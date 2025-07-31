@@ -5,7 +5,6 @@ import pLimit from 'p-limit'
 import { GroupTypeIndex, TeamId } from '../../../types'
 import { DB } from '../../../utils/db/db'
 import { MessageSizeTooLarge } from '../../../utils/db/error'
-import { PostgresUse } from '../../../utils/db/postgres'
 import { logger } from '../../../utils/logger'
 import { promiseRetry } from '../../../utils/retries'
 import { RaceConditionError } from '../../../utils/utils'
@@ -23,6 +22,7 @@ import {
     groupOptimisticUpdateConflictsPerBatchCounter,
 } from './metrics'
 import { GroupRepository } from './repositories/group-repository.interface'
+import { GroupRepositoryTransaction } from './repositories/group-repository-transaction.interface'
 
 class GroupCache {
     private cache: Map<string, GroupUpdate | null>
@@ -273,7 +273,7 @@ export class BatchWritingGroupStoreForBatch implements GroupStoreForBatch {
         properties: Properties,
         timestamp: DateTime
     ): Promise<void> {
-        const group = await this.getGroup(teamId, groupTypeIndex, groupKey, false, null)
+        const group = await this.getGroup(teamId, groupTypeIndex, groupKey, false)
 
         if (!group) {
             await this.executeGroupUpsert(
@@ -314,8 +314,7 @@ export class BatchWritingGroupStoreForBatch implements GroupStoreForBatch {
         const operation = 'upsertGroup' + (source ? `-${source}` : '')
         this.incrementDatabaseOperation(operation)
 
-        const [propertiesUpdate, createdAt, actualVersion] = await this.db.postgres.transaction(
-            PostgresUse.PERSONS_WRITE,
+        const [propertiesUpdate, createdAt, actualVersion] = await this.groupRepository.inTransaction(
             operation,
             async (tx) =>
                 this.executeUpsertTransaction(teamId, groupTypeIndex, groupKey, properties, timestamp, forUpdate, tx)
@@ -354,7 +353,7 @@ export class BatchWritingGroupStoreForBatch implements GroupStoreForBatch {
         properties: Properties,
         timestamp: DateTime,
         forUpdate: boolean,
-        tx: any
+        tx: GroupRepositoryTransaction
     ): Promise<[PropertiesUpdate, DateTime, number]> {
         const group = await this.getGroup(teamId, groupTypeIndex, groupKey, forUpdate, tx)
         const createdAt = DateTime.min(group?.created_at || DateTime.now(), timestamp)
@@ -412,10 +411,10 @@ export class BatchWritingGroupStoreForBatch implements GroupStoreForBatch {
         createdAt: DateTime,
         expectedVersion: number,
         tag: string,
-        _tx: any
+        tx: GroupRepositoryTransaction
     ): Promise<number> {
         this.incrementDatabaseOperation('updateGroup')
-        const updatedVersion = await this.groupRepository.updateGroup(
+        const updatedVersion = await tx.updateGroup(
             teamId,
             groupTypeIndex,
             groupKey,
@@ -445,18 +444,10 @@ export class BatchWritingGroupStoreForBatch implements GroupStoreForBatch {
         properties: Properties,
         createdAt: DateTime,
         expectedVersion: number,
-        _tx: any
+        tx: GroupRepositoryTransaction
     ): Promise<number> {
         this.incrementDatabaseOperation('insertGroup')
-        const insertedVersion = await this.groupRepository.insertGroup(
-            teamId,
-            groupTypeIndex,
-            groupKey,
-            properties,
-            createdAt,
-            {},
-            {}
-        )
+        const insertedVersion = await tx.insertGroup(teamId, groupTypeIndex, groupKey, properties, createdAt, {}, {})
         const versionDisparity = insertedVersion - expectedVersion
         if (versionDisparity > 0) {
             logVersionMismatch(teamId, groupTypeIndex, groupKey, versionDisparity)
@@ -512,7 +503,7 @@ export class BatchWritingGroupStoreForBatch implements GroupStoreForBatch {
         groupTypeIndex: GroupTypeIndex,
         groupKey: string,
         forUpdate: boolean,
-        _tx: any
+        tx?: GroupRepositoryTransaction
     ): Promise<GroupUpdate | null> {
         if (this.groupCache.has(teamId, groupKey) && !forUpdate) {
             const cachedGroup = this.groupCache.get(teamId, groupKey)
@@ -527,9 +518,8 @@ export class BatchWritingGroupStoreForBatch implements GroupStoreForBatch {
             fetchPromise = (async () => {
                 try {
                     this.incrementDatabaseOperation('fetchGroup')
-                    const existingGroup = await this.groupRepository.fetchGroup(teamId, groupTypeIndex, groupKey, {
-                        forUpdate,
-                    })
+                    const repository = tx || this.groupRepository
+                    const existingGroup = await repository.fetchGroup(teamId, groupTypeIndex, groupKey, { forUpdate })
                     if (existingGroup) {
                         const groupUpdate = fromGroup(existingGroup)
                         this.groupCache.set(teamId, groupKey, {
