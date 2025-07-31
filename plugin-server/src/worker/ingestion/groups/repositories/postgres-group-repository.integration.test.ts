@@ -852,4 +852,171 @@ describe('PostgresGroupRepository Integration', () => {
             expect(fetchedGroup?.version).toBe(0) // Version should remain unchanged
         })
     })
+
+    describe('inTransaction', () => {
+        it('should execute operations within a transaction', async () => {
+            await insertTestTeam(teamId)
+
+            const result = await repository.inTransaction('test transaction', async (tx) => {
+                // Insert a group within transaction
+                const insertResult = await tx.insertGroup(
+                    teamId,
+                    groupTypeIndex,
+                    groupKey,
+                    groupProperties,
+                    createdAt,
+                    propertiesLastUpdatedAt,
+                    propertiesLastOperation
+                )
+
+                // Fetch the group within transaction
+                const fetchedGroup = await tx.fetchGroup(teamId, groupTypeIndex, groupKey)
+
+                // Update the group within transaction
+                const updateResult = await tx.updateGroup(
+                    teamId,
+                    groupTypeIndex,
+                    groupKey,
+                    { name: 'Updated in Transaction' },
+                    createdAt,
+                    propertiesLastUpdatedAt,
+                    propertiesLastOperation,
+                    'transaction-update'
+                )
+
+                return {
+                    insertResult,
+                    fetchedGroup,
+                    updateResult,
+                }
+            })
+
+            expect(result.insertResult).toBe(1)
+            expect(result.fetchedGroup).toMatchObject({
+                team_id: teamId,
+                group_type_index: groupTypeIndex,
+                group_key: groupKey,
+                group_properties: groupProperties,
+                version: 1,
+            })
+            expect(result.updateResult).toBe(2)
+
+            // Verify the final state outside transaction
+            const finalGroup = await repository.fetchGroup(teamId, groupTypeIndex, groupKey)
+            expect(finalGroup?.version).toBe(2)
+            expect(finalGroup?.group_properties).toMatchObject({ name: 'Updated in Transaction' })
+        })
+
+        it('should rollback transaction on error', async () => {
+            await insertTestTeam(teamId)
+
+            // Try to execute a transaction that will fail
+            await expect(
+                repository.inTransaction('failing transaction', async (tx) => {
+                    // Insert a group
+                    await tx.insertGroup(
+                        teamId,
+                        groupTypeIndex,
+                        groupKey,
+                        groupProperties,
+                        createdAt,
+                        propertiesLastUpdatedAt,
+                        propertiesLastOperation
+                    )
+
+                    // This should cause the transaction to rollback
+                    throw new Error('Simulated transaction failure')
+                })
+            ).rejects.toThrow('Simulated transaction failure')
+
+            // Verify the group was not inserted (transaction rolled back)
+            const group = await repository.fetchGroup(teamId, groupTypeIndex, groupKey)
+            expect(group).toBeUndefined()
+        })
+    })
+
+    describe('inRawTransaction', () => {
+        it('should execute operations within a raw transaction', async () => {
+            await insertTestTeam(teamId)
+
+            const result = await repository.inRawTransaction('test raw transaction', async (tx) => {
+                // Insert a group within raw transaction
+                const insertResult = await repository.insertGroup(
+                    teamId,
+                    groupTypeIndex,
+                    groupKey,
+                    groupProperties,
+                    createdAt,
+                    propertiesLastUpdatedAt,
+                    propertiesLastOperation,
+                    tx
+                )
+
+                // Fetch the group within raw transaction
+                const fetchedGroup = await repository.fetchGroup(teamId, groupTypeIndex, groupKey, undefined, tx)
+
+                // Update the group within raw transaction
+                const updateResult = await repository.updateGroup(
+                    teamId,
+                    groupTypeIndex,
+                    groupKey,
+                    { name: 'Updated in Raw Transaction' },
+                    createdAt,
+                    propertiesLastUpdatedAt,
+                    propertiesLastOperation,
+                    'raw-transaction-update',
+                    tx
+                )
+
+                return {
+                    insertResult,
+                    fetchedGroup,
+                    updateResult,
+                }
+            })
+
+            expect(result.insertResult).toBe(1)
+            expect(result.fetchedGroup).toMatchObject({
+                team_id: teamId,
+                group_type_index: groupTypeIndex,
+                group_key: groupKey,
+                group_properties: groupProperties,
+                version: 1,
+            })
+            expect(result.updateResult).toBe(2)
+
+            // Verify the final state outside transaction
+            const finalGroup = await repository.fetchGroup(teamId, groupTypeIndex, groupKey)
+            expect(finalGroup?.version).toBe(2)
+            expect(finalGroup?.group_properties).toMatchObject({ name: 'Updated in Raw Transaction' })
+        })
+
+        it('should rollback raw transaction on error', async () => {
+            await insertTestTeam(teamId)
+
+            // Try to execute a raw transaction that will fail
+            await expect(
+                repository.inRawTransaction('failing raw transaction', async (tx) => {
+                    // Insert a group
+                    await repository.insertGroup(
+                        teamId,
+                        groupTypeIndex,
+                        groupKey,
+                        groupProperties,
+                        createdAt,
+                        propertiesLastUpdatedAt,
+                        propertiesLastOperation,
+                        tx
+                    )
+
+                    // This should cause the transaction to rollback
+                    throw new Error('Simulated raw transaction failure')
+                })
+            ).rejects.toThrow('Simulated raw transaction failure')
+
+            // Verify the group was not inserted (transaction rolled back)
+            const group = await repository.fetchGroup(teamId, groupTypeIndex, groupKey)
+            expect(group).toBeUndefined()
+        })
+    })
 })
