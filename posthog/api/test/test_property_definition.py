@@ -335,6 +335,8 @@ class TestPropertyDefinitionAPI(APIBaseTest):
                 "person property",
                 "$virt_initial_channel_type",
                 "$virt_initial_referring_domain_type",
+                "$virt_revenue",
+                "$virt_revenue_last_30_days",
             ],
         )
 
@@ -621,6 +623,20 @@ class TestPropertyDefinitionAPI(APIBaseTest):
                     "property_type": "Numeric",
                     "tags": [],
                 },
+                {
+                    "id": "builtin_virt_revenue",
+                    "name": "$virt_revenue",
+                    "is_numerical": True,
+                    "property_type": "Numeric",
+                    "tags": [],
+                },
+                {
+                    "id": "builtin_virt_revenue_last_30_days",
+                    "name": "$virt_revenue_last_30_days",
+                    "is_numerical": True,
+                    "property_type": "Numeric",
+                    "tags": [],
+                },
             ],
         ):
             # Test numerical=true filter
@@ -629,9 +645,13 @@ class TestPropertyDefinitionAPI(APIBaseTest):
             )
             assert response.status_code == status.HTTP_200_OK
             virtual_props = [prop for prop in response.json()["results"] if prop["name"].startswith("$virt_")]
-            assert len(virtual_props) == 2
+            assert len(virtual_props) == 4
             assert all(prop["is_numerical"] for prop in virtual_props)
-            assert all(prop["name"] in ["$virt_session_count", "$virt_pageview_count"] for prop in virtual_props)
+            assert all(
+                prop["name"]
+                in ["$virt_session_count", "$virt_pageview_count", "$virt_revenue", "$virt_revenue_last_30_days"]
+                for prop in virtual_props
+            )
 
             # Test numerical=false filter
             response = self.client.get(
@@ -721,7 +741,7 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         # Virtual properties should still be included when excluding hidden
         virtual_props = [prop for prop in response.json()["results"] if prop["name"].startswith("$virt_")]
-        assert len(virtual_props) == 2
+        assert len(virtual_props) == 4
 
     def test_virtual_property_search_by_name(self):
         response = self.client.get(
