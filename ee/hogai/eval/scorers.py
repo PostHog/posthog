@@ -491,7 +491,17 @@ class InsightEvaluationAccuracy(ScorerWithPartial):
         if expected is None:
             return Score(name=self._name(), score=None, metadata={"reason": "No expected decision provided"})
 
-        actual_decision = evaluation_result.get("should_use_existing", False)
+        if "should_use_existing" not in evaluation_result:
+            return Score(
+                name=self._name(),
+                score=None,
+                metadata={
+                    "reason": "Missing 'should_use_existing' key in evaluation result",
+                    "evaluation_result_keys": list(evaluation_result.keys()),
+                },
+            )
+
+        actual_decision = evaluation_result["should_use_existing"]
 
         # Binary accuracy score
         score = 1.0 if actual_decision == expected else 0.0
