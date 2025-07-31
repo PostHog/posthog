@@ -420,3 +420,86 @@ class SQLSemanticsCorrectness(LLMClassifier):
         if not output:
             return Score(name=self._name(), score=None, metadata={"reason": "No query to check, skipping evaluation"})
         return super()._run_eval_sync(output, expected, database_schema=database_schema, **kwargs)
+
+
+class InsightSearchOutput(TypedDict, total=False):
+    """Output structure for insight search evaluations."""
+
+    selected_insights: list[int]
+    search_query: str | None
+    evaluation_result: dict | None
+    iteration_count: int | None
+    pages_read: int | None
+
+
+class InsightSearchRelevance(ScorerWithPartial):
+    """Evaluate if selected insights match the search query semantically."""
+
+    def _run_eval_sync(self, output: InsightSearchOutput, expected: list[int] | None = None, **kwargs):
+        if not output.get("selected_insights"):
+            return Score(name=self._name(), score=0.0, metadata={"reason": "No insights selected"})
+
+        search_query = output.get("search_query", "")
+        if not search_query:
+            return Score(name=self._name(), score=None, metadata={"reason": "No search query provided"})
+
+        selected_insights = output["selected_insights"]
+
+        # If we have expected insights, compare against them
+        if expected is not None:
+            # Calculate overlap between selected and expected insights
+            expected_set = set(expected)
+            selected_set = set(selected_insights)
+
+            if not expected_set:
+                return Score(name=self._name(), score=1.0 if not selected_set else 0.0)
+
+            intersection = expected_set.intersection(selected_set)
+            precision = len(intersection) / len(selected_set) if selected_set else 0.0
+            recall = len(intersection) / len(expected_set) if expected_set else 0.0
+
+            # F1 score as combination of precision and recall
+            f1_score = 2 * (precision * recall) / (precision + recall) if (precision + recall) > 0 else 0.0
+
+            return Score(
+                name=self._name(),
+                score=f1_score,
+                metadata={
+                    "precision": precision,
+                    "recall": recall,
+                    "expected_insights": list(expected_set),
+                    "selected_insights": list(selected_set),
+                    "intersection": list(intersection),
+                },
+            )
+
+        # Without expected insights, we can't measure relevance directly
+        # Return a neutral score and let other scorers handle quality assessment
+        return Score(name=self._name(), score=None, metadata={"reason": "No expected insights provided for comparison"})
+
+
+class InsightEvaluationAccuracy(ScorerWithPartial):
+    """Evaluate the accuracy of the insight evaluation decision (use existing vs create new)."""
+
+    def _run_eval_sync(self, output: InsightSearchOutput, expected: bool | None = None, **kwargs):
+        evaluation_result = output.get("evaluation_result")
+        if not evaluation_result:
+            return Score(name=self._name(), score=None, metadata={"reason": "No evaluation result provided"})
+
+        if expected is None:
+            return Score(name=self._name(), score=None, metadata={"reason": "No expected decision provided"})
+
+        actual_decision = evaluation_result.get("should_use_existing", False)
+
+        # Binary accuracy score
+        score = 1.0 if actual_decision == expected else 0.0
+
+        return Score(
+            name=self._name(),
+            score=score,
+            metadata={
+                "expected_decision": expected,
+                "actual_decision": actual_decision,
+                "evaluation_explanation": evaluation_result.get("explanation", ""),
+            },
+        )
