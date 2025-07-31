@@ -7,7 +7,7 @@
 -->
 <clickhouse>
     <logger>
-        <level>trace</level>
+        <level>warning</level>
         <log>/var/log/clickhouse-server/clickhouse-server.log</log>
         <errorlog>/var/log/clickhouse-server/clickhouse-server.err.log</errorlog>
         <size>1000M</size>
