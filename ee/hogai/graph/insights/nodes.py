@@ -34,7 +34,8 @@ class InsightSearchNode(AssistantNode):
         self._page_size = 300
         self._max_iterations = 6
         self._current_iteration = 0
-        self._all_insights = []
+        self._loaded_pages = {}
+        self._total_insights_count = None
         self._max_insights = 3
 
     def _create_read_insights_tool(self):
@@ -50,10 +51,7 @@ class InsightSearchNode(AssistantNode):
             Returns:
                 Formatted insights data for the requested page
             """
-            start_idx = page_number * self._page_size
-            end_idx = start_idx + self._page_size
-
-            page_insights = self._all_insights[start_idx:end_idx]
+            page_insights = self._load_insights_page(page_number)
 
             if not page_insights:
                 return "No more insights available."
@@ -78,9 +76,10 @@ class InsightSearchNode(AssistantNode):
 
         try:
             self._current_iteration = 0
-            self._load_all_insights()
+            self._load_insights_page(0)
 
-            if not self._all_insights:
+            # Check if we have any insights at all
+            if self._get_total_insights_count() == 0:
                 return self._create_error_response("No insights found in the database.", state.root_tool_call_id)
 
             selected_insights = self._search_insights_iteratively(search_query or "")
@@ -123,9 +122,8 @@ class InsightSearchNode(AssistantNode):
                 state.root_tool_call_id,
             )
 
-    def _load_all_insights(self) -> None:
-        """Load all insights from database into memory for pagination."""
-        insights_qs = (
+    def _get_insights_queryset(self):
+        return (
             InsightViewed.objects.filter(team__project_id=self._team.project_id)
             .select_related(
                 "insight__name",
@@ -140,7 +138,22 @@ class InsightSearchNode(AssistantNode):
             .distinct("insight_id")
         )
 
-        self._all_insights = list(
+    def _get_total_insights_count(self) -> int:
+        if self._total_insights_count is None:
+            self._total_insights_count = self._get_insights_queryset().count()
+        return self._total_insights_count
+
+    def _load_insights_page(self, page_number: int) -> list[dict]:
+        """Load a specific page of insights from database."""
+        if page_number in self._loaded_pages:
+            return self._loaded_pages[page_number]
+
+        start_idx = page_number * self._page_size
+        end_idx = start_idx + self._page_size
+
+        insights_qs = self._get_insights_queryset()[start_idx:end_idx]
+
+        page_insights = list(
             insights_qs.values(
                 "insight_id",
                 "insight__name",
@@ -152,11 +165,15 @@ class InsightSearchNode(AssistantNode):
             )
         )
 
+        self._loaded_pages[page_number] = page_insights
+        return page_insights
+
     def _search_insights_iteratively(self, search_query: str) -> list[int]:
         """Execute iterative insight search with LLM and tool calling."""
         first_page = self._format_insights_page(0)
 
-        total_pages = (len(self._all_insights) + self._page_size - 1) // self._page_size
+        total_insights = self._get_total_insights_count()
+        total_pages = (total_insights + self._page_size - 1) // self._page_size
         has_pagination = total_pages > 1
 
         pagination_instructions = (
@@ -214,16 +231,14 @@ class InsightSearchNode(AssistantNode):
 
         # Fallback to max_insights if no results
         if not selected_insights:
-            selected_insights = [insight["insight_id"] for insight in self._all_insights[: self._max_insights]]
+            first_page_insights = self._load_insights_page(0)
+            selected_insights = [insight["insight_id"] for insight in first_page_insights[: self._max_insights]]
 
         return selected_insights[: self._max_insights]
 
     def _format_insights_page(self, page_number: int) -> str:
         """Format a page of insights for display."""
-        start_idx = page_number * self._page_size
-        end_idx = start_idx + self._page_size
-
-        page_insights = self._all_insights[start_idx:end_idx]
+        page_insights = self._load_insights_page(page_number)
 
         if not page_insights:
             return "No insights available on this page."
@@ -241,12 +256,28 @@ class InsightSearchNode(AssistantNode):
 
         return "\n".join(formatted_insights)
 
+    def _get_all_loaded_insight_ids(self) -> set[int]:
+        """Get all insight IDs from loaded pages."""
+        all_ids = set()
+        for page_insights in self._loaded_pages.values():
+            for insight in page_insights:
+                all_ids.add(insight["insight_id"])
+        return all_ids
+
+    def _find_insight_by_id(self, insight_id: int) -> dict | None:
+        """Find an insight by ID across all loaded pages."""
+        for page_insights in self._loaded_pages.values():
+            for insight in page_insights:
+                if insight["insight_id"] == insight_id:
+                    return insight
+        return None
+
     def _parse_insight_ids(self, response_content: str) -> list[int]:
         """Parse insight IDs from LLM response, removing duplicates and preserving order."""
         numbers = re.findall(r"\b\d+\b", response_content)
 
         # Convert to integers and validate against available insights
-        available_ids = {insight["insight_id"] for insight in self._all_insights}
+        available_ids = self._get_all_loaded_insight_ids()
         valid_ids = []
         seen_ids = set()
 
@@ -277,7 +308,7 @@ class InsightSearchNode(AssistantNode):
         visualization_messages = []
 
         for insight_id in selected_insights:
-            insight = next((i for i in self._all_insights if i["insight_id"] == insight_id), None)
+            insight = self._find_insight_by_id(insight_id)
             if insight:
                 insight_details.append(insight)
                 # Create visualization message for each insight
@@ -512,7 +543,7 @@ class InsightSearchNode(AssistantNode):
         visualization_messages = []
 
         for insight_id in selected_insights:
-            insight = next((i for i in self._all_insights if i["insight_id"] == insight_id), None)
+            insight = self._find_insight_by_id(insight_id)
             if not insight:
                 continue
 

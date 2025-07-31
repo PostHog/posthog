@@ -65,24 +65,25 @@ class TestInsightSearchNode(BaseTest):
         result = self.node.router(AssistantState(messages=[]))
         self.assertEqual(result, "root")
 
-    def test_load_all_insights(self):
-        """Test loading all insights from database."""
-        self.node._load_all_insights()
+    def test_load_insights_page(self):
+        """Test loading paginated insights from database."""
+        # Load first page
+        first_page = self.node._load_insights_page(0)
 
-        self.assertEqual(len(self.node._all_insights), 2)
+        self.assertEqual(len(first_page), 2)
 
         # Check that insights are loaded with correct data
-        insight_ids = [insight["insight_id"] for insight in self.node._all_insights]
+        insight_ids = [insight["insight_id"] for insight in first_page]
         self.assertIn(self.insight1.id, insight_ids)
         self.assertIn(self.insight2.id, insight_ids)
 
         # Check insight data structure
-        insight1_data = next(i for i in self.node._all_insights if i["insight_id"] == self.insight1.id)
+        insight1_data = next(i for i in first_page if i["insight_id"] == self.insight1.id)
         self.assertEqual(insight1_data["insight__name"], "Daily Pageviews")
         self.assertEqual(insight1_data["insight__description"], "Track daily website traffic")
 
-    def test_load_all_insights_unique_only(self):
-        """Test that load_all_insights returns unique insights only."""
+    def test_load_insights_page_unique_only(self):
+        """Test that load_insights_page returns unique insights only."""
         # Update existing insight view to simulate multiple views
         InsightViewed.objects.filter(
             team=self.team,
@@ -90,17 +91,15 @@ class TestInsightSearchNode(BaseTest):
             insight=self.insight1,
         ).update(last_viewed_at=timezone.now())
 
-        self.node._load_all_insights()
+        first_page = self.node._load_insights_page(0)
 
         # Should still only have 2 unique insights
-        insight_ids = [insight["insight_id"] for insight in self.node._all_insights]
+        insight_ids = [insight["insight_id"] for insight in first_page]
         self.assertEqual(len(insight_ids), len(set(insight_ids)), "Should return unique insights only")
 
     def test_format_insights_page(self):
         """Test formatting a page of insights."""
-        self.node._load_all_insights()
-
-        # Test first page
+        # Test first page (automatically loads page 0)
         result = self.node._format_insights_page(0)
 
         self.assertIn(f"ID: {self.insight1.id}", result)
@@ -112,8 +111,6 @@ class TestInsightSearchNode(BaseTest):
 
     def test_format_insights_page_empty(self):
         """Test formatting an empty page."""
-        self.node._load_all_insights()
-
         # Test page beyond available insights
         result = self.node._format_insights_page(10)
 
@@ -121,7 +118,8 @@ class TestInsightSearchNode(BaseTest):
 
     def test_parse_insight_ids(self):
         """Test parsing insight IDs from LLM response."""
-        self.node._load_all_insights()
+        # Load first page to populate the IDs
+        self.node._load_insights_page(0)
 
         # Test response with valid IDs
         response = f"Here are the relevant insights: {self.insight1.id}, {self.insight2.id}, and 99999"
@@ -136,7 +134,8 @@ class TestInsightSearchNode(BaseTest):
 
     def test_parse_insight_ids_no_valid_ids(self):
         """Test parsing when no valid IDs are found."""
-        self.node._load_all_insights()
+        # Load first page to populate the IDs
+        self.node._load_insights_page(0)
 
         response = "Here are some numbers: 99999, 88888, but no valid insight IDs"
 
@@ -154,7 +153,8 @@ class TestInsightSearchNode(BaseTest):
 
     def test_format_search_results_with_results(self):
         """Test formatting with actual results."""
-        self.node._load_all_insights()
+        # Load the first page so insights are available for search results formatting
+        self.node._load_insights_page(0)
 
         # Use actual insight IDs
         selected_insights = [self.insight1.id, self.insight2.id]
@@ -174,7 +174,8 @@ class TestInsightSearchNode(BaseTest):
 
     def test_format_search_results_execution_data_always_included(self):
         """Test that execution data is always included in current implementation."""
-        self.node._load_all_insights()
+        # Load the first page so insights are available for search results formatting
+        self.node._load_insights_page(0)
 
         # Use actual insight IDs
         selected_insights = [self.insight1.id, self.insight2.id]
@@ -217,10 +218,11 @@ class TestInsightSearchNode(BaseTest):
 
             # Mock _search_insights_iteratively to return our test insights
             with patch.object(self.node, "_search_insights_iteratively") as mock_search:
-                with patch.object(self.node, "_load_all_insights") as mock_load:
+                with patch.object(self.node, "_get_total_insights_count") as mock_count:
                     mock_search.return_value = selected_insights
-                    mock_load.return_value = None  # Just simulate loading
-                    self.node._all_insights = [  # Set up some test data
+                    mock_count.return_value = 2  # Simulate that we have insights
+                    # Set up paginated data for the first page
+                    self.node._loaded_pages[0] = [  # Set up some test data
                         {"insight_id": self.insight1.id, "insight__name": "Daily Pageviews"},
                         {"insight_id": self.insight2.id, "insight__name": "User Signup Funnel"},
                     ]
@@ -255,7 +257,8 @@ class TestInsightSearchNode(BaseTest):
 
     def test_format_search_results_with_visualization_messages(self):
         """Test formatting with visualization messages."""
-        self.node._load_all_insights()
+        # Load the first page so insights are available for search results formatting
+        self.node._load_insights_page(0)
 
         # Use actual insight IDs
         selected_insights = [self.insight1.id, self.insight2.id]
@@ -274,7 +277,8 @@ class TestInsightSearchNode(BaseTest):
     @patch("ee.hogai.graph.insights.nodes.ChatOpenAI")
     def test_search_insights_iteratively_single_page(self, mock_openai):
         """Test iterative search with single page (no pagination)."""
-        self.node._load_all_insights()
+        # Load the first page so insights are available for search
+        self.node._load_insights_page(0)
 
         # Mock LLM response with insight IDs
         mock_response = MagicMock()
@@ -315,8 +319,9 @@ class TestInsightSearchNode(BaseTest):
             )
             insights.append(insight)
 
-        self.node._load_all_insights()
+        # Set smaller page size to force pagination
         self.node._page_size = 20  # Force pagination
+        # The insights will be loaded automatically when accessed
 
         # Mock tool-calling response followed by final response
         mock_tool_response = MagicMock()
@@ -342,7 +347,8 @@ class TestInsightSearchNode(BaseTest):
     @patch("ee.hogai.graph.insights.nodes.ChatOpenAI")
     def test_search_insights_iteratively_fallback(self, mock_openai):
         """Test iterative search fallback when LLM fails."""
-        self.node._load_all_insights()
+        # Load the first page so insights are available for fallback
+        self.node._load_insights_page(0)
 
         # Mock LLM to raise an exception
         mock_openai.return_value.invoke.side_effect = Exception("LLM failed")
@@ -376,10 +382,11 @@ class TestInsightSearchNode(BaseTest):
 
             # Mock _search_insights_iteratively to return our test insights
             with patch.object(self.node, "_search_insights_iteratively") as mock_search:
-                with patch.object(self.node, "_load_all_insights") as mock_load:
+                with patch.object(self.node, "_get_total_insights_count") as mock_count:
                     mock_search.return_value = selected_insights
-                    mock_load.return_value = None
-                    self.node._all_insights = [
+                    mock_count.return_value = 2  # Simulate that we have insights
+                    # Set up paginated data for the first page
+                    self.node._loaded_pages[0] = [
                         {"insight_id": self.insight1.id, "insight__name": "Daily Pageviews"},
                         {"insight_id": self.insight2.id, "insight__name": "User Signup Funnel"},
                     ]
@@ -429,11 +436,12 @@ class TestInsightSearchNode(BaseTest):
 
         # Mock the search and evaluation methods
         with patch.object(self.node, "_search_insights_iteratively") as mock_search:
-            with patch.object(self.node, "_load_all_insights") as mock_load:
+            with patch.object(self.node, "_get_total_insights_count") as mock_count:
                 with patch.object(self.node, "_evaluate_insights_for_creation") as mock_evaluate:
                     mock_search.return_value = selected_insights
-                    mock_load.return_value = None
-                    self.node._all_insights = [{"insight_id": self.insight1.id}]
+                    mock_count.return_value = 1  # Simulate that we have insights
+                    # Set up paginated data for the first page
+                    self.node._loaded_pages[0] = [{"insight_id": self.insight1.id}]
 
                     # Mock evaluation to return "use existing" to avoid format_search_results call
                     mock_evaluate.return_value = {
@@ -505,18 +513,18 @@ class TestInsightSearchNode(BaseTest):
             last_viewed_at=timezone.now(),
         )
 
-        self.node._load_all_insights()
+        # Load first page to test team filtering
+        first_page = self.node._load_insights_page(0)
 
         # Should only load insights from self.team
-        insight_ids = [insight["insight_id"] for insight in self.node._all_insights]
+        insight_ids = [insight["insight_id"] for insight in first_page]
         self.assertIn(self.insight1.id, insight_ids)
         self.assertIn(self.insight2.id, insight_ids)
         self.assertNotIn(other_insight.id, insight_ids)
 
     def test_create_read_insights_tool(self):
         """Test creating the read insights tool."""
-        self.node._load_all_insights()
-
+        # The tool will load pages on demand, no need to pre-load
         tool = self.node._create_read_insights_tool()
 
         # Test the tool function
@@ -528,8 +536,7 @@ class TestInsightSearchNode(BaseTest):
 
     def test_read_insights_tool_empty_page(self):
         """Test read insights tool with empty page."""
-        self.node._load_all_insights()
-
+        # The tool will load pages on demand, no need to pre-load
         tool = self.node._create_read_insights_tool()
 
         # Test beyond available pages
