@@ -224,7 +224,12 @@ class CohortSerializer(serializers.ModelSerializer):
     def validate(self, data: dict) -> dict:
         """Determine cohort type based on validated data"""
         # For updates, merge with existing instance data if available
-        if self.instance and hasattr(self.instance, "is_static"):
+        if (
+            self.instance
+            and hasattr(self.instance, "is_static")
+            and hasattr(self.instance, "filters")
+            and hasattr(self.instance, "query")
+        ):
             # This is an update - merge with existing values
             is_static = data.get("is_static", self.instance.is_static)
             filters = data.get("filters", self.instance.filters)
