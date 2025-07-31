@@ -20618,6 +20618,10 @@
         "RevenueAnalyticsEventItem": {
             "additionalProperties": false,
             "properties": {
+                "couponProperty": {
+                    "description": "Property used to identify whether the revenue event is connected to a coupon Useful when trying to break revenue down by a specific coupon",
+                    "type": "string"
+                },
                 "currencyAwareDecimal": {
                     "default": false,
                     "description": "If true, the revenue will be divided by the smallest unit of the currency.\n\nFor example, in case this is set to true, if the revenue is 1089 and the currency is USD, the revenue will be $10.89, but if the currency is JPY, the revenue will be ¥1089.",
@@ -20626,11 +20630,16 @@
                 "eventName": {
                     "type": "string"
                 },
+                "productProperty": {
+                    "description": "Property used to identify what product the revenue event refers to Useful when trying to break revenue down by a specific product",
+                    "type": "string"
+                },
                 "revenueCurrencyProperty": {
                     "$ref": "#/definitions/RevenueCurrencyPropertyConfig",
                     "default": {
                         "static": "USD"
-                    }
+                    },
+                    "description": "TODO: In the future, this should probably be renamed to `currencyProperty` to follow the pattern above"
                 },
                 "revenueProperty": {
                     "type": "string"

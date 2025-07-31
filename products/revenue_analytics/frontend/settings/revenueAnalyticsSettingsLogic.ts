@@ -29,6 +29,28 @@ const sortByDueDate = (goals: RevenueAnalyticsGoal[]): RevenueAnalyticsGoal[] =>
     return goals.sort((a, b) => dayjs(a.due_date).diff(dayjs(b.due_date)))
 }
 
+type PropertyUpdater<T extends keyof RevenueAnalyticsEventItem> = {
+    eventName: string
+    property: RevenueAnalyticsEventItem[T]
+}
+const updateStatePropertyBuilder =
+    (propertyKey: keyof RevenueAnalyticsEventItem) =>
+    (state: RevenueAnalyticsConfig | null, { eventName, property }: PropertyUpdater<typeof propertyKey>) => {
+        if (!state) {
+            return state
+        }
+
+        return {
+            ...state,
+            events: state.events.map((item) => {
+                if (item.eventName === eventName) {
+                    return { ...item, [propertyKey]: property }
+                }
+                return item
+            }),
+        }
+    }
+
 export const revenueAnalyticsSettingsLogic = kea<revenueAnalyticsSettingsLogicType>([
     path(['scenes', 'data-management', 'revenue', 'revenueAnalyticsSettingsLogic']),
     connect(() => ({
@@ -38,17 +60,16 @@ export const revenueAnalyticsSettingsLogic = kea<revenueAnalyticsSettingsLogicTy
     actions({
         addEvent: (eventName: string, revenueCurrency: CurrencyCode) => ({ eventName, revenueCurrency }),
         deleteEvent: (eventName: string) => ({ eventName }),
-        updateEventRevenueProperty: (eventName: string, revenueProperty: string) => ({ eventName, revenueProperty }),
-        updateEventRevenueCurrencyProperty: (
-            eventName: string,
-            revenueCurrencyProperty: RevenueCurrencyPropertyConfig
-        ) => ({
+        updateEventRevenueProperty: (eventName: string, property: string) => ({ eventName, property }),
+        updateEventProductProperty: (eventName: string, property: string) => ({ eventName, property }),
+        updateEventCouponProperty: (eventName: string, property: string) => ({ eventName, property }),
+        updateEventCurrencyProperty: (eventName: string, property: RevenueCurrencyPropertyConfig) => ({
             eventName,
-            revenueCurrencyProperty,
+            property,
         }),
-        updateEventCurrencyAwareDecimalProperty: (eventName: string, currencyAwareDecimal: boolean) => ({
+        updateEventCurrencyAwareDecimalProperty: (eventName: string, property: boolean) => ({
             eventName,
-            currencyAwareDecimal,
+            property,
         }),
 
         addGoal: (goal: RevenueAnalyticsGoal) => ({ goal }),
@@ -82,7 +103,7 @@ export const revenueAnalyticsSettingsLogic = kea<revenueAnalyticsSettingsLogicTy
                             ...state.events,
                             {
                                 eventName,
-                                revenueProperty: 'revenue',
+                                revenueProperty: '',
                                 revenueCurrencyProperty: { static: revenueCurrency },
                                 currencyAwareDecimal: false,
                             },
@@ -95,55 +116,13 @@ export const revenueAnalyticsSettingsLogic = kea<revenueAnalyticsSettingsLogicTy
                     }
                     return { ...state, events: state.events.filter((item) => item.eventName !== eventName) }
                 },
-                updateEventRevenueProperty: (state: RevenueAnalyticsConfig | null, { eventName, revenueProperty }) => {
-                    if (!state) {
-                        return state
-                    }
-                    return {
-                        ...state,
-                        events: state.events.map((item) => {
-                            if (item.eventName === eventName) {
-                                return { ...item, revenueProperty }
-                            }
-                            return item
-                        }),
-                    }
-                },
-                updateEventRevenueCurrencyProperty: (
-                    state: RevenueAnalyticsConfig | null,
-                    { eventName, revenueCurrencyProperty }
-                ) => {
-                    if (!state) {
-                        return state
-                    }
 
-                    return {
-                        ...state,
-                        events: state.events.map((item) => {
-                            if (item.eventName === eventName) {
-                                return { ...item, revenueCurrencyProperty }
-                            }
-                            return item
-                        }),
-                    }
-                },
-                updateEventCurrencyAwareDecimalProperty: (
-                    state: RevenueAnalyticsConfig | null,
-                    { eventName, currencyAwareDecimal }
-                ) => {
-                    if (!state) {
-                        return state
-                    }
-                    return {
-                        ...state,
-                        events: state.events.map((item) => {
-                            if (item.eventName === eventName) {
-                                return { ...item, currencyAwareDecimal }
-                            }
-                            return item
-                        }),
-                    }
-                },
+                updateEventCouponProperty: updateStatePropertyBuilder('couponProperty'),
+                updateEventCurrencyAwareDecimalProperty: updateStatePropertyBuilder('currencyAwareDecimal'),
+                updateEventCurrencyProperty: updateStatePropertyBuilder('revenueCurrencyProperty'),
+                updateEventProductProperty: updateStatePropertyBuilder('productProperty'),
+                updateEventRevenueProperty: updateStatePropertyBuilder('revenueProperty'),
+
                 addGoal: (state: RevenueAnalyticsConfig | null, { goal }) => {
                     if (!state) {
                         return state
@@ -222,6 +201,10 @@ export const revenueAnalyticsSettingsLogic = kea<revenueAnalyticsSettingsLogicTy
                 if (!changesMade) {
                     return 'No changes to save'
                 }
+                if (config.events.some((event) => !event.revenueProperty)) {
+                    return 'Revenue property must be set'
+                }
+
                 return null
             },
         ],
