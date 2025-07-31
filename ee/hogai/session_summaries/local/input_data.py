@@ -5,7 +5,6 @@ from typing import Any, Optional
 import os
 from clickhouse_driver import Client
 import pytz
-
 from posthog.session_recordings.models.metadata import RecordingMetadata
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 
@@ -35,15 +34,14 @@ def _get_production_session_metadata_locally(
     team_id: int,
     recording_start_time: Optional[datetime.datetime] = None,
 ) -> RecordingMetadata | None:
-    query = events_obj.get_metadata_query()
+    query = events_obj.get_metadata_query(recording_start_time)
     with _ch_client_local_reads_prod() as client:
         replay_response = client.execute(
             query,
             {
                 "team_id": team_id,
                 "session_id": session_id,
-                # for perf we always have to have a floor on this query
-                "recording_floor": recording_start_time or datetime.datetime.now() - datetime.timedelta(weeks=52),
+                "recording_start_time": recording_start_time,
                 "python_now": datetime.datetime.now(pytz.timezone("UTC")),
             },
         )
