@@ -169,8 +169,8 @@ async def stream_llm_single_session_summary_activity(inputs: SingleSessionSummar
     return last_summary_state_str
 
 
-@temporalio.workflow.defn(name="summarize-session")
-class SummarizeSingleSessionWorkflow(PostHogWorkflow):
+@temporalio.workflow.defn(name="summarize-session-stream")
+class SummarizeSingleSessionStreamWorkflow(PostHogWorkflow):
     @staticmethod
     def parse_inputs(inputs: list[str]) -> SingleSessionSummaryInputs:
         """Parse inputs from the management command CLI."""
@@ -200,7 +200,7 @@ async def _start_workflow(inputs: SingleSessionSummaryInputs, workflow_id: str) 
     client = await async_connect()
     retry_policy = RetryPolicy(maximum_attempts=int(settings.TEMPORAL_WORKFLOW_MAX_ATTEMPTS))
     handle = await client.start_workflow(
-        "summarize-session",
+        "summarize-session-stream",
         inputs,
         id=workflow_id,
         id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,

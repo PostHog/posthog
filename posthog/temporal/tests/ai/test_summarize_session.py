@@ -26,7 +26,7 @@ from posthog.temporal.ai.session_summary.state import (
     get_redis_state_client,
 )
 from posthog.temporal.ai.session_summary.summarize_session import (
-    SummarizeSingleSessionWorkflow,
+    SummarizeSingleSessionStreamWorkflow,
     execute_summarize_session_stream,
     stream_llm_single_session_summary_activity,
     fetch_session_data_activity,
@@ -220,7 +220,7 @@ class TestStreamLlmSummaryActivity:
             assert spy_setex.call_count == 1 + 8
 
 
-class TestSummarizeSingleSessionWorkflow:
+class TestSummarizeSingleSessionStreamWorkflow:
     @asynccontextmanager
     async def workflow_test_environment(
         self,
@@ -599,7 +599,7 @@ class TestSummarizeSingleSessionWorkflow:
         ) as (activity_environment, worker):
             # Wait for workflow to complete and get result
             result = await activity_environment.client.execute_workflow(
-                SummarizeSingleSessionWorkflow.run,
+                SummarizeSingleSessionStreamWorkflow.run,
                 workflow_input,
                 id=workflow_id,
                 task_queue=worker.task_queue,
@@ -660,7 +660,7 @@ class TestSummarizeSingleSessionWorkflow:
             with patch.object(redis_test_setup.redis_client, "get", side_effect=mock_redis_get_with_failure):
                 # Wait for workflow to complete and get result
                 result = await activity_environment.client.execute_workflow(
-                    SummarizeSingleSessionWorkflow.run,
+                    SummarizeSingleSessionStreamWorkflow.run,
                     workflow_input,
                     id=workflow_id,
                     task_queue=worker.task_queue,
@@ -720,7 +720,7 @@ class TestSummarizeSingleSessionWorkflow:
                 # Wait for workflow to complete and get result
                 with pytest.raises(WorkflowFailureError):
                     await activity_environment.client.execute_workflow(
-                        SummarizeSingleSessionWorkflow.run,
+                        SummarizeSingleSessionStreamWorkflow.run,
                         workflow_input,
                         id=workflow_id,
                         task_queue=worker.task_queue,
@@ -771,7 +771,7 @@ class TestSummarizeSingleSessionWorkflow:
             with pytest.raises((WorkflowFailureError, asyncio.TimeoutError)) as exc_info:
                 await asyncio.wait_for(
                     activity_environment.client.execute_workflow(
-                        SummarizeSingleSessionWorkflow.run,
+                        SummarizeSingleSessionStreamWorkflow.run,
                         # Wrong: passing incorrect type instead of string
                         invalid_arg,  # type: ignore[misc]
                         id=workflow_id,
