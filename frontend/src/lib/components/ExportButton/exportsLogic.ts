@@ -11,10 +11,9 @@ import { urls } from 'scenes/urls'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { cohortsModel } from '~/models/cohortsModel'
 import { AnyDataNode } from '~/queries/schema/schema-general'
-import { CohortType, ExportContext, ExportedAssetType, LocalExportContext, SidePanelTab } from '~/types'
+import { CohortType, ExportContext, ExportedAssetType, ExporterFormat, LocalExportContext, SidePanelTab } from '~/types'
 
 import type { exportsLogicType } from './exportsLogicType'
-import { makePrivateLink } from 'scenes/session-recordings/player/share/playerShareLogic'
 
 const POLL_DELAY_MS = 10000
 
@@ -120,12 +119,11 @@ export const exportsLogic = kea<exportsLogicType>([
             }
         },
         startReplayExport: async ({ replayId, timestamp, options }) => {
-            const replayUrl = makePrivateLink(replayId, { includeTime: true, time: timestamp ? `${timestamp}` : null })
-
             const exportData: TriggerExportProps = {
-                export_format: 'image/png',
+                export_format: ExporterFormat.PNG,
                 export_context: {
-                    replay_url: replayUrl,
+                    replay_id: replayId,
+                    timestamp: timestamp,
                     css_selector: options?.css_selector || '.SessionRecordingPlayer',
                     width: options?.width || 1400,
                     filename: options?.filename || `replay-${replayId}${timestamp ? `-t${timestamp}` : ''}`,

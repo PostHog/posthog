@@ -106,7 +106,7 @@ function Screenshot(): JSX.Element {
         setPause()
         startReplayExport(sessionRecordingId, timestamp, {
             width: 1400,
-            css_selector: '.SessionRecordingPlayer',
+            css_selector: '.replayer-wrapper',
             filename: `replay-${sessionRecordingId}`,
         })
     }

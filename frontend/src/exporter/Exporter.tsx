@@ -88,8 +88,9 @@ export function Exporter(props: ExportedData): JSX.Element {
                     playerKey="exporter"
                     sessionRecordingId={recording.id}
                     mode={SessionRecordingPlayerMode.Sharing}
-                    autoPlay={false}
+                    autoPlay={true}
                     noInspector={!showInspector}
+                    noBorder={exportedData.noBorder ? exportedData.noBorder : false}
                 />
             ) : (
                 <h1 className="text-center p-4">Something went wrong...</h1>

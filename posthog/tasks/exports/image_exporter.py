@@ -116,14 +116,20 @@ def _export_to_png(exported_asset: ExportedAsset) -> None:
             url_to_render = absolute_uri(f"/exporter?token={access_token}")
             wait_for_css_selector = ".InsightCard"
             screenshot_width = 1920
-        elif exported_asset.export_context and exported_asset.export_context.get("replay_url"):
-            # Handle replay export using existing token system
-            replay_url = exported_asset.export_context["replay_url"]
-            url_to_render = absolute_uri(f"{replay_url}?token={access_token}")
+        elif exported_asset.export_context and exported_asset.export_context.get("replay_id"):
+            # Handle replay export using /exporter route (same as insights/dashboards)
+            url_to_render = absolute_uri(f"/exporter?token={access_token}")
             wait_for_css_selector = exported_asset.export_context.get("css_selector", ".SessionRecordingPlayer")
             screenshot_width = exported_asset.export_context.get("width", 1400)
 
-            logger.info("exporting_replay", replay_url=replay_url, token_preview=access_token[:10])
+            logger.info(
+                "exporting_replay",
+                replay_id=exported_asset.export_context.get("replay_id"),
+                timestamp=exported_asset.export_context.get("timestamp"),
+                url_to_render=url_to_render,
+                css_selector=wait_for_css_selector,
+                token_preview=access_token[:10],
+            )
         else:
             raise Exception(f"Export is missing required dashboard, insight ID, or replay_url in export_context")
 

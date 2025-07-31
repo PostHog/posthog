@@ -4252,7 +4252,8 @@ export type QueryExportContext = {
 }
 
 export interface ReplayExportContext {
-    replay_url: string
+    replay_id: string
+    timestamp?: number
     css_selector?: string
     width?: number
     filename?: string
