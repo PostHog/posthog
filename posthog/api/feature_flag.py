@@ -85,7 +85,7 @@ DATABASE_FOR_LOCAL_EVALUATION = (
     else "replica"
 )
 
-BEHAVIOURAL_COHORT_FOUND_ERROR_CODE = "behavioral_cohort_found"
+ANALYTICAL_COHORT_FOUND_ERROR_CODE = "analytical_cohort_found"
 
 MAX_PROPERTY_VALUES = 1000
 
@@ -332,10 +332,14 @@ class FeatureFlagSerializer(
                         )
                         dependent_cohorts = get_dependent_cohorts(initial_cohort)
                         for cohort in [initial_cohort, *dependent_cohorts]:
-                            if [prop for prop in cohort.properties.flat if prop.type == "behavioral"]:
+                            # Check cohort type - only real-time compatible cohorts allowed in feature flags
+                            # NB: this is a new change as we start to support behavioral cohort targeting – we still will not
+                            # support _analytical_ cohorts in feature flags (analytical cohorts are a new cohort type that's a superset of behavioral cohorts)
+                            # but we _will_ support behavioral cohort targeting
+                            if not cohort.can_be_used_in_real_time:
                                 raise serializers.ValidationError(
-                                    detail=f"Cohort '{cohort.name}' with filters on events cannot be used in feature flags.",
-                                    code=BEHAVIOURAL_COHORT_FOUND_ERROR_CODE,
+                                    detail=f"Cohort '{cohort.name}' (type: {cohort.cohort_type}) cannot be used in feature flags. Only static, person_property, and behavioral cohorts are supported for real-time evaluation.",
+                                    code=ANALYTICAL_COHORT_FOUND_ERROR_CODE,
                                 )
                     except Cohort.DoesNotExist:
                         raise serializers.ValidationError(

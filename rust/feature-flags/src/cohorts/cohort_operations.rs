@@ -41,7 +41,8 @@ impl Cohort {
                   c.is_static,
                   c.errors_calculating,
                   c.groups,
-                  c.created_by_id
+                  c.created_by_id,
+                  c.cohort_type
               FROM posthog_cohort AS c
               JOIN posthog_team AS t ON (c.team_id = t.id)
             WHERE t.project_id = $1
@@ -406,7 +407,7 @@ impl DependencyProvider for Cohort {
 mod tests {
     use super::*;
     use crate::{
-        cohorts::cohort_models::{CohortPropertyType, CohortValues},
+        cohorts::cohort_models::{CohortPropertyType, CohortType, CohortValues},
         properties::property_models::PropertyType,
         utils::test_utils::{
             insert_cohort_for_team_in_pg, insert_new_team_in_pg, setup_pg_reader_client,
@@ -558,6 +559,7 @@ mod tests {
             errors_calculating: 0,
             groups: json!({}),
             created_by_id: None,
+            cohort_type: Some(CohortType::Static),
         };
 
         // This should not fail even though the filters are malformed
@@ -583,6 +585,7 @@ mod tests {
             errors_calculating: 0,
             groups: json!({}),
             created_by_id: None,
+            cohort_type: Some(CohortType::Static),
         };
 
         let dependencies = static_cohort_empty_filters.extract_dependencies().unwrap();
@@ -605,6 +608,7 @@ mod tests {
             errors_calculating: 0,
             groups: json!({}),
             created_by_id: None,
+            cohort_type: Some(CohortType::Analytical),
         };
 
         // This should fail because it's dynamic and the filters are malformed
@@ -648,6 +652,7 @@ mod tests {
             errors_calculating: 0,
             groups: json!({}),
             created_by_id: None,
+            cohort_type: Some(CohortType::Analytical),
         }
     }
 
@@ -693,6 +698,7 @@ mod tests {
             errors_calculating: 0,
             groups: json!({}),
             created_by_id: None,
+            cohort_type: Some(CohortType::Static),
         };
 
         let cohorts = vec![static_cohort];
@@ -750,6 +756,7 @@ mod tests {
             errors_calculating: 0,
             groups: json!({}),
             created_by_id: None,
+            cohort_type: Some(CohortType::PersonProperty),
         };
 
         let cohorts = vec![cohort_with_negation];

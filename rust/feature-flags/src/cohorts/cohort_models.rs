@@ -19,6 +19,17 @@ pub struct Cohort {
     pub errors_calculating: i32,
     pub groups: serde_json::Value,
     pub created_by_id: Option<i32>,
+    pub cohort_type: Option<CohortType>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, sqlx::Type)]
+#[serde(rename_all = "snake_case")]
+#[sqlx(type_name = "text", rename_all = "snake_case")]
+pub enum CohortType {
+    Static,
+    PersonProperty,
+    Behavioral,
+    Analytical,
 }
 
 pub type CohortId = i32;

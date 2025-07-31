@@ -206,6 +206,7 @@ class CohortSerializer(serializers.ModelSerializer):
             "errors_calculating",
             "count",
             "is_static",
+            "cohort_type",
             "experiment_set",
             "_create_in_folder",
         ]
@@ -219,6 +220,28 @@ class CohortSerializer(serializers.ModelSerializer):
             "count",
             "experiment_set",
         ]
+
+    def validate(self, data: dict) -> dict:
+        """Determine cohort type based on validated data"""
+        # For updates, merge with existing instance data if available
+        if (
+            self.instance
+            and hasattr(self.instance, "is_static")
+            and hasattr(self.instance, "filters")
+            and hasattr(self.instance, "query")
+        ):
+            # This is an update - merge with existing values
+            is_static = data.get("is_static", self.instance.is_static)
+            filters = data.get("filters", self.instance.filters)
+            query = data.get("query", self.instance.query)
+        else:
+            # This is a create - use provided values or defaults
+            is_static = data.get("is_static", False)
+            filters = data.get("filters")
+            query = data.get("query")
+
+        data["cohort_type"] = Cohort.determine_cohort_type_from_filters(is_static, filters, query)
+        return data
 
     def _handle_static(self, cohort: Cohort, context: dict, validated_data: dict) -> None:
         request = self.context["request"]
@@ -365,6 +388,7 @@ class CohortSerializer(serializers.ModelSerializer):
         cohort.groups = validated_data.get("groups", cohort.groups)
         cohort.is_static = validated_data.get("is_static", cohort.is_static)
         cohort.filters = validated_data.get("filters", cohort.filters)
+        cohort.cohort_type = validated_data.get("cohort_type", cohort.cohort_type)
         deleted_state = validated_data.get("deleted", None)
 
         is_deletion_change = deleted_state is not None and cohort.deleted != deleted_state
