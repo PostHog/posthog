@@ -30,8 +30,18 @@ phw() {
             
             # If direnv is not set up, activate Flox manually
             if ! command -v direnv &>/dev/null; then
-                echo "Activating Flox environment..."
-                eval "$(flox activate)"
+                # Check if we need to switch to a different Flox environment
+                local expected_flox_env="$worktree_path/.flox/run"
+                if [ -n "$FLOX_ENV" ] && [[ "$FLOX_ENV" != "$expected_flox_env"* ]]; then
+                    echo "Switching Flox environments..."
+                    # Note: This will still create nesting, but it's unavoidable without direnv
+                    eval "$(flox activate)"
+                elif [ -z "$FLOX_ENV" ]; then
+                    echo "Activating Flox environment..."
+                    eval "$(flox activate)"
+                else
+                    echo "Flox environment already active for this worktree"
+                fi
             fi
             # If direnv is set up, it will auto-activate via .envrc
         fi
@@ -47,8 +57,18 @@ phw() {
             
             # If direnv is not set up, activate Flox manually
             if ! command -v direnv &>/dev/null; then
-                echo "Activating Flox environment..."
-                eval "$(flox activate)"
+                # Check if we need to switch to a different Flox environment
+                local expected_flox_env="$pr_dir/.flox/run"
+                if [ -n "$FLOX_ENV" ] && [[ "$FLOX_ENV" != "$expected_flox_env"* ]]; then
+                    echo "Switching Flox environments..."
+                    # Note: This will still create nesting, but it's unavoidable without direnv
+                    eval "$(flox activate)"
+                elif [ -z "$FLOX_ENV" ]; then
+                    echo "Activating Flox environment..."
+                    eval "$(flox activate)"
+                else
+                    echo "Flox environment already active for this worktree"
+                fi
             fi
         fi
     fi
