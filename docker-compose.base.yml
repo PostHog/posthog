@@ -393,6 +393,14 @@ services:
         networks:
             - otel_network
 
+    echo_server:
+        image: docker.io/library/caddy:2
+        container_name: echo-server
+        restart: on-failure
+        ports:
+            - '18081:8081'
+        volumes:
+            - ./rust/docker/echo-server/Caddyfile:/etc/caddy/Caddyfile
     jaeger:
         image: jaegertracing/all-in-one:latest
         container_name: jaeger-local
