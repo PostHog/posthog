@@ -11,7 +11,6 @@ import uuid
 from posthog.warehouse.models.modeling import DataWarehouseModelPath
 from posthog.warehouse.models.table import DataWarehouseTable
 import logging
-from typing import Tuple, List
 
 
 class LineageViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
