@@ -1,6 +1,7 @@
 from posthog.clickhouse.table_engines import MergeTreeEngine, ReplicationScheme
 from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
 from posthog.hogql.database.schema.web_analytics_s3 import get_s3_function_args
+from posthog.models.web_preaggregated.team_selection import WEB_PRE_AGGREGATED_TEAM_SELECTION_DICTIONARY_NAME
 
 
 def TABLE_TEMPLATE(table_name, columns, order_by):
@@ -188,14 +189,24 @@ def format_team_ids(team_ids):
 
 
 def get_team_filters(team_ids):
-    team_ids_str = format_team_ids(team_ids) if team_ids else None
-    return {
-        "raw_sessions": f"raw_sessions.team_id IN({team_ids_str})" if team_ids else "1=1",
-        "person_distinct_id_overrides": (
-            f"person_distinct_id_overrides.team_id IN({team_ids_str})" if team_ids else "1=1"
-        ),
-        "events": f"e.team_id IN({team_ids_str})" if team_ids else "1=1",
-    }
+    """
+    Get team filters using dictionary lookup for enabled teams.
+    If team_ids is provided, use IN clause (for backward compatibility or debugging).
+    Otherwise, use dictionary lookup for the latest configuration.
+    """
+    if team_ids:
+        team_ids_str = format_team_ids(team_ids)
+        return {
+            "raw_sessions": f"raw_sessions.team_id IN({team_ids_str})",
+            "person_distinct_id_overrides": f"person_distinct_id_overrides.team_id IN({team_ids_str})",
+            "events": f"e.team_id IN({team_ids_str})",
+        }
+    else:
+        return {
+            "raw_sessions": f"dictHas('{WEB_PRE_AGGREGATED_TEAM_SELECTION_DICTIONARY_NAME}', raw_sessions.team_id)",
+            "person_distinct_id_overrides": f"dictHas('{WEB_PRE_AGGREGATED_TEAM_SELECTION_DICTIONARY_NAME}', person_distinct_id_overrides.team_id)",
+            "events": f"dictHas('{WEB_PRE_AGGREGATED_TEAM_SELECTION_DICTIONARY_NAME}', e.team_id)",
+        }
 
 
 def get_insert_params(team_ids, granularity="daily"):

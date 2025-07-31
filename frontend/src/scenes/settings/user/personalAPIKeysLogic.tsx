@@ -33,8 +33,13 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
         setEditingKeyId: (id: PersonalAPIKeyType['id'] | null) => ({ id }),
         loadKeys: true,
         createKeySuccess: (key: PersonalAPIKeyType) => ({ key }),
+        showRollKeySuccessDialog: (key: PersonalAPIKeyType, prevMaskedValue?: string | null) => ({
+            key,
+            prevMaskedValue,
+        }),
         updateKey: (data: Partial<Pick<PersonalAPIKeyType, 'label' | 'scopes'>>) => data,
         deleteKey: (id: PersonalAPIKeyType['id']) => ({ id }),
+        rollKey: (id: PersonalAPIKeyType['id']) => ({ id }),
         setScopeRadioValue: (key: string, action: string) => ({ key, action }),
         resetScopes: true,
         loadAllTeams: true,
@@ -48,7 +53,7 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
             },
         ],
     }),
-    loaders(({ values }) => ({
+    loaders(({ values, actions }) => ({
         keys: [
             [] as PersonalAPIKeyType[],
             {
@@ -58,6 +63,19 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
                 deleteKey: async ({ id }) => {
                     await api.personalApiKeys.delete(id)
                     return values.keys.filter((filteredKey) => filteredKey.id != id)
+                },
+                rollKey: async ({ id }) => {
+                    const origKey = values.keys.find((filteredKey) => filteredKey.id == id)
+                    if (!origKey) {
+                        return values.keys
+                    }
+
+                    const rolledKey = await api.personalApiKeys.roll(id)
+                    actions.showRollKeySuccessDialog(rolledKey, origKey.mask_value)
+
+                    // avoid persisting the raw value in state
+                    rolledKey.value = undefined
+                    return values.keys.map((filteredKey) => (filteredKey.id == id ? rolledKey : filteredKey))
                 },
             },
         ],
@@ -384,6 +402,31 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
                             For security reasons the value above <em>will never be shown again</em>.
                             <br />
                             Copy it to your destination right away.
+                        </LemonBanner>
+                    </>
+                ),
+            })
+        },
+        showRollKeySuccessDialog: async ({ key, prevMaskedValue }) => {
+            const value = key.value
+
+            if (!value) {
+                return
+            }
+
+            LemonDialog.open({
+                title: 'Personal API key rolled',
+                width: 536,
+                content: (
+                    <>
+                        <p className="mb-4">Your key "{key.label}" has been rolled:</p>
+
+                        <CodeSnippet className="ph-no-capture" thing="personal API key">
+                            {value}
+                        </CodeSnippet>
+
+                        <LemonBanner type="warning" className="mt-4">
+                            Your previous key{prevMaskedValue ? ` "${prevMaskedValue}"` : ''} is no longer valid.
                         </LemonBanner>
                     </>
                 ),

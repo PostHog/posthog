@@ -18,8 +18,9 @@ from pydantic import BaseModel
 
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
 from ee.hogai.graph.funnels.nodes import FunnelsSchemaGeneratorOutput
-from ee.hogai.graph.memory import prompts as memory_prompts, prompts as onboarding_prompts
+from ee.hogai.graph.memory import prompts as memory_prompts
 from ee.hogai.graph.retention.nodes import RetentionSchemaGeneratorOutput
+from ee.hogai.graph.root.nodes import SLASH_COMMAND_INIT
 from ee.hogai.graph.trends.nodes import TrendsSchemaGeneratorOutput
 from ee.hogai.tool import search_documentation
 from ee.hogai.utils.tests import FakeChatOpenAI, FakeRunnableLambdaWithTokenCounter
@@ -50,10 +51,15 @@ from posthog.schema import (
     DashboardFilter,
     FailureMessage,
     HumanMessage,
+    MaxAddonInfo,
+    MaxBillingContext,
     MaxDashboardContext,
     MaxInsightContext,
+    MaxProductInfo,
     MaxUIContext,
     ReasoningMessage,
+    MaxBillingContextSettings,
+    MaxBillingContextSubscriptionLevel,
     TrendsQuery,
     VisualizationMessage,
 )
@@ -973,12 +979,10 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         )
 
         # First run - get the product description
-        output, _ = await self._run_assistant_graph(
-            graph, is_new_conversation=True, message=onboarding_prompts.ONBOARDING_INITIAL_MESSAGE
-        )
+        output, _ = await self._run_assistant_graph(graph, is_new_conversation=True, message=SLASH_COMMAND_INIT)
         expected_output = [
             ("conversation", self.conversation),
-            ("message", HumanMessage(content=onboarding_prompts.ONBOARDING_INITIAL_MESSAGE)),
+            ("message", HumanMessage(content=SLASH_COMMAND_INIT)),
             (
                 "message",
                 AssistantMessage(
@@ -1034,12 +1038,10 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         )
 
         # First run - get the product description
-        output, _ = await self._run_assistant_graph(
-            graph, is_new_conversation=True, message=onboarding_prompts.ONBOARDING_INITIAL_MESSAGE
-        )
+        output, _ = await self._run_assistant_graph(graph, is_new_conversation=True, message=SLASH_COMMAND_INIT)
         expected_output = [
             ("conversation", self.conversation),
-            ("message", HumanMessage(content=onboarding_prompts.ONBOARDING_INITIAL_MESSAGE)),
+            ("message", HumanMessage(content=SLASH_COMMAND_INIT)),
             (
                 "message",
                 AssistantMessage(
@@ -1790,3 +1792,40 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertEqual(len(result), 1)
         self.assertIsInstance(result[0], AssistantGenerationStatusEvent)
         self.assertEqual(result[0].type, AssistantGenerationStatusType.ACK)
+
+    def test_billing_context_in_config(self):
+        billing_context = MaxBillingContext(
+            has_active_subscription=True,
+            subscription_level=MaxBillingContextSubscriptionLevel.PAID,
+            settings=MaxBillingContextSettings(active_destinations=2.0, autocapture_on=True),
+            products=[
+                MaxProductInfo(
+                    name="Product Analytics",
+                    description="Track user behavior",
+                    current_usage=1000000.0,
+                    has_exceeded_limit=False,
+                    is_used=True,
+                    percentage_usage=85.0,
+                    type="product_analytics",
+                    addons=[
+                        MaxAddonInfo(
+                            name="Data Pipeline",
+                            description="Advanced data pipeline features",
+                            current_usage=100.0,
+                            has_exceeded_limit=False,
+                            is_used=True,
+                            type="data_pipeline",
+                        )
+                    ],
+                )
+            ],
+        )
+        assistant = Assistant(
+            team=self.team,
+            conversation=self.conversation,
+            user=self.user,
+            billing_context=billing_context,
+        )
+
+        config = assistant._get_config()
+        self.assertEqual(config["configurable"]["billing_context"], billing_context)

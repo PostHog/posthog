@@ -1,5 +1,13 @@
 {
     "name": "@posthog/products-messaging",
+    "dependencies": {
+        "kea": "^3.1.5",
+        "kea-forms": "^3.2.0",
+        "kea-loaders": "^3.1.1",
+        "kea-router": "^3.3.1",
+        "kea-subscriptions": "^3.0.1",
+        "posthog-js": "1.258.3"
+    },
     "peerDependencies": {
         "@posthog/icons": "*",
         "@types/react": "*",
@@ -8,12 +16,6 @@
         "elkjs": "*",
         "fast-deep-equal": "*",
         "fuse.js": "*",
-        "kea": "*",
-        "kea-forms": "*",
-        "kea-loaders": "*",
-        "kea-subscriptions": "*",
-        "kea-router": "*",
-        "posthog-js": "*",
         "react": "*",
         "zod": "*"
     }

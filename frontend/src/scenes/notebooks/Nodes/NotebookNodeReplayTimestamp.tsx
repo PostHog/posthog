@@ -1,8 +1,6 @@
 import { mergeAttributes, Node, NodeViewProps } from '@tiptap/core'
 import { NodeViewWrapper, ReactNodeViewRenderer } from '@tiptap/react'
-import { NotebookNodeType, NotebookTarget } from '~/types'
 import { dayjs } from 'lib/dayjs'
-import { JSONContent } from '../Notebook/utils'
 import clsx from 'clsx'
 import { urls } from 'scenes/urls'
 import { LemonButton } from '@posthog/lemon-ui'
@@ -10,6 +8,8 @@ import { notebookLogic } from '../Notebook/notebookLogic'
 import { useValues } from 'kea'
 import { useMemo } from 'react'
 import { openNotebook } from '~/models/notebooksModel'
+import { JSONContent } from 'lib/components/RichContentEditor/types'
+import { NotebookNodeType, NotebookTarget } from '../types'
 
 export interface NotebookNodeReplayTimestampAttrs {
     playbackTime?: number
@@ -25,6 +25,7 @@ const Component = (props: NodeViewProps): JSX.Element => {
         const logicById = sourceNodeId ? findNodeLogicById(sourceNodeId) : null
 
         return logicById ?? findNodeLogic(NotebookNodeType.Recording, { id: sessionRecordingId })
+        // oxlint-disable-next-line exhaustive-deps
     }, [findNodeLogic])
 
     const handlePlayInNotebook = (): void => {

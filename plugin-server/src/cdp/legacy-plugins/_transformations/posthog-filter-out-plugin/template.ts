@@ -14,7 +14,7 @@ export const posthogFilterOutPlugin: LegacyTransformationPlugin = {
         icon_url: 'https://raw.githubusercontent.com/posthog/posthog-filter-out-plugin/main/logo.png',
         category: ['Transformation'],
         code_language: 'javascript',
-        hog: `return event`,
+        code: `return event`,
         inputs_schema: [
             {
                 key: 'filters',

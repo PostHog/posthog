@@ -109,9 +109,6 @@ import {
     LogEntryRequestParams,
     MediaUploadResponse,
     NewEarlyAccessFeatureType,
-    NotebookListItemType,
-    NotebookNodeResource,
-    NotebookType,
     type OAuthApplicationPublicMetadata,
     OrganizationFeatureFlags,
     OrganizationFeatureFlagsCopyBody,
@@ -151,6 +148,7 @@ import {
     Survey,
     SurveyStatsResponse,
     TeamType,
+    TwilioPhoneNumberType,
     UserBasicType,
     UserInterviewType,
     UserType,
@@ -172,6 +170,9 @@ import {
     LOGS_PORTION_LIMIT,
 } from './constants'
 import type { ProductIntentProperties } from './utils/product-intents'
+import { OptOutEntry } from 'products/messaging/frontend/OptOuts/optOutListLogic'
+import { NotebookListItemType, NotebookNodeResource, NotebookType } from 'scenes/notebooks/types'
+import { MaxBillingContext } from 'scenes/max/maxBillingContextLogic'
 
 /**
  * WARNING: Be very careful importing things here. This file is heavily used and can trigger a lot of cyclic imports
@@ -1052,6 +1053,17 @@ export class ApiRequest {
             .withQueryString({ channel_id: channelId })
     }
 
+    public integrationTwilioPhoneNumbers(
+        id: IntegrationType['id'],
+        forceRefresh: boolean,
+        teamId?: TeamType['id']
+    ): ApiRequest {
+        return this.integrations(teamId)
+            .addPathComponent(id)
+            .addPathComponent('twilio_phone_numbers')
+            .withQueryString({ force_refresh: forceRefresh })
+    }
+
     public integrationLinearTeams(id: IntegrationType['id'], teamId?: TeamType['id']): ApiRequest {
         return this.integrations(teamId).addPathComponent(id).addPathComponent('linear_teams')
     }
@@ -1310,6 +1322,26 @@ export class ApiRequest {
 
     public messagingTemplate(templateId: MessageTemplate['id']): ApiRequest {
         return this.messagingTemplates().addPathComponent(templateId)
+    }
+
+    public messagingCategories(): ApiRequest {
+        return this.environments().current().addPathComponent('messaging_categories')
+    }
+
+    public messagingCategory(categoryId: string): ApiRequest {
+        return this.messagingCategories().addPathComponent(categoryId)
+    }
+
+    public messagingPreferences(): ApiRequest {
+        return this.environments().current().addPathComponent('messaging_preferences')
+    }
+
+    public messagingPreferencesLink(): ApiRequest {
+        return this.environments().current().addPathComponent('messaging_preferences').addPathComponent('generate_link')
+    }
+
+    public messagingPreferencesOptOuts(): ApiRequest {
+        return this.environments().current().addPathComponent('messaging_preferences').addPathComponent('opt_outs')
     }
 
     public oauthApplicationPublicMetadata(clientId: string): ApiRequest {
@@ -1751,6 +1783,10 @@ const api = {
 
         async getCount(params: Partial<CommentType>): Promise<number> {
             return (await new ApiRequest().comments().withAction('count').withQueryString(params).get()).count
+        },
+
+        async delete(id: CommentType['id'], teamId: TeamType['id'] = ApiConfig.getCurrentTeamId()): Promise<void> {
+            return new ApiRequest().comment(id, teamId).update({ data: { deleted: true } })
         },
     },
 
@@ -2510,7 +2546,7 @@ const api = {
 
         async updateIssue(
             id: ErrorTrackingIssue['id'],
-            data: Partial<Pick<ErrorTrackingIssue, 'status' | 'name'>>
+            data: Partial<Pick<ErrorTrackingIssue, 'status' | 'name' | 'description'>>
         ): Promise<ErrorTrackingRelationalIssue> {
             return await new ApiRequest().errorTrackingIssue(id).update({ data })
         },
@@ -2785,6 +2821,28 @@ const api = {
             return await new ApiRequest()
                 .recordings()
                 .withAction('bulk_delete')
+                .create({ data: { session_recording_ids } })
+        },
+
+        async bulkViewedRecordings(session_recording_ids: SessionRecordingType['id'][]): Promise<{
+            success: boolean
+            viewed_count: number
+            total_requested: number
+        }> {
+            return await new ApiRequest()
+                .recordings()
+                .withAction('bulk_viewed')
+                .create({ data: { session_recording_ids } })
+        },
+
+        async bulkNotViewedRecordings(session_recording_ids: SessionRecordingType['id'][]): Promise<{
+            success: boolean
+            not_viewed_count: number
+            total_requested: number
+        }> {
+            return await new ApiRequest()
+                .recordings()
+                .withAction('bulk_not_viewed')
                 .create({ data: { session_recording_ids } })
         },
     },
@@ -3366,6 +3424,12 @@ const api = {
         ): Promise<{ channels: SlackChannelType[] }> {
             return await new ApiRequest().integrationSlackChannelsById(id, channelId).get()
         },
+        async twilioPhoneNumbers(
+            id: IntegrationType['id'],
+            forceRefresh: boolean
+        ): Promise<{ phone_numbers: TwilioPhoneNumberType[]; lastRefreshedAt: string }> {
+            return await new ApiRequest().integrationTwilioPhoneNumbers(id, forceRefresh).get()
+        },
         async linearTeams(id: IntegrationType['id']): Promise<{ teams: LinearTeamType[] }> {
             return await new ApiRequest().integrationLinearTeams(id).get()
         },
@@ -3439,6 +3503,9 @@ const api = {
         async delete(id: PersonalAPIKeyType['id']): Promise<void> {
             await new ApiRequest().personalApiKey(id).delete()
         },
+        async roll(id: PersonalAPIKeyType['id']): Promise<PersonalAPIKeyType> {
+            return await new ApiRequest().personalApiKey(id).withAction('roll').create()
+        },
     },
 
     alerts: {
@@ -3510,6 +3577,42 @@ const api = {
             data: Partial<MessageTemplate>
         ): Promise<MessageTemplate> {
             return await new ApiRequest().messagingTemplate(templateId).update({ data })
+        },
+
+        // Messaging Categories
+        async getCategories(params?: { category_type?: string }): Promise<PaginatedResponse<any>> {
+            return await new ApiRequest()
+                .messagingCategories()
+                .withQueryString(toParams(params || {}))
+                .get()
+        },
+        async getCategory(categoryId: string): Promise<any> {
+            return await new ApiRequest().messagingCategory(categoryId).get()
+        },
+        async createCategory(data: any): Promise<any> {
+            return await new ApiRequest().messagingCategories().create({ data })
+        },
+        async updateCategory(categoryId: string, data: any): Promise<any> {
+            return await new ApiRequest().messagingCategory(categoryId).update({ data })
+        },
+        async deleteCategory(categoryId: string): Promise<void> {
+            return await new ApiRequest().messagingCategory(categoryId).delete()
+        },
+        async generateMessagingPreferencesLink(recipient?: string): Promise<string | null> {
+            const response = await new ApiRequest().messagingPreferencesLink().create({
+                data: {
+                    recipient,
+                },
+            })
+            return response.preferences_url || null
+        },
+        async getMessageOptOuts(categoryKey?: string): Promise<OptOutEntry[]> {
+            return await new ApiRequest()
+                .messagingPreferencesOptOuts()
+                .withQueryString({
+                    category_key: categoryKey,
+                })
+                .get()
         },
     },
     oauthApplication: {
@@ -3620,6 +3723,7 @@ const api = {
                 content: string | null
                 contextual_tools?: Record<string, any>
                 ui_context?: MaxUIContext
+                billing_context?: MaxBillingContext
                 conversation?: string | null
                 trace_id: string
             },

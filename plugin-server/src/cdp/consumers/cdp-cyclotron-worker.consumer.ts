@@ -3,6 +3,7 @@ import { logger } from '../../utils/logger'
 import { captureException } from '../../utils/posthog'
 import { CyclotronJobQueue } from '../services/job-queue/job-queue'
 import {
+    CYCLOTRON_INVOCATION_JOB_QUEUES,
     CyclotronJobInvocation,
     CyclotronJobInvocationHogFunction,
     CyclotronJobInvocationResult,
@@ -17,11 +18,16 @@ import { CdpConsumerBase } from './cdp-base.consumer'
 export class CdpCyclotronWorker extends CdpConsumerBase {
     protected name = 'CdpCyclotronWorker'
     protected cyclotronJobQueue: CyclotronJobQueue
-    private queue: CyclotronJobQueueKind
+    protected queue: CyclotronJobQueueKind
 
-    constructor(hub: Hub, queue: CyclotronJobQueueKind = 'hog') {
+    constructor(hub: Hub) {
         super(hub)
-        this.queue = queue
+        this.queue = hub.CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_KIND
+
+        if (!CYCLOTRON_INVOCATION_JOB_QUEUES.includes(this.queue)) {
+            throw new Error(`Invalid cyclotron job queue kind: ${this.queue}`)
+        }
+
         this.cyclotronJobQueue = new CyclotronJobQueue(hub, this.queue, (batch) => this.processBatch(batch))
     }
 
@@ -111,6 +117,10 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
                 this.hogWatcher.observeResults(invocationResults).catch((err) => {
                     captureException(err)
                     logger.error('Error observing results', { err })
+                }),
+                this.hogWatcher2.observeResults(invocationResults).catch((err) => {
+                    captureException(err)
+                    logger.error('Error observing results with hogWatcher2', { err })
                 }),
             ])
         })
