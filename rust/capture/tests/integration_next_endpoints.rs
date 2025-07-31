@@ -10,8 +10,8 @@ use axum::http::StatusCode;
 use capture::config::CaptureMode;
 
 //
-// Of the 4 current "legacy" capture endpoints, /e/, /capture/, and /track/
-// all behave the same under the hood. These are tested identically together
+// The /e/, /capture/, and /track/ endpoints are all processed by event_next
+// and support the same request payload shapes and encodings.
 //
 
 #[tokio::test]

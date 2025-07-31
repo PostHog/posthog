@@ -5,7 +5,7 @@
 
   <script nonce="{{ request.admin_csp_nonce }}">
     window.addEventListener("DOMContentLoaded", () => {
-        document.getElementById("send_verification_email_button").addEventListener("click", (event) => {
+        document.getElementById("send_verification_email_button")?.addEventListener("click", (event) => {
             // prevent anchor tag from navigating
             event.preventDefault();
 
