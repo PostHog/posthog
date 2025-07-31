@@ -29,9 +29,11 @@ import { SceneFile } from 'lib/components/Scenes/SceneFile'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { AndOrFilterSelect } from '~/queries/nodes/InsightViz/PropertyGroupFilters/AndOrFilterSelect'
 import { Query } from '~/queries/Query/Query'
+import { CohortUserSearch } from './CohortUserSearch'
 
 import { IconCopy, IconTrash } from '@posthog/icons'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { useState } from 'react'
 const RESOURCE_TYPE = 'cohort'
 
 export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
@@ -42,6 +44,7 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
     const isNewCohort = cohort.id === 'new' || cohort.id === undefined
     const { featureFlags } = useValues(featureFlagLogic)
     const newSceneLayout = featureFlags[FEATURE_FLAGS.NEW_SCENE_LAYOUT]
+    const [isUserSearchOpen, setIsUserSearchOpen] = useState(false)
 
     if (cohortMissing) {
         return <NotFound object="cohort" />
@@ -266,16 +269,32 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                 </div>
                 {cohort.is_static ? (
                     <div className="mt-4 ph-ignore-input">
-                        <LemonField
-                            name="csv"
-                            label={isNewCohort ? 'Upload users' : 'Add users'}
-                            data-attr="cohort-csv"
-                        >
+                        <div className="flex items-center justify-between mb-4">
+                            <div>
+                                <h3 className="l3 mb-2">Add users to cohort</h3>
+                                <p className="text-muted">
+                                    {isNewCohort
+                                        ? 'Upload a CSV file or search for users to add to your cohort.'
+                                        : 'Search for users or upload a CSV file to add more users to your cohort.'}
+                                </p>
+                            </div>
+                            {!isNewCohort && (
+                                <LemonButton
+                                    type="primary"
+                                    onClick={() => setIsUserSearchOpen(true)}
+                                    data-attr="add-users-to-cohort"
+                                >
+                                    Add users
+                                </LemonButton>
+                            )}
+                        </div>
+
+                        <LemonField name="csv" label="Upload CSV file" data-attr="cohort-csv">
                             {({ onChange }) => (
                                 <>
                                     <span>
                                         Upload a CSV file to add users to your cohort. The CSV file only requires a
-                                        single column with the user’s distinct ID. The very first row (the header) will
+                                        single column with the user's distinct ID. The very first row (the header) will
                                         be skipped during import.
                                     </span>
                                     <LemonFileInput
@@ -377,6 +396,15 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                     </>
                 )}
             </Form>
+
+            {/* User search modal for static cohorts */}
+            {!isNewCohort && cohort.is_static && (
+                <CohortUserSearch
+                    cohortId={cohort.id as number}
+                    isOpen={isUserSearchOpen}
+                    onClose={() => setIsUserSearchOpen(false)}
+                />
+            )}
         </div>
     )
 }
