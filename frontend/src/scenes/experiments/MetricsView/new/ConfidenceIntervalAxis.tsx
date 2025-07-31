@@ -8,18 +8,18 @@ import { TickLabels } from './TickLabels'
  * ConfidenceIntervalAxis renders the horizontal axis for experiment confidence interval charts, rendered at the top of the metrics results view.
  *
  * This component renders an appropriately scaled axis with tick marks and percentage labels using
- * the chartRadius calculated by the parent Metrics component. It:
+ * the axisRange calculated by the parent Metrics component. It:
  *
- * 1. Receives chartRadius from parent (calculated from all confidence intervals across metrics)
+ * 1. Receives axisRange from parent (calculated from all confidence intervals across metrics)
  * 2. Generates nicely rounded tick values using getNiceTickValues()
  * 3. Renders an SVG axis with tick marks showing percentage changes
  *
  */
-export function ConfidenceIntervalAxis({ chartRadius }: { chartRadius: number }): JSX.Element {
-    const tickValues = getNiceTickValues(chartRadius)
-    const scale = useAxisScale(chartRadius, VIEW_BOX_WIDTH, SVG_EDGE_MARGIN)
+export function ConfidenceIntervalAxis({ axisRange }: { axisRange: number }): JSX.Element {
+    const tickValues = getNiceTickValues(axisRange)
+    const scale = useAxisScale(axisRange, VIEW_BOX_WIDTH, SVG_EDGE_MARGIN)
 
-    const { ticksSvgRef, ticksSvgHeight } = useSvgResizeObserver([tickValues, chartRadius])
+    const { ticksSvgRef, ticksSvgHeight } = useSvgResizeObserver([tickValues, axisRange])
     return (
         <div className="flex border-t border-l border-r rounded-t">
             {/* Left column - padding space above the metric panel */}

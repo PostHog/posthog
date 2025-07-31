@@ -3,7 +3,11 @@ import {
     formatChanceToWin,
     formatPValue,
     getIntervalLabel,
-    getVariantInterval,
+    getIntervalBounds,
+    formatIntervalPercent,
+    isSignificant,
+    isDeltaPositive,
+    formatDeltaPercent,
     isBayesianResult,
     valueToXCoordinate,
 } from '../shared/utils'
@@ -12,7 +16,7 @@ import { BAR_HEIGHT, BAR_SPACING, SVG_EDGE_MARGIN, VIEW_BOX_WIDTH } from './cons
 export function VariantTooltip({
     variantResult,
     index,
-    chartRadius,
+    axisRange,
     chartSvgRef,
     isVisible,
     onMouseEnter,
@@ -20,7 +24,7 @@ export function VariantTooltip({
 }: {
     variantResult: ExperimentVariantResult
     index: number
-    chartRadius: number
+    axisRange: number
     chartSvgRef: React.RefObject<SVGSVGElement>
     isVisible: boolean
     onMouseEnter?: () => void
@@ -31,12 +35,13 @@ export function VariantTooltip({
     }
 
     // Calculate SVG coordinates (same as VariantBar)
-    const interval = getVariantInterval(variantResult)
-    const [lower, upper] = interval ? [interval[0], interval[1]] : [0, 0]
+    const [lower, upper] = getIntervalBounds(variantResult)
+    const significant = isSignificant(variantResult)
+    const deltaPositive = isDeltaPositive(variantResult)
 
     const y = BAR_SPACING + (BAR_HEIGHT + BAR_SPACING) * index
-    const x1 = valueToXCoordinate(lower, chartRadius, VIEW_BOX_WIDTH, SVG_EDGE_MARGIN)
-    const x2 = valueToXCoordinate(upper, chartRadius, VIEW_BOX_WIDTH, SVG_EDGE_MARGIN)
+    const x1 = valueToXCoordinate(lower, axisRange, VIEW_BOX_WIDTH, SVG_EDGE_MARGIN)
+    const x2 = valueToXCoordinate(upper, axisRange, VIEW_BOX_WIDTH, SVG_EDGE_MARGIN)
 
     // Calculate middle of the bar
     const barCenterX = (x1 + x2) / 2
@@ -49,7 +54,7 @@ export function VariantTooltip({
     const screenX = svgRect.left + (barCenterX / svgViewBox.width) * svgRect.width
     const screenY = svgRect.top + (barTopY / svgViewBox.height) * svgRect.height
 
-    const intervalPercent = interval ? `[${(lower * 100).toFixed(2)}%, ${(upper * 100).toFixed(2)}%]` : 'N/A'
+    const intervalPercent = formatIntervalPercent(variantResult)
     const intervalLabel = getIntervalLabel(variantResult)
 
     return (
@@ -91,8 +96,8 @@ export function VariantTooltip({
 
                 <div className="flex justify-between items-center">
                     <span className="text-secondary font-semibold">Significant:</span>
-                    <span className={`font-semibold ${variantResult.significant ? 'text-success' : 'text-muted'}`}>
-                        {variantResult.significant ? 'Yes' : 'No'}
+                    <span className={`font-semibold ${significant ? 'text-success' : 'text-muted'}`}>
+                        {significant ? 'Yes' : 'No'}
                     </span>
                 </div>
 
@@ -102,15 +107,9 @@ export function VariantTooltip({
                         {variantResult.key === 'control' ? (
                             <em className="text-secondary">Baseline</em>
                         ) : (
-                            (() => {
-                                const deltaPercent = interval ? ((lower + upper) / 2) * 100 : 0
-                                const isPositive = deltaPercent > 0
-                                return (
-                                    <span className={isPositive ? 'text-success' : 'text-danger'}>
-                                        {`${isPositive ? '+' : ''}${deltaPercent.toFixed(2)}%`}
-                                    </span>
-                                )
-                            })()
+                            <span className={deltaPositive ? 'text-success' : 'text-danger'}>
+                                {formatDeltaPercent(variantResult)}
+                            </span>
                         )}
                     </span>
                 </div>
