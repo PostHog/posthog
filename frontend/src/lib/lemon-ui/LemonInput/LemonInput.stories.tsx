@@ -46,7 +46,7 @@ DisabledWithReason.play = async ({ canvasElement }: { canvasElement: HTMLElement
     const inputWrapper = canvasElement.querySelector('.LemonInput')
     if (inputWrapper) {
         await userEvent.hover(inputWrapper)
-        await new Promise((resolve) => setTimeout(resolve, 100))
+        await new Promise((resolve) => setTimeout(resolve, 500))
     }
 }
 
