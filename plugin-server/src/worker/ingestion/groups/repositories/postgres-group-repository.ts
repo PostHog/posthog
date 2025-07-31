@@ -11,10 +11,10 @@ import {
     TeamId,
 } from '../../../../types'
 import { PostgresRouter, PostgresUse, TransactionClient } from '../../../../utils/db/postgres'
-import { GroupRepository } from './group-repository'
-import { GroupRepositoryTransaction } from './group-repository-transaction'
+import { GroupRepository } from './group-repository.interface'
+import { GroupRepositoryTransaction } from './group-repository-transaction.interface'
 import { PostgresGroupRepositoryTransaction } from './postgres-group-repository-transaction'
-import { RawPostgresGroupRepository } from './raw-postgres-group-repository'
+import { RawPostgresGroupRepository } from './raw-postgres-group-repository.interface'
 
 export class PostgresGroupRepository
     implements GroupRepository, RawPostgresGroupRepository, GroupRepositoryTransaction

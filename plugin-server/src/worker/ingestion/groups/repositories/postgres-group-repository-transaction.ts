@@ -3,8 +3,8 @@ import { DateTime } from 'luxon'
 
 import { Group, GroupTypeIndex, PropertiesLastOperation, PropertiesLastUpdatedAt, TeamId } from '../../../../types'
 import { TransactionClient } from '../../../../utils/db/postgres'
-import { GroupRepositoryTransaction } from './group-repository-transaction'
-import { RawPostgresGroupRepository } from './raw-postgres-group-repository'
+import { GroupRepositoryTransaction } from './group-repository-transaction.interface'
+import { RawPostgresGroupRepository } from './raw-postgres-group-repository.interface'
 
 export class PostgresGroupRepositoryTransaction implements GroupRepositoryTransaction {
     constructor(private tx: TransactionClient, private repository: RawPostgresGroupRepository) {}
