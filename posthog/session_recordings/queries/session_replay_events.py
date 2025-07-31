@@ -38,7 +38,6 @@ def seconds_until_midnight():
 
 def get_recording_date_floor(recording_start_time: Optional[datetime], recording_ttl_days: int) -> datetime:
     if recording_start_time:
-        # If we have a recording start time, use it as the floor
         return recording_start_time
     else:
         return datetime.now(pytz.timezone("UTC")) - timedelta(days=recording_ttl_days)
