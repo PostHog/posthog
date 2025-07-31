@@ -182,8 +182,7 @@ export const groupsListLogic = kea<groupsListLogicType>([
             }
         },
     })),
-    afterMount((logic) => {
-        const { actions, values } = logic
+    afterMount(({ actions, values }) => {
         if (values.query.source.kind === NodeKind.GroupsQuery && values.query.source.select === undefined) {
             const defaultColumns = values.groupTypes.get(
                 values.query.source.group_type_index as GroupTypeIndex
