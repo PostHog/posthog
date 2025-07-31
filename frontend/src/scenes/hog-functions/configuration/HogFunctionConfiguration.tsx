@@ -252,7 +252,9 @@ export function HogFunctionConfiguration({ templateId, id, logicKey }: HogFuncti
                                 just fine but for others there may be unexpected issues and we do not offer official
                                 customer support for it in these cases.
                             </p>
-                            {['template-reddit-conversions-api', 'template-snapchat-ads'].includes(templateId ?? hogFunction?.template?.id ?? '') ? (
+                            {['template-reddit-conversions-api', 'template-snapchat-ads'].includes(
+                                templateId ?? hogFunction?.template?.id ?? ''
+                            ) ? (
                                 <span className="mt-2">
                                     The receiving destination imposes a rate limit of 10 events per second. Exceeding
                                     this limit may result in some events failing to be delivered.
