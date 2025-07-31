@@ -13,6 +13,7 @@ import temporalio
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 from django.conf import settings
 from ee.hogai.session_summaries import ExceptionToRetry
+from ee.hogai.session_summaries.constants import SESSION_SUMMARIES_SYNC_MODEL, SESSION_SUMMARIES_STREAMING_MODEL
 from ee.hogai.session_summaries.llm.consume import stream_llm_single_session_summary, get_llm_single_session_summary
 from ee.hogai.session_summaries.session.summarize_session import (
     ExtraSummaryContext,
@@ -88,6 +89,7 @@ async def fetch_session_data_activity(inputs: SingleSessionSummaryInputs) -> str
             session_id=inputs.session_id,
             user_id=inputs.user_id,
             summary_data=summary_data,
+            model_to_use=inputs.model_to_use,
         )
         # Store the input in Redis
         input_data_str = json.dumps(dataclasses.asdict(input_data))
@@ -137,6 +139,7 @@ async def get_llm_single_session_summary_activity(
         session_summary_str = await get_llm_single_session_summary(
             session_id=llm_input.session_id,
             user_id=llm_input.user_id,
+            model_to_use=llm_input.model_to_use,
             # Prompt
             summary_prompt=llm_input.summary_prompt,
             system_prompt=llm_input.system_prompt,
@@ -199,6 +202,7 @@ async def stream_llm_single_session_summary_activity(inputs: SingleSessionSummar
     session_summary_generator = stream_llm_single_session_summary(
         session_id=llm_input.session_id,
         user_id=llm_input.user_id,
+        model_to_use=llm_input.model_to_use,
         # Prompt
         summary_prompt=llm_input.summary_prompt,
         system_prompt=llm_input.system_prompt,
@@ -343,6 +347,7 @@ def _prepare_execution(
     session_id: str,
     user_id: int,
     team: Team,
+    model_to_use: str,
     stream: bool = False,
     extra_summary_context: ExtraSummaryContext | None = None,
     local_reads_prod: bool = False,
@@ -372,6 +377,7 @@ def _prepare_execution(
         extra_summary_context=extra_summary_context,
         local_reads_prod=local_reads_prod,
         redis_key_base=redis_key_base,
+        model_to_use=model_to_use,
     )
     workflow_id = (
         f"session-summary:single:{'stream' if stream else 'direct'}:{session_id}:{user_id}:{shared_id}:{uuid.uuid4()}"
@@ -383,6 +389,7 @@ async def execute_summarize_session(
     session_id: str,
     user_id: int,
     team: Team,
+    model_to_use: str = SESSION_SUMMARIES_SYNC_MODEL,
     extra_summary_context: ExtraSummaryContext | None = None,
     local_reads_prod: bool = False,
 ) -> str:
@@ -395,6 +402,7 @@ async def execute_summarize_session(
         user_id=user_id,
         team=team,
         stream=False,
+        model_to_use=model_to_use,
         extra_summary_context=extra_summary_context,
         local_reads_prod=local_reads_prod,
     )
@@ -420,6 +428,7 @@ def execute_summarize_session_stream(
     session_id: str,
     user_id: int,
     team: Team,
+    model_to_use: str = SESSION_SUMMARIES_STREAMING_MODEL,
     extra_summary_context: ExtraSummaryContext | None = None,
     local_reads_prod: bool = False,
 ) -> Generator[str, None, None]:
@@ -432,6 +441,7 @@ def execute_summarize_session_stream(
         user_id=user_id,
         team=team,
         stream=True,
+        model_to_use=model_to_use,
         extra_summary_context=extra_summary_context,
         local_reads_prod=local_reads_prod,
     )

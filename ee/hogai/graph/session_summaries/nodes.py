@@ -8,6 +8,7 @@ from asgiref.sync import async_to_sync
 from langchain_core.runnables import RunnableConfig
 
 from ee.hogai.graph.base import AssistantNode
+from ee.hogai.session_summaries.constants import SESSION_SUMMARIES_STREAMING_MODEL
 from ee.hogai.session_summaries.session_group.summarize_session_group import find_sessions_timestamps
 from ee.hogai.session_summaries.session_group.summary_notebooks import create_summary_notebook
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
@@ -105,7 +106,14 @@ class SessionSummarizationNode(AssistantNode):
         # so it's ok to summarize them one by one and answer fast (without notebook creation)
         if len(session_ids) <= 5:
             summaries_tasks = [
-                execute_summarize_session(session_id=sid, user_id=self._user.id, team=self._team) for sid in session_ids
+                # As it's used as a direct output, use faster streaming model instead
+                execute_summarize_session(
+                    session_id=sid,
+                    user_id=self._user.id,
+                    team=self._team,
+                    model_to_use=SESSION_SUMMARIES_STREAMING_MODEL,
+                )
+                for sid in session_ids
             ]
             summaries: list[str] = await asyncio.gather(*summaries_tasks)
             # TODO: Add layer to convert JSON into more readable text for Max to returns to user

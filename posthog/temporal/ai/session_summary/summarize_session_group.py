@@ -9,7 +9,7 @@ import temporalio
 from asgiref.sync import async_to_sync
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 from django.conf import settings
-from ee.hogai.session_summaries.constants import FAILED_SESSION_SUMMARIES_MIN_RATIO
+from ee.hogai.session_summaries.constants import FAILED_SESSION_SUMMARIES_MIN_RATIO, SESSION_SUMMARIES_SYNC_MODEL
 from ee.hogai.session_summaries.session.input_data import add_context_and_filter_events, get_team
 from ee.hogai.session_summaries.session_group.patterns import EnrichedSessionGroupSummaryPatternsList
 from ee.hogai.session_summaries.session.summarize_session import (
@@ -181,6 +181,7 @@ async def fetch_session_batch_events_activity(
             session_id=session_id,
             user_id=inputs.user_id,
             summary_data=summary_data,
+            model_to_use=inputs.model_to_use,
         )
         # Store the input data in Redis
         session_data_key = generate_state_key(
@@ -249,6 +250,7 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
                 user_id=inputs.user_id,
                 team_id=inputs.team_id,
                 redis_key_base=inputs.redis_key_base,
+                model_to_use=inputs.model_to_use,
                 extra_summary_context=inputs.extra_summary_context,
                 local_reads_prod=inputs.local_reads_prod,
             )
@@ -332,6 +334,7 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
             SessionGroupSummaryOfSummariesInputs(
                 single_session_summaries_inputs=summaries_session_inputs,
                 user_id=inputs.user_id,
+                model_to_use=inputs.model_to_use,
                 extra_summary_context=inputs.extra_summary_context,
                 redis_key_base=inputs.redis_key_base,
             ),
@@ -345,6 +348,7 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
             SessionGroupSummaryOfSummariesInputs(
                 single_session_summaries_inputs=summaries_session_inputs,
                 user_id=inputs.user_id,
+                model_to_use=inputs.model_to_use,
                 extra_summary_context=inputs.extra_summary_context,
                 redis_key_base=inputs.redis_key_base,
             ),
@@ -386,6 +390,7 @@ def execute_summarize_session_group(
     team: Team,
     min_timestamp: datetime,
     max_timestamp: datetime,
+    model_to_use: str = SESSION_SUMMARIES_SYNC_MODEL,
     extra_summary_context: ExtraSummaryContext | None = None,
     local_reads_prod: bool = False,
 ) -> EnrichedSessionGroupSummaryPatternsList:
@@ -403,6 +408,7 @@ def execute_summarize_session_group(
         redis_key_base=redis_key_base,
         min_timestamp_str=min_timestamp.isoformat(),
         max_timestamp_str=max_timestamp.isoformat(),
+        model_to_use=model_to_use,
         extra_summary_context=extra_summary_context,
         local_reads_prod=local_reads_prod,
     )

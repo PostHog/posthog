@@ -2,9 +2,10 @@ from django.conf import settings
 from openai import AsyncStream
 import structlog
 from ee.hogai.session_summaries.constants import (
-    SESSION_SUMMARIES_STREAMING_MODEL,
     SESSION_SUMMARIES_REASONING_EFFORT,
     SESSION_SUMMARIES_TEMPERATURE,
+    SESSION_SUMMARIES_STREAMING_MODELS,
+    SESSION_SUMMARIES_REASONING_MODELS,
 )
 from posthoganalytics.ai.openai import OpenAI, AsyncOpenAI
 from posthog.cloud_utils import is_cloud
@@ -80,9 +81,9 @@ async def stream_llm(
     input_prompt: str,
     user_key: int,
     session_id: str,
+    model: str,
     assistant_start_text: str | None = None,
     system_prompt: str | None = None,
-    model: str = SESSION_SUMMARIES_STREAMING_MODEL,
     trace_id: str | None = None,
 ) -> AsyncStream[ChatCompletionChunk]:
     """
@@ -109,7 +110,6 @@ async def call_llm(
     model: str,
     assistant_start_text: str | None = None,
     system_prompt: str | None = None,
-    reasoning: bool = False,
     trace_id: str | None = None,
 ) -> ChatCompletion:
     """
@@ -118,7 +118,7 @@ async def call_llm(
     messages = _prepare_messages(input_prompt, session_id, assistant_start_text, system_prompt)
     user_param = _prepare_user_param(user_key)
     client = get_async_openai_client()
-    if not reasoning:
+    if model in SESSION_SUMMARIES_STREAMING_MODELS:
         result = await client.chat.completions.create(  # type: ignore[call-overload]
             messages=messages,
             model=model,
@@ -126,12 +126,17 @@ async def call_llm(
             user=user_param,
             posthog_trace_id=trace_id,
         )
-    else:
+    elif model in SESSION_SUMMARIES_REASONING_MODELS:
         result = await client.chat.completions.create(  # type: ignore[call-overload]
             messages=messages,
             model=model,
             reasoning_effort=SESSION_SUMMARIES_REASONING_EFFORT,
             user=user_param,
             posthog_trace_id=trace_id,
+        )
+    else:
+        raise ValueError(
+            f"Unsupported model for session summaries: {model} when calling for session id {session_id}. Supported models: "
+            f"{SESSION_SUMMARIES_STREAMING_MODELS + SESSION_SUMMARIES_REASONING_MODELS}"
         )
     return result

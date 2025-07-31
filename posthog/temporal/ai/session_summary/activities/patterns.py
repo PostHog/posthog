@@ -121,6 +121,7 @@ async def extract_session_group_patterns_activity(inputs: SessionGroupSummaryOfS
             prompt=patterns_extraction_prompt,
             user_id=inputs.user_id,
             session_ids=session_ids,
+            model_to_use=inputs.model_to_use,
             trace_id=temporalio.activity.info().workflow_id,
         )
         patterns_extraction_str = patterns_extraction.model_dump_json(exclude_none=True)
@@ -139,6 +140,7 @@ async def _generate_patterns_assignments_per_chunk(
     session_summaries_chunk_str: list[str],
     user_id: int,
     session_ids: list[str],
+    model_to_use: str,
     extra_summary_context: ExtraSummaryContext | None,
     trace_id: str | None = None,
 ) -> RawSessionGroupPatternAssignmentsList | Exception:
@@ -153,6 +155,7 @@ async def _generate_patterns_assignments_per_chunk(
             prompt=patterns_assignment_prompt,
             user_id=user_id,
             session_ids=session_ids,
+            model_to_use=model_to_use,
             trace_id=trace_id,
         )
     except Exception as err:  # Activity retries exhausted
@@ -165,6 +168,7 @@ async def _generate_patterns_assignments(
     session_summaries_chunks_str: list[list[str]],
     user_id: int,
     session_ids: list[str],
+    model_to_use: str,
     extra_summary_context: ExtraSummaryContext | None,
     trace_id: str | None = None,
 ) -> list[RawSessionGroupPatternAssignmentsList]:
@@ -179,6 +183,7 @@ async def _generate_patterns_assignments(
                     session_summaries_chunk_str=summaries_chunk,
                     user_id=user_id,
                     session_ids=session_ids,
+                    model_to_use=model_to_use,
                     extra_summary_context=extra_summary_context,
                     trace_id=trace_id,
                 )
@@ -255,6 +260,7 @@ async def assign_events_to_patterns_activity(
             session_summaries_chunks_str=session_summaries_chunks_str,
             user_id=inputs.user_id,
             session_ids=session_ids,
+            model_to_use=inputs.model_to_use,
             extra_summary_context=inputs.extra_summary_context,
             trace_id=temporalio.activity.info().workflow_id,
         )

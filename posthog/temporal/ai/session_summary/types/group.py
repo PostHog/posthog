@@ -15,6 +15,7 @@ class SessionGroupSummaryInputs:
     # Timestamps required to avoid reading too many days from ClickHouse
     min_timestamp_str: str
     max_timestamp_str: str
+    model_to_use: str
     extra_summary_context: ExtraSummaryContext | None = None
     local_reads_prod: bool = False
 
@@ -32,4 +33,5 @@ class SessionGroupSummaryOfSummariesInputs:
     single_session_summaries_inputs: list[SingleSessionSummaryInputs]
     user_id: int
     redis_key_base: str
+    model_to_use: str
     extra_summary_context: ExtraSummaryContext | None = None

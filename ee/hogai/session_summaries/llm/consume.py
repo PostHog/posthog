@@ -4,7 +4,6 @@ import os
 from typing import Any
 import openai
 import structlog
-from ee.hogai.session_summaries.constants import SESSION_SUMMARIES_SYNC_MODEL
 from ee.hogai.session_summaries.llm.call import call_llm, stream_llm
 from ee.hogai.session_summaries.session.output_data import (
     enrich_raw_session_summary_with_meta,
@@ -116,7 +115,7 @@ def _convert_llm_content_to_session_summary_json_str(
 
 
 async def get_llm_session_group_patterns_extraction(
-    prompt: PatternsPrompt, user_id: int, session_ids: list[str], trace_id: str | None = None
+    prompt: PatternsPrompt, user_id: int, session_ids: list[str], model_to_use: str, trace_id: str | None = None
 ) -> RawSessionGroupSummaryPatternsList:
     """Call LLM to extract patterns from multiple sessions."""
     sessions_identifier = ",".join(session_ids)
@@ -125,8 +124,7 @@ async def get_llm_session_group_patterns_extraction(
         user_key=user_id,
         session_id=sessions_identifier,
         system_prompt=prompt.system_prompt,
-        model=SESSION_SUMMARIES_SYNC_MODEL,
-        reasoning=True,
+        model=model_to_use,
         trace_id=trace_id,
     )
     raw_content = _get_raw_content(result)
@@ -139,7 +137,7 @@ async def get_llm_session_group_patterns_extraction(
 
 
 async def get_llm_session_group_patterns_assignment(
-    prompt: PatternsPrompt, user_id: int, session_ids: list[str], trace_id: str | None = None
+    prompt: PatternsPrompt, user_id: int, session_ids: list[str], model_to_use: str, trace_id: str | None = None
 ) -> RawSessionGroupPatternAssignmentsList:
     """Call LLM to assign events to extracted patterns."""
     sessions_identifier = ",".join(session_ids)
@@ -148,8 +146,7 @@ async def get_llm_session_group_patterns_assignment(
         user_key=user_id,
         session_id=sessions_identifier,
         system_prompt=prompt.system_prompt,
-        model=SESSION_SUMMARIES_SYNC_MODEL,
-        reasoning=True,
+        model=model_to_use,
         trace_id=trace_id,
     )
     raw_content = _get_raw_content(result)
@@ -164,6 +161,7 @@ async def get_llm_session_group_patterns_assignment(
 async def get_llm_single_session_summary(
     summary_prompt: str,
     user_id: int,
+    model_to_use: str,
     allowed_event_ids: list[str],
     session_id: str,
     simplified_events_mapping: dict[str, list[Any]],
@@ -183,8 +181,7 @@ async def get_llm_single_session_summary(
             user_key=user_id,
             session_id=session_id,
             system_prompt=system_prompt,
-            model=SESSION_SUMMARIES_SYNC_MODEL,
-            reasoning=True,
+            model=model_to_use,
             trace_id=trace_id,
         )
         raw_content = _get_raw_content(result)
@@ -232,6 +229,7 @@ async def get_llm_single_session_summary(
 async def stream_llm_single_session_summary(
     summary_prompt: str,
     user_id: int,
+    model_to_use: str,
     allowed_event_ids: list[str],
     session_id: str,
     simplified_events_mapping: dict[str, list[Any]],
@@ -254,6 +252,7 @@ async def stream_llm_single_session_summary(
             session_id=session_id,
             system_prompt=system_prompt,
             trace_id=trace_id,
+            model=model_to_use,
         )
         async for chunk in stream:
             accumulated_usage += chunk.usage.prompt_tokens if chunk.usage else 0
