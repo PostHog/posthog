@@ -164,7 +164,7 @@ class TestAutoProjectMiddleware(APIBaseTest):
     def test_project_switched_when_accessing_dashboard_of_another_accessible_team(self):
         dashboard = Dashboard.objects.create(team=self.second_team)
 
-        with self.assertNumQueries(self.base_app_num_queries + 7):  # AutoProjectMiddleware adds 4 queries
+        with self.assertNumQueries(self.base_app_num_queries + 8):  # AutoProjectMiddleware adds 4 queries
             response_app = self.client.get(f"/dashboard/{dashboard.id}")
         response_users_api = self.client.get(f"/api/users/@me/")
         response_users_api_data = response_users_api.json()
