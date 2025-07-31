@@ -49,7 +49,7 @@ function OtherWatchersDisplay({ metadata }: { metadata?: SessionRecordingType })
                 <span>
                     {count} other {varyingText} watched this recording.
                 </span>
-                {count > 0 && (
+                {(
                     <LemonButton
                         size="small"
                         icon={<IconChevronDown className={isExpanded ? 'rotate-180' : ''} />}
