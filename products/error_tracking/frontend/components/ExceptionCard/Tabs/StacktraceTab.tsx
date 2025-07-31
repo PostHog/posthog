@@ -22,6 +22,7 @@ import { FixModal } from '../FixModal'
 import { StacktraceBaseDisplayProps, StacktraceEmptyDisplay } from '../Stacktrace/StacktraceBase'
 import { StacktraceGenericDisplay } from '../Stacktrace/StacktraceGenericDisplay'
 import { StacktraceTextDisplay } from '../Stacktrace/StacktraceTextDisplay'
+import { SubHeader } from './SubHeader'
 
 export interface StacktraceTabProps extends Omit<TabsPrimitiveContentProps, 'children'> {
     issue?: ErrorTrackingRelationalIssue
@@ -42,7 +43,7 @@ export function StacktraceTab({
     const [showFixModal, setShowFixModal] = useState(false)
     return (
         <TabsPrimitiveContent {...props}>
-            <div className="flex justify-between items-center border-b-1 bg-surface-secondary px-2 py-1">
+            <SubHeader className="justify-between">
                 <div className="flex items-center gap-1">
                     <ExceptionAttributesPreview attributes={exceptionAttributes} loading={loading} />
                 </div>
@@ -64,7 +65,7 @@ export function StacktraceTab({
                         </ButtonPrimitive>
                     </ShowDropDownMenu>
                 </ButtonGroupPrimitive>
-            </div>
+            </SubHeader>
             <StacktraceIssueDisplay
                 className="p-2"
                 truncateMessage={false}
