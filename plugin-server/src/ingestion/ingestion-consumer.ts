@@ -154,6 +154,7 @@ export class IngestionConsumer {
         this.personStore = new BatchWritingPersonsStore(
             new PostgresPersonRepository(this.hub.db.postgres, {
                 calculatePropertiesSize: this.hub.PERSON_UPDATE_CALCULATE_PROPERTIES_SIZE,
+                personPropertiesSizeLimit: this.hub.PERSON_PROPERTIES_SIZE_LIMIT,
             }),
             this.hub.db.kafkaProducer,
             {
