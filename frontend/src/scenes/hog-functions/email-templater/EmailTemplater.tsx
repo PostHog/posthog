@@ -11,7 +11,6 @@ import EmailEditor from 'react-email-editor'
 import { emailTemplaterLogic, EmailTemplaterLogicProps } from './emailTemplaterLogic'
 import { CyclotronJobInputIntegration } from 'lib/components/CyclotronJob/integrations/CyclotronJobInputIntegration'
 import { unsubscribeLinkToolCustomJs } from './custom-tools/unsubscribeLinkTool'
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
 function EmailTemplaterForm({ mode }: { mode: 'full' | 'preview' }): JSX.Element {
     const { logicProps, appliedTemplate, templates, templatesLoading, mergeTags } = useValues(emailTemplaterLogic)
@@ -105,17 +104,6 @@ function EmailTemplaterForm({ mode }: { mode: 'full' | 'preview' }): JSX.Element
                             },
                             projectId: 275256,
                             customJS: [unsubscribeLinkToolCustomJs],
-                            tools: {
-                                text: {
-                                    properties: {
-                                        textAlign: {
-                                            editor: {
-                                                defaultValue: 'center',
-                                            },
-                                        },
-                                    },
-                                },
-                            },
                         }}
                     />
                 ) : (
