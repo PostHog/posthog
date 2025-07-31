@@ -21,9 +21,7 @@ from posthog.models.utils import UUIDT, UUIDModel
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from posthog.models.feature_flag.feature_flag import FeatureFlag
     from posthog.models.user import User
-
 
 logger = structlog.get_logger(__name__)
 
@@ -107,7 +105,7 @@ class ActivityDetailEncoder(json.JSONEncoder):
             return obj.isoformat()
         if isinstance(obj, UUIDT):
             return str(obj)
-        if isinstance(obj, User):
+        if hasattr(obj, "__class__") and obj.__class__.__name__ == "User":
             return {"first_name": obj.first_name, "email": obj.email}
         if isinstance(obj, float):
             # more precision than we'll need but avoids rounding too unnecessarily
@@ -115,7 +113,7 @@ class ActivityDetailEncoder(json.JSONEncoder):
         if isinstance(obj, Decimal):
             # more precision than we'll need but avoids rounding too unnecessarily
             return format(obj, ".6f").rstrip("0").rstrip(".")
-        if isinstance(obj, FeatureFlag):
+        if hasattr(obj, "__class__") and obj.__class__.__name__ == "FeatureFlag":
             return {
                 "id": obj.id,
                 "key": obj.key,
@@ -374,7 +372,7 @@ def describe_change(m: Any) -> Union[str, dict]:
     from posthog.models.dashboard_tile import DashboardTile
 
     if isinstance(m, Dashboard):
-        return {"id": m.id, "name": m.name}
+        return {"id": m.id, "name": m.name}  # type: ignore[attr-defined]
     if isinstance(m, DashboardTile):
         description = {"dashboard": {"id": m.dashboard.id, "name": m.dashboard.name}}
         if m.insight:
@@ -452,8 +450,8 @@ def changes_between(
                 field_name = "dashboards"
 
             # if is a django model field, check the empty_values list
-            left_is_none = left is None or (hasattr(field, "empty_values") and left in field.empty_values)
-            right_is_none = right is None or (hasattr(field, "empty_values") and right in field.empty_values)
+            left_is_none = left is None or (hasattr(field, "empty_values") and left in field.empty_values)  # type: ignore[attr-defined]
+            right_is_none = right is None or (hasattr(field, "empty_values") and right in field.empty_values)  # type: ignore[attr-defined]
 
             left_value = "masked" if field_name in masked_fields else left
             right_value = "masked" if field_name in masked_fields else right
@@ -558,7 +556,7 @@ def log_activity(
                 "activity_log.ignore_update_activity_no_changes",
                 team_id=team_id,
                 organization_id=organization_id,
-                user_id=user.id if user else None,
+                user_id=user.id if user else None,  # type: ignore[attr-defined]
                 scope=scope,
             )
             return None
