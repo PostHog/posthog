@@ -44,7 +44,7 @@ from posthog.tasks.email import send_password_reset, send_two_factor_auth_backup
 from posthog.utils import get_instance_available_sso_providers
 from posthog.tasks.email import login_from_new_device_notification
 from posthog.utils import get_short_user_agent, get_ip_address
-from posthog.cloud_utils import is_ci
+from posthog.cloud_utils import is_cloud
 
 
 @receiver(user_logged_in)
@@ -70,7 +70,7 @@ def post_login(sender, user, request: HttpRequest, **kwargs):
     short_user_agent = get_short_user_agent(request)
     ip_address = get_ip_address(request)
 
-    if not is_reauthentication and not is_signup and not is_ci():
+    if not is_reauthentication and not is_signup and is_cloud():
         login_from_new_device_notification.delay(user.id, timezone.now(), short_user_agent, ip_address)
 
 
