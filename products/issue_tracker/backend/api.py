@@ -5,8 +5,8 @@ from rest_framework.permissions import IsAuthenticated
 from django.utils import timezone
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.permissions import APIScopePermission
-from .models import Issue, GitHubIntegration, IssueProgress
-from .serializers import IssueSerializer, GitHubIntegrationSerializer
+from .models import Issue, IssueProgress
+from .serializers import IssueSerializer
 from .temporal.client import execute_issue_processing_workflow
 
 
@@ -197,101 +197,3 @@ class IssueViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             return Response({
                 "error": f"Failed to fetch progress stream: {str(e)}"
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-
-class GitHubIntegrationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
-    serializer_class = GitHubIntegrationSerializer
-    permission_classes = [IsAuthenticated, APIScopePermission]
-    required_scopes = ["issue:read"]
-    scope_object = "issue"
-
-    queryset = GitHubIntegration.objects.all()
-
-    def safely_get_queryset(self, queryset):
-        return queryset.filter(team=self.team)
-
-    def get_serializer_context(self):
-        return {**super().get_serializer_context(), "team": self.team}
-
-    def perform_create(self, serializer):
-        serializer.save(team=self.team)
-
-    @action(detail=True, methods=["post"])
-    def test_connection(self, request, pk=None, **kwargs):
-        """Test GitHub integration connection and permissions."""
-        import logging
-        logger = logging.getLogger(__name__)
-
-        integration = self.get_object()
-
-        if not integration.github_token:
-            return Response(
-                {"success": False, "error": "No GitHub token configured"},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        try:
-            # Import GitHub client
-            from .temporal.github_client import GitHubClient
-            import asyncio
-
-            client = GitHubClient(
-                token=integration.github_token,
-                repo_owner=integration.repo_owner,
-                repo_name=integration.repo_name
-            )
-
-            # Test repository access
-            async def test_repo_access():
-                repo_info = await client.get_repository_info()
-                return repo_info
-
-            # Run async test
-            repo_result = asyncio.run(test_repo_access())
-
-            if repo_result["success"]:
-                logger.info(f"GitHub connection test successful for {integration.repo_full_name}")
-                return Response({
-                    "success": True,
-                    "message": f"Successfully connected to {integration.repo_full_name}",
-                    "repository": {
-                        "name": repo_result["repo_full_name"],
-                        "default_branch": repo_result["default_branch"],
-                        "private": repo_result["private"],
-                        "url": repo_result["html_url"]
-                    }
-                })
-            else:
-                logger.error(f"GitHub connection test failed: {repo_result['error']}")
-                return Response({
-                    "success": False,
-                    "error": repo_result["error"]
-                }, status=status.HTTP_400_BAD_REQUEST)
-
-        except Exception as e:
-            logger.error(f"GitHub connection test error: {str(e)}")
-            return Response({
-                "success": False,
-                "error": f"Connection test failed: {str(e)}"
-            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-    @action(detail=False, methods=["get"])
-    def status(self, request, **kwargs):
-        """Get GitHub integration status for the team."""
-        try:
-            integration = GitHubIntegration.objects.get(team=self.team)
-            return Response({
-                "configured": True,
-                "active": integration.is_active,
-                "repository": integration.repo_full_name if integration.repo_owner and integration.repo_name else None,
-                "has_token": bool(integration.github_token),
-                "auto_create_pr": integration.auto_create_pr
-            })
-        except GitHubIntegration.DoesNotExist:
-            return Response({
-                "configured": False,
-                "active": False,
-                "repository": None,
-                "has_token": False,
-                "auto_create_pr": False
-            })

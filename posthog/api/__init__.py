@@ -204,9 +204,6 @@ project_features_router = projects_router.register(
 register_grandfathered_environment_nested_viewset(
     r"issues", issue_tracker.IssueViewSet, "environment_issues", ["team_id"]
 )
-register_grandfathered_environment_nested_viewset(
-    r"github-integration", issue_tracker.GitHubIntegrationViewSet, "environment_github_integration", ["team_id"]
-)
 projects_router.register(r"surveys", survey.SurveyViewSet, "project_surveys", ["project_id"])
 projects_router.register(
     r"dashboard_templates",

@@ -62,6 +62,7 @@ export const integrationsLogic = kea<integrationsLogicType>([
                 closeSetupModal: () => null,
             },
         ],
+        loadGitHubRepositories: (integrationId: number) => ({ integrationId }),
     }),
     loaders(({ values }) => ({
         integrations: [
@@ -110,6 +111,18 @@ export const integrationsLogic = kea<integrationsLogicType>([
                 },
             },
         ],
+        githubRepositories: [
+            {} as Record<number, string[]>,
+            {
+                loadGitHubRepositories: async ({ integrationId }) => {
+                    const response = await api.integrations.githubRepositories(integrationId)
+                    return {
+                        ...values.githubRepositories,
+                        [integrationId]: response.repositories || [],
+                    }
+                },
+            },
+        ],
     })),
     listeners(({ actions }) => ({
         handleGithubCallback: async ({ searchParams }) => {
@@ -130,7 +143,7 @@ export const integrationsLogic = kea<integrationsLogicType>([
             } catch {
                 lemonToast.error(`Something went wrong. Please try again.`)
             } finally {
-                router.actions.replace(urls.errorTrackingConfiguration({ tab: 'error-tracking-integrations' }))
+                router.actions.replace(urls.settings('project-integrations'))
             }
         },
         handleOauthCallback: async ({ kind, searchParams }) => {
@@ -202,6 +215,13 @@ export const integrationsLogic = kea<integrationsLogicType>([
             (preflight) => {
                 // TODO: Change this to be based on preflight or something
                 return preflight?.slack_service?.available
+            },
+        ],
+        
+        getGitHubRepositories: [
+            (s) => [s.githubRepositories],
+            (githubRepositories) => {
+                return (integrationId: number) => githubRepositories[integrationId] || []
             },
         ],
     }),

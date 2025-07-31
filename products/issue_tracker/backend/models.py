@@ -42,96 +42,15 @@ class Issue(models.Model):
 
     @property
     def github_integration(self):
-        """Get the team's GitHub integration if available"""
+        """Get the team's main GitHub integration if available"""
+        from posthog.models.integration import Integration
         try:
-            return self.team.github_integration
-        except:
+            return Integration.objects.filter(
+                team_id=self.team_id,
+                kind="github"
+            ).first()
+        except Exception:
             return None
-
-
-class GitHubIntegration(models.Model):
-    """GitHub integration settings for a team's issue tracker."""
-
-    team = models.OneToOneField(
-        "posthog.Team",
-        on_delete=models.CASCADE,
-        related_name="github_integration"
-    )
-
-    # Repository configuration
-    repo_url = models.URLField(
-        help_text="GitHub repository URL (e.g., https://github.com/owner/repo)"
-    )
-    repo_owner = models.CharField(
-        max_length=255,
-        help_text="GitHub repository owner/organization"
-    )
-    repo_name = models.CharField(
-        max_length=255,
-        help_text="GitHub repository name"
-    )
-    default_branch = models.CharField(
-        max_length=255,
-        default="main",
-        help_text="Default branch to create issue branches from"
-    )
-
-    # Authentication
-    github_token = models.TextField(
-        blank=True,
-        null=True,
-        help_text="GitHub personal access token or app installation token"
-    )
-    github_app_installation_id = models.CharField(
-        max_length=255,
-        blank=True,
-        null=True,
-        help_text="GitHub App installation ID if using GitHub App"
-    )
-
-    # Configuration
-    branch_prefix = models.CharField(
-        max_length=100,
-        default="issue",
-        help_text="Prefix for issue branches (e.g., 'issue' creates 'issue/fix-bug-123')"
-    )
-    auto_create_pr = models.BooleanField(
-        default=True,
-        help_text="Automatically create pull request when work is completed"
-    )
-
-    # Metadata
-    created_at = models.DateTimeField(default=timezone.now)
-    updated_at = models.DateTimeField(auto_now=True)
-    is_active = models.BooleanField(
-        default=True,
-        help_text="Whether GitHub integration is enabled for this team"
-    )
-
-    class Meta:
-        db_table = "posthog_github_integration"
-
-    def __str__(self):
-        return f"GitHub integration for {self.team.name}: {self.repo_owner}/{self.repo_name}"
-
-    @property
-    def repo_full_name(self):
-        """Returns owner/repo format"""
-        return f"{self.repo_owner}/{self.repo_name}"
-
-    def get_branch_name(self, issue_title: str, issue_id: str) -> str:
-        """Generate a branch name for an issue"""
-        # Sanitize title for branch name
-        import re
-        sanitized_title = re.sub(r'[^\w\-_]', '-', issue_title.lower())
-        sanitized_title = re.sub(r'-+', '-', sanitized_title)  # Remove multiple dashes
-        sanitized_title = sanitized_title.strip('-')  # Remove leading/trailing dashes
-
-        # Truncate if too long
-        if len(sanitized_title) > 50:
-            sanitized_title = sanitized_title[:20] + ""
-
-        return f"{self.branch_prefix}/{sanitized_title}-{issue_id[:8]}"
 
 
 class IssueProgress(models.Model):

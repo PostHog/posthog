@@ -19,9 +19,189 @@ from .activities import (
 from .github_activities import (
     clone_repo_and_create_branch_activity,
     cleanup_repo_activity,
+    create_branch_using_integration_activity,
+    create_pr_using_integration_activity,
+    commit_changes_using_integration_activity,
 )
 
 logger = get_logger(__name__)
+
+
+@temporalio.workflow.defn(name="process-issue-with-integration")
+class IssueProcessingIntegratedWorkflow(PostHogWorkflow):
+    """Workflow using the main GitHub integration system for issue processing."""
+
+    @staticmethod
+    def parse_inputs(inputs: list[str]) -> IssueProcessingInputs:
+        """Parse inputs from the management command CLI."""
+        loaded = json.loads(inputs[0])
+        return IssueProcessingInputs(**loaded)
+
+    @temporalio.workflow.run
+    async def run(self, inputs: IssueProcessingInputs) -> str:
+        """
+        Main workflow execution using the main GitHub integration system.
+        
+        When an issue moves to 'todo', this workflow will:
+        1. Create a branch using the main GitHub integration
+        2. Process the issue with AI if needed
+        3. Commit changes using the integration API
+        4. Create a pull request using the integration API
+        """
+        logger.info(f"Processing issue {inputs.issue_id} using integrated GitHub system")
+
+        # Only process if the issue was moved to 'todo' status
+        if inputs.new_status == "todo":
+            logger.info(f"Issue {inputs.issue_id} moved to TODO, starting integrated GitHub workflow")
+
+            try:
+                # Step 1: Create branch using main GitHub integration
+                logger.info(f"Step 1: Creating branch using main GitHub integration for issue {inputs.issue_id}")
+                branch_result = await workflow.execute_activity(
+                    create_branch_using_integration_activity,
+                    inputs,
+                    start_to_close_timeout=timedelta(minutes=5),
+                    retry_policy=RetryPolicy(
+                        initial_interval=timedelta(seconds=10),
+                        maximum_interval=timedelta(minutes=1),
+                        maximum_attempts=3,
+                    ),
+                )
+
+                if not branch_result.get("success"):
+                    error_msg = f"Failed to create branch: {branch_result.get('error', 'Unknown error')}"
+                    logger.error(error_msg)
+                    return error_msg
+
+                branch_name = branch_result["branch_name"]
+                repository = branch_result["repository"]
+                logger.info(f"Branch created successfully: {branch_name} in repository {repository}")
+
+                # Step 2: Move issue to in_progress status
+                logger.info(f"Step 2: Moving issue {inputs.issue_id} to in_progress status")
+                await workflow.execute_activity(
+                    update_issue_status_activity,
+                    {"issue_id": inputs.issue_id, "team_id": inputs.team_id, "new_status": "in_progress"},
+                    start_to_close_timeout=timedelta(minutes=2),
+                    retry_policy=RetryPolicy(
+                        initial_interval=timedelta(seconds=10),
+                        maximum_interval=timedelta(seconds=30),
+                        maximum_attempts=3,
+                    ),
+                )
+
+                # Step 3: Execute background processing
+                logger.info(f"Step 3: Running background processing for issue {inputs.issue_id}")
+                processing_result = await workflow.execute_activity(
+                    process_issue_moved_to_todo_activity,
+                    inputs,
+                    start_to_close_timeout=timedelta(minutes=5),
+                    retry_policy=RetryPolicy(
+                        initial_interval=timedelta(seconds=30),
+                        maximum_interval=timedelta(minutes=2),
+                        maximum_attempts=3,
+                    ),
+                )
+
+                logger.info(f"Background processing completed: {processing_result}")
+
+                # Step 4: Get issue details for commits and PR
+                issue_details = await workflow.execute_activity(
+                    get_issue_details_activity,
+                    {"issue_id": inputs.issue_id, "team_id": inputs.team_id},
+                    start_to_close_timeout=timedelta(minutes=1),
+                )
+
+                # Step 5: Commit sample changes using integration (this would be replaced with actual AI-generated changes)
+                logger.info(f"Step 5: Committing changes using GitHub integration for issue {inputs.issue_id}")
+
+                # Example file changes - in real implementation, these would come from AI agent
+                sample_file_changes = [
+                    {
+                        "path": f"issues/{inputs.issue_id}/README.md",
+                        "content": f"""# Issue: {issue_details['title']}
+
+## Description
+{issue_details.get('description', 'No description provided')}
+
+## Status
+{inputs.new_status}
+
+## Auto-generated by PostHog Issue Tracker
+This file was created automatically when the issue was moved to TODO status.
+""",
+                        "message": f"Add documentation for issue #{inputs.issue_id}: {issue_details['title']}"
+                    }
+                ]
+
+                commit_result = await workflow.execute_activity(
+                    commit_changes_using_integration_activity,
+                    inputs,
+                    repository,
+                    branch_name,
+                    sample_file_changes,
+                    start_to_close_timeout=timedelta(minutes=10),
+                    retry_policy=RetryPolicy(
+                        initial_interval=timedelta(seconds=30),
+                        maximum_interval=timedelta(minutes=2),
+                        maximum_attempts=3,
+                    ),
+                )
+
+                if not commit_result.get("success"):
+                    logger.warning(f"Failed to commit changes: {commit_result.get('error')}")
+                    # Continue workflow even if commits fail
+                else:
+                    logger.info(f"Changes committed successfully: {commit_result['total_files']} files")
+
+                # Step 6: Create pull request using integration
+                logger.info(f"Step 6: Creating pull request using GitHub integration for issue {inputs.issue_id}")
+                pr_result = await workflow.execute_activity(
+                    create_pr_using_integration_activity,
+                    inputs,
+                    repository,
+                    branch_name,
+                    start_to_close_timeout=timedelta(minutes=5),
+                    retry_policy=RetryPolicy(
+                        initial_interval=timedelta(seconds=30),
+                        maximum_interval=timedelta(minutes=1),
+                        maximum_attempts=2,
+                    ),
+                )
+
+                if pr_result.get("success"):
+                    logger.info(f"Pull request created successfully: {pr_result['pr_url']}")
+                else:
+                    logger.warning(f"Failed to create pull request: {pr_result.get('error')}")
+
+                # Step 7: Update issue status to testing
+                logger.info(f"Step 7: Moving issue {inputs.issue_id} to testing status")
+                await workflow.execute_activity(
+                    update_issue_status_activity,
+                    {"issue_id": inputs.issue_id, "team_id": inputs.team_id, "new_status": "testing"},
+                    start_to_close_timeout=timedelta(minutes=2),
+                    retry_policy=RetryPolicy(
+                        initial_interval=timedelta(seconds=10),
+                        maximum_interval=timedelta(seconds=30),
+                        maximum_attempts=3,
+                    ),
+                )
+
+                success_msg = f"Issue {inputs.issue_id} processed successfully using integrated GitHub system. Branch: {branch_name}"
+                if pr_result.get("success"):
+                    success_msg += f", PR: {pr_result['pr_url']}"
+
+                logger.info(success_msg)
+                return success_msg
+
+            except Exception as e:
+                error_msg = f"Integrated workflow failed for issue {inputs.issue_id}: {str(e)}"
+                logger.error(error_msg)
+                return error_msg
+
+        else:
+            logger.info(f"Issue {inputs.issue_id} status changed to {inputs.new_status}, no processing needed")
+            return f"No processing required for status: {inputs.new_status}"
 
 
 @temporalio.workflow.defn(name="process-issue-status-change")

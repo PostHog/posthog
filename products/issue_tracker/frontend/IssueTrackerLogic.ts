@@ -205,10 +205,11 @@ export const issueTrackerLogic = kea<issueTrackerLogicType>([
         hasActiveIssues: [
             (s) => [s.issues],
             (issues): boolean =>
-                issues.some((issue) => 
-                    issue.status === IssueStatus.IN_PROGRESS || 
-                    issue.status === IssueStatus.TODO || 
-                    issue.status === IssueStatus.TESTING
+                issues.some(
+                    (issue) =>
+                        issue.status === IssueStatus.IN_PROGRESS ||
+                        issue.status === IssueStatus.TODO ||
+                        issue.status === IssueStatus.TESTING
                 ),
         ],
     }),
