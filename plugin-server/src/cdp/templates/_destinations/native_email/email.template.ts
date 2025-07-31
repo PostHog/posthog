@@ -10,15 +10,7 @@ export const template: NativeTemplate = {
     icon_url: '/static/posthog-icon.svg',
     category: ['Custom'],
     perform: (request, { payload }) => {
-        try {
-            return request(payload.url, {
-                method: payload.method,
-                headers: payload.headers,
-                json: payload.body,
-            })
-        } catch (error) {
-            throw new Error(error.message)
-        }
+        console.log('TODO: implement native email with payload:', payload)
     },
     inputs_schema: [
         {

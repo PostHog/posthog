@@ -20,7 +20,7 @@ function EmailTemplaterForm({ mode }: { mode: 'full' | 'preview' }): JSX.Element
     const isMessagingProductEnabled = featureFlags[FEATURE_FLAGS.MESSAGING]
 
     return (
-        <div className="flex flex-col gap-2">
+        <>
             <Form
                 className="flex overflow-hidden flex-col flex-1 rounded border"
                 logic={emailTemplaterLogic}
@@ -122,7 +122,7 @@ function EmailTemplaterForm({ mode }: { mode: 'full' | 'preview' }): JSX.Element
                     </LemonField>
                 )}
             </Form>
-        </div>
+        </>
     )
 }
 
