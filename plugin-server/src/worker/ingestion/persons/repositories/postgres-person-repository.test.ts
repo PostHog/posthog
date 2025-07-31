@@ -6,6 +6,7 @@ import { closeHub, createHub } from '../../../../utils/db/hub'
 import { PostgresRouter, PostgresUse } from '../../../../utils/db/postgres'
 import { parseJSON } from '../../../../utils/json-parse'
 import { NoRowsUpdatedError, UUIDT } from '../../../../utils/utils'
+import { PersonPropertiesSizeViolationError } from './person-repository'
 import { PostgresPersonRepository } from './postgres-person-repository'
 
 jest.mock('../../../../utils/logger')
@@ -19,7 +20,10 @@ describe('PostgresPersonRepository', () => {
         hub = await createHub()
         await resetTestDatabase(undefined, {}, {}, { withExtendedTestData: false })
         postgres = hub.db.postgres
-        repository = new PostgresPersonRepository(postgres)
+        repository = new PostgresPersonRepository(postgres, {
+            calculatePropertiesSize: 0,
+            personPropertiesSizeLimit: 1024 * 1024, // 1MB for tests
+        })
 
         const redis = await hub.redisPool.acquire()
         await redis.flushdb()
@@ -674,7 +678,7 @@ describe('PostgresPersonRepository', () => {
     describe('personPropertiesSize', () => {
         it('should return properties size for existing person', async () => {
             const team = await getFirstTeam(hub)
-            await createTestPerson(team.id, 'test-distinct', {
+            const person = await createTestPerson(team.id, 'test-distinct', {
                 name: 'John Doe',
                 email: 'john@example.com',
                 age: 30,
@@ -684,41 +688,44 @@ describe('PostgresPersonRepository', () => {
                 },
             })
 
-            const size = await repository.personPropertiesSize(team.id, 'test-distinct')
+            const size = await repository.personPropertiesSize(person.id)
 
             expect(size).toBeGreaterThan(0)
             expect(typeof size).toBe('number')
         })
 
         it('should return 0 for non-existent person', async () => {
-            const team = await getFirstTeam(hub)
-            const size = await repository.personPropertiesSize(team.id, 'non-existent-distinct')
+            const fakePersonId = new UUIDT().toString()
+            const size = await repository.personPropertiesSize(fakePersonId)
 
             expect(size).toBe(0)
         })
 
-        it('should handle different team IDs correctly', async () => {
+        it('should handle different persons correctly', async () => {
             const team1 = await getFirstTeam(hub)
             const team2Id = await createTeam(hub.db.postgres, team1.organization_id)
 
             // Create person in team 1
-            await createTestPerson(team1.id, 'shared-distinct', { name: 'Team 1 Person' })
+            const person1 = await createTestPerson(team1.id, 'shared-distinct', { name: 'Team 1 Person' })
 
-            // Check size in team 1
-            const size1 = await repository.personPropertiesSize(team1.id, 'shared-distinct')
+            // Create person in team 2
+            const person2 = await createTestPerson(team2Id, 'different-distinct', { name: 'Team 2 Person' })
+
+            // Check size for person 1
+            const size1 = await repository.personPropertiesSize(person1.id)
             expect(size1).toBeGreaterThan(0)
 
-            // Check size in team 2 (should be 0 since person doesn't exist there)
-            const size2 = await repository.personPropertiesSize(team2Id, 'shared-distinct')
-            expect(size2).toBe(0)
+            // Check size for person 2
+            const size2 = await repository.personPropertiesSize(person2.id)
+            expect(size2).toBeGreaterThan(0)
         })
 
         it('should return larger size for person with more properties', async () => {
             const team = await getFirstTeam(hub)
 
             // Create person with minimal properties
-            await createTestPerson(team.id, 'minimal-person', { name: 'Minimal' })
-            const minimalSize = await repository.personPropertiesSize(team.id, 'minimal-person')
+            const minimalPerson = await createTestPerson(team.id, 'minimal-person', { name: 'Minimal' })
+            const minimalSize = await repository.personPropertiesSize(minimalPerson.id)
 
             // Create person with extensive properties
             const extensiveProperties = {
@@ -746,8 +753,8 @@ describe('PostgresPersonRepository', () => {
                     tags: ['premium', 'active'],
                 },
             }
-            await createTestPerson(team.id, 'extensive-person', extensiveProperties)
-            const extensiveSize = await repository.personPropertiesSize(team.id, 'extensive-person')
+            const extensivePerson = await createTestPerson(team.id, 'extensive-person', extensiveProperties)
+            const extensiveSize = await repository.personPropertiesSize(extensivePerson.id)
 
             expect(extensiveSize).toBeGreaterThan(minimalSize)
         })
@@ -1128,6 +1135,392 @@ describe('PostgresPersonRepository', () => {
         })
     })
 
+    describe('person properties size violation handling', () => {
+        let oversizedRepository: PostgresPersonRepository
+
+        beforeEach(() => {
+            oversizedRepository = new PostgresPersonRepository(postgres, {
+                calculatePropertiesSize: 0,
+                personPropertiesSizeLimit: 100,
+            })
+        })
+
+        describe('trimPropertiesToFitSize', () => {
+            it('should return original properties if they are under the size limit', () => {
+                const properties = { name: 'John', age: 30 }
+                const targetSize = 1000
+                const protectedKeys: string[] = []
+
+                const result = (oversizedRepository as any).trimPropertiesToFitSize(
+                    properties,
+                    targetSize,
+                    protectedKeys
+                )
+
+                expect(result).toEqual(properties)
+            })
+
+            it('should remove properties to fit under size limit', () => {
+                const properties = {
+                    name: 'John Doe',
+                    email: 'john@example.com',
+                    description: 'A very long description that takes up a lot of space',
+                    age: 30,
+                    city: 'New York',
+                }
+                const targetSize = 50
+                const protectedKeys: string[] = []
+
+                const result = (oversizedRepository as any).trimPropertiesToFitSize(
+                    properties,
+                    targetSize,
+                    protectedKeys
+                )
+
+                expect(Object.keys(result).length).toBeLessThan(Object.keys(properties).length)
+                expect(Buffer.byteLength(JSON.stringify(result), 'utf8')).toBeLessThanOrEqual(targetSize)
+            })
+
+            it('should preserve protected properties even when trimming', () => {
+                const properties = {
+                    url: 'https://example.com',
+                    name: 'John Doe',
+                    email: 'john@example.com',
+                    description: 'A very long description that takes up a lot of space',
+                    age: 30,
+                }
+                const targetSize = 50
+                const protectedKeys = ['url']
+
+                const result = (oversizedRepository as any).trimPropertiesToFitSize(
+                    properties,
+                    targetSize,
+                    protectedKeys
+                )
+
+                expect(result).toHaveProperty('url', 'https://example.com')
+                expect(Buffer.byteLength(JSON.stringify(result), 'utf8')).toBeLessThanOrEqual(targetSize)
+            })
+
+            it('should handle empty properties object', () => {
+                const properties = {}
+                const targetSize = 50
+                const protectedKeys: string[] = []
+
+                const result = (oversizedRepository as any).trimPropertiesToFitSize(
+                    properties,
+                    targetSize,
+                    protectedKeys
+                )
+
+                expect(result).toEqual({})
+            })
+
+            it('should handle case where even protected properties exceed size limit', () => {
+                const properties = {
+                    url: 'https://example.com/very/long/path/that/exceeds/our/tiny/size/limit/for/testing/purposes',
+                    name: 'John',
+                }
+                const targetSize = 50
+                const protectedKeys = ['url']
+
+                const result = (oversizedRepository as any).trimPropertiesToFitSize(
+                    properties,
+                    targetSize,
+                    protectedKeys
+                )
+
+                expect(result).toHaveProperty('url')
+
+                expect(Buffer.byteLength(JSON.stringify(result), 'utf8')).toBeGreaterThan(targetSize)
+            })
+
+            it('should remove properties in order until size limit is met', () => {
+                const properties = {
+                    a: '1',
+                    b: '2',
+                    c: '3',
+                    d: '4',
+                    e: '5',
+                }
+                const targetSize = 20
+                const protectedKeys: string[] = []
+
+                const result = (oversizedRepository as any).trimPropertiesToFitSize(
+                    properties,
+                    targetSize,
+                    protectedKeys
+                )
+
+                expect(Object.keys(result).length).toBeLessThan(Object.keys(properties).length)
+                expect(Buffer.byteLength(JSON.stringify(result), 'utf8')).toBeLessThanOrEqual(targetSize)
+            })
+        })
+
+        describe('PersonPropertiesSizeViolationError', () => {
+            it('should create error with correct properties', () => {
+                const error = new PersonPropertiesSizeViolationError('Test message', 123, 'person-id', 'distinct-id')
+
+                expect(error.message).toBe('Test message')
+                expect(error.teamId).toBe(123)
+                expect(error.personId).toBe('person-id')
+                expect(error.distinctId).toBe('distinct-id')
+                expect(error.name).toBe('PersonPropertiesSizeViolationError')
+            })
+        })
+
+        describe('archivePersonRecord', () => {
+            it('should archive person record with all required fields', async () => {
+                const team = await getFirstTeam(hub)
+                const person = await createTestPerson(team.id, 'test-archive', { name: 'John' })
+                const propertiesSize = 1500
+
+                await oversizedRepository.archivePersonRecord(person, propertiesSize)
+
+                const archiveResult = await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `SELECT * FROM posthog_personarchive WHERE original_person_id = $1 AND team_id = $2`,
+                    [person.id, team.id],
+                    'verifyArchive'
+                )
+
+                expect(archiveResult.rows).toHaveLength(1)
+                const archived = archiveResult.rows[0]
+
+                expect(archived.original_person_id).toBe(person.id)
+                expect(archived.team_id).toBe(team.id)
+                expect(archived.uuid).toBe(person.uuid)
+                expect(archived.properties_size_bytes).toBe(propertiesSize)
+                expect(archived.archive_reason).toBe('person_properties_size_violation')
+                expect(archived.is_user_id).toBe(person.is_user_id)
+                expect(archived.version).toBe(person.version)
+                expect(archived.is_identified).toBe(person.is_identified)
+                expect(archived.archived_at).toBeDefined()
+            })
+        })
+
+        describe('createPerson with oversized properties', () => {
+            it('should reject creation when properties exceed size limit', async () => {
+                const team = await getFirstTeam(hub)
+                const uuid = new UUIDT().toString()
+                const oversizedProperties = {
+                    description: 'x'.repeat(200),
+                }
+
+                const result = await oversizedRepository.createPerson(
+                    TIMESTAMP,
+                    oversizedProperties,
+                    {},
+                    {},
+                    team.id,
+                    null,
+                    true,
+                    uuid,
+                    [{ distinctId: 'test-oversized' }]
+                )
+
+                expect(result.success).toBe(false)
+                if (!result.success) {
+                    expect(result.error).toBe('PropertiesSizeViolation')
+                    expect(result.distinctIds).toEqual(['test-oversized'])
+                }
+            })
+        })
+
+        describe('updatePerson with oversized properties', () => {
+            it('should handle updating existing oversized person by archiving and trimming', async () => {
+                const team = await getFirstTeam(hub)
+
+                const normalPerson = await createTestPerson(team.id, 'test-oversized-update', {
+                    name: 'John',
+                    description: 'x'.repeat(120),
+                })
+
+                const mockPersonPropertiesSize = jest
+                    .spyOn(oversizedRepository, 'personPropertiesSize')
+                    .mockResolvedValue(150)
+
+                const oversizedUpdate = {
+                    properties: {
+                        name: 'John Updated',
+                        description: 'x'.repeat(120),
+                        newField: 'y'.repeat(50),
+                    },
+                }
+
+                await expect(oversizedRepository.updatePerson(normalPerson, oversizedUpdate)).rejects.toThrow(
+                    'Person properties update would exceed size limit'
+                )
+
+                const archiveResult = await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `SELECT * FROM posthog_personarchive WHERE original_person_id = $1`,
+                    [normalPerson.id],
+                    'verifyUpdateArchive'
+                )
+
+                expect(archiveResult.rows.length).toBeGreaterThan(0)
+
+                mockPersonPropertiesSize.mockRestore()
+            })
+
+            it('should reject update when current person is under limit but update would exceed it', async () => {
+                const team = await getFirstTeam(hub)
+                const normalPerson = await createTestPerson(team.id, 'test-normal-person', { name: 'John' })
+
+                const mockPersonPropertiesSize = jest
+                    .spyOn(oversizedRepository, 'personPropertiesSize')
+                    .mockResolvedValue(50)
+
+                const oversizedUpdate = {
+                    properties: {
+                        description: 'x'.repeat(200),
+                    },
+                }
+
+                await expect(oversizedRepository.updatePerson(normalPerson, oversizedUpdate)).rejects.toThrow(
+                    'Person properties update would exceed size limit'
+                )
+
+                const archiveResult = await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `SELECT * FROM posthog_personarchive WHERE original_person_id = $1`,
+                    [normalPerson.id],
+                    'verifyNoArchive'
+                )
+
+                expect(archiveResult.rows).toHaveLength(0)
+
+                mockPersonPropertiesSize.mockRestore()
+            })
+        })
+
+        describe('updatePersonAssertVersion with oversized properties', () => {
+            it('should handle oversized properties in version-controlled update', async () => {
+                const team = await getFirstTeam(hub)
+                const person = await createTestPerson(team.id, 'test-assert-oversized', { name: 'John' })
+
+                const mockPersonPropertiesSize = jest
+                    .spyOn(oversizedRepository, 'personPropertiesSize')
+                    .mockResolvedValue(150)
+
+                const personUpdate = {
+                    id: person.id,
+                    team_id: person.team_id,
+                    uuid: person.uuid,
+                    distinct_id: 'test-assert-oversized',
+                    properties: {
+                        name: 'John',
+                        description: 'x'.repeat(150),
+                    },
+                    properties_last_updated_at: {},
+                    properties_last_operation: {},
+                    created_at: person.created_at,
+                    version: person.version,
+                    is_identified: person.is_identified,
+                    is_user_id: person.is_user_id,
+                    needs_write: true,
+                    properties_to_set: { description: 'x'.repeat(150) },
+                    properties_to_unset: [],
+                }
+
+                await expect(oversizedRepository.updatePersonAssertVersion(personUpdate)).rejects.toThrow(
+                    'Person properties update would exceed size limit'
+                )
+
+                const archiveResult = await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `SELECT * FROM posthog_personarchive WHERE original_person_id = $1`,
+                    [person.id],
+                    'verifyAssertVersionArchive'
+                )
+
+                expect(archiveResult.rows.length).toBeGreaterThan(0)
+
+                mockPersonPropertiesSize.mockRestore()
+            })
+        })
+
+        describe('error handling and metrics', () => {
+            it('should handle archive failure gracefully', async () => {
+                const team = await getFirstTeam(hub)
+                const person = await createTestPerson(team.id, 'test-archive-fail', { name: 'John' })
+
+                const originalQuery = postgres.query.bind(postgres)
+                const mockQuery = jest.spyOn(postgres, 'query').mockImplementation(async (use, query, values, tag) => {
+                    if (typeof query === 'string' && query.includes('INSERT INTO posthog_personarchive')) {
+                        throw new Error('Archive insert failed')
+                    }
+                    return originalQuery(use, query, values, tag)
+                })
+
+                const mockPersonPropertiesSize = jest
+                    .spyOn(oversizedRepository, 'personPropertiesSize')
+                    .mockResolvedValue(150)
+
+                const oversizedUpdate = { properties: { description: 'x'.repeat(150) } }
+
+                await expect(oversizedRepository.updatePerson(person, oversizedUpdate)).rejects.toThrow(
+                    'Archive insert failed'
+                )
+
+                mockQuery.mockRestore()
+                mockPersonPropertiesSize.mockRestore()
+            })
+        })
+
+        describe('protected properties during trimming', () => {
+            it('should respect default protected properties', () => {
+                const properties = {
+                    url: 'https://example.com/important',
+                    name: 'John Doe',
+                    email: 'john@example.com',
+                    description: 'A very long description that takes up space',
+                    age: 30,
+                }
+                const targetSize = 60
+
+                const actualProtectedKeys = (oversizedRepository as any).protectedPropertyKeys
+
+                const result = (oversizedRepository as any).trimPropertiesToFitSize(
+                    properties,
+                    targetSize,
+                    actualProtectedKeys
+                )
+
+                expect(result).toHaveProperty('url', 'https://example.com/important')
+                expect(Buffer.byteLength(JSON.stringify(result), 'utf8')).toBeLessThanOrEqual(targetSize)
+            })
+        })
+
+        describe('constraint violation detection', () => {
+            it('should correctly identify properties size constraint violations', () => {
+                const sizeViolationError = {
+                    code: '23514',
+                    constraint: 'check_properties_size',
+                }
+
+                const otherConstraintError = {
+                    code: '23514',
+                    constraint: 'some_other_constraint',
+                }
+
+                const differentError = {
+                    code: '23505',
+                    constraint: 'check_properties_size',
+                }
+
+                expect((oversizedRepository as any).isPropertiesSizeConstraintViolation(sizeViolationError)).toBe(true)
+                expect((oversizedRepository as any).isPropertiesSizeConstraintViolation(otherConstraintError)).toBe(
+                    false
+                )
+                expect((oversizedRepository as any).isPropertiesSizeConstraintViolation(differentError)).toBe(false)
+                expect((oversizedRepository as any).isPropertiesSizeConstraintViolation(null)).toBe(false)
+                expect((oversizedRepository as any).isPropertiesSizeConstraintViolation(undefined)).toBe(false)
+            })
+        })
+    })
+
     describe('calculate properties size feature flag', () => {
         it('should have identical output whether properties size calculation is enabled or disabled', async () => {
             const team = await getFirstTeam(hub)
@@ -1147,9 +1540,11 @@ describe('PostgresPersonRepository', () => {
 
             const repositoryWithCalculation = new PostgresPersonRepository(postgres, {
                 calculatePropertiesSize: 100,
+                personPropertiesSizeLimit: 1024 * 1024,
             })
             const repositoryWithoutCalculation = new PostgresPersonRepository(postgres, {
                 calculatePropertiesSize: 0,
+                personPropertiesSizeLimit: 1024 * 1024,
             })
 
             const update = {
@@ -1193,9 +1588,11 @@ describe('PostgresPersonRepository', () => {
 
             const repositoryWithCalculation = new PostgresPersonRepository(postgres, {
                 calculatePropertiesSize: 100,
+                personPropertiesSizeLimit: 1024 * 1024,
             })
             const repositoryWithoutCalculation = new PostgresPersonRepository(postgres, {
                 calculatePropertiesSize: 0,
+                personPropertiesSizeLimit: 1024 * 1024,
             })
 
             const createPersonUpdate = (person: InternalPerson, distinctId: string) => ({
@@ -1237,7 +1634,10 @@ describe('PostgresPersonRepository', () => {
 
         it('should work with default options (no logging)', async () => {
             const team = await getFirstTeam(hub)
-            const defaultRepository = new PostgresPersonRepository(postgres)
+            const defaultRepository = new PostgresPersonRepository(postgres, {
+                calculatePropertiesSize: 0,
+                personPropertiesSizeLimit: 1024 * 1024,
+            })
 
             const person = await createTestPerson(team.id, 'test-default', { name: 'John' })
             const update = { properties: { name: 'Jane', city: 'Boston' } }
