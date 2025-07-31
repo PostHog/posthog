@@ -80,6 +80,9 @@ async fn check_survey_quota_and_filter(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use common_types::RawEvent;
+    use serde_json::Value;
+    use std::collections::HashMap;
 
     #[test]
     fn test_is_survey_event() {
@@ -297,12 +300,11 @@ async fn handle_legacy(
         .is_limited(context.token.as_str())
         .await;
 
-    let mut events = events;
     if billing_limited {
         let start_len = events.len();
         // TODO - right now the exception billing limits are applied only in ET's pipeline,
         // we should apply both ET and PA limits here, and remove both types of events as needed.
-        events.retain(|e| e.event == "$exception");
+        events.retain(|e| e.event == "$exception" || is_survey_event(&e.event));
         report_dropped_events("over_quota", (start_len - events.len()) as u64);
         if events.is_empty() {
             return Err(CaptureError::BillingLimit);
@@ -310,7 +312,7 @@ async fn handle_legacy(
     }
 
     // Check for survey quota limiting if any events are survey-related
-    events = check_survey_quota_and_filter(&state, &context, events).await?;
+    events = check_survey_quota_and_filter(state, &context, events).await?;
 
     debug!(context=?context,
         event_count=?events.len(),
@@ -448,12 +450,11 @@ async fn handle_common(
         .is_limited(context.token.as_str())
         .await;
 
-    let mut events = events;
     if billing_limited {
         let start_len = events.len();
         // TODO - right now the exception billing limits are applied only in ET's pipeline,
         // we should apply both ET and PA limits here, and remove both types of events as needed.
-        events.retain(|e| e.event == "$exception");
+        events.retain(|e| e.event == "$exception" || is_survey_event(&e.event));
         report_dropped_events("over_quota", (start_len - events.len()) as u64);
         if events.is_empty() {
             return Err(CaptureError::BillingLimit);
@@ -461,7 +462,7 @@ async fn handle_common(
     }
 
     // Check for survey quota limiting if any events are survey-related
-    events = check_survey_quota_and_filter(&state, &context, events).await?;
+    events = check_survey_quota_and_filter(state, &context, events).await?;
 
     debug!(context=?context, events=?events, "decoded request");
 
