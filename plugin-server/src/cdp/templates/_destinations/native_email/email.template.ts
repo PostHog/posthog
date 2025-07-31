@@ -22,12 +22,14 @@ export const template: NativeTemplate = {
     },
     inputs_schema: [
         {
-            key: 'email',
             type: 'email',
-            label: 'Google Ads account',
-            requiredScopes: 'https://www.googleapis.com/auth/adwords https://www.googleapis.com/auth/userinfo.email',
-            secret: false,
+            key: 'email',
+            label: 'Email message',
+            integration: 'email',
             required: true,
+            default: '',
+            secret: false,
+            description: 'The email message to send.',
         },
     ],
 }

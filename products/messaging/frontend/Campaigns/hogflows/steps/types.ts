@@ -125,7 +125,7 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
         config: z.object({
             message_category: z.string().optional(),
             template_uuid: z.string().optional(), // May be used later to specify a specific template version
-            template_id: z.literal('template-email-native'),
+            template_id: z.literal('native-email'),
             inputs: z.record(CyclotronInputSchema),
         }),
     }),
