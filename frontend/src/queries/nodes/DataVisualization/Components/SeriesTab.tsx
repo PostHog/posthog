@@ -293,7 +293,21 @@ const YSeriesDisplayTab = ({ ySeriesLogicProps }: { ySeriesLogicProps: YSeriesLo
                     {!selectedSeriesBreakdownColumn && (
                         <LemonField name="trendLine" label="Trend line">
                             {({ value, onChange }) => (
-                                <LemonSwitch checked={value} onChange={(newValue) => onChange(newValue)} />
+                                <LemonSwitch
+                                    checked={value}
+                                    onChange={(newValue) => {
+                                        onChange(newValue)
+                                        updateSeriesIndex(
+                                            ySeriesLogicProps.seriesIndex,
+                                            ySeriesLogicProps.series.column.name,
+                                            {
+                                                display: {
+                                                    trendLine: newValue,
+                                                },
+                                            }
+                                        )
+                                    }}
+                                />
                             )}
                         </LemonField>
                     )}
@@ -312,7 +326,18 @@ const YSeriesDisplayTab = ({ ySeriesLogicProps }: { ySeriesLogicProps: YSeriesLo
                                         value: 'right',
                                     },
                                 ]}
-                                onChange={(newValue) => onChange(newValue)}
+                                onChange={(newValue) => {
+                                    onChange(newValue)
+                                    updateSeriesIndex(
+                                        ySeriesLogicProps.seriesIndex,
+                                        ySeriesLogicProps.series.column.name,
+                                        {
+                                            display: {
+                                                yAxisPosition: newValue as 'left' | 'right',
+                                            },
+                                        }
+                                    )
+                                }}
                             />
                         )}
                     </LemonField>
