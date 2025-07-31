@@ -95,12 +95,11 @@ def swap_partitions_from_staging(
     staging_partitions = get_partitions(context, cluster, staging_table)
     context.log.info(f"Swapping partitions {staging_partitions} from {staging_table} to {target_table}")
 
+    def replace_partition(client, pid):
+        return client.execute(f"ALTER TABLE {target_table} REPLACE PARTITION '{pid}' FROM {staging_table}")
+
     for partition_id in staging_partitions:
-        cluster.any_host(
-            lambda client, pid=partition_id: client.execute(
-                f"ALTER TABLE {target_table} REPLACE PARTITION '{pid}' FROM {staging_table}"
-            )
-        ).result()
+        cluster.any_host(partial(replace_partition, pid=partition_id)).result()
 
 
 # Shared config schema for daily processing
