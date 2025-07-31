@@ -28,7 +28,7 @@ from ee.hogai.graph import (
     TrendsGeneratorNode,
 )
 from ee.hogai.graph.base import AssistantNode
-from ee.hogai.graph.deep_research.notebook_serializer import NotebookSerializer
+from ee.hogai.notebook.notebook_serializer import NotebookSerializer
 from ee.hogai.graph.filter_options.types import FilterOptionsNodeName
 from ee.hogai.tool import CONTEXTUAL_TOOL_NAME_TO_TOOL
 from ee.hogai.utils.exceptions import GenerationCanceled
