@@ -1,8 +1,18 @@
 from posthog.test.base import BaseTest
 from posthog.caching.login_device_cache import check_and_cache_login_device
+from posthog.redis import get_client
 
 
 class TestLoginDeviceCache(BaseTest):
+    def tearDown(self):
+        """Clean up Redis keys after each test"""
+        super().tearDown()
+        redis_client = get_client()
+        # Delete all login_device keys
+        keys = redis_client.keys("login_device:*")
+        if keys:
+            redis_client.delete(*keys)
+
     def test_new_device_login(self):
         """Test new device login"""
         result = check_and_cache_login_device(1, "192.168.1.1", "Chrome 135.0.0 on Windows 10")
