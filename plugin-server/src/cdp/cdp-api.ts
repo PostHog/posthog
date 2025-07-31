@@ -108,7 +108,7 @@ export class CdpApi {
         () =>
         async (req: express.Request, res: express.Response): Promise<void> => {
             const { id } = req.params
-            const summary = await this.hogWatcher.getState(id)
+            const summary = await this.hogWatcher.getPersistedState(id)
 
             res.json(summary)
         }
@@ -125,7 +125,7 @@ export class CdpApi {
                 return
             }
 
-            const summary = await this.hogWatcher.getState(id)
+            const summary = await this.hogWatcher.getPersistedState(id)
             const hogFunction = await this.hogFunctionManager.fetchHogFunction(id)
 
             if (!hogFunction) {
@@ -142,7 +142,7 @@ export class CdpApi {
             // Hacky - wait for a little to give a chance for the state to change
             await delay(100)
 
-            res.json(await this.hogWatcher.getState(id))
+            res.json(await this.hogWatcher.getPersistedState(id))
         }
 
     private postFunctionInvocation = async (req: express.Request, res: express.Response): Promise<any> => {
