@@ -51,7 +51,7 @@ export function Navigation({
 
     return (
         // This is needed to make sure that popovers and tooltips are not portaled to the root of the document
-        // This Navigation3000 div is more or less our psuedo root.
+        // This Navigation3000 div is more or less our pseudo root.
         <FloatingContainerContext.Provider value={rootRef}>
             {/* // eslint-disable-next-line react/forbid-dom-props */}
             <div
