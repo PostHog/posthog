@@ -22,7 +22,7 @@ export function MetricRow({
     isSecondary,
     metrics,
     metricIndex,
-    chartRadius,
+    axisRange,
     error,
 }: {
     metrics: ExperimentMetric[]
@@ -31,7 +31,7 @@ export function MetricRow({
     result: any
     metricType: InsightType
     isSecondary: boolean
-    chartRadius: number
+    axisRange: number
     error: any
 }): JSX.Element {
     const {
@@ -54,9 +54,9 @@ export function MetricRow({
 
     const variantResults = result?.variant_results || []
 
-    const tickValues = getNiceTickValues(chartRadius)
+    const tickValues = getNiceTickValues(axisRange)
 
-    const { chartSvgRef, chartSvgHeight } = useSvgResizeObserver([tickValues, chartRadius])
+    const { chartSvgRef, chartSvgHeight } = useSvgResizeObserver([tickValues, axisRange])
     const panelHeight = Math.max(chartSvgHeight, 60)
 
     const [isModalOpen, setIsModalOpen] = useState(false)
@@ -97,7 +97,7 @@ export function MetricRow({
                             <Chart
                                 chartSvgRef={chartSvgRef}
                                 variantResults={variantResults}
-                                chartRadius={chartRadius}
+                                axisRange={axisRange}
                                 metricIndex={metricIndex}
                                 tickValues={tickValues}
                                 isSecondary={isSecondary}
