@@ -4175,6 +4175,7 @@ export const INTEGRATION_KINDS = [
     'google-pubsub',
     'google-cloud-storage',
     'google-ads',
+    'google-sheets',
     'linkedin-ads',
     'snapchat',
     'intercom',

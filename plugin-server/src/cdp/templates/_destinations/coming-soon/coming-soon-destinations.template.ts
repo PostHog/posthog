@@ -990,12 +990,6 @@ const destinationDefinitions: DestinationConfig[] = [
         category: ['Productivity'],
     },
     {
-        name: 'Google Sheets',
-        id: 'coming-soon-google-sheets',
-        icon_url: '/static/coming-soon-destinations/Google_Sheets.svg',
-        category: ['Productivity'],
-    },
-    {
         name: 'Monday',
         id: 'coming-soon-monday',
         icon_url: '/static/coming-soon-destinations/Monday.svg',

@@ -140,6 +140,7 @@ export class TemplateTester {
     the same way we did it here https://github.com/PostHog/posthog-plugin-geoip/blob/a5e9370422752eb7ea486f16c5cc8acf916b67b0/index.test.ts#L79
     */
     async beforeEach() {
+        Settings.defaultZone = 'UTC'
         if (!this.geoipService) {
             this.geoipService = new GeoIPService(defaultConfig)
         }
@@ -154,6 +155,10 @@ export class TemplateTester {
         }
 
         this.executor = new HogExecutorService(this.mockHub)
+    }
+
+    afterEach() {
+        Settings.defaultZone = 'system'
     }
 
     createGlobals(globals: DeepPartialHogFunctionInvocationGlobals = {}): HogFunctionInvocationGlobalsWithInputs {
@@ -281,7 +286,15 @@ export class TemplateTester {
             body: response.body,
         })
 
-        return this.executor.execute(modifiedInvocation)
+        const result = await this.executor.execute(modifiedInvocation)
+
+        result.logs.forEach((x) => {
+            if (typeof x.message === 'string' && x.message.includes('Function completed in')) {
+                x.message = 'Function completed in [REPLACED]'
+            }
+        })
+
+        return result
     }
 }
 
