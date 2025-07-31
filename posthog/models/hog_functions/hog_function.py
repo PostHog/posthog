@@ -36,8 +36,7 @@ class HogFunctionState(enum.Enum):
     UNKNOWN = 0
     HEALTHY = 1
     DEGRADED = 2
-    DISABLED_TEMPORARILY = 3
-    DISABLED_PERMANENTLY = 4
+    DISABLED = 3
 
 
 class HogFunctionType(models.TextChoices):
