@@ -24,6 +24,10 @@ export const RichContentEditor = ({
     className?: string
 }>): JSX.Element => {
     const editor = useEditor({
+        // this is disabled by default since v3
+        // leaving it enabled to preserve functionality across version upgrades
+        // we should try switching it (performance gains) and see if it causes any issues
+        shouldRerenderOnTransaction: true,
         extensions,
         onSelectionUpdate: onSelectionUpdate,
         onUpdate: ({ editor }) => onUpdate(editor.getJSON()),
