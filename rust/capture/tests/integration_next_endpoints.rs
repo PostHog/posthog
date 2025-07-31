@@ -10,14 +10,15 @@ use axum::http::StatusCode;
 use capture::config::CaptureMode;
 
 //
-// integration tests for /i/v0/e/ endpoint: capture request payload shapes and encodings
+// The /e/, /capture/, and /track/ endpoints are all processed by event_next
+// and support the same request payload shapes and encodings.
 //
 
 #[tokio::test]
-async fn test_i_v0_e_endpoint() {
-    let base_path = "/i/v0/e";
+async fn test_e_endpoint_get() {
+    let base_path = "/e";
 
-    // NOT currently supported by new capture endpoint handlers
+    // GET requests with payload in URL param "data"
     for mut unit in get_cases() {
         unit.base_path = base_path;
         execute_test(&unit).await;
@@ -25,8 +26,8 @@ async fn test_i_v0_e_endpoint() {
 }
 
 #[tokio::test]
-async fn test_i_v0_e_endpoint_post() {
-    let base_path = "/i/v0/e";
+async fn test_e_endpoint_post() {
+    let base_path = "/e";
 
     // POST requests with payload in body, metadata in POST form or GET params
     for mut unit in post_cases() {
@@ -36,14 +37,91 @@ async fn test_i_v0_e_endpoint_post() {
 }
 
 #[tokio::test]
-async fn test_i_v0_e_endpoint_get_with_body() {
+async fn test_e_endpoint_get_with_body() {
     // GET requests with a body payload are treated identically to POST requests
     let mut get_with_body_cases = post_cases();
 
     get_with_body_cases
         .iter_mut()
         .for_each(|tc: &mut TestCase| {
-            tc.base_path = "/i/v0/e";
+            tc.base_path = "/e";
+            tc.method = Method::GetWithBody;
+            tc.title = tc.title.replace("post-", "get_with_body-");
+        });
+
+    for unit in get_with_body_cases {
+        execute_test(&unit).await;
+    }
+}
+
+#[tokio::test]
+async fn test_capture_endpoint_get() {
+    let base_path = "/capture";
+
+    // GET requests with payload in URL param "data"
+    for mut unit in get_cases() {
+        unit.base_path = base_path;
+        execute_test(&unit).await;
+    }
+}
+
+#[tokio::test]
+async fn test_capture_endpoint_post() {
+    let base_path = "/capture";
+    // POST requests with payload in body, metadata in POST form or GET params
+    for mut unit in post_cases() {
+        unit.base_path = base_path;
+        execute_test(&unit).await;
+    }
+}
+
+#[tokio::test]
+async fn test_capture_endpoint_get_with_body() {
+    // GET requests with a body payload are treated identically to POST requests
+    let mut get_with_body_cases = post_cases();
+
+    get_with_body_cases
+        .iter_mut()
+        .for_each(|tc: &mut TestCase| {
+            tc.base_path = "/capture";
+            tc.method = Method::GetWithBody;
+            tc.title = tc.title.replace("post-", "get_with_body-");
+        });
+
+    for unit in get_with_body_cases {
+        execute_test(&unit).await;
+    }
+}
+
+#[tokio::test]
+async fn test_track_endpoint_get() {
+    let base_path = "/track";
+
+    for mut unit in get_cases() {
+        unit.base_path = base_path;
+        execute_test(&unit).await;
+    }
+}
+
+#[tokio::test]
+async fn test_track_endpoint_post() {
+    let base_path = "/track";
+
+    for mut unit in post_cases() {
+        unit.base_path = base_path;
+        execute_test(&unit).await;
+    }
+}
+
+#[tokio::test]
+async fn test_track_endpoint_get_with_body() {
+    // GET requests with a body payload are treated identically to POST requests
+    let mut get_with_body_cases = post_cases();
+
+    get_with_body_cases
+        .iter_mut()
+        .for_each(|tc: &mut TestCase| {
+            tc.base_path = "/track";
             tc.method = Method::GetWithBody;
             tc.title = tc.title.replace("post-", "get_with_body-");
         });
@@ -60,7 +138,7 @@ fn post_cases() -> Vec<TestCase> {
         // plain JSON POST body
         TestCase::new(
             // test case title
-            "new_post-simple-single-event-payload".to_string(),
+            "legacy_post-simple-single-event-payload".to_string(),
             // default fixed time for test Router & event handler
             DEFAULT_TEST_TIME,
             // capture-rs service mode
@@ -84,7 +162,7 @@ fn post_cases() -> Vec<TestCase> {
         ),
         // plain base64'd JSON payload in POST body
         TestCase::new(
-            "new_post-base64-single-event-payload".to_string(),
+            "legacy_post-base64-single-event-payload".to_string(),
             DEFAULT_TEST_TIME,
             CaptureMode::Events,
             "",
@@ -98,7 +176,7 @@ fn post_cases() -> Vec<TestCase> {
         ),
         // base64'd JSON payload w/o SDK encoding hint
         TestCase::new(
-            "new_post-base64-no-hint-single-event-payload".to_string(),
+            "legacy_post-base64-no-hint-single-event-payload".to_string(),
             DEFAULT_TEST_TIME,
             CaptureMode::Events,
             "",
@@ -112,7 +190,7 @@ fn post_cases() -> Vec<TestCase> {
         ),
         // GZIP'd JSON single event payload
         TestCase::new(
-            "new_post-gzip-single-event-payload".to_string(),
+            "legacy_post-gzip-single-event-payload".to_string(),
             DEFAULT_TEST_TIME,
             CaptureMode::Events,
             "",
@@ -126,7 +204,7 @@ fn post_cases() -> Vec<TestCase> {
         ),
         // GZIP'd single event JSON payload w/o SDK encoding hint
         TestCase::new(
-            "new_post-gzip-no-hint-single-event-payload".to_string(),
+            "legacy_post-gzip-no-hint-single-event-payload".to_string(),
             DEFAULT_TEST_TIME,
             CaptureMode::Events,
             "",
@@ -140,7 +218,7 @@ fn post_cases() -> Vec<TestCase> {
         ),
         // single event JSON payload in POST form with "data" attribute base64 encoded
         TestCase::new(
-            "new_post-form-data-base64-event-payload".to_string(),
+            "legacy_post-form-data-base64-event-payload".to_string(),
             DEFAULT_TEST_TIME,
             CaptureMode::Events,
             "",
@@ -149,12 +227,12 @@ fn post_cases() -> Vec<TestCase> {
             None,
             None,
             "application/x-www-form-urlencoded",
-            StatusCode::BAD_REQUEST,
+            StatusCode::OK,
             Box::new(form_data_base64_payload),
         ),
         // single event JSON payload submitted as POST form
         TestCase::new(
-            "new_post-form-urlencoded-event-payload".to_string(),
+            "legacy_post-form-urlencoded-event-payload".to_string(),
             DEFAULT_TEST_TIME,
             CaptureMode::Events,
             "",
@@ -168,7 +246,7 @@ fn post_cases() -> Vec<TestCase> {
         ),
         // single event JSON payload submitted as LZ64'd value in POST form
         TestCase::new(
-            "new_post-form-lz64-urlencoded-event-payload".to_string(),
+            "legacy_post-form-lz64-urlencoded-event-payload".to_string(),
             DEFAULT_TEST_TIME,
             CaptureMode::Events,
             "",
@@ -184,7 +262,7 @@ fn post_cases() -> Vec<TestCase> {
 
         // plain JSON POST body
         TestCase::new(
-            "new_post-simple-batch-payload".to_string(),
+            "legacy_post-simple-batch-payload".to_string(),
             DEFAULT_TEST_TIME,
             CaptureMode::Events,
             "",
@@ -198,7 +276,7 @@ fn post_cases() -> Vec<TestCase> {
         ),
         // plain base64'd JSON payload in POST body
         TestCase::new(
-            "new_post-base64-batch-payload".to_string(),
+            "legacy_post-base64-batch-payload".to_string(),
             DEFAULT_TEST_TIME,
             CaptureMode::Events,
             "",
@@ -212,7 +290,7 @@ fn post_cases() -> Vec<TestCase> {
         ),
         // base64'd JSON payload w/o SDK encoding hint
         TestCase::new(
-            "new_post-base64-no-hint-batch-payload".to_string(),
+            "legacy_post-base64-no-hint-batch-payload".to_string(),
             DEFAULT_TEST_TIME,
             CaptureMode::Events,
             "",
@@ -226,7 +304,7 @@ fn post_cases() -> Vec<TestCase> {
         ),
         // GZIP'd JSON single event payload
         TestCase::new(
-            "new_post-gzip-batch-payload".to_string(),
+            "legacy_post-gzip-batch-payload".to_string(),
             DEFAULT_TEST_TIME,
             CaptureMode::Events,
             "",
@@ -240,7 +318,7 @@ fn post_cases() -> Vec<TestCase> {
         ),
         // GZIP'd single event JSON payload w/o SDK encoding hint
         TestCase::new(
-            "new_post-gzip-no-hint-batch-payload".to_string(),
+            "legacy_post-gzip-no-hint-batch-payload".to_string(),
             DEFAULT_TEST_TIME,
             CaptureMode::Events,
             "",
@@ -254,7 +332,7 @@ fn post_cases() -> Vec<TestCase> {
         ),
         // batched events JSON payload submitted as POST form w/base64'd "data" attribute value
         TestCase::new(
-            "new_post-form-data-base64-batch-payload".to_string(),
+            "legacy_post-form-data-base64-batch-payload".to_string(),
             DEFAULT_TEST_TIME,
             CaptureMode::Events,
             "",
@@ -263,12 +341,12 @@ fn post_cases() -> Vec<TestCase> {
             None,
             None,
             "application/x-www-form-urlencoded",
-            StatusCode::BAD_REQUEST,
+            StatusCode::OK,
             Box::new(form_data_base64_payload),
         ),
         // single event JSON payload submitted as POST form
         TestCase::new(
-            "new_post-form-urlencoded-batch-payload".to_string(),
+            "legacy_post-form-urlencoded-batch-payload".to_string(),
             DEFAULT_TEST_TIME,
             CaptureMode::Events,
             "",
@@ -282,7 +360,7 @@ fn post_cases() -> Vec<TestCase> {
         ),
         // single event JSON payload submitted as LZ64'd value in POST form
         TestCase::new(
-            "new_post-form-lz64-urlencoded-batch-payload".to_string(),
+            "legacy_post-form-lz64-urlencoded-batch-payload".to_string(),
             DEFAULT_TEST_TIME,
             CaptureMode::Events,
             "",
@@ -303,7 +381,7 @@ fn get_cases() -> Vec<TestCase> {
     let units = vec![
         // plain base64'd JSON payload in urlencoded "data" GET param
         TestCase::new(
-            "new_get-base64-urlencoded-single-event-payload".to_string(),
+            "legacy_get-base64-urlencoded-single-event-payload".to_string(),
             DEFAULT_TEST_TIME,
             CaptureMode::Events,
             "",
@@ -317,7 +395,7 @@ fn get_cases() -> Vec<TestCase> {
         ),
         // single event JSON payload submitted in urlencoded "data" GET param
         TestCase::new(
-            "new_get-urlencoded-event-payload".to_string(),
+            "legacy_get-urlencoded-event-payload".to_string(),
             DEFAULT_TEST_TIME,
             CaptureMode::Events,
             "",
@@ -329,9 +407,9 @@ fn get_cases() -> Vec<TestCase> {
             StatusCode::OK,
             Box::new(plain_json_payload),
         ),
-        // single event JSON payload submitted as LZ64'd value in urlencoded "data" GET param
+        // single event JSON payload submitted as LZ64'd value in urlencoded"data" GET param
         TestCase::new(
-            "new_get-lz64-urlencoded-event-payload".to_string(),
+            "legacy_get-lz64-urlencoded-event-payload".to_string(),
             DEFAULT_TEST_TIME,
             CaptureMode::Events,
             "",
