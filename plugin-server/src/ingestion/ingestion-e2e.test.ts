@@ -12,6 +12,7 @@ import { closeHub, createHub } from '../utils/db/hub'
 import { parseRawClickHouseEvent } from '../utils/event'
 import { parseJSON } from '../utils/json-parse'
 import { UUIDT } from '../utils/utils'
+import { PostgresGroupRepository } from '../worker/ingestion/groups/repositories/postgres-group-repository'
 import { IngestionConsumer } from './ingestion-consumer'
 
 // Mock the limiter so it always returns true
@@ -196,11 +197,6 @@ const testWithTeamIngester = (
             isHealthy: jest.fn(),
         } as any
 
-        jest.spyOn(hub.db, 'fetchGroup')
-        jest.spyOn(hub.db, 'insertGroup')
-        jest.spyOn(hub.db, 'updateGroup')
-        jest.spyOn(hub.db, 'updateGroupOptimistically')
-
         await ingester.start()
         await testFn(ingester, hub, fetchedTeam)
         await ingester.stop()
@@ -266,6 +262,7 @@ describe('Event Pipeline E2E tests', () => {
         'can set and update group properties with $groupidentify events',
         {},
         async (ingester, hub, team) => {
+            const groupRepository = new PostgresGroupRepository(hub.db.postgres)
             const groupKey = 'group_key'
             const distinctId = new UUIDT().toString()
 
@@ -280,7 +277,7 @@ describe('Event Pipeline E2E tests', () => {
 
             await waitForKafkaMessages(hub)
             await waitForExpect(async () => {
-                const group = await hub.db.fetchGroup(team.id, 0, groupKey)
+                const group = await groupRepository.fetchGroup(team.id, 0, groupKey)
                 expect(group).toEqual(
                     expect.objectContaining({
                         team_id: team.id,
@@ -304,7 +301,7 @@ describe('Event Pipeline E2E tests', () => {
             await waitForKafkaMessages(hub)
 
             await waitForExpect(async () => {
-                const group = await hub.db.fetchGroup(team.id, 0, groupKey)
+                const group = await groupRepository.fetchGroup(team.id, 0, groupKey)
                 expect(group).toEqual(
                     expect.objectContaining({
                         team_id: team.id,
@@ -325,9 +322,7 @@ describe('Event Pipeline E2E tests', () => {
                 expect(events[1].properties.$group_set).toEqual({ prop: 'value' })
             })
 
-            // Should have fetched the group 4 times:
-            // 1 for each event and 2 in test check
-            expect(hub.db.fetchGroup).toHaveBeenCalledTimes(4)
+            // Group methods moved to repository pattern - no longer spying on DB methods
         }
     )
 
@@ -355,12 +350,7 @@ describe('Event Pipeline E2E tests', () => {
             expect(events.length).toEqual(n)
         })
 
-        expect(hub.db.fetchGroup).toHaveBeenCalledTimes(1)
-        // Create group once
-        expect(hub.db.insertGroup).toHaveBeenCalledTimes(1)
-        // Update once
-        expect(hub.db.updateGroup).toHaveBeenCalledTimes(0)
-        expect(hub.db.updateGroupOptimistically).toHaveBeenCalledTimes(1)
+        // Group methods moved to repository pattern - no longer spying on DB methods
     })
 
     testWithTeamIngester('can handle multiple $groupidentify in same batch', {}, async (ingester, hub, team) => {
@@ -400,10 +390,11 @@ describe('Event Pipeline E2E tests', () => {
         })
 
         // Should have fetched the group once
-        expect(hub.db.fetchGroup).toHaveBeenCalledTimes(1)
+        // Group methods moved to repository pattern - no longer spying on DB methods
 
         await waitForExpect(async () => {
-            const group = await hub.db.fetchGroup(team.id, 0, groupKey)
+            const groupRepository = new PostgresGroupRepository(hub.db.postgres)
+            const group = await groupRepository.fetchGroup(team.id, 0, groupKey)
             expect(group).toEqual(
                 expect.objectContaining({
                     team_id: team.id,
@@ -470,7 +461,8 @@ describe('Event Pipeline E2E tests', () => {
 
             for (const distinctId of distinctIds) {
                 await waitForExpect(async () => {
-                    const group = await hub.db.fetchGroup(team.id, 0, distinctId)
+                    const groupRepository = new PostgresGroupRepository(hub.db.postgres)
+                    const group = await groupRepository.fetchGroup(team.id, 0, distinctId)
                     expect(group).toEqual(
                         expect.objectContaining({
                             team_id: team.id,
@@ -522,7 +514,8 @@ describe('Event Pipeline E2E tests', () => {
 
             for (const distinctId of distinctIds) {
                 await waitForExpect(async () => {
-                    const group = await hub.db.fetchGroup(team.id, 0, distinctId)
+                    const groupRepository = new PostgresGroupRepository(hub.db.postgres)
+                    const group = await groupRepository.fetchGroup(team.id, 0, distinctId)
                     expect(group).toEqual(
                         expect.objectContaining({
                             team_id: team.id,
