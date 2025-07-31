@@ -820,6 +820,7 @@ export enum ExperimentsTabs {
     Holdouts = 'holdouts',
     SharedMetrics = 'shared-metrics',
     History = 'history',
+    Settings = 'settings',
 }
 
 export enum ActivityTab {
@@ -4528,6 +4529,21 @@ export interface DataWarehouseSavedQuery {
     latest_history_id?: string
 }
 
+export interface DataWarehouseSavedQueryDraft {
+    id: string
+    query: HogQLQuery
+    saved_query_id?: string
+    created_at: string
+    updated_at: string
+    name: string
+    edited_history_id?: string
+}
+
+export interface DataWarehouseViewLinkConfiguration {
+    experiments_optimized?: boolean
+    experiments_timestamp_key?: string | null
+}
+
 export interface DataWarehouseViewLink {
     id: string
     source_table_name?: string
@@ -4537,10 +4553,7 @@ export interface DataWarehouseViewLink {
     field_name?: string
     created_by?: UserBasicType | null
     created_at?: string | null
-    configuration?: {
-        experiments_optimized?: boolean
-        experiments_timestamp_key?: string | null
-    }
+    configuration?: DataWarehouseViewLinkConfiguration
 }
 
 export interface QueryTabState {

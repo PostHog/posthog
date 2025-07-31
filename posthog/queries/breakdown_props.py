@@ -30,7 +30,7 @@ from posthog.queries.person_on_events_v2_sql import PERSON_DISTINCT_ID_OVERRIDES
 from posthog.queries.person_query import PersonQuery
 from posthog.queries.query_date_range import QueryDateRange
 from posthog.schema import PersonsOnEventsMode
-from posthog.session_recordings.queries_to_replace.session_query import SessionQuery
+from posthog.session_recordings.queries.session_query import SessionQuery
 from posthog.queries.trends.sql import (
     HISTOGRAM_ELEMENTS_ARRAY_OF_KEY_SQL,
     TOP_ELEMENTS_ARRAY_OF_KEY_SQL,

@@ -34,7 +34,6 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.utils.encoders import JSONEncoder
 
-import posthog
 from ee.hogai.session_summaries.llm.call import get_openai_client
 from ee.hogai.session_summaries.session.stream import stream_recording_summary
 from posthog.cloud_utils import is_cloud
@@ -61,13 +60,10 @@ from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.session_recordings.models.session_recording_event import (
     SessionRecordingViewed,
 )
-from posthog.session_recordings.queries_to_delete.session_recording_list_from_query import (
-    SessionRecordingListFromQuery as OriginalSessionRecordingListFromQuery,
+from posthog.session_recordings.queries.session_recording_list_from_query import (
+    SessionRecordingListFromQuery,
 )
-from posthog.session_recordings.queries_to_replace.session_recording_list_from_query import (
-    SessionRecordingListFromQuery as RewrittenSessionRecordingListFromQuery,
-)
-from posthog.session_recordings.queries_to_replace.session_replay_events import SessionReplayEvents
+from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 from posthog.session_recordings.realtime_snapshots import (
     get_realtime_snapshots,
     publish_subscription,
@@ -78,9 +74,11 @@ from posthog.session_recordings.utils import clean_prompt_whitespace
 from posthog.settings.session_replay import SESSION_REPLAY_AI_REGEX_MODEL
 from posthog.storage import object_storage, session_recording_v2_object_storage
 from posthog.storage.session_recording_v2_object_storage import BlockFetchError
+from .queries.sub_queries.events_subquery import ReplayFiltersEventsSubQuery
 from ..models.product_intent.product_intent import ProductIntent
 from posthog.models.activity_logging.activity_log import log_activity, Detail
 from loginas.utils import is_impersonated_session
+from opentelemetry import trace
 
 USE_BLOB_V2_LTS = "use-blob-v2-lts"
 MAX_RECORDINGS_PER_BULK_ACTION = 20
@@ -128,6 +126,7 @@ LOADING_V2_LTS_COUNTER = Counter(
 )
 
 logger = structlog.get_logger(__name__)
+tracer = trace.get_tracer(__name__)
 
 
 def filter_from_params_to_query(params: dict) -> RecordingsQuery:
@@ -518,15 +517,35 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         user_distinct_id = cast(User, request.user).distinct_id
 
         try:
-            query = filter_from_params_to_query(request.GET.dict())
+            with tracer.start_as_current_span("list_recordings", kind=trace.SpanKind.SERVER):
+                try:
+                    trace.get_current_span().set_attribute("team_id", self.team_id)
+                    trace.get_current_span().set_attribute("distinct_id", user_distinct_id or "unknown")
+                    trace.get_current_span().set_attribute(
+                        "is_personal_api_key",
+                        isinstance(request.successful_authenticator, PersonalAPIKeyAuthentication),
+                    )
+                except Exception as e:
+                    # if this fails, we don't want to fail the request
+                    # so we log it and continue
+                    posthoganalytics.capture_exception(
+                        e, distinct_id=user_distinct_id or "unknown", properties={"while": "setting tracing attributes"}
+                    )
 
-            self._maybe_report_recording_list_filters_changed(request, team=self.team)
-            response = list_recordings_response(
-                list_recordings_from_query(query, cast(User, request.user), team=self.team),
-                context=self.get_serializer_context(),
-            )
+                with tracer.start_as_current_span("convert_filters"):
+                    query = filter_from_params_to_query(request.GET.dict())
 
-            return response
+                self._maybe_report_recording_list_filters_changed(request, team=self.team)
+                with tracer.start_as_current_span("query_for_recordings"):
+                    query_results = list_recordings_from_query(query, cast(User, request.user), team=self.team)
+
+                with tracer.start_as_current_span("make_response"):
+                    response = list_recordings_response(
+                        query_results,
+                        context=self.get_serializer_context(),
+                    )
+
+                    return response
         except CHQueryErrorTooManySimultaneousQueries:
             raise Throttled(detail="Too many simultaneous queries. Try again later.")
         except (ServerException, Exception) as e:
@@ -573,28 +592,10 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
 
         distinct_id = str(cast(User, request.user).distinct_id)
         modifiers = safely_read_modifiers_overrides(distinct_id, self.team)
-        user = cast(User, request.user)
-        use_multiple_sub_queries = (
-            posthoganalytics.feature_enabled(
-                "use-multiple-sub-queries",
-                str(user.distinct_id),
-            )
-            if user
-            else False
-        )
 
-        if use_multiple_sub_queries:
-            results, _, timings = (
-                posthog.session_recordings.queries_to_replace.sub_queries.events_subquery.ReplayFiltersEventsSubQuery(
-                    query=query, team=self.team, hogql_query_modifiers=modifiers
-                ).get_event_ids_for_session()
-            )
-        else:
-            results, _, timings = (
-                posthog.session_recordings.queries_to_delete.sub_queries.events_subquery.ReplayFiltersEventsSubQuery(
-                    query=query, team=self.team, hogql_query_modifiers=modifiers
-                ).get_event_ids_for_session()
-            )
+        results, _, timings = ReplayFiltersEventsSubQuery(
+            query=query, team=self.team, hogql_query_modifiers=modifiers
+        ).get_event_ids_for_session()
 
         response = JsonResponse(data={"results": results})
 
@@ -624,24 +625,30 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
     # Returns metadata about the recording
     def retrieve(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         tag_queries(product=Product.REPLAY)
-        recording = self.get_object()
 
-        loaded = recording.load_metadata()
+        with tracer.start_as_current_span("retrieve_recording", kind=trace.SpanKind.SERVER):
+            with tracer.start_as_current_span("get_recording_object"):
+                recording = self.get_object()
+                loaded = recording.load_metadata()
 
-        if not loaded:
-            raise exceptions.NotFound("Recording not found")
+            if not loaded:
+                raise exceptions.NotFound("Recording not found")
 
-        recording.load_person()
-        if not request.user.is_anonymous:
-            viewed = current_user_viewed([str(recording.session_id)], cast(User, request.user), self.team)
-            other_viewers = _other_users_viewed([str(recording.session_id)], cast(User, request.user), self.team)
+            recording.load_person()
+            if not request.user.is_anonymous:
+                with tracer.start_as_current_span("check_viewed_for_users"):
+                    viewed = current_user_viewed([str(recording.session_id)], cast(User, request.user), self.team)
+                    other_viewers = _other_users_viewed(
+                        [str(recording.session_id)], cast(User, request.user), self.team
+                    )
 
-            recording.viewed = str(recording.session_id) in viewed
-            recording.viewers = other_viewers.get(str(recording.session_id), [])
+                    recording.viewed = str(recording.session_id) in viewed
+                    recording.viewers = other_viewers.get(str(recording.session_id), [])
 
-        serializer = self.get_serializer(recording)
+            with tracer.start_as_current_span("serialize_recording"):
+                serializer = self.get_serializer(recording)
 
-        return Response(serializer.data)
+                return Response(serializer.data)
 
     def update(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         tag_queries(product=Product.REPLAY)
@@ -1289,7 +1296,10 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         max_blob_key: int,
     ) -> HttpResponse:
         with STREAM_RESPONSE_TO_CLIENT_HISTOGRAM.labels(blob_version="v2").time():
-            with timer("list_blocks__stream_blob_v2_to_client"):
+            with (
+                timer("list_blocks__stream_blob_v2_to_client"),
+                tracer.start_as_current_span("list_blocks__stream_blob_v2_to_client"),
+            ):
                 blocks = list_blocks(recording)
                 if not blocks:
                     raise exceptions.NotFound("Session recording not found")
@@ -1313,7 +1323,10 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
                     )
                     return block_index, None
 
-            with timer("fetch_blocks_parallel__stream_blob_v2_to_client"):
+            with (
+                timer("fetch_blocks_parallel__stream_blob_v2_to_client"),
+                tracer.start_as_current_span("fetch_blocks_parallel__stream_blob_v2_to_client"),
+            ):
                 tasks = [fetch_single_block_async(block_index) for block_index in range(min_blob_key, max_blob_key + 1)]
 
                 results = await asyncio.gather(*tasks)
@@ -1475,7 +1488,7 @@ def list_recordings_from_query(
     timer = ServerTimingsGathered()
 
     if all_session_ids:
-        with timer("load_persisted_recordings"):
+        with timer("load_persisted_recordings"), tracer.start_as_current_span("load_persisted_recordings"):
             # If we specify the session ids (like from pinned recordings) we can optimise by only going to Postgres
             sorted_session_ids = sorted(all_session_ids)
 
@@ -1502,20 +1515,18 @@ def list_recordings_from_query(
             else False
         )
 
-        with timer("load_recordings_from_hogql"), posthoganalytics.new_context():
+        with (
+            timer("load_recordings_from_hogql"),
+            posthoganalytics.new_context(),
+            tracer.start_as_current_span("load_recordings_from_hogql"),
+        ):
             posthoganalytics.tag("use_multiple_sub_queries", use_multiple_sub_queries)
-            if use_multiple_sub_queries:
-                (ch_session_recordings, more_recordings_available, hogql_timings) = (
-                    RewrittenSessionRecordingListFromQuery(
-                        query=query, team=team, hogql_query_modifiers=modifiers
-                    ).run()
-                )
-            else:
-                (ch_session_recordings, more_recordings_available, hogql_timings) = (
-                    OriginalSessionRecordingListFromQuery(query=query, team=team, hogql_query_modifiers=modifiers).run()
-                )
 
-        with timer("build_recordings"):
+            (ch_session_recordings, more_recordings_available, hogql_timings) = SessionRecordingListFromQuery(
+                query=query, team=team, hogql_query_modifiers=modifiers
+            ).run()
+
+        with timer("build_recordings"), tracer.start_as_current_span("build_recordings"):
             recordings_from_clickhouse = SessionRecording.get_or_build_from_clickhouse(team, ch_session_recordings)
             recordings = recordings + recordings_from_clickhouse
 
@@ -1533,13 +1544,13 @@ def list_recordings_from_query(
 
     recording_ids_in_list: list[str] = [str(r.session_id) for r in recordings]
     # Update the viewed status for all loaded recordings
-    with timer("load_viewed_recordings"):
+    with timer("load_viewed_recordings"), tracer.start_as_current_span("load_viewed_recordings"):
         viewed_session_recordings = current_user_viewed(recording_ids_in_list, user, team)
 
-    with timer("load_other_viewers_by_recording"):
+    with timer("load_other_viewers_by_recording"), tracer.start_as_current_span("load_other_viewers_by_recording"):
         other_viewers = _other_users_viewed(recording_ids_in_list, user, team)
 
-    with timer("load_persons"):
+    with timer("load_persons"), tracer.start_as_current_span("load_persons"):
         # Get the related persons for all the recordings
         distinct_ids = sorted([x.distinct_id for x in recordings if x.distinct_id])
         person_distinct_ids = (
@@ -1548,7 +1559,7 @@ def list_recordings_from_query(
             .select_related("person")
         )
 
-    with timer("process_persons"):
+    with timer("process_persons"), tracer.start_as_current_span("process_persons"):
         distinct_id_to_person = {}
         for person_distinct_id in person_distinct_ids:
             person_distinct_id.person._distinct_ids = [
