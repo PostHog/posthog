@@ -5322,6 +5322,15 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         assert len(response["results"]) == 1
         assert response["results"][0]["key"] == feature_flag.key
 
+    def test_get_flags_with_search(self):
+        FeatureFlag.objects.create(team=self.team, created_by=self.user, key="blue_search_term_button")
+        FeatureFlag.objects.create(team=self.team, created_by=self.user, key="green_search_term_button", active=False)
+
+        filtered_flags_list = self.client.get(f"/api/projects/@current/feature_flags?active=true&search=search_term")
+        response = filtered_flags_list.json()
+        assert len(response["results"]) == 1
+        assert response["results"][0]["key"] == "blue_search_term_button"
+
     def test_get_flags_with_stale_filter(self):
         # Create a stale flag (100% rollout with no properties and 30+ days old)
         with freeze_time("2024-01-01"):
