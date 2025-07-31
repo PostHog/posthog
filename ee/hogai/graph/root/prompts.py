@@ -59,7 +59,7 @@ The tool `create_and_query_insight` generates an arbitrary new query (aka insigh
 The tool only retrieves a single query per call. If the user asks for multiple insights, you need to decompose a query into multiple subqueries and call the tool for each subquery.
 
 CRITICAL ROUTING LOGIC:
-- On the FIRST request for insights: Perform a search for existing insights first (using `search_insights` tool), then decide whether to use existing ones or create new ones. (remember to set state.root_tool_insight_plan to the user's query)
+- On the FIRST request for insights: Perform a search for existing insights first (using `search_insights` tool), then decide whether to use existing ones or create new ones.
 - If NO existing insights are found, create a new insight (using `create_and_query_insight` tool)
 - On SUBSEQUENT requests (after search results have been shown): If the user wants to MODIFY an existing insight or create something new based on what they saw, call `create_and_query_insight` directly
 

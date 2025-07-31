@@ -72,7 +72,7 @@ SEARCH_RESULTS_FOOTER_TEMPLATE = """You found {count} existing insight{plural}{s
 
 Be natural and conversational - don't present this as a rigid list of options.
 
-INSTRUCTIONS: Add a link to the insight in the format [Insight Name](Insight URL) where mentioning an insight."""
+INSTRUCTIONS: Add a link to the insight in the format [Insight Name](Insight URL) when mentioning an insight."""
 
 INSIGHT_BLOCK_WITH_DESCRIPTION_TEMPLATE = """**{index}. {name}**
     Description: {description}{metadata}{execution_results}
