@@ -24,8 +24,10 @@ pub fn main() {
             .iter()
             .cloned()
             .enumerate()
-            .map(|i| format!("{:?}\n", i))
-            .collect::<String>()
+            .fold(String::new(), |acc, (i, value)| format!(
+                "{}({}){:?}\n",
+                acc, i, value
+            ))
     );
 
     // Grab the data we fed in to the invocation that caused the rule to be disabled
