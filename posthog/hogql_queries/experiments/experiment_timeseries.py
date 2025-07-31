@@ -1,9 +1,14 @@
-import json
 import logging
 from typing import Union
 from datetime import datetime, timedelta
 
-from posthog.hogql_queries.experiments.utils import get_bayesian_experiment_result_new_format, get_frequentist_experiment_result_new_format, get_new_variant_results, split_baseline_and_test_variants, get_experiment_stats_method
+from posthog.hogql_queries.experiments.utils import (
+    get_bayesian_experiment_result_new_format,
+    get_frequentist_experiment_result_new_format,
+    get_new_variant_results,
+    split_baseline_and_test_variants,
+    get_experiment_stats_method,
+)
 from posthog.models import Experiment
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
@@ -487,21 +492,21 @@ class ExperimentTimeseries:
         """
         if not self.date_range.date_from:
             return []
-        
+
         start_date = datetime.fromisoformat(self.date_range.date_from).date()
-        
+
         # If no end date, use today
         if self.date_range.date_to:
             end_date = datetime.fromisoformat(self.date_range.date_to).date()
         else:
             end_date = datetime.now().date()
-        
+
         dates = []
         current_date = start_date
         while current_date <= end_date:
             dates.append(current_date.isoformat())  # e.g. '2025-07-15'
             current_date += timedelta(days=1)
-        
+
         return dates
 
     def get_result(self) -> list[dict]:
@@ -550,22 +555,14 @@ class ExperimentTimeseries:
                             test_variants=test_variants,
                         )
 
-                    daily_result_dict = {
-                        "date": date_key,
-                        **daily_result.model_dump()
-                    }
+                    daily_result_dict = {"date": date_key, **daily_result.model_dump()}
                 except Exception as e:
-                    daily_result_dict = {
-                        "date": date_key,
-                        "error": str(e)
-                    }
+                    daily_result_dict = {"date": date_key, "error": str(e)}
             else:
-                daily_result_dict = {
-                    "date": date_key
-                }
-            
+                daily_result_dict = {"date": date_key}
+
             result.append(daily_result_dict)
-        
-        print("result", json.dumps(result, indent=2))
+
+        # print("result", json.dumps(result, indent=2))
 
         return result
