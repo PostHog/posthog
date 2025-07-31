@@ -338,7 +338,7 @@ class FeatureFlagSerializer(
                             # but we _will_ support behavioral cohort targeting
                             if not cohort.can_be_used_in_real_time:
                                 raise serializers.ValidationError(
-                                    detail=f"Cohort '{cohort.name}' (type: {cohort.cohort_type}) cannot be used in feature flags. Only static, person_properties, and behavioral cohorts are supported for real-time evaluation.",
+                                    detail=f"Cohort '{cohort.name}' (type: {cohort.cohort_type}) cannot be used in feature flags. Only static, person_property, and behavioral cohorts are supported for real-time evaluation.",
                                     code=ANALYTICAL_COHORT_FOUND_ERROR_CODE,
                                 )
                     except Cohort.DoesNotExist:
