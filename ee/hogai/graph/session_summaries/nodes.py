@@ -1,3 +1,4 @@
+import asyncio
 import time
 from typing import cast, Literal, Any
 from uuid import uuid4
@@ -7,9 +8,12 @@ from asgiref.sync import async_to_sync
 from langchain_core.runnables import RunnableConfig
 
 from ee.hogai.graph.base import AssistantNode
+from ee.hogai.session_summaries.session_group.summarize_session_group import find_sessions_timestamps
+from ee.hogai.session_summaries.session_group.summary_notebooks import create_summary_notebook
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from posthog.schema import MaxRecordingUniversalFilters, RecordingsQuery, AssistantToolCallMessage
-from posthog.temporal.ai.session_summary.summarize_session import execute_summarize_session_stream
+from posthog.temporal.ai.session_summary.summarize_session import execute_summarize_session
+from posthog.temporal.ai.session_summary.summarize_session_group import execute_summarize_session_group
 
 
 class SessionSummarizationNode(AssistantNode):
@@ -41,6 +45,17 @@ class SessionSummarizationNode(AssistantNode):
                 "current_filters": {},  # Empty state, as we need results from the query-to-filter
             }
         )
+        # TODO: Check if data is present in the result
+        if not result or not isinstance(result, dict):
+            self.logger.error(
+                "Invalid result from filter options graph",
+                extra={
+                    "team_id": getattr(self._team, "id", "unknown"),
+                    "user_id": getattr(self._user, "id", "unknown"),
+                    "result": result,
+                },
+            )
+            return None
         # Extract the generated filters
         filters_data = result.get("generated_filter_options", {}).get("data", None)
         if not filters_data:
@@ -84,6 +99,34 @@ class SessionSummarizationNode(AssistantNode):
         session_ids = [recording["session_id"] for recording in results.results]
         return session_ids if session_ids else None
 
+    async def _summarize_sessions_into_content(self, session_ids: list[str]) -> str:
+        """Summarizes the sessions using the provided session IDs."""
+        # If a small amount of sessions - we won't be able to extract lots of patters,
+        # so it's ok to summarize them one by one and answer fast (without notebook creation)
+        if len(session_ids) <= 5:
+            summaries_tasks = [
+                execute_summarize_session(session_id=sid, user_id=self._user.id, team=self._team) for sid in session_ids
+            ]
+            summaries: list[str] = await asyncio.gather(*summaries_tasks)
+            # TODO: Add layer to convert JSON into more readable text for Max to returns to user
+            content = "\n".join(summaries)
+            return content
+        # If a large amount of sessions - we will summarize them in a group and create a notebook
+        # to provide a more detailed overview of the patterns and insights.
+        min_timestamp, max_timestamp = find_sessions_timestamps(session_ids=session_ids, team=self._team)
+        summary = execute_summarize_session_group(
+            session_ids=session_ids,
+            user_id=self._user.pk,
+            team=self._team,
+            min_timestamp=min_timestamp,
+            max_timestamp=max_timestamp,
+            extra_summary_context=None,
+            local_reads_prod=False,
+        )
+        create_summary_notebook(session_ids=session_ids, user=self._user, team=self._team, summary=summary)
+        content = summary.model_dump_json(exclude_none=True)
+        return content
+
     def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
         start_time = time.time()
         conversation_id = config.get("configurable", {}).get("thread_id", "unknown")
@@ -107,20 +150,19 @@ class SessionSummarizationNode(AssistantNode):
                 return self._create_error_response(self._base_error_instructions, state.root_tool_call_id)
             # Query the filters to get session ids
             session_ids = self._get_session_ids_with_filters(replay_filters)
+            # TODO: Remove after testing
+            # Limit to 5 to test fast summarization
+            session_ids = session_ids[:5] if session_ids else []
             if not session_ids:
                 self._log_failure(
                     f"No session ids found for the provided filters: {replay_filters}", conversation_id, start_time
                 )
                 return self._create_error_response(self._base_error_instructions, state.root_tool_call_id)
-            # Return the summarization response
-            # TODO: Replace with actual summarization logic
-            summary = list(
-                execute_summarize_session_stream(session_id=session_ids[0], user_id=self._user.id, team=self._team)
-            )
+            summaries_content = async_to_sync(self._summarize_sessions_into_content)(session_ids)
             return PartialAssistantState(
                 messages=[
                     AssistantToolCallMessage(
-                        content=summary[-1],
+                        content=summaries_content,
                         tool_call_id=state.root_tool_call_id or "unknown",
                         id=str(uuid4()),
                     ),

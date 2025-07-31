@@ -7,7 +7,6 @@ import time
 from typing import cast
 import uuid
 
-from asgiref.sync import async_to_sync
 from redis import Redis
 import structlog
 import temporalio
@@ -25,7 +24,7 @@ from ee.hogai.session_summaries.session.summarize_session import (
 from ee.hogai.session_summaries.utils import serialize_to_sse_event
 from posthog import constants
 from posthog.models.team.team import Team
-from posthog.redis import get_client
+from posthog.redis import get_client, get_async_client
 from posthog.temporal.ai.session_summary.state import (
     StateActivitiesEnum,
     decompress_redis_data,
@@ -381,7 +380,7 @@ def _prepare_execution(
     return redis_client, redis_input_key, redis_output_key, session_input, workflow_id
 
 
-def execute_summarize_session(
+async def execute_summarize_session(
     session_id: str,
     user_id: int,
     team: Team,
@@ -390,8 +389,9 @@ def execute_summarize_session(
 ) -> str:
     """
     Start the direct summarization workflow (no streaming) and return the summary.
+    Intended to use as a part of other tools or workflows to get more context on summary, so implemented async.
     """
-    redis_client, redis_input_key, redis_output_key, session_input, workflow_id = _prepare_execution(
+    _, redis_input_key, redis_output_key, session_input, workflow_id = _prepare_execution(
         session_id=session_id,
         user_id=user_id,
         team=team,
@@ -399,8 +399,10 @@ def execute_summarize_session(
         extra_summary_context=extra_summary_context,
         local_reads_prod=local_reads_prod,
     )
+    # Using async client to avoid blocking
+    redis_client = get_async_client()
     # Wait for the workflow to complete
-    async_to_sync(_execute_single_session_summary_workflow)(inputs=session_input, workflow_id=workflow_id)
+    await _execute_single_session_summary_workflow(inputs=session_input, workflow_id=workflow_id)
     redis_data_raw = redis_client.get(redis_output_key)
     if not redis_data_raw:
         raise ValueError(
@@ -424,6 +426,7 @@ def execute_summarize_session_stream(
 ) -> Generator[str, None, None]:
     """
     Start the streaming workflow and yield summary state from the stream as it becomes available.
+    Intended to use straight-to-frontend direct communication, so implemented as a generator.
     """
     redis_client, redis_input_key, redis_output_key, session_input, workflow_id = _prepare_execution(
         session_id=session_id,

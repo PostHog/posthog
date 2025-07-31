@@ -13,6 +13,8 @@ from .sync_vectors import (
 
 from .session_summary.summarize_session import (
     SummarizeSingleSessionStreamWorkflow,
+    SummarizeSingleSessionWorkflow,
+    get_llm_single_session_summary_activity,
     stream_llm_single_session_summary_activity,
     fetch_session_data_activity,
 )
@@ -21,7 +23,6 @@ from .session_summary.summarize_session_group import (
     SummarizeSessionGroupWorkflow,
     SessionGroupSummaryInputs,
     SessionGroupSummaryOfSummariesInputs,
-    get_llm_single_session_summary_activity,
     fetch_session_batch_events_activity,
 )
 
@@ -33,6 +34,7 @@ from posthog.temporal.ai.conversation import (
 WORKFLOWS = [
     SyncVectorsWorkflow,
     SummarizeSingleSessionStreamWorkflow,
+    SummarizeSingleSessionWorkflow,
     SummarizeSessionGroupWorkflow,
     AssistantConversationRunnerWorkflow,
 ]
