@@ -75,7 +75,7 @@ fn post_cases() -> Vec<TestCase> {
             // type of pre-processing and formatting to apply to payload
             Box::new(plain_json_payload),
         ),
-        // plain base64'd JSON payload in POST body - NOT SUPPORTED in new capture atm
+        // plain base64'd JSON payload in POST body
         TestCase::new(
             "new_post-base64-single-event-payload".to_string(),
             DEFAULT_TEST_TIME,
@@ -89,7 +89,7 @@ fn post_cases() -> Vec<TestCase> {
             StatusCode::OK,
             Box::new(base64_payload),
         ),
-        // base64'd JSON payload w/o SDK encoding hint - NOT SUPPORTED by new capture atm
+        // base64'd JSON payload w/o SDK encoding hint
         TestCase::new(
             "new_post-base64-no-hint-single-event-payload".to_string(),
             DEFAULT_TEST_TIME,
@@ -160,7 +160,6 @@ fn post_cases() -> Vec<TestCase> {
             Box::new(form_urlencoded_payload),
         ),
         // single event JSON payload submitted as LZ64'd value in POST form
-        // NOT SUPPORTED by new capture atm
         TestCase::new(
             "new_post-form-lz64-urlencoded-event-payload".to_string(),
             DEFAULT_TEST_TIME,
@@ -190,7 +189,7 @@ fn post_cases() -> Vec<TestCase> {
             StatusCode::OK,
             Box::new(plain_json_payload),
         ),
-        // plain base64'd JSON payload in POST body - NOT SUPPORTED by new capture atm
+        // plain base64'd JSON payload in POST body
         TestCase::new(
             "new_post-base64-batch-payload".to_string(),
             DEFAULT_TEST_TIME,
@@ -204,7 +203,7 @@ fn post_cases() -> Vec<TestCase> {
             StatusCode::OK,
             Box::new(base64_payload),
         ),
-        // base64'd JSON payload w/o SDK encoding hint - NOT SUPPORTED by new capture atm
+        // base64'd JSON payload w/o SDK encoding hint
         TestCase::new(
             "new_post-base64-no-hint-batch-payload".to_string(),
             DEFAULT_TEST_TIME,
@@ -260,7 +259,7 @@ fn post_cases() -> Vec<TestCase> {
             StatusCode::BAD_REQUEST,
             Box::new(form_data_base64_payload),
         ),
-        // single event JSON payload submitted as POST form - NOT SUPPORTED in new capture atm
+        // single event JSON payload submitted as POST form
         TestCase::new(
             "new_post-form-urlencoded-batch-payload".to_string(),
             DEFAULT_TEST_TIME,
@@ -275,7 +274,6 @@ fn post_cases() -> Vec<TestCase> {
             Box::new(form_urlencoded_payload),
         ),
         // single event JSON payload submitted as LZ64'd value in POST form
-        // NOT SUPPORTED by new capture atm
         TestCase::new(
             "new_post-form-lz64-urlencoded-batch-payload".to_string(),
             DEFAULT_TEST_TIME,
@@ -311,7 +309,7 @@ fn get_with_body_cases() -> Vec<TestCase> {
             // JSON payload to use as input
             SINGLE_EVENT_JSON,
             // request submission type; one of POST or GET only for these integration tests
-            Method::Post,
+            Method::GetWithBody,
             // compression "hint" (as supplied by some SDKs)
             None,
             // $lib_version "hint" (as supplied by some SDKs outside of event props)
