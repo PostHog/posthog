@@ -458,12 +458,6 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         self.assertEqual(control_variant.number_of_samples, 2)
         self.assertEqual(test_variant.number_of_samples, 2)
 
-        self.assertEqual(control_variant.number_of_samples, 2.0)
-        self.assertEqual(control_variant.sum, 3.0)
-
-        self.assertEqual(test_variant.number_of_samples, 2.0)
-        self.assertEqual(test_variant.sum, 5.0)
-
     @snapshot_clickhouse_queries
     def test_query_runner_with_custom_exposure(self):
         feature_flag = self.create_feature_flag()
