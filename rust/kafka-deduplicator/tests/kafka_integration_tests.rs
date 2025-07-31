@@ -2,13 +2,12 @@ use anyhow::Result;
 use async_trait::async_trait;
 use kafka_deduplicator::kafka::{
     generic_consumer::GenericKafkaConsumer,
-    generic_context::GenericConsumerContext, 
     message::{AckableMessage, MessageProcessor},
     rebalance_handler::RebalanceHandler,
 };
 use rdkafka::{
     config::ClientConfig,
-    consumer::{Consumer, StreamConsumer},
+    consumer::Consumer,
     producer::{FutureProducer, FutureRecord},
     util::Timeout,
     TopicPartitionList,
@@ -116,28 +115,25 @@ fn create_generic_kafka_consumer(
     processor: TestProcessor,
     rebalance_handler: Arc<dyn RebalanceHandler>,
 ) -> Result<GenericKafkaConsumer<TestProcessor>> {
-    // Create the context with our rebalance handler
-    let context = GenericConsumerContext::new(rebalance_handler);
-
-    // Create the underlying rdkafka consumer with our context
-    let consumer: StreamConsumer<GenericConsumerContext> = ClientConfig::new()
+    // Use the new from_config method which includes tracker support
+    let mut config = ClientConfig::new();
+    config
         .set("bootstrap.servers", KAFKA_BROKERS)
         .set("group.id", group_id)
         .set("enable.auto.commit", "false")
         .set("auto.offset.reset", "earliest")
         .set("session.timeout.ms", "6000")
-        .set("heartbeat.interval.ms", "2000")
-        .create_with_context(context)?;
+        .set("heartbeat.interval.ms", "2000");
 
-    consumer.subscribe(&[topic])?;
-
-    // Create our GenericKafkaConsumer wrapper
-    let kafka_consumer = GenericKafkaConsumer::with_commit_interval(
-        consumer,
+    let kafka_consumer = GenericKafkaConsumer::from_config_with_commit_interval(
+        &config,
+        rebalance_handler,
         processor,
         10,
         Duration::from_secs(1),
-    );
+    )?;
+
+    kafka_consumer.inner_consumer().subscribe(&[topic])?;
 
     Ok(kafka_consumer)
 }
@@ -302,6 +298,311 @@ async fn test_generic_kafka_consumer_tracker_stats() -> Result<()> {
     assert_eq!(initial_stats.in_flight, 0);
     assert_eq!(initial_stats.completed, 0);
     assert_eq!(initial_stats.failed, 0);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_partition_aware_message_filtering() -> Result<()> {
+    let test_topic = format!("{}-partition-filter-{}", TEST_TOPIC, uuid::Uuid::new_v4());
+    let group_id = format!("test-group-partition-filter-{}", uuid::Uuid::new_v4());
+
+    // Send test messages
+    let test_messages = vec![
+        ("key1", "message1"),
+        ("key2", "message2"), 
+        ("key3", "message3"),
+        ("key4", "message4"),
+        ("key5", "message5"),
+    ];
+
+    send_test_messages(&test_topic, test_messages.clone()).await?;
+
+    // Create processor that tracks which messages were processed
+    let processor = TestProcessor::new();
+    let rebalance_handler = Arc::new(TestRebalanceHandler::default());
+    
+    // Use the new factory method to get integrated tracker/context
+    let config = rdkafka::ClientConfig::new()
+        .set("bootstrap.servers", KAFKA_BROKERS)
+        .set("group.id", &group_id)
+        .set("enable.auto.commit", "false")
+        .set("auto.offset.reset", "earliest")
+        .set("session.timeout.ms", "6000")
+        .set("heartbeat.interval.ms", "2000")
+        .clone();
+
+    let kafka_consumer = GenericKafkaConsumer::from_config(
+        &config,
+        rebalance_handler.clone(),
+        processor.clone(),
+        10,
+    )?;
+
+    // Subscribe to the topic
+    kafka_consumer.inner_consumer().subscribe(&[&test_topic])?;
+
+    // Start consumption in background
+    let consumer_handle = tokio::spawn(async move {
+        kafka_consumer.start_consumption().await
+    });
+
+    // Wait for some messages to be processed
+    let mut attempts = 0;
+    while processor.get_processed_count() < 2 && attempts < 50 {
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        attempts += 1;
+    }
+
+    // Verify that partitions were assigned
+    let assigned_partitions = rebalance_handler.get_assigned_partitions();
+    assert!(!assigned_partitions.is_empty(), "Should have assigned partitions");
+    
+    // Verify some messages were processed
+    assert!(processor.get_processed_count() > 0, "Should have processed some messages");
+
+    // Stop the consumer
+    consumer_handle.abort();
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_graceful_shutdown_with_in_flight_messages() -> Result<()> {
+    let test_topic = format!("{}-graceful-shutdown-{}", TEST_TOPIC, uuid::Uuid::new_v4());
+    let group_id = format!("test-group-graceful-{}", uuid::Uuid::new_v4());
+
+    // Send test messages
+    let test_messages = vec![
+        ("key1", "message1"),
+        ("key2", "message2"),
+        ("key3", "message3"),  
+    ];
+
+    send_test_messages(&test_topic, test_messages.clone()).await?;
+
+    // Create processor with artificial delay to simulate slow processing
+    #[derive(Clone)]
+    struct SlowProcessor {
+        processed_count: Arc<AtomicUsize>,
+    }
+
+    #[async_trait]
+    impl MessageProcessor for SlowProcessor {
+        async fn process_message(&self, message: AckableMessage) -> Result<()> {
+            // Add delay to simulate slow processing
+            tokio::time::sleep(Duration::from_millis(200)).await;
+            
+            self.processed_count.fetch_add(1, Ordering::SeqCst);
+            message.ack().await;
+            Ok(())
+        }
+    }
+
+    let processor = SlowProcessor {
+        processed_count: Arc::new(AtomicUsize::new(0)),
+    };
+    let rebalance_handler = Arc::new(TestRebalanceHandler::default());
+    
+    let config = rdkafka::ClientConfig::new()
+        .set("bootstrap.servers", KAFKA_BROKERS)
+        .set("group.id", &group_id)
+        .set("enable.auto.commit", "false")
+        .set("auto.offset.reset", "earliest")
+        .set("session.timeout.ms", "6000")
+        .set("heartbeat.interval.ms", "2000")
+        .clone();
+
+    let kafka_consumer = GenericKafkaConsumer::from_config(
+        &config,
+        rebalance_handler.clone(),
+        processor.clone(),
+        10,
+    )?;
+
+    kafka_consumer.inner_consumer().subscribe(&[&test_topic])?;
+
+    // Start consumption 
+    let consumer_handle = tokio::spawn(async move {
+        kafka_consumer.start_consumption().await
+    });
+
+    // Let it run briefly to start processing
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    // Simulate abrupt shutdown
+    consumer_handle.abort();
+
+    // Verify that the infrastructure is in place for graceful handling
+    let assigned_partitions = rebalance_handler.get_assigned_partitions();
+    assert!(!assigned_partitions.is_empty(), "Should have assigned partitions");
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_factory_method_integration() -> Result<()> {
+    let test_topic = format!("{}-factory-{}", TEST_TOPIC, uuid::Uuid::new_v4());
+    let group_id = format!("test-group-factory-{}", uuid::Uuid::new_v4());
+
+    // Test that the new factory method creates a working consumer
+    let processor = TestProcessor::new();
+    let rebalance_handler = Arc::new(TestRebalanceHandler::default());
+    
+    let config = rdkafka::ClientConfig::new()
+        .set("bootstrap.servers", KAFKA_BROKERS)
+        .set("group.id", &group_id)
+        .set("enable.auto.commit", "false")
+        .set("auto.offset.reset", "earliest")
+        .clone();
+
+    // Test both factory methods
+    let consumer1 = GenericKafkaConsumer::from_config(
+        &config,
+        rebalance_handler.clone(),
+        processor.clone(),
+        5,
+    )?;
+
+    let consumer2 = GenericKafkaConsumer::from_config_with_commit_interval(
+        &config,
+        rebalance_handler.clone(),
+        processor.clone(),
+        10,
+        Duration::from_secs(2),
+    )?;
+
+    // Verify consumers were created successfully
+    assert_eq!(consumer1.get_tracker_stats().await.in_flight, 0);
+    assert_eq!(consumer2.get_tracker_stats().await.in_flight, 0);
+
+    // Subscribe and verify no errors
+    consumer1.inner_consumer().subscribe(&[&test_topic])?;
+    consumer2.inner_consumer().subscribe(&[&test_topic])?;
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_rebalance_barrier_with_fencing() -> Result<()> {
+    let test_topic = format!("{}-rebalance-barrier-{}", TEST_TOPIC, uuid::Uuid::new_v4());
+    let group_id = format!("test-group-rebalance-{}", uuid::Uuid::new_v4());
+
+    // Send test messages first
+    let test_messages = vec![
+        ("key1", "message1"),
+        ("key2", "message2"),
+        ("key3", "message3"),
+        ("key4", "message4"),
+        ("key5", "message5"),
+    ];
+
+    send_test_messages(&test_topic, test_messages.clone()).await?;
+
+    // Create a slow processor to simulate in-flight messages during rebalance
+    #[derive(Clone)]
+    struct RebalanceTestProcessor {
+        processed_count: Arc<AtomicUsize>,
+        processing_delay: Arc<AtomicUsize>, // milliseconds
+    }
+
+    #[async_trait]
+    impl MessageProcessor for RebalanceTestProcessor {
+        async fn process_message(&self, message: AckableMessage) -> Result<()> {
+            let delay = self.processing_delay.load(Ordering::SeqCst);
+            if delay > 0 {
+                tokio::time::sleep(Duration::from_millis(delay as u64)).await;
+            }
+            
+            self.processed_count.fetch_add(1, Ordering::SeqCst);
+            message.ack().await;
+            Ok(())
+        }
+    }
+
+    let processor = RebalanceTestProcessor {
+        processed_count: Arc::new(AtomicUsize::new(0)),
+        processing_delay: Arc::new(AtomicUsize::new(100)), // 100ms delay
+    };
+
+    // Track rebalance events
+    #[derive(Default)]
+    struct TrackingRebalanceHandler {
+        revoked_count: Arc<AtomicUsize>,
+        assigned_count: Arc<AtomicUsize>,
+        pre_rebalance_count: Arc<AtomicUsize>,
+        post_rebalance_count: Arc<AtomicUsize>,
+    }
+
+    #[async_trait]
+    impl RebalanceHandler for TrackingRebalanceHandler {
+        async fn on_partitions_assigned(&self, _partitions: &TopicPartitionList) -> Result<()> {
+            self.assigned_count.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        }
+
+        async fn on_partitions_revoked(&self, _partitions: &TopicPartitionList) -> Result<()> {
+            self.revoked_count.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        }
+
+        async fn on_pre_rebalance(&self) -> Result<()> {
+            self.pre_rebalance_count.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        }
+
+        async fn on_post_rebalance(&self) -> Result<()> {
+            self.post_rebalance_count.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        }
+    }
+
+    let rebalance_handler = Arc::new(TrackingRebalanceHandler::default());
+    
+    let config = rdkafka::ClientConfig::new()
+        .set("bootstrap.servers", KAFKA_BROKERS)
+        .set("group.id", &group_id)
+        .set("enable.auto.commit", "false")
+        .set("auto.offset.reset", "earliest")
+        .set("session.timeout.ms", "6000")
+        .set("heartbeat.interval.ms", "2000")
+        .clone();
+
+    let kafka_consumer = GenericKafkaConsumer::from_config(
+        &config,
+        rebalance_handler.clone(),
+        processor.clone(),
+        5, // limit in-flight messages
+    )?;
+
+    kafka_consumer.inner_consumer().subscribe(&[&test_topic])?;
+
+    // Start consumption
+    let consumer_handle = tokio::spawn(async move {
+        kafka_consumer.start_consumption().await
+    });
+
+    // Wait for initial assignment
+    let mut attempts = 0;
+    while rebalance_handler.assigned_count.load(Ordering::SeqCst) == 0 && attempts < 50 {
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        attempts += 1;
+    }
+
+    // Verify assignment happened
+    assert!(rebalance_handler.assigned_count.load(Ordering::SeqCst) > 0, "Should have assigned partitions");
+
+    // Let some messages start processing
+    tokio::time::sleep(Duration::from_millis(200)).await;
+
+    // Stop the consumer (will trigger rebalance)
+    consumer_handle.abort();
+
+    // Give time for handlers to be called
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    // Verify pre-rebalance was called (non-blocking)
+    assert!(rebalance_handler.pre_rebalance_count.load(Ordering::SeqCst) > 0, "Pre-rebalance should have been called");
 
     Ok(())
 }

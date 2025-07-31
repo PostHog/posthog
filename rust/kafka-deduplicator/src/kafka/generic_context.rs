@@ -1,26 +1,119 @@
-use futures::executor;
 use rdkafka::consumer::{BaseConsumer, ConsumerContext, Rebalance};
 use rdkafka::{ClientContext, TopicPartitionList};
 use std::sync::Arc;
 use tokio::runtime::Handle;
+use tokio::sync::mpsc;
 use tracing::{error, info, warn};
 
 use super::rebalance_handler::RebalanceHandler;
+use super::tracker::InFlightTracker;
+
+/// Events sent to the async rebalance worker
+#[derive(Debug, Clone)]
+enum RebalanceEvent {
+    /// Partitions are being revoked
+    Revoke(Vec<(String, i32)>),
+    /// Partitions have been assigned  
+    Assign(Vec<(String, i32)>),
+}
 
 /// Generic Kafka consumer context that delegates rebalance events to user-provided handlers
 /// This handles all the rdkafka ConsumerContext complexity internally
 pub struct GenericConsumerContext {
     rebalance_handler: Arc<dyn RebalanceHandler>,
+    /// Optional tracker for coordinating partition revocation with in-flight messages
+    tracker: Option<Arc<InFlightTracker>>,
     /// Handle to the async runtime for executing async callbacks from sync context
     rt_handle: Handle,
+    /// Channel to send rebalance events to async worker
+    rebalance_tx: Option<mpsc::UnboundedSender<RebalanceEvent>>,
 }
 
 impl GenericConsumerContext {
     pub fn new(rebalance_handler: Arc<dyn RebalanceHandler>) -> Self {
         Self {
             rebalance_handler,
+            tracker: None,
             rt_handle: Handle::current(),
+            rebalance_tx: None,
         }
+    }
+    
+    pub fn with_tracker(
+        rebalance_handler: Arc<dyn RebalanceHandler>,
+        tracker: Arc<InFlightTracker>,
+    ) -> Self {
+        // Create channel for rebalance events
+        let (tx, rx) = mpsc::unbounded_channel();
+        
+        // Start the async rebalance worker
+        let worker_handler = rebalance_handler.clone();
+        let worker_tracker = tracker.clone();
+        Handle::current().spawn(async move {
+            Self::rebalance_worker(rx, worker_tracker, worker_handler).await;
+        });
+        
+        Self {
+            rebalance_handler,
+            tracker: Some(tracker),
+            rt_handle: Handle::current(),
+            rebalance_tx: Some(tx),
+        }
+    }
+    
+    /// Async worker that processes rebalance events
+    async fn rebalance_worker(
+        mut rx: mpsc::UnboundedReceiver<RebalanceEvent>,
+        tracker: Arc<InFlightTracker>,
+        handler: Arc<dyn RebalanceHandler>,
+    ) {
+        info!("Starting rebalance worker");
+        
+        while let Some(event) = rx.recv().await {
+            match event {
+                RebalanceEvent::Revoke(partitions) => {
+                    info!("Rebalance worker: processing revocation for {} partitions", partitions.len());
+                    
+                    // Wait for all in-flight messages in these partitions to complete
+                    let _final_offsets = tracker.wait_for_partition_completion(&partitions).await;
+                    info!("Rebalance worker: all in-flight messages completed for {} partitions", partitions.len());
+                    
+                    // Create TopicPartitionList for handler
+                    let mut tpl = TopicPartitionList::new();
+                    for (topic, partition) in &partitions {
+                        tpl.add_partition(topic, *partition);
+                    }
+                    
+                    // Call user's revocation handler
+                    if let Err(e) = handler.on_partitions_revoked(&tpl).await {
+                        error!("Partition revocation handler failed: {}", e);
+                    }
+                    
+                    // Finalize revocation
+                    tracker.finalize_revocation(&partitions).await;
+                    info!("Rebalance worker: finalized revocation for {} partitions", partitions.len());
+                }
+                RebalanceEvent::Assign(partitions) => {
+                    info!("Rebalance worker: processing assignment for {} partitions", partitions.len());
+                    
+                    // Mark partitions as active
+                    tracker.mark_partitions_active(&partitions).await;
+                    
+                    // Create TopicPartitionList for handler
+                    let mut tpl = TopicPartitionList::new();
+                    for (topic, partition) in &partitions {
+                        tpl.add_partition(topic, *partition);
+                    }
+                    
+                    // Call user's assignment handler
+                    if let Err(e) = handler.on_partitions_assigned(&tpl).await {
+                        error!("Partition assignment handler failed: {}", e);
+                    }
+                }
+            }
+        }
+        
+        info!("Rebalance worker shutting down");
     }
 }
 
@@ -30,7 +123,7 @@ impl ConsumerContext for GenericConsumerContext {
     fn pre_rebalance(&self, _base_consumer: &BaseConsumer<Self>, rebalance: &Rebalance) {
         info!("Pre-rebalance event: {:?}", rebalance);
 
-        // Call user's pre-rebalance handler
+        // Call user's pre-rebalance handler asynchronously
         let handler = self.rebalance_handler.clone();
         self.rt_handle.spawn(async move {
             if let Err(e) = handler.on_pre_rebalance().await {
@@ -42,14 +135,43 @@ impl ConsumerContext for GenericConsumerContext {
         match rebalance {
             Rebalance::Revoke(partitions) => {
                 info!("Revoking {} partitions", partitions.count());
-                let handler = self.rebalance_handler.clone();
 
-                // We need to block here to ensure revocation completes before rdkafka continues
-                // This is critical for correctness
-                if let Err(e) = executor::block_on(async move { 
-                    handler.on_partitions_revoked(partitions).await 
-                }) {
-                    error!("Partition revocation handler failed: {}", e);
+                // Extract partition info immediately to avoid Send issues
+                let partition_infos: Vec<(String, i32)> = partitions
+                    .elements()
+                    .into_iter()
+                    .map(|elem| (elem.topic().to_string(), elem.partition()))
+                    .collect();
+
+                if let Some(tracker) = &self.tracker {
+                    // Fast, non-blocking fence operation
+                    let tracker_clone = tracker.clone();
+                    let partition_infos_clone = partition_infos.clone();
+                    self.rt_handle.spawn(async move {
+                        tracker_clone.fence_partitions(&partition_infos_clone).await;
+                    });
+                    
+                    // Send revocation event to async worker if available
+                    if let Some(tx) = &self.rebalance_tx {
+                        if let Err(e) = tx.send(RebalanceEvent::Revoke(partition_infos)) {
+                            error!("Failed to send revoke event to rebalance worker: {}", e);
+                        }
+                    }
+                } else {
+                    // No tracker - call handler asynchronously 
+                    let handler = self.rebalance_handler.clone();
+                    
+                    // Create a new TopicPartitionList to pass to handler
+                    let mut tpl = TopicPartitionList::new();
+                    for elem in partitions.elements() {
+                        tpl.add_partition(elem.topic(), elem.partition());
+                    }
+                    
+                    self.rt_handle.spawn(async move {
+                        if let Err(e) = handler.on_partitions_revoked(&tpl).await {
+                            error!("Partition revocation handler failed: {}", e);
+                        }
+                    });
                 }
             }
             Rebalance::Assign(partitions) => {
@@ -71,20 +193,35 @@ impl ConsumerContext for GenericConsumerContext {
         match rebalance {
             Rebalance::Assign(partitions) => {
                 info!("Assigned {} partitions", partitions.count());
-                let handler = self.rebalance_handler.clone();
 
-                let mut partition_list = rdkafka::TopicPartitionList::new();
-                for elem in partitions.elements() {
-                    partition_list
-                        .add_partition_offset(elem.topic(), elem.partition(), elem.offset())
-                        .unwrap();
-                }
+                // Extract partition info
+                let partition_infos: Vec<(String, i32)> = partitions
+                    .elements()
+                    .into_iter()
+                    .map(|elem| (elem.topic().to_string(), elem.partition()))
+                    .collect();
 
-                self.rt_handle.spawn(async move {
-                    if let Err(e) = handler.on_partitions_assigned(&partition_list).await {
-                        error!("Partition assignment handler failed: {}", e);
+                // Send assignment event to async worker if available
+                if let Some(tx) = &self.rebalance_tx {
+                    if let Err(e) = tx.send(RebalanceEvent::Assign(partition_infos)) {
+                        error!("Failed to send assign event to rebalance worker: {}", e);
                     }
-                });
+                } else {
+                    // No tracker/worker - handle directly
+                    let handler = self.rebalance_handler.clone();
+                    
+                    // Create a new TopicPartitionList to pass to handler
+                    let mut tpl = TopicPartitionList::new();
+                    for elem in partitions.elements() {
+                        tpl.add_partition_offset(elem.topic(), elem.partition(), elem.offset()).unwrap();
+                    }
+                    
+                    self.rt_handle.spawn(async move {
+                        if let Err(e) = handler.on_partitions_assigned(&tpl).await {
+                            error!("Partition assignment handler failed: {}", e);
+                        }
+                    });
+                }
             }
             Rebalance::Revoke(_) => {
                 info!("Post-rebalance revoke event");
@@ -282,5 +419,132 @@ mod tests {
             rdkafka::error::RDKafkaErrorCode::InvalidPartitions,
         );
         context.commit_callback(Err(error), &partitions);
+    }
+
+    #[tokio::test]
+    async fn test_context_with_tracker_partition_revocation() {
+        let handler = Arc::new(TestRebalanceHandler::default());
+        let tracker = Arc::new(crate::kafka::InFlightTracker::new());
+        let context = GenericConsumerContext::with_tracker(handler.clone(), tracker.clone());
+        let consumer = create_test_consumer(Arc::new(TestRebalanceHandler::default()));
+        
+        // Track some messages in different partitions
+        let msg1 = rdkafka::message::OwnedMessage::new(
+            Some("payload1".as_bytes().to_vec()),
+            Some("key1".as_bytes().to_vec()),
+            "test-topic-1".to_string(),
+            rdkafka::message::Timestamp::now(),
+            0,
+            0,
+            Some(rdkafka::message::OwnedHeaders::new()),
+        );
+        let msg2 = rdkafka::message::OwnedMessage::new(
+            Some("payload2".as_bytes().to_vec()),
+            Some("key2".as_bytes().to_vec()),
+            "test-topic-1".to_string(),
+            rdkafka::message::Timestamp::now(),
+            0,
+            1,
+            Some(rdkafka::message::OwnedHeaders::new()),
+        );
+        
+        let (_, handle1) = tracker.track_message(&msg1, 100).await;
+        let (_, handle2) = tracker.track_message(&msg2, 100).await;
+        
+        // Verify messages are tracked and partition is active
+        assert_eq!(tracker.in_flight_count().await, 2);
+        assert!(tracker.is_partition_active("test-topic-1", 0).await);
+        
+        // Create partition list for revocation
+        let partitions = create_test_partition_list();
+        let rebalance = rdkafka::consumer::Rebalance::Revoke(&partitions);
+        
+        // Call pre_rebalance - should fence immediately and return
+        context.pre_rebalance(&consumer, &rebalance);
+        
+        // Give async tasks time to run
+        tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+        
+        // Verify partition is now fenced (should happen immediately)
+        assert!(!tracker.is_partition_active("test-topic-1", 0).await);
+        assert!(!tracker.is_partition_active("test-topic-1", 1).await);
+        
+        // Messages should still be in-flight at this point
+        assert_eq!(tracker.in_flight_count().await, 2);
+        
+        // Complete the messages to allow async worker to finish
+        handle1.complete(crate::kafka::message::MessageResult::Success).await;
+        handle2.complete(crate::kafka::message::MessageResult::Success).await;
+        
+        // Give async worker time to process
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        
+        // Verify all messages are now completed
+        assert_eq!(tracker.in_flight_count().await, 0);
+        
+        // Handler should have been called by async worker
+        assert_eq!(handler.revoked_count.load(std::sync::atomic::Ordering::SeqCst), 1);
+        assert_eq!(handler.pre_rebalance_count.load(std::sync::atomic::Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test] 
+    async fn test_context_with_tracker_partition_assignment() {
+        let handler = Arc::new(TestRebalanceHandler::default());
+        let tracker = Arc::new(crate::kafka::InFlightTracker::new());
+        let context = GenericConsumerContext::with_tracker(handler.clone(), tracker.clone());
+        let consumer = create_test_consumer(Arc::new(TestRebalanceHandler::default()));
+        
+        // Initially fence some partitions
+        let partitions_info = vec![
+            ("test-topic-1".to_string(), 0),
+            ("test-topic-1".to_string(), 1),
+        ];
+        tracker.fence_partitions(&partitions_info).await;
+        
+        // Verify partitions are fenced
+        assert!(!tracker.is_partition_active("test-topic-1", 0).await);
+        assert!(!tracker.is_partition_active("test-topic-1", 1).await);
+        
+        // Create partition list for assignment
+        let partitions = create_test_partition_list();
+        let rebalance = rdkafka::consumer::Rebalance::Assign(&partitions);
+        
+        // Simulate post_rebalance call
+        context.post_rebalance(&consumer, &rebalance);
+        
+        // Give async tasks time to complete
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        
+        // Verify partitions are now active
+        assert!(tracker.is_partition_active("test-topic-1", 0).await);
+        assert!(tracker.is_partition_active("test-topic-1", 1).await);
+        
+        // Verify rebalance handler was called
+        assert_eq!(handler.assigned_count.load(std::sync::atomic::Ordering::SeqCst), 1);
+        assert_eq!(handler.post_rebalance_count.load(std::sync::atomic::Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn test_context_without_tracker_compatibility() {
+        // Test that context without tracker still works (backward compatibility)
+        let handler = Arc::new(TestRebalanceHandler::default());
+        let context = GenericConsumerContext::new(handler.clone());
+        let consumer = create_test_consumer(Arc::new(TestRebalanceHandler::default()));
+        
+        let partitions = create_test_partition_list();
+        
+        // Should not panic when tracker is None
+        let rebalance_revoke = rdkafka::consumer::Rebalance::Revoke(&partitions);
+        context.pre_rebalance(&consumer, &rebalance_revoke);
+        
+        let rebalance_assign = rdkafka::consumer::Rebalance::Assign(&partitions);
+        context.post_rebalance(&consumer, &rebalance_assign);
+        
+        // Give async tasks time to complete
+        tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
+        
+        // Verify handlers were still called
+        assert_eq!(handler.revoked_count.load(std::sync::atomic::Ordering::SeqCst), 1);
+        assert_eq!(handler.assigned_count.load(std::sync::atomic::Ordering::SeqCst), 1);
     }
 }

@@ -5,10 +5,11 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::Semaphore;
 use tokio::time::timeout;
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 
 use super::generic_context::GenericConsumerContext;
 use super::message::{AckableMessage, MessageProcessor};
+use super::rebalance_handler::RebalanceHandler;
 use super::tracker::{InFlightTracker, TrackerStats};
 
 /// Generic Kafka consumer that works with any ConsumerContext
@@ -43,6 +44,48 @@ impl<P: MessageProcessor> GenericKafkaConsumer<P> {
             max_in_flight_messages,
             Duration::from_secs(5), // Default 5 second commit interval
         )
+    }
+
+    /// Create a new generic Kafka consumer with integrated tracker and context
+    /// This is the recommended way to create consumers for production use
+    pub fn from_config(
+        config: &rdkafka::ClientConfig,
+        rebalance_handler: Arc<dyn RebalanceHandler>,
+        message_processor: P,
+        max_in_flight_messages: usize,
+    ) -> Result<Self> {
+        Self::from_config_with_commit_interval(
+            config,
+            rebalance_handler,
+            message_processor,
+            max_in_flight_messages,
+            Duration::from_secs(5),
+        )
+    }
+
+    /// Create a new generic Kafka consumer with integrated tracker, context, and custom commit interval
+    pub fn from_config_with_commit_interval(
+        config: &rdkafka::ClientConfig,
+        rebalance_handler: Arc<dyn RebalanceHandler>,
+        message_processor: P,
+        max_in_flight_messages: usize,
+        commit_interval: Duration,
+    ) -> Result<Self> {
+        let tracker = Arc::new(InFlightTracker::new());
+        let context = GenericConsumerContext::with_tracker(rebalance_handler, tracker.clone());
+
+        let consumer: StreamConsumer<GenericConsumerContext> =
+            config.create_with_context(context)?;
+
+        let global_semaphore = Arc::new(Semaphore::new(max_in_flight_messages));
+
+        Ok(Self {
+            consumer,
+            message_processor: Arc::new(message_processor),
+            tracker,
+            global_semaphore,
+            commit_interval,
+        })
     }
 
     /// Create a new generic Kafka consumer with custom commit interval
@@ -100,12 +143,21 @@ impl<P: MessageProcessor> GenericKafkaConsumer<P> {
     }
 
     async fn handle_message<'a>(&self, msg: rdkafka::message::BorrowedMessage<'a>) -> Result<()> {
-        // Acquire permit to control backpressure
-        let _permit = self.global_semaphore.acquire().await?;
-
         let topic = msg.topic();
         let partition = msg.partition();
         let offset = msg.offset();
+
+        // Check if partition is still active (not revoked)
+        if !self.tracker.is_partition_active(topic, partition).await {
+            warn!(
+                "Skipping message from revoked partition {}:{} offset {}",
+                topic, partition, offset
+            );
+            return Ok(());
+        }
+
+        // Acquire permit to control backpressure
+        let _permit = self.global_semaphore.acquire().await?;
 
         debug!(
             "Processing message from topic {} partition {} offset {}",

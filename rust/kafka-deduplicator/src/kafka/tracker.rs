@@ -1,6 +1,6 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use tokio::sync::{mpsc, RwLock};
 use rdkafka::message::OwnedMessage;
 use rdkafka::Message;
@@ -90,6 +90,12 @@ pub struct InFlightTracker {
     /// Per-partition trackers
     partitions: Arc<RwLock<HashMap<(String, i32), PartitionTracker>>>,
     
+    /// Set of revoked partitions that should not accept new messages
+    revoked_partitions: Arc<RwLock<HashSet<(String, i32)>>>,
+    
+    /// Fast lookup for fenced partitions using atomic booleans
+    fenced_partitions: Arc<RwLock<HashMap<(String, i32), Arc<AtomicBool>>>>,
+    
     /// Counter for generating unique message IDs
     next_message_id: AtomicU64,
     
@@ -102,6 +108,8 @@ impl InFlightTracker {
     pub fn new() -> Self {
         Self {
             partitions: Arc::new(RwLock::new(HashMap::new())),
+            revoked_partitions: Arc::new(RwLock::new(HashSet::new())),
+            fenced_partitions: Arc::new(RwLock::new(HashMap::new())),
             next_message_id: AtomicU64::new(1),
             completed_count: AtomicU64::new(0),
             failed_count: AtomicU64::new(0),
@@ -260,6 +268,101 @@ impl InFlightTracker {
             failed,
             memory_usage,
         }
+    }
+    
+    /// Check if a partition is active (not fenced or revoked) - fast non-blocking check
+    pub async fn is_partition_active(&self, topic: &str, partition: i32) -> bool {
+        // First check if it's fenced
+        let fenced = self.fenced_partitions.read().await;
+        if let Some(is_fenced) = fenced.get(&(topic.to_string(), partition)) {
+            if is_fenced.load(Ordering::Acquire) {
+                return false;
+            }
+        }
+        
+        // Then check if it's revoked
+        let revoked = self.revoked_partitions.read().await;
+        !revoked.contains(&(topic.to_string(), partition))
+    }
+    
+    /// Fence partitions immediately (non-blocking) to stop accepting new messages
+    pub async fn fence_partitions(&self, partitions: &[(String, i32)]) {
+        let mut fenced = self.fenced_partitions.write().await;
+        for (topic, partition) in partitions {
+            info!("Fencing partition {}:{}", topic, partition);
+            let is_fenced = fenced.entry((topic.clone(), *partition))
+                .or_insert_with(|| Arc::new(AtomicBool::new(false)));
+            is_fenced.store(true, Ordering::Release);
+        }
+    }
+    
+    /// Finalize revocation after cleanup is complete
+    pub async fn finalize_revocation(&self, partitions: &[(String, i32)]) {
+        let mut revoked = self.revoked_partitions.write().await;
+        let mut fenced = self.fenced_partitions.write().await;
+        
+        for (topic, partition) in partitions {
+            info!("Finalizing revocation for partition {}:{}", topic, partition);
+            revoked.insert((topic.clone(), *partition));
+            // Remove from fenced map as it's now fully revoked
+            fenced.remove(&(topic.clone(), *partition));
+        }
+    }
+    
+    
+    /// Mark partitions as active (remove from revoked set and unfence)
+    pub async fn mark_partitions_active(&self, partitions: &[(String, i32)]) {
+        let mut revoked = self.revoked_partitions.write().await;
+        let mut fenced = self.fenced_partitions.write().await;
+        
+        for (topic, partition) in partitions {
+            info!("Marking partition {}:{} as active", topic, partition);
+            revoked.remove(&(topic.clone(), *partition));
+            // Remove any fencing
+            fenced.remove(&(topic.clone(), *partition));
+        }
+    }
+    
+    /// Wait for all in-flight messages in specific partitions to complete
+    pub async fn wait_for_partition_completion(&self, partitions: &[(String, i32)]) -> Vec<(String, i32, i64)> {
+        info!("Waiting for {} partitions to complete processing", partitions.len());
+        
+        loop {
+            // Process any pending completions
+            self.process_completions().await;
+            
+            // Check if specified partitions have any in-flight messages
+            let partitions_guard = self.partitions.read().await;
+            let mut total_in_flight = 0;
+            
+            for (topic, partition) in partitions {
+                let partition_key = (topic.clone(), *partition);
+                if let Some(tracker) = partitions_guard.get(&partition_key) {
+                    total_in_flight += tracker.in_flight_count;
+                }
+            }
+            
+            if total_in_flight == 0 {
+                break;
+            }
+            
+            info!(
+                "Still waiting for {} in-flight messages in {} partitions", 
+                total_in_flight, 
+                partitions.len()
+            );
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        }
+        
+        // Return final offsets for specified partitions
+        let safe_offsets = self.get_safe_commit_offsets().await;
+        partitions.iter()
+            .filter_map(|(topic, partition)| {
+                let partition_key = (topic.clone(), *partition);
+                safe_offsets.get(&partition_key)
+                    .map(|offset| (topic.clone(), *partition, *offset))
+            })
+            .collect()
     }
     
     /// Reset statistics (useful for testing)
@@ -448,5 +551,195 @@ mod tests {
         
         assert_eq!(offsets, vec![("test-topic".to_string(), 0, 0)]);
         assert_eq!(tracker.in_flight_count().await, 0);
+    }
+
+    #[tokio::test]
+    async fn test_partition_fencing() {
+        let tracker = InFlightTracker::new();
+        
+        // Initially all partitions should be active
+        assert!(tracker.is_partition_active("topic1", 0).await);
+        assert!(tracker.is_partition_active("topic1", 1).await);
+        assert!(tracker.is_partition_active("topic2", 0).await);
+        
+        // Fence some partitions
+        let partitions_to_fence = vec![
+            ("topic1".to_string(), 0),
+            ("topic2".to_string(), 0),
+        ];
+        tracker.fence_partitions(&partitions_to_fence).await;
+        
+        // Check partition states - fenced partitions should be inactive
+        assert!(!tracker.is_partition_active("topic1", 0).await); // Fenced
+        assert!(tracker.is_partition_active("topic1", 1).await);   // Still active
+        assert!(!tracker.is_partition_active("topic2", 0).await); // Fenced
+        
+        // Finalize revocation
+        tracker.finalize_revocation(&partitions_to_fence).await;
+        
+        // Partitions should still be inactive (now revoked)
+        assert!(!tracker.is_partition_active("topic1", 0).await);
+        assert!(!tracker.is_partition_active("topic2", 0).await);
+        
+        // Mark partitions as active again
+        tracker.mark_partitions_active(&partitions_to_fence).await;
+        
+        // All should be active again
+        assert!(tracker.is_partition_active("topic1", 0).await);
+        assert!(tracker.is_partition_active("topic1", 1).await);
+        assert!(tracker.is_partition_active("topic2", 0).await);
+    }
+
+    #[tokio::test]
+    async fn test_wait_for_partition_completion() {
+        let tracker = InFlightTracker::new();
+        
+        // Track messages in different partitions
+        let msg1 = create_test_message("topic", 0, 0, "payload1");
+        let msg2 = create_test_message("topic", 0, 1, "payload2");
+        let msg3 = create_test_message("topic", 1, 0, "payload3");
+        let msg4 = create_test_message("other", 0, 0, "payload4");
+        
+        let (_, handle1) = tracker.track_message(&msg1, 100).await;
+        let (_, handle2) = tracker.track_message(&msg2, 100).await;
+        let (_, handle3) = tracker.track_message(&msg3, 100).await;
+        let (_, handle4) = tracker.track_message(&msg4, 100).await;
+        
+        // Verify in-flight counts
+        assert_eq!(tracker.in_flight_count().await, 4);
+        
+        // Complete messages in partition topic:0 in background
+        let handle1_clone = handle1;
+        let handle2_clone = handle2;
+        tokio::spawn(async move {
+            tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+            handle1_clone.complete(MessageResult::Success).await;
+            handle2_clone.complete(MessageResult::Success).await;
+        });
+        
+        // Wait for specific partition completion
+        let target_partitions = vec![("topic".to_string(), 0)];
+        let offsets = tracker.wait_for_partition_completion(&target_partitions).await;
+        
+        // Should get final offsets for the completed partition
+        assert_eq!(offsets.len(), 1);
+        assert_eq!(offsets[0], ("topic".to_string(), 0, 1)); // Last completed offset
+        
+        // Other messages should still be in-flight
+        assert_eq!(tracker.in_flight_count().await, 2);
+        
+        // Clean up remaining messages
+        handle3.complete(MessageResult::Success).await;
+        handle4.complete(MessageResult::Success).await;
+        tracker.process_completions().await;
+    }
+
+    #[tokio::test]
+    async fn test_partition_completion_with_no_messages() {
+        let tracker = InFlightTracker::new();
+        
+        // Wait for completion on partitions with no messages
+        let target_partitions = vec![
+            ("empty-topic".to_string(), 0),
+            ("empty-topic".to_string(), 1),
+        ];
+        
+        let offsets = tracker.wait_for_partition_completion(&target_partitions).await;
+        
+        // Should return empty since no messages were tracked
+        assert!(offsets.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_partition_completion_multiple_partitions() {
+        let tracker = InFlightTracker::new();
+        
+        // Track messages in multiple partitions
+        let msg1 = create_test_message("topic", 0, 0, "payload1");
+        let msg2 = create_test_message("topic", 1, 0, "payload2");
+        let msg3 = create_test_message("topic", 2, 0, "payload3");
+        
+        let (_, handle1) = tracker.track_message(&msg1, 100).await;
+        let (_, handle2) = tracker.track_message(&msg2, 100).await;
+        let (_, handle3) = tracker.track_message(&msg3, 100).await;
+        
+        // Complete messages in background with different timing
+        tokio::spawn(async move {
+            tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
+            handle1.complete(MessageResult::Success).await;
+            
+            tokio::time::sleep(tokio::time::Duration::from_millis(20)).await;
+            handle2.complete(MessageResult::Success).await;
+            
+            tokio::time::sleep(tokio::time::Duration::from_millis(30)).await;
+            handle3.complete(MessageResult::Success).await;
+        });
+        
+        // Wait for specific partitions
+        let target_partitions = vec![
+            ("topic".to_string(), 0),
+            ("topic".to_string(), 1),
+        ];
+        
+        let offsets = tracker.wait_for_partition_completion(&target_partitions).await;
+        
+        // Should get offsets for both partitions
+        assert_eq!(offsets.len(), 2);
+        assert!(offsets.contains(&("topic".to_string(), 0, 0)));
+        assert!(offsets.contains(&("topic".to_string(), 1, 0)));
+        
+        // Partition 2 should still have in-flight message initially
+        // Wait a bit more for the last message to complete
+        tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+        tracker.process_completions().await;
+        assert_eq!(tracker.in_flight_count().await, 0);
+    }
+
+    #[tokio::test]
+    async fn test_partition_revocation_workflow() {
+        let tracker = InFlightTracker::new();
+        
+        // Track messages in different partitions
+        let msg1 = create_test_message("topic", 0, 0, "payload1");
+        let msg2 = create_test_message("topic", 0, 1, "payload2");
+        let msg3 = create_test_message("topic", 1, 0, "payload3");
+        
+        let (_, handle1) = tracker.track_message(&msg1, 100).await;
+        let (_, handle2) = tracker.track_message(&msg2, 100).await;
+        let (_, handle3) = tracker.track_message(&msg3, 100).await;
+        
+        // Simulate partition revocation workflow
+        let revoked_partitions = vec![("topic".to_string(), 0)];
+        
+        // 1. Fence partitions immediately
+        tracker.fence_partitions(&revoked_partitions).await;
+        
+        // Partition should be marked as inactive immediately
+        assert!(!tracker.is_partition_active("topic", 0).await);
+        assert!(tracker.is_partition_active("topic", 1).await);
+        
+        // 2. Complete in-flight messages in background
+        tokio::spawn(async move {
+            tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
+            handle1.complete(MessageResult::Success).await;
+            handle2.complete(MessageResult::Success).await;
+        });
+        
+        // 3. Wait for partition completion
+        let offsets = tracker.wait_for_partition_completion(&revoked_partitions).await;
+        
+        // Should get final offsets
+        assert_eq!(offsets.len(), 1);
+        assert_eq!(offsets[0], ("topic".to_string(), 0, 1));
+        
+        // 4. Finalize revocation
+        tracker.finalize_revocation(&revoked_partitions).await;
+        
+        // Other partition should still have in-flight message
+        assert_eq!(tracker.in_flight_count().await, 1);
+        
+        // Clean up
+        handle3.complete(MessageResult::Success).await;
+        tracker.process_completions().await;
     }
 }
