@@ -31,7 +31,8 @@ import {
     ReasoningMessage,
     RootAssistantMessage,
 } from '~/queries/schema/schema-assistant-messages'
-import { Conversation, ConversationDetail, ConversationStatus, NotebookTarget } from '~/types'
+import { Conversation, ConversationDetail, ConversationStatus } from '~/types'
+import { NotebookTarget } from 'scenes/notebooks/types'
 
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { maxLogic } from './maxLogic'

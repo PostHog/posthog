@@ -47,7 +47,8 @@ import {
 } from '~/queries/schema/schema-assistant-messages'
 import { DataVisualizationNode, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import { isHogQLQuery } from '~/queries/utils'
-import { NotebookTarget, ProductKey } from '~/types'
+import { ProductKey } from '~/types'
+import { NotebookTarget } from 'scenes/notebooks/types'
 
 import { ContextSummary } from './Context'
 import { MarkdownMessage } from './MarkdownMessage'
