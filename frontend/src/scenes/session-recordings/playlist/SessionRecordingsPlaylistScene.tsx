@@ -149,7 +149,6 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
                                 maxLength={400}
                                 data-attr="playlist-description"
                                 compactButtons
-                                onModeToggle={(viewMode) => {}}
                             />
                             <UserActivityIndicator
                                 at={playlist.last_modified_at}
