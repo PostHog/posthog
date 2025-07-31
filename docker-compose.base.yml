@@ -129,6 +129,7 @@ services:
             KAFKA_CFG_LISTENERS: PLAINTEXT://:9092
             KAFKA_CFG_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
             KAFKA_CFG_ZOOKEEPER_CONNECT: zookeeper:2181
+            KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE: 'true'
             ALLOW_PLAINTEXT_LISTENER: 'true'
         healthcheck:
             test: kafka-cluster.sh cluster-id --bootstrap-server localhost:9092 || exit 1
