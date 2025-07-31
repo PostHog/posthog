@@ -129,17 +129,17 @@ CONSTANCE_CONFIG = {
         bool,
     ),
     "SLACK_APP_CLIENT_ID": (
-        get_from_env("SLACK_APP_CLIENT_ID", default="393235051266.9195119509920"),
+        get_from_env("SLACK_APP_CLIENT_ID", default=""),
         "Used to enable the 'Add to Slack' button across all projects",
         str,
     ),
     "SLACK_APP_CLIENT_SECRET": (
-        get_from_env("SLACK_APP_CLIENT_SECRET", default="4028d169a98b098ced5ab6db4d3f8667"),
+        get_from_env("SLACK_APP_CLIENT_SECRET", default=""),
         "Used to enable the 'Add to Slack' button across all projects",
         str,
     ),
     "SLACK_APP_SIGNING_SECRET": (
-        get_from_env("SLACK_APP_SIGNING_SECRET", default="2921bff779517bf16be4f02172fd21b6"),
+        get_from_env("SLACK_APP_SIGNING_SECRET", default=""),
         "Used to validate Slack events for example when unfurling links",
         str,
     ),

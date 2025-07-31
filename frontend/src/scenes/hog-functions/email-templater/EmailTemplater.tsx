@@ -10,25 +10,18 @@ import EmailEditor from 'react-email-editor'
 
 import { emailTemplaterLogic, EmailTemplaterLogicProps } from './emailTemplaterLogic'
 import { CyclotronJobInputIntegration } from 'lib/components/CyclotronJob/integrations/CyclotronJobInputIntegration'
-import { OnChange } from '@monaco-editor/react'
 
-function EmailTemplaterField({
-    field,
-    value,
-    onChange,
-    error,
-}: {
-    field: 'from' | 'to' | 'subject'
-    value: string
-    onChange: OnChange
-    error: any
-}): JSX.Element {
-    const { logicProps } = useValues(emailTemplaterLogic)
+function EmailTemplaterForm({ mode }: { mode: 'full' | 'preview' }): JSX.Element {
+    const { unlayerEditorProjectId, logicProps, appliedTemplate, templates, templatesLoading, mergeTags } =
+        useValues(emailTemplaterLogic)
+    const { setEmailEditorRef, onEmailEditorReady, setIsModalOpen, applyTemplate } = useActions(emailTemplaterLogic)
+
+    const { featureFlags } = useValues(featureFlagLogic)
+    const isMessagingTemplatesEnabled = featureFlags[FEATURE_FLAGS.MESSAGING]
 
     return (
-        <div className="flex items-center">
-            <LemonLabel className={error ? 'text-danger' : ''}>{capitalizeFirstLetter(field)}</LemonLabel>
-            {field === 'from' ? (
+        <div className="flex flex-col gap-2">
+            {(!logicProps.emailMetaFields || logicProps.emailMetaFields.includes('from')) && (
                 <CyclotronJobInputIntegration
                     schema={{
                         type: 'email',
@@ -41,55 +34,15 @@ function EmailTemplaterField({
                         description: 'The email address to send the email from.',
                     }}
                 />
-            ) : (
-                <CodeEditorInline
-                    embedded
-                    className="flex-1"
-                    globals={logicProps.variables}
-                    value={value}
-                    onChange={onChange}
-                />
             )}
-        </div>
-    )
-}
 
-function EmailTemplaterForm({ mode }: { mode: 'full' | 'preview' }): JSX.Element {
-    const { unlayerEditorProjectId, logicProps, appliedTemplate, templates, templatesLoading, mergeTags } =
-        useValues(emailTemplaterLogic)
-    const { setEmailEditorRef, onEmailEditorReady, setIsModalOpen, applyTemplate } = useActions(emailTemplaterLogic)
-
-    const { featureFlags } = useValues(featureFlagLogic)
-    const isMessagingTemplatesEnabled = featureFlags[FEATURE_FLAGS.MESSAGING]
-
-    return (
-        <>
-            {isMessagingTemplatesEnabled && templates.length > 0 && (
-                <LemonSelect
-                    className="mb-2"
-                    placeholder="Start from a template (optional)"
-                    loading={templatesLoading}
-                    value={appliedTemplate?.id}
-                    options={templates.map((template) => ({
-                        label: template.name,
-                        value: template.id,
-                    }))}
-                    onChange={(id) => {
-                        const template = templates.find((t) => t.id === id)
-                        if (template) {
-                            applyTemplate(template)
-                        }
-                    }}
-                    data-attr="email-template-selector"
-                />
-            )}
             <Form
                 className="flex overflow-hidden flex-col flex-1 rounded border"
                 logic={emailTemplaterLogic}
                 props={logicProps}
                 formKey="emailTemplate"
             >
-                {(logicProps.emailMetaFields || ['from', 'to', 'subject']).map((field) => (
+                {(logicProps.emailMetaFields || ['to', 'subject']).map((field) => (
                     <LemonField
                         key={field}
                         name={field}
@@ -98,10 +51,40 @@ function EmailTemplaterForm({ mode }: { mode: 'full' | 'preview' }): JSX.Element
                         renderError={() => null}
                     >
                         {({ value, onChange, error }) => (
-                            <EmailTemplaterField field={field} value={value} onChange={onChange} error={error} />
+                            <div className="flex items-center">
+                                <LemonLabel className={error ? 'text-danger' : ''}>
+                                    {capitalizeFirstLetter(field)}
+                                </LemonLabel>
+                                <CodeEditorInline
+                                    embedded
+                                    className="flex-1"
+                                    globals={logicProps.variables}
+                                    value={value}
+                                    onChange={onChange}
+                                />
+                            </div>
                         )}
                     </LemonField>
                 ))}
+                {isMessagingTemplatesEnabled && templates.length > 0 && (
+                    <LemonSelect
+                        className="mb-2"
+                        placeholder="Start from a template (optional)"
+                        loading={templatesLoading}
+                        value={appliedTemplate?.id}
+                        options={templates.map((template) => ({
+                            label: template.name,
+                            value: template.id,
+                        }))}
+                        onChange={(id) => {
+                            const template = templates.find((t) => t.id === id)
+                            if (template) {
+                                applyTemplate(template)
+                            }
+                        }}
+                        data-attr="email-template-selector"
+                    />
+                )}
 
                 {mode === 'full' ? (
                     <EmailEditor
@@ -136,7 +119,7 @@ function EmailTemplaterForm({ mode }: { mode: 'full' | 'preview' }): JSX.Element
                     </LemonField>
                 )}
             </Form>
-        </>
+        </div>
     )
 }
 
