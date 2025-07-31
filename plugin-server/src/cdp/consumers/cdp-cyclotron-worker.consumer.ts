@@ -32,9 +32,6 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
     }
 
     public async processInvocations(invocations: CyclotronJobInvocation[]): Promise<CyclotronJobInvocationResult[]> {
-        logger.info('🔁', `${this.name} - handling batch`, {
-            size: invocations.length,
-        })
         const loadedInvocations = await this.loadHogFunctions(invocations)
 
         return await Promise.all(
@@ -97,6 +94,10 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
     public async processBatch(
         invocations: CyclotronJobInvocation[]
     ): Promise<{ backgroundTask: Promise<any>; invocationResults: CyclotronJobInvocationResult[] }> {
+        logger.info('🔁', `${this.name} - handling batch`, {
+            size: invocations.length,
+        })
+
         if (!invocations.length) {
             return { backgroundTask: Promise.resolve(), invocationResults: [] }
         }
