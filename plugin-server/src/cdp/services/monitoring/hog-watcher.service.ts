@@ -177,7 +177,7 @@ export class HogWatcherService {
             let cursor = '0'
 
             do {
-                const [newCursor, batch] = await client.scan(cursor, 'MATCH', `${REDIS_KEY_STATE}/*`)
+                const [newCursor, batch] = await client.scan(cursor, 'MATCH', `${REDIS_KEY_STATE}/*`, 'COUNT', 500)
                 cursor = newCursor
                 keys.push(...batch)
             } while (cursor !== '0')
