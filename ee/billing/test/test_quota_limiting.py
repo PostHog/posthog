@@ -735,7 +735,7 @@ class TestQuotaLimiting(BaseTest):
                 "2021-01-01T00:00:00Z",
                 "2021-01-31T23:59:59Z",
             ],
-            "surveys": {"usage": 10, "limit": 100},
+            "surveys": {"usage": 20, "limit": 100},
         }
 
         assert set_org_usage_summary(self.organization, new_usage=new_usage)
@@ -747,7 +747,7 @@ class TestQuotaLimiting(BaseTest):
             "rows_synced": {"usage": 6, "limit": 100, "todays_usage": 0},
             "feature_flag_requests": {"usage": 6, "limit": 100, "todays_usage": 0},
             "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
-            "surveys": {"usage": 10, "limit": 100},
+            "surveys": {"usage": 20, "limit": 100, "todays_usage": 0},
         }
 
     def test_set_org_usage_summary_does_nothing_if_the_same(self):
@@ -758,7 +758,7 @@ class TestQuotaLimiting(BaseTest):
             "rows_synced": {"usage": 5, "limit": 100, "todays_usage": 11},
             "feature_flag_requests": {"usage": 5, "limit": 100, "todays_usage": 11},
             "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
-            "surveys": {"usage": 10, "limit": 100},
+            "surveys": {"usage": 10, "limit": 100, "todays_usage": 50},
         }
         self.organization.save()
 
@@ -784,7 +784,7 @@ class TestQuotaLimiting(BaseTest):
             "rows_synced": {"usage": 5, "limit": 100, "todays_usage": 11},
             "feature_flag_requests": {"usage": 5, "limit": 100, "todays_usage": 11},
             "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
-            "surveys": {"usage": 10, "limit": 100},
+            "surveys": {"usage": 10, "limit": 100, "todays_usage": 50},
         }
 
     def test_set_org_usage_summary_updates_todays_usage(self):
@@ -795,7 +795,7 @@ class TestQuotaLimiting(BaseTest):
             "rows_synced": {"usage": 5, "limit": 100, "todays_usage": 11},
             "feature_flag_requests": {"usage": 5, "limit": 100, "todays_usage": 11},
             "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
-            "surveys": {"usage": 10, "limit": 100},
+            "surveys": {"usage": 10, "limit": 100, "todays_usage": 50},
         }
         self.organization.save()
 
