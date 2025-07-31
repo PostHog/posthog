@@ -105,7 +105,7 @@ export const groupsListLogic = kea<groupsListLogicType>([
             }
 
             if (values.query.source.search?.length) {
-                searchParams['search'] = values.query.source.search
+                searchParams[`search_${props.groupTypeIndex}`] = values.query.source.search
             }
 
             if (values.query.source.properties?.length) {
@@ -144,7 +144,6 @@ export const groupsListLogic = kea<groupsListLogicType>([
                 if (!rawParam) {
                     return
                 }
-
                 try {
                     const parsedParam = JSON.parse(rawParam)
                     if (parsedParam) {
@@ -158,7 +157,10 @@ export const groupsListLogic = kea<groupsListLogicType>([
             parseParam('properties')
             parseParam('select')
             parseParam('orderBy')
-            parseParam('search')
+
+            if (searchParams[`search_${props.groupTypeIndex}`] != null) {
+                queryOverrides['search'] = searchParams[`search_${props.groupTypeIndex}`]
+            }
 
             if (Object.keys(queryOverrides).length > 0) {
                 actions.setQuery({
