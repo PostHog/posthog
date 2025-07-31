@@ -183,7 +183,7 @@ describe('PostgresGroupRepository Integration', () => {
         it('should throw error when both forUpdate and useReadReplica are enabled', async () => {
             await expect(
                 repository.fetchGroup(teamId, groupTypeIndex, groupKey, { forUpdate: true, useReadReplica: true })
-            ).rejects.toThrow("can't enable both forUpdate and useReadReplica in db::fetchGroup")
+            ).rejects.toThrow("can't enable both forUpdate and useReadReplica in fetchGroup")
         })
 
         it('should handle different group types and keys', async () => {
