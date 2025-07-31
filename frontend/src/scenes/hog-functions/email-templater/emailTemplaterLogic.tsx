@@ -170,14 +170,8 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
 
     listeners(({ props, values, actions }) => ({
         onEmailEditorReady: () => {
-            const unlayer = values.emailEditorRef?.editor
-
-            if (!unlayer) {
-                return
-            }
-
             if (props.value?.design) {
-                unlayer.loadDesign(props.value.design)
+                values.emailEditorRef?.editor?.loadDesign(props.value.design)
             }
         },
 
