@@ -11,6 +11,7 @@ import uuid
 from posthog.warehouse.models.modeling import DataWarehouseModelPath
 from posthog.warehouse.models.table import DataWarehouseTable
 import logging
+from typing import Tuple, List
 
 
 class LineageViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
@@ -84,7 +85,7 @@ def get_upstream_dag(team_id: int, model_id: str) -> dict[str, list[Any]]:
     seen_nodes.add(root_query.name)
     # Fetch all dependencies with a bfs
     # Fetch everything by names, ids and names are the same right now
-    to_process = [(root_query.name, root_query.external_tables, [])]
+    to_process: list[tuple[str, list[str], list[str]]] = [(root_query.name, root_query.external_tables, [])]
 
     while to_process:
         current_name, external_tables, saved_query_names = to_process.pop(0)
@@ -103,8 +104,8 @@ def get_upstream_dag(team_id: int, model_id: str) -> dict[str, list[Any]]:
                             DataWarehouseSavedQuery.objects.filter(id=component, team_id=team_id).exists()
                             and component != current_saved_query.id
                         ):
-                            saved_query = DataWarehouseSavedQuery.objects.get(id=component, team_id=team_id)
-                            saved_query_names.append(saved_query.name)
+                            dep_query = DataWarehouseSavedQuery.objects.get(id=component, team_id=team_id)
+                            saved_query_names.append(dep_query.name)
                     except ValueError:
                         continue
 
@@ -140,17 +141,17 @@ def get_upstream_dag(team_id: int, model_id: str) -> dict[str, list[Any]]:
             if dependency not in seen_nodes:
                 seen_nodes.add(dependency)
 
-                saved_query = saved_queries.get(dependency)
-                if saved_query:
+                dep_saved_query = saved_queries.get(dependency)
+                if dep_saved_query:
                     node_data[dependency] = {
                         "id": dependency,
                         "type": "view",
-                        "name": saved_query.name,
-                        "sync_frequency": saved_query.sync_frequency_interval,
-                        "last_run_at": saved_query.last_run_at,
-                        "status": saved_query.status,
+                        "name": dep_saved_query.name,
+                        "sync_frequency": dep_saved_query.sync_frequency_interval,
+                        "last_run_at": dep_saved_query.last_run_at,
+                        "status": dep_saved_query.status,
                     }
-                    to_process.append((saved_query.name, saved_query.external_tables, []))
+                    to_process.append((dep_saved_query.name, dep_saved_query.external_tables, []))
                 else:
                     table = tables.get(dependency)
                     if not table:
