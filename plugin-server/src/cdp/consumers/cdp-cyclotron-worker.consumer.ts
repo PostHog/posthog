@@ -94,13 +94,13 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
     public async processBatch(
         invocations: CyclotronJobInvocation[]
     ): Promise<{ backgroundTask: Promise<any>; invocationResults: CyclotronJobInvocationResult[] }> {
-        logger.info('🔁', `${this.name} - handling batch`, {
-            size: invocations.length,
-        })
-
         if (!invocations.length) {
             return { backgroundTask: Promise.resolve(), invocationResults: [] }
         }
+
+        logger.info('🔁', `${this.name} - handling batch`, {
+            size: invocations.length,
+        })
 
         const invocationResults = await this.runInstrumented(
             'handleEachBatch.executeInvocations',
