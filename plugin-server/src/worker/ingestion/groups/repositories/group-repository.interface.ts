@@ -2,7 +2,7 @@ import { Properties } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 
 import { Group, GroupTypeIndex, PropertiesLastOperation, PropertiesLastUpdatedAt, TeamId } from '../../../../types'
-import { GroupRepositoryTransaction } from './group-repository-transaction'
+import { GroupRepositoryTransaction } from './group-repository-transaction.interface'
 
 export interface GroupRepository {
     fetchGroup(
