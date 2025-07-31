@@ -160,81 +160,81 @@ pub fn router<
         batch_router
             .route(
                 "/batch",
-                post(v0_endpoint::event_legacy)
-                    .get(v0_endpoint::event_legacy)
+                post(v0_endpoint::event)
+                    .get(v0_endpoint::event)
                     .options(v0_endpoint::options),
             )
             .route(
                 "/batch/",
-                post(v0_endpoint::event_legacy)
-                    .get(v0_endpoint::event_legacy)
+                post(v0_endpoint::event)
+                    .get(v0_endpoint::event)
                     .options(v0_endpoint::options),
             )
     } else {
         batch_router
             .route(
                 "/batch",
-                post(v0_endpoint::event)
-                    .get(v0_endpoint::event)
+                post(v0_endpoint::event_next)
+                    .get(v0_endpoint::event_next)
                     .options(v0_endpoint::options),
             )
             .route(
                 "/batch/",
-                post(v0_endpoint::event)
-                    .get(v0_endpoint::event)
+                post(v0_endpoint::event_next)
+                    .get(v0_endpoint::event_next)
                     .options(v0_endpoint::options),
             )
     };
     batch_router = batch_router.layer(DefaultBodyLimit::max(BATCH_BODY_SIZE)); // Have to use this, rather than RequestBodyLimitLayer, because we use `Bytes` in the handler (this limit applies specifically to Bytes body types)
 
-    let mut event_router = Router::new()
+    let event_router = Router::new()
         // legacy endpoints registered here
         .route(
             "/e",
-            post(v0_endpoint::event_legacy)
-                .get(v0_endpoint::event_legacy)
+            post(v0_endpoint::event_next)
+                .get(v0_endpoint::event_next)
                 .options(v0_endpoint::options),
         )
         .route(
             "/e/",
-            post(v0_endpoint::event_legacy)
-                .get(v0_endpoint::event_legacy)
+            post(v0_endpoint::event_next)
+                .get(v0_endpoint::event_next)
                 .options(v0_endpoint::options),
         )
         .route(
             "/track",
-            post(v0_endpoint::event_legacy)
-                .get(v0_endpoint::event_legacy)
+            post(v0_endpoint::event_next)
+                .get(v0_endpoint::event_next)
                 .options(v0_endpoint::options),
         )
         .route(
             "/track/",
-            post(v0_endpoint::event_legacy)
-                .get(v0_endpoint::event_legacy)
+            post(v0_endpoint::event_next)
+                .get(v0_endpoint::event_next)
                 .options(v0_endpoint::options),
         )
         .route(
             "/engage",
-            post(v0_endpoint::event_legacy)
-                .get(v0_endpoint::event_legacy)
+            post(v0_endpoint::event_next)
+                .get(v0_endpoint::event_next)
                 .options(v0_endpoint::options),
         )
         .route(
             "/engage/",
-            post(v0_endpoint::event_legacy)
-                .get(v0_endpoint::event_legacy)
+            post(v0_endpoint::event_next)
+                .get(v0_endpoint::event_next)
                 .options(v0_endpoint::options),
         )
         .route(
             "/capture",
-            post(v0_endpoint::event_legacy)
-                .get(v0_endpoint::event_legacy)
+            post(v0_endpoint::event_next)
+                .get(v0_endpoint::event_next)
                 .options(v0_endpoint::options),
         )
         .route(
             "/capture/",
-            post(v0_endpoint::event_legacy)
-                .get(v0_endpoint::event_legacy)
+            post(v0_endpoint::event_next)
+                .get(v0_endpoint::event_next)
                 .options(v0_endpoint::options),
         );
 
@@ -244,28 +244,28 @@ pub fn router<
         event_router
             .route(
                 "/i/v0/e",
-                post(v0_endpoint::event_legacy)
-                    .get(v0_endpoint::event_legacy)
+                post(v0_endpoint::event)
+                    .get(v0_endpoint::event)
                     .options(v0_endpoint::options),
             )
             .route(
                 "/i/v0/e/",
-                post(v0_endpoint::event_legacy)
-                    .get(v0_endpoint::event_legacy)
+                post(v0_endpoint::event)
+                    .get(v0_endpoint::event)
                     .options(v0_endpoint::options),
             )
     } else {
         event_router
             .route(
                 "/i/v0/e",
-                post(v0_endpoint::event)
-                    .get(v0_endpoint::event)
+                post(v0_endpoint::event_next)
+                    .get(v0_endpoint::event_next)
                     .options(v0_endpoint::options),
             )
             .route(
                 "/i/v0/e/",
-                post(v0_endpoint::event)
-                    .get(v0_endpoint::event)
+                post(v0_endpoint::event_next)
+                    .get(v0_endpoint::event_next)
                     .options(v0_endpoint::options),
             )
     };
