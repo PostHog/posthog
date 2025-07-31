@@ -10,7 +10,6 @@ from ee.models import Conversation
 from posthog.models import Team
 from posthog.models.user import User
 from posthog.schema import AssistantMessage, AssistantToolCall, MaxUIContext
-from ee.hogai.graph.filter_options.types import FilterOptionsState, PartialFilterOptionsState
 from posthog.sync import database_sync_to_async
 
 from ..utils.types import (
@@ -93,4 +92,3 @@ class BaseAssistantNode(Generic[StateType, PartialStateType], AssistantContextMi
 
 
 AssistantNode = BaseAssistantNode[AssistantState, PartialAssistantState]
-TaxonomyNode = BaseAssistantNode[FilterOptionsState, PartialFilterOptionsState]

@@ -1,12 +1,83 @@
 import logging
 from pydantic import BaseModel, Field
-from ee.hogai.graph.filter_options.graph import FilterOptionsGraph
+from ee.hogai.graph.taxonomy.nodes import TaxonomyAgentNode, TaxonomyAgentToolsNode
+from ee.hogai.graph.taxonomy.toolkit import TaxonomyAgentToolkit
+from ee.hogai.graph.taxonomy.agent import TaxonomyAgent
+from ee.hogai.graph.taxonomy.tools import create_final_answer_model
+from ee.hogai.graph.taxonomy.types import TaxonomyAgentState, PartialTaxonomyAgentState
 from ee.hogai.tool import MaxTool
 from posthog.schema import MaxRecordingUniversalFilters
 
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
+
+
+class SessionReplayFilterOptionsToolkit(TaxonomyAgentToolkit):
+    def __init__(self, team):
+        super().__init__(team=team)
+
+    def get_tools(self) -> list:
+        """Get all available tools for filter options."""
+        final_answer = create_final_answer_model(MaxRecordingUniversalFilters)
+
+        return [*self._get_default_tools(), final_answer]
+
+    def _generate_properties_output(self, props: list[tuple[str, str | None, str | None]]) -> str:
+        """
+        Override parent implementation to use YAML format instead of XML.
+        """
+        return self._generate_properties_yaml(props)
+
+
+class SessionReplayFilterNode(
+    TaxonomyAgentNode[TaxonomyAgentState, PartialTaxonomyAgentState[MaxRecordingUniversalFilters]]
+):
+    """Node for generating filtering options for session replay."""
+
+    def __init__(self, team, user, toolkit_class: SessionReplayFilterOptionsToolkit):
+        super().__init__(team, user, toolkit_class=toolkit_class)
+
+    def get_system_prompts(self) -> list[str]:
+        """Get default system prompts. Override in subclasses for custom prompts."""
+        from .prompts import (
+            PRODUCT_DESCRIPTION_PROMPT,
+            SESSION_REPLAY_EXAMPLES_PROMPT,
+            FILTER_FIELDS_TAXONOMY_PROMPT,
+            DATE_FIELDS_PROMPT,
+        )
+
+        return [
+            PRODUCT_DESCRIPTION_PROMPT,
+            SESSION_REPLAY_EXAMPLES_PROMPT,
+            FILTER_FIELDS_TAXONOMY_PROMPT,
+            DATE_FIELDS_PROMPT,
+            *super()._get_default_system_prompts(),
+        ]
+
+
+class SessionReplayFilterOptionsToolsNode(
+    TaxonomyAgentToolsNode[TaxonomyAgentState, PartialTaxonomyAgentState[MaxRecordingUniversalFilters]]
+):
+    """Node for generating filtering options for session replay."""
+
+    def __init__(self, team, user, toolkit_class: SessionReplayFilterOptionsToolkit):
+        super().__init__(team, user, toolkit_class=toolkit_class)
+
+
+class SessionReplayFilterOptionsGraph(
+    TaxonomyAgent[TaxonomyAgentState, PartialTaxonomyAgentState[MaxRecordingUniversalFilters]]
+):
+    """Graph for generating filtering options for session replay."""
+
+    def __init__(self, team, user):
+        super().__init__(
+            team,
+            user,
+            loop_node_class=SessionReplayFilterNode,
+            tools_node_class=SessionReplayFilterOptionsToolsNode,
+            toolkit_class=SessionReplayFilterOptionsToolkit,
+        )
 
 
 class SearchSessionRecordingsArgs(BaseModel):
@@ -29,7 +100,7 @@ class SearchSessionRecordingsTool(MaxTool):
 
     async def _arun_impl(self, change: str) -> tuple[str, MaxRecordingUniversalFilters]:
         # Create the graph
-        graph = FilterOptionsGraph(team=self._team, user=self._user)
+        graph = SessionReplayFilterOptionsGraph(team=self._team, user=self._user)
 
         # Set the context
         graph_context = {
@@ -42,7 +113,7 @@ class SearchSessionRecordingsTool(MaxTool):
 
         result = await graph.compile_full_graph().ainvoke(graph_context)
 
-        if "generated_filter_options" not in result or result["generated_filter_options"] is None:
+        if "output" not in result or result["output"] is None:
             last_message = result["intermediate_steps"][-1]
             help_content = "I need more information to proceed."
 
@@ -57,7 +128,7 @@ class SearchSessionRecordingsTool(MaxTool):
             return help_content, current_filters
 
         try:
-            result = MaxRecordingUniversalFilters.model_validate(result["generated_filter_options"]["data"])
+            result = MaxRecordingUniversalFilters.model_validate(result["output"])
         except Exception as e:
             raise ValueError(f"Failed to generate MaxRecordingUniversalFilters: {e}")
 

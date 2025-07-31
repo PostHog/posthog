@@ -1,4 +1,4 @@
-from .toolkit import TaxonomyAgentToolkit, TaxonomyAgent
+from .toolkit import TaxonomyAgentToolkit, TaxonomyToolNotFoundError
 from .tools import (
     retrieve_event_properties,
     retrieve_action_properties,
@@ -10,6 +10,7 @@ from .tools import (
 )
 from .nodes import TaxonomyAgentNode, TaxonomyAgentToolsNode
 from .types import TaxonomyNodeName
+from .agent import TaxonomyAgent
 
 __all__ = [
     "TaxonomyAgentToolkit",
@@ -17,6 +18,7 @@ __all__ = [
     "TaxonomyAgentToolsNode",
     "TaxonomyAgent",
     "TaxonomyNodeName",
+    "TaxonomyToolNotFoundError",
     "retrieve_event_properties",
     "retrieve_action_properties",
     "retrieve_entity_properties",

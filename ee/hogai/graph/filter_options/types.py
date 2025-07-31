@@ -1,5 +1,5 @@
-from enum import StrEnum
-from typing import Optional
+from typing import Generic, Optional, TypeVar
+from pydantic import BaseModel
 
 from langchain_core.agents import AgentAction
 from langchain_core.messages import BaseMessage as LangchainBaseMessage
@@ -7,8 +7,10 @@ from pydantic import Field
 
 from ee.hogai.utils.types import BaseState
 
+T = TypeVar("T", bound=BaseModel)
 
-class PartialFilterOptionsState(BaseState):
+
+class PartialTaxonomyAgentState(Generic[T], BaseState):
     """
     Partial state class for filter options functionality.
     Only includes fields relevant to filter options generation.
@@ -19,9 +21,9 @@ class PartialFilterOptionsState(BaseState):
     Actions taken by the ReAct agent.
     """
 
-    generated_filter_options: Optional[dict] = Field(default=None)
+    output: Optional[T] = Field(default=None)
     """
-    The filter options to apply to the product.
+    The output of the taxonomy agent.
     """
 
     change: Optional[str] = Field(default=None)
@@ -40,15 +42,10 @@ class PartialFilterOptionsState(BaseState):
     """
 
 
-class FilterOptionsState(PartialFilterOptionsState):
+class TaxonomyAgentState(PartialTaxonomyAgentState):
     """
     State class specifically for filter options functionality.
     Only includes fields relevant to filter options generation.
     """
 
     pass
-
-
-class FilterOptionsNodeName(StrEnum):
-    FILTER_OPTIONS = "filter_options"
-    FILTER_OPTIONS_TOOLS = "filter_options_tools"

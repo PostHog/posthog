@@ -6,11 +6,10 @@ from braintrust_core.score import Scorer
 from deepdiff import DeepDiff
 
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
-from ee.hogai.graph.filter_options.graph import FilterOptionsGraph
+from products.replay.backend.max_tools import SessionReplayFilterOptionsGraph
 from ee.models.assistant import Conversation
 
 from .conftest import MaxEval
-from posthog.schema import AssistantContextualTool
 
 from posthog.schema import (
     DurationType,
@@ -43,7 +42,7 @@ DUMMY_CURRENT_FILTERS = {
 
 @pytest.fixture
 def call_search_session_recordings(demo_org_team_user):
-    graph = FilterOptionsGraph(demo_org_team_user[1], demo_org_team_user[2]).compile_full_graph(
+    graph = SessionReplayFilterOptionsGraph(demo_org_team_user[1], demo_org_team_user[2]).compile_full_graph(
         checkpointer=DjangoCheckpointer()
     )
 
@@ -54,7 +53,6 @@ def call_search_session_recordings(demo_org_team_user):
             "change": change,
             "generated_filter_options": None,
             "current_filters": DUMMY_CURRENT_FILTERS,
-            "tool_name": AssistantContextualTool.SEARCH_SESSION_RECORDINGS.value,
         }
 
         result = await graph.ainvoke(graph_input, config={"configurable": {"thread_id": conversation.id}})
@@ -74,7 +72,7 @@ class FilterGenerationCorrectness(Scorer):
 
     def _run_eval_sync(self, output, expected=None, **kwargs):
         try:
-            actual_filters = MaxRecordingUniversalFilters.model_validate(output["generated_filter_options"]["data"])
+            actual_filters = MaxRecordingUniversalFilters.model_validate(output["output"])
         except Exception as e:
             logger.exception(f"Error parsing filters: {e}")
             return Score(name=self._name(), score=0.0, metadata={"reason": "LLM returned invalid filter structure"})
@@ -118,7 +116,7 @@ class AskUserForHelp(Scorer):
         return "ask_user_for_help_scorer"
 
     def _run_eval_sync(self, output, expected=None, **kwargs):
-        if "generated_filter_options" not in output or output["generated_filter_options"] is None:
+        if "output" not in output or output["output"] is None:
             if (
                 "intermediate_steps" in output
                 and len(output["intermediate_steps"]) > 0
