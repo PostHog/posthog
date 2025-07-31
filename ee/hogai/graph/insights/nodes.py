@@ -557,7 +557,7 @@ class InsightSearchNode(AssistantNode):
 
             insight_info = self._process_insight_for_evaluation(insight, query_executor)
 
-            # Add to results (removing the visualization_message key since LLM doens't need to see this + smaller token print)
+            # Add to results (removing the visualization_message key since LLM doesn't need to see this + smaller token print)
             eval_insight_info = {k: v for k, v in insight_info.items() if k != "visualization_message"}
             insights_with_results.append(eval_insight_info)
 
