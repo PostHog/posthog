@@ -73,9 +73,10 @@ def encrypt_webhook_payloads(validated_data: dict):
             continue
 
         # Encrypt headers values
-        for key, value in subscription.items():
-            if key == "headers" and isinstance(value, dict):
-                _encrypt_dict_values(value, codec)
+        # Encrypt headers values
+        headers = subscription.get("headers")
+        if isinstance(headers, dict):
+            _encrypt_dict_values(headers, codec)
 
 
 def _encrypt_dict_values(data: dict, codec: EncryptionCodec):
