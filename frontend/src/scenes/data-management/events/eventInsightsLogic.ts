@@ -34,7 +34,14 @@ export const eventInsightsLogic = kea<eventInsightsLogicType>([
                 const { order, page, events, search } = filters
 
                 if (!events || events.length === 0) {
-                    return { results: [], count: 0 }
+                    return {
+                        results: [],
+                        count: 0,
+                        filters,
+                        page: 1,
+                        previous: null,
+                        next: null,
+                    }
                 }
 
                 const params: Record<string, any> = {
