@@ -165,15 +165,16 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
     is_static = models.BooleanField(default=False)
 
     COHORT_TYPE_OPTIONS = [
-        "static",
-        "person_property",
-        "behavioral",
-        "analytical",
+        ("static", "static"),
+        ("person_property", "person_property"),
+        ("behavioral", "behavioral"),
+        ("analytical", "analytical"),
     ]
     cohort_type = models.CharField(
         max_length=20,
         choices=COHORT_TYPE_OPTIONS,
-        default="analytical",
+        null=True,
+        blank=True,
         help_text="Determines where this cohort can be used. Static, person_property, and behavioral cohorts can be used in real-time features. Analytical cohorts are for analytics only.",
     )
 
