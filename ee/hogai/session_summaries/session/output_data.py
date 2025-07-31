@@ -192,10 +192,11 @@ def load_raw_session_summary_from_llm_content(
         return raw_session_summary
     segments_indices = [segment.get("index") for segment in segments]
     key_actions = raw_session_summary.data.get("key_actions")
+    hallucinated_event_indexes = []
     if not key_actions:
         # If key actions aren't generated yet - return the current state
         return raw_session_summary
-    for key_action_group in key_actions:
+    for group_index, key_action_group in enumerate(key_actions):
         key_group_segment_index = key_action_group.get("segment_index")
         if key_group_segment_index is None:
             # If key group segment index isn't generated yet - skip this group
@@ -209,18 +210,20 @@ def load_raw_session_summary_from_llm_content(
         if not key_group_events:
             # If key group events aren't generated yet - skip this group
             continue
-        for event in key_group_events:
+        for event_index, event in enumerate(key_group_events):
             # Ensure that LLM didn't hallucinate events
             event_id = event.get("event_id")
             if not event_id or len(event_id) != 8:
                 # If event ID isn't fully generated yet - skip this event
                 continue
-            # TODO: Allow skipping some events (even if not too many to speed up the process
+            # Skip hallucinated events
             if event_id not in allowed_event_ids:
-                raise ValueError(
-                    f"LLM hallucinated event_id {event_id} when summarizing session_id "
-                    f"{session_id}: {raw_session_summary.data}"
-                )
+                hallucinated_event_indexes.append((group_index, event_index))
+                continue
+    # Remove hallucinated events from the key actions (reverse to not break indexes)
+    for group_index, event_index in reversed(hallucinated_event_indexes):
+        # TODO: Investigate how to reduce their appearance in the first place
+        del raw_session_summary.data["key_actions"][group_index]["events"][event_index]
     return raw_session_summary
 
 
