@@ -1553,3 +1553,14 @@ export function IconSlash(props: LemonIconProps): JSX.Element {
         </LemonIconBase>
     )
 }
+
+export function IconVerticalAlignCenter(props: LemonIconProps): JSX.Element {
+    return (
+        <LemonIconBase viewBox="0 0 24 24" {...props}>
+            <path
+                d="M11.8214 24V17.0667L8.97143 19.8667L8.01091 18.923L12.5 14.5127L16.9891 18.923L16.0286 19.8667L13.1786 17.0667V24H11.8214ZM3 12.6667V11.3333H22V12.6667H3ZM12.5 9.48733L8.01091 5.077L8.97143 4.13333L11.8214 6.93333V0H13.1786V6.93333L16.0286 4.13333L16.9891 5.077L12.5 9.48733Z"
+                fill="currentColor"
+            />
+        </LemonIconBase>
+    )
+}

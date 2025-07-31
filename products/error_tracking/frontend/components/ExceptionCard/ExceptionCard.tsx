@@ -56,7 +56,7 @@ export function ExceptionCard({ issue, issueLoading, event, eventLoading, label 
 function ExceptionCardContent({ issue, issueLoading, timestamp, label }: ExceptionCardContentProps): JSX.Element {
     return (
         <LemonCard hoverEffect={false} className="p-0 relative overflow-hidden">
-            <TabsPrimitive defaultValue="stacktrace">
+            <TabsPrimitive defaultValue="session">
                 <div className="flex justify-between h-[2rem] items-center w-full px-2 border-b">
                     <TabsPrimitiveList className="flex justify-between w-full h-full items-center">
                         <div className="w-full h-full">

@@ -17,6 +17,7 @@
         "@types/react-transition-group": "*",
         "clsx": "*",
         "d3": "*",
+        "cva": "npm:class-variance-authority@*",
         "fast-deep-equal": "*",
         "fuse.js": "*",
         "kea": "*",

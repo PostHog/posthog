@@ -1,8 +1,7 @@
 import { Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { errorPropertiesLogic } from 'lib/components/Errors/errorPropertiesLogic'
 import { dayjs } from 'lib/dayjs'
-import { TabsPrimitiveContent, TabsPrimitiveContentProps } from 'lib/ui/TabsPrimitive/TabsPrimitive'
+import { TabsPrimitiveContent } from 'lib/ui/TabsPrimitive/TabsPrimitive'
 import { useLayoutEffect, useMemo } from 'react'
 import {
     SessionRecordingPlayer,
@@ -13,37 +12,25 @@ import {
     SessionRecordingPlayerMode,
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
-import { exceptionCardLogic } from '../exceptionCardLogic'
+import { exceptionCardLogic } from '../../exceptionCardLogic'
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
-import { match, P } from 'ts-pattern'
-import { teamLogic } from 'scenes/teamLogic'
-import { urls } from 'scenes/urls'
+import { match } from 'ts-pattern'
+import { SessionTabProps } from '.'
+import { sessionTabLogic } from './sessionTabLogic'
 
-export interface SessionTabProps extends TabsPrimitiveContentProps {
-    timestamp?: string
-}
-
-export function SessionTab({ timestamp, ...props }: SessionTabProps): JSX.Element {
+export function SessionRecording({ ...props }: SessionTabProps): JSX.Element {
     const { loading } = useValues(exceptionCardLogic)
-    const { sessionId } = useValues(errorPropertiesLogic)
-    const { currentTeam } = useValues(teamLogic)
-    const recordingsDisabled = currentTeam && !currentTeam?.session_recording_opt_in
-
     return (
         <TabsPrimitiveContent {...props}>
-            {match([loading, recordingsDisabled, sessionId])
-                .with([true, P.any, P.any], () => <SessionTabContentLoading />)
-                .with([false, P.any, P.nullish], () => <SessionTabContentNoSession />)
-                .with([false, true, P.any], () => <SessionTabContentNoRecording />)
-                .with([false, false, P.string], ([, , sessionId]) => (
-                    <SessionTabContent sessionId={sessionId} timestamp={timestamp} />
-                ))
-                .otherwise(() => null)}
+            {match(loading)
+                .with(true, () => <SessionRecordingLoading />)
+                .with(false, () => <SessionRecordingContent />)
+                .exhaustive()}
         </TabsPrimitiveContent>
     )
 }
 
-export function SessionTabContentLoading(): JSX.Element {
+export function SessionRecordingLoading(): JSX.Element {
     return (
         <div className="flex justify-center w-full h-[300px] items-center">
             <Spinner />
@@ -51,21 +38,7 @@ export function SessionTabContentLoading(): JSX.Element {
     )
 }
 
-export function SessionTabContentNoRecording(): JSX.Element {
-    return (
-        <div className="flex justify-center w-full h-[300px] items-center">
-            <EmptyMessage
-                title="Session recording disabled"
-                description="Enable session recordings to see what happened before the error occurred."
-                buttonText="Enable"
-                buttonTo={urls.replay()}
-                size="small"
-            />
-        </div>
-    )
-}
-
-export function SessionTabContentNoSession(): JSX.Element {
+export function SessionRecordingNoSession(): JSX.Element {
     return (
         <div className="flex justify-center w-full h-[300px] items-center">
             <EmptyMessage
@@ -90,13 +63,8 @@ function getRecordingProps(sessionId: string): SessionRecordingPlayerProps {
     }
 }
 
-export function SessionTabContent({
-    timestamp,
-    sessionId,
-}: {
-    timestamp: string | undefined
-    sessionId: string
-}): JSX.Element {
+export function SessionRecordingContent(): JSX.Element {
+    const { sessionId, timestamp } = useValues(sessionTabLogic)
     const recordingProps = useMemo(() => getRecordingProps(sessionId), [sessionId])
     const playerLogic = sessionRecordingPlayerLogic(recordingProps)
     const { seekToTimestamp, setPlay } = useActions(playerLogic)
@@ -109,7 +77,7 @@ export function SessionTabContent({
     }, [timestamp, seekToTimestamp, setPlay])
 
     return (
-        <div className="h-[500px]">
+        <div className="max-h-[500px] h-[500px] flex justify-center items-center">
             <SessionRecordingPlayer
                 {...recordingProps}
                 mode={SessionRecordingPlayerMode.Standard}
