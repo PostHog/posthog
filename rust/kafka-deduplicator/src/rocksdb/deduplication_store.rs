@@ -185,6 +185,27 @@ impl DeduplicationStore {
         Ok(non_duplicated)
     }
 
+    pub fn handle_event(&self, event: EventData) -> Result<bool> {
+        let _start_time = Instant::now();
+
+        let metadata = VersionedMetadata::from(&event);
+        let key = DeduplicationKey::from(event);
+        let key_bytes = key.as_ref().to_vec();
+        let serialized_metadata = VersionedMetadata::serialize_metadata(&metadata)?;
+
+        let non_duplicated = self.get_non_duplicated_keys(vec![&key_bytes])?;
+
+        if non_duplicated.is_empty() {
+            self.store.put_batch(
+                DeduplicationStore::RECORDS_CF,
+                vec![(&key_bytes, &serialized_metadata)],
+            )?;
+            return Ok(true);
+        }
+
+        Ok(false)
+    }
+
     pub fn handle_event_batch(&self, events: Vec<EventData>) -> Result<()> {
         let start_time = Instant::now();
         let batch_size = events.len();
