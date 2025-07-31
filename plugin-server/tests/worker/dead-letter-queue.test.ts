@@ -14,6 +14,7 @@ import { generateEventDeadLetterQueueMessage } from '../../src/worker/ingestion/
 import { createOrganization, createTeam, getTeam, resetTestDatabase } from '../helpers/sql'
 import { forSnapshot } from '../helpers/snapshots'
 import { BatchWritingPersonsStoreForBatch } from '~/worker/ingestion/persons/batch-writing-person-store'
+import { PostgresGroupRepository } from '../../src/worker/ingestion/groups/repositories/postgres-group-repository'
 
 jest.setTimeout(60000) // 60 sec timeout
 jest.mock('../../src/utils/logger')
@@ -72,7 +73,8 @@ describe('events dead letter queue', () => {
             new PostgresPersonRepository(hub.db.postgres),
             hub.kafkaProducer
         )
-        const groupStoreForBatch = new BatchWritingGroupStoreForBatch(hub.db)
+        const groupRepository = new PostgresGroupRepository(hub.db.postgres)
+        const groupStoreForBatch = new BatchWritingGroupStoreForBatch(hub.db, groupRepository)
         const ingestResponse1 = await new EventPipelineRunner(
             hub,
             event,
