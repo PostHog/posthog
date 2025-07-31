@@ -21,7 +21,7 @@ function isPathWithoutProjectId(path: string): boolean {
 }
 
 function addProjectIdUnlessPresent(path: string, teamId?: TeamType['id']): string {
-    if (path.match(/^\/project\/\d+/)) {
+    if (path.match(/^\/project\/(\d+|phc_)/)) {
         return path
     }
 
