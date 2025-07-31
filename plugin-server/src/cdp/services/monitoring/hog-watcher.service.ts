@@ -170,6 +170,32 @@ export class HogWatcherService {
         return res[id]
     }
 
+    public async getAllFunctionStates(): Promise<Record<HogFunctionType['id'], HogWatcherFunctionState>> {
+        // Scan all state keys in Redis
+        const stateKeys = await this.redis.useClient({ name: 'scanStates' }, async (client) => {
+            const keys: string[] = []
+            let cursor = '0'
+
+            do {
+                const [newCursor, batch] = await client.scan(cursor, 'MATCH', `${REDIS_KEY_STATE}/*`)
+                cursor = newCursor
+                keys.push(...batch)
+            } while (cursor !== '0')
+
+            return keys
+        })
+
+        if (!stateKeys || stateKeys.length === 0) {
+            return {}
+        }
+
+        // Extract function IDs from the keys
+        const functionIds = stateKeys.map((key: string) => key.replace(`${REDIS_KEY_STATE}/`, ''))
+
+        // Get states for all found function IDs
+        return await this.getPersistedStates(functionIds)
+    }
+
     public async clearLock(id: HogFunctionType['id']): Promise<void> {
         await this.redis.usePipeline({ name: 'clearLock' }, (pipeline) => {
             pipeline.del(`${REDIS_KEY_STATE_LOCK}/${id}`)
