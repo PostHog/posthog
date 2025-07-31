@@ -1,6 +1,6 @@
 import Chance from 'chance'
 import merge from 'deepmerge'
-import { DateTime, Settings } from 'luxon'
+import { DateTime } from 'luxon'
 
 import { NativeDestinationExecutorService } from '~/cdp/services/native-destination-executor.service'
 import { defaultConfig } from '~/config/config'

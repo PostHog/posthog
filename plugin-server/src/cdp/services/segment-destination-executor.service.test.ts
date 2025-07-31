@@ -1,4 +1,4 @@
-import { DateTime, Settings } from 'luxon'
+import { DateTime } from 'luxon'
 
 import { defaultConfig } from '~/config/config'
 import { forSnapshot } from '~/tests/helpers/snapshots'
