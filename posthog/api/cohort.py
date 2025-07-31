@@ -235,7 +235,6 @@ class CohortSerializer(serializers.ModelSerializer):
             filters = data.get("filters")
             query = data.get("query")
 
-        # Determine cohort type using static method
         data["cohort_type"] = Cohort.determine_cohort_type_from_filters(is_static, filters, query)
         return data
 
