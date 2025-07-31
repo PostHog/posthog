@@ -16,6 +16,7 @@ from posthog.hogql_queries.experiments.test.experiment_query_runner.base import 
     ExperimentQueryRunnerBaseTest,
 )
 from posthog.models.action.action import Action
+from posthog.models.filters.utils import GroupTypeIndex
 from posthog.schema import (
     ActionsNode,
     EventPropertyFilter,
@@ -170,7 +171,7 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         from posthog.models.group.util import create_group
         from posthog.models.group_type_mapping import GroupTypeMapping
 
-        group_type_index = 0
+        group_type_index: GroupTypeIndex = 0
         GroupTypeMapping.objects.create(
             team=self.team,
             project_id=self.team.project_id,
