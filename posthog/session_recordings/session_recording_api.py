@@ -1506,22 +1506,11 @@ def list_recordings_from_query(
     if (all_session_ids and query.session_ids) or not all_session_ids:
         modifiers = safely_read_modifiers_overrides(str(user.distinct_id), team) if user else None
 
-        use_multiple_sub_queries = (
-            posthoganalytics.feature_enabled(
-                "use-multiple-sub-queries",
-                str(user.distinct_id),
-            )
-            if user
-            else False
-        )
-
         with (
             timer("load_recordings_from_hogql"),
             posthoganalytics.new_context(),
             tracer.start_as_current_span("load_recordings_from_hogql"),
         ):
-            posthoganalytics.tag("use_multiple_sub_queries", use_multiple_sub_queries)
-
             (ch_session_recordings, more_recordings_available, hogql_timings) = SessionRecordingListFromQuery(
                 query=query, team=team, hogql_query_modifiers=modifiers
             ).run()
@@ -1608,16 +1597,18 @@ def current_user_viewed(recording_ids_in_list: list[str], user: User | None, tea
     return viewed_session_recordings
 
 
+@tracer.start_as_current_span("safely_read_modifiers_overrides")
 def safely_read_modifiers_overrides(distinct_id: str, team: Team) -> HogQLQueryModifiers:
     modifiers = HogQLQueryModifiers()
 
     try:
-        groups = {"organization": str(team.organization.id)}
+        groups = {"organization": str(team.organization_id)}
         flag_key = "HOG_QL_ORG_QUERY_OVERRIDES"
-        flags_n_bags = posthoganalytics.get_all_flags_and_payloads(
-            distinct_id,
-            groups=groups,
-        )
+        with tracer.start_as_current_span("get_all_flags_and_payloads"):
+            flags_n_bags = posthoganalytics.get_all_flags_and_payloads(
+                distinct_id,
+                groups=groups,
+            )
         # this loads nothing whereas the payload is available
         # modifier_overrides = posthoganalytics.get_feature_flag_payload(
         #     flag_key,
