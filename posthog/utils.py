@@ -1206,6 +1206,14 @@ def str_to_bool(value: Any) -> bool:
     return str(value).lower() in ("y", "yes", "t", "true", "on", "1")
 
 
+def safe_int(value: Any, default: Optional[int] = None) -> Optional[int]:
+    """Safely convert a value to integer, returning default if conversion fails."""
+    try:
+        return int(value)
+    except (ValueError, TypeError):
+        return default
+
+
 def get_helm_info_env() -> dict:
     try:
         return json.loads(os.getenv("HELM_INSTALL_INFO", "{}"))

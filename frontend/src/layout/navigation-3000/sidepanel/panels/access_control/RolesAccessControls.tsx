@@ -24,7 +24,7 @@ import { RoleType } from '~/types'
 import { roleAccessControlLogic } from './roleAccessControlLogic'
 
 export function RolesAccessControls(): JSX.Element {
-    const { roles, rolesLoading, selectedRoleId } = useValues(roleAccessControlLogic)
+    const { sortedRoles, rolesLoading, selectedRoleId } = useValues(roleAccessControlLogic)
 
     const { selectRoleId, setEditingRoleId } = useActions(roleAccessControlLogic)
 
@@ -82,7 +82,7 @@ export function RolesAccessControls(): JSX.Element {
             <div className="deprecated-space-y-2">
                 <LemonTable
                     columns={columns}
-                    dataSource={roles ?? []}
+                    dataSource={sortedRoles ?? []}
                     loading={rolesLoading}
                     expandable={{
                         isRowExpanded: (role) => !!selectedRoleId && role?.id === selectedRoleId,

@@ -86,7 +86,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         self,
         mock_list_objects: MagicMock,
         mock_get_presigned_url: MagicMock,
-        mock_requests: MagicMock,
+        _mock_stream_from: MagicMock,
         _mock_exists: MagicMock,
     ) -> None:
         session_id = str(uuid.uuid4())

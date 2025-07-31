@@ -28,7 +28,7 @@ from posthog.test.base import (
 )
 from posthog.warehouse.models import ExternalDataSchema
 
-from posthog.temporal.data_imports.pipelines.stripe.constants import (
+from posthog.temporal.data_imports.sources.stripe.constants import (
     INVOICE_RESOURCE_NAME as STRIPE_INVOICE_RESOURCE_NAME,
     PRODUCT_RESOURCE_NAME as STRIPE_PRODUCT_RESOURCE_NAME,
     CUSTOMER_RESOURCE_NAME as STRIPE_CUSTOMER_RESOURCE_NAME,
@@ -103,7 +103,7 @@ class TestRevenueAnalyticsRevenueQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     },
                 )
             event_ids: list[str] = []
-            for timestamp, session_id, revenue, currency in timestamps:
+            for timestamp, session_id, revenue, currency, product, coupon in timestamps:
                 event_ids.append(
                     _create_event(
                         team=self.team,
@@ -114,6 +114,8 @@ class TestRevenueAnalyticsRevenueQueryRunner(ClickhouseTestMixin, APIBaseTest):
                             "$session_id": session_id,
                             "revenue": revenue,
                             "currency": currency,
+                            "product": product,
+                            "coupon": coupon,
                         },
                     )
                 )
@@ -695,8 +697,8 @@ class TestRevenueAnalyticsRevenueQueryRunner(ClickhouseTestMixin, APIBaseTest):
         s2 = str(uuid7("2025-01-03"))
         self._create_purchase_events(
             [
-                ("p1", [("2024-12-25", s1, 42, "USD")]),
-                ("p2", [("2025-01-03", s2, 43, "BRL")]),
+                ("p1", [("2024-12-25", s1, 42, "USD", "Prod A", "coupon_x")]),
+                ("p2", [("2025-01-03", s2, 43, "BRL", "Prod B", "coupon_y")]),
             ]
         )
 
@@ -753,8 +755,8 @@ class TestRevenueAnalyticsRevenueQueryRunner(ClickhouseTestMixin, APIBaseTest):
         s2 = str(uuid7("2025-01-03"))
         self._create_purchase_events(
             [
-                ("p1", [("2024-12-25", s1, 42, "USD")]),
-                ("p2", [("2025-01-03", s2, 43, "BRL")]),
+                ("p1", [("2024-12-25", s1, 42, "USD", "Prod A", "coupon_x")]),
+                ("p2", [("2025-01-03", s2, 43, "BRL", "Prod B", "coupon_y")]),
             ]
         )
 
@@ -798,5 +800,161 @@ class TestRevenueAnalyticsRevenueQueryRunner(ClickhouseTestMixin, APIBaseTest):
                         "name": "revenue_analytics.purchase",
                     },
                 }
+            ],
+        )
+
+    def test_with_events_data_and_grouping(self):
+        s1 = str(uuid7("2024-12-25"))
+        s2 = str(uuid7("2025-01-02"))
+        s3 = str(uuid7("2025-01-03"))
+        self._create_purchase_events(
+            [
+                ("p1", [("2024-12-25", s1, 42, "USD", "Prod A", "coupon_x")]),
+                ("p2", [("2025-01-02", s2, 43, "BRL", "Prod B", "coupon_y")]),
+                (
+                    "p3",
+                    [
+                        ("2025-01-03", s3, 75, "GBP", None, "coupon_z"),
+                        ("2025-01-03", s3, 85, "GBP", "Prod C", None),
+                        ("2025-01-03", s3, 95, "GBP", None, None),
+                    ],
+                ),
+            ]
+        )
+
+        results = self._run_revenue_analytics_revenue_query(
+            properties=[
+                RevenueAnalyticsPropertyFilter(
+                    key="source",
+                    operator=PropertyOperator.EXACT,
+                    value=["revenue_analytics.purchase"],
+                )
+            ],
+            group_by=[
+                RevenueAnalyticsGroupBy.PRODUCT,
+                RevenueAnalyticsGroupBy.COUPON,
+            ],
+        ).results
+
+        self.assertEqual(
+            results.gross,
+            [
+                {
+                    "label": "revenue_analytics.purchase - Prod A - coupon_x",
+                    "days": LAST_6_MONTHS_DAYS,
+                    "labels": LAST_6_MONTHS_LABELS,
+                    "data": [0, Decimal("33.474"), 0, 0, 0, 0, 0],
+                    "action": {
+                        "days": LAST_6_MONTHS_FAKEDATETIMES,
+                        "id": "revenue_analytics.purchase - Prod A - coupon_x",
+                        "name": "revenue_analytics.purchase - Prod A - coupon_x",
+                    },
+                },
+                {
+                    "label": "revenue_analytics.purchase - Prod B - coupon_y",
+                    "days": LAST_6_MONTHS_DAYS,
+                    "labels": LAST_6_MONTHS_LABELS,
+                    "data": [0, 0, Decimal("5.5629321819"), 0, 0, 0, 0],
+                    "action": {
+                        "days": LAST_6_MONTHS_FAKEDATETIMES,
+                        "id": "revenue_analytics.purchase - Prod B - coupon_y",
+                        "name": "revenue_analytics.purchase - Prod B - coupon_y",
+                    },
+                },
+                {
+                    "label": "revenue_analytics.purchase - <none> - <none>",
+                    "days": LAST_6_MONTHS_DAYS,
+                    "labels": LAST_6_MONTHS_LABELS,
+                    "data": [0, 0, Decimal("95"), 0, 0, 0, 0],
+                    "action": {
+                        "days": LAST_6_MONTHS_FAKEDATETIMES,
+                        "id": "revenue_analytics.purchase - <none> - <none>",
+                        "name": "revenue_analytics.purchase - <none> - <none>",
+                    },
+                },
+                {
+                    "label": "revenue_analytics.purchase - Prod C - <none>",
+                    "days": LAST_6_MONTHS_DAYS,
+                    "labels": LAST_6_MONTHS_LABELS,
+                    "data": [0, 0, Decimal("85"), 0, 0, 0, 0],
+                    "action": {
+                        "days": LAST_6_MONTHS_FAKEDATETIMES,
+                        "id": "revenue_analytics.purchase - Prod C - <none>",
+                        "name": "revenue_analytics.purchase - Prod C - <none>",
+                    },
+                },
+                {
+                    "label": "revenue_analytics.purchase - <none> - coupon_z",
+                    "days": LAST_6_MONTHS_DAYS,
+                    "labels": LAST_6_MONTHS_LABELS,
+                    "data": [0, 0, Decimal("75"), 0, 0, 0, 0],
+                    "action": {
+                        "days": LAST_6_MONTHS_FAKEDATETIMES,
+                        "id": "revenue_analytics.purchase - <none> - coupon_z",
+                        "name": "revenue_analytics.purchase - <none> - coupon_z",
+                    },
+                },
+            ],
+        )
+
+        # No MRR data because events aren't recurring
+        self.assertEqual(
+            results.mrr,
+            [
+                {
+                    "label": "revenue_analytics.purchase - Prod A - coupon_x",
+                    "days": LAST_6_MONTHS_DAYS,
+                    "labels": LAST_6_MONTHS_LABELS,
+                    "data": [0, 0, 0, 0, 0, 0, 0],
+                    "action": {
+                        "days": LAST_6_MONTHS_FAKEDATETIMES,
+                        "id": "revenue_analytics.purchase - Prod A - coupon_x",
+                        "name": "revenue_analytics.purchase - Prod A - coupon_x",
+                    },
+                },
+                {
+                    "label": "revenue_analytics.purchase - Prod B - coupon_y",
+                    "days": LAST_6_MONTHS_DAYS,
+                    "labels": LAST_6_MONTHS_LABELS,
+                    "data": [0, 0, 0, 0, 0, 0, 0],
+                    "action": {
+                        "days": LAST_6_MONTHS_FAKEDATETIMES,
+                        "id": "revenue_analytics.purchase - Prod B - coupon_y",
+                        "name": "revenue_analytics.purchase - Prod B - coupon_y",
+                    },
+                },
+                {
+                    "label": "revenue_analytics.purchase - <none> - <none>",
+                    "days": LAST_6_MONTHS_DAYS,
+                    "labels": LAST_6_MONTHS_LABELS,
+                    "data": [0, 0, 0, 0, 0, 0, 0],
+                    "action": {
+                        "days": LAST_6_MONTHS_FAKEDATETIMES,
+                        "id": "revenue_analytics.purchase - <none> - <none>",
+                        "name": "revenue_analytics.purchase - <none> - <none>",
+                    },
+                },
+                {
+                    "label": "revenue_analytics.purchase - Prod C - <none>",
+                    "days": LAST_6_MONTHS_DAYS,
+                    "labels": LAST_6_MONTHS_LABELS,
+                    "data": [0, 0, 0, 0, 0, 0, 0],
+                    "action": {
+                        "days": LAST_6_MONTHS_FAKEDATETIMES,
+                        "id": "revenue_analytics.purchase - Prod C - <none>",
+                        "name": "revenue_analytics.purchase - Prod C - <none>",
+                    },
+                },
+                {
+                    "label": "revenue_analytics.purchase - <none> - coupon_z",
+                    "days": LAST_6_MONTHS_DAYS,
+                    "labels": LAST_6_MONTHS_LABELS,
+                    "data": [0, 0, 0, 0, 0, 0, 0],
+                    "action": {
+                        "days": LAST_6_MONTHS_FAKEDATETIMES,
+                        "id": "revenue_analytics.purchase - <none> - coupon_z",
+                        "name": "revenue_analytics.purchase - <none> - coupon_z",
+                    },
+                },
             ],
         )

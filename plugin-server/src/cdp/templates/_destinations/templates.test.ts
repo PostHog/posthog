@@ -18,7 +18,7 @@ describe('Hog Function Templates Code Language', () => {
     })
 
     it.each(HOG_FUNCTION_TEMPLATES)('should have hog property set for template $id', (template) => {
-        expect(template.hog).toBeDefined()
-        expect(typeof template.hog).toBe('string')
+        expect(template.code).toBeDefined()
+        expect(typeof template.code).toBe('string')
     })
 })

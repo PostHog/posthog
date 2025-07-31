@@ -8,7 +8,7 @@ on:
 jobs:
     report-pr-age:
         name: Report age of PR
-        runs-on: ubuntu-20.04
+        runs-on: ubuntu-24.04
         if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.merged == true
         steps:
             - name: Calculate PR age

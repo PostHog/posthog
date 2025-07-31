@@ -13,12 +13,13 @@ from posthog.hogql.database.models import (
     StringDatabaseField,
     FieldOrTable,
 )
-from .revenue_analytics_base_view import RevenueAnalyticsBaseView
-from posthog.temporal.data_imports.pipelines.stripe.constants import (
+from .revenue_analytics_base_view import RevenueAnalyticsBaseView, events_expr_for_team
+from posthog.temporal.data_imports.sources.stripe.constants import (
     PRODUCT_RESOURCE_NAME as STRIPE_PRODUCT_RESOURCE_NAME,
 )
 
 SOURCE_VIEW_SUFFIX = "product_revenue_view"
+EVENTS_VIEW_SUFFIX = "product_events_revenue_view"
 
 FIELDS: dict[str, FieldOrTable] = {
     "id": StringDatabaseField(name="id"),
@@ -32,10 +33,51 @@ class RevenueAnalyticsProductView(RevenueAnalyticsBaseView):
     def get_database_schema_table_kind(cls) -> DatabaseSchemaManagedViewTableKind:
         return DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_PRODUCT
 
-    # NOTE: Products are not supported for events
     @classmethod
-    def for_events(cls, _team: "Team", _modifiers: HogQLQueryModifiers) -> list["RevenueAnalyticsBaseView"]:
-        return []
+    def for_events(cls, team: "Team", _modifiers: HogQLQueryModifiers) -> list["RevenueAnalyticsBaseView"]:
+        if len(team.revenue_analytics_config.events) == 0:
+            return []
+
+        revenue_config = team.revenue_analytics_config
+
+        queries: list[tuple[str, str, ast.SelectQuery]] = []
+        for event in revenue_config.events:
+            if not event.productProperty:
+                continue
+
+            prefix = RevenueAnalyticsBaseView.get_view_prefix_for_event(event.eventName)
+
+            events_query = ast.SelectQuery(
+                distinct=True,
+                select=[
+                    ast.Alias(alias="product_id", expr=ast.Field(chain=["events", "properties", event.productProperty]))
+                ],
+                select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                where=events_expr_for_team(team),
+            )
+
+            query = ast.SelectQuery(
+                select=[
+                    ast.Alias(alias="id", expr=ast.Field(chain=["product_id"])),
+                    ast.Alias(alias="source_label", expr=ast.Constant(value=prefix)),
+                    ast.Alias(alias="name", expr=ast.Field(chain=["product_id"])),
+                ],
+                select_from=ast.JoinExpr(table=events_query),
+                order_by=[ast.OrderExpr(expr=ast.Field(chain=["id"]), order="ASC")],
+            )
+
+            queries.append((event.eventName, prefix, query))
+
+        return [
+            RevenueAnalyticsProductView(
+                id=RevenueAnalyticsBaseView.get_view_name_for_event(event_name, EVENTS_VIEW_SUFFIX),
+                name=RevenueAnalyticsBaseView.get_view_name_for_event(event_name, EVENTS_VIEW_SUFFIX),
+                prefix=prefix,
+                query=query.to_hogql(),
+                fields=FIELDS,
+            )
+            for event_name, prefix, query in queries
+        ]
 
     @classmethod
     def for_schema_source(

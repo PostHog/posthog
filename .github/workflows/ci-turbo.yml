@@ -46,7 +46,7 @@ jobs:
               uses: astral-sh/setup-uv@0c5e2b8115b80b4c7c5ddf6ffdd634974642d182 # v5.4.1
               with:
                   enable-cache: true
-                  pyproject-file: 'pyproject.toml'
+                  version: 0.7.8
 
             - name: Install pnpm
               uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4
@@ -97,15 +97,3 @@ jobs:
               env:
                   NODE_OPTIONS: --max-old-space-size=8192
                   TURBO_SCM_BASE: ${{ env.TURBO_SCM_BASE }}
-
-    posthog-analytics:
-        name: PostHog CI analytics
-        if: always()
-        needs: [turbo-affected-4] # last job in this workflow
-        runs-on: ubuntu-latest
-        steps:
-            - name: Checkout
-              uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
-            - uses: ./.github/actions/ci-analytics
-              with:
-                  posthog-api-key: ${{ secrets.CI_ANALYTICS_TOKEN }}

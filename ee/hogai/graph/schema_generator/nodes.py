@@ -3,6 +3,7 @@ from typing import Generic, Optional, TypeVar
 from uuid import uuid4
 
 from langchain_core.agents import AgentAction
+from langchain_core.exceptions import OutputParserException
 from langchain_core.messages import (
     AIMessage as LangchainAssistantMessage,
     BaseMessage,
@@ -52,10 +53,10 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
     @property
     def _model(self):
         return MaxChatOpenAI(
-            model="gpt-4.1", temperature=0.3, disable_streaming=True, user=self._user, team=self._team
+            model="gpt-4.1", temperature=0.3, disable_streaming=True, user=self._user, team=self._team, max_tokens=8192
         ).with_structured_output(
             self.OUTPUT_SCHEMA,
-            method="function_calling",
+            method="json_schema",
             include_raw=False,
         )
 
@@ -88,7 +89,7 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
                 },
                 config,
             )
-        except PydanticOutputParserException as e:
+        except (PydanticOutputParserException, OutputParserException) as e:
             # Generation step is expensive. After a second unsuccessful attempt, it's better to send a failure message.
             if len(intermediate_steps) >= 2:
                 return PartialAssistantState(
@@ -99,6 +100,22 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
                     ],
                     intermediate_steps=None,
                     plan=None,
+                    query_generation_retry_count=len(intermediate_steps) + 1,
+                )
+
+            if isinstance(e, OutputParserException):
+                return PartialAssistantState(
+                    intermediate_steps=[
+                        *intermediate_steps,
+                        (
+                            AgentAction(
+                                "handle_incorrect_response",
+                                e.llm_output or "No input was provided.",
+                                "The provided JSON was invalid.",
+                            ),
+                            None,
+                        ),
+                    ],
                     query_generation_retry_count=len(intermediate_steps) + 1,
                 )
 
@@ -213,10 +230,10 @@ class SchemaGeneratorToolsNode(AssistantNode):
     Used for failover from generation errors.
     """
 
-    async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
+    async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
         intermediate_steps = state.intermediate_steps or []
         if not intermediate_steps:
-            return PartialAssistantState()
+            return None
 
         action, _ = intermediate_steps[-1]
         prompt = (
