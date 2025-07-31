@@ -2,6 +2,7 @@ import json
 from typing import Optional, Union
 from unittest.mock import ANY, patch
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models import (
@@ -21,7 +22,7 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         {"name": "$browser", "is_numerical": False},
         {"name": "$current_url", "is_numerical": False},
         {"name": "$lib", "is_numerical": False},
-        {"name": "$performance_raw", "is_numerical": False},
+        {"name": "$browser_version", "is_numerical": False},
         {"name": "is_first_movie", "is_numerical": False},
         {"name": "app_rating", "is_numerical": True},
         {"name": "plan", "is_numerical": False},
@@ -38,7 +39,7 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         PropertyDefinition.objects.get_or_create(team=self.team, name="$current_url")
         PropertyDefinition.objects.get_or_create(team=self.team, name="$lib")
         PropertyDefinition.objects.get_or_create(team=self.team, name="$browser")
-        PropertyDefinition.objects.get_or_create(team=self.team, name="$performance_raw")
+        PropertyDefinition.objects.get_or_create(team=self.team, name="$browser_version")
         PropertyDefinition.objects.get_or_create(team=self.team, name="first_visit")
         PropertyDefinition.objects.get_or_create(team=self.team, name="is_first_movie")
         PropertyDefinition.objects.get_or_create(team=self.team, name="app_rating", defaults={"is_numerical": True})
@@ -65,26 +66,23 @@ class TestPropertyDefinitionAPI(APIBaseTest):
 
     def test_list_property_definitions(self):
         response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], len(self.EXPECTED_PROPERTY_DEFINITIONS))
+        assert response.status_code == status.HTTP_200_OK
 
-        self.assertEqual(len(response.json()["results"]), len(self.EXPECTED_PROPERTY_DEFINITIONS))
+        assert response.json()["count"] == len(self.EXPECTED_PROPERTY_DEFINITIONS)
+        assert len(response.json()["results"]) == len(self.EXPECTED_PROPERTY_DEFINITIONS)
 
-        for item in self.EXPECTED_PROPERTY_DEFINITIONS:
-            response_item: dict = next(
-                (_i for _i in response.json()["results"] if _i["name"] == item["name"]),
-                {},
-            )
-            self.assertEqual(response_item["is_numerical"], item["is_numerical"])
+        assert [{"name": r["name"], "is_numerical": r["is_numerical"]} for r in response.json()["results"]] == sorted(
+            self.EXPECTED_PROPERTY_DEFINITIONS, key=lambda x: x["name"]
+        )
 
     def test_list_property_definitions_with_excluded_properties(self):
         response = self.client.get(
             f'/api/projects/{self.team.pk}/property_definitions/?excluded_properties=["first_visit"]'
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], len(self.EXPECTED_PROPERTY_DEFINITIONS) - 1)
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["count"] == len(self.EXPECTED_PROPERTY_DEFINITIONS) - 1
 
-        self.assertEqual(len(response.json()["results"]), len(self.EXPECTED_PROPERTY_DEFINITIONS) - 1)
+        assert "first_visit" not in [r["name"] for r in response.json()["results"]]
 
     def test_list_property_definitions_with_excluded_core_properties(self):
         # core property that doesn't start with $
@@ -119,7 +117,7 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         self.assertEqual(response.json()["results"][0]["name"], "$browser")
         self.assertEqual(
             response.json()["results"][1]["name"],
-            "$current_url",
+            "$browser_version",
             [r["name"] for r in response.json()["results"]],
         )
 
@@ -159,89 +157,63 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(response.json(), self.permission_denied_response("You don't have access to the project."))
 
-    def test_query_property_definitions(self):
-        # no search at all
+    def test_list_all_property_definitions_without_search(self):
         response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        response_data = response.json()
-        assert sorted([r["name"] for r in response_data["results"]]) == [
-            "$browser",
-            "$current_url",
-            "$lib",
-            "$performance_raw",
-            "app_rating",
-            "first_visit",
-            "is_first_movie",
-            "plan",
-            "purchase",
-            "purchase_value",
+        assert response.status_code == status.HTTP_200_OK
+
+        assert sorted([r["name"] for r in response.json()["results"]]) == sorted(
+            [
+                "$browser",
+                "$browser_version",
+                "$current_url",
+                "$lib",
+                "app_rating",
+                "first_visit",
+                "is_first_movie",
+                "plan",
+                "purchase",
+                "purchase_value",
+            ]
+        )
+
+    @parameterized.expand(
+        [
+            # (search_term, expected_property_names)
+            ("Searching for properties starting with 'firs'", "firs", ["first_visit", "is_first_movie"]),
+            ("Fuzzy search: 'p ting' matches 'app_rating'", "p ting", ["app_rating"]),
+            ("Alias search: 'ary' matches '$lib' (library)", "ary", ["$lib"]),
+            ("Alias search: 'brow ver' matches '$browser_version'", "brow ver", ["$browser_version"]),
+            ("URL-encoded search for properties starting with '$cur'", "$cur", ["$current_url"]),
+            ("Fuzzy search: 'hase ' matches properties containing 'chase'", "hase ", ["purchase", "purchase_value"]),
+            ("Search matching multiple properties", "brow", ["$browser", "$browser_version"]),
         ]
+    )
+    def test_property_search_returns_expected_results(
+        self, _name: str, search_term: str, expected_property_names: list[str]
+    ) -> None:
+        response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?search={search_term}")
+        assert response.status_code == status.HTTP_200_OK
 
-        # Regular search
-        response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?search=firs")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        response_data = response.json()
-        assert [r["name"] for r in response_data["results"]] == [
-            "first_visit",
-            "is_first_movie",
-        ]
+        assert [prop["name"] for prop in response.json()["results"]] == expected_property_names
 
-        # Fuzzy search
-        response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?search=p ting")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], 1)
-        self.assertEqual(response.json()["results"][0]["is_seen_on_filtered_events"], None)
-        for item in response.json()["results"]:
-            self.assertIn(item["name"], ["app_rating"])
+        if search_term == "p ting":
+            assert response.json()["results"][0]["is_seen_on_filtered_events"] is None
 
-        # Searching by alias
-        response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?search=ary")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], 1)
-        self.assertEqual(response.json()["results"][0]["name"], "$lib")
-
-        # Searching by alias with two parts
-        response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?search=brow%20perf")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], 1)
-        self.assertEqual(response.json()["results"][0]["name"], "$performance_raw")
-
-        # Searching from both a name and an alias
-        response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?search=brow")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], 2)
-        self.assertEqual(response.json()["results"][0]["name"], "$browser")  # uses name ilike 'brow'
-        self.assertEqual(response.json()["results"][1]["name"], "$performance_raw")  # uses name in (...)
-
-        # Handles URL encoding properly
-        response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?search=%24cur")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], 1)
-        for item in response.json()["results"]:
-            self.assertIn(item["name"], ["$current_url"])
-
-        # Shows properties belonging to queried event names
+    def test_property_search_with_event_filter_shows_event_association(self):
+        # URL params: search=$ and event_names=["$pageview"]
         response = self.client.get(
             "/api/projects/@current/property_definitions/?search=%24&event_names=%5B%22%24pageview%22%5D"
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], 4, response.json()["results"])
-        self.assertEqual(response.json()["results"][0]["name"], "$browser")
-        self.assertEqual(response.json()["results"][0]["is_seen_on_filtered_events"], True)
-        self.assertEqual(response.json()["results"][1]["name"], "$current_url")
-        self.assertEqual(response.json()["results"][1]["is_seen_on_filtered_events"], False)
-        self.assertEqual(response.json()["results"][2]["name"], "$lib")
-        self.assertEqual(response.json()["results"][2]["is_seen_on_filtered_events"], False)
-        self.assertEqual(response.json()["results"][3]["name"], "$performance_raw")
-        self.assertEqual(response.json()["results"][3]["is_seen_on_filtered_events"], False)
+        assert response.status_code == status.HTTP_200_OK
 
-        # Fuzzy search 2
-        response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?search=hase%20")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        actual_results = [(r["name"], r["is_seen_on_filtered_events"]) for r in response.json()["results"]]
 
-        self.assertEqual(response.json()["count"], 2)
-        for item in response.json()["results"]:
-            self.assertIn(item["name"], ["purchase", "purchase_value"])
+        assert actual_results == [
+            ("$browser", True),
+            ("$browser_version", False),
+            ("$current_url", False),
+            ("$lib", False),
+        ]
 
     def test_is_event_property_filter(self):
         response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?search=firs")
@@ -265,9 +237,9 @@ class TestPropertyDefinitionAPI(APIBaseTest):
             key=lambda tup: tup[0],
         ) == [
             ("$browser", True),
+            ("$browser_version", False),
             ("$current_url", False),
             ("$lib", False),
-            ("$performance_raw", False),
             ("app_rating", False),
             ("first_visit", True),
             ("is_first_movie", False),
