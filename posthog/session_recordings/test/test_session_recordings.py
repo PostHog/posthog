@@ -172,7 +172,6 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         assert response.status_code == status.HTTP_200_OK
         results = response.json()["results"]
 
-        # Should be ordered: new_session, middle_session, old_session
         assert [r["id"] for r in results] == ["new_session", "middle_session", "old_session"]
 
     def test_get_session_recordings_includes_person_data(self) -> None:
