@@ -51,14 +51,26 @@ remove_worktree() {
         exit 1
     fi
     
-    local worktree_path="${WORKTREE_BASE}/${BRANCH_NAME}"
-    
     print_color yellow "Removing worktree for: ${BRANCH_NAME}"
     
-    # Remove the worktree
-    git worktree remove "${worktree_path}" --force || true
+    # Find the actual worktree path using git worktree list
+    local worktree_path=$(git worktree list | grep -E "\[${BRANCH_NAME}\]$" | awk '{print $1}')
     
-    success "Worktree removed"
+    if [ -n "$worktree_path" ]; then
+        # Remove using the actual path found by git
+        git worktree remove "${worktree_path}" --force
+        success "Worktree removed: ${worktree_path}"
+    else
+        # Fallback: let git find it by branch name
+        if git worktree remove "${BRANCH_NAME}" --force 2>/dev/null; then
+            success "Worktree removed"
+        else
+            error "Could not find worktree for branch: ${BRANCH_NAME}"
+            echo "Available worktrees:"
+            git worktree list
+            exit 1
+        fi
+    fi
 }
 
 # Function to checkout existing branch in worktree
@@ -190,20 +202,30 @@ setup_worktree_environment() {
 
 # Function to list all worktrees
 list_worktrees() {
-    print_color green "PostHog Worktrees:"
+    print_color green "All PostHog Worktrees:"
     echo ""
-    printf "%-30s %-50s\n" "Branch" "Path"
-    printf "%-30s %-50s\n" "------" "----"
+    printf "%-30s %-60s %-10s\n" "Branch" "Path" "Location"
+    printf "%-30s %-60s %-10s\n" "------" "----" "--------"
     
     git worktree list | while read -r line; do
         worktree_path=$(echo "$line" | awk '{print $1}')
         branch=$(echo "$line" | sed -n 's/.*\[\(.*\)\].*/\1/p')
         
-        # Check if it's in our worktree directory
+        # Determine location indicator
+        local location_indicator=""
         if [[ "$worktree_path" == "${WORKTREE_BASE}"* ]]; then
-            printf "%-30s %-50s\n" "$branch" "$worktree_path"
+            location_indicator="current"
+        else
+            location_indicator="other"
         fi
+        
+        printf "%-30s %-60s %-10s\n" "$branch" "$worktree_path" "$location_indicator"
     done
+    
+    echo ""
+    print_color yellow "Legend:"
+    print_color yellow "  current = in current worktree base (${WORKTREE_BASE})"
+    print_color yellow "  other   = in different location"
 }
 
 # Main command handling
