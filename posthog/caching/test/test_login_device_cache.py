@@ -8,10 +8,7 @@ class TestLoginDeviceCache(BaseTest):
         """Clean up Redis keys before each test"""
         super().setUp()
         redis_client = get_client()
-        # Delete all login_device keys to ensure clean state
-        keys = redis_client.keys("login_device:*")
-        if keys:
-            redis_client.delete(*keys)
+        redis_client.flushdb()
 
     def test_new_device_login(self):
         """Test new device login"""
