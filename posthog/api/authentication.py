@@ -70,7 +70,7 @@ def post_login(sender, user, request: HttpRequest, **kwargs):
     short_user_agent = get_short_user_agent(request)
     ip_address = get_ip_address(request)
 
-    if not is_reauthentication and not is_signup and is_cloud():
+    if not is_reauthentication and not is_signup and is_cloud() and not settings.TEST:
         login_from_new_device_notification.delay(user.id, timezone.now(), short_user_agent, ip_address)
 
 
