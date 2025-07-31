@@ -17,6 +17,31 @@ from .scorers import (
 )
 
 
+def extract_insight_ids_from_text(text: str) -> list[int]:
+    """Extract insight IDs from text using various regex patterns."""
+    insight_id_patterns = [
+        r"insight.*?ID:\s*(\d+)",  # "insight ID: 4"
+        r"ID:\s*(\d+)",  # "ID: 4"
+        r"insight\s*(\d+)",  # "insight 4"
+        r"\(#(\d+)\)",  # "(#1)"
+        r"#(\d+)",  # "#1"
+        r"\[.*?\]\(/project/\d+/insights/(\d+)\)",  # "[Name](/project/123/insights/1)"
+        r"/insights/(\d+)\)",  # "/insights/1)"
+    ]
+
+    insight_ids = []
+    for pattern in insight_id_patterns:
+        matches = re.findall(pattern, text, re.IGNORECASE)
+        if matches:
+            try:
+                insight_ids.extend([int(match) for match in matches])
+            except ValueError:
+                pass
+            break
+
+    return insight_ids
+
+
 @pytest.fixture
 def call_insight_search(demo_org_team_user):
     """Fixture that creates a callable for executing insight search workflows."""
@@ -60,25 +85,8 @@ def call_insight_search(demo_org_team_user):
                 plan_text = getattr(msg, "plan", "") or ""
                 query_text = getattr(msg, "query", "") or ""
 
-                # Extract insight IDs from various formats
-                insight_id_patterns = [
-                    r"insight.*?ID:\s*(\d+)",  # "insight ID: 4"
-                    r"ID:\s*(\d+)",  # "ID: 4"
-                    r"insight\s*(\d+)",  # "insight 4"
-                    r"\(#(\d+)\)",  # "(#1)"
-                    r"#(\d+)",  # "#1"
-                    r"\[.*?\]\(/project/\d+/insights/(\d+)\)",  # "[Name](/project/123/insights/1)"
-                    r"/insights/(\d+)\)",  # "/insights/1)"
-                ]
-
-                for pattern in insight_id_patterns:
-                    matches = re.findall(pattern, plan_text + " " + query_text, re.IGNORECASE)
-                    if matches:
-                        try:
-                            selected_insights.extend([int(match) for match in matches])
-                        except ValueError:
-                            pass
-                        break
+                insight_ids = extract_insight_ids_from_text(plan_text + " " + query_text)
+                selected_insights.extend(insight_ids)
 
             elif isinstance(msg, AssistantToolCallMessage):
                 # Look for evaluation results in tool call messages
@@ -92,26 +100,8 @@ def call_insight_search(demo_org_team_user):
 
                         evaluation_result = {"should_use_existing": should_use_existing, "explanation": content}
 
-                        # Extract insight IDs from evaluation explanation
-                        insight_id_patterns = [
-                            r"insight.*?ID:\s*(\d+)",  # "insight ID: 4"
-                            r"ID:\s*(\d+)",  # "ID: 4"
-                            r"\[.*?ID:\s*(\d+)",  # "[Name with ID: 4]"
-                            r"\(#(\d+)\)",  # "(#1)"
-                            r"#(\d+)",  # "#1"
-                            r"\[.*?\]\(/project/\d+/insights/(\d+)\)",  # "[Name](/project/123/insights/1)"
-                            r"/insights/(\d+)\)",  # "/insights/1)"
-                        ]
-
-                        for pattern in insight_id_patterns:
-                            matches = re.findall(pattern, content, re.IGNORECASE)
-                            if matches:
-                                try:
-                                    new_ids = [int(match) for match in matches]
-                                    selected_insights.extend(new_ids)
-                                except ValueError:
-                                    pass
-                                break
+                        insight_ids = extract_insight_ids_from_text(content)
+                        selected_insights.extend(insight_ids)
                 except Exception:
                     pass
 
