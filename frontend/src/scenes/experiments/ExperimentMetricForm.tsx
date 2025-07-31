@@ -31,34 +31,40 @@ import {
 import { getFilter } from './metricQueryUtils'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
 
 const loadEventCount = async (
     metric: ExperimentMetric,
+    filterTestAccounts: boolean,
     setEventCount: (count: number | null) => void,
     setIsLoading: (loading: boolean) => void
 ): Promise<void> => {
     setIsLoading(true)
+    try {
+        const query = getEventCountQuery(metric, filterTestAccounts)
 
-    const query = getEventCountQuery(metric)
-
-    if (!query) {
-        setEventCount(0)
-        setIsLoading(false)
-        return
-    }
-
-    const response = await performQuery(query)
-
-    let count = 0
-    if (response.results.length > 0) {
-        const firstResult = response.results[0]
-        if (firstResult && typeof firstResult.aggregated_value === 'number') {
-            count = firstResult.aggregated_value
+        if (!query) {
+            setEventCount(0)
+            return
         }
-    }
 
-    setEventCount(count)
-    setIsLoading(false)
+        const response = await performQuery(query)
+
+        let count = 0
+        if (response.results.length > 0) {
+            const firstResult = response.results[0]
+            if (firstResult && typeof firstResult.aggregated_value === 'number') {
+                count = firstResult.aggregated_value
+            }
+        }
+
+        setEventCount(count)
+    } catch (error) {
+        lemonToast.error(JSON.stringify(error))
+        setEventCount(0)
+    } finally {
+        setIsLoading(false)
+    }
 }
 
 const dataWarehousePopoverFields: DataWarehousePopoverField[] = [
@@ -136,7 +142,7 @@ export function ExperimentMetricForm({
     const metricFilter = getFilter(metric)
 
     useEffect(() => {
-        loadEventCount(metric, setEventCount, setIsLoading)
+        loadEventCount(metric, filterTestAccounts, setEventCount, setIsLoading)
     }, [metric, filterTestAccounts])
 
     const hideDeleteBtn = (_: any, index: number): boolean => index === 0

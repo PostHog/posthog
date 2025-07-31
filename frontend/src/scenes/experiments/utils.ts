@@ -681,7 +681,7 @@ export const isLegacySharedMetric = ({ query }: SharedMetric): boolean => isLega
 /**
  * Builds a TrendsQuery for counting events in the last 14 days for experiment metric preview
  */
-export function getEventCountQuery(metric: ExperimentMetric): any {
+export function getEventCountQuery(metric: ExperimentMetric, filterTestAccounts: boolean): any {
     let series: Record<string, any>[] = []
 
     if (metric.metric_type === ExperimentMetricType.MEAN) {
@@ -767,9 +767,9 @@ export function getEventCountQuery(metric: ExperimentMetric): any {
         },
         interval: 'day',
         breakdownFilter: null,
+        filterTestAccounts,
         tags: {
             scene: 'Insight',
         },
-        filterTestAccounts: true,
     }
 }
