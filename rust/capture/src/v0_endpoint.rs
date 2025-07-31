@@ -37,7 +37,10 @@ use crate::{
 
 /// Check if an event is a survey-related event that should be subject to survey quota limiting
 fn is_survey_event(event_name: &str) -> bool {
-    matches!(event_name, "survey sent" | "survey shown" | "survey dismissed")
+    matches!(
+        event_name,
+        "survey sent" | "survey shown" | "survey dismissed"
+    )
 }
 
 /// Check for survey quota limiting and filter out survey events if quota exceeded
@@ -49,30 +52,28 @@ async fn check_survey_quota_and_filter(
     if let Some(ref limiter) = state.survey_limiter {
         let has_survey_events = events.iter().any(|event| is_survey_event(&event.event));
         if has_survey_events {
-            let survey_limited = limiter
-                .is_limited(context.token.as_str())
-                .await;
-            
+            let survey_limited = limiter.is_limited(context.token.as_str()).await;
+
             if survey_limited {
                 // Drop only survey events, allow other events through
                 let (survey_events, non_survey_events): (Vec<_>, Vec<_>) = events
                     .into_iter()
                     .partition(|event| is_survey_event(&event.event));
-                
+
                 if !survey_events.is_empty() {
                     report_dropped_events("survey_over_quota", survey_events.len() as u64);
                 }
-                
+
                 // Continue with non-survey events if any exist
                 if non_survey_events.is_empty() {
                     return Err(CaptureError::BillingLimit);
                 }
-                
+
                 events = non_survey_events;
             }
         }
     }
-    
+
     Ok(events)
 }
 
@@ -86,7 +87,7 @@ mod tests {
         assert!(is_survey_event("survey sent"));
         assert!(is_survey_event("survey shown"));
         assert!(is_survey_event("survey dismissed"));
-        
+
         // Non-survey events should return false
         assert!(!is_survey_event("pageview"));
         assert!(!is_survey_event("$pageview"));
