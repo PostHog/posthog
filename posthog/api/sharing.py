@@ -24,7 +24,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.client.async_task_chain import task_chain_context
 from posthog.constants import AvailableFeature
 from posthog.models import SessionRecording, SharingConfiguration, Team, InsightViewed
-from posthog.models.sharing_configuration import SharingConfigurationSettings
+from posthog.schema import SharingConfigurationSettings
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.dashboard import Dashboard
 from posthog.models.exported_asset import (
@@ -98,9 +98,13 @@ class SharingConfigurationSerializer(serializers.ModelSerializer):
         if value is None:
             return None
         try:
-            # This validates the structure and applies defaults
-            validated_settings = SharingConfigurationSettings.from_dict(value)
-            return validated_settings.model_dump()
+            # Filter out unknown fields before validation since the schema has extra="forbid"
+            known_fields = SharingConfigurationSettings.model_fields.keys()
+            filtered_data = {k: v for k, v in value.items() if k in known_fields}
+
+            validated_settings = SharingConfigurationSettings.model_validate(filtered_data, strict=False)
+            result = validated_settings.model_dump(exclude_none=True)
+            return result
         except Exception as e:
             raise serializers.ValidationError(f"Invalid settings format: {str(e)}")
 
@@ -366,7 +370,8 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             raise NotFound()
 
         # Get sharing settings using Pydantic model for validation and defaults
-        base_settings = SharingConfigurationSettings.from_dict(getattr(resource, "settings", {}) or {})
+        settings_data = getattr(resource, "settings", {}) or {}
+        base_settings = SharingConfigurationSettings.model_validate(settings_data, strict=False)
 
         # Only check query params for configurations created before SETTINGS_SHIP_DATE
         SETTINGS_SHIP_DATE = "2025-07-31"
@@ -379,7 +384,12 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
 
         # Merge query params with base settings if allowed
         if can_use_query_params:
-            final_settings = base_settings.merge_with_query_params(request.GET)
+            # Convert query params to dict and merge with base settings
+            merged_data = base_settings.model_dump()
+            for field_name in base_settings.model_fields.keys():
+                if field_name in request.GET:
+                    merged_data[field_name] = bool(request.GET[field_name])
+            final_settings = SharingConfigurationSettings.model_validate(merged_data, strict=False)
         else:
             final_settings = base_settings
 

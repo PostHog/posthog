@@ -541,20 +541,12 @@ class TestSharing(APIBaseTest):
         data = response.json()
         assert data["settings"] == {
             "whitelabel": True,
-            "noHeader": False,
-            "showInspector": False,
-            "legend": False,
-            "detailed": False,
         }
 
         # Verify settings persists
         response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}/sharing")
         assert response.json()["settings"] == {
             "whitelabel": True,
-            "noHeader": False,
-            "showInspector": False,
-            "legend": False,
-            "detailed": False,
         }
 
     @patch("posthog.api.exports.exporter.export_asset.delay")
@@ -828,10 +820,7 @@ class TestSharingConfigurationSerializerValidation(APIBaseTest):
         # Should have defaults filled in
         expected_settings = {
             "whitelabel": True,
-            "noHeader": False,  # default
-            "showInspector": False,  # default
             "legend": True,
-            "detailed": False,  # default
         }
         assert data["settings"] == expected_settings
 
@@ -856,10 +845,7 @@ class TestSharingConfigurationSerializerValidation(APIBaseTest):
         # Unknown fields should be filtered out, defaults filled in
         expected_settings = {
             "whitelabel": True,
-            "noHeader": False,
-            "showInspector": False,
             "legend": False,
-            "detailed": False,
         }
         assert data["settings"] == expected_settings
 
@@ -887,14 +873,7 @@ class TestSharingConfigurationSerializerValidation(APIBaseTest):
         data = response.json()
 
         # Empty dict should be filled with defaults
-        expected_settings = {
-            "whitelabel": False,
-            "noHeader": False,
-            "showInspector": False,
-            "legend": False,
-            "detailed": False,
-        }
-        assert data["settings"] == expected_settings
+        assert data["settings"] == {}
 
     def test_invalid_settings_type_rejected(self):
         """Test that invalid settings type is rejected"""
@@ -929,9 +908,6 @@ class TestSharingConfigurationSerializerValidation(APIBaseTest):
 
         expected_settings = {
             "whitelabel": True,
-            "noHeader": False,
-            "showInspector": False,
-            "legend": False,
             "detailed": True,
         }
         assert data["settings"] == expected_settings

@@ -21570,6 +21570,27 @@
             "required": ["results"],
             "type": "object"
         },
+        "SharingConfigurationSettings": {
+            "additionalProperties": false,
+            "properties": {
+                "detailed": {
+                    "type": "boolean"
+                },
+                "legend": {
+                    "type": "boolean"
+                },
+                "noHeader": {
+                    "type": "boolean"
+                },
+                "showInspector": {
+                    "type": "boolean"
+                },
+                "whitelabel": {
+                    "type": "boolean"
+                }
+            },
+            "type": "object"
+        },
         "SourceConfig": {
             "additionalProperties": false,
             "properties": {
