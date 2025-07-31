@@ -499,61 +499,31 @@ describe('CDP API', () => {
 
             const res = await supertest(app).get('/api/hog_functions/states')
             expect(res.status).toEqual(200)
-            expect(res.body).toMatchInlineSnapshot(
-                {
-                    results: [
-                        {
-                            function_enabled: true,
-                            function_id: hogFunctionMultiFetch.id,
-                            function_name: 'test hog function multi fetch',
-                            function_team_id: 2,
-                            function_type: 'destination',
-                            state: 'disabled',
-                            state_numeric: 3,
-                            tokens: 10000,
-                        },
-                        {
-                            function_enabled: true,
-                            function_id: hogFunction.id,
-                            function_name: 'test hog function',
-                            function_team_id: 2,
-                            function_type: 'destination',
-                            state: 'degraded',
-                            state_numeric: 2,
-                            tokens: 10000,
-                        },
-                    ],
-
-                    total: 2,
-                },
-                `
-                {
-                  "results": [
+            expect(res.body).toEqual({
+                results: [
                     {
-                      "function_enabled": true,
-                      "function_id": "c4cae7a9-6188-4c77-8d3a-e1e6d372df3b",
-                      "function_name": "test hog function multi fetch",
-                      "function_team_id": 2,
-                      "function_type": "destination",
-                      "state": "disabled",
-                      "state_numeric": 3,
-                      "tokens": 10000,
+                        function_enabled: true,
+                        function_id: hogFunctionMultiFetch.id,
+                        function_name: 'test hog function multi fetch',
+                        function_team_id: hogFunctionMultiFetch.team_id,
+                        function_type: 'destination',
+                        state: 'disabled',
+                        state_numeric: 3,
+                        tokens: 10000,
                     },
                     {
-                      "function_enabled": true,
-                      "function_id": "5dba1b0c-d414-4b9a-8961-c38e0aaf8002",
-                      "function_name": "test hog function",
-                      "function_team_id": 2,
-                      "function_type": "destination",
-                      "state": "degraded",
-                      "state_numeric": 2,
-                      "tokens": 10000,
+                        function_enabled: true,
+                        function_id: hogFunction.id,
+                        function_name: 'test hog function',
+                        function_team_id: hogFunction.team_id,
+                        function_type: 'destination',
+                        state: 'degraded',
+                        state_numeric: 2,
+                        tokens: 10000,
                     },
-                  ],
-                  "total": 2,
-                }
-            `
-            )
+                ],
+                total: 2,
+            })
         })
     })
 })

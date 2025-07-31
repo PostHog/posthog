@@ -160,9 +160,8 @@ export class CdpApi {
                         tokens: state.tokens,
                         state_numeric: state.state,
                     }))
-                    .sort((a, b) => a.tokens - b.tokens) // Sort by tokens ascending
+                    .sort((a, b) => b.state_numeric - a.state_numeric)
 
-                console.log(statesArray)
                 const hogFunctions = await this.hogFunctionManager.getHogFunctions(
                     statesArray.map((x) => x.function_id)
                 )
