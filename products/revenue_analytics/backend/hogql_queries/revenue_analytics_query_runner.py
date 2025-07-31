@@ -428,7 +428,7 @@ class RevenueAnalyticsQueryRunner(QueryRunnerWithHogQLContext):
 
         # We wanna include a join with the subquery to get the coalesced field
         # and also change the `breakdown_by` to include that
-        # However, because we're already possiblty joining with the subquery because
+        # However, because we're already possibly joining with the subquery because
         # we might be filtering on that item, we need to be extra safe here and guarantee
         # there's no join with the subquery before adding this one
         subquery = self._subquery_for_view(join_to)
