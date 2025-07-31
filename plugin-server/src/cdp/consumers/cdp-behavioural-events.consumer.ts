@@ -3,7 +3,7 @@ import { createHash } from 'crypto'
 import { Message } from 'node-rdkafka'
 import { join } from 'path'
 import Piscina from 'piscina'
-import { Counter } from 'prom-client'
+import { Counter, Histogram } from 'prom-client'
 
 import { KAFKA_EVENTS_JSON } from '../../config/kafka-topics'
 import { KafkaConsumer } from '../../kafka/consumer'
@@ -23,26 +23,35 @@ export type BehavioralEvent = {
     personId: string
 }
 
-export const counterParseError = new Counter({
-    name: 'cdp_behavioural_function_parse_error',
-    help: 'A behavioural function invocation was parsed with an error',
-    labelNames: ['error'],
+export const histogramWorkerPoolExecution = new Histogram({
+    name: 'cdp_behavioural_worker_pool_execution_duration_ms',
+    help: 'Time spent executing bytecode in worker pool',
+    buckets: [1, 5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000],
 })
 
-export const counterEventsDropped = new Counter({
-    name: 'cdp_behavioural_events_dropped_total',
-    help: 'Total number of events dropped due to missing personId or other validation errors',
-    labelNames: ['reason'],
+export const histogramActionLoading = new Histogram({
+    name: 'cdp_behavioural_action_loading_duration_ms',
+    help: 'Time spent loading actions for teams',
+    buckets: [1, 5, 10, 25, 50, 100, 250, 500],
 })
 
-export const counterEventsConsumed = new Counter({
-    name: 'cdp_behavioural_events_consumed_total',
-    help: 'Total number of events consumed by the behavioural consumer',
+export const counterWorkerPoolTasks = new Counter({
+    name: 'cdp_behavioural_worker_pool_tasks_total',
+    help: 'Total number of tasks submitted to worker pool',
+    labelNames: ['status'],
 })
 
-export const counterEventsMatchedTotal = new Counter({
-    name: 'cdp_behavioural_events_matched_total',
-    help: 'Total number of events that matched at least one action filter',
+export const histogramBatchProcessingSteps = new Histogram({
+    name: 'cdp_behavioural_batch_processing_steps_duration_ms',
+    help: 'Time spent in different batch processing steps',
+    labelNames: ['step'],
+    buckets: [1, 5, 10, 25, 50, 100, 250, 500, 1000, 2500],
+})
+
+export const histogramActionsPerTeam = new Histogram({
+    name: 'cdp_behavioural_actions_per_team',
+    help: 'Number of actions loaded per team',
+    buckets: [0, 1, 2, 5, 10, 20, 50, 100, 200, 500],
 })
 
 export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
@@ -92,21 +101,19 @@ export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
                 return
             }
 
-            // Track events consumed and matched (absolute numbers)
-            let eventsMatched = 0
             const counterUpdates: CounterUpdate[] = []
 
-            const results = await Promise.all(events.map((event) => this.processEvent(event, counterUpdates)))
-            eventsMatched = results.reduce((sum, count) => sum + count, 0)
+            // Time event processing
+            const eventProcessingTimer = histogramBatchProcessingSteps.labels({ step: 'event_processing' }).startTimer()
+            await Promise.all(events.map((event) => this.processEvent(event, counterUpdates)))
+            eventProcessingTimer()
 
-            // Batch write all counter updates
+            // Time Cassandra writes
             if (counterUpdates.length > 0 && this.hub.WRITE_BEHAVIOURAL_COUNTERS_TO_CASSANDRA && this.cassandra) {
+                const cassandraTimer = histogramBatchProcessingSteps.labels({ step: 'cassandra_write' }).startTimer()
                 await this.writeBehavioralCounters(counterUpdates)
+                cassandraTimer()
             }
-
-            // Update metrics with absolute numbers
-            counterEventsConsumed.inc(events.length)
-            counterEventsMatchedTotal.inc(eventsMatched)
         })
     }
 
@@ -134,10 +141,14 @@ export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
     }
 
     private async loadActionsForTeam(teamId: number): Promise<Action[]> {
+        const timer = histogramActionLoading.startTimer()
         try {
             const actions = await this.hub.actionManagerCDP.getActionsForTeam(teamId)
+            timer()
+            histogramActionsPerTeam.observe(actions.length)
             return actions
         } catch (error) {
+            timer()
             logger.error('Error loading actions for team', { teamId, error })
             return []
         }
@@ -154,14 +165,22 @@ export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
 
         try {
             // Execute bytecode in worker thread for better performance
+            const workerTimer = histogramWorkerPoolExecution.startTimer()
+            counterWorkerPoolTasks.labels({ status: 'submitted' }).inc()
+
             const result = await this.workerPool.run({
                 bytecode: action.bytecode,
                 filterGlobals: event.filterGlobals,
             })
 
+            workerTimer()
+
             if (result.error) {
+                counterWorkerPoolTasks.labels({ status: 'error' }).inc()
                 throw result.error
             }
+
+            counterWorkerPoolTasks.labels({ status: 'success' }).inc()
 
             if (result.matched) {
                 const filterHash = this.createFilterHash(action.bytecode!)
@@ -229,7 +248,6 @@ export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
                                     event: clickHouseEvent.event,
                                     uuid: clickHouseEvent.uuid,
                                 })
-                                counterEventsDropped.labels({ reason: 'missing_person_id' }).inc()
                                 return
                             }
 
@@ -243,7 +261,6 @@ export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
                             })
                         } catch (e) {
                             logger.error('Error parsing message', e)
-                            counterParseError.labels({ error: e.message }).inc()
                         }
                     })
                     // Return Promise.resolve to satisfy runInstrumentedFunction's Promise return type
