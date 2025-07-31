@@ -162,6 +162,7 @@ export class CdpApi {
                     }))
                     .sort((a, b) => a.tokens - b.tokens) // Sort by tokens ascending
 
+                console.log(statesArray)
                 const hogFunctions = await this.hogFunctionManager.getHogFunctions(
                     statesArray.map((x) => x.function_id)
                 )
@@ -170,12 +171,13 @@ export class CdpApi {
                     ...x,
                     function_name: hogFunctions[x.function_id]?.name,
                     function_team_id: hogFunctions[x.function_id]?.team_id,
+                    function_type: hogFunctions[x.function_id]?.type,
+                    function_enabled: hogFunctions[x.function_id]?.enabled && !hogFunctions[x.function_id]?.deleted,
                 }))
 
                 res.json({
                     results,
                     total: results.length,
-                    timestamp: new Date().toISOString(),
                 })
             } catch (error) {
                 logger.error('[CdpApi] Error getting all function states', error)
