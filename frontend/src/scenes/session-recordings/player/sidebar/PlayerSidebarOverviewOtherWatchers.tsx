@@ -59,7 +59,7 @@ function OtherWatchersDisplay({ metadata }: { metadata?: SessionRecordingType })
                 )}
             </div>
 
-            {isExpanded && count > 0 && (
+            {isExpanded && (
                 <div className="flex flex-col gap-1 mt-2 border-t pt-2">
                     {otherViewers.map((viewer) => (
                         <div key={viewer} className="flex items-center gap-2">
