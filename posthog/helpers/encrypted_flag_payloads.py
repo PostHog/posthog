@@ -44,3 +44,46 @@ def encrypt_flag_payloads(validated_data: dict):
             payloads[key] = codec.encrypt(value.encode("utf-8")).decode("utf-8")
         except Exception as e:
             raise ValueError(f"Failed to encrypt payload for key {key}") from e
+
+
+def encrypt_webhook_payloads(validated_data: dict):
+    """
+    Encrypts all string fields in webhook_subscriptions array except for 'url'.
+
+    Structure:
+    [
+        {
+            "url": "https://example.com/webhook",  # NOT encrypted
+            "headers": {
+                "Authorization": "Bearer token",  # encrypted
+                "X-Custom": "value"  # encrypted
+            }
+        }
+    ]
+    """
+    webhook_subscriptions = validated_data.get("webhook_subscriptions")
+
+    if not webhook_subscriptions or not isinstance(webhook_subscriptions, list):
+        return
+
+    codec = EncryptionCodec(settings)
+
+    for subscription in webhook_subscriptions:
+        if not isinstance(subscription, dict):
+            continue
+
+        # Encrypt headers values
+        # Encrypt headers values
+        headers = subscription.get("headers")
+        if isinstance(headers, dict):
+            _encrypt_dict_values(headers, codec)
+
+
+def _encrypt_dict_values(data: dict, codec: EncryptionCodec):
+    """Helper function to encrypt all string values in a dictionary."""
+    for key, value in data.items():
+        if isinstance(value, str):
+            try:
+                data[key] = codec.encrypt(value.encode("utf-8")).decode("utf-8")
+            except Exception as e:
+                raise ValueError(f"Failed to encrypt dict field '{key}'") from e

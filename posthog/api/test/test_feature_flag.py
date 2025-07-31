@@ -6014,6 +6014,485 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         assert "keys" in data
         assert data["keys"] == {str(flag1.id): "test-flag-1"}
 
+    def test_create_feature_flag_with_webhook_subscriptions(self):
+        """Test creating a feature flag with webhook subscriptions encrypts sensitive data"""
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "name": "Test flag with webhooks",
+                "key": "webhook-test-flag",
+                "filters": {"groups": [{"rollout_percentage": 50}]},
+                "webhook_subscriptions": [
+                    {
+                        "url": "https://example.com/webhook",
+                        "headers": {"Authorization": "Bearer secret123", "X-Custom-Header": "sensitive-value"},
+                    }
+                ],
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        flag_id = response.json()["id"]
+
+        # Get the flag from the database to check encryption
+        flag = FeatureFlag.objects.get(id=flag_id)
+
+        # Webhook subscriptions should be stored in the database
+        self.assertIsNotNone(flag.webhook_subscriptions)
+        self.assertEqual(len(flag.webhook_subscriptions), 1)
+
+        # URL should remain unencrypted
+        self.assertEqual(flag.webhook_subscriptions[0]["url"], "https://example.com/webhook")
+
+        # Headers should be encrypted (they should not match the original values)
+        stored_auth = flag.webhook_subscriptions[0]["headers"]["Authorization"]
+        stored_custom = flag.webhook_subscriptions[0]["headers"]["X-Custom-Header"]
+
+        self.assertNotEqual(stored_auth, "Bearer secret123")
+        self.assertNotEqual(stored_custom, "sensitive-value")
+
+        # But when retrieved via API, they should be accessible (though potentially redacted)
+        api_response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/{flag_id}")
+        self.assertEqual(api_response.status_code, status.HTTP_200_OK)
+
+        api_flag = api_response.json()
+        self.assertEqual(api_flag["webhook_subscriptions"][0]["url"], "https://example.com/webhook")
+
+    def test_update_feature_flag_with_webhook_subscriptions(self):
+        """Test updating a feature flag with webhook subscriptions encrypts new data"""
+        # First create a flag without webhooks
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "name": "Test flag",
+                "key": "test-flag-update",
+                "filters": {"groups": [{"rollout_percentage": 50}]},
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        flag_id = response.json()["id"]
+
+        # Now update it with webhook subscriptions
+        update_response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag_id}",
+            {
+                "webhook_subscriptions": [
+                    {
+                        "url": "https://updated.com/webhook",
+                        "headers": {"Authorization": "Bearer updated-token", "X-API-Key": "api-key-12345"},
+                    }
+                ]
+            },
+            format="json",
+        )
+
+        self.assertEqual(update_response.status_code, status.HTTP_200_OK)
+
+        # Check the updated flag in the database
+        flag = FeatureFlag.objects.get(id=flag_id)
+
+        # URL should remain unencrypted
+        self.assertEqual(flag.webhook_subscriptions[0]["url"], "https://updated.com/webhook")
+
+        # Headers should be encrypted
+        stored_auth = flag.webhook_subscriptions[0]["headers"]["Authorization"]
+        stored_api_key = flag.webhook_subscriptions[0]["headers"]["X-API-Key"]
+
+        self.assertNotEqual(stored_auth, "Bearer updated-token")
+        self.assertNotEqual(stored_api_key, "api-key-12345")
+
+    def test_create_feature_flag_with_multiple_webhook_subscriptions(self):
+        """Test creating a feature flag with multiple webhook subscriptions"""
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "name": "Test flag with multiple webhooks",
+                "key": "multi-webhook-flag",
+                "filters": {"groups": [{"rollout_percentage": 50}]},
+                "webhook_subscriptions": [
+                    {"url": "https://webhook1.com/hook", "headers": {"Authorization": "Bearer token1"}},
+                    {"url": "https://webhook2.com/hook", "headers": {"Authorization": "Bearer token2"}},
+                ],
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        flag_id = response.json()["id"]
+
+        flag = FeatureFlag.objects.get(id=flag_id)
+
+        # Should have 2 webhook subscriptions
+        self.assertEqual(len(flag.webhook_subscriptions), 2)
+
+        # URLs should remain unencrypted
+        self.assertEqual(flag.webhook_subscriptions[0]["url"], "https://webhook1.com/hook")
+        self.assertEqual(flag.webhook_subscriptions[1]["url"], "https://webhook2.com/hook")
+
+        # Headers should be encrypted and different
+        auth1 = flag.webhook_subscriptions[0]["headers"]["Authorization"]
+        auth2 = flag.webhook_subscriptions[1]["headers"]["Authorization"]
+
+        self.assertNotEqual(auth1, "Bearer token1")
+        self.assertNotEqual(auth2, "Bearer token2")
+        self.assertNotEqual(auth1, auth2)  # Different tokens should encrypt differently
+
+    def test_create_feature_flag_with_empty_webhook_subscriptions(self):
+        """Test that empty webhook subscriptions are handled gracefully"""
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "name": "Test flag with empty webhooks",
+                "key": "empty-webhook-flag",
+                "filters": {"groups": [{"rollout_percentage": 50}]},
+                "webhook_subscriptions": [],
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        flag_id = response.json()["id"]
+
+        flag = FeatureFlag.objects.get(id=flag_id)
+        self.assertEqual(flag.webhook_subscriptions, [])
+
+    @patch("posthog.helpers.encrypted_flag_payloads.EncryptionCodec")
+    def test_webhook_encryption_error_handling(self, mock_codec_class):
+        """Test that encryption errors are properly handled"""
+        from unittest.mock import MagicMock
+
+        mock_codec = MagicMock()
+        mock_codec.encrypt.side_effect = Exception("Encryption failed")
+        mock_codec_class.return_value = mock_codec
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "name": "Test flag with encryption error",
+                "key": "encryption-error-flag",
+                "filters": {"groups": [{"rollout_percentage": 50}]},
+                "webhook_subscriptions": [
+                    {"url": "https://example.com/webhook", "headers": {"Authorization": "Bearer secret"}}
+                ],
+            },
+            format="json",
+        )
+
+        # Should return an internal server error due to encryption failure
+        self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    def test_get_feature_flag_with_webhook_subscriptions_redacts_headers(self):
+        """Test that GET /api/feature_flag/<id> redacts webhook headers"""
+        # Create a feature flag with webhook subscriptions containing sensitive headers through the API
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "name": "Test webhook header redaction",
+                "key": "webhook-redaction-test",
+                "filters": {"groups": [{"rollout_percentage": 50}]},
+                "webhook_subscriptions": [
+                    {
+                        "url": "https://example.com/webhook",
+                        "headers": {
+                            "Authorization": "Bearer secret123token",
+                            "X-API-Key": "super-secret-api-key-12345",
+                            "X-Short": "abc",
+                            "X-Empty": "",
+                            "Content-Type": "application/json",
+                        },
+                    }
+                ],
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        flag_id = response.json()["id"]
+
+        # Make API request to retrieve the flag
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/{flag_id}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        api_flag = response.json()
+        self.assertIsNotNone(api_flag["webhook_subscriptions"])
+        self.assertEqual(len(api_flag["webhook_subscriptions"]), 1)
+
+        webhook = api_flag["webhook_subscriptions"][0]
+        headers = webhook["headers"]
+
+        # URLs should not be redacted
+        self.assertEqual(webhook["url"], "https://example.com/webhook")
+
+        # Headers should be redacted - check redaction pattern
+
+        self.assertRegex(headers["Authorization"], r"^Bea\*+$")
+        self.assertRegex(headers["X-API-Key"], r"^sup\*+$")
+        self.assertRegex(headers["Content-Type"], r"^app\*+$")
+        self.assertEqual(headers["X-Short"], "***")
+
+        # Empty strings remain empty
+        self.assertEqual(headers["X-Empty"], "")  # Empty string remains empty
+
+    def test_list_feature_flags_with_webhook_subscriptions_redacts_headers(self):
+        """Test that GET /api/feature_flag/ list redacts webhook headers"""
+        # Create a feature flag with webhook subscriptions containing sensitive headers through the API
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "name": "Test webhook header redaction in list",
+                "key": "webhook-list-redaction-test",
+                "filters": {"groups": [{"rollout_percentage": 75}]},
+                "webhook_subscriptions": [
+                    {
+                        "url": "https://webhook1.example.com/hook",
+                        "headers": {
+                            "Authorization": "Bearer list-test-token-123",
+                            "X-Custom-Header": "custom-value-456",
+                        },
+                    },
+                    {"url": "https://webhook2.example.com/hook", "headers": {"X-API-Token": "token789"}},
+                ],
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        # Create another flag without webhooks to make sure list works correctly
+        self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "name": "Flag without webhooks",
+                "key": "no-webhook-flag",
+                "filters": {"groups": [{"rollout_percentage": 25}]},
+            },
+            format="json",
+        )
+
+        # Make API request to list all flags
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        flags = response.json()["results"]
+
+        # Find our test flag in the list
+        webhook_flag = next((f for f in flags if f["key"] == "webhook-list-redaction-test"), None)
+        self.assertIsNotNone(webhook_flag)
+
+        # Verify webhook subscriptions are present and redacted
+        self.assertIsNotNone(webhook_flag["webhook_subscriptions"])
+        self.assertEqual(len(webhook_flag["webhook_subscriptions"]), 2)
+
+        # Check first webhook
+        webhook1 = webhook_flag["webhook_subscriptions"][0]
+        self.assertEqual(webhook1["url"], "https://webhook1.example.com/hook")
+        headers1 = webhook1["headers"]
+        self.assertRegex(headers1["Authorization"], r"^Bea\*+$")
+        self.assertRegex(headers1["X-Custom-Header"], r"^cus\*+$")
+
+        # Check second webhook
+        webhook2 = webhook_flag["webhook_subscriptions"][1]
+        self.assertEqual(webhook2["url"], "https://webhook2.example.com/hook")
+        headers2 = webhook2["headers"]
+        self.assertRegex(headers2["X-API-Token"], r"^tok\*+$")  # "token789" -> "tok" + asterisks
+
+    def test_webhook_headers_redaction_with_no_headers(self):
+        """Test that webhook subscriptions without headers are handled properly"""
+        # Create a feature flag with webhook subscription but no headers through the API
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "name": "Test webhook without headers",
+                "key": "webhook-no-headers-test",
+                "filters": {"groups": [{"rollout_percentage": 50}]},
+                "webhook_subscriptions": [
+                    {
+                        "url": "https://simple.example.com/webhook"
+                        # No headers field
+                    }
+                ],
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        flag_id = response.json()["id"]
+
+        # Make API request to retrieve the flag
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/{flag_id}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        api_flag = response.json()
+        webhook = api_flag["webhook_subscriptions"][0]
+
+        # URL should be present
+        self.assertEqual(webhook["url"], "https://simple.example.com/webhook")
+
+        # Headers should be empty dict (after redaction processing)
+        self.assertEqual(webhook.get("headers", {}), {})
+
+    def test_webhook_headers_redaction_with_null_headers(self):
+        """Test that webhook subscriptions with null headers are handled properly"""
+        # Create a feature flag with webhook subscription with null headers through the API
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "name": "Test webhook with null headers",
+                "key": "webhook-null-headers-test",
+                "filters": {"groups": [{"rollout_percentage": 50}]},
+                "webhook_subscriptions": [{"url": "https://null-headers.example.com/webhook", "headers": None}],
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        flag_id = response.json()["id"]
+
+        # Make API request to retrieve the flag
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/{flag_id}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        api_flag = response.json()
+        webhook = api_flag["webhook_subscriptions"][0]
+
+        # URL should be present
+        self.assertEqual(webhook["url"], "https://null-headers.example.com/webhook")
+
+        # Headers should be empty dict after processing null
+        self.assertEqual(webhook.get("headers", {}), {})
+
+    def test_patch_feature_flag_with_webhook_subscriptions_redacts_headers(self):
+        """Test that PATCH /api/feature_flag/<id> redacts webhook headers in response"""
+
+        # Create a feature flag first
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "name": "Test webhook header redaction patch",
+                "key": "webhook-patch-redaction-test",
+                "filters": {"groups": [{"rollout_percentage": 30}]},
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        flag_id = response.json()["id"]
+
+        # Update the flag with webhook subscriptions containing sensitive headers
+        patch_response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag_id}",
+            {
+                "webhook_subscriptions": [
+                    {
+                        "url": "https://patch.example.com/webhook",
+                        "headers": {
+                            "Authorization": "Bearer patch-token-456",
+                            "X-Secret-Key": "very-secret-key-789",
+                            "X-Tiny": "xy",
+                            "Content-Type": "application/json",
+                        },
+                    }
+                ]
+            },
+            format="json",
+        )
+        self.assertEqual(patch_response.status_code, status.HTTP_200_OK)
+
+        # Check that the PATCH response has redacted headers
+        api_flag = patch_response.json()
+        self.assertIsNotNone(api_flag["webhook_subscriptions"])
+        self.assertEqual(len(api_flag["webhook_subscriptions"]), 1)
+
+        webhook = api_flag["webhook_subscriptions"][0]
+        headers = webhook["headers"]
+
+        # URLs should not be redacted
+        self.assertEqual(webhook["url"], "https://patch.example.com/webhook")
+
+        # Headers should be redacted - check redaction pattern
+        self.assertRegex(headers["Authorization"], r"^Bea\*+$")
+        self.assertRegex(headers["X-Secret-Key"], r"^ver\*+$")
+        self.assertRegex(headers["Content-Type"], r"^app\*+$")
+        self.assertEqual(headers["X-Tiny"], "**")
+
+    def test_patch_feature_flag_preserves_encrypted_headers_when_redacted_sent(self):
+        """Test that PATCH preserves encrypted headers when frontend sends redacted values"""
+
+        # Create a feature flag with webhook subscriptions
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "name": "Test header preservation",
+                "key": "webhook-header-preservation-test",
+                "filters": {"groups": [{"rollout_percentage": 40}]},
+                "webhook_subscriptions": [
+                    {
+                        "url": "https://preserve.example.com/webhook",
+                        "headers": {
+                            "Authorization": "Bearer original-secret-token-123",
+                            "X-API-Key": "original-api-key-456",
+                        },
+                    }
+                ],
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        flag_id = response.json()["id"]
+
+        # Get the flag to see what the redacted headers look like
+        get_response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/{flag_id}")
+        self.assertEqual(get_response.status_code, status.HTTP_200_OK)
+
+        retrieved_flag = get_response.json()
+        original_webhook = retrieved_flag["webhook_subscriptions"][0]
+        redacted_auth = original_webhook["headers"]["Authorization"]
+        redacted_api_key = original_webhook["headers"]["X-API-Key"]
+
+        # Verify they are redacted
+        self.assertRegex(redacted_auth, r"^Bea\*+$")
+        self.assertRegex(redacted_api_key, r"^ori\*+$")
+
+        # Now send a PATCH request with the redacted values (simulating frontend behavior)
+        patch_response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag_id}",
+            {
+                "webhook_subscriptions": [
+                    {
+                        "url": "https://preserve.example.com/webhook",
+                        "headers": {
+                            "Authorization": redacted_auth,  # Send back the redacted value
+                            "X-API-Key": redacted_api_key,  # Send back the redacted value
+                            "X-New-Header": "new-value-added",  # Add a new header
+                        },
+                    }
+                ]
+            },
+            format="json",
+        )
+        self.assertEqual(patch_response.status_code, status.HTTP_200_OK)
+
+        # Get the flag from the database to verify encrypted values are preserved
+        from posthog.models import FeatureFlag
+
+        updated_flag = FeatureFlag.objects.get(id=flag_id)
+        stored_headers = updated_flag.webhook_subscriptions[0]["headers"]
+
+        # The encrypted values should NOT be the redacted strings we sent
+        self.assertNotEqual(stored_headers["Authorization"], redacted_auth)
+        self.assertNotEqual(stored_headers["X-API-Key"], redacted_api_key)
+
+        # The new header should be encrypted (different from plain text)
+        self.assertNotEqual(stored_headers["X-New-Header"], "new-value-added")
+
+        # When we GET the flag again, headers should still be redacted properly
+        final_get_response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/{flag_id}")
+        final_flag = final_get_response.json()
+        final_headers = final_flag["webhook_subscriptions"][0]["headers"]
+
+        # Should still be redacted with same pattern
+        self.assertRegex(final_headers["Authorization"], r"^Bea\*+$")
+        self.assertRegex(final_headers["X-API-Key"], r"^ori\*+$")
+        self.assertRegex(final_headers["X-New-Header"], r"^new\*+$")
+
 
 class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
     def test_creating_static_cohort_with_deleted_flag(self):

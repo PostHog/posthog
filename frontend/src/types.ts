@@ -3281,6 +3281,11 @@ export enum FeatureFlagEvaluationRuntime {
     ALL = 'all',
 }
 
+export interface WebhookSubscription {
+    url: string
+    headers?: Record<string, string>
+}
+
 export interface FeatureFlagFilters {
     groups: FeatureFlagGroupType[]
     multivariate?: MultivariateFlagOptions | null
@@ -3322,6 +3327,7 @@ export interface FeatureFlagType extends Omit<FeatureFlagBasicType, 'id' | 'team
     has_enriched_analytics?: boolean
     is_remote_configuration: boolean
     has_encrypted_payloads: boolean
+    webhook_subscriptions?: WebhookSubscription[]
     status: 'ACTIVE' | 'INACTIVE' | 'STALE' | 'DELETED' | 'UNKNOWN'
     _create_in_folder?: string | null
     evaluation_runtime: FeatureFlagEvaluationRuntime

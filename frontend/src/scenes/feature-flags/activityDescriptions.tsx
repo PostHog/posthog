@@ -327,6 +327,41 @@ const featureFlagActionsMapping: Record<
     status: () => null,
     version: () => null,
     last_modified_by: () => null,
+    webhook_subscriptions: function onWebhookSubscriptions(change) {
+        const before = (change?.before as string[]) || []
+        const after = (change?.after as string[]) || []
+
+        if (before.length === 0 && after.length > 0) {
+            return {
+                description: [<>added webhook subscription{after.length > 1 ? 's' : ''}</>],
+            }
+        } else if (before.length > 0 && after.length === 0) {
+            return {
+                description: [<>removed all webhook subscriptions</>],
+            }
+        } else if (before.length !== after.length) {
+            const added = after.filter((url) => !before.includes(url))
+            const removed = before.filter((url) => !after.includes(url))
+
+            if (added.length > 0 && removed.length > 0) {
+                return {
+                    description: [<>updated webhook subscriptions</>],
+                }
+            } else if (added.length > 0) {
+                return {
+                    description: [<>added webhook subscription{added.length > 1 ? 's' : ''}</>],
+                }
+            } else if (removed.length > 0) {
+                return {
+                    description: [<>removed webhook subscription{removed.length > 1 ? 's' : ''}</>],
+                }
+            }
+        }
+
+        return {
+            description: [<>updated webhook subscriptions</>],
+        }
+    },
     _create_in_folder: () => null,
 }
 

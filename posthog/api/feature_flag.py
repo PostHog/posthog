@@ -43,9 +43,11 @@ from posthog.helpers.dashboard_templates import (
 )
 from posthog.helpers.encrypted_flag_payloads import (
     encrypt_flag_payloads,
+    encrypt_webhook_payloads,
     get_decrypted_flag_payloads,
     REDACTED_PAYLOAD_VALUE,
 )
+from posthog.helpers.feature_flag_webhooks import decrypt_webhook_headers
 from posthog.models import FeatureFlag
 from posthog.models.activity_logging.activity_log import (
     Detail,
@@ -180,6 +182,7 @@ class FeatureFlagSerializer(
             "creation_context",
             "is_remote_configuration",
             "has_encrypted_payloads",
+            "webhook_subscriptions",
             "status",
             "evaluation_runtime",
             "_create_in_folder",
@@ -456,6 +459,72 @@ class FeatureFlagSerializer(
         for dep_flag_key in flag_dependencies:
             has_cycle(dep_flag_key, [current_flag_key])
 
+    def validate_webhook_subscriptions(self, value):
+        """Validate webhook subscription URLs."""
+        if value is None:
+            return value
+
+        if not isinstance(value, list):
+            raise serializers.ValidationError("Webhook subscriptions must be a list of objects with url and headers")
+
+        if len(value) > 10:  # Reasonable limit to prevent abuse (TODO: configure via env var?)
+            raise serializers.ValidationError("Maximum 10 webhook subscriptions allowed")
+
+        valid_webhooks = []
+        for sub in value:
+            url = sub.get("url")
+            if not isinstance(url, str):
+                raise serializers.ValidationError("All webhook URLs must be strings")
+
+            url = url.strip()
+            if not url:
+                continue  # Skip empty strings
+
+            # Basic URL validation
+            if not (url.startswith("http://") or url.startswith("https://")):
+                raise serializers.ValidationError(f"Invalid URL format: {url}. Must start with http:// or https://")
+
+            # Length validation
+            if len(url) > 2048:  # Standard URL length limit
+                raise serializers.ValidationError(f"URL too long: {url}")
+
+            # Validate headers if present
+            headers = sub.get("headers")
+            if headers is not None:
+                if not isinstance(headers, dict):
+                    raise serializers.ValidationError("Webhook headers must be a dictionary/object")
+
+                for header_name, header_value in headers.items():
+                    # Validate header name
+                    if not isinstance(header_name, str) or not header_name.strip():
+                        raise serializers.ValidationError("Header names must be non-empty strings")
+
+                    # Basic header name validation (RFC 7230)
+                    if not re.match(r"^[a-zA-Z0-9!#$&\'*+\-.^_`|~]+$", header_name):
+                        raise serializers.ValidationError(
+                            f"Invalid header name '{header_name}'. Only alphanumeric characters and -_.~!#$&+^`|' are allowed"
+                        )
+
+                    # Validate header value
+                    if not isinstance(header_value, str):
+                        raise serializers.ValidationError(f"Header value for '{header_name}' must be a string")
+
+                    # Header value length validation
+                    if len(header_value) > 4096:
+                        raise serializers.ValidationError(
+                            f"Header value for '{header_name}' is too long (max 4096 characters)"
+                        )
+
+                    # Check for potentially sensitive headers that should be avoided
+                    lower_header_name = header_name.lower()
+                    forbidden_headers = ["host", "content-length", "transfer-encoding", "connection", "upgrade"]
+                    if lower_header_name in forbidden_headers:
+                        raise serializers.ValidationError(f"Header '{header_name}' is not allowed (system controlled)")
+
+            valid_webhooks.append(sub)
+
+        return valid_webhooks
+
     def check_flag_evaluation(self, data):
         # TODO: Once we move to no DB level evaluation, can get rid of this.
 
@@ -487,6 +556,7 @@ class FeatureFlagSerializer(
 
         self._update_filters(validated_data)
         encrypt_flag_payloads(validated_data)
+        encrypt_webhook_payloads(validated_data)
 
         try:
             FeatureFlag.objects.filter(
@@ -575,6 +645,12 @@ class FeatureFlagSerializer(
             else:
                 encrypt_flag_payloads(validated_data)
 
+        # Handle webhook headers - preserve existing encrypted values if headers are redacted
+        self._handle_webhook_header_updates(validated_data, instance)
+
+        # Encrypt webhook headers
+        encrypt_webhook_payloads(validated_data)
+
         version = request.data.get("version", -1)
 
         with transaction.atomic():
@@ -634,6 +710,11 @@ class FeatureFlagSerializer(
         # if the request was made with a personal API key
         if instance.has_encrypted_payloads:
             instance.filters["payloads"] = get_decrypted_flag_payloads(request, instance.filters.get("payloads", {}))
+
+        webhook_subscriptions = instance.webhook_subscriptions or []
+        for webhook in webhook_subscriptions:
+            headers = webhook.get("headers", {})
+            webhook["headers"] = decrypt_webhook_headers(headers, True)
 
         return instance
 
@@ -767,6 +848,57 @@ class FeatureFlagSerializer(
             for group in filters["super_groups"]
         ]
         return updated_filters
+
+    def _handle_webhook_header_updates(self, validated_data: dict, instance: FeatureFlag) -> None:
+        """
+        Handle webhook header updates by preserving existing encrypted values when
+        the frontend sends back redacted headers.
+
+        Args:
+            validated_data: The incoming validated data from the request
+            instance: The existing FeatureFlag instance
+        """
+        webhook_subscriptions = validated_data.get("webhook_subscriptions")
+        if not webhook_subscriptions or not instance.webhook_subscriptions:
+            return
+
+        existing_subscriptions = instance.webhook_subscriptions or []
+
+        # Process each webhook subscription
+        for i, new_subscription in enumerate(webhook_subscriptions):
+            new_headers = new_subscription.get("headers", {})
+            if not new_headers:
+                continue
+
+            # Find matching existing subscription by URL
+            existing_subscription = None
+            if i < len(existing_subscriptions):
+                if existing_subscriptions[i].get("url") == new_subscription.get("url"):
+                    existing_subscription = existing_subscriptions[i]
+
+            # If no exact match by index, try to find by URL
+            if not existing_subscription:
+                for existing_sub in existing_subscriptions:
+                    if existing_sub.get("url") == new_subscription.get("url"):
+                        existing_subscription = existing_sub
+                        break
+
+            if not existing_subscription:
+                continue
+
+            existing_headers = decrypt_webhook_headers(existing_subscription.get("headers", {}))
+
+            # Check each header to see if it's redacted and preserve the original
+            for header_name, header_value in new_headers.items():
+                if header_name in existing_headers:
+                    # Check if the value looks redacted (starts with 3 chars + asterisks)
+                    if isinstance(header_value, str) and len(header_value) > 3:
+                        # Pattern: 3 chars followed by asterisks, or all asterisks for short values
+                        import re
+
+                        if re.match(r"^.{1,3}\*+$", header_value) or re.match(r"^\*+$", header_value):
+                            # This looks like a redacted value, preserve the original encrypted value
+                            new_headers[header_name] = existing_headers[header_name]
 
 
 def _create_usage_dashboard(feature_flag: FeatureFlag, user):
@@ -998,6 +1130,10 @@ class FeatureFlagViewSet(
                 feature_flag["filters"]["payloads"] = get_decrypted_flag_payloads(
                     request, feature_flag["filters"]["payloads"]
                 )
+            webhook_subscriptions = feature_flag.get("webhook_subscriptions", []) or []
+            for webhook in webhook_subscriptions:
+                headers = webhook.get("headers", {})
+                webhook["headers"] = decrypt_webhook_headers(headers, True)
 
         return response
 
@@ -1010,6 +1146,11 @@ class FeatureFlagViewSet(
             feature_flag_data["filters"]["payloads"] = get_decrypted_flag_payloads(
                 request, feature_flag_data["filters"]["payloads"]
             )
+
+        webhook_subscriptions = feature_flag_data.get("webhook_subscriptions", []) or []
+        for webhook in webhook_subscriptions:
+            headers = webhook.get("headers", {})
+            webhook["headers"] = decrypt_webhook_headers(headers, True)
 
         return response
 
