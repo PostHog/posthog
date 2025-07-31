@@ -6,7 +6,6 @@ export enum ExportType {
     Scene = 'scene',
 }
 
-// Deprecated: these are now stored in the sharing configuration settings
 export interface ExportOptions {
     whitelabel?: boolean
     noHeader?: boolean
