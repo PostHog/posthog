@@ -36,13 +36,6 @@ def seconds_until_midnight():
     return difference.seconds
 
 
-def get_recording_date_floor(recording_start_time: Optional[datetime], recording_ttl_days: int) -> datetime:
-    if recording_start_time:
-        return recording_start_time
-    else:
-        return datetime.now(pytz.timezone("UTC")) - timedelta(days=recording_ttl_days)
-
-
 class SessionReplayEvents:
     def exists(self, session_id: str, team: Team) -> bool:
         cache_key = f"summarize_recording_existence_team_{team.pk}_id_{session_id}"
@@ -70,14 +63,13 @@ class SessionReplayEvents:
             FROM session_replay_events
             PREWHERE team_id = %(team_id)s
             AND session_id = %(session_id)s
-            AND min_first_timestamp >= %(python_now)s - INTERVAL %(days)s DAY
-            AND min_first_timestamp <= %(python_now)s
+            AND min_first_timestamp >= now() - INTERVAL %(days)s DAY
+            AND min_first_timestamp <= now()
             """,
             {
                 "team_id": team.pk,
                 "session_id": session_id,
                 "days": days,
-                "python_now": datetime.now(pytz.timezone("UTC")),
             },
         )
         return result[0][0] > 0
@@ -121,15 +113,14 @@ class SessionReplayEvents:
             FROM session_replay_events
             PREWHERE team_id = %(team_id)s
             AND session_id IN %(session_ids)s
-            AND min_first_timestamp >= %(python_now)s - INTERVAL %(days)s DAY
-            AND min_first_timestamp <= %(python_now)s
+            AND min_first_timestamp >= now() - INTERVAL %(days)s DAY
+            AND min_first_timestamp <= now()
             GROUP BY session_id
             """,
             {
                 "team_id": team.pk,
                 "session_ids": session_ids,
                 "days": days,
-                "python_now": datetime.now(pytz.timezone("UTC")),
             },
         )
         if not result:
@@ -138,7 +129,9 @@ class SessionReplayEvents:
         return sessions_found
 
     @staticmethod
-    def get_metadata_query() -> LiteralString:
+    def get_metadata_query(
+        recording_start_time: Optional[datetime] = None,
+    ) -> LiteralString:
         """
         Helper function to build a query for session metadata, to be able to use
         both in production and locally (for example, when testing session summary)
@@ -167,11 +160,15 @@ class SessionReplayEvents:
                 team_id = %(team_id)s
                 AND session_id = %(session_id)s
                 AND min_first_timestamp <= %(python_now)s
-                AND min_first_timestamp >= %(recording_floor)s
+                {optional_timestamp_clause}
             GROUP BY
                 session_id
         """
-
+        query = query.format(
+            optional_timestamp_clause=(
+                "AND min_first_timestamp >= %(recording_start_time)s" if recording_start_time else ""
+            )
+        )
         return query
 
     @staticmethod
@@ -236,21 +233,15 @@ class SessionReplayEvents:
         self,
         session_id: str,
         team_id: int,
-        # we always need a floor for the query, so we can use it to avoid loading too much data
         recording_start_time: Optional[datetime] = None,
-        # but we might not always have the start time, so we use the team's ttl days value with 1 year as a fallback
-        recording_ttl_days: Optional[int] = None,
     ) -> Optional[RecordingMetadata]:
-        query = self.get_metadata_query()
-
-        recording_date_floor = get_recording_date_floor(recording_start_time, recording_ttl_days or 366)
-
+        query = self.get_metadata_query(recording_start_time)
         replay_response: list[tuple] = sync_execute(
             query,
             {
                 "team_id": team_id,
                 "session_id": session_id,
-                "recording_floor": recording_date_floor,
+                "recording_start_time": recording_start_time,
                 "python_now": datetime.now(pytz.timezone("UTC")),
             },
         )
