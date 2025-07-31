@@ -185,34 +185,33 @@ class PersonalAPIKeyViewSet(viewsets.ModelViewSet):
         serializer.roll(instance)
         return response.Response(serializer.data, status=status.HTTP_200_OK)
 
-    @receiver(model_activity_signal, sender=PersonalAPIKey)
-    def handle_personal_api_key_change(
-        sender, scope, before_update, after_update, activity, was_impersonated=False, **kwargs
-    ):
-        from posthog.utils import get_current_user_from_thread
 
-        user = get_current_user_from_thread()
+@receiver(model_activity_signal, sender=PersonalAPIKey)
+def handle_personal_api_key_change(
+    sender, scope, before_update, after_update, activity, was_impersonated=False, **kwargs
+):
+    from posthog.utils import get_current_user_from_thread
 
-        # PersonalAPIKeys are user-scoped, so get organization from the user
-        organization_id = (
-            after_update.user.current_organization_id if after_update.user.current_organization_id else None
-        )
+    user = get_current_user_from_thread()
 
-        # If no current organization, try to get any organization the user belongs to
-        if organization_id is None and after_update.user.organizations.exists():
-            organization_id = after_update.user.organizations.first().id
+    # PersonalAPIKeys are user-scoped, so get organization from the user
+    organization_id = after_update.user.current_organization_id if after_update.user.current_organization_id else None
 
-        log_activity(
-            organization_id=organization_id,
-            team_id=None,
-            user=user,
-            was_impersonated=was_impersonated,
-            item_id=after_update.id,
-            scope=scope,
-            activity=activity,
-            detail=Detail(
-                changes=changes_between(scope, previous=before_update, current=after_update), name=after_update.label
-            ),
-            force_save=activity == "updated"
-            and before_update is None,  # Force save for create operations misidentified as updates
-        )
+    # If no current organization, try to get any organization the user belongs to
+    if organization_id is None and after_update.user.organizations.exists():
+        organization_id = after_update.user.organizations.first().id
+
+    log_activity(
+        organization_id=organization_id,
+        team_id=None,
+        user=user,
+        was_impersonated=was_impersonated,
+        item_id=after_update.id,
+        scope=scope,
+        activity=activity,
+        detail=Detail(
+            changes=changes_between(scope, previous=before_update, current=after_update), name=after_update.label
+        ),
+        force_save=activity == "updated"
+        and before_update is None,  # Force save for create operations misidentified as updates
+    )
