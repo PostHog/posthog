@@ -16,6 +16,8 @@ import { createAddLogFunction } from '../utils'
 import { createInvocation, createInvocationResult } from '../utils/invocation-utils'
 import { CdpConsumerBase } from './cdp-base.consumer'
 
+const DISALLOWED_HEADERS = ['x-forwarded-for', 'x-forwarded-host', 'x-forwarded-proto', 'x-forwarded-port', 'cookie']
+
 const getFirstHeaderValue = (value: string | string[] | undefined): string | undefined => {
     return Array.isArray(value) ? value[0] : value
 }
@@ -36,8 +38,6 @@ export const getCustomHttpResponse = (
 
     return null
 }
-
-const DISALLOWED_HEADERS = ['x-forwarded-for', 'x-forwarded-host', 'x-forwarded-proto', 'x-forwarded-port', 'cookie']
 
 export class SourceWebhookError extends Error {
     status: number
