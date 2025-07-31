@@ -30,31 +30,30 @@ export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
     return (
         <div
             className={cn(
-                'flex items-center w-full sticky top-0 bg-surface-secondary z-[var(--z-top-navigation)] border-b border-primary gap-1',
+                'flex items-center w-full sticky top-0 bg-surface-secondary z-[var(--z-top-navigation)] border-b border-primary',
                 className
             )}
         >
             <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
-                <SortableContext items={tabs.map((t) => t.id)} strategy={horizontalListSortingStrategy}>
-                    <div className={cn('flex flex-row', className)}>
+                <SortableContext items={[...tabs.map((t) => t.id), 'new']} strategy={horizontalListSortingStrategy}>
+                    <div className={cn('flex flex-row flex-wrap', className)}>
                         {tabs.map((tab) => (
                             <SortableSceneTab key={tab.id} tab={tab} />
                         ))}
+                        <Link
+                            to={urls.newTab()}
+                            className="rounded-none px-2 py-1.5 text-primary hover:text-primary-hover hover:bg-surface-primary focus:text-primary-hover focus:outline-none"
+                            data-attr="sql-editor-new-tab-button"
+                            onClick={(e) => {
+                                e.preventDefault()
+                                newTab()
+                            }}
+                        >
+                            <IconPlus className="!ml-0" fontSize={14} />
+                        </Link>
                     </div>
                 </SortableContext>
             </DndContext>
-
-            <Link
-                to={urls.newTab()}
-                className="rounded px-1.5 py-0.5 mb-0.5 text-primary hover:text-primary-hover hover:bg-surface-primary focus:text-primary-hover focus:outline-none"
-                data-attr="sql-editor-new-tab-button"
-                onClick={(e) => {
-                    e.preventDefault()
-                    newTab()
-                }}
-            >
-                <IconPlus fontSize={14} />
-            </Link>
         </div>
     )
 }
