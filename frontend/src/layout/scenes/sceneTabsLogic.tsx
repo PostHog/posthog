@@ -150,7 +150,6 @@ export const sceneTabsLogic = kea<sceneTabsLogicType>([
                           }
                         : tab
                 )
-
                 actions.setTabs(newTabs)
             } else {
                 actions.setTabs([
@@ -160,9 +159,9 @@ export const sceneTabsLogic = kea<sceneTabsLogicType>([
             }
             persistTabs(values.tabs)
         },
-        locationChanged: ({ pathname, search, hash, routerState }) => {
+        locationChanged: ({ pathname, search, hash, routerState, method }) => {
             pathname = addProjectIdIfMissing(pathname)
-            if (routerState?.tabs) {
+            if (routerState?.tabs && method !== 'PUSH') {
                 actions.setTabs(routerState.tabs)
                 return
             }
@@ -215,8 +214,12 @@ export const sceneTabsLogic = kea<sceneTabsLogicType>([
                     },
                 ])
             } else {
-                actions.setTabs(values.tabs.map((tab, i) => (i === activeIndex ? { ...tab, title } : tab)))
+                const newTabs = values.tabs.map((tab, i) => (i === activeIndex ? { ...tab, title } : tab))
+                actions.setTabs(newTabs)
             }
+            // When the title changes, trigger a history REPLACE event to persist the new title in the browser
+            const { currentLocation } = router.values
+            router.actions.replace(currentLocation.pathname, currentLocation.search, currentLocation.hash)
         },
     })),
     afterMount(({ actions, cache, values }) => {
