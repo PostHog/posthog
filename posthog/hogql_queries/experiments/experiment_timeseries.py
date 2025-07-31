@@ -522,7 +522,7 @@ class ExperimentTimeseries:
             settings=HogQLGlobalSettings(max_execution_time=180),
         )
 
-        result = []
+        timeseries = []
 
         # Group db results by date
         grouped_by_date = {}
@@ -561,8 +561,6 @@ class ExperimentTimeseries:
             else:
                 daily_result_dict = {"date": date_key}
 
-            result.append(daily_result_dict)
+            timeseries.append(daily_result_dict)
 
-        # print("result", json.dumps(result, indent=2))
-
-        return result
+        return timeseries
