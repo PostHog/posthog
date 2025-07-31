@@ -167,12 +167,13 @@ export function TrendsMetricForm({ isSecondary = false }: { isSecondary?: boolea
                                         title="Custom"
                                         description="Define your own exposure metric for specific use cases, such as counting by sessions instead of users. This gives you full control but requires careful configuration."
                                         selected={!!currentMetric.exposure_query}
-                                        disabled={isDataWarehouseMetric}
-                                        disabledReason={
-                                            isDataWarehouseMetric
-                                                ? 'Custom exposure events are not supported for data warehouse metrics. Please contact support if you need this feature.'
-                                                : undefined
-                                        }
+                                        {...(isDataWarehouseMetric
+                                            ? {
+                                                  disabled: true,
+                                                  disabledReason:
+                                                      'Custom exposure events are not supported for data warehouse metrics. Please contact support if you need this feature.',
+                                              }
+                                            : { disabled: false })}
                                         onClick={() => {
                                             const metricsField = isSecondary ? 'metrics_secondary' : 'metrics'
                                             setExperiment({
