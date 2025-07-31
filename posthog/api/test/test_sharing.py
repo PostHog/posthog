@@ -660,6 +660,8 @@ class TestSharing(APIBaseTest):
         # Test all options from settings work
         response = self.client.get(f"/shared/{access_token}")
         assert response.status_code == 200
+        print("response", response.content)  # noqa: T201
+        print("response", response.content.decode())  # noqa: T201
         content = response.content.decode()
         assert '\\"whitelabel\\": true' in content
         assert '\\"noHeader\\": true' in content
