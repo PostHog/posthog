@@ -372,7 +372,7 @@ def describe_change(m: Any) -> Union[str, dict]:
     from posthog.models.dashboard_tile import DashboardTile
 
     if isinstance(m, Dashboard):
-        return {"id": m.id, "name": m.name}  # type: ignore[attr-defined]
+        return {"id": m.id, "name": m.name}
     if isinstance(m, DashboardTile):
         description = {"dashboard": {"id": m.dashboard.id, "name": m.dashboard.name}}
         if m.insight:
@@ -450,8 +450,8 @@ def changes_between(
                 field_name = "dashboards"
 
             # if is a django model field, check the empty_values list
-            left_is_none = left is None or (hasattr(field, "empty_values") and left in field.empty_values)  # type: ignore[attr-defined]
-            right_is_none = right is None or (hasattr(field, "empty_values") and right in field.empty_values)  # type: ignore[attr-defined]
+            left_is_none = left is None or (hasattr(field, "empty_values") and left in field.empty_values)
+            right_is_none = right is None or (hasattr(field, "empty_values") and right in field.empty_values)
 
             left_value = "masked" if field_name in masked_fields else left
             right_value = "masked" if field_name in masked_fields else right
@@ -556,7 +556,7 @@ def log_activity(
                 "activity_log.ignore_update_activity_no_changes",
                 team_id=team_id,
                 organization_id=organization_id,
-                user_id=user.id if user else None,  # type: ignore[attr-defined]
+                user_id=user.id if user else None,
                 scope=scope,
             )
             return None

@@ -188,6 +188,7 @@ class TestAllActivityLogSignalHandlers(APIBaseTest):
         self.assertTrue(new_logs.exists())
 
         latest_log = new_logs.first()
+        assert latest_log is not None
         self.assertEqual(latest_log.user, self.user)
         self.assertEqual(latest_log.organization_id, self.organization.id)
         self.assertEqual(latest_log.team_id, self.team.id)
