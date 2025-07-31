@@ -255,7 +255,7 @@ class TestPropertyDefinitionAPI(APIBaseTest):
             ("first_visit", True)
         ]
 
-    def test_person_property_filter(self):
+    def test_person_property_filter_setup(self):
         PropertyDefinition.objects.create(
             team=self.team,
             name="event property",
@@ -281,33 +281,61 @@ class TestPropertyDefinitionAPI(APIBaseTest):
             type=PropertyDefinition.Type.PERSON,
         )
 
-        response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?type=person")
-        assert response.status_code == status.HTTP_200_OK
-        assert [row["name"] for row in response.json()["results"]] == [
-            "$initial_referrer",
-            "another",
-            "person property",
-            "$virt_initial_channel_type",
-            "$virt_initial_referring_domain_type",
-            "$virt_revenue",
-            "$virt_revenue_last_30_days",
+    @parameterized.expand(
+        [
+            (
+                "Get all person properties",
+                "type=person",
+                [
+                    "$initial_referrer",
+                    "another",
+                    "person property",
+                    "$virt_initial_channel_type",
+                    "$virt_initial_referring_domain_type",
+                    "$virt_revenue",
+                    "$virt_revenue_last_30_days",
+                ],
+            ),
+            ("Search person properties containing 'prop'", "type=person&search=prop", ["person property"]),
+            ("Search all properties containing 'prop'", "search=prop", ["event property"]),
+            (
+                "Search person properties containing 'latest'",
+                "type=person&search=latest",
+                ["another", "person property"],
+            ),
+            ("Search person properties containing 'late'", "type=person&search=late", ["another", "person property"]),
         ]
+    )
+    def test_person_property_filters(self, _name: str, query_params: str, expected_results: list[str]) -> None:
+        PropertyDefinition.objects.create(
+            team=self.team,
+            name="event property",
+            property_type="String",
+            type=PropertyDefinition.Type.EVENT,
+        )
+        PropertyDefinition.objects.create(
+            team=self.team,
+            name="person property",
+            property_type="String",
+            type=PropertyDefinition.Type.PERSON,
+        )
+        PropertyDefinition.objects.create(
+            team=self.team,
+            name="$initial_referrer",
+            property_type="String",
+            type=PropertyDefinition.Type.PERSON,
+        )  # We want to hide this property on events, but not on persons
+        PropertyDefinition.objects.create(
+            team=self.team,
+            name="another",
+            property_type="String",
+            type=PropertyDefinition.Type.PERSON,
+        )
 
-        response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?type=person&search=prop")
+        response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?{query_params}")
         assert response.status_code == status.HTTP_200_OK
-        assert [row["name"] for row in response.json()["results"]] == ["person property"]
 
-        response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?search=prop")
-        assert response.status_code == status.HTTP_200_OK
-        assert [row["name"] for row in response.json()["results"]] == ["event property"]
-
-        response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?type=person&search=latest")
-        assert response.status_code == status.HTTP_200_OK
-        assert [row["name"] for row in response.json()["results"]] == ["another", "person property"]
-
-        response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?type=person&search=late")
-        assert response.status_code == status.HTTP_200_OK
-        assert [row["name"] for row in response.json()["results"]] == ["another", "person property"]
+        assert [row["name"] for row in response.json()["results"]] == expected_results
 
     def test_group_property_filter(self):
         PropertyDefinition.objects.create(
@@ -346,26 +374,25 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert [row["name"] for row in response.json()["results"]] == ["group1 property"]
 
-    def test_is_feature_flag_property_filter(self):
+    @parameterized.expand(
+        [
+            # (test_name, query_params, expected_count, expected_names)
+            ("Search for 'plan' without filter", "search=plan", 2, None),
+            ("Search for 'plan' feature flags only", "search=plan&is_feature_flag=true", 1, ["$feature/plan"]),
+            ("Search for 'plan' non-feature flags only", "search=plan&is_feature_flag=false", 1, ["plan"]),
+        ]
+    )
+    def test_feature_flag_property_filter(
+        self, _name: str, query_params: str, expected_count: int, expected_names: list[str] | None
+    ) -> None:
         PropertyDefinition.objects.create(team=self.team, name="$feature/plan", property_type="String")
 
-        response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?search=plan")
+        response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?{query_params}")
         assert response.status_code == status.HTTP_200_OK
-        assert response.json()["count"] == 2
+        assert response.json()["count"] == expected_count
 
-        response = self.client.get(
-            f"/api/projects/{self.team.pk}/property_definitions/?search=plan&is_feature_flag=true"
-        )
-        assert response.status_code == status.HTTP_200_OK
-        assert response.json()["count"] == 1
-        assert response.json()["results"][0]["name"] == "$feature/plan"
-
-        response = self.client.get(
-            f"/api/projects/{self.team.pk}/property_definitions/?search=plan&is_feature_flag=false"
-        )
-        assert response.status_code == status.HTTP_200_OK
-        assert response.json()["count"] == 1
-        assert response.json()["results"][0]["name"] == "plan"
+        if expected_names:
+            assert [r["name"] for r in response.json()["results"]] == expected_names
 
     @patch("posthoganalytics.capture")
     def test_delete_property_definition(self, mock_capture):
@@ -452,37 +479,39 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         # Verify the enterprise-only field was updated
         assert response.json()["verified"]
 
-    def test_can_report_event_property_coexistence_when_custom_event_has_no_session_id(self) -> None:
-        EventProperty.objects.create(team=self.team, event="$pageview", property="$session_id")
+    @parameterized.expand(
+        [
+            # (test_name, setup_func, expected_results)
+            (
+                "Event property coexistence when custom event has no session_id",
+                lambda self: EventProperty.objects.create(team=self.team, event="$pageview", property="$session_id"),
+                {"custom_event": False, "$pageview": True},
+            ),
+            (
+                "Event property coexistence when custom event has session_id",
+                lambda self: EventProperty.objects.create(team=self.team, event="custom_event", property="$session_id"),
+                {"custom_event": True, "$pageview": False},
+            ),
+            (
+                "Cannot search other teams properties",
+                lambda self: EventProperty.objects.create(
+                    team=Team.objects.create(organization=self.organization, name="Another Team"),
+                    event="custom_event",
+                    property="$session_id",
+                ),
+                {"custom_event": False, "$pageview": False},
+            ),
+        ]
+    )
+    def test_event_property_coexistence(self, _name: str, setup_func, expected_results: dict[str, bool]) -> None:
+        setup_func(self)
 
         response = self.client.get(
             f"/api/projects/{self.team.pk}/property_definitions/seen_together/?event_names=custom_event&event_names=$pageview&property_name=$session_id"
         )
 
         assert response.status_code == status.HTTP_200_OK
-        assert response.json() == {"custom_event": False, "$pageview": True}
-
-    def test_can_report_event_property_coexistence_when_custom_event_has_session_id(self) -> None:
-        EventProperty.objects.create(team=self.team, event="custom_event", property="$session_id")
-
-        response = self.client.get(
-            f"/api/projects/{self.team.pk}/property_definitions/seen_together/?event_names=custom_event&event_names=$pageview&property_name=$session_id"
-        )
-
-        assert response.status_code == status.HTTP_200_OK, response.json()
-        assert response.json() == {"custom_event": True, "$pageview": False}
-
-    def test_cannot_search_other_teams_properties(self) -> None:
-        other_team = Team.objects.create(organization=self.organization, name="Another Team")
-
-        EventProperty.objects.create(team=other_team, event="custom_event", property="$session_id")
-
-        response = self.client.get(
-            f"/api/projects/{self.team.pk}/property_definitions/seen_together/?event_names=custom_event&event_names=$pageview&property_name=$session_id"
-        )
-
-        assert response.status_code == status.HTTP_200_OK
-        assert response.json() == {"custom_event": False, "$pageview": False}
+        assert response.json() == expected_results
 
     def test_property_definition_project_id_coalesce(self):
         # Create legacy property with only team_id (old style)
@@ -616,7 +645,16 @@ class TestPropertyDefinitionAPI(APIBaseTest):
                 for prop in virtual_props
             )
 
-    def test_virtual_property_feature_flag_filter_true(self):
+    @parameterized.expand(
+        [
+            # (test_name, is_feature_flag, expected_virtual_props)
+            ("Filter virtual properties that are feature flags", "true", {"$feature/virt_flag"}),
+            ("Filter virtual properties that are not feature flags", "false", {"$virt_initial_channel_type"}),
+        ]
+    )
+    def test_virtual_property_feature_flag_filter(
+        self, _name: str, is_feature_flag: str, expected_virtual_props: set[str]
+    ) -> None:
         # Mock virtual properties to include some feature flag ones
         with patch.object(
             PropertyDefinitionViewSet,
@@ -638,9 +676,8 @@ class TestPropertyDefinitionAPI(APIBaseTest):
                 },
             ],
         ):
-            # Test feature_flag=true filter
             response = self.client.get(
-                f"/api/projects/{self.team.pk}/property_definitions/?type=person&is_feature_flag=true"
+                f"/api/projects/{self.team.pk}/property_definitions/?type=person&is_feature_flag={is_feature_flag}"
             )
             assert response.status_code == status.HTTP_200_OK
             virtual_props = [
@@ -648,41 +685,7 @@ class TestPropertyDefinitionAPI(APIBaseTest):
                 for prop in response.json()["results"]
                 if prop["name"].startswith("$virt_") or prop["name"].startswith("$feature/")
             ]
-            assert {p["name"] for p in virtual_props} == {"$feature/virt_flag"}
-
-    def test_virtual_property_feature_flag_filter_false(self):
-        # Mock virtual properties to include some feature flag ones
-        with patch.object(
-            PropertyDefinitionViewSet,
-            "_BUILTIN_VIRTUAL_PERSON_PROPERTIES",
-            [
-                {
-                    "id": "builtin_virt_initial_channel_type",
-                    "name": "$virt_initial_channel_type",
-                    "is_numerical": False,
-                    "property_type": "String",
-                    "tags": [],
-                },
-                {
-                    "id": "builtin_virt_feature_flag",
-                    "name": "$feature/virt_flag",
-                    "is_numerical": False,
-                    "property_type": "String",
-                    "tags": [],
-                },
-            ],
-        ):
-            # Test feature_flag=false filter
-            response = self.client.get(
-                f"/api/projects/{self.team.pk}/property_definitions/?type=person&is_feature_flag=false"
-            )
-            assert response.status_code == status.HTTP_200_OK
-            virtual_props = [
-                prop
-                for prop in response.json()["results"]
-                if prop["name"].startswith("$virt_") or prop["name"].startswith("$feature/")
-            ]
-            assert {p["name"] for p in virtual_props} == {"$virt_initial_channel_type"}
+            assert {p["name"] for p in virtual_props} == expected_virtual_props
 
     def test_virtual_property_hidden_filter(self):
         response = self.client.get(
@@ -693,19 +696,22 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         virtual_props = [prop for prop in response.json()["results"] if prop["name"].startswith("$virt_")]
         assert len(virtual_props) == 4
 
-    def test_virtual_property_search_by_name(self):
+    @parameterized.expand(
+        [
+            # (test_name, search_term, expected_property_name, search_type)
+            ("Search by exact name", "initial_channel", "$virt_initial_channel_type", "name search"),
+            ("Search by alias", "channel", "$virt_initial_channel_type", "alias search"),
+        ]
+    )
+    def test_virtual_property_search(
+        self, _name: str, search_term: str, expected_property_name: str, _search_type: str
+    ) -> None:
         response = self.client.get(
-            f"/api/projects/{self.team.pk}/property_definitions/?type=person&search=initial_channel"
+            f"/api/projects/{self.team.pk}/property_definitions/?type=person&search={search_term}"
         )
         assert response.status_code == status.HTTP_200_OK
-        # Should find the virtual property by exact name
-        assert any(prop["name"] == "$virt_initial_channel_type" for prop in response.json()["results"])
-
-    def test_virtual_property_search_by_alias(self):
-        response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?type=person&search=channel")
-        assert response.status_code == status.HTTP_200_OK
-        # Should find the virtual property by alias
-        assert any(prop["name"] == "$virt_initial_channel_type" for prop in response.json()["results"])
+        # Should find the virtual property
+        assert any(prop["name"] == expected_property_name for prop in response.json()["results"])
 
     def test_virtual_property_excluded_by_name(self):
         response = self.client.get(
