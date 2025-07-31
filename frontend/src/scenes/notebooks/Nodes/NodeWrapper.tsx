@@ -33,6 +33,7 @@ import {
     NodeWrapperProps,
     NotebookNodeProps,
     NotebookNodeResource,
+    SerializableNode,
 } from '../types'
 
 function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperProps<T>): JSX.Element {
@@ -344,7 +345,7 @@ export const MemoizedNodeWrapper = memo(NodeWrapper) as typeof NodeWrapper
 
 export function createPostHogWidgetNode<T extends CustomNotebookNodeAttributes>(
     options: CreatePostHogWidgetNodeOptions<T>
-): Node {
+): SerializableNode<T> {
     const { Component, pasteOptions, attributes, serializedText, ...wrapperProps } = options
 
     KNOWN_NODES[wrapperProps.nodeType] = options
@@ -379,79 +380,82 @@ export function createPostHogWidgetNode<T extends CustomNotebookNodeAttributes>(
         return <MemoizedNodeWrapper Component={Component} {...nodeProps} {...wrapperProps} />
     }
 
-    return Node.create({
-        name: wrapperProps.nodeType,
-        group: 'block',
-        atom: true,
-        draggable: true,
+    return {
+        ...Node.create({
+            name: wrapperProps.nodeType,
+            group: 'block',
+            atom: true,
+            draggable: true,
 
-        serializedText: serializedText,
+            extendNodeSchema(extension) {
+                const context = {
+                    name: extension.name,
+                    options: extension.options,
+                    storage: extension.storage,
+                }
+                return {
+                    serializedText: getExtensionField(extension, 'serializedText', context),
+                }
+            },
 
-        extendNodeSchema(extension) {
-            const context = {
-                name: extension.name,
-                options: extension.options,
-                storage: extension.storage,
-            }
-            return {
-                serializedText: getExtensionField(extension, 'serializedText', context),
-            }
-        },
+            addAttributes() {
+                return {
+                    height: {},
+                    title: {},
+                    nodeId: {
+                        default: null,
+                    },
+                    __init: { default: null },
+                    children: {},
+                    ...attributes,
+                }
+            },
 
-        addAttributes() {
-            return {
-                height: {},
-                title: {},
-                nodeId: {
-                    default: null,
-                },
-                __init: { default: null },
-                children: {},
-                ...attributes,
-            }
-        },
+            parseHTML() {
+                return [
+                    {
+                        tag: wrapperProps.nodeType,
+                    },
+                ]
+            },
 
-        parseHTML() {
-            return [
-                {
-                    tag: wrapperProps.nodeType,
-                },
-            ]
-        },
+            renderHTML({ HTMLAttributes }) {
+                // We want to stringify all object attributes so that we can use them in the serializedText
+                const sanitizedAttributes = Object.fromEntries(
+                    Object.entries(HTMLAttributes).map(([key, value]) => {
+                        if (Array.isArray(value) || typeof value === 'object') {
+                            return [key, JSON.stringify(value)]
+                        }
+                        return [key, value]
+                    })
+                )
 
-        renderHTML({ HTMLAttributes }) {
-            // We want to stringify all object attributes so that we can use them in the serializedText
-            const sanitizedAttributes = Object.fromEntries(
-                Object.entries(HTMLAttributes).map(([key, value]) => {
-                    if (Array.isArray(value) || typeof value === 'object') {
-                        return [key, JSON.stringify(value)]
-                    }
-                    return [key, value]
-                })
-            )
+                // This method is primarily used by copy and paste so we can remove the nodeID, assuming we don't want duplicates
+                delete sanitizedAttributes['nodeId']
 
-            // This method is primarily used by copy and paste so we can remove the nodeID, assuming we don't want duplicates
-            delete sanitizedAttributes['nodeId']
+                return [wrapperProps.nodeType, mergeAttributes(sanitizedAttributes)]
+            },
 
-            return [wrapperProps.nodeType, mergeAttributes(sanitizedAttributes)]
-        },
+            addNodeView() {
+                return ReactNodeViewRenderer(WrappedComponent)
+            },
 
-        addNodeView() {
-            return ReactNodeViewRenderer(WrappedComponent)
-        },
-
-        addPasteRules() {
-            return pasteOptions
-                ? [
-                      posthogNodePasteRule({
-                          editor: this.editor,
-                          type: this.type,
-                          ...pasteOptions,
-                      }),
-                  ]
-                : []
-        },
-    })
+            addPasteRules() {
+                return pasteOptions
+                    ? [
+                          posthogNodePasteRule({
+                              editor: this.editor,
+                              type: this.type,
+                              ...pasteOptions,
+                          }),
+                      ]
+                    : []
+            },
+        }).extend({
+            ...options.extendedConfig,
+            serializedText: serializedText,
+        }),
+    }
 }
 
 export const NotebookNodeChildRenderer = ({

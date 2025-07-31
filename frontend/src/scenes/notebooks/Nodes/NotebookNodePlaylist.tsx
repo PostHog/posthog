@@ -18,6 +18,7 @@ import { PostHogErrorBoundary } from 'posthog-js/react'
 import { IconComment } from '@posthog/icons'
 import { JSONContent } from 'lib/components/RichContentEditor/types'
 import { NotebookNodeAttributeProperties, NotebookNodeProps, NotebookNodeType } from '../types'
+import { ExtendedRegExpMatchArray } from '@tiptap/core'
 
 const Component = ({
     attributes,
@@ -140,7 +141,7 @@ export const NotebookNodePlaylist = createPostHogWidgetNode<NotebookNodePlaylist
     titlePlaceholder: 'Session replays',
     Component,
     heightEstimate: 'calc(100vh - 20rem)',
-    href: (attrs) => {
+    href: (attrs: NotebookNodePlaylistAttributes): string => {
         // TODO: Fix parsing of attrs
         return urls.replay(undefined, attrs.universalFilters)
     },
@@ -156,12 +157,12 @@ export const NotebookNodePlaylist = createPostHogWidgetNode<NotebookNodePlaylist
     },
     pasteOptions: {
         find: urls.replay(ReplayTabs.Home) + '(.*)',
-        getAttributes: async (match) => {
+        getAttributes: (match: ExtendedRegExpMatchArray): NotebookNodePlaylistAttributes => {
             const url = new URL(match[0])
             const stringifiedFilters = url.searchParams.get('filters')
             const filters = stringifiedFilters ? JSON.parse(stringifiedFilters) : {}
             const universalFilters = convertLegacyFiltersToUniversalFilters({}, filters)
-            return { filters, universalFilters, pinned: [] }
+            return { universalFilters, pinned: [] }
         },
     },
     Settings,

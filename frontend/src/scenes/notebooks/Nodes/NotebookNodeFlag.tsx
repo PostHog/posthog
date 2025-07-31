@@ -19,6 +19,7 @@ import { IconFlag, IconRocket } from '@posthog/icons'
 import { INTEGER_REGEX_MATCH_GROUPS } from './utils'
 import { JSONContent } from 'lib/components/RichContentEditor/types'
 import { NotebookNodeProps, NotebookNodeType } from '../types'
+import { ExtendedRegExpMatchArray } from '@tiptap/core'
 
 const Component = ({ attributes }: NotebookNodeProps<NotebookNodeFlagAttributes>): JSX.Element => {
     const { id } = attributes
@@ -146,14 +147,14 @@ export const NotebookNodeFlag = createPostHogWidgetNode<NotebookNodeFlagAttribut
     titlePlaceholder: 'Feature flag',
     Component,
     heightEstimate: '3rem',
-    href: (attrs) => urls.featureFlag(attrs.id),
+    href: (attrs: NotebookNodeFlagAttributes): string => urls.featureFlag(attrs.id),
     resizeable: false,
     attributes: {
         id: {},
     },
     pasteOptions: {
         find: urls.featureFlag(INTEGER_REGEX_MATCH_GROUPS),
-        getAttributes: async (match) => {
+        getAttributes: (match: ExtendedRegExpMatchArray): NotebookNodeFlagAttributes => {
             return { id: match[1] as FeatureFlagLogicProps['id'] }
         },
     },

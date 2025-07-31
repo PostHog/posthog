@@ -128,8 +128,8 @@ export const NotebookNodeLatex = createPostHogWidgetNode<NotebookNodeLatexAttrib
     minHeight: '3rem',
     resizeable: true, // Allow resizing if content is large when not editing
     attributes: DEFAULT_ATTRIBUTES_WITH_DEFAULTS,
-    serializedText: (attrs) => attrs.content,
-}).extend({
+    serializedText: (attrs: NotebookNodeLatexAttributes): string => attrs.content,
+
     selectable: true,
     parseHTML() {
         return [

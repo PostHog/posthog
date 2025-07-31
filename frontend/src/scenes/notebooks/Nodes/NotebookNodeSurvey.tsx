@@ -17,6 +17,7 @@ import { SurveyAppearancePreview } from 'scenes/surveys/SurveyAppearancePreview'
 import { UUID_REGEX_MATCH_GROUPS } from './utils'
 import { JSONContent } from 'lib/components/RichContentEditor/types'
 import { NotebookNodeProps, NotebookNodeType } from '../types'
+import { ExtendedRegExpMatchArray } from '@tiptap/core'
 
 const Component = ({ attributes }: NotebookNodeProps<NotebookNodeSurveyAttributes>): JSX.Element => {
     const { id } = attributes
@@ -113,14 +114,14 @@ export const NotebookNodeSurvey = createPostHogWidgetNode<NotebookNodeSurveyAttr
     titlePlaceholder: 'Survey',
     Component,
     heightEstimate: '3rem',
-    href: (attrs) => urls.survey(attrs.id),
+    href: (attrs: NotebookNodeSurveyAttributes): string => urls.survey(attrs.id),
     resizeable: false,
     attributes: {
         id: {},
     },
     pasteOptions: {
         find: urls.survey(UUID_REGEX_MATCH_GROUPS),
-        getAttributes: async (match) => {
+        getAttributes: (match: ExtendedRegExpMatchArray): NotebookNodeSurveyAttributes => {
             return { id: match[1] }
         },
     },
