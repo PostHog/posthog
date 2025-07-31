@@ -178,39 +178,6 @@ impl CheckpointUploader for MockUploader {
         Ok(uploaded_keys)
     }
 
-    async fn list_checkpoints(&self) -> Result<Vec<String>> {
-        let files = self.get_stored_files().await?;
-        let keys: Vec<String> = files.keys().cloned().collect();
-        Ok(keys)
-    }
-
-    async fn cleanup_old_checkpoints(&self, keep_count: usize) -> Result<()> {
-        let files = self.get_stored_files().await?;
-        let mut keys: Vec<String> = files.keys().cloned().collect();
-
-        // Sort by key name
-        keys.sort();
-
-        if keys.len() <= keep_count {
-            return Ok(());
-        }
-
-        let keys_to_delete: Vec<String> = keys
-            .into_iter()
-            .rev() // Keep the most recent ones
-            .skip(keep_count)
-            .collect();
-
-        for key in keys_to_delete {
-            let file_path = self.upload_dir.join(&key);
-            if file_path.exists() {
-                tokio::fs::remove_file(&file_path).await?;
-                info!("Mock deleted checkpoint: {}", key);
-            }
-        }
-
-        Ok(())
-    }
 
     async fn is_available(&self) -> bool {
         self.available
