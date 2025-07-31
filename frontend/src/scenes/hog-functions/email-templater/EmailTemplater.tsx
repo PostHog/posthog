@@ -104,7 +104,7 @@ function EmailTemplaterForm({ mode }: { mode: 'full' | 'preview' }): JSX.Element
                                 stockImages: false,
                             },
                             projectId: unlayerEditorProjectId,
-                            customJS: [unsubscribeLinkToolCustomJs],
+                            customJS: isMessagingProductEnabled ? [unsubscribeLinkToolCustomJs] : [],
                         }}
                     />
                 ) : (
