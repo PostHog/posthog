@@ -427,8 +427,8 @@ def handle_batch_import_change(sender, scope, before_update, after_update, activ
 
     import_name = "BatchImport"
     if after_update.import_config and "source" in after_update.import_config:
-        source = after_update.import_config.get("source", "Unknown")
-        import_name = f"{source} Import"
+        source_type = after_update.import_config.get("source", {}).get("type", "Unknown")
+        import_name = f"{source_type} Import"
 
     log_activity(
         organization_id=after_update.team.organization_id,
