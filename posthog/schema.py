@@ -4040,6 +4040,13 @@ class RevenueAnalyticsEventItem(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    couponProperty: Optional[str] = Field(
+        default=None,
+        description=(
+            "Property used to identify whether the revenue event is connected to a coupon Useful when trying to break"
+            " revenue down by a specific coupon"
+        ),
+    )
     currencyAwareDecimal: Optional[bool] = Field(
         default=False,
         description=(
@@ -4049,8 +4056,18 @@ class RevenueAnalyticsEventItem(BaseModel):
         ),
     )
     eventName: str
+    productProperty: Optional[str] = Field(
+        default=None,
+        description=(
+            "Property used to identify what product the revenue event refers to Useful when trying to break revenue"
+            " down by a specific product"
+        ),
+    )
     revenueCurrencyProperty: Optional[RevenueCurrencyPropertyConfig] = Field(
-        default_factory=lambda: RevenueCurrencyPropertyConfig.model_validate({"static": "USD"})
+        default_factory=lambda: RevenueCurrencyPropertyConfig.model_validate({"static": "USD"}),
+        description=(
+            "TODO: In the future, this should probably be renamed to `currencyProperty` to follow the pattern above"
+        ),
     )
     revenueProperty: str
 
