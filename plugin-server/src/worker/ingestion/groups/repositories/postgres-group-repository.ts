@@ -90,18 +90,46 @@ export class PostgresGroupRepository
         return Number(result.rows[0].version || 0)
     }
 
-    updateGroup(
-        _teamId: TeamId,
-        _groupTypeIndex: GroupTypeIndex,
-        _groupKey: string,
-        _groupProperties: Properties,
-        _createdAt: DateTime,
-        _propertiesLastUpdatedAt: PropertiesLastUpdatedAt,
-        _propertiesLastOperation: PropertiesLastOperation,
-        _tag: string,
-        _tx?: TransactionClient
+    async updateGroup(
+        teamId: TeamId,
+        groupTypeIndex: GroupTypeIndex,
+        groupKey: string,
+        groupProperties: Properties,
+        createdAt: DateTime,
+        propertiesLastUpdatedAt: PropertiesLastUpdatedAt,
+        propertiesLastOperation: PropertiesLastOperation,
+        tag: string,
+        tx?: TransactionClient
     ): Promise<number | undefined> {
-        throw new Error('updateGroup not implemented yet')
+        const result = await this.postgres.query<{ version: string }>(
+            tx ?? PostgresUse.PERSONS_WRITE,
+            `
+            UPDATE posthog_group SET
+            created_at = $4,
+            group_properties = $5,
+            properties_last_updated_at = $6,
+            properties_last_operation = $7,
+            version = COALESCE(version, 0)::numeric + 1
+            WHERE team_id = $1 AND group_key = $2 AND group_type_index = $3
+            RETURNING version
+            `,
+            [
+                teamId,
+                groupKey,
+                groupTypeIndex,
+                createdAt.toISO(),
+                JSON.stringify(groupProperties),
+                JSON.stringify(propertiesLastUpdatedAt),
+                JSON.stringify(propertiesLastOperation),
+            ],
+            tag
+        )
+
+        if (result.rows.length === 0) {
+            return undefined
+        }
+
+        return Number(result.rows[0].version || 0)
     }
 
     updateGroupOptimistically(

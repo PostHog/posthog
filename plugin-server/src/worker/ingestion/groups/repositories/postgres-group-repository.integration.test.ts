@@ -486,4 +486,203 @@ describe('PostgresGroupRepository Integration', () => {
             })
         })
     })
+
+    describe('updateGroup', () => {
+        it('should update a group successfully', async () => {
+            await insertTestTeam(teamId)
+            await insertTestGroup()
+
+            const updatedProperties = { name: 'Updated Group', type: 'company', size: 'large' }
+            const updatedCreatedAt = DateTime.fromISO('2023-02-01T00:00:00Z').toUTC()
+            const updatedPropertiesLastUpdatedAt = { name: '2023-02-01T00:00:00Z' }
+            const updatedPropertiesLastOperation = { name: PropertyUpdateOperation.Set }
+
+            const result = await repository.updateGroup(
+                teamId,
+                groupTypeIndex,
+                groupKey,
+                updatedProperties,
+                updatedCreatedAt,
+                updatedPropertiesLastUpdatedAt,
+                updatedPropertiesLastOperation,
+                'test-update'
+            )
+
+            expect(result).toBe(2) // Version should be incremented from 1 to 2
+
+            // Verify the group was actually updated
+            const fetchedGroup = await repository.fetchGroup(teamId, groupTypeIndex, groupKey)
+            expect(fetchedGroup).toMatchObject({
+                team_id: teamId,
+                group_type_index: groupTypeIndex,
+                group_key: groupKey,
+                group_properties: updatedProperties,
+                properties_last_updated_at: updatedPropertiesLastUpdatedAt,
+                properties_last_operation: updatedPropertiesLastOperation,
+                created_at: updatedCreatedAt,
+                version: 2,
+            })
+        })
+
+        it('should return undefined when group not found', async () => {
+            await insertTestTeam(teamId)
+
+            const result = await repository.updateGroup(
+                teamId,
+                groupTypeIndex,
+                groupKey,
+                groupProperties,
+                createdAt,
+                propertiesLastUpdatedAt,
+                propertiesLastOperation,
+                'test-update'
+            )
+
+            expect(result).toBeUndefined()
+        })
+
+        it('should handle multiple updates and version increments', async () => {
+            await insertTestTeam(teamId)
+            await insertTestGroup()
+
+            // First update
+            const result1 = await repository.updateGroup(
+                teamId,
+                groupTypeIndex,
+                groupKey,
+                { name: 'First Update' },
+                createdAt,
+                propertiesLastUpdatedAt,
+                propertiesLastOperation,
+                'first-update'
+            )
+            expect(result1).toBe(2)
+
+            // Second update
+            const result2 = await repository.updateGroup(
+                teamId,
+                groupTypeIndex,
+                groupKey,
+                { name: 'Second Update' },
+                createdAt,
+                propertiesLastUpdatedAt,
+                propertiesLastOperation,
+                'second-update'
+            )
+            expect(result2).toBe(3)
+
+            // Third update
+            const result3 = await repository.updateGroup(
+                teamId,
+                groupTypeIndex,
+                groupKey,
+                { name: 'Third Update' },
+                createdAt,
+                propertiesLastUpdatedAt,
+                propertiesLastOperation,
+                'third-update'
+            )
+            expect(result3).toBe(4)
+
+            // Verify final state
+            const fetchedGroup = await repository.fetchGroup(teamId, groupTypeIndex, groupKey)
+            expect(fetchedGroup?.version).toBe(4)
+            expect(fetchedGroup?.group_properties).toMatchObject({ name: 'Third Update' })
+        })
+
+        it('should handle group with null version', async () => {
+            await insertTestTeam(teamId)
+            await insertTestGroup({ version: 0 })
+
+            const result = await repository.updateGroup(
+                teamId,
+                groupTypeIndex,
+                groupKey,
+                groupProperties,
+                createdAt,
+                propertiesLastUpdatedAt,
+                propertiesLastOperation,
+                'test-update'
+            )
+
+            expect(result).toBe(1) // Should increment from 0 to 1
+        })
+
+        it('should handle updateGroup with transaction', async () => {
+            await insertTestTeam(teamId)
+            await insertTestGroup()
+
+            const updatedProperties = { name: 'Transaction Update', type: 'company' }
+            const updatedCreatedAt = DateTime.fromISO('2023-03-01T00:00:00Z').toUTC()
+            const updatedPropertiesLastUpdatedAt = { name: '2023-03-01T00:00:00Z' }
+            const updatedPropertiesLastOperation = { name: PropertyUpdateOperation.Set }
+
+            const result = await repository.inTransaction('update group with transaction', async (tx) => {
+                return await tx.updateGroup(
+                    teamId,
+                    groupTypeIndex,
+                    groupKey,
+                    updatedProperties,
+                    updatedCreatedAt,
+                    updatedPropertiesLastUpdatedAt,
+                    updatedPropertiesLastOperation,
+                    'transaction-update'
+                )
+            })
+
+            expect(result).toBe(2)
+
+            // Verify the group was actually updated
+            const fetchedGroup = await repository.fetchGroup(teamId, groupTypeIndex, groupKey)
+            expect(fetchedGroup).toMatchObject({
+                team_id: teamId,
+                group_type_index: groupTypeIndex,
+                group_key: groupKey,
+                group_properties: updatedProperties,
+                properties_last_updated_at: updatedPropertiesLastUpdatedAt,
+                properties_last_operation: updatedPropertiesLastOperation,
+                created_at: updatedCreatedAt,
+                version: 2,
+            })
+        })
+
+        it('should handle updateGroup with raw transaction', async () => {
+            await insertTestTeam(teamId)
+            await insertTestGroup()
+
+            const updatedProperties = { name: 'Raw Transaction Update', type: 'company' }
+            const updatedCreatedAt = DateTime.fromISO('2023-04-01T00:00:00Z').toUTC()
+            const updatedPropertiesLastUpdatedAt = { name: '2023-04-01T00:00:00Z' }
+            const updatedPropertiesLastOperation = { name: PropertyUpdateOperation.Set }
+
+            const result = await repository.inRawTransaction('update group with raw transaction', async (tx) => {
+                return await repository.updateGroup(
+                    teamId,
+                    groupTypeIndex,
+                    groupKey,
+                    updatedProperties,
+                    updatedCreatedAt,
+                    updatedPropertiesLastUpdatedAt,
+                    updatedPropertiesLastOperation,
+                    'raw-transaction-update',
+                    tx
+                )
+            })
+
+            expect(result).toBe(2)
+
+            // Verify the group was actually updated
+            const fetchedGroup = await repository.fetchGroup(teamId, groupTypeIndex, groupKey)
+            expect(fetchedGroup).toMatchObject({
+                team_id: teamId,
+                group_type_index: groupTypeIndex,
+                group_key: groupKey,
+                group_properties: updatedProperties,
+                properties_last_updated_at: updatedPropertiesLastUpdatedAt,
+                properties_last_operation: updatedPropertiesLastOperation,
+                created_at: updatedCreatedAt,
+                version: 2,
+            })
+        })
+    })
 })
