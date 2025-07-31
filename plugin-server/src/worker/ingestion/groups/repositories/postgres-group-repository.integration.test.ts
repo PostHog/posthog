@@ -685,4 +685,171 @@ describe('PostgresGroupRepository Integration', () => {
             })
         })
     })
+
+    describe('updateGroupOptimistically', () => {
+        it('should update a group successfully when version matches', async () => {
+            await insertTestTeam(teamId)
+            await insertTestGroup()
+
+            const updatedProperties = { name: 'Optimistic Update', type: 'company', size: 'large' }
+            const updatedCreatedAt = DateTime.fromISO('2023-05-01T00:00:00Z').toUTC()
+            const updatedPropertiesLastUpdatedAt = { name: '2023-05-01T00:00:00Z' }
+            const updatedPropertiesLastOperation = { name: PropertyUpdateOperation.Set }
+
+            const result = await repository.updateGroupOptimistically(
+                teamId,
+                groupTypeIndex,
+                groupKey,
+                1, // expectedVersion - should match current version
+                updatedProperties,
+                updatedCreatedAt,
+                updatedPropertiesLastUpdatedAt,
+                updatedPropertiesLastOperation
+            )
+
+            expect(result).toBe(2) // Version should be incremented from 1 to 2
+
+            // Verify the group was actually updated
+            const fetchedGroup = await repository.fetchGroup(teamId, groupTypeIndex, groupKey)
+            expect(fetchedGroup).toMatchObject({
+                team_id: teamId,
+                group_type_index: groupTypeIndex,
+                group_key: groupKey,
+                group_properties: updatedProperties,
+                properties_last_updated_at: updatedPropertiesLastUpdatedAt,
+                properties_last_operation: updatedPropertiesLastOperation,
+                created_at: updatedCreatedAt,
+                version: 2,
+            })
+        })
+
+        it('should return undefined when version does not match', async () => {
+            await insertTestTeam(teamId)
+            await insertTestGroup()
+
+            const result = await repository.updateGroupOptimistically(
+                teamId,
+                groupTypeIndex,
+                groupKey,
+                2, // expectedVersion - does not match current version (1)
+                groupProperties,
+                createdAt,
+                propertiesLastUpdatedAt,
+                propertiesLastOperation
+            )
+
+            expect(result).toBeUndefined()
+
+            // Verify the group was NOT updated
+            const fetchedGroup = await repository.fetchGroup(teamId, groupTypeIndex, groupKey)
+            expect(fetchedGroup?.version).toBe(1) // Version should remain unchanged
+            expect(fetchedGroup?.group_properties).toMatchObject(groupProperties) // Properties should remain unchanged
+        })
+
+        it('should return undefined when group not found', async () => {
+            await insertTestTeam(teamId)
+
+            const result = await repository.updateGroupOptimistically(
+                teamId,
+                groupTypeIndex,
+                groupKey,
+                1, // expectedVersion
+                groupProperties,
+                createdAt,
+                propertiesLastUpdatedAt,
+                propertiesLastOperation
+            )
+
+            expect(result).toBeUndefined()
+        })
+
+        it('should handle optimistic updates with version increments', async () => {
+            await insertTestTeam(teamId)
+            await insertTestGroup()
+
+            // First optimistic update
+            const result1 = await repository.updateGroupOptimistically(
+                teamId,
+                groupTypeIndex,
+                groupKey,
+                1, // expectedVersion
+                { name: 'First Optimistic Update' },
+                createdAt,
+                propertiesLastUpdatedAt,
+                propertiesLastOperation
+            )
+            expect(result1).toBe(2)
+
+            // Second optimistic update
+            const result2 = await repository.updateGroupOptimistically(
+                teamId,
+                groupTypeIndex,
+                groupKey,
+                2, // expectedVersion
+                { name: 'Second Optimistic Update' },
+                createdAt,
+                propertiesLastUpdatedAt,
+                propertiesLastOperation
+            )
+            expect(result2).toBe(3)
+
+            // Third optimistic update
+            const result3 = await repository.updateGroupOptimistically(
+                teamId,
+                groupTypeIndex,
+                groupKey,
+                3, // expectedVersion
+                { name: 'Third Optimistic Update' },
+                createdAt,
+                propertiesLastUpdatedAt,
+                propertiesLastOperation
+            )
+            expect(result3).toBe(4)
+
+            // Verify final state
+            const fetchedGroup = await repository.fetchGroup(teamId, groupTypeIndex, groupKey)
+            expect(fetchedGroup?.version).toBe(4)
+            expect(fetchedGroup?.group_properties).toMatchObject({ name: 'Third Optimistic Update' })
+        })
+
+        it('should handle group with null version', async () => {
+            await insertTestTeam(teamId)
+            await insertTestGroup({ version: 0 })
+
+            const result = await repository.updateGroupOptimistically(
+                teamId,
+                groupTypeIndex,
+                groupKey,
+                0, // expectedVersion - should match current version (0)
+                groupProperties,
+                createdAt,
+                propertiesLastUpdatedAt,
+                propertiesLastOperation
+            )
+
+            expect(result).toBe(1) // Should increment from 0 to 1
+        })
+
+        it('should fail optimistic update when version is wrong for null version group', async () => {
+            await insertTestTeam(teamId)
+            await insertTestGroup({ version: 0 })
+
+            const result = await repository.updateGroupOptimistically(
+                teamId,
+                groupTypeIndex,
+                groupKey,
+                1, // expectedVersion - wrong for current version (0)
+                groupProperties,
+                createdAt,
+                propertiesLastUpdatedAt,
+                propertiesLastOperation
+            )
+
+            expect(result).toBeUndefined()
+
+            // Verify the group was NOT updated
+            const fetchedGroup = await repository.fetchGroup(teamId, groupTypeIndex, groupKey)
+            expect(fetchedGroup?.version).toBe(0) // Version should remain unchanged
+        })
+    })
 })

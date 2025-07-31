@@ -132,17 +132,46 @@ export class PostgresGroupRepository
         return Number(result.rows[0].version || 0)
     }
 
-    updateGroupOptimistically(
-        _teamId: TeamId,
-        _groupTypeIndex: GroupTypeIndex,
-        _groupKey: string,
-        _expectedVersion: number,
-        _groupProperties: Properties,
-        _createdAt: DateTime,
-        _propertiesLastUpdatedAt: PropertiesLastUpdatedAt,
-        _propertiesLastOperation: PropertiesLastOperation
+    async updateGroupOptimistically(
+        teamId: TeamId,
+        groupTypeIndex: GroupTypeIndex,
+        groupKey: string,
+        expectedVersion: number,
+        groupProperties: Properties,
+        createdAt: DateTime,
+        propertiesLastUpdatedAt: PropertiesLastUpdatedAt,
+        propertiesLastOperation: PropertiesLastOperation
     ): Promise<number | undefined> {
-        throw new Error('updateGroupOptimistically not implemented yet')
+        const result = await this.postgres.query<{ version: string }>(
+            PostgresUse.PERSONS_WRITE,
+            `
+            UPDATE posthog_group SET
+            created_at = $5,
+            group_properties = $6,
+            properties_last_updated_at = $7,
+            properties_last_operation = $8,
+            version = COALESCE(version, 0)::numeric + 1
+            WHERE team_id = $1 AND group_key = $2 AND group_type_index = $3 AND version = $4
+            RETURNING version
+            `,
+            [
+                teamId,
+                groupKey,
+                groupTypeIndex,
+                expectedVersion,
+                createdAt.toISO(),
+                JSON.stringify(groupProperties),
+                JSON.stringify(propertiesLastUpdatedAt),
+                JSON.stringify(propertiesLastOperation),
+            ],
+            'updateGroupOptimistically'
+        )
+
+        if (result.rows.length === 0) {
+            return undefined
+        }
+
+        return Number(result.rows[0].version || 0)
     }
 
     async inTransaction<T>(
