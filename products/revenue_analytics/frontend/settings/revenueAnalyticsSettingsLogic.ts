@@ -18,6 +18,7 @@ import {
 import { ExternalDataSource } from '~/types'
 
 import type { revenueAnalyticsSettingsLogicType } from './revenueAnalyticsSettingsLogicType'
+import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 
 const createEmptyConfig = (): RevenueAnalyticsConfig => ({
     events: [],
@@ -54,7 +55,14 @@ const updateStatePropertyBuilder =
 export const revenueAnalyticsSettingsLogic = kea<revenueAnalyticsSettingsLogicType>([
     path(['scenes', 'data-management', 'revenue', 'revenueAnalyticsSettingsLogic']),
     connect(() => ({
-        values: [teamLogic, ['currentTeam', 'currentTeamId'], dataWarehouseSettingsLogic, ['dataWarehouseSources']],
+        values: [
+            teamLogic,
+            ['currentTeam', 'currentTeamId'],
+            dataWarehouseSettingsLogic,
+            ['dataWarehouseSources'],
+            databaseTableListLogic,
+            ['database'],
+        ],
         actions: [teamLogic, ['updateCurrentTeam'], dataWarehouseSettingsLogic, ['updateSource']],
     })),
     actions({
@@ -252,6 +260,13 @@ export const revenueAnalyticsSettingsLogic = kea<revenueAnalyticsSettingsLogicTy
                 }
 
                 return query
+            },
+        ],
+
+        joins: [
+            (s) => [s.database],
+            (database) => {
+                return database?.joins || []
             },
         ],
     }),
