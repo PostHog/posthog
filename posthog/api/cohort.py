@@ -84,6 +84,7 @@ from prometheus_client import Counter
 from typing import Literal, Annotated
 from pydantic import BaseModel, Field, model_validator
 from pydantic import ValidationError as PydanticValidationError
+from django.utils import timezone
 
 
 class EventPropFilter(BaseModel, extra="forbid"):
@@ -229,6 +230,7 @@ class CohortSerializer(serializers.ModelSerializer):
         elif validated_data.get("query"):
             insert_cohort_from_query.delay(cohort.pk, self.context["team_id"])
         else:
+            # Allow empty static cohorts - no processing needed
             filter_data = request.GET.dict()
             existing_cohort_id = context.get("from_cohort_id")
             if existing_cohort_id:
@@ -236,6 +238,7 @@ class CohortSerializer(serializers.ModelSerializer):
             if filter_data:
                 capture_legacy_api_call(request, self.context["get_team"]())
                 insert_cohort_from_insight_filter.delay(cohort.pk, filter_data, self.context["team_id"])
+            # If no data source is provided, the cohort remains empty (which is now allowed)
 
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> Cohort:
         request = self.context["request"]
@@ -250,6 +253,12 @@ class CohortSerializer(serializers.ModelSerializer):
 
         if cohort.is_static:
             self._handle_static(cohort, self.context, validated_data)
+            # For empty static cohorts, set count to 0 and mark as not calculating
+            if not request.FILES.get("csv") and not validated_data.get("query"):
+                cohort.count = 0
+                cohort.is_calculating = False
+                cohort.last_calculation = timezone.now()
+                cohort.save()
         elif cohort.query is not None:
             raise ValidationError("Cannot create a dynamic cohort with a query. Set is_static to true.")
         else:
@@ -628,21 +637,39 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
 
     @action(methods=["GET"], detail=True, required_scopes=["activity_log:read"])
     def activity(self, request: request.Request, **kwargs):
-        limit = int(request.query_params.get("limit", "10"))
-        page = int(request.query_params.get("page", "1"))
-
-        item_id = kwargs["pk"]
-        if not Cohort.objects.filter(id=item_id, team__project_id=self.project_id).exists():
-            return Response(status=status.HTTP_404_NOT_FOUND)
-
-        activity_page = load_activity(
-            scope="Cohort",
-            team_id=self.team_id,
-            item_ids=[str(item_id)],
-            limit=limit,
-            page=page,
+        return activity_page_response(
+            activity_page=load_activity(
+                scope="cohort",
+                scope_id=self.get_object().pk,
+                team_id=self.team_id,
+            ),
+            request=request,
         )
-        return activity_page_response(activity_page, limit, page, request)
+
+    @action(methods=["POST"], detail=True, required_scopes=["cohort:write"])
+    def add_users(self, request: request.Request, **kwargs):
+        """Add users to a static cohort by their distinct IDs."""
+        cohort = self.get_object()
+        
+        if not cohort.is_static:
+            raise ValidationError("Can only add users to static cohorts")
+        
+        distinct_ids = request.data.get('distinct_ids', [])
+        if not distinct_ids:
+            raise ValidationError("distinct_ids is required")
+        
+        if not isinstance(distinct_ids, list):
+            raise ValidationError("distinct_ids must be a list")
+        
+        if len(distinct_ids) > 1000:
+            raise ValidationError("Cannot add more than 1000 users at once")
+        
+        try:
+            # Use the existing method to add users by distinct IDs
+            cohort.insert_users_by_list(distinct_ids, team_id=self.team_id)
+            return Response({"success": True, "message": f"Added {len(distinct_ids)} users to cohort"})
+        except Exception as e:
+            raise ValidationError(f"Failed to add users to cohort: {str(e)}")
 
     def perform_create(self, serializer):
         serializer.save()
