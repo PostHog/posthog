@@ -21,7 +21,7 @@ class PersonArchive(models.Model):
 
     uuid = models.UUIDField(db_index=True, help_text="UUID of the original person record")
 
-    properties = models.JSONField(default=dict, help_text="Properties of the person at the time of archiving")
+    properties = models.JSONField(default=None, help_text="Properties of the person at the time of archiving")
 
     properties_size_bytes = models.PositiveIntegerField(
         null=True, blank=True, db_index=True, help_text="Calculated size of the properties field in bytes"
