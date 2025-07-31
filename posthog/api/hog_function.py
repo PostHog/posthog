@@ -55,7 +55,6 @@ logger = structlog.get_logger(__name__)
 
 class HogFunctionStatusSerializer(serializers.Serializer):
     state = serializers.ChoiceField(choices=[state.value for state in HogFunctionState])
-    rating: serializers.FloatField = serializers.FloatField()
     tokens: serializers.IntegerField = serializers.IntegerField()
 
 
