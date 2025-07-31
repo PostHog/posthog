@@ -20,7 +20,11 @@ export const TextareaPrimitive = forwardRef<HTMLTextAreaElement, TextareaPrimiti
                 ref={ref}
                 onFocus={onFocus}
                 {...rest}
-                className={cn(textInputVariants({ variant, error: !!error }), className)}
+                className={cn(
+                    textInputVariants({ variant, error: !!error }),
+                    'h-auto show-scrollbar-on-hover px-[var(--button-padding-x-base)] py-[var(--button-padding-y-base)]',
+                    className
+                )}
             />
         )
     }
