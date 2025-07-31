@@ -42,6 +42,7 @@ import { maxBillingContextLogic } from './maxBillingContextLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { getRandomThinkingMessage } from './utils/thinkingMessages'
+import { MAX_SLASH_COMMANDS, SlashCommand } from './slash-commands'
 
 export type MessageStatus = 'loading' | 'completed' | 'error'
 
@@ -136,6 +137,8 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         setConversation: (conversation: Conversation) => ({ conversation }),
         resetThread: true,
         setTraceId: (traceId: string) => ({ traceId }),
+        selectCommand: (command: SlashCommand) => ({ command }),
+        activateCommand: (command: SlashCommand) => ({ command }),
     }),
 
     reducers(({ props }) => ({
@@ -467,6 +470,20 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 }, 0)
             }
         },
+        selectCommand: ({ command }) => {
+            if (command.arg) {
+                actions.setQuestion(command.name + ' ')
+            } else {
+                actions.setQuestion(command.name)
+            }
+        },
+        activateCommand: ({ command }) => {
+            if (command.arg) {
+                actions.setQuestion(command.name + ' ') // Rest must be filled in by the user
+            } else {
+                actions.askMax(command.name)
+            }
+        },
     })),
 
     selectors({
@@ -592,6 +609,12 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
 
                 return undefined
             },
+        ],
+
+        filteredCommands: [
+            (s) => [s.question],
+            (question): SlashCommand[] =>
+                MAX_SLASH_COMMANDS.filter((command) => command.name.toLowerCase().startsWith(question.toLowerCase())),
         ],
     }),
 
