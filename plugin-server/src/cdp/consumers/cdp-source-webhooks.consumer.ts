@@ -37,6 +37,8 @@ export const getCustomHttpResponse = (
     return null
 }
 
+const DISALLOWED_HEADERS = ['x-forwarded-for', 'x-forwarded-host', 'x-forwarded-proto', 'x-forwarded-port', 'cookie']
+
 export class SourceWebhookError extends Error {
     status: number
 
@@ -82,16 +84,6 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
             throw new SourceWebhookError(404, 'Not found')
         }
 
-        const headers: Record<string, string> = {}
-
-        for (const [key, value] of Object.entries(req.headers)) {
-            // TODO: WE should filter the headers to only include ones we know are safe to expose
-            const firstValue = getFirstHeaderValue(value)
-            if (firstValue) {
-                headers[key.toLowerCase()] = firstValue
-            }
-        }
-
         const body: Record<string, any> = req.body
 
         const ipValue = getFirstHeaderValue(req.headers['x-forwarded-for']) || req.socket.remoteAddress || req.ip
@@ -100,6 +92,14 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
         const ip = ips[0]
 
         const projectUrl = `${this.hub.SITE_URL}/project/${hogFunction.team_id}`
+        const headers: Record<string, string> = {}
+
+        for (const [key, value] of Object.entries(req.headers)) {
+            const firstValue = getFirstHeaderValue(value)
+            if (firstValue && !DISALLOWED_HEADERS.includes(key.toLowerCase())) {
+                headers[key.toLowerCase()] = firstValue
+            }
+        }
 
         const globals: HogFunctionInvocationGlobals = {
             source: {
