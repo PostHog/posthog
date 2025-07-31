@@ -1,7 +1,6 @@
 import json
 from datetime import timedelta
 from typing import Any, Optional, cast
-from pydantic import ValidationError as PydanticValidationError
 from urllib.parse import urlparse, urlunparse
 
 from django.core.serializers.json import DjangoJSONEncoder
@@ -106,7 +105,7 @@ class SharingConfigurationSerializer(serializers.ModelSerializer):
             validated_settings = SharingConfigurationSettings.model_validate(filtered_data, strict=False)
             result = validated_settings.model_dump(exclude_none=True)
             return result
-        except PydanticValidationError as e:
+        except Exception as e:
             capture_exception(e)
             raise serializers.ValidationError("Invalid settings format")
 
