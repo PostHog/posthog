@@ -2,7 +2,7 @@ import { HogFunctionTemplate } from '~/cdp/types'
 
 export const template: HogFunctionTemplate = {
     free: false,
-    status: 'beta',
+    status: 'hidden',
     type: 'destination',
     id: 'template-google-sheets',
     name: 'Google Sheets',
@@ -10,7 +10,7 @@ export const template: HogFunctionTemplate = {
     icon_url: '/static/services/google-sheets.svg',
     category: ['Custom'],
     code_language: 'hog',
-    hog: `
+    code: `
 let res := fetch(f'https://sheets.googleapis.com/v4/spreadsheets/{inputs.spreadsheet_id}/values:batchUpdate', {
     'method': 'POST',
     'headers': {
