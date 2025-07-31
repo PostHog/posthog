@@ -6,12 +6,12 @@ export const template: HogFunctionTemplate = {
     type: 'site_destination',
     id: 'template-google-tag-manager',
     name: 'Google Tag Manager',
-    description: 'Send SMS messages using Twilio',
+    description: 'Load Google Tag Manager within your website',
     icon_url: '/static/services/google-tag-manager.png',
-    category: ['Analytics'],
+    category: ['Custom'],
     code_language: 'javascript',
     code: `
-// Adds window.rdt and lazily loads the Reddit Pixel script
+// Adds window.dataLayer and lazily loads the Google Tag Manager script
 function initSnippet(containerId) {
     (function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=!0;j.src='https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f)})(window,document,'script','dataLayer',containerId)
 }
