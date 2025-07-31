@@ -13,8 +13,9 @@ import { maxGlobalLogic } from '../maxGlobalLogic'
 import { maxLogic } from '../maxLogic'
 import { maxThreadLogic } from '../maxThreadLogic'
 import { ContextDisplay } from '../Context'
-import { MAX_SLASH_COMMANDS, SlashCommandAutocomplete } from './SlashCommandAutocomplete'
+import { SlashCommandAutocomplete } from './SlashCommandAutocomplete'
 import posthog from 'posthog-js'
+import { MAX_SLASH_COMMANDS } from '../slash-commands'
 
 interface QuestionInputProps {
     isFloating?: boolean
@@ -106,21 +107,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                             <ContextDisplay size={contextDisplaySize} />
                         )}
 
-                        <SlashCommandAutocomplete
-                            onActivate={(command) => {
-                                if (command.arg) {
-                                    setQuestion(command.name + ' ') // Rest must be filled in by the user
-                                } else {
-                                    askMax(command.name)
-                                }
-                            }}
-                            onSelect={(command) =>
-                                command.arg ? setQuestion(command.name + ' ') : setQuestion(command.name)
-                            }
-                            visible={showAutocomplete}
-                            onClose={() => setShowAutocomplete(false)}
-                            searchText={question}
-                        >
+                        <SlashCommandAutocomplete visible={showAutocomplete} onClose={() => setShowAutocomplete(false)}>
                             <LemonTextArea
                                 ref={textAreaRef}
                                 value={question}
