@@ -69,12 +69,46 @@ describe('BatchWritingGroupStore', () => {
                 return Promise.resolve(dbCounter)
             }),
             inTransaction: jest.fn().mockImplementation(async (_description, transaction) => {
-                return await transaction({} as any)
-            }),
-            inRawTransaction: jest.fn().mockImplementation(async (_description, transaction) => {
-                return await transaction({} as any)
+                // Create a proper mock transaction with the required methods
+                const mockTransaction = {
+                    fetchGroup: jest.fn().mockImplementation(() => {
+                        return Promise.resolve(group)
+                    }),
+                    insertGroup: jest.fn().mockImplementation(() => {
+                        return Promise.resolve(1)
+                    }),
+                    updateGroup: jest.fn().mockImplementation(() => {
+                        dbCounter++
+                        return Promise.resolve(dbCounter)
+                    }),
+                }
+                return await transaction(mockTransaction)
             }),
         } as unknown as GroupRepository
+
+        // Store the transaction mock for assertions
+        ;(groupRepository as any).lastTransactionMock = null
+        groupRepository.inTransaction = jest.fn().mockImplementation(async (description, transaction) => {
+            const mockTransaction = {
+                fetchGroup: jest.fn().mockImplementation(() => {
+                    return Promise.resolve(group)
+                }),
+                insertGroup: jest.fn().mockImplementation(() => {
+                    return Promise.resolve(1)
+                }),
+                updateGroup: jest.fn().mockImplementation(() => {
+                    dbCounter++
+                    return Promise.resolve(dbCounter)
+                }),
+            }
+            ;(groupRepository as any).lastTransactionMock = mockTransaction
+            return await transaction(mockTransaction)
+        })
+
+        // Helper function to safely access transaction mock
+        ;(groupRepository as any).getTransactionMock = () => {
+            return (groupRepository as any).lastTransactionMock
+        }
 
         // Reset the counter before each test
         groupCacheOperationsCounter.reset()
@@ -101,6 +135,7 @@ describe('BatchWritingGroupStore', () => {
         expect(groupRepository.updateGroupOptimistically).toHaveBeenCalledTimes(1)
         expect(groupRepository.updateGroup).toHaveBeenCalledTimes(0)
         expect(groupRepository.insertGroup).toHaveBeenCalledTimes(0)
+        expect(groupRepository.inTransaction).toHaveBeenCalledTimes(0) // Uses optimistic update for existing groups
         expect(groupRepository.updateGroupOptimistically).toHaveBeenCalledWith(
             teamId,
             1,
@@ -127,7 +162,8 @@ describe('BatchWritingGroupStore', () => {
         expect(groupRepository.fetchGroup).toHaveBeenCalledTimes(1)
         expect(groupRepository.updateGroupOptimistically).toHaveBeenCalledTimes(0)
         expect(groupRepository.updateGroup).toHaveBeenCalledTimes(0)
-        expect(groupRepository.insertGroup).toHaveBeenCalledTimes(1)
+        expect(groupRepository.inTransaction).toHaveBeenCalledTimes(1)
+        expect((groupRepository as any).getTransactionMock()?.insertGroup).toHaveBeenCalledTimes(1)
     })
 
     it('should accumulate changes in cache after db write, even if new group', async () => {
@@ -143,7 +179,8 @@ describe('BatchWritingGroupStore', () => {
         expect(groupRepository.fetchGroup).toHaveBeenCalledTimes(1)
         expect(groupRepository.updateGroupOptimistically).toHaveBeenCalledTimes(1)
         expect(groupRepository.updateGroup).toHaveBeenCalledTimes(0)
-        expect(groupRepository.insertGroup).toHaveBeenCalledTimes(1)
+        expect(groupRepository.inTransaction).toHaveBeenCalledTimes(1)
+        expect((groupRepository as any).lastTransactionMock.insertGroup).toHaveBeenCalledTimes(1)
 
         expect(groupRepository.updateGroupOptimistically).toHaveBeenCalledWith(
             teamId,
@@ -194,6 +231,7 @@ describe('BatchWritingGroupStore', () => {
         // Should make 3 updates, 2 failed, 1 successful
         expect(groupRepository.updateGroupOptimistically).toHaveBeenCalledTimes(3)
         expect(groupRepository.updateGroup).toHaveBeenCalledTimes(0)
+        expect(groupRepository.inTransaction).toHaveBeenCalledTimes(0) // Uses optimistic updates, not transactions
 
         expect(groupRepository.updateGroupOptimistically).toHaveBeenCalledWith(
             teamId,
@@ -222,7 +260,8 @@ describe('BatchWritingGroupStore', () => {
         await groupStoreForBatch.flush()
 
         expect(groupRepository.updateGroupOptimistically).toHaveBeenCalledTimes(5)
-        expect(groupRepository.updateGroup).toHaveBeenCalledTimes(1)
+        expect(groupRepository.inTransaction).toHaveBeenCalledTimes(1)
+        expect((groupRepository as any).getTransactionMock()?.updateGroup).toHaveBeenCalledTimes(1)
         expect(db.upsertGroupClickhouse).toHaveBeenCalledTimes(1)
     })
 
@@ -235,6 +274,7 @@ describe('BatchWritingGroupStore', () => {
         await groupStoreForBatch.flush()
 
         expect(groupRepository.updateGroupOptimistically).toHaveBeenCalledTimes(1)
+        expect(groupRepository.inTransaction).toHaveBeenCalledTimes(0) // Uses optimistic update for existing groups
         expect(groupRepository.updateGroupOptimistically).toHaveBeenCalledWith(
             teamId,
             1,
@@ -259,7 +299,8 @@ describe('BatchWritingGroupStore', () => {
 
         expect(groupRepository.updateGroupOptimistically).toHaveBeenCalledTimes(0)
         expect(groupRepository.updateGroup).toHaveBeenCalledTimes(0)
-        expect(groupRepository.insertGroup).toHaveBeenCalledTimes(0)
+        expect(groupRepository.inTransaction).toHaveBeenCalledTimes(0)
+        // No transaction calls expected since no properties changed
     })
 
     it('should capture warning and stop retrying if message size too large', async () => {
@@ -274,15 +315,13 @@ describe('BatchWritingGroupStore', () => {
 
         expect(groupRepository.updateGroupOptimistically).toHaveBeenCalledTimes(1)
         expect(groupRepository.updateGroup).toHaveBeenCalledTimes(0)
-        expect(groupRepository.insertGroup).toHaveBeenCalledTimes(0)
+        expect(groupRepository.inTransaction).toHaveBeenCalledTimes(0)
+        // No transaction calls expected since optimistic update failed
         expect(captureIngestionWarning).toHaveBeenCalledTimes(1)
     })
 
     it('should retry on race condition error and clear cache', async () => {
-        // Mock insertGroup to throw RaceConditionError once, then succeed
-        jest.spyOn(groupRepository, 'insertGroup').mockImplementation(() => {
-            throw new RaceConditionError('Parallel posthog_group inserts, retry')
-        })
+        let insertCounter = 0
         let fetchCounter = 0
         jest.spyOn(groupRepository, 'fetchGroup').mockImplementation(() => {
             fetchCounter++
@@ -291,6 +330,27 @@ describe('BatchWritingGroupStore', () => {
             } else {
                 return Promise.resolve(group)
             }
+        })
+
+        // Override the transaction mock to throw on first insertGroup call
+        groupRepository.inTransaction = jest.fn().mockImplementation(async (description, transaction) => {
+            const mockTransaction = {
+                fetchGroup: jest.fn().mockImplementation(() => {
+                    return Promise.resolve(group)
+                }),
+                insertGroup: jest.fn().mockImplementation(() => {
+                    insertCounter++
+                    if (insertCounter === 1) {
+                        throw new RaceConditionError('Parallel posthog_group inserts, retry')
+                    }
+                    return Promise.resolve(1)
+                }),
+                updateGroup: jest.fn().mockImplementation(() => {
+                    return Promise.resolve(1)
+                }),
+            }
+            ;(groupRepository as any).lastTransactionMock = mockTransaction
+            return await transaction(mockTransaction)
         })
 
         const groupStoreForBatch = groupStore.forBatch()
@@ -306,7 +366,8 @@ describe('BatchWritingGroupStore', () => {
 
         expect(groupRepository.updateGroupOptimistically).toHaveBeenCalledTimes(1)
         expect(groupRepository.fetchGroup).toHaveBeenCalledTimes(2) // Once for initial fetch, once for retry
-        expect(groupRepository.insertGroup).toHaveBeenCalledTimes(1)
+        expect(groupRepository.inTransaction).toHaveBeenCalledTimes(1) // Once for initial insert, once for retry (new group)
+        expect((groupRepository as any).getTransactionMock()?.insertGroup).toHaveBeenCalledTimes(1)
 
         expect(cacheDeleteSpy).toHaveBeenCalledWith(teamId, 'test')
 
