@@ -62,9 +62,6 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         experiment.metrics = [metric.model_dump(mode="json")]
         experiment.save()
 
-        # Create test events with enough statistical variance for Bayesian testing
-        feature_flag_property = f"$feature/{feature_flag.key}"
-
         # Control: 8 successes, 7 failures (15 total exposures)
         for i in range(15):
             _create_person(distinct_ids=[f"user_control_{i}"], team_id=self.team.pk)
