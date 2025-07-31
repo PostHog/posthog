@@ -1,7 +1,7 @@
 from threading import local
 from typing import Any
 from django.db import models
-from posthog.models.activity_logging.utils import get_changed_fields
+from posthog.models.activity_logging.utils import get_changed_fields_local
 from posthog.models.signals import model_activity_signal
 
 _thread_local = local()
@@ -53,7 +53,7 @@ class ModelActivityMixin(models.Model):
             model_name = cast(ActivityScope, self.__class__.__name__)
             signal_excluded_fields = signal_exclusions.get(model_name, [])
             if signal_excluded_fields:
-                changed_fields = get_changed_fields(before_update)
+                changed_fields = get_changed_fields_local(before_update)
 
                 # If no non-excluded fields changed, skip activity logging entirely
                 if not changed_fields:
