@@ -13,14 +13,12 @@ export function HogFunctionInputs(): JSX.Element {
     const {
         showSource,
         configuration,
-        hogFunction,
         sampleGlobalsWithInputs,
-        template,
-        type,
         usesGroups,
         hasGroupsAddon,
         oldInputs,
         newInputs,
+        canEditSource,
     } = useValues(hogFunctionConfigurationLogic)
 
     const {
@@ -34,13 +32,7 @@ export function HogFunctionInputs(): JSX.Element {
         reportAIHogFunctionInputsPromptOpen,
     } = useActions(hogFunctionConfigurationLogic)
 
-    const canEditTransformationHogCode = useFeatureFlag('HOG_TRANSFORMATIONS_CUSTOM_HOG_ENABLED')
     const aiHogFunctionCreation = !!useFeatureFlag('AI_HOG_FUNCTION_CREATION')
-
-    const canEditSource =
-        ['site_destination', 'site_app', 'source_webhook'].includes(type) ||
-        (type === 'transformation' && canEditTransformationHogCode) ||
-        (type === 'destination' && (template?.code_language || hogFunction?.template?.code_language) === 'hog')
 
     const content = (
         <div className={clsx('p-3 rounded border deprecated-space-y-2 bg-surface-primary')}>

@@ -15,7 +15,6 @@ import { Form } from 'kea-forms'
 import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { hogFunctionConfigurationLogic } from 'scenes/hog-functions/configuration/hogFunctionConfigurationLogic'
@@ -58,11 +57,13 @@ export function HogFunctionConfiguration({ templateId, id, logicKey }: HogFuncti
         templateHasChanged,
         type,
         mightDropEvents,
-        sourceUsesEvents,
+        showFilters,
+        showExpectedVolume,
+        canEditSource,
+        showTesting,
     } = useValues(logic)
 
     const { submitConfiguration, resetForm, duplicate, deleteHogFunction } = useActions(logic)
-    const canEditTransformationHogCode = useFeatureFlag('HOG_TRANSFORMATIONS_CUSTOM_HOG_ENABLED')
 
     if (loading && !loaded) {
         return <SpinnerOverlay />
@@ -136,14 +137,6 @@ export function HogFunctionConfiguration({ templateId, id, logicKey }: HogFuncti
     if (showPaygate) {
         return <PayGateMini feature={AvailableFeature.DATA_PIPELINES} />
     }
-
-    const showFilters = ['destination', 'internal_destination', 'site_destination', 'transformation'].includes(type)
-    const showExpectedVolume = sourceUsesEvents && ['destination', 'site_destination', 'transformation'].includes(type)
-    const canEditSource =
-        ['site_destination', 'site_app', 'source_webhook'].includes(type) ||
-        (type === 'transformation' && canEditTransformationHogCode) ||
-        (type === 'destination' && (template?.code_language || hogFunction?.template?.code_language) === 'hog')
-    const showTesting = ['destination', 'internal_destination', 'transformation'].includes(type)
 
     return (
         <div className="deprecated-space-y-3">
