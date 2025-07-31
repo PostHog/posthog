@@ -1,5 +1,4 @@
 import json
-import uuid
 import re
 from datetime import UTC, datetime, timedelta
 from typing import cast
@@ -839,7 +838,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
     )
     @patch("posthog.session_recordings.session_recording_api.object_storage.list_objects")
     def test_get_snapshots_v2_default_response(self, mock_list_objects: MagicMock, _mock_exists: MagicMock) -> None:
-        session_id = str(uuid.uuid4())
+        session_id = str(uuid7())
         timestamp = round(now().timestamp() * 1000)
         mock_list_objects.return_value = [
             f"session_recordings/team_id/{self.team.pk}/session_id/{session_id}/data/{timestamp - 10000}-{timestamp - 5000}",
@@ -879,7 +878,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
     )
     @patch("posthog.session_recordings.session_recording_api.object_storage.list_objects")
     def test_get_snapshots_blobby_v1_from_lts(self, mock_list_objects: MagicMock, _mock_exists: MagicMock) -> None:
-        session_id = str(uuid.uuid4())
+        session_id = str(uuid7())
         timestamp = round(now().timestamp() * 1000)
 
         SessionRecording.objects.create(
@@ -934,7 +933,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
     )
     @patch("posthog.session_recordings.session_recording_api.object_storage.list_objects")
     def test_get_snapshots_v2_default_response_no_realtime_if_old(self, mock_list_objects, _mock_exists) -> None:
-        session_id = str(uuid.uuid4())
+        session_id = str(uuid7())
         old_timestamp = round((now() - timedelta(hours=26)).timestamp() * 1000)
 
         mock_list_objects.return_value = [
@@ -968,8 +967,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         mock_get_session_recording,
         _mock_exists,
     ) -> None:
-        session_id = str(uuid.uuid4())
-        """API will add session_recordings/team_id/{self.team.pk}/session_id/{session_id}"""
+        session_id = str(uuid7())
         blob_key = f"1682608337071"
         url = f"/api/projects/{self.team.pk}/session_recordings/{session_id}/snapshots/?source=blob&blob_key={blob_key}"
 
@@ -1028,8 +1026,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         mock_get_session_recording,
         _mock_exists,
     ) -> None:
-        session_id = str(uuid.uuid4())
-        """API will add session_recordings/team_id/{self.team.pk}/session_id/{session_id}"""
+        session_id = str(uuid7())
         blob_key = f"1682608337071"
         url = f"/api/projects/{self.team.pk}/session_recordings/{session_id}/snapshots/?source=blob&blob_key={blob_key}"
 
@@ -1066,8 +1063,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         mock_get_session_recording,
         mock_exists,
     ) -> None:
-        session_id = str(uuid.uuid4())
-        """API will add session_recordings/team_id/{self.team.pk}/session_id/{session_id}"""
+        session_id = str(uuid7())
         blob_key = f"../try/to/escape/into/other/directories"
         url = f"/api/projects/{self.team.pk}/session_recordings/{session_id}/snapshots/?source=blob&blob_key={blob_key}"
 
@@ -1110,7 +1106,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         mock_get_session_recording,
         _mock_exists,
     ) -> None:
-        session_id = str(uuid.uuid4())
+        session_id = str(uuid7())
         """
         includes regression test to allow utf16 surrogate pairs in realtime snapshots response
         """
@@ -1139,7 +1135,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
     def test_cannot_get_session_recording_blob_for_made_up_sessions(
         self, _mock_stream_from, mock_presigned_url, mock_get_session_recording
     ) -> None:
-        session_id = str(uuid.uuid4())
+        session_id = str(uuid7())
         blob_key = f"1682608337071"
         url = f"/api/projects/{self.team.pk}/session_recordings/{session_id}/snapshots/?source=blob&blob_key={blob_key}"
 
@@ -1152,7 +1148,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
 
     @patch("posthog.session_recordings.session_recording_api.object_storage.get_presigned_url")
     def test_can_not_get_session_recording_blob_that_does_not_exist(self, mock_presigned_url) -> None:
-        session_id = str(uuid.uuid4())
+        session_id = str(uuid7())
         blob_key = f"session_recordings/team_id/{self.team.pk}/session_id/{session_id}/data/1682608337071"
         url = f"/api/projects/{self.team.pk}/session_recordings/{session_id}/snapshots/?source=blob&blob_key={blob_key}"
 
@@ -1163,7 +1159,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
 
     def test_get_matching_events_for_must_not_send_multiple_session_ids(self) -> None:
         query_params = [
-            f'session_ids=["{str(uuid.uuid4())}", "{str(uuid.uuid4())}"]',
+            f'session_ids=["{str(uuid7())}", "{str(uuid7())}"]',
         ]
         response = self.client.get(
             f"/api/projects/{self.team.id}/session_recordings/matching_events?{'&'.join(query_params)}"
@@ -1188,7 +1184,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
 
     def test_get_matching_events_for_must_send_at_least_an_event_filter(self) -> None:
         query_params = [
-            f'session_ids=["{str(uuid.uuid4())}"]',
+            f'session_ids=["{str(uuid7())}"]',
         ]
 
         response = self.client.get(
@@ -1204,7 +1200,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
 
     def test_get_matching_events_can_send_event_properties_filter(self) -> None:
         query_params = [
-            f'session_ids=["{str(uuid.uuid4())}"]',
+            f'session_ids=["{str(uuid7())}"]',
             # we can send event action or event properties filters and it is valid
             'properties=[{"key":"$active_feature_flags","value":"query_running_time","operator":"icontains","type":"event"}]',
         ]
@@ -1215,7 +1211,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         assert response.status_code == status.HTTP_200_OK
 
     def test_get_matching_events_for_unknown_session(self) -> None:
-        session_id = str(uuid.uuid4())
+        session_id = str(uuid7())
         query_params = [
             f'session_ids=["{session_id}"]',
             'events=[{"id": "$pageview", "type": "events", "order": 0, "name": "$pageview"}]',
@@ -1272,23 +1268,23 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         base_time = (now() - relativedelta(days=1)).replace(microsecond=0)
 
         # the matching session
-        session_id = f"test_get_matching_events-1-{uuid.uuid4()}"
+        session_id = f"test_get_matching_events-1-{uuid7()}"
         self.produce_replay_summary("user", session_id, base_time)
         event_id = _create_event(
             event="$pageview",
             properties={"$session_id": session_id},
             team=self.team,
-            distinct_id=uuid.uuid4(),
+            distinct_id=uuid7(),
         )
 
         # a non-matching session
-        non_matching_session_id = f"test_get_matching_events-2-{uuid.uuid4()}"
+        non_matching_session_id = f"test_get_matching_events-2-{uuid7()}"
         self.produce_replay_summary("user", non_matching_session_id, base_time)
         _create_event(
             event="$pageview",
             properties={"$session_id": non_matching_session_id},
             team=self.team,
-            distinct_id=uuid.uuid4(),
+            distinct_id=uuid7(),
         )
 
         query_params = [
@@ -1333,7 +1329,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
 
     @patch("posthoganalytics.capture")
     def test_snapshots_api_called_with_personal_api_key(self, mock_capture):
-        session_id = str(uuid.uuid4())
+        session_id = str(uuid7())
         self.produce_replay_summary("user", session_id, now() - relativedelta(days=1))
 
         personal_api_key = generate_random_token_personal()
@@ -1424,7 +1420,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         mock_get_session_recording,
         _mock_exists,
     ):
-        session_id = str(uuid.uuid4())
+        session_id = str(uuid7())
 
         # Setup mocks
         mock_get_session_recording.return_value = SessionRecording(session_id=session_id, team=self.team, deleted=False)
@@ -1467,7 +1463,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         _mock_exists,
     ) -> None:
         """Test that blob_v2 with blob_keys parameter works correctly"""
-        session_id = str(uuid.uuid4())
+        session_id = str(uuid7())
 
         # Mock the session recording
         mock_get_session_recording.return_value = SessionRecording(session_id=session_id, team=self.team, deleted=False)
@@ -1514,7 +1510,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         mock_get_session_recording,
         _mock_exists,
     ) -> None:
-        session_id = str(uuid.uuid4())
+        session_id = str(uuid7())
 
         mock_get_session_recording.return_value = SessionRecording(session_id=session_id, team=self.team, deleted=False)
         mock_list_blocks.return_value = [MagicMock(url="http://test.com/block0")]
@@ -1540,7 +1536,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         mock_get_session_recording,
         _mock_exists,
     ) -> None:
-        session_id = str(uuid.uuid4())
+        session_id = str(uuid7())
 
         mock_get_session_recording.return_value = SessionRecording(session_id=session_id, team=self.team, deleted=False)
 
@@ -1560,7 +1556,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         _mock_exists,
     ) -> None:
         """Test that requesting more than 100 blob keys returns 400"""
-        session_id = str(uuid.uuid4())
+        session_id = str(uuid7())
 
         mock_get_session_recording.return_value = SessionRecording(session_id=session_id, team=self.team, deleted=False)
 
@@ -1580,7 +1576,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         mock_get_session_recording,
         _mock_exists,
     ) -> None:
-        session_id = str(uuid.uuid4())
+        session_id = str(uuid7())
 
         mock_get_session_recording.return_value = SessionRecording(session_id=session_id, team=self.team, deleted=False)
 
@@ -1611,7 +1607,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         _mock_exists,
     ) -> None:
         """Test that providing both blob_key and blob_keys returns 400"""
-        session_id = str(uuid.uuid4())
+        session_id = str(uuid7())
 
         mock_get_session_recording.return_value = SessionRecording(session_id=session_id, team=self.team, deleted=False)
 
@@ -1635,7 +1631,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         _mock_exists,
     ) -> None:
         """Test that requesting block indices out of range returns 404"""
-        session_id = str(uuid.uuid4())
+        session_id = str(uuid7())
 
         mock_get_session_recording.return_value = SessionRecording(session_id=session_id, team=self.team, deleted=False)
 
@@ -1672,7 +1668,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         _mock_exists: MagicMock,
         _mock_v2_list_blocks: MagicMock,
     ) -> None:
-        session_id = str(uuid.uuid4())
+        session_id = str(uuid7())
         timestamp = round(now().timestamp() * 1000)
 
         SessionRecording.objects.create(
@@ -1733,7 +1729,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
 
         # Patch list_blocks where it's imported and used in session_recording_v2_service
         with patch("posthog.session_recordings.session_recording_api.list_blocks", side_effect=mock_list_blocks):
-            session_id = str(uuid.uuid4())
+            session_id = str(uuid7())
             self.produce_replay_summary("user", session_id, now() - relativedelta(days=1))
 
             response = self.client.get(
