@@ -328,13 +328,13 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "$sdk_debug_session_start": {
             "label": "Session start",
             "description": "The timestamp of the session start for the current session id. Not necessarily the same as SDK init time.",
-            "type": "Number",
+            "type": "Numeric",
             "used_for_debug": True,
         },
         "$sdk_debug_current_session_duration": {
             "label": "Current session duration",
             "description": "The current session duration in milliseconds.",
-            "type": "Number",
+            "type": "Numeric",
             "used_for_debug": True,
         },
         "$sdk_debug_replay_event_trigger_status": {
@@ -1165,10 +1165,9 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "The time taken until the browser's page load event in milliseconds.",
         },
         "$performance_raw": {
-            "label": "Browser performance",
+            "label": "Browser performance (deprecated)",
             "description": "The browser performance entries for navigation (the page), paint, and resources. That were available when the page view event fired",
             "system": True,
-            "deprecated": True,
         },
         "$had_persisted_distinct_id": {
             "label": "$had_persisted_distinct_id",
