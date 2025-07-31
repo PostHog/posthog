@@ -1029,7 +1029,7 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
                     extra_properties = {"$host": "localhost", "$group_0": "my_awesome_group"} if i > 5 else {}
                     # Add some events with button elements for the element filter test
                     if i < 2:  # First 2 events have button element
-                        extra_properties["$elements"] = [{"tag_name": "button"}]
+                        extra_properties["$elements"] = [{"tag_name": "button"}]  # type: ignore
                     # Don't add the feature flag property - this filter is meant to filter out all events
                     _create_event(
                         team=self.team,
@@ -1045,7 +1045,7 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
                 extra_properties = {"$host": "localhost", "$group_0": "my_awesome_group"} if i > 5 else {}
                 # Add element properties to exposure events for element filter test
                 if i < 2:  # First 2 events have button element
-                    extra_properties["$elements"] = [{"tag_name": "button"}]
+                    extra_properties["$elements"] = [{"tag_name": "button"}]  # type: ignore
                 _create_event(
                     team=self.team,
                     event="$feature_flag_called",
