@@ -53,7 +53,7 @@ class ModelActivityMixin(models.Model):
             model_name = cast(ActivityScope, self.__class__.__name__)
             signal_excluded_fields = signal_exclusions.get(model_name, [])
             if signal_excluded_fields:
-                changed_fields = get_changed_fields_local(before_update)
+                changed_fields = get_changed_fields_local(before_update, self)
 
                 # If no non-excluded fields changed, skip activity logging entirely
                 if not changed_fields:

@@ -2,7 +2,7 @@ from typing import cast
 from django.db import models
 
 
-def get_changed_fields_local(before_update: models.Model) -> list[str]:
+def get_changed_fields_local(before_update: models.Model, after_update: models.Model) -> list[str]:
     """
     Get the fields that have changed on a model.
     This is a local function that does not use the database.
@@ -24,10 +24,10 @@ def get_changed_fields_local(before_update: models.Model) -> list[str]:
         if not hasattr(field, "name") or field.name in all_excluded_fields:
             continue
 
-        if hasattr(before_update, field.name) and hasattr(before_update, field.name):
+        if hasattr(before_update, field.name) and hasattr(after_update, field.name):
             try:
                 old_val = getattr(before_update, field.name, None)
-                new_val = getattr(before_update, field.name, None)
+                new_val = getattr(after_update, field.name, None)
 
                 if old_val != new_val:
                     changed_fields.append(field.name)
