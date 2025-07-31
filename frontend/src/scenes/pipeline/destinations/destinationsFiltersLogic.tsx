@@ -116,7 +116,7 @@ export const destinationsFiltersLogic = kea<destinationsFiltersLogicType>([
     }),
 
     urlToAction(({ actions, values }) => ({
-        ['*']: (_, searchParams) => {
+        ['/pipeline/*']: (_, searchParams) => {
             if (!objectsEqual(values.filters, searchParams)) {
                 actions.setFilters(searchParams)
             }

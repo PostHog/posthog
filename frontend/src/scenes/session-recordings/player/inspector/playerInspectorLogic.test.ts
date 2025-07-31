@@ -15,8 +15,8 @@ describe('playerInspectorLogic', () => {
     beforeEach(() => {
         useMocks({
             get: {
-                'api/environments/:team_id/session_recordings/1/': {},
-                'api/projects/:team/notebooks/recording_comments': {
+                '/api/environments/:team_id/session_recordings/1/': {},
+                '/api/projects/:team/notebooks/recording_comments': {
                     results: [
                         {
                             timeInRecording: 12,
@@ -27,7 +27,7 @@ describe('playerInspectorLogic', () => {
                         },
                     ],
                 },
-                'api/projects/:team/comments': {
+                '/api/projects/:team_id/comments': {
                     results: [
                         {
                             id: '019838f3-1bab-0000-fce8-04be1d6b6fe3',

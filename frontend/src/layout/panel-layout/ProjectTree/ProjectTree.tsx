@@ -388,7 +388,8 @@ export function ProjectTree({
             onItemChecked={onItemChecked}
             checkedItemCount={checkedItemCountNumeric}
             disableScroll={onlyTree ? true : false}
-            onItemClick={(item) => {
+            onItemClick={(item, event) => {
+                event.preventDefault()
                 if (item?.type === 'empty-folder' || item?.type === 'loading-indicator') {
                     return
                 }

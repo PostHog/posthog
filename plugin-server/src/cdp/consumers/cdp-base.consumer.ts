@@ -14,6 +14,7 @@ import { PersonsManagerService } from '../services/managers/persons-manager.serv
 import { HogFunctionMonitoringService } from '../services/monitoring/hog-function-monitoring.service'
 import { HogMaskerService } from '../services/monitoring/hog-masker.service'
 import { HogWatcherService } from '../services/monitoring/hog-watcher.service'
+import { HogWatcherService2 } from '../services/monitoring/hog-watcher-2.service'
 import { NativeDestinationExecutorService } from '../services/native-destination-executor.service'
 import { SegmentDestinationExecutorService } from '../services/segment-destination-executor.service'
 
@@ -28,6 +29,7 @@ export abstract class CdpConsumerBase {
     hogExecutor: HogExecutorService
     hogFlowExecutor: HogFlowExecutorService
     hogWatcher: HogWatcherService
+    hogWatcher2: HogWatcherService2
     hogMasker: HogMaskerService
     personsManager: PersonsManagerService
     groupsManager: GroupsManagerService
@@ -49,6 +51,7 @@ export abstract class CdpConsumerBase {
         this.hogFunctionManager = new HogFunctionManagerService(hub)
         this.hogFlowManager = new HogFlowManagerService(hub)
         this.hogWatcher = new HogWatcherService(hub, this.redis)
+        this.hogWatcher2 = new HogWatcherService2(hub, this.redis)
         this.hogMasker = new HogMaskerService(this.redis)
         this.hogExecutor = new HogExecutorService(this.hub)
         this.hogFunctionTemplateManager = new HogFunctionTemplateManagerService(this.hub)

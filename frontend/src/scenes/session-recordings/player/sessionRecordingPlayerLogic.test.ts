@@ -19,6 +19,7 @@ import { initKeaTests } from '~/test/init'
 
 import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
 import { makeLogger } from 'scenes/session-recordings/player/rrweb'
+import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
 
 describe('sessionRecordingPlayerLogic', () => {
     let logic: ReturnType<typeof sessionRecordingPlayerLogic.build>
@@ -241,7 +242,7 @@ describe('sessionRecordingPlayerLogic', () => {
                 ])
                 .toFinishAllListeners()
 
-            expect(router.values.location.pathname).toEqual(urls.replay())
+            expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.replay())
 
             expect(api.delete).toHaveBeenCalledWith(`api/environments/${MOCK_TEAM_ID}/session_recordings/3`)
             resumeKeaLoadersErrors()
@@ -262,7 +263,7 @@ describe('sessionRecordingPlayerLogic', () => {
                 ])
                 .toFinishAllListeners()
 
-            expect(router.values.location.pathname).toEqual('/')
+            expect(router.values.location.pathname).toEqual('/project/997')
 
             expect(api.delete).toHaveBeenCalledWith(`api/environments/${MOCK_TEAM_ID}/session_recordings/3`)
             resumeKeaLoadersErrors()

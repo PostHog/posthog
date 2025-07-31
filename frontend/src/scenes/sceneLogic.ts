@@ -4,7 +4,7 @@ import { commandBarLogic } from 'lib/components/CommandBar/commandBarLogic'
 import { BarStatus } from 'lib/components/CommandBar/types'
 import { TeamMembershipLevel } from 'lib/constants'
 import { getRelativeNextPath } from 'lib/utils'
-import { addProjectIdIfMissing, removeProjectIdIfPresent } from 'lib/utils/router-utils'
+import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
 import { withForwardedSearchParams } from 'lib/utils/sceneLogicUtils'
 import posthog from 'posthog-js'
 import {
@@ -238,14 +238,6 @@ export const sceneLogic = kea<sceneLogicType>([
             }
             if (scene === Scene.MoveToPostHogCloud && preflight?.cloud) {
                 router.actions.replace(urls.projectHomepage())
-                return
-            }
-
-            // Redirect to the scene's canonical pathname if needed
-            const currentPathname = router.values.location.pathname
-            const canonicalPathname = addProjectIdIfMissing(router.values.location.pathname)
-            if (currentPathname !== canonicalPathname) {
-                router.actions.replace(canonicalPathname, router.values.searchParams, router.values.hashParams)
                 return
             }
 

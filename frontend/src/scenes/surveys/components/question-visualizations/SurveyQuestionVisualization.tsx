@@ -71,17 +71,21 @@ function QuestionLoadingSkeleton({ question }: { question: SurveyQuestion }): JS
                     <div className="flex flex-col gap-1">
                         <div className="h-50 border rounded p-4 flex flex-col gap-2">
                             <div className="flex justify-between items-end h-full">
-                                {Array.from({ length: question.scale || 5 }).map((_, i) => {
-                                    // Use predefined height classes for variety
-                                    const heights = ['h-4', 'h-8', 'h-12', 'h-16', 'h-20', 'h-24', 'h-28', 'h-32']
-                                    const randomHeight = heights[Math.floor(Math.random() * heights.length)]
-                                    return (
-                                        <div key={i} className="flex flex-col items-center gap-1 flex-1">
-                                            <LemonSkeleton className={`w-8 sm:w-12 ${randomHeight}`} />
-                                            <span className="text-sm text-secondary font-semibold">{i + 1}</span>
-                                        </div>
-                                    )
-                                })}
+                                {Array.from({ length: question.scale === 10 ? 11 : question.scale || 5 }).map(
+                                    (_, i) => {
+                                        // Use predefined height classes for variety
+                                        const heights = ['h-4', 'h-8', 'h-12', 'h-16', 'h-20', 'h-24', 'h-28', 'h-32']
+                                        const randomHeight = heights[Math.floor(Math.random() * heights.length)]
+                                        return (
+                                            <div key={i} className="flex flex-col items-center gap-1 flex-1">
+                                                <LemonSkeleton className={`w-8 sm:w-12 ${randomHeight}`} />
+                                                <span className="text-sm text-secondary font-semibold">
+                                                    {question.scale === 10 ? i : i + 1}
+                                                </span>
+                                            </div>
+                                        )
+                                    }
+                                )}
                             </div>
                         </div>
                         <div className="flex flex-row justify-between">

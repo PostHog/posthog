@@ -1,5 +1,6 @@
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
+import { humanFriendlyNumber } from 'lib/utils'
 import stringWithWBR from 'lib/utils/stringWithWBR'
 import { currencyFormatter } from 'scenes/billing/billing-utils'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
@@ -78,47 +79,33 @@ function renderLink({ value, columnName }: { value: unknown; columnName: string 
     if (!value || isNaN(Number(value))) {
         return <>—</>
     }
-    switch (columnName) {
-        case 'survey responses':
-            return (
-                <div className="min-w-30">
-                    <LemonTableLink to={urls.surveys()} title={value as string} description="in the last 7d" />
-                </div>
-            )
 
-        case 'feature flags':
-            return (
-                <div className="min-w-30">
-                    <LemonTableLink
-                        to={urls.featureFlags()}
-                        title={value as string}
-                        description="evals in the last 7d"
-                    />
-                </div>
-            )
-        case 'mobile recordings':
-            return (
-                <div className="min-w-30">
-                    <LemonTableLink to={urls.replay()} title={value as string} description="in the last 7d" />
-                </div>
-            )
-        case 'data warehouse':
-            return (
-                <div className="min-w-30">
-                    <LemonTableLink
-                        to={urls.sqlEditor()}
-                        title={value as string}
-                        description="rows synced in the last 7d"
-                    />
-                </div>
-            )
-        case 'events':
-            return (
-                <div className="min-w-30">
-                    <LemonTableLink to={urls.activity()} title={value as string} description="in the last 7d" />
-                </div>
-            )
-        default:
-            return <>—</>
+    const cellData = {
+        value: value as string,
+        title: humanFriendlyNumber(Number(value)),
+        url: '',
+        description: 'in the last 7d',
     }
+
+    if (columnName === 'survey responses') {
+        cellData['url'] = urls.surveys()
+    } else if (columnName === 'feature flags') {
+        cellData['url'] = urls.featureFlags()
+        cellData['description'] = 'evals in the last 7d'
+    } else if (columnName === 'mobile recordings') {
+        cellData['url'] = urls.replay()
+    } else if (columnName === 'data warehouse') {
+        cellData['url'] = urls.sqlEditor()
+        cellData['description'] = 'rows synced in the last 7d'
+    } else if (columnName === 'events') {
+        cellData['url'] = urls.activity()
+    } else {
+        return <>—</>
+    }
+
+    return (
+        <div className="min-w-30">
+            <LemonTableLink to={cellData.url} title={cellData.title} description={cellData.description} />
+        </div>
+    )
 }

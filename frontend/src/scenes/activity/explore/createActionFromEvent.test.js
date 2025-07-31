@@ -60,7 +60,7 @@ describe('createActionFromEvent()', () => {
         it('directs to the action page and shows toast', async () => {
             await given.subject()
 
-            expect(router.values.location.pathname).toEqual('/data-management/actions/456')
+            expect(router.values.location.pathname).toEqual('/project/997/data-management/actions/456')
         })
 
         describe('increments', () => {

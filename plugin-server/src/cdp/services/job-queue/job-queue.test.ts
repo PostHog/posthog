@@ -200,7 +200,7 @@ describe('getProducerMapping', () => {
         ],
         [
             'wrong_queue:kafka',
-            'Invalid mapping: wrong_queue:kafka - queue wrong_queue must be one of *, hog, segment, hogflow',
+            'Invalid mapping: wrong_queue:kafka - queue wrong_queue must be one of *, hog, hog_overflow, segment, hogflow',
         ],
         ['hog:kafka:1.1', 'Invalid mapping: hog:kafka:1.1 - percentage 1.1 must be 0 < x <= 1'],
         ['hog:kafka', 'No mapping for the default queue for example: *:postgres'],

@@ -1,3 +1,4 @@
+import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from langchain_core.messages import (
@@ -12,6 +13,10 @@ from langgraph.errors import NodeInterrupt
 from parameterized import parameterized
 
 from ee.hogai.graph.root.nodes import RootNode, RootNodeTools
+from ee.hogai.graph.root.prompts import (
+    ROOT_BILLING_CONTEXT_WITH_ACCESS_PROMPT,
+    ROOT_BILLING_CONTEXT_WITH_NO_ACCESS_PROMPT,
+)
 from ee.hogai.utils.tests import FakeChatOpenAI
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from posthog.schema import (
@@ -26,19 +31,34 @@ from posthog.schema import (
     HumanMessage,
     LifecycleQuery,
     MaxActionContext,
+    MaxBillingContextTrial,
     MaxDashboardContext,
     MaxEventContext,
     MaxInsightContext,
     MaxUIContext,
+    MaxBillingContext,
     RetentionEntity,
     RetentionFilter,
     RetentionQuery,
+    MaxBillingContextSettings,
+    MaxBillingContextSubscriptionLevel,
     TrendsQuery,
 )
 from posthog.test.base import BaseTest, ClickhouseTestMixin
+from posthog.models.organization import OrganizationMembership
 
 
 class TestRootNode(ClickhouseTestMixin, BaseTest):
+    def _create_billing_context(self):
+        """Helper to create test billing context"""
+        return MaxBillingContext(
+            subscription_level=MaxBillingContextSubscriptionLevel.PAID,
+            has_active_subscription=True,
+            products=[],
+            settings=MaxBillingContextSettings(autocapture_on=True, active_destinations=0),
+            trial=MaxBillingContextTrial(is_active=True, expires_at=str(datetime.date(2023, 2, 1)), target="scale"),
+        )
+
     def test_node_handles_plain_chat_response(self):
         with patch(
             "ee.hogai.graph.root.nodes.RootNode._get_model",
@@ -547,6 +567,38 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
             self.assertIn("You are currently in project ", system_content)
             self.assertIn("The user's name appears to be ", system_content)
 
+    @parameterized.expand(
+        [
+            # (membership_level, has_billing_context, expected_access, expected_prompt)
+            [OrganizationMembership.Level.ADMIN, True, True, ROOT_BILLING_CONTEXT_WITH_ACCESS_PROMPT],
+            [OrganizationMembership.Level.ADMIN, False, False, ""],
+            [OrganizationMembership.Level.OWNER, True, True, ROOT_BILLING_CONTEXT_WITH_ACCESS_PROMPT],
+            [OrganizationMembership.Level.OWNER, False, False, ""],
+            [OrganizationMembership.Level.MEMBER, True, False, ROOT_BILLING_CONTEXT_WITH_NO_ACCESS_PROMPT],
+            [OrganizationMembership.Level.MEMBER, False, False, ""],
+        ]
+    )
+    def test_has_billing_access(self, membership_level, has_billing_context, expected_access, expected_prompt):
+        # Set membership level
+        membership = self.user.organization_memberships.get(organization=self.team.organization)
+        membership.level = membership_level
+        membership.save()
+
+        node = RootNode(self.team, self.user)
+
+        # Configure billing context if needed
+        if has_billing_context:
+            billing_context = self._create_billing_context()
+            config = {"configurable": {"billing_context": billing_context.model_dump()}}
+        else:
+            config = {"configurable": {}}
+
+        self.assertEqual(node._get_billing_info(config), (expected_access, expected_prompt))
+
+    # Note: More complex mocking tests for billing tool availability were removed
+    # as they were difficult to maintain. The core billing access logic is tested above
+    # and the routing behavior is tested in the TestRootNodeTools section.
+
 
 class TestRootNodeTools(BaseTest):
     def test_node_tools_router(self):
@@ -780,6 +832,24 @@ class TestRootNodeTools(BaseTest):
             self.assertIsNone(result.root_tool_call_id)
             self.assertEqual(len(result.messages), 1)
             self.assertIsInstance(result.messages[0], AssistantToolCallMessage)
+
+    def test_billing_tool_routing(self):
+        """Test that billing tool calls are routed correctly"""
+        node = RootNodeTools(self.team, self.user)
+
+        # Create state with billing tool call
+        state = AssistantState(
+            messages=[
+                AssistantMessage(
+                    content="Let me check your billing information",
+                    tool_calls=[AssistantToolCall(id="billing-123", name="retrieve_billing_information", args={})],
+                )
+            ],
+            root_tool_call_id="billing-123",
+        )
+
+        # Should route to billing
+        self.assertEqual(node.router(state), "billing")
 
 
 class TestRootNodeUIContextMixin(ClickhouseTestMixin, BaseTest):

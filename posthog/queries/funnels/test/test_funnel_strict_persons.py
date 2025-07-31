@@ -7,7 +7,7 @@ from freezegun import freeze_time
 from posthog.constants import INSIGHT_FUNNELS
 from posthog.models.filters import Filter
 from posthog.queries.funnels.funnel_strict_persons import ClickhouseFunnelStrictActors
-from posthog.session_recordings.queries_to_replace.test.session_replay_sql import (
+from posthog.session_recordings.queries.test.session_replay_sql import (
     produce_replay_summary,
 )
 from posthog.test.base import (

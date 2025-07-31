@@ -24,7 +24,7 @@ from posthog.schema import RecordingsQuery, LogEntryPropertyFilter
 from posthog.session_recordings.models.session_recording_event import (
     SessionRecordingViewed,
 )
-from posthog.session_recordings.queries_to_replace.test.session_replay_sql import (
+from posthog.session_recordings.queries.test.session_replay_sql import (
     produce_replay_summary,
 )
 from posthog.session_recordings.test import setup_stream_from
@@ -784,17 +784,11 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
     # New snapshot loading method
     @freeze_time("2023-01-01T00:00:00Z")
     @patch(
-        "posthog.session_recordings.queries_to_replace.session_replay_events.SessionReplayEvents.exists",
-        return_value=True,
-    )
-    @patch(
-        "posthog.session_recordings.queries_to_delete.session_replay_events.SessionReplayEvents.exists",
+        "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
         return_value=True,
     )
     @patch("posthog.session_recordings.session_recording_api.object_storage.list_objects")
-    def test_get_snapshots_v2_default_response(
-        self, mock_list_objects: MagicMock, _mock_exists_old: MagicMock, _mock_exists_new: MagicMock
-    ) -> None:
+    def test_get_snapshots_v2_default_response(self, mock_list_objects: MagicMock, _mock_exists: MagicMock) -> None:
         session_id = str(uuid.uuid4())
         timestamp = round(now().timestamp() * 1000)
         mock_list_objects.return_value = [
@@ -830,17 +824,11 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
 
     @freeze_time("2023-01-01T00:00:00Z")
     @patch(
-        "posthog.session_recordings.queries_to_replace.session_replay_events.SessionReplayEvents.exists",
-        return_value=True,
-    )
-    @patch(
-        "posthog.session_recordings.queries_to_delete.session_replay_events.SessionReplayEvents.exists",
+        "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
         return_value=True,
     )
     @patch("posthog.session_recordings.session_recording_api.object_storage.list_objects")
-    def test_get_snapshots_blobby_v1_from_lts(
-        self, mock_list_objects: MagicMock, _mock_exists_old: MagicMock, _mock_exists_new: MagicMock
-    ) -> None:
+    def test_get_snapshots_blobby_v1_from_lts(self, mock_list_objects: MagicMock, _mock_exists: MagicMock) -> None:
         session_id = str(uuid.uuid4())
         timestamp = round(now().timestamp() * 1000)
 
@@ -891,17 +879,11 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
 
     @freeze_time("2023-01-01T00:00:00Z")
     @patch(
-        "posthog.session_recordings.queries_to_replace.session_replay_events.SessionReplayEvents.exists",
-        return_value=True,
-    )
-    @patch(
-        "posthog.session_recordings.queries_to_delete.session_replay_events.SessionReplayEvents.exists",
+        "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
         return_value=True,
     )
     @patch("posthog.session_recordings.session_recording_api.object_storage.list_objects")
-    def test_get_snapshots_v2_default_response_no_realtime_if_old(
-        self, mock_list_objects, _mock_exists_old, _mock_exists_new
-    ) -> None:
+    def test_get_snapshots_v2_default_response_no_realtime_if_old(self, mock_list_objects, _mock_exists) -> None:
         session_id = str(uuid.uuid4())
         old_timestamp = round((now() - timedelta(hours=26)).timestamp() * 1000)
 
@@ -923,11 +905,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         }
 
     @patch(
-        "posthog.session_recordings.queries_to_replace.session_replay_events.SessionReplayEvents.exists",
-        return_value=True,
-    )
-    @patch(
-        "posthog.session_recordings.queries_to_delete.session_replay_events.SessionReplayEvents.exists",
+        "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
         return_value=True,
     )
     @patch("posthog.session_recordings.session_recording_api.SessionRecording.get_or_build")
@@ -938,8 +916,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         _mock_stream_from,
         mock_presigned_url,
         mock_get_session_recording,
-        _mock_exists_old,
-        _mock_exists_new,
+        _mock_exists,
     ) -> None:
         session_id = str(uuid.uuid4())
         """API will add session_recordings/team_id/{self.team.pk}/session_id/{session_id}"""
@@ -978,11 +955,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         }
 
     @patch(
-        "posthog.session_recordings.queries_to_replace.session_replay_events.SessionReplayEvents.exists",
-        return_value=True,
-    )
-    @patch(
-        "posthog.session_recordings.queries_to_delete.session_replay_events.SessionReplayEvents.exists",
+        "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
         return_value=True,
     )
     @patch("posthog.session_recordings.session_recording_api.SessionRecording.get_or_build")
@@ -1003,8 +976,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         _mock_stream_from,
         mock_presigned_url,
         mock_get_session_recording,
-        _mock_exists_old,
-        _mock_exists_new,
+        _mock_exists,
     ) -> None:
         session_id = str(uuid.uuid4())
         """API will add session_recordings/team_id/{self.team.pk}/session_id/{session_id}"""
@@ -1031,11 +1003,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         assert response.headers.get("cache-control") == "more specific cache control"
 
     @patch(
-        "posthog.session_recordings.queries_to_replace.session_replay_events.SessionReplayEvents.exists",
-        return_value=True,
-    )
-    @patch(
-        "posthog.session_recordings.queries_to_delete.session_replay_events.SessionReplayEvents.exists",
+        "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
         return_value=True,
     )
     @patch("posthog.session_recordings.session_recording_api.SessionRecording.get_or_build")
@@ -1046,8 +1014,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         mock_stream_from,
         mock_presigned_url,
         mock_get_session_recording,
-        mock_exists_old,
-        mock_exists_new,
+        mock_exists,
     ) -> None:
         session_id = str(uuid.uuid4())
         """API will add session_recordings/team_id/{self.team.pk}/session_id/{session_id}"""
@@ -1075,16 +1042,11 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         # we do check the session before validating input
         # TODO it would be maybe cheaper to validate the input first
         assert mock_get_session_recording.call_count == 1
-        assert mock_exists_new.call_count == 1
-        assert mock_exists_old.call_count == 0
+        assert mock_exists.call_count == 1
 
     @parameterized.expand([("2024-04-30"), (None)])
     @patch(
-        "posthog.session_recordings.queries_to_replace.session_replay_events.SessionReplayEvents.exists",
-        return_value=True,
-    )
-    @patch(
-        "posthog.session_recordings.queries_to_delete.session_replay_events.SessionReplayEvents.exists",
+        "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
         return_value=True,
     )
     @patch("posthog.session_recordings.session_recording_api.SessionRecording.get_or_build")
@@ -1096,8 +1058,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         _mock_stream_from,
         mock_realtime_snapshots,
         mock_get_session_recording,
-        _mock_exists_old,
-        _mock_exists_new,
+        _mock_exists,
     ) -> None:
         session_id = str(uuid.uuid4())
         """
@@ -1430,15 +1391,9 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             ),
         ]
     )
-    @patch(
-        "posthog.session_recordings.queries_to_replace.session_recording_list_from_query.SessionRecordingListFromQuery.run"
-    )
-    @patch(
-        "posthog.session_recordings.queries_to_delete.session_recording_list_from_query.SessionRecordingListFromQuery.run"
-    )
-    def test_session_recordings_query_errors(self, _name, exception, expected_message, mock_run_new, mock_run_old):
-        mock_run_new.side_effect = exception
-        mock_run_old.side_effect = exception
+    @patch("posthog.session_recordings.queries.session_recording_list_from_query.SessionRecordingListFromQuery.run")
+    def test_session_recordings_query_errors(self, _name, exception, expected_message, mock_run):
+        mock_run.side_effect = exception
         response = self.client.get(f"/api/projects/{self.team.id}/session_recordings")
         assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
         assert response.json() == {
@@ -1462,11 +1417,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         ]
     )
     @patch(
-        "posthog.session_recordings.queries_to_replace.session_replay_events.SessionReplayEvents.exists",
-        return_value=True,
-    )
-    @patch(
-        "posthog.session_recordings.queries_to_delete.session_replay_events.SessionReplayEvents.exists",
+        "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
         return_value=True,
     )
     @patch("posthog.session_recordings.session_recording_api.SessionRecording.get_or_build")
@@ -1482,8 +1433,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         mock_realtime_snapshots,
         mock_presigned_url,
         mock_get_session_recording,
-        _mock_exists_old,
-        _mock_exists_new,
+        _mock_exists,
     ):
         session_id = str(uuid.uuid4())
 
@@ -1514,11 +1464,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             assert "detail" in response_data or "error" in response_data
 
     @patch(
-        "posthog.session_recordings.queries_to_replace.session_replay_events.SessionReplayEvents.exists",
-        return_value=True,
-    )
-    @patch(
-        "posthog.session_recordings.queries_to_delete.session_replay_events.SessionReplayEvents.exists",
+        "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
         return_value=True,
     )
     @patch("posthog.session_recordings.session_recording_api.SessionRecording.get_or_build")
@@ -1529,8 +1475,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         mock_client,
         mock_list_blocks,
         mock_get_session_recording,
-        _mock_exists_old,
-        _mock_exists_new,
+        _mock_exists,
     ) -> None:
         """Test that blob_v2 with blob_keys parameter works correctly"""
         session_id = str(uuid.uuid4())
@@ -1567,11 +1512,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
 
     @parameterized.expand([("0", ""), ("", "1")])
     @patch(
-        "posthog.session_recordings.queries_to_replace.session_replay_events.SessionReplayEvents.exists",
-        return_value=True,
-    )
-    @patch(
-        "posthog.session_recordings.queries_to_delete.session_replay_events.SessionReplayEvents.exists",
+        "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
         return_value=True,
     )
     @patch("posthog.session_recordings.session_recording_api.SessionRecording.get_or_build")
@@ -1582,8 +1523,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         end_key,
         mock_list_blocks,
         mock_get_session_recording,
-        _mock_exists_old,
-        _mock_exists_new,
+        _mock_exists,
     ) -> None:
         session_id = str(uuid.uuid4())
 
@@ -1600,11 +1540,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         [(0, "a"), ("a", 1)],
     )
     @patch(
-        "posthog.session_recordings.queries_to_replace.session_replay_events.SessionReplayEvents.exists",
-        return_value=True,
-    )
-    @patch(
-        "posthog.session_recordings.queries_to_delete.session_replay_events.SessionReplayEvents.exists",
+        "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
         return_value=True,
     )
     @patch("posthog.session_recordings.session_recording_api.SessionRecording.get_or_build")
@@ -1613,8 +1549,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         start_key,
         end_key,
         mock_get_session_recording,
-        _mock_exists_old,
-        _mock_exists_new,
+        _mock_exists,
     ) -> None:
         session_id = str(uuid.uuid4())
 
@@ -1626,19 +1561,14 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         assert "Blob key must be an integer" in response.json()["detail"]
 
     @patch(
-        "posthog.session_recordings.queries_to_replace.session_replay_events.SessionReplayEvents.exists",
-        return_value=True,
-    )
-    @patch(
-        "posthog.session_recordings.queries_to_delete.session_replay_events.SessionReplayEvents.exists",
+        "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
         return_value=True,
     )
     @patch("posthog.session_recordings.session_recording_api.SessionRecording.get_or_build")
     def test_blob_v2_with_too_many_blob_keys_returns_400(
         self,
         mock_get_session_recording,
-        _mock_exists_old,
-        _mock_exists_new,
+        _mock_exists,
     ) -> None:
         """Test that requesting more than 100 blob keys returns 400"""
         session_id = str(uuid.uuid4())
@@ -1652,19 +1582,14 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         assert "Cannot request more than 100 blob keys" in response.json()["detail"]
 
     @patch(
-        "posthog.session_recordings.queries_to_replace.session_replay_events.SessionReplayEvents.exists",
-        return_value=True,
-    )
-    @patch(
-        "posthog.session_recordings.queries_to_delete.session_replay_events.SessionReplayEvents.exists",
+        "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
         return_value=True,
     )
     @patch("posthog.session_recordings.session_recording_api.SessionRecording.get_or_build")
     def test_blob_v2_personal_api_key_cannot_request_more_than_20_blob_keys(
         self,
         mock_get_session_recording,
-        _mock_exists_old,
-        _mock_exists_new,
+        _mock_exists,
     ) -> None:
         session_id = str(uuid.uuid4())
 
@@ -1687,19 +1612,14 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         assert "Cannot request more than 20 blob keys at once" in response.json()["detail"]
 
     @patch(
-        "posthog.session_recordings.queries_to_replace.session_replay_events.SessionReplayEvents.exists",
-        return_value=True,
-    )
-    @patch(
-        "posthog.session_recordings.queries_to_delete.session_replay_events.SessionReplayEvents.exists",
+        "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
         return_value=True,
     )
     @patch("posthog.session_recordings.session_recording_api.SessionRecording.get_or_build")
     def test_blob_v2_cannot_provide_both_blob_key_and_blob_keys(
         self,
         mock_get_session_recording,
-        _mock_exists_old,
-        _mock_exists_new,
+        _mock_exists,
     ) -> None:
         """Test that providing both blob_key and blob_keys returns 400"""
         session_id = str(uuid.uuid4())
@@ -1714,11 +1634,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         assert "Must provide a single blob key or start and end blob keys, not both" in response.json()["detail"]
 
     @patch(
-        "posthog.session_recordings.queries_to_replace.session_replay_events.SessionReplayEvents.exists",
-        return_value=True,
-    )
-    @patch(
-        "posthog.session_recordings.queries_to_delete.session_replay_events.SessionReplayEvents.exists",
+        "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
         return_value=True,
     )
     @patch("posthog.session_recordings.session_recording_api.SessionRecording.get_or_build")
@@ -1727,8 +1643,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         self,
         mock_list_blocks,
         mock_get_session_recording,
-        _mock_exists_old,
-        _mock_exists_new,
+        _mock_exists,
     ) -> None:
         """Test that requesting block indices out of range returns 404"""
         session_id = str(uuid.uuid4())
@@ -1756,11 +1671,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         ),
     )
     @patch(
-        "posthog.session_recordings.queries_to_replace.session_replay_events.SessionReplayEvents.exists",
-        return_value=True,
-    )
-    @patch(
-        "posthog.session_recordings.queries_to_delete.session_replay_events.SessionReplayEvents.exists",
+        "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
         return_value=True,
     )
     @patch("posthog.session_recordings.session_recording_api.object_storage.list_objects")
@@ -1769,8 +1680,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         self,
         _mock_feature_enabled: MagicMock,
         mock_list_objects: MagicMock,
-        _mock_exists_old: MagicMock,
-        _mock_exists_new: MagicMock,
+        _mock_exists: MagicMock,
         _mock_v2_list_blocks: MagicMock,
     ) -> None:
         session_id = str(uuid.uuid4())
@@ -1846,7 +1756,6 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
 
     def test_bulk_delete_session_recordings(self):
-        """Test successful bulk delete of session recordings"""
         Person.objects.create(
             team=self.team,
             distinct_ids=["user1", "user2"],
@@ -1903,7 +1812,6 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         ]
     )
     def test_bulk_delete_validation_errors(self, test_name, request_data, expected_error_message):
-        """Test bulk delete validation errors"""
         response = self.client.post(
             f"/api/projects/{self.team.id}/session_recordings/bulk_delete",
             request_data,
@@ -1913,7 +1821,6 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         assert response.json()["detail"] == expected_error_message
 
     def test_bulk_delete_skips_already_deleted_recordings(self):
-        """Test bulk delete skips recordings that are already deleted"""
         Person.objects.create(
             team=self.team,
             distinct_ids=["user1"],
@@ -1949,7 +1856,6 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         assert response_data["total_requested"] == 2
 
     def test_bulk_delete_nonexistent_recordings(self):
-        """Test bulk delete with nonexistent recordings"""
         session_ids = ["nonexistent_1", "nonexistent_2"]
 
         response = self.client.post(
@@ -1965,7 +1871,6 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         assert response_data["total_requested"] == 2
 
     def test_bulk_delete_mixed_existing_and_nonexistent(self):
-        """Test bulk delete with mix of existing and nonexistent recordings"""
         Person.objects.create(
             team=self.team,
             distinct_ids=["user1"],
@@ -1992,7 +1897,6 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         assert response_data["total_requested"] == 2
 
     def test_bulk_delete_creates_postgres_records_for_clickhouse_only_recordings(self):
-        """Test that bulk delete creates PostgreSQL records for ClickHouse-only recordings"""
         Person.objects.create(
             team=self.team,
             distinct_ids=["user1"],
@@ -2026,7 +1930,6 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
 
     @patch("posthog.session_recordings.session_recording_api.logger")
     def test_bulk_delete_logging(self, mock_logger):
-        """Test that bulk delete logs the operation"""
         Person.objects.create(
             team=self.team,
             distinct_ids=["user1"],
@@ -2055,7 +1958,6 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         )
 
     def test_bulk_delete_doesnt_leak_teams(self):
-        """Test that bulk delete doesn't affect recordings from other teams"""
         other_team = Team.objects.create(organization=self.organization)
         Person.objects.create(
             team=other_team,
@@ -2081,3 +1983,148 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         # Should not delete anything since recording belongs to other team
         assert response_data["deleted_count"] == 0
         assert response_data["total_requested"] == 1
+
+    def test_bulk_viewed_session_recordings(self):
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=["user1", "user2"],
+            properties={"email": "test@example.com"},
+        )
+
+        base_time = now() - relativedelta(days=1)
+
+        # Create test recordings
+        session_ids = ["bulk_viewed_test_1", "bulk_viewed_test_2", "bulk_viewed_test_3"]
+        for session_id in session_ids:
+            self.produce_replay_summary("user1", session_id, base_time)
+
+        # Bulk mark as viewed
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/session_recordings/bulk_viewed",
+            {"session_recording_ids": session_ids},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        response_data = response.json()
+
+        assert response_data["success"]
+        assert response_data["viewed_count"] == 3
+        assert response_data["total_requested"] == 3
+
+        # Verify recordings are marked as viewed in database
+        for session_id in session_ids:
+            viewed_record = SessionRecordingViewed.objects.get(team=self.team, user=self.user, session_id=session_id)
+            assert viewed_record is not None
+
+    def test_bulk_viewed_handles_duplicates(self):
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=["user1"],
+            properties={"email": "test@example.com"},
+        )
+
+        base_time = now() - relativedelta(days=1)
+        session_ids = ["bulk_viewed_dup_1", "bulk_viewed_dup_2", "bulk_viewed_dup_3"]
+
+        for session_id in session_ids:
+            self.produce_replay_summary("user1", session_id, base_time)
+
+        # Mark first two as already viewed
+        for session_id in session_ids[:2]:
+            SessionRecordingViewed.objects.create(
+                team=self.team,
+                user=self.user,
+                session_id=session_id,
+            )
+
+        # Bulk mark all as viewed (including already viewed ones)
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/session_recordings/bulk_viewed",
+            {"session_recording_ids": session_ids},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        response_data = response.json()
+
+        # Should process all 3 recordings (viewed_count represents total processed)
+        assert response_data["viewed_count"] == 3
+        assert response_data["total_requested"] == 3
+
+        # Verify all recordings are marked as viewed in database
+        for session_id in session_ids:
+            viewed_record = SessionRecordingViewed.objects.get(team=self.team, user=self.user, session_id=session_id)
+            assert viewed_record is not None
+
+    def test_bulk_not_viewed_session_recordings(self):
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=["user1"],
+            properties={"email": "test@example.com"},
+        )
+
+        base_time = now() - relativedelta(days=1)
+        session_ids = ["bulk_not_viewed_test_1", "bulk_not_viewed_test_2", "bulk_not_viewed_test_3"]
+
+        for session_id in session_ids:
+            self.produce_replay_summary("user1", session_id, base_time)
+
+        # First mark all as viewed
+        for session_id in session_ids:
+            SessionRecordingViewed.objects.create(
+                team=self.team,
+                user=self.user,
+                session_id=session_id,
+            )
+
+        # Bulk mark as not viewed
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/session_recordings/bulk_not_viewed",
+            {"session_recording_ids": session_ids},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        response_data = response.json()
+
+        assert response_data["success"]
+        assert response_data["not_viewed_count"] == 3
+        assert response_data["total_requested"] == 3
+
+        # Verify viewed records are deleted
+        for session_id in session_ids:
+            assert not SessionRecordingViewed.objects.filter(
+                team=self.team, user=self.user, session_id=session_id
+            ).exists()
+
+    def test_bulk_not_viewed_handles_already_not_viewed(self):
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=["user1"],
+            properties={"email": "test@example.com"},
+        )
+
+        base_time = now() - relativedelta(days=1)
+        session_ids = ["bulk_not_viewed_mixed_1", "bulk_not_viewed_mixed_2", "bulk_not_viewed_mixed_3"]
+
+        for session_id in session_ids:
+            self.produce_replay_summary("user1", session_id, base_time)
+
+        # Mark only first two as viewed
+        for session_id in session_ids[:2]:
+            SessionRecordingViewed.objects.create(
+                team=self.team,
+                user=self.user,
+                session_id=session_id,
+            )
+
+        # Bulk mark all as not viewed (including one that wasn't viewed)
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/session_recordings/bulk_not_viewed",
+            {"session_recording_ids": session_ids},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        response_data = response.json()
+
+        # Should only delete 2 viewed records
+        assert response_data["not_viewed_count"] == 2
+        assert response_data["total_requested"] == 3

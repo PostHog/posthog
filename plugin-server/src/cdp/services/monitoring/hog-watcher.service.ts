@@ -1,4 +1,4 @@
-import { Counter, Histogram } from 'prom-client'
+import { Counter } from 'prom-client'
 
 import { captureTeamEvent } from '~/utils/posthog'
 
@@ -30,12 +30,6 @@ export type HogWatcherFunctionState = {
     tokens: number
     rating: number
 }
-
-export const hogFunctionExecutionTimeSummary = new Histogram({
-    name: 'cdp_hog_watcher_duration',
-    help: 'Processing time of hog function execution by kind',
-    labelNames: ['kind'],
-})
 
 export const hogFunctionStateChange = new Counter({
     name: 'hog_function_state_change',
@@ -118,13 +112,21 @@ export class HogWatcherService {
         tokens = tokens ?? this.hub.CDP_WATCHER_BUCKET_SIZE
         const rating = tokens / this.hub.CDP_WATCHER_BUCKET_SIZE
 
-        const state =
-            stateOverride ??
-            (rating >= this.hub.CDP_WATCHER_THRESHOLD_DEGRADED
-                ? HogWatcherState.healthy
-                : rating > 0
-                ? HogWatcherState.degraded
-                : HogWatcherState.disabledForPeriod)
+        let state: HogWatcherState
+
+        if (stateOverride) {
+            state = stateOverride
+        } else if (rating >= this.hub.CDP_WATCHER_THRESHOLD_DEGRADED) {
+            state = HogWatcherState.healthy
+        } else if (rating > 0) {
+            state = HogWatcherState.degraded
+        } else {
+            if (this.hub.CDP_WATCHER_AUTOMATICALLY_DISABLE_FUNCTIONS) {
+                state = HogWatcherState.disabledForPeriod
+            } else {
+                state = HogWatcherState.degraded
+            }
+        }
 
         return { state, tokens, rating }
     }
@@ -147,15 +149,13 @@ export class HogWatcherService {
             const tokens = res ? res[resIndex][1] : undefined
             const disabled = res ? res[resIndex + 1][1] : false
             const disabledTemporarily = disabled && res ? res[resIndex + 2][1] !== -1 : false
+            const stateOverride = disabled
+                ? disabledTemporarily
+                    ? HogWatcherState.disabledForPeriod
+                    : HogWatcherState.disabledIndefinitely
+                : undefined
 
-            acc[id] = this.tokensToFunctionState(
-                tokens,
-                disabled
-                    ? disabledTemporarily
-                        ? HogWatcherState.disabledForPeriod
-                        : HogWatcherState.disabledIndefinitely
-                    : undefined
-            )
+            acc[id] = this.tokensToFunctionState(tokens, stateOverride)
 
             return acc
         }, {} as Record<HogFunctionType['id'], HogWatcherFunctionState>)
@@ -211,7 +211,6 @@ export class HogWatcherService {
                 // Process each timing entry individually instead of totaling them
                 for (const timing of result.invocation.state.timings) {
                     // Record metrics for this timing entry
-                    hogFunctionExecutionTimeSummary.labels({ kind: timing.kind }).observe(timing.duration_ms)
 
                     const costConfig = this.costsMapping[timing.kind]
                     if (costConfig) {
@@ -235,6 +234,10 @@ export class HogWatcherService {
         // TRICKY: the above part is straight forward - below is more complex as we do multiple calls to ensure
         // that we disable the function temporarily and eventually permanently. As this is only called when the function
         // transitions to a disabled state, it is not a performance concern.
+
+        if (!this.hub.CDP_WATCHER_AUTOMATICALLY_DISABLE_FUNCTIONS) {
+            return
+        }
 
         const disabledFunctionIds = Object.entries(costs)
             .filter((_, index) => (res ? res[index][1] <= 0 : false))

@@ -95,6 +95,7 @@ def apply_dashboard_variables(query: Any, variables_overrides: dict[str, dict], 
                     variableId=variable_id,
                     code_name=query_variable.code_name,
                     value=overriden_hogql_variable.get("value"),
+                    isNull=overriden_hogql_variable.get("isNull"),
                 )
 
         return query.model_copy(update={"variables": updated_variables})

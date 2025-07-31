@@ -60,7 +60,7 @@ const removeEntity = <TContext extends EntityWithIdAndType>(state: TContext[], i
 export type LoadedEntitiesMap = { dashboard: number[]; insight: string[] }
 
 export const maxContextLogic = kea<maxContextLogicType>([
-    path(['lib', 'ai', 'maxContextLogic']),
+    path(['scenes', 'max', 'maxContextLogic']),
     connect(() => ({
         values: [
             insightSceneLogic,

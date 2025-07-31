@@ -6,6 +6,7 @@ from django.utils.translation import gettext_lazy as _
 from django.urls import reverse
 from django.http import HttpResponseRedirect
 from django.contrib import messages
+from django.core.exceptions import ValidationError
 
 from posthog.admin.inlines.organization_member_inline import OrganizationMemberInline
 from posthog.admin.inlines.totp_device_inline import TOTPDeviceInline
@@ -28,6 +29,14 @@ class UserChangeForm(DjangoUserChangeForm):
             f'<a target="_blank" href="/reset/{self.instance.uuid}/{password_reset_token}">this password reset link</a> '
             "(it only works when logged out)."
         )
+
+    def clean_is_staff(self):
+        is_staff = bool(self.cleaned_data.get("is_staff", False))
+        enabled_is_staff = is_staff and (not getattr(self.instance, "is_staff", False))
+        if enabled_is_staff and not self.instance.email.endswith("@posthog.com"):
+            raise ValidationError("Only users with a posthog.com email address may be promoted to staff.")
+
+        return is_staff
 
 
 class UserAdmin(DjangoUserAdmin):

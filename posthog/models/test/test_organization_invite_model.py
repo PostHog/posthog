@@ -253,3 +253,43 @@ class TestOrganizationInvite(BaseTest):
 
         # Verify the invite has been deleted
         self.assertFalse(OrganizationInvite.objects.filter(target_email="no_access@posthog.com").exists())
+
+    def test_invite_use_only_deletes_organization_specific_invites(self):
+        """Test that using an invite only deletes invites for the specific organization, not all organizations"""
+        from posthog.models import Organization
+
+        # Create a second organization
+        second_org = Organization.objects.create(name="Second Org")
+
+        # Create a user who will use the invite
+        user = User.objects.create_user(email="cross_org@posthog.com", password="password", first_name="Test")
+
+        # Create invites with the same email in both organizations
+        invite_org1 = OrganizationInvite.objects.create(
+            organization=self.organization,
+            target_email="cross_org@posthog.com",
+        )
+        invite_org2 = OrganizationInvite.objects.create(
+            organization=second_org,
+            target_email="cross_org@posthog.com",
+        )
+
+        # Verify both invites exist before using one
+        self.assertTrue(OrganizationInvite.objects.filter(id=invite_org1.id).exists())
+        self.assertTrue(OrganizationInvite.objects.filter(id=invite_org2.id).exists())
+
+        # Use the invite for the first organization
+        invite_org1.use(user, prevalidated=True)
+
+        # Verify the user has been added to the first organization
+        org_membership = OrganizationMembership.objects.filter(organization=self.organization, user=user).first()
+        self.assertIsNotNone(org_membership)
+
+        # Verify the invite for the first organization has been deleted
+        self.assertFalse(OrganizationInvite.objects.filter(id=invite_org1.id).exists())
+
+        # Verify the invite for the second organization still exists
+        self.assertTrue(OrganizationInvite.objects.filter(id=invite_org2.id).exists())
+
+        # Clean up
+        second_org.delete()

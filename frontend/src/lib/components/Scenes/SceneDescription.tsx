@@ -77,8 +77,7 @@ export function SceneDescription({
     ) : (
         <ScenePanelLabel title="Description">
             <ButtonPrimitive
-                className="hyphens-auto flex gap-1 items-center"
-                lang="en"
+                className="flex gap-1 items-center break-words line-clamp-5"
                 onClick={() => setLocalIsEditing(true)}
                 tooltip={canEdit ? 'Edit description' : 'Description is read-only'}
                 autoHeight

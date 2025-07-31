@@ -35,7 +35,7 @@ export function MetricsTable({
     } = useValues(experimentLogic)
     const { duplicateMetric, updateExperimentMetrics } = useActions(experimentLogic)
 
-    // Calculate shared chartRadius across all metrics
+    // Calculate shared axisRange across all metrics
     const maxAbsValue = Math.max(
         ...results.flatMap((result: NewExperimentQueryResponse) => {
             const variantResults = result?.variant_results || []
@@ -47,7 +47,7 @@ export function MetricsTable({
     )
 
     const axisMargin = Math.max(maxAbsValue * 0.05, 0.1)
-    const chartRadius = maxAbsValue + axisMargin
+    const axisRange = maxAbsValue + axisMargin
 
     // Check if duplicating would exceed the metric limit
     const currentMetricCount = isSecondary
@@ -67,7 +67,15 @@ export function MetricsTable({
     return (
         <div className="w-full overflow-x-auto rounded-md border">
             <table className="w-full border-collapse text-sm">
-                <TableHeader results={results} chartRadius={chartRadius} />
+                <colgroup>
+                    <col />
+                    <col />
+                    <col />
+                    <col />
+                    <col />
+                    <col className="min-w-[400px]" />
+                </colgroup>
+                <TableHeader axisRange={axisRange} />
                 <tbody>
                     {metrics.map((metric, metricIndex) => {
                         const result = results[metricIndex]
@@ -83,7 +91,7 @@ export function MetricsTable({
                                 experiment={experiment}
                                 metricType={getInsightType(metric)}
                                 metricIndex={metricIndex}
-                                chartRadius={chartRadius}
+                                axisRange={axisRange}
                                 isSecondary={isSecondary}
                                 isLastMetric={metricIndex === metrics.length - 1}
                                 isAlternatingRow={metricIndex % 2 === 1}

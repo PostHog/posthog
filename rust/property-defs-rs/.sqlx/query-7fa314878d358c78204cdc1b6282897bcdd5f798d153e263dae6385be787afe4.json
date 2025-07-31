@@ -6,7 +6,7 @@
     "parameters": {
       "Left": [
         "Uuid",
-        "Varchar",
+        "Text",
         "Int4",
         "Int8",
         "Timestamptz"

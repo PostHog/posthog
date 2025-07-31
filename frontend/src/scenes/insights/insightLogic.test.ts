@@ -596,7 +596,7 @@ describe('insightLogic', () => {
         await expectLogic(router)
             .toDispatchActions(['push', 'locationChanged'])
             .toMatchValues({
-                location: partial({ pathname: '/insights/12/edit' }),
+                location: partial({ pathname: '/project/997/insights/12/edit' }),
             })
     })
 

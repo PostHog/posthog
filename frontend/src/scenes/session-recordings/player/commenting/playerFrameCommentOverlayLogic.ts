@@ -1,4 +1,4 @@
-import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
@@ -32,6 +32,7 @@ export interface PlayerCommentOverlayLogicProps extends SessionRecordingPlayerLo
 
 export const playerCommentOverlayLogic = kea<playerCommentOverlayLogicType>([
     path(['scenes', 'session-recordings', 'player', 'PlayerFrameAnnotationOverlay']),
+    key((props) => props.recordingId ?? 'unknown'),
     props({} as PlayerCommentOverlayLogicProps),
     connect((props: PlayerCommentOverlayLogicProps) => ({
         values: [sessionRecordingPlayerLogic(props), ['currentPlayerTime', 'currentTimestamp', 'sessionPlayerData']],

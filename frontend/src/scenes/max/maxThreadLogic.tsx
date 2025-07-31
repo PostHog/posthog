@@ -44,11 +44,9 @@ import {
     isReasoningMessage,
 } from './utils'
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
-import { router } from 'kea-router'
-import { urls } from 'scenes/urls'
-import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
-import { openNotebook } from '~/models/notebooksModel'
-import { JSONContent } from 'scenes/notebooks/Notebook/utils'
+import { maxBillingContextLogic } from './maxBillingContextLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 export type MessageStatus = 'loading' | 'completed' | 'error'
 
@@ -100,6 +98,10 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             ['question', 'threadKeys', 'autoRun', 'conversationId as selectedConversationId', 'activeStreamingThreads'],
             maxContextLogic,
             ['compiledContext'],
+            maxBillingContextLogic,
+            ['billingContext'],
+            featureFlagLogic,
+            ['featureFlags'],
         ],
         actions: [
             maxLogic,
@@ -269,8 +271,8 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 actions.setTraceId(traceId)
                 apiData.trace_id = traceId
 
-                if (values.deepResearchMode) {
-                    apiData.deep_research_mode = true
+                if (values.billingContext && values.featureFlags[FEATURE_FLAGS.MAX_BILLING_CONTEXT]) {
+                    apiData.billing_context = values.billingContext
                 }
 
                 const response = await api.conversations.stream(apiData, {

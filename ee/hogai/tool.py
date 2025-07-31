@@ -68,6 +68,13 @@ class search_documentation(BaseModel):
     """
 
 
+class retrieve_billing_information(BaseModel):
+    """
+    Retrieve detailed billing information for the current organization.
+    Use this tool when the user asks about billing, subscription, usage, or spending related questions.
+    """
+
+
 CONTEXTUAL_TOOL_NAME_TO_TOOL: dict[AssistantContextualTool, type["MaxTool"]] = {}
 
 

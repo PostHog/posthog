@@ -1,0 +1,183 @@
+<patterns_chunks_format>
+You'll receive multiple YAML blocks, each representing patterns extracted from different chunks of user session analysis. Each YAML block contains a list of patterns with the following structure:
+
+- pattern_id: A unique identifier within that chunk
+- pattern_name: A concise, descriptive title for the pattern
+- pattern_description: A detailed explanation of what the pattern represents
+- severity: The impact level (critical | high | medium)
+- indicators: A list of observable behaviors or events that confirm this pattern
+
+Each chunk represents patterns found in a subset of analyzed sessions. Your task is to consolidate these patterns across all chunks, identifying and merging similar patterns while preserving important unique ones.
+</patterns_chunks_format>
+
+<patterns_chunks_input>
+```
+{{ PATTERNS_CHUNKS|safe }}
+```
+</patterns_chunks_input>
+
+<pattern_consolidation_instructions>
+You are consolidating multiple sets of extracted patterns from different session analysis chunks into a single, unified list of patterns. Each chunk contains patterns identified from analyzing user sessions, and your goal is to create a comprehensive yet concise pattern list that captures all unique issues without redundancy.
+
+## Step 0: Initial Assessment
+
+Before processing patterns, quickly scan all chunks to understand:
+- Total unique feature areas mentioned across all chunks
+- Range of severity levels present
+- Common terminology/naming conventions used
+This context will help you make better consolidation decisions.
+
+## Step 1: Parse and Inventory All Patterns
+
+1.1. Parse all YAML chunks and create an inventory:
+- Extract all patterns from each chunk
+- Note the chunk source for each pattern
+- Create a working list with: pattern name, description, severity, indicators, and source chunk
+
+1.2. Initial count and overview:
+- Total number of patterns across all chunks
+- Distribution of severity levels
+- Common themes or feature areas mentioned
+
+## Step 2: Identify Similar Patterns for Consolidation
+
+2.1. Group patterns by similarity using these criteria:
+- **Same feature/flow area**: Patterns affecting the same user journey stage or feature
+- **Similar root cause**: Patterns describing the same underlying issue
+- **Overlapping indicators**: Patterns with 2+ similar indicators (even if worded differently)
+- **Same user behavior type**: Patterns describing similar user reactions (confusion, abandonment, errors)
+
+2.2. Similarity decision process:
+For each pair of patterns, ask in order:
+- Are they in the same feature/flow area AND have similar root cause? → MERGE
+- Are they in the same feature area AND share 2+ indicators? → MERGE  
+- Do they share 3+ indicators AND describe the same user behavior? → MERGE
+- Otherwise → KEEP SEPARATE
+
+Examples:
+✓ "Search Results Confusion" and "Search Navigation Issues" → Similar (same feature area)
+✓ "Checkout Form Errors" and "Payment Form Validation Issues" → Similar (same flow stage)
+✗ "Login Authentication Errors" and "Login Page Loading Issues" → Different (technical vs performance)
+
+2.3. Create similarity groups and track frequency:
+- List patterns that should be consolidated together
+- Track pattern frequency: how many chunks contain each pattern (e.g., "appears in 5/10 chunks")
+- Note: Frequency determines inclusion priority, NOT severity
+- Patterns appearing in 50%+ chunks should almost always be included in final list
+- Note relationships between patterns (e.g., "Pattern A often precedes Pattern B")
+- These relationships can inform final pattern descriptions
+- Identify patterns that are unique to single chunks
+
+## Step 3: Synthesize Consolidated Patterns
+
+For each group of similar patterns:
+
+3.1. Create synthesized pattern name:
+- Choose the most descriptive and specific name
+- Or create a new name that better captures the consolidated issue
+- Keep it concise (3-6 words)
+- Avoid generic terms like "Issues" or "Problems" alone
+
+3.2. Write unified description:
+- Synthesize descriptions to capture the full scope
+- Focus on user impact and affected areas
+- Keep to 1-2 clear sentences
+- Don't just concatenate - create a coherent new description
+
+3.3. Consolidate indicators per combined pattern:
+- Review all indicators from similar patterns
+- Semantically merge similar indicators:
+  * Exact duplicates → Keep one
+  * Similar meaning → Combine into comprehensive version
+  * Different aspects → Keep both if they add value
+- Select the 5-6 most representative indicators that cover all cases
+- Prioritize indicators that appeared across multiple patterns
+- Ensure indicators remain specific and observable
+- Focus on coverage: final indicators should represent all important behaviors from merged patterns
+
+3.4. Determine severity:
+- Count severity levels across all similar patterns
+- Choose the most common severity level
+- If tied, choose the lower severity to avoid overhyping
+- Example: If pattern appears as "high" once and "medium" twice → "medium"
+
+## Step 4: Review Unique Patterns
+
+4.1. For patterns appearing in only one chunk:
+- Evaluate if they represent genuine issues worth preserving
+- Keep if they indicate important problems
+- Remove if they seem like anomalies or overly specific edge cases
+
+4.2. Quality check for unique patterns:
+- Do they affect important user flows?
+- Are they actionable?
+- Do they add value to the final pattern list?
+
+## Step 5: Final Pattern List Assembly
+
+5.1. Combine consolidated and unique patterns:
+- Assign new sequential pattern IDs starting from 1
+- Order patterns by severity (critical → high → medium)
+- Within same severity, order by frequency (patterns appearing in more chunks first)
+- Remember: Frequency affects inclusion and ordering, NOT severity level
+
+5.2. Final count check:
+- Aim for up to 20 patterns maximum
+- If over 20, further consolidate or remove lowest-impact patterns
+- Fewer patterns is acceptable if input data supports it
+
+## Step 6: Quality Assurance
+
+Before finalizing, verify:
+
+6.1. Distinctiveness check:
+- Each pattern represents a unique issue
+- No accidental merging of different problems
+- Patterns are sufficiently different from each other
+
+6.2. Coverage check:
+- Major issues from all chunks are represented
+- No important patterns were lost in consolidation
+
+6.3. Actionability check:
+- Each pattern is specific enough to guide improvements
+- Severity levels make sense for the described impact
+- Indicators are observable and verifiable
+
+6.4. Indicator limit check:
+- Each pattern has maximum 5-6 indicators
+- Indicators are not redundant within same pattern
+
+## Consolidation Example:
+
+If you have these patterns across chunks:
+
+Chunk 1: "Search Filter Confusion" (medium) - users clicking filters repeatedly
+Chunk 2: "Search Refinement Issues" (high) - filter selections not working
+Chunk 3: "Search Filter Problems" (medium) - users abandoning after filter attempts
+
+Consolidate to:
+- Name: "Search Filter Usability Issues"
+- Description: "Users experience confusion and frustration with search filters, leading to repeated attempts and abandonment when filters don't work as expected."
+- Severity: medium (appears 2x as medium, 1x as high)
+- Indicators: [synthesized list of 5-6 best indicators from all three]
+</pattern_consolidation_instructions>
+
+<output_format>
+Provide your consolidated pattern analysis in YAML format matching the structure used in the input chunks.
+
+Requirements:
+- Use sequential pattern_ids starting from 1
+- Maximum 20 patterns (fewer is fine)
+- Maximum 5-6 indicators per pattern
+- Order by severity (critical → high → medium)
+- Always use quotes around indicator strings containing special characters
+- Replace comparison operators with words (">3" → "more than 3")
+- Avoid special YAML characters at the beginning of unquoted strings
+</output_format>
+
+<output_example>
+```yaml
+{{PATTERNS_COMBINING_EXAMPLE|safe }}
+```
+</output_example>

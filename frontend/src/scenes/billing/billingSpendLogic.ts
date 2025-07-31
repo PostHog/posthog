@@ -24,6 +24,12 @@ import { billingLogic } from './billingLogic'
 import type { billingSpendLogicType } from './billingSpendLogicType'
 import type { BillingFilters } from './types'
 
+export enum BillingSpendResponseBreakdownType {
+    TYPE = 'type',
+    TEAM = 'team',
+    MULTIPLE = 'multiple',
+}
+
 export interface BillingSpendResponse {
     status: 'ok'
     type: 'timeseries'
@@ -33,7 +39,7 @@ export interface BillingSpendResponse {
         label: string
         data: number[]
         dates: string[]
-        breakdown_type: 'type' | 'team' | 'multiple' | null
+        breakdown_type: BillingSpendResponseBreakdownType | null
         breakdown_value: string | string[] | null
     }>
     team_id_options?: number[]
@@ -47,8 +53,14 @@ export const DEFAULT_BILLING_SPEND_FILTERS: BillingFilters = {
     interval: 'day',
 }
 
+export const DEFAULT_BILLING_SPEND_DATE_FROM = dayjs().subtract(1, 'month').subtract(1, 'day').format('YYYY-MM-DD')
+export const DEFAULT_BILLING_SPEND_DATE_TO = dayjs().subtract(1, 'day').format('YYYY-MM-DD')
+
 export interface BillingSpendLogicProps {
     dashboardItemId?: string
+    initialFilters?: BillingFilters
+    dateFrom?: string
+    dateTo?: string
 }
 
 export const billingSpendLogic = kea<billingSpendLogicType>([
@@ -104,9 +116,9 @@ export const billingSpendLogic = kea<billingSpendLogicType>([
             },
         ],
     })),
-    reducers({
+    reducers(({ props }) => ({
         filters: [
-            { ...DEFAULT_BILLING_SPEND_FILTERS } as BillingFilters,
+            { ...(props.initialFilters || DEFAULT_BILLING_SPEND_FILTERS) },
             {
                 setFilters: (state, { filters }) => ({ ...state, ...filters }),
                 toggleBreakdown: (state: BillingFilters, { dimension }: { dimension: 'type' | 'team' }) => {
@@ -116,22 +128,21 @@ export const billingSpendLogic = kea<billingSpendLogicType>([
                         : [...current, dimension]
                     return { ...state, breakdowns: next }
                 },
-                resetFilters: () => ({ ...DEFAULT_BILLING_SPEND_FILTERS }),
+                resetFilters: () => ({ ...(props.initialFilters || DEFAULT_BILLING_SPEND_FILTERS) }),
             },
         ],
         dateFrom: [
-            dayjs().subtract(1, 'month').subtract(1, 'day').format('YYYY-MM-DD'),
+            props.dateFrom || DEFAULT_BILLING_SPEND_DATE_FROM,
             {
-                setDateRange: (_, { dateFrom }) =>
-                    dateFrom || dayjs().subtract(1, 'month').subtract(1, 'day').format('YYYY-MM-DD'),
-                resetFilters: () => dayjs().subtract(1, 'month').subtract(1, 'day').format('YYYY-MM-DD'),
+                setDateRange: (_, { dateFrom }) => dateFrom || props.dateFrom || DEFAULT_BILLING_SPEND_DATE_FROM,
+                resetFilters: () => props.dateFrom || DEFAULT_BILLING_SPEND_DATE_FROM,
             },
         ],
         dateTo: [
-            dayjs().subtract(1, 'day').format('YYYY-MM-DD'),
+            props.dateTo || DEFAULT_BILLING_SPEND_DATE_TO,
             {
-                setDateRange: (_, { dateTo }) => dateTo || dayjs().subtract(1, 'day').format('YYYY-MM-DD'),
-                resetFilters: () => dayjs().subtract(1, 'day').format('YYYY-MM-DD'),
+                setDateRange: (_, { dateTo }) => dateTo || props.dateTo || DEFAULT_BILLING_SPEND_DATE_TO,
+                resetFilters: () => props.dateTo || DEFAULT_BILLING_SPEND_DATE_TO,
             },
         ],
         userHiddenSeries: [
@@ -148,7 +159,7 @@ export const billingSpendLogic = kea<billingSpendLogicType>([
                 resetFilters: () => false,
             },
         ],
-    }),
+    })),
     selectors({
         series: [
             (s) => [s.billingSpendResponse],

@@ -4,6 +4,7 @@ import { handleLoginRedirect, loginLogic } from 'scenes/authentication/loginLogi
 
 import { initKea } from '~/initKea'
 import { initKeaTests } from '~/test/init'
+import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
 
 describe('loginLogic', () => {
     describe('redirect vulnerability', () => {
@@ -56,7 +57,7 @@ describe('loginLogic', () => {
                 handleLoginRedirect()
                 const newPath =
                     router.values.location.pathname + router.values.location.search + router.values.location.hash
-                expect(newPath).toEqual(result)
+                expect(removeProjectIdIfPresent(newPath)).toEqual(result)
             })
         }
     })

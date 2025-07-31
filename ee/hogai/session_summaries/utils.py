@@ -2,6 +2,7 @@ from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlparse
 from django.template import Engine, Context
+import tiktoken
 
 
 def get_column_index(columns: list[str], column_name: str) -> int:
@@ -137,3 +138,15 @@ def unpack_full_event_id(full_event_id: str | None, session_id: str | None = Non
 def strip_raw_llm_content(raw_content: str) -> str:
     """Strip the first and the last line of the content to load the YAML data only into JSON"""
     return raw_content.strip("```yaml\n").strip("```").strip()  # noqa: B005
+
+
+def estimate_tokens_from_strings(strings: list[str], model: str) -> int:
+    """Estimate the token count for a list of strings."""
+    if not strings:
+        return 0
+    encoding = tiktoken.encoding_for_model(model)
+    total_tokens = 0
+    for string in strings:
+        if string:
+            total_tokens += len(encoding.encode(string))
+    return total_tokens
