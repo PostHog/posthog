@@ -160,9 +160,7 @@ def handle_annotation_change(sender, scope, before_update, after_update, activit
     user = get_current_user_from_thread()
 
     log_activity(
-        organization_id=after_update.organization_id
-        if after_update.organization_id
-        else after_update.team.organization_id,
+        organization_id=after_update.organization_id or after_update.team.organization_id,
         team_id=after_update.team_id,
         user=user,
         was_impersonated=was_impersonated,
