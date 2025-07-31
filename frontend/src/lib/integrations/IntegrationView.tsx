@@ -1,4 +1,5 @@
 import { LemonBanner, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import clsx from 'clsx'
 import api from 'lib/api'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import { IntegrationScopesWarning } from 'lib/integrations/IntegrationScopesWarning'
@@ -11,17 +12,19 @@ export function IntegrationView({
     schema,
     isVerificationRequired,
     isVerified,
+    className,
 }: {
     integration: IntegrationType
     suffix?: JSX.Element
     schema?: CyclotronJobInputSchemaType
     isVerificationRequired?: boolean
     isVerified?: boolean
+    className?: string
 }): JSX.Element {
     const errors = (integration.errors && integration.errors?.split(',')) || []
 
     return (
-        <div className="rounded border bg-surface-primary">
+        <div className={clsx('rounded border bg-surface-primary', className)}>
             <div className="flex justify-between items-center p-2">
                 <div className="flex gap-4 items-center ml-2">
                     <img src={integration.icon_url} className="w-10 h-10 rounded" />

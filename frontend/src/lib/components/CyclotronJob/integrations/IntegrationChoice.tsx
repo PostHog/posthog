@@ -17,6 +17,7 @@ export type IntegrationConfigureProps = {
     schema?: CyclotronJobInputSchemaType
     integration?: string
     beforeRedirect?: () => void
+    className?: string
 }
 
 export function IntegrationChoice({
@@ -26,6 +27,7 @@ export function IntegrationChoice({
     integration,
     redirectUrl,
     beforeRedirect,
+    className,
 }: IntegrationConfigureProps): JSX.Element | null {
     const { integrationsLoading, integrations, newIntegrationModalKind } = useValues(integrationsLogic)
     const { newGoogleCloudKey, openNewIntegrationModal, closeNewIntegrationModal } = useActions(integrationsLogic)
@@ -136,7 +138,9 @@ export function IntegrationChoice({
             {integrationKind ? (
                 <LemonButton type="secondary">Change</LemonButton>
             ) : (
-                <LemonButton type="secondary">Choose {kindName} connection</LemonButton>
+                <LemonButton type="secondary" className={className}>
+                    Choose {kindName} connection
+                </LemonButton>
             )}
         </LemonMenu>
     )
@@ -144,7 +148,7 @@ export function IntegrationChoice({
     return (
         <>
             {integrationKind ? (
-                <IntegrationView schema={schema} integration={integrationKind} suffix={button} />
+                <IntegrationView schema={schema} integration={integrationKind} suffix={button} className={className} />
             ) : (
                 button
             )}

@@ -17,32 +17,17 @@ function EmailTemplaterForm({ mode }: { mode: 'full' | 'preview' }): JSX.Element
     const { setEmailEditorRef, onEmailEditorReady, setIsModalOpen, applyTemplate } = useActions(emailTemplaterLogic)
 
     const { featureFlags } = useValues(featureFlagLogic)
-    const isMessagingTemplatesEnabled = featureFlags[FEATURE_FLAGS.MESSAGING]
+    const isMessagingProductEnabled = featureFlags[FEATURE_FLAGS.MESSAGING]
 
     return (
         <div className="flex flex-col gap-2">
-            {(!logicProps.emailMetaFields || logicProps.emailMetaFields.includes('from')) && (
-                <CyclotronJobInputIntegration
-                    schema={{
-                        type: 'email',
-                        key: 'email',
-                        label: 'Email address',
-                        integration: 'email',
-                        required: true,
-                        default: '',
-                        secret: false,
-                        description: 'The email address to send the email from.',
-                    }}
-                />
-            )}
-
             <Form
                 className="flex overflow-hidden flex-col flex-1 rounded border"
                 logic={emailTemplaterLogic}
                 props={logicProps}
                 formKey="emailTemplate"
             >
-                {(logicProps.emailMetaFields || ['to', 'subject']).map((field) => (
+                {(logicProps.emailMetaFields || ['from', 'to', 'subject']).map((field) => (
                     <LemonField
                         key={field}
                         name={field}
@@ -51,24 +36,42 @@ function EmailTemplaterForm({ mode }: { mode: 'full' | 'preview' }): JSX.Element
                         renderError={() => null}
                     >
                         {({ value, onChange, error }) => (
-                            <div className="flex items-center">
+                            <div className="flex items-center gap-2">
                                 <LemonLabel className={error ? 'text-danger' : ''}>
                                     {capitalizeFirstLetter(field)}
                                 </LemonLabel>
-                                <CodeEditorInline
-                                    embedded
-                                    className="flex-1"
-                                    globals={logicProps.variables}
-                                    value={value}
-                                    onChange={onChange}
-                                />
+                                {isMessagingProductEnabled && field === 'from' ? (
+                                    <CyclotronJobInputIntegration
+                                        className="grow m-2"
+                                        value={value}
+                                        onChange={onChange}
+                                        schema={{
+                                            type: 'email',
+                                            key: 'email',
+                                            label: 'Email address',
+                                            integration: 'email',
+                                            required: true,
+                                            default: '',
+                                            secret: false,
+                                            description: 'The email address to send the email from.',
+                                        }}
+                                    />
+                                ) : (
+                                    <CodeEditorInline
+                                        embedded
+                                        className="flex-1"
+                                        globals={logicProps.variables}
+                                        value={value}
+                                        onChange={onChange}
+                                    />
+                                )}
                             </div>
                         )}
                     </LemonField>
                 ))}
-                {isMessagingTemplatesEnabled && templates.length > 0 && (
+                {isMessagingProductEnabled && templates.length > 0 && (
                     <LemonSelect
-                        className="mb-2"
+                        className="m-2"
                         placeholder="Start from a template (optional)"
                         loading={templatesLoading}
                         value={appliedTemplate?.id}
