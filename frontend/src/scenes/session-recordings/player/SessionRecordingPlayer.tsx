@@ -62,7 +62,6 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
         pinned,
         setPinned,
     } = props
-
     const playerRef = useRef<HTMLDivElement>(null)
     const playerMainRef = useRef<HTMLDivElement>(null)
 
