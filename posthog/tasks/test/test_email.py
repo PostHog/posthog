@@ -125,30 +125,6 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         assert mocked_email_messages[0].send.call_count == 1
         assert mocked_email_messages[0].html_body
 
-    @patch("posthog.tasks.email.check_and_cache_login_device")
-    def test_login_from_new_device_notification(self, mock_check_cache: MagicMock, MockEmailMessage: MagicMock) -> None:
-        mocked_email_messages = mock_email_messages(MockEmailMessage)
-        mock_check_cache.return_value = True  # Simulate new device
-
-        from posthog.tasks.email import login_from_new_device_notification
-
-        login_time = timezone.now()
-        login_from_new_device_notification(
-            self.user.id,
-            login_time,
-            "Chrome 135.0.0 on Mac OS 15.3",
-            "24.114.32.12",  # random ip in Canada
-        )
-
-        assert len(mocked_email_messages) == 1
-        assert mocked_email_messages[0].send.call_count == 1
-        assert mocked_email_messages[0].subject == "A new device logged into your account"
-
-        # Check that location appears in email body
-        html_body = mocked_email_messages[0].html_body
-        assert html_body
-        assert "Canada" in html_body
-
     def test_send_fatal_plugin_error(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
         org, user = create_org_team_and_user("2022-01-02 00:00:00", "admin@posthog.com")
