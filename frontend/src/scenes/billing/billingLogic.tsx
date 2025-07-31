@@ -32,6 +32,8 @@ import { DEFAULT_ESTIMATED_MONTHLY_CREDIT_AMOUNT_USD } from './CreditCTAHero'
 export const ALLOCATION_THRESHOLD_ALERT = 0.85 // Threshold to show warning of event usage near limit
 export const ALLOCATION_THRESHOLD_BLOCK = 1.2 // Threshold to block usage
 
+const BILLING_ALERT_DISMISS_PREFIX = 'scenes.billing.billingLogic.billingAlertDismissed.'
+
 export interface BillingAlertConfig {
     status: 'info' | 'warning' | 'error'
     title: string
@@ -691,6 +693,26 @@ export const billingLogic = kea<billingLogicType>([
                 if (isHidden) {
                     return
                 }
+
+                // Check if this alert was dismissed for the current billing period
+                const billingPeriodEnd = values.billing.billing_period?.current_period_end?.toISOString()
+                if (billingPeriodEnd) {
+                    const dismissKey = `${BILLING_ALERT_DISMISS_PREFIX}${productOverLimit.type}`
+                    const dismissedData = localStorage.getItem(dismissKey)
+
+                    if (dismissedData) {
+                        const periodEndDate = dayjs(dismissedData)
+
+                        // If we're past the billing period, remove the key and show the alert
+                        if (dayjs().isAfter(periodEndDate)) {
+                            localStorage.removeItem(dismissKey)
+                        } else {
+                            // Alert was dismissed for this period, don't show it
+                            return
+                        }
+                    }
+                }
+
                 actions.setBillingAlert({
                     status: 'error',
                     title: 'Usage limit exceeded',
@@ -704,6 +726,15 @@ export const billingLogic = kea<billingLogicType>([
                                 : 'data loss may occur'
                         }.`,
                     dismissKey: 'usage-limit-exceeded',
+                    onClose: () => {
+                        // Store dismissal in localStorage
+                        const billingPeriodEnd = values.billing?.billing_period?.current_period_end?.toISOString()
+                        if (billingPeriodEnd) {
+                            const dismissKey = `${BILLING_ALERT_DISMISS_PREFIX}${productOverLimit.type}`
+                            localStorage.setItem(dismissKey, billingPeriodEnd)
+                        }
+                        actions.setBillingAlert(null)
+                    },
                 })
                 return
             }
@@ -720,6 +751,26 @@ export const billingLogic = kea<billingLogicType>([
                 if (isHidden) {
                     return
                 }
+
+                // Check if this alert was dismissed for the current billing period
+                const billingPeriodEnd = values.billing?.billing_period?.current_period_end?.toISOString()
+                if (billingPeriodEnd) {
+                    const dismissKey = `${BILLING_ALERT_DISMISS_PREFIX}${productApproachingLimit.type}-approaching`
+                    const dismissedData = localStorage.getItem(dismissKey)
+
+                    if (dismissedData) {
+                        const periodEndDate = dayjs(dismissedData)
+
+                        // If we're past the billing period, remove the key and show the alert
+                        if (dayjs().isAfter(periodEndDate)) {
+                            localStorage.removeItem(dismissKey)
+                        } else {
+                            // Alert was dismissed for this period, don't show it
+                            return
+                        }
+                    }
+                }
+
                 actions.setBillingAlert({
                     status: 'info',
                     title: 'You will soon hit your usage limit',
@@ -729,6 +780,15 @@ export const billingLogic = kea<billingLogicType>([
                         productApproachingLimit.usage_key && productApproachingLimit.usage_key.toLowerCase()
                     } allocation.`,
                     dismissKey: 'usage-limit-approaching',
+                    onClose: () => {
+                        // Store dismissal in localStorage
+                        const billingPeriodEnd = values.billing?.billing_period?.current_period_end?.toISOString()
+                        if (billingPeriodEnd) {
+                            const dismissKey = `${BILLING_ALERT_DISMISS_PREFIX}${productApproachingLimit.type}-approaching`
+                            localStorage.setItem(dismissKey, billingPeriodEnd)
+                        }
+                        actions.setBillingAlert(null)
+                    },
                 })
                 return
             }
