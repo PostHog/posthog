@@ -5,6 +5,7 @@ from rest_framework.viewsets import GenericViewSet
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.constants import AvailableFeature
 from posthog.models import Tag, TaggedItem, User
+from posthog.models.tagged_item import RELATED_OBJECTS
 from posthog.models.tag import tagify
 from posthog.models.activity_logging.activity_log import Detail, log_activity, changes_between
 from posthog.models.signals import model_activity_signal
@@ -149,15 +150,7 @@ def handle_tagged_item_change(sender, scope, before_update, after_update, activi
     user = get_current_user_from_thread()
 
     tagged_object = None
-    for field in [
-        "dashboard",
-        "insight",
-        "event_definition",
-        "property_definition",
-        "action",
-        "feature_flag",
-        "experiment_saved_metric",
-    ]:
+    for field in RELATED_OBJECTS:
         obj = getattr(after_update, field, None)
         if obj:
             tagged_object = f"{field}: {getattr(obj, 'name', str(obj))}"
