@@ -102,6 +102,23 @@ class TestQueryRunner(BaseTest):
         team.revenue_analytics_config.events = [REVENUE_ANALYTICS_CONFIG_SAMPLE_EVENT]
         team.revenue_analytics_config.save()
 
+        # Basic Marketing Analytics config
+        team.base_currency = CurrencyCode.GBP.value
+        team.save()
+        config = team.marketing_analytics_config
+        config.sources_map = {
+            "01977f7b-7f29-0000-a028-7275d1a767a4": {
+                "cost": "cost",
+                "date": "date",
+                "clicks": "clicks",
+                "source": "_metadata_launched_at",
+                "campaign": "campaignname",
+                "currency": "USD",
+                "impressions": "impressions",
+            },
+        }
+        config.save()
+
         runner = TestQueryRunner(query={"some_attr": "bla", "tags": {"scene": "foo", "productKey": "bar"}}, team=team)
         cache_payload = runner.get_cache_payload()
 
@@ -124,6 +141,20 @@ class TestQueryRunner(BaseTest):
                 "usePresortedEventsTable": False,
             },
             "products_modifiers": {
+                "marketing_analytics": {
+                    "base_currency": "GBP",
+                    "sources_map": {
+                        "01977f7b-7f29-0000-a028-7275d1a767a4": {
+                            "cost": "cost",
+                            "date": "date",
+                            "clicks": "clicks",
+                            "source": "_metadata_launched_at",
+                            "campaign": "campaignname",
+                            "currency": "USD",
+                            "impressions": "impressions",
+                        },
+                    },
+                },
                 "revenue_analytics": {
                     "base_currency": "GBP",
                     "filter_test_accounts": False,
@@ -171,7 +202,7 @@ class TestQueryRunner(BaseTest):
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=team)
 
         cache_key = runner.get_cache_key()
-        assert cache_key == "cache_0c4f58e7c85ba77bdc3b7ffe0ccd093e"
+        assert cache_key == "cache_d8ae2988559166971c4725ba714dac9f"
 
     def test_cache_key_runner_subclass(self):
         TestQueryRunner = self.setup_test_query_runner_class()
@@ -185,7 +216,7 @@ class TestQueryRunner(BaseTest):
         runner = TestSubclassQueryRunner(query={"some_attr": "bla"}, team=team)
 
         cache_key = runner.get_cache_key()
-        assert cache_key == "cache_2b956a65b01830e3217a8e5aff6804b8"
+        assert cache_key == "cache_b18f260bb8a3be11e543d1eb6c765649"
 
     def test_cache_key_different_timezone(self):
         TestQueryRunner = self.setup_test_query_runner_class()
@@ -196,7 +227,7 @@ class TestQueryRunner(BaseTest):
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=team)
 
         cache_key = runner.get_cache_key()
-        assert cache_key == "cache_b028a00dddb45d4cd28e3733cfcf83e6"
+        assert cache_key == "cache_4fa2ad468d8ab09349d6e0ae48bca908"
 
     @mock.patch("django.db.transaction.on_commit")
     def test_cache_response(self, mock_on_commit):

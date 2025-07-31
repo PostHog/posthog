@@ -1024,6 +1024,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             "hogql_modifiers": to_dict(self.modifiers),
             "products_modifiers": {
                 "revenue_analytics": self.team.revenue_analytics_config.to_cache_key_dict(),
+                "marketing_analytics": self.team.marketing_analytics_config.to_cache_key_dict(),
             },
             "limit_context": self._limit_context_aliased_for_cache,
             "timezone": self.team.timezone,
