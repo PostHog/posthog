@@ -13,7 +13,7 @@ from posthog.models.utils import uuid7
 from posthog.session_recordings.models.session_recording_event import (
     SessionRecordingViewed,
 )
-from posthog.session_recordings.queries_to_replace.test.session_replay_sql import (
+from posthog.session_recordings.queries.test.session_replay_sql import (
     produce_replay_summary,
 )
 from posthog.test.base import (
