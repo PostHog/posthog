@@ -1,6 +1,8 @@
-import { IconInfo } from '@posthog/icons'
 import { useValues } from 'kea'
 import { router } from 'kea-router'
+
+import { IconInfo } from '@posthog/icons'
+
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { replayActiveScreensTableLogic } from 'scenes/session-recordings/components/replayActiveScreensTableLogic'

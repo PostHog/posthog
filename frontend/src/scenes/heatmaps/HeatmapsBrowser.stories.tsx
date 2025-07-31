@@ -1,9 +1,12 @@
 import { Meta, StoryObj } from '@storybook/react'
+
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
-import heatmapResults from './__mocks__/heatmapResults.json'
+
 import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
 import { MockSignature } from '~/mocks/utils'
+
+import heatmapResults from './__mocks__/heatmapResults.json'
 
 const query = (topUrls: [string, number][] = []): MockSignature => {
     return async (req, res, ctx) => {

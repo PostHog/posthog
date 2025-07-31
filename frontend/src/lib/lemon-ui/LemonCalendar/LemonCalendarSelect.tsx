@@ -1,5 +1,8 @@
-import { IconX } from '@posthog/icons'
 import clsx from 'clsx'
+import { useEffect, useMemo, useRef, useState } from 'react'
+
+import { IconX } from '@posthog/icons'
+
 import { dayjs } from 'lib/dayjs'
 import { LemonButton, LemonButtonProps, LemonButtonWithSideActionProps, SideAction } from 'lib/lemon-ui/LemonButton'
 import {
@@ -7,7 +10,6 @@ import {
     LemonCalendar,
     LemonCalendarProps,
 } from 'lib/lemon-ui/LemonCalendar/LemonCalendar'
-import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { LemonSwitch } from '../LemonSwitch'
 import { Popover } from '../Popover'
@@ -144,7 +146,7 @@ export function LemonCalendarSelect({
         if (selectValue) {
             scrollToTime(selectValue, true)
         }
-    }, [])
+    }, [selectValue, scrollToTime])
 
     const onTimeClick = (props: GetLemonButtonTimePropsOpts): void => {
         const date = proposedDate(selectValue, props)
@@ -204,8 +206,8 @@ export function LemonCalendarSelect({
                         selectionPeriod === 'upcoming' && newDate.isBefore(now)
                             ? 'Cannot choose a time in the past'
                             : selectionPeriod === 'past' && newDate.isAfter(now)
-                            ? 'Cannot choose a time in the future'
-                            : undefined
+                              ? 'Cannot choose a time in the future'
+                              : undefined
                     const disabledReason = selectValue ? periodValidityDisabledReason : 'Choose a date first'
 
                     return {

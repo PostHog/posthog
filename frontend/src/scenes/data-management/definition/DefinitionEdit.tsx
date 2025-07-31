@@ -1,23 +1,25 @@
-import { LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
+
+import { LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
+
 import { PropertyStatusControl } from 'lib/components/DefinitionPopover/DefinitionPopoverContents'
 import { NotFound } from 'lib/components/NotFound'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { PageHeader } from 'lib/components/PageHeader'
+import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import { definitionEditLogic } from 'scenes/data-management/definition/definitionEditLogic'
-import { definitionLogic, DefinitionLogicProps } from 'scenes/data-management/definition/definitionLogic'
+import { DefinitionLogicProps, definitionLogic } from 'scenes/data-management/definition/definitionLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { tagsModel } from '~/models/tagsModel'
 import { getFilterLabel, isCoreFilter } from '~/taxonomy/helpers'
-import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { AvailableFeature } from '~/types'
 
 export const scene: SceneExport = {

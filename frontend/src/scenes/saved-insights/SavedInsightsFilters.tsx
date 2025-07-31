@@ -1,5 +1,7 @@
-import { IconCalendar } from '@posthog/icons'
 import { useValues } from 'kea'
+
+import { IconCalendar } from '@posthog/icons'
+
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { FEATURE_FLAGS } from 'lib/constants'

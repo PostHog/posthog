@@ -1,4 +1,4 @@
-import { CODES, KafkaConsumer as RdKafkaConsumer, Message } from 'node-rdkafka'
+import { CODES, Message, KafkaConsumer as RdKafkaConsumer } from 'node-rdkafka'
 
 import { defaultConfig } from '~/config/config'
 

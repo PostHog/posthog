@@ -1,4 +1,5 @@
 import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
+
 import { sessionRecordingEventUsageLogic } from 'scenes/session-recordings/sessionRecordingEventUsageLogic'
 import { teamLogic } from 'scenes/teamLogic'
 

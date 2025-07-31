@@ -1,20 +1,13 @@
-import { actions, BuiltLogic, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
+import { BuiltLogic, actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { router, urlToAction } from 'kea-router'
+import posthog from 'posthog-js'
+
 import { commandBarLogic } from 'lib/components/CommandBar/commandBarLogic'
 import { BarStatus } from 'lib/components/CommandBar/types'
 import { TeamMembershipLevel } from 'lib/constants'
 import { getRelativeNextPath } from 'lib/utils'
 import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
 import { withForwardedSearchParams } from 'lib/utils/sceneLogicUtils'
-import posthog from 'posthog-js'
-import {
-    emptySceneParams,
-    forwardedRedirectQueryParams,
-    preloadedScenes,
-    redirects,
-    routes,
-    sceneConfigurations,
-} from 'scenes/scenes'
 import {
     LoadedScene,
     Params,
@@ -24,14 +17,22 @@ import {
     SceneParams,
     sceneToAccessControlResourceType,
 } from 'scenes/sceneTypes'
+import {
+    emptySceneParams,
+    forwardedRedirectQueryParams,
+    preloadedScenes,
+    redirects,
+    routes,
+    sceneConfigurations,
+} from 'scenes/scenes'
 import { urls } from 'scenes/urls'
 
-import { AccessControlLevel, PipelineTab, ProductKey, OnboardingStepKey } from '~/types'
+import { AccessControlLevel, OnboardingStepKey, PipelineTab, ProductKey } from '~/types'
 
+import { preflightLogic } from './PreflightCheck/preflightLogic'
 import { handleLoginRedirect } from './authentication/loginLogic'
 import { billingLogic } from './billing/billingLogic'
 import { organizationLogic } from './organizationLogic'
-import { preflightLogic } from './PreflightCheck/preflightLogic'
 import type { sceneLogicType } from './sceneLogicType'
 import { inviteLogic } from './settings/organization/inviteLogic'
 import { teamLogic } from './teamLogic'

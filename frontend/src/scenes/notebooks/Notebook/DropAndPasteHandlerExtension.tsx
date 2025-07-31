@@ -1,8 +1,10 @@
-import { Extension } from '@tiptap/react'
 import { Plugin, PluginKey } from '@tiptap/pm/state'
+import { Extension } from '@tiptap/react'
 import posthog from 'posthog-js'
-import { NotebookNodeType } from '../types'
+
 import { lemonToast } from '@posthog/lemon-ui'
+
+import { NotebookNodeType } from '../types'
 
 export const DropAndPasteHandlerExtension = Extension.create({
     name: 'DropAndPasteHandlerExtension',

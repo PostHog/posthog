@@ -1,6 +1,7 @@
-import { SpinnerOverlay } from '@posthog/lemon-ui'
 import { useActions } from 'kea'
 import { useEffect } from 'react'
+
+import { SpinnerOverlay } from '@posthog/lemon-ui'
 
 import { paymentEntryLogic } from './paymentEntryLogic'
 
@@ -11,7 +12,7 @@ export const AuthorizationStatus = (): JSX.Element => {
 
     useEffect(() => {
         pollAuthorizationStatus()
-    }, [])
+    }, [pollAuthorizationStatus])
 
     return <SpinnerOverlay sceneLevel />
 }

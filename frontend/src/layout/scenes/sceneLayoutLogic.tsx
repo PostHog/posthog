@@ -1,4 +1,5 @@
 import { actions, kea, path, reducers } from 'kea'
+
 import type { sceneLayoutLogicType } from './sceneLayoutLogicType'
 
 export const sceneLayoutLogic = kea<sceneLayoutLogicType>([

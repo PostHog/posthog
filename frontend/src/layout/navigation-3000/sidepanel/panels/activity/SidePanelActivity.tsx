@@ -1,6 +1,9 @@
+import { useActions, useValues } from 'kea'
+import { useEffect, useRef } from 'react'
+
 import { IconNotification } from '@posthog/icons'
 import { LemonButton, LemonSelect, LemonSelectOption, LemonSkeleton, LemonTabs, Spinner } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { ActivityLogRow } from 'lib/components/ActivityLog/ActivityLog'
 import { humanizeScope } from 'lib/components/ActivityLog/humanizeActivity'
 import { MemberSelect } from 'lib/components/MemberSelect'
@@ -10,19 +13,18 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { usePageVisibilityCb } from 'lib/hooks/usePageVisibility'
 import { IconWithCount } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { useEffect, useRef } from 'react'
 import { userLogic } from 'scenes/userLogic'
 
 import {
-    sidePanelActivityLogic,
     SidePanelActivityTab,
+    sidePanelActivityLogic,
 } from '~/layout/navigation-3000/sidepanel/panels/activity/sidePanelActivityLogic'
+import { sidePanelNotificationsLogic } from '~/layout/navigation-3000/sidepanel/panels/activity/sidePanelNotificationsLogic'
 import { ActivityScope, AvailableFeature } from '~/types'
 
 import { SidePanelPaneHeader } from '../../components/SidePanelPaneHeader'
 import { SidePanelActivityMetalytics } from './SidePanelActivityMetalytics'
 import { SidePanelActivitySubscriptions } from './SidePanelActivitySubscriptions'
-import { sidePanelNotificationsLogic } from '~/layout/navigation-3000/sidepanel/panels/activity/sidePanelNotificationsLogic'
 
 const SCROLL_TRIGGER_OFFSET = 100
 
@@ -58,7 +60,7 @@ export const SidePanelActivity = (): JSX.Element => {
             markAllAsRead()
             togglePolling(false)
         }
-    }, [])
+    }, [togglePolling, loadImportantChanges, markAllAsRead])
 
     const lastScrollPositionRef = useRef(0)
     const contentRef = useRef<HTMLDivElement | null>(null)

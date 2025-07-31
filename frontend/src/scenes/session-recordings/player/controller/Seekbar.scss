@@ -27,7 +27,9 @@
         cursor: pointer;
         background-color: var(--border-primary);
         border-radius: var(--bar-height);
-        transition: height 150ms ease-in-out, top 150ms ease-in-out;
+        transition:
+            height 150ms ease-in-out,
+            top 150ms ease-in-out;
 
         .PlayerSeekbar__bufferbar,
         .PlayerSeekbar__currentbar,

@@ -33,7 +33,7 @@ import { BatchWritingPersonsStore } from '../worker/ingestion/persons/batch-writ
 import { FlushResult, PersonsStoreForBatch } from '../worker/ingestion/persons/persons-store-for-batch'
 import { PostgresPersonRepository } from '../worker/ingestion/persons/repositories/postgres-person-repository'
 import { deduplicateEvents } from './deduplication/events'
-import { createDeduplicationRedis, DeduplicationRedis } from './deduplication/redis-client'
+import { DeduplicationRedis, createDeduplicationRedis } from './deduplication/redis-client'
 import {
     applyDropEventsRestrictions,
     applyPersonProcessingRestrictions,
@@ -767,7 +767,7 @@ export class IngestionConsumer {
                     // ``message.key`` should not be undefined here, but in the
                     // (extremely) unlikely event that it is, set it to ``null``
                     // instead as that behavior is safer.
-                    key: preservePartitionLocality ? message.key ?? null : null,
+                    key: preservePartitionLocality ? (message.key ?? null) : null,
                     headers: parseKafkaHeaders(headers),
                 })
             })

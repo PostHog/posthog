@@ -1,4 +1,5 @@
 import { Meta } from '@storybook/react'
+
 import { ErrorDisplay } from 'lib/components/Errors/ErrorDisplay'
 
 import { mswDecorator } from '~/mocks/browser'

@@ -435,7 +435,9 @@ export const createTeam = async (
     if (typeof projectOrOrganizationId === 'number') {
         projectId = projectOrOrganizationId
         organizationId = await pg
-            .query<{ organization_id: string }>(
+            .query<{
+                organization_id: string
+            }>(
                 PostgresUse.COMMON_READ,
                 'SELECT organization_id FROM posthog_project WHERE id = $1',
                 [projectId],
@@ -556,7 +558,7 @@ export async function fetchPostgresPersons(db: DB, teamId: number) {
                 ...rawPerson,
                 created_at: DateTime.fromISO(rawPerson.created_at).toUTC(),
                 version: Number(rawPerson.version || 0),
-            } as InternalPerson)
+            }) as InternalPerson
     )
 }
 

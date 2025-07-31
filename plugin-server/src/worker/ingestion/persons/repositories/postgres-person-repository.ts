@@ -1,6 +1,7 @@
-import { Properties } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 import { QueryResult } from 'pg'
+
+import { Properties } from '@posthog/plugin-scaffold'
 
 import { KAFKA_PERSON_DISTINCT_ID } from '../../../../config/kafka-topics'
 import { TopicMessage } from '../../../../kafka/producer'
@@ -41,7 +42,10 @@ export class PostgresPersonRepository
 {
     private options: PostgresPersonRepositoryOptions
 
-    constructor(private postgres: PostgresRouter, options?: Partial<PostgresPersonRepositoryOptions>) {
+    constructor(
+        private postgres: PostgresRouter,
+        options?: Partial<PostgresPersonRepositoryOptions>
+    ) {
         this.options = { ...DEFAULT_OPTIONS, ...options }
     }
 

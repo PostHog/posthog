@@ -1,4 +1,5 @@
 import { connect, kea, path, props } from 'kea'
+
 import { activityLogLogic } from 'lib/components/ActivityLog/activityLogLogic'
 
 import { ActivityScope } from '~/types'

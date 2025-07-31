@@ -1,8 +1,10 @@
+import { useActions, useValues } from 'kea'
+import { useState } from 'react'
+
 import { IconX } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonFileInput, LemonModal, LemonSkeleton, lemonToast } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { useUploadFiles } from 'lib/hooks/useUploadFiles'
-import { useState } from 'react'
 
 import { experimentLogic } from '../experimentLogic'
 import { VariantTag } from './components'

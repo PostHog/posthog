@@ -1,12 +1,13 @@
 import equal from 'fast-deep-equal'
 import { LogicWrapper } from 'kea'
 import { routerType } from 'kea-router/lib/routerType'
+
 import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { Params } from 'scenes/sceneTypes'
 
 import { OrganizationType } from '~/types'
-import { BillingProductV2Type, BillingTierType, BillingType, BillingProductV2AddonType } from '~/types'
+import { BillingProductV2AddonType, BillingProductV2Type, BillingTierType, BillingType } from '~/types'
 
 import { USAGE_TYPES } from './constants'
 import type { BillingFilters, BillingUsageInteractionProps } from './types'

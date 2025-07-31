@@ -14,7 +14,9 @@
 
     &:not(.PlayerMeta--fullscreen) {
         .PlayerMetaPersonProperties {
-            transition: 200ms height ease-out, 200ms border-bottom-color ease-out;
+            transition:
+                200ms height ease-out,
+                200ms border-bottom-color ease-out;
 
             &--enter {
                 height: 0;

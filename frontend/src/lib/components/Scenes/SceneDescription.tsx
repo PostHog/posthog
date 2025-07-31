@@ -1,7 +1,10 @@
+import { useEffect, useState } from 'react'
+
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { TextareaPrimitive } from 'lib/ui/TextareaPrimitive/TextareaPrimitive'
-import { useEffect, useState } from 'react'
+
 import { ScenePanelLabel } from '~/layout/scenes/SceneLayout'
+
 import { SceneLoadingSkeleton } from './SceneLoadingSkeleton'
 import { SceneInputProps, SceneSaveCancelButtons } from './utils'
 

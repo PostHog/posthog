@@ -1,4 +1,4 @@
-import { exponentialBuckets, Histogram } from 'prom-client'
+import { Histogram, exponentialBuckets } from 'prom-client'
 
 import { timeoutGuard } from '../utils/db/utils'
 import { logger } from '../utils/logger'

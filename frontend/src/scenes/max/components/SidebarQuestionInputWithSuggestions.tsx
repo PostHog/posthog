@@ -1,13 +1,14 @@
-import { IconGear } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
 import { DismissableLayer } from '@radix-ui/react-dismissable-layer'
 import { useActions, useValues } from 'kea'
+
+import { IconGear } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
 
 import { sidePanelSettingsLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelSettingsLogic'
 
 import { maxLogic } from '../maxLogic'
-import { SidebarQuestionInput } from './SidebarQuestionInput'
 import { FloatingSuggestionsDisplay } from './FloatingSuggestionsDisplay'
+import { SidebarQuestionInput } from './SidebarQuestionInput'
 
 export function SidebarQuestionInputWithSuggestions(): JSX.Element {
     const { dataProcessingAccepted, activeSuggestionGroup } = useValues(maxLogic)

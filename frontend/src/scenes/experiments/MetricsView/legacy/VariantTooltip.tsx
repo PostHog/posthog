@@ -4,8 +4,8 @@ import { humanFriendlyNumber } from 'lib/utils'
 import { InsightType, TrendExperimentVariant } from '~/types'
 import { ExperimentIdType } from '~/types'
 
-import { calculateDelta } from '../../legacyExperimentCalculations'
 import { VariantTag } from '../../ExperimentView/components'
+import { calculateDelta } from '../../legacyExperimentCalculations'
 
 interface VariantTooltipProps {
     tooltipData: {

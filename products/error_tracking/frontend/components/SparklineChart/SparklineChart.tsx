@@ -1,7 +1,8 @@
 import * as d3 from 'd3'
-import { cn } from 'lib/utils/css-classes'
 import { useEffect, useRef } from 'react'
 import useResizeObserver from 'use-resize-observer'
+
+import { cn } from 'lib/utils/css-classes'
 
 export type SparklineDatum = {
     date: Date

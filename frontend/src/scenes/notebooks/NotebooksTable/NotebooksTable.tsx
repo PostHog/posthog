@@ -1,21 +1,23 @@
+import { useActions, useValues } from 'kea'
+import { useEffect } from 'react'
+
 import { IconEllipsis, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonTag } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { atColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { Link } from 'lib/lemon-ui/Link'
-import { useEffect } from 'react'
 import { ContainsTypeFilters } from 'scenes/notebooks/NotebooksTable/ContainsTypeFilter'
 import { notebooksTableLogic } from 'scenes/notebooks/NotebooksTable/notebooksTableLogic'
 import { urls } from 'scenes/urls'
 
 import { notebooksModel } from '~/models/notebooksModel'
-import { NotebookListItemType } from '../types'
 
 import { notebookPanelLogic } from '../NotebookPanel/notebookPanelLogic'
+import { NotebookListItemType } from '../types'
 
 function titleColumn(): LemonTableColumn<NotebookListItemType, 'title'> {
     return {

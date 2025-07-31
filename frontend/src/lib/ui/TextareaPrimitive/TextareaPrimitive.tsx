@@ -1,7 +1,9 @@
-import { cn } from 'lib/utils/css-classes'
-import TextareaAutosize, { TextareaAutosizeProps } from 'react-textarea-autosize'
-import { TextInputBaseProps, textInputVariants } from '../TextInputPrimitive/TextInputPrimitive'
 import { forwardRef } from 'react'
+import TextareaAutosize, { TextareaAutosizeProps } from 'react-textarea-autosize'
+
+import { cn } from 'lib/utils/css-classes'
+
+import { TextInputBaseProps, textInputVariants } from '../TextInputPrimitive/TextInputPrimitive'
 
 type TextareaPrimitiveProps = TextareaAutosizeProps &
     TextInputBaseProps & {

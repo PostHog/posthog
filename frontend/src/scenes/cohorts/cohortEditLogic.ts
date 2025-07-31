@@ -2,6 +2,8 @@ import { actions, afterMount, beforeUnmount, connect, kea, key, listeners, path,
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router } from 'kea-router'
+import { v4 as uuidv4 } from 'uuid'
+
 import api from 'lib/api'
 import { ENTITY_MATCH_TYPE } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -17,7 +19,6 @@ import {
 } from 'scenes/cohorts/cohortUtils'
 import { personsLogic } from 'scenes/persons/personsLogic'
 import { urls } from 'scenes/urls'
-import { v4 as uuidv4 } from 'uuid'
 
 import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { cohortsModel, processCohort } from '~/models/cohortsModel'
@@ -153,8 +154,8 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                                 isCohortCriteriaGroup(oldCriteria)
                                     ? oldCriteria
                                     : criteriaI === criteriaIndex
-                                    ? cleanCriteria({ ...oldCriteria, ...newCriteria })
-                                    : oldCriteria
+                                      ? cleanCriteria({ ...oldCriteria, ...newCriteria })
+                                      : oldCriteria
                             ),
                         groupIndex
                     ),

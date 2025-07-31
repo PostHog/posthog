@@ -1,15 +1,16 @@
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { humanFriendlyNumber } from 'lib/utils'
+
 import {
+    type ExperimentVariantResult,
     formatChanceToWin,
+    formatDeltaPercent,
+    formatIntervalPercent,
     formatPValue,
     getIntervalLabel,
-    formatIntervalPercent,
-    isSignificant,
-    isDeltaPositive,
-    formatDeltaPercent,
     isBayesianResult,
-    type ExperimentVariantResult,
+    isDeltaPositive,
+    isSignificant,
 } from '../shared/utils'
 
 export const renderTooltipContent = (variantResult: ExperimentVariantResult): JSX.Element => {

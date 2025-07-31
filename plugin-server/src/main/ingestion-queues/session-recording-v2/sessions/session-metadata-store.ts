@@ -7,7 +7,10 @@ import { castTimestampOrNow } from '../../../../utils/utils'
 import { SessionBlockMetadata } from './session-block-metadata'
 
 export class SessionMetadataStore {
-    constructor(private producer: KafkaProducerWrapper, private kafkaTopic: string) {
+    constructor(
+        private producer: KafkaProducerWrapper,
+        private kafkaTopic: string
+    ) {
         logger.debug('🔍', 'session_metadata_store_created')
     }
 

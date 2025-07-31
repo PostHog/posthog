@@ -1,6 +1,7 @@
+import { useActions, useValues } from 'kea'
+
 import { IconRefresh } from '@posthog/icons'
 import { LemonButton, LemonSelect, Spinner } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
 
 import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
 

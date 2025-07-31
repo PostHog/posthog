@@ -2,6 +2,7 @@
 import { Meta } from '@storybook/react'
 import { router } from 'kea-router'
 import { useEffect } from 'react'
+
 import { passwordResetLogic } from 'scenes/authentication/passwordResetLogic'
 import { urls } from 'scenes/urls'
 

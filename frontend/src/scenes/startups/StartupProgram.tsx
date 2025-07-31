@@ -1,7 +1,9 @@
-import { IconArrowRight, IconCheck, IconUpload, IconX } from '@posthog/icons'
-import { LemonButton, LemonFileInput, LemonInput, LemonSelect, lemonToast, Link, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
+
+import { IconArrowRight, IconCheck, IconUpload, IconX } from '@posthog/icons'
+import { LemonButton, LemonFileInput, LemonInput, LemonSelect, Link, Spinner, lemonToast } from '@posthog/lemon-ui'
+
 import { BillingUpgradeCTA } from 'lib/components/BillingUpgradeCTA'
 import { ClimberHog1, ClimberHog2, YCHog } from 'lib/components/hedgehogs'
 import { useUploadFiles } from 'lib/hooks/useUploadFiles'

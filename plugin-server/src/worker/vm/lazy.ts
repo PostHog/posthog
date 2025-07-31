@@ -1,7 +1,8 @@
-import { RetryError } from '@posthog/plugin-scaffold'
 import equal from 'fast-deep-equal'
 import { Counter, Summary } from 'prom-client'
 import { VM } from 'vm2'
+
+import { RetryError } from '@posthog/plugin-scaffold'
 
 import {
     Hub,

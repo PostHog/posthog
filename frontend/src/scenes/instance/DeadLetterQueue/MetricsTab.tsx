@@ -1,15 +1,17 @@
-import { LemonDivider } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { IconRefresh } from 'lib/lemon-ui/icons'
+
+import { IconCalendar } from '@posthog/icons'
+import { LemonDivider } from '@posthog/lemon-ui'
+
+import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
-import { userLogic } from 'scenes/userLogic'
+import { IconRefresh } from 'lib/lemon-ui/icons'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { userLogic } from 'scenes/userLogic'
 
 import { deadLetterQueueLogic } from './deadLetterQueueLogic'
-import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-import { IconCalendar } from '@posthog/icons'
 
 // keep in sync with posthog/api/dead_letter_queue.py
 const ROWS_LIMIT = 10

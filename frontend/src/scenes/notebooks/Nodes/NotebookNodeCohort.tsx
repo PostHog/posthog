@@ -1,19 +1,23 @@
-import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
-import { PropertyFilterType } from '~/types'
-import { useActions, useValues } from 'kea'
-import { urls } from 'scenes/urls'
-import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { notebookNodeLogic } from './notebookNodeLogic'
-import { useEffect, useMemo } from 'react'
 import clsx from 'clsx'
-import { NotFound } from 'lib/components/NotFound'
-import { cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
+import { useActions, useValues } from 'kea'
+import { useEffect, useMemo } from 'react'
+
 import { IconPeople, IconPerson, IconTrends } from '@posthog/icons'
-import { Query } from '~/queries/Query/Query'
 import { LemonDivider, LemonTag } from '@posthog/lemon-ui'
+
+import { NotFound } from 'lib/components/NotFound'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
+import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
+import { urls } from 'scenes/urls'
+
+import { Query } from '~/queries/Query/Query'
 import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
-import { INTEGER_REGEX_MATCH_GROUPS } from './utils'
+import { PropertyFilterType } from '~/types'
+
 import { NotebookNodeProps, NotebookNodeType } from '../types'
+import { notebookNodeLogic } from './notebookNodeLogic'
+import { INTEGER_REGEX_MATCH_GROUPS } from './utils'
 
 const Component = ({ attributes }: NotebookNodeProps<NotebookNodeCohortAttributes>): JSX.Element => {
     const { id } = attributes

@@ -93,7 +93,7 @@ export function exec(input: any[] | VMState | Bytecodes, options?: ExecOptions):
     if (!rootBytecode || rootBytecode.length === 0 || (rootBytecode[0] !== '_h' && rootBytecode[0] !== '_H')) {
         throw new HogVMException("Invalid HogQL bytecode, must start with '_H'")
     }
-    const version = rootBytecode[0] === '_H' ? rootBytecode[1] ?? 0 : 0
+    const version = rootBytecode[0] === '_H' ? (rootBytecode[1] ?? 0) : 0
 
     let temp: any
     let temp2: any
@@ -125,7 +125,7 @@ export function exec(input: any[] | VMState | Bytecodes, options?: ExecOptions):
     const rootGlobals: Record<string, any> =
         bytecodes.root?.globals && options?.globals
             ? { ...bytecodes.root.globals, ...options.globals }
-            : bytecodes.root?.globals ?? options?.globals ?? {}
+            : (bytecodes.root?.globals ?? options?.globals ?? {})
 
     if (callStack.length === 0) {
         callStack.push({

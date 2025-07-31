@@ -1,5 +1,4 @@
 // Keep this in sync with posthog/kafka_client/topics.py
-
 import { isTestEnv } from '../utils/env-utils'
 
 export const suffix = isTestEnv() ? '_test' : ''

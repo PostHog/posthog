@@ -1,38 +1,40 @@
 import {
-    closestCenter,
     CollisionDetection,
-    defaultDropAnimationSideEffects,
     DndContext,
-    DraggableSyntheticListeners,
     DragOverlay,
+    DraggableSyntheticListeners,
     DropAnimation,
-    getFirstCollision,
     MeasuringStrategy,
     MouseSensor,
+    TouchSensor,
+    closestCenter,
+    defaultDropAnimationSideEffects,
+    getFirstCollision,
     pointerWithin,
     rectIntersection,
-    TouchSensor,
     useSensor,
     useSensors,
 } from '@dnd-kit/core'
 import type { UniqueIdentifier } from '@dnd-kit/core/dist/types'
 import {
     AnimateLayoutChanges,
+    SortableContext,
     arrayMove,
     defaultAnimateLayoutChanges,
-    SortableContext,
     useSortable,
     verticalListSortingStrategy,
 } from '@dnd-kit/sortable'
 import type { Transform } from '@dnd-kit/utilities'
 import { CSS } from '@dnd-kit/utilities'
-import { IconTrash } from '@posthog/icons'
-import { IconDragHandle } from 'lib/lemon-ui/icons'
-import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 import debounce from 'lodash.debounce'
 import isEqual from 'lodash.isequal'
 import React, { forwardRef, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal, unstable_batchedUpdates } from 'react-dom'
+
+import { IconTrash } from '@posthog/icons'
+
+import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
+import { IconDragHandle } from 'lib/lemon-ui/icons'
 
 const NOOP = (): void => {}
 export interface VDNDChildItem {

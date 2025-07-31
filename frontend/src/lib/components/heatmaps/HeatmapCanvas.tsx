@@ -1,9 +1,10 @@
 import heatmapsJs, { Heatmap as HeatmapJS } from 'heatmap.js'
 import { useValues } from 'kea'
+import { MutableRefObject, useCallback, useEffect, useMemo, useRef } from 'react'
+
 import { heatmapDataLogic } from 'lib/components/heatmaps/heatmapDataLogic'
 import { useShiftKeyPressed } from 'lib/components/heatmaps/useShiftKeyPressed'
 import { cn } from 'lib/utils/css-classes'
-import { MutableRefObject, useCallback, useEffect, useMemo, useRef } from 'react'
 
 import { useMousePosition } from './useMousePosition'
 
@@ -97,24 +98,27 @@ export function HeatmapCanvas({
         }
     }, [heatmapJsData])
 
-    const setHeatmapContainer = useCallback((container: HTMLDivElement | null): void => {
-        heatmapsJsContainerRef.current = container
-        if (!container) {
-            return
-        }
+    const setHeatmapContainer = useCallback(
+        (container: HTMLDivElement | null): void => {
+            heatmapsJsContainerRef.current = container
+            if (!container) {
+                return
+            }
 
-        heatmapsJsRef.current = heatmapsJs.create({
-            ...heatmapConfig,
-            container,
-            gradient: heatmapJSColorGradient,
-        })
+            heatmapsJsRef.current = heatmapsJs.create({
+                ...heatmapConfig,
+                container,
+                gradient: heatmapJSColorGradient,
+            })
 
-        updateHeatmapData()
-    }, [])
+            updateHeatmapData()
+        },
+        [heatmapJSColorGradient, updateHeatmapData, heatmapConfig]
+    )
 
     useEffect(() => {
         updateHeatmapData()
-    }, [heatmapJsData])
+    }, [heatmapJsData, updateHeatmapData])
 
     useEffect(() => {
         if (!heatmapsJsContainerRef.current) {
@@ -126,7 +130,7 @@ export function HeatmapCanvas({
             container: heatmapsJsContainerRef.current,
             gradient: heatmapJSColorGradient,
         })
-    }, [heatmapJSColorGradient])
+    }, [heatmapJSColorGradient, heatmapConfig])
 
     if (!heatmapFilters.enabled || heatmapFilters.type === 'scrolldepth') {
         return null

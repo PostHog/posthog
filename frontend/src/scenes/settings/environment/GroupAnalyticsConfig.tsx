@@ -1,6 +1,8 @@
-import { LemonButton, LemonInput, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { groupsAccessLogic, GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
+
+import { LemonButton, LemonInput, Link } from '@posthog/lemon-ui'
+
+import { GroupsAccessStatus, groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 

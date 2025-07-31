@@ -1,8 +1,9 @@
-import { IconExternal, IconHome } from '@posthog/icons'
-import { LemonButton, LemonSelect, LemonSkeleton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useEffect, useRef } from 'react'
+
+import { IconExternal, IconHome } from '@posthog/icons'
+import { LemonButton, LemonSelect, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { themeLogic } from '../../themeLogic'
 import { SidePanelPaneHeader } from '../components/SidePanelPaneHeader'
@@ -48,7 +49,7 @@ export const SidePanelDocs = (): JSX.Element => {
             window.removeEventListener('beforeunload', unmountIframe)
             unmountIframe()
         }
-    }, [])
+    }, [unmountIframe])
 
     return (
         <>

@@ -1,23 +1,25 @@
-import { Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { useLayoutEffect, useMemo } from 'react'
+import { P, match } from 'ts-pattern'
+
+import { Spinner } from '@posthog/lemon-ui'
+
+import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
 import { errorPropertiesLogic } from 'lib/components/Errors/errorPropertiesLogic'
 import { dayjs } from 'lib/dayjs'
 import { TabsPrimitiveContent, TabsPrimitiveContentProps } from 'lib/ui/TabsPrimitive/TabsPrimitive'
-import { useLayoutEffect, useMemo } from 'react'
 import {
     SessionRecordingPlayer,
     SessionRecordingPlayerProps,
 } from 'scenes/session-recordings/player/SessionRecordingPlayer'
 import {
-    sessionRecordingPlayerLogic,
     SessionRecordingPlayerMode,
+    sessionRecordingPlayerLogic,
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
-
-import { exceptionCardLogic } from '../exceptionCardLogic'
-import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
-import { match, P } from 'ts-pattern'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
+
+import { exceptionCardLogic } from '../exceptionCardLogic'
 
 export interface SessionTabProps extends TabsPrimitiveContentProps {
     timestamp?: string

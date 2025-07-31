@@ -1,12 +1,14 @@
-import { LemonButton, LemonInput, LemonTextArea, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
+
+import { LemonButton, LemonInput, LemonTextArea, Spinner } from '@posthog/lemon-ui'
+
 import { PageHeader } from 'lib/components/PageHeader'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { EmailTemplater } from 'scenes/hog-functions/email-templater/EmailTemplater'
 import { SceneExport } from 'scenes/sceneTypes'
 
-import { messageTemplateLogic, MessageTemplateLogicProps } from './messageTemplateLogic'
+import { MessageTemplateLogicProps, messageTemplateLogic } from './messageTemplateLogic'
 
 export const scene: SceneExport = {
     component: MessageTemplate,

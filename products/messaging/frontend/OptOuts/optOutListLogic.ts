@@ -1,10 +1,12 @@
-import { kea, path, actions, props, reducers, key, afterMount, connect } from 'kea'
+import { actions, afterMount, connect, kea, key, path, props, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
+
+import { lemonToast } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
 
-import type { optOutListLogicType } from './optOutListLogicType'
-import { lemonToast } from '@posthog/lemon-ui'
 import { MessageCategory } from './optOutCategoriesLogic'
+import type { optOutListLogicType } from './optOutListLogicType'
 import { optOutSceneLogic } from './optOutSceneLogic'
 
 export type OptOutEntry = {

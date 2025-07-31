@@ -1,4 +1,5 @@
 import { JSONContent } from '@tiptap/core'
+
 import api from 'lib/api'
 import { isEmptyObject } from 'lib/utils'
 import { NotebookNodePlaylistAttributes } from 'scenes/notebooks/Nodes/NotebookNodePlaylist'

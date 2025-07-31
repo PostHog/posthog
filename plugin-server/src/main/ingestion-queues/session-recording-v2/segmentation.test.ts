@@ -1,6 +1,6 @@
 import { RRWebEvent } from '../../../types'
 import { RRWebEventSource, RRWebEventType } from './rrweb-types'
-import { activeMillisecondsFromSegmentationEvents, SegmentationEvent, toSegmentationEvent } from './segmentation'
+import { SegmentationEvent, activeMillisecondsFromSegmentationEvents, toSegmentationEvent } from './segmentation'
 
 describe('segmentation', () => {
     describe('activeMillisecondsFromSegmentationEvents', () => {

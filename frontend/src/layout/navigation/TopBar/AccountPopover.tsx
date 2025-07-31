@@ -1,5 +1,9 @@
 import './AccountPopover.scss'
 
+import clsx from 'clsx'
+import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
+
 import {
     IconCake,
     IconCheckCircle,
@@ -16,9 +20,7 @@ import {
     IconShieldLock,
 } from '@posthog/icons'
 import { LemonButtonPropsBase, LemonSelect } from '@posthog/lemon-ui'
-import clsx from 'clsx'
-import { useActions, useValues } from 'kea'
-import { router } from 'kea-router'
+
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
@@ -29,17 +31,18 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { ThemeSwitcher } from 'scenes/settings/user/ThemeSwitcher'
+
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { NewOrganizationButton, OtherOrganizationButton } from '~/layout/navigation/OrganizationSwitcher'
 import { getTreeItemsGames } from '~/products'
 
-import { organizationLogic } from '../../../scenes/organizationLogic'
 import { preflightLogic } from '../../../scenes/PreflightCheck/preflightLogic'
+import { organizationLogic } from '../../../scenes/organizationLogic'
 import { urls } from '../../../scenes/urls'
 import { userLogic } from '../../../scenes/userLogic'
 import { OrganizationBasicType, SidePanelTab } from '../../../types'
-import { navigationLogic } from '../navigationLogic'
 import { AccessLevelIndicator } from '../AccessLevelIndicator'
+import { navigationLogic } from '../navigationLogic'
 
 function AccountPopoverSection({
     title,

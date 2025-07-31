@@ -1,7 +1,7 @@
+import { HOG_FUNCTION_TEMPLATES } from '..'
+
 import { HogFunctionType } from '~/cdp/types'
 import { isLegacyPluginHogFunction, isNativeHogFunction, isSegmentPluginHogFunction } from '~/cdp/utils'
-
-import { HOG_FUNCTION_TEMPLATES } from '..'
 
 describe('Hog Function Templates Code Language', () => {
     it.each(HOG_FUNCTION_TEMPLATES)('should have correct code_language for template $id', (template) => {

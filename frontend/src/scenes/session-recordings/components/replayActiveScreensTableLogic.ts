@@ -1,5 +1,6 @@
 import { defaults, kea, key, path, props } from 'kea'
 import { lazyLoaders } from 'kea-loaders'
+
 import api from 'lib/api'
 
 import { hogql } from '~/queries/utils'

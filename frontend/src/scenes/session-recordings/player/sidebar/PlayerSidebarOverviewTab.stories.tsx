@@ -1,5 +1,6 @@
 import { Meta, StoryFn } from '@storybook/react'
 import { BindLogic } from 'kea'
+
 import recordingEventsJson from 'scenes/session-recordings/__mocks__/recording_events_query'
 import { recordingMetaJson } from 'scenes/session-recordings/__mocks__/recording_meta'
 import { recordingPlaylists } from 'scenes/session-recordings/__mocks__/recording_playlists'

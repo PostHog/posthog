@@ -1,5 +1,6 @@
 import { actions, connect, kea, listeners, path, props, selectors } from 'kea'
-import { resizerLogic, ResizerLogicProps } from 'lib/components/Resizer/resizerLogic'
+
+import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 
 import type { editorSizingLogicType } from './editorSizingLogicType'
 

@@ -1,7 +1,9 @@
-import { lemonToast } from '@posthog/lemon-ui'
 import FuseClass from 'fuse.js'
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+
+import { lemonToast } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -25,13 +27,13 @@ import {
 import { pipelineAccessLogic } from '../pipelineAccessLogic'
 import {
     BatchExportDestination,
-    convertToPipelineNode,
     Destination,
     FunctionDestination,
     PipelineBackend,
     SiteApp,
     Transformation,
     WebhookDestination,
+    convertToPipelineNode,
 } from '../types'
 import { captureBatchExportEvent, capturePluginEvent, loadPluginsFromUrl } from '../utils'
 import { destinationsFiltersLogic } from './destinationsFiltersLogic'

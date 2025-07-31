@@ -1,12 +1,13 @@
 import { useValues } from 'kea'
+
 import { NetworkView } from 'scenes/session-recordings/apm/NetworkView'
 import { PlayerInspector } from 'scenes/session-recordings/player/inspector/PlayerInspector'
 
 import { SessionRecordingSidebarTab } from '~/types'
 
-import { playerSidebarLogic } from './playerSidebarLogic'
 import { PlayerSidebarOverviewTab } from './PlayerSidebarOverviewTab'
 import { PlayerSidebarSessionSummaryTab } from './PlayerSidebarSessionSummaryTab'
+import { playerSidebarLogic } from './playerSidebarLogic'
 
 export function PlayerSidebarTab(): JSX.Element | null {
     const { activeTab } = useValues(playerSidebarLogic)

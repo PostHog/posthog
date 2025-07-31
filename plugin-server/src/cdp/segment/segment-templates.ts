@@ -545,7 +545,10 @@ export const SEGMENT_DESTINATIONS = Object.entries(destinations)
         } as SegmentDestination
     })
 
-export const SEGMENT_DESTINATIONS_BY_ID = SEGMENT_DESTINATIONS.reduce((acc, plugin) => {
-    acc[plugin.template.id] = plugin
-    return acc
-}, {} as Record<string, SegmentDestination>)
+export const SEGMENT_DESTINATIONS_BY_ID = SEGMENT_DESTINATIONS.reduce(
+    (acc, plugin) => {
+        acc[plugin.template.id] = plugin
+        return acc
+    },
+    {} as Record<string, SegmentDestination>
+)

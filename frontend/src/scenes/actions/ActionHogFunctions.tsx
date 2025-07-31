@@ -1,5 +1,7 @@
-import { LemonBanner } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
+
+import { LemonBanner } from '@posthog/lemon-ui'
+
 import { actionEditLogic } from 'scenes/actions/actionEditLogic'
 import { actionLogic } from 'scenes/actions/actionLogic'
 import { LinkedHogFunctions } from 'scenes/hog-functions/list/LinkedHogFunctions'
@@ -39,8 +41,8 @@ export function ActionHogFunctions(): JSX.Element | null {
                     hasCohortFilters
                         ? "Action with cohort filters can't be used in realtime destinations"
                         : actionChanged
-                        ? 'Please first save the action to create a destination'
-                        : undefined
+                          ? 'Please first save the action to create a destination'
+                          : undefined
                 }
             />
         </div>

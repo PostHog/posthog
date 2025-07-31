@@ -1,20 +1,22 @@
 import { useActions, useValues } from 'kea'
-import { TextContent } from 'lib/components/Cards/TextCard/TextCard'
-import { useUploadFiles } from 'lib/hooks/useUploadFiles'
-import { IconMarkdown } from 'lib/lemon-ui/icons'
+import posthog from 'posthog-js'
+import React, { useCallback, useRef, useState } from 'react'
+
 import { IconImage } from '@posthog/icons'
+
+import { TextContent } from 'lib/components/Cards/TextCard/TextCard'
+import { EmojiPickerPopover } from 'lib/components/EmojiPicker/EmojiPickerPopover'
+import { useUploadFiles } from 'lib/hooks/useUploadFiles'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonFileInput } from 'lib/lemon-ui/LemonFileInput'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { LemonTextArea, LemonTextAreaProps } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
-import { lemonToast } from 'lib/lemon-ui/LemonToast'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import posthog from 'posthog-js'
-import React, { useRef, useState, useCallback } from 'react'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { EmojiPickerPopover } from 'lib/components/EmojiPicker/EmojiPickerPopover'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { emojiUsageLogic } from 'lib/lemon-ui/LemonTextArea/emojiUsageLogic'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { Spinner } from 'lib/lemon-ui/Spinner'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { IconMarkdown } from 'lib/lemon-ui/icons'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 export const LemonTextAreaMarkdown = React.forwardRef<HTMLTextAreaElement, LemonTextAreaProps>(
     function LemonTextAreaMarkdown({ value, onChange, className, ...editAreaProps }, ref): JSX.Element {

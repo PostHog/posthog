@@ -1,11 +1,13 @@
-import { IconPlus } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
-import { IconOpenInNew } from 'lib/lemon-ui/icons'
+import { useEffect } from 'react'
+
+import { IconPlus } from '@posthog/icons'
+
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner'
-import { useEffect } from 'react'
+import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
 
 import { ActionsEditingToolbarMenu } from '~/toolbar/actions/ActionsEditingToolbarMenu'
@@ -26,7 +28,7 @@ const ActionsListToolbarMenu = (): JSX.Element => {
 
     useEffect(() => {
         getActions()
-    }, [])
+    }, [getActions])
 
     return (
         <ToolbarMenu>

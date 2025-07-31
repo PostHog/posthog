@@ -1,10 +1,12 @@
-import { LemonButton, LemonFileInput, LemonInput, LemonSkeleton, lemonToast, Popover, Spinner } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { IconUploadFile } from 'lib/lemon-ui/icons'
 import { useState } from 'react'
 
-import { hogFunctionIconLogic, HogFunctionIconLogicProps } from './hogFunctionIconLogic'
+import { LemonButton, LemonFileInput, LemonInput, LemonSkeleton, Popover, Spinner, lemonToast } from '@posthog/lemon-ui'
+
+import { IconUploadFile } from 'lib/lemon-ui/icons'
+
+import { HogFunctionIconLogicProps, hogFunctionIconLogic } from './hogFunctionIconLogic'
 
 const fileToBase64 = (file?: File): Promise<string> => {
     return new Promise((resolve) => {

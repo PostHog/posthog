@@ -1,6 +1,7 @@
 import { Meta, StoryObj } from '@storybook/react'
-import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { useEffect } from 'react'
+
+import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { App } from 'scenes/App'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'

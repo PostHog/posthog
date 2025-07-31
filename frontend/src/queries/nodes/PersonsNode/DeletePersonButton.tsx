@@ -1,5 +1,7 @@
-import { IconTrash } from '@posthog/icons'
 import { useActions } from 'kea'
+
+import { IconTrash } from '@posthog/icons'
+
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { personDeleteModalLogic } from 'scenes/persons/personDeleteModalLogic'
 

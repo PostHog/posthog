@@ -1,6 +1,8 @@
+import { useActions, useValues } from 'kea'
+
 import { IconCheckCircle } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonInput, LemonLabel, Spinner } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'

@@ -1,16 +1,22 @@
 import { Meta, StoryFn } from '@storybook/react'
 import { useActions, useValues } from 'kea'
-import { MOCK_DEFAULT_ORGANIZATION } from 'lib/api.mock'
 import { useEffect } from 'react'
 import { twMerge } from 'tailwind-merge'
 
+import { MOCK_DEFAULT_ORGANIZATION } from 'lib/api.mock'
+import { FEATURE_FLAGS } from 'lib/constants'
+
+import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
 import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
+import type { AssistantContextualTool } from '~/queries/schema/schema-assistant-messages'
 import { FunnelsQuery, TrendsQuery } from '~/queries/schema/schema-general'
 import { InsightShortId } from '~/types'
 
+import { MaxInstance, MaxInstanceProps } from './Max'
+import { MaxFloatingInput } from './MaxFloatingInput'
 import {
-    chatResponseChunk,
     CONVERSATION_ID,
+    chatResponseChunk,
     failureChunk,
     formChunk,
     generationFailureChunk,
@@ -18,16 +24,10 @@ import {
     longResponseChunk,
 } from './__mocks__/chatResponse.mocks'
 import conversationList from './__mocks__/conversationList.json'
-import { MaxInstance, MaxInstanceProps } from './Max'
 import { maxContextLogic } from './maxContextLogic'
-import { MaxFloatingInput } from './MaxFloatingInput'
 import { maxGlobalLogic } from './maxGlobalLogic'
-import { maxLogic, QUESTION_SUGGESTIONS_DATA } from './maxLogic'
+import { QUESTION_SUGGESTIONS_DATA, maxLogic } from './maxLogic'
 import { maxThreadLogic } from './maxThreadLogic'
-
-import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
-import type { AssistantContextualTool } from '~/queries/schema/schema-assistant-messages'
-import { FEATURE_FLAGS } from 'lib/constants'
 
 const meta: Meta = {
     title: 'Scenes-App/Max AI',
@@ -570,7 +570,7 @@ export const FloatingInput: StoryFn = () => {
     useEffect(() => {
         closeSidePanel()
         setIsFloatingMaxExpanded(false)
-    }, [])
+    }, [setIsFloatingMaxExpanded, closeSidePanel])
 
     return <MaxFloatingInput />
 }
@@ -579,7 +579,7 @@ export const ExpandedFloatingInput: StoryFn = () => {
     const { setIsFloatingMaxExpanded } = useActions(maxGlobalLogic)
     useEffect(() => {
         setIsFloatingMaxExpanded(true)
-    }, [])
+    }, [setIsFloatingMaxExpanded])
 
     return <MaxFloatingInput />
 }

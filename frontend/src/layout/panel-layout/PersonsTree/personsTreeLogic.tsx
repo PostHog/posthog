@@ -1,9 +1,10 @@
 import { afterMount, kea, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+
 import api, { CountedPaginatedResponse } from 'lib/api'
 import { rankPersons } from 'lib/components/CommandBar/searchBarLogic'
 
-import { PersonType, SearchableEntity, SearchResponse } from '~/types'
+import { PersonType, SearchResponse, SearchableEntity } from '~/types'
 
 import type { personsTreeLogicType } from './personsTreeLogicType'
 

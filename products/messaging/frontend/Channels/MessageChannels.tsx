@@ -1,16 +1,18 @@
+import { useActions, useValues } from 'kea'
+
 import { IconLetter, IconPlusSmall } from '@posthog/icons'
 import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
-import { LemonMenu, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
-import { useActions, useValues } from 'kea'
+
+import api from 'lib/api'
 import { PageHeader } from 'lib/components/PageHeader'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
-
-import { ChannelSetupModal } from './ChannelSetupModal'
+import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+import { LemonMenu, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
 import { IconSlack, IconTwilio } from 'lib/lemon-ui/icons/icons'
 import { OtherIntegrations } from 'scenes/settings/environment/OtherIntegrations'
-import api from 'lib/api'
 import { urls } from 'scenes/urls'
-import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+
+import { ChannelSetupModal } from './ChannelSetupModal'
 
 export const MESSAGING_CHANNEL_TYPES = ['email', 'slack', 'twilio'] as const
 export type ChannelType = (typeof MESSAGING_CHANNEL_TYPES)[number]

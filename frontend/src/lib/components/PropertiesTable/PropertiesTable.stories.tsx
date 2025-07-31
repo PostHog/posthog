@@ -1,11 +1,11 @@
+import { PropertiesTable as PropertiesTableComponent } from '.'
 import { Meta, StoryFn } from '@storybook/react'
 import { useActions } from 'kea'
-import { userPreferencesLogic } from 'lib/logic/userPreferencesLogic'
 import { useEffect } from 'react'
 
-import { PropertyDefinitionType } from '~/types'
+import { userPreferencesLogic } from 'lib/logic/userPreferencesLogic'
 
-import { PropertiesTable as PropertiesTableComponent } from '.'
+import { PropertyDefinitionType } from '~/types'
 
 const meta: Meta<typeof PropertiesTableComponent> = {
     title: 'Components/Properties Table',
@@ -65,7 +65,7 @@ export const DollarPropertiesOnPersonSearchable: StoryFn = () => {
 export const DollarPropertiesOnPersonHidden: StoryFn = () => {
     const { setHidePostHogPropertiesInTable } = useActions(userPreferencesLogic)
 
-    useEffect(() => setHidePostHogPropertiesInTable(true), [])
+    useEffect(() => setHidePostHogPropertiesInTable(true), [setHidePostHogPropertiesInTable])
 
     const properties = {
         pineapple_enjoyment_score: 3,

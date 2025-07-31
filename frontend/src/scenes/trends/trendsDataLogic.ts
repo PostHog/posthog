@@ -1,4 +1,5 @@
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+
 import { DataColorTheme, DataColorToken } from 'lib/colors'
 import { dayjs } from 'lib/dayjs'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
@@ -165,14 +166,14 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                             a.breakdown_value === BREAKDOWN_OTHER_STRING_LABEL
                                 ? -BREAKDOWN_OTHER_NUMERIC_LABEL
                                 : a.breakdown_value === BREAKDOWN_NULL_STRING_LABEL
-                                ? -BREAKDOWN_NULL_NUMERIC_LABEL
-                                : a.aggregated_value
+                                  ? -BREAKDOWN_NULL_NUMERIC_LABEL
+                                  : a.aggregated_value
                         const bValue =
                             b.breakdown_value === BREAKDOWN_OTHER_STRING_LABEL
                                 ? -BREAKDOWN_OTHER_NUMERIC_LABEL
                                 : b.breakdown_value === BREAKDOWN_NULL_STRING_LABEL
-                                ? -BREAKDOWN_NULL_NUMERIC_LABEL
-                                : b.aggregated_value
+                                  ? -BREAKDOWN_NULL_NUMERIC_LABEL
+                                  : b.aggregated_value
                         return bValue - aValue
                     })
                 } else if (lifecycleFilter) {

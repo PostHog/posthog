@@ -1,8 +1,11 @@
-import { LemonInputSelect, LemonInputSelectOption } from '@posthog/lemon-ui'
-import { LemonField } from 'lib/lemon-ui/LemonField'
-import { githubIntegrationLogic } from './githubIntegrationLogic'
-import { useEffect, useMemo } from 'react'
 import { useActions, useValues } from 'kea'
+import { useEffect, useMemo } from 'react'
+
+import { LemonInputSelect, LemonInputSelectOption } from '@posthog/lemon-ui'
+
+import { LemonField } from 'lib/lemon-ui/LemonField'
+
+import { githubIntegrationLogic } from './githubIntegrationLogic'
 
 export const GitHubRepositorySelectField = ({ integrationId }: { integrationId: number }): JSX.Element => {
     const { options, loading } = useRepositories(integrationId)

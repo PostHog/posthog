@@ -1,13 +1,14 @@
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { HTMLProps } from 'react'
+
+import { EditorFocusPosition } from 'lib/components/RichContentEditor/types'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { SidePanelTab } from '~/types'
 
-import type { notebookPanelLogicType } from './notebookPanelLogicType'
-import { EditorFocusPosition } from 'lib/components/RichContentEditor/types'
 import { NotebookNodeResource } from '../types'
+import type { notebookPanelLogicType } from './notebookPanelLogicType'
 
 export const notebookPanelLogic = kea<notebookPanelLogicType>([
     path(['scenes', 'notebooks', 'Notebook', 'notebookPanelLogic']),

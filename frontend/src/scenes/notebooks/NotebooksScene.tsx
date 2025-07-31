@@ -1,8 +1,10 @@
 import './NotebookScene.scss'
 
-import { IconEllipsis } from '@posthog/icons'
-import { LemonButton, LemonMenu, lemonToast, Tooltip } from '@posthog/lemon-ui'
 import { router } from 'kea-router'
+
+import { IconEllipsis } from '@posthog/icons'
+import { LemonButton, LemonMenu, Tooltip, lemonToast } from '@posthog/lemon-ui'
+
 import { AccessControlledLemonButton } from 'lib/components/AccessControlledLemonButton'
 import { PageHeader } from 'lib/components/PageHeader'
 import { base64Encode } from 'lib/utils'

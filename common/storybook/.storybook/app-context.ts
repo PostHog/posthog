@@ -1,4 +1,5 @@
-import { MOCK_DEFAULT_TEAM, MOCK_DEFAULT_PROJECT } from 'lib/api.mock'
+import { MOCK_DEFAULT_PROJECT, MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 import { AppContext } from '~/types'
 
 export const getStorybookAppContext = (): AppContext => ({

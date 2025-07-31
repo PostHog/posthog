@@ -1,3 +1,6 @@
+import { BindLogic, useActions, useValues } from 'kea'
+import { useCallback, useEffect, useMemo } from 'react'
+
 import {
     LemonBadge,
     LemonButton,
@@ -8,12 +11,11 @@ import {
     Link,
     Tooltip,
 } from '@posthog/lemon-ui'
-import { BindLogic, useActions, useValues } from 'kea'
+
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
-import { updatedAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
-import { useCallback, useEffect, useMemo } from 'react'
+import { updatedAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { HogFunctionMetricSparkLine } from 'scenes/hog-functions/metrics/HogFunctionMetricsSparkline'
 import { urls } from 'scenes/urls'
 
@@ -50,7 +52,7 @@ export function HogFunctionList({
 
     const humanizedType = humanizeHogFunctionType(props.type)
 
-    useEffect(() => loadHogFunctions(), [])
+    useEffect(() => loadHogFunctions(), [loadHogFunctions])
 
     const isManualFunction = useCallback(
         (hogFunction: HogFunctionType): boolean => {
@@ -177,7 +179,15 @@ export function HogFunctionList({
         }
 
         return columns
-    }, [props.type, canEnableHogFunction, humanizedType, toggleEnabled, deleteHogFunction, isManualFunction])
+    }, [
+        props.type,
+        canEnableHogFunction,
+        humanizedType,
+        toggleEnabled,
+        deleteHogFunction,
+        isManualFunction,
+        setReorderModalOpen,
+    ])
 
     return (
         <>

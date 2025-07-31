@@ -1,6 +1,7 @@
-import { Properties } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 import pLimit from 'p-limit'
+
+import { Properties } from '@posthog/plugin-scaffold'
 
 import { GroupTypeIndex, TeamId } from '../../../types'
 import { DB } from '../../../utils/db/db'
@@ -14,7 +15,7 @@ import { captureIngestionWarning } from '../utils'
 import { logMissingRow, logVersionMismatch } from './group-logging'
 import { GroupStore } from './group-store'
 import { CacheMetrics, GroupStoreForBatch } from './group-store-for-batch'
-import { calculateUpdate, fromGroup, GroupUpdate } from './group-update'
+import { GroupUpdate, calculateUpdate, fromGroup } from './group-update'
 import {
     groupCacheOperationsCounter,
     groupCacheSizeHistogram,
@@ -115,7 +116,10 @@ const DEFAULT_OPTIONS: BatchWritingGroupStoreOptions = {
 export class BatchWritingGroupStore implements GroupStore {
     private options: BatchWritingGroupStoreOptions
 
-    constructor(private db: DB, options?: Partial<BatchWritingGroupStoreOptions>) {
+    constructor(
+        private db: DB,
+        options?: Partial<BatchWritingGroupStoreOptions>
+    ) {
         this.options = { ...DEFAULT_OPTIONS, ...options }
     }
 
@@ -136,7 +140,10 @@ export class BatchWritingGroupStoreForBatch implements GroupStoreForBatch {
     private databaseOperationCounts: Map<string, number>
     private options: BatchWritingGroupStoreOptions
 
-    constructor(private db: DB, options?: Partial<BatchWritingGroupStoreOptions>) {
+    constructor(
+        private db: DB,
+        options?: Partial<BatchWritingGroupStoreOptions>
+    ) {
         this.options = { ...DEFAULT_OPTIONS, ...options }
         this.groupCache = new GroupCache()
         this.databaseOperationCounts = new Map()

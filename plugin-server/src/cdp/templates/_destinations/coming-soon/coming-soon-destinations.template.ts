@@ -1,4 +1,5 @@
-import { HogFunctionTemplate } from '~/cdp/types' // Assuming this path is correct from your initial file
+// Assuming this path is correct from your initial file
+import { HogFunctionTemplate } from '~/cdp/types'
 
 interface DestinationConfig {
     name: string

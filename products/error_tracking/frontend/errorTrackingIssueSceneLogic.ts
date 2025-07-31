@@ -1,6 +1,8 @@
 import { actions, connect, defaults, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
+import { subscriptions } from 'kea-subscriptions'
+
 import api from 'lib/api'
 import { ErrorEventProperties, ErrorEventType } from 'lib/components/Errors/types'
 import { Dayjs, dayjs } from 'lib/dayjs'
@@ -21,7 +23,6 @@ import { issueActionsLogic } from './components/IssueActions/issueActionsLogic'
 import type { errorTrackingIssueSceneLogicType } from './errorTrackingIssueSceneLogicType'
 import { errorTrackingIssueQuery } from './queries'
 import { ERROR_TRACKING_DETAILS_RESOLUTION } from './utils'
-import { subscriptions } from 'kea-subscriptions'
 
 export interface ErrorTrackingIssueSceneLogicProps {
     id: ErrorTrackingIssue['id']

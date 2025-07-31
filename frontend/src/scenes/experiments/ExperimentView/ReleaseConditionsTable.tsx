@@ -1,8 +1,10 @@
+import { useActions, useValues } from 'kea'
+
 import { IconFlag } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonModal, LemonTable, LemonTableColumns, LemonTag } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
-import { featureFlagLogic, FeatureFlagLogicProps } from 'scenes/feature-flags/featureFlagLogic'
+
 import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlagReleaseConditions'
+import { FeatureFlagLogicProps, featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 
 import { groupsModel } from '~/models/groupsModel'
 import { Experiment, FeatureFlagGroupType } from '~/types'

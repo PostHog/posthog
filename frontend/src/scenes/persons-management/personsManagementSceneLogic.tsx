@@ -1,8 +1,12 @@
-import { LemonButton } from '@posthog/lemon-ui'
 import { actions, connect, kea, path, reducers, selectors } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
+
+import { LemonButton } from '@posthog/lemon-ui'
+
+import { FEATURE_FLAGS } from 'lib/constants'
 import { GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
 import { LemonTab } from 'lib/lemon-ui/LemonTabs'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { Cohorts } from 'scenes/cohorts/Cohorts'
 import { Groups } from 'scenes/groups/Groups'
@@ -15,8 +19,6 @@ import { Breadcrumb } from '~/types'
 
 import type { personsManagementSceneLogicType } from './personsManagementSceneLogicType'
 import { Persons } from './tabs/Persons'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 
 export type PersonsManagementTab = {
     key: string

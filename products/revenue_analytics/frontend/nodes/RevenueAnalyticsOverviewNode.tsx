@@ -1,9 +1,11 @@
-import { LemonSkeleton } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
+import { useState } from 'react'
+
+import { LemonSkeleton } from '@posthog/lemon-ui'
+
 import { humanFriendlyNumber, range } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
 import { getCurrencySymbol } from 'lib/utils/geography/currency'
-import { useState } from 'react'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
@@ -42,7 +44,7 @@ export function RevenueAnalyticsOverviewNode(props: {
     const { response, responseLoading } = useValues(logic)
     const queryResponse = response as RevenueAnalyticsOverviewQueryResponse | undefined
 
-    const results = responseLoading ? range(NUM_SKELETONS).map(() => undefined) : queryResponse?.results ?? []
+    const results = responseLoading ? range(NUM_SKELETONS).map(() => undefined) : (queryResponse?.results ?? [])
 
     return (
         <div className="flex flex-row flex-wrap md:flex-nowrap w-full gap-2">

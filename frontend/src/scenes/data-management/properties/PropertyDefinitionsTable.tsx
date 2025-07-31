@@ -1,7 +1,9 @@
 import './PropertyDefinitionsTable.scss'
 
-import { LemonInput, LemonSelect, LemonTag, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+
+import { LemonInput, LemonSelect, LemonTag, Link } from '@posthog/lemon-ui'
+
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { EVENT_PROPERTY_DEFINITIONS_PER_PAGE } from 'lib/constants'

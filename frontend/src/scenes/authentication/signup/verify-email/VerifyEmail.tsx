@@ -1,10 +1,12 @@
-import { LemonButton, LemonCheckbox, LemonModal, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { BridgePage } from 'lib/components/BridgePage/BridgePage'
-import { HeartHog, MailHog, SurprisedHog } from 'lib/components/hedgehogs'
-import { supportLogic } from 'lib/components/Support/supportLogic'
-import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { useState } from 'react'
+
+import { LemonButton, LemonCheckbox, LemonModal, Link } from '@posthog/lemon-ui'
+
+import { BridgePage } from 'lib/components/BridgePage/BridgePage'
+import { supportLogic } from 'lib/components/Support/supportLogic'
+import { HeartHog, MailHog, SurprisedHog } from 'lib/components/hedgehogs'
+import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 

@@ -1,5 +1,6 @@
 import { IconPlusSmall } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
+
 import { PageHeader } from 'lib/components/PageHeader'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonMenu, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
@@ -9,8 +10,8 @@ import { urls } from 'scenes/urls'
 
 import { PipelineStage, PipelineTab } from '~/types'
 
-import { DESTINATION_TYPES, TRANSFORMATION_TYPES } from './destinations/constants'
 import { DestinationsTable } from './destinations/Destinations'
+import { DESTINATION_TYPES, TRANSFORMATION_TYPES } from './destinations/constants'
 
 export function Overview(): JSX.Element {
     const menuItems: LemonMenuItems = [

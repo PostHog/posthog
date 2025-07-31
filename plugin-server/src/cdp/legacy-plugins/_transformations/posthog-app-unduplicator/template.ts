@@ -1,5 +1,6 @@
-import { LegacyTransformationPlugin } from '../../types'
 import { processEvent } from '.'
+
+import { LegacyTransformationPlugin } from '../../types'
 
 // NOTE: This is a deprecated plugin and should never be shown to new users
 export const posthogAppUnduplicator: LegacyTransformationPlugin = {

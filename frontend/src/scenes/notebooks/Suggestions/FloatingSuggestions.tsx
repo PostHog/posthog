@@ -1,12 +1,13 @@
 import './FloatingSuggestions.scss'
 
 import { useValues } from 'kea'
-import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { useEffect, useState } from 'react'
+
+import { richContentEditorLogic } from 'lib/components/RichContentEditor/richContentEditorLogic'
+import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 
 import { isCurrentNodeEmpty } from '../utils'
 import { insertionSuggestionsLogic } from './insertionSuggestionsLogic'
-import { richContentEditorLogic } from 'lib/components/RichContentEditor/richContentEditorLogic'
 
 export function FloatingSuggestions(): JSX.Element | null {
     const logic = insertionSuggestionsLogic()

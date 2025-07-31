@@ -1,6 +1,9 @@
-import { IconCheckbox, IconChevronRight, IconFolderPlus, IconPlusSmall } from '@posthog/icons'
 import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+import { RefObject, useEffect, useRef, useState } from 'react'
+
+import { IconCheckbox, IconChevronRight, IconFolderPlus, IconPlusSmall } from '@posthog/icons'
+
 import { moveToLogic } from 'lib/components/FileSystem/MoveTo/moveToLogic'
 import { ResizableElement } from 'lib/components/ResizeElement/ResizeElement'
 import { dayjs } from 'lib/dayjs'
@@ -27,23 +30,22 @@ import {
     DropdownMenuSubTrigger,
 } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { cn } from 'lib/utils/css-classes'
-import { RefObject, useEffect, useRef, useState } from 'react'
 
-import { NewMenu } from '~/layout/panel-layout/menus/NewMenu'
-import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { DashboardsMenuItems } from '~/layout/panel-layout/ProjectTree/menus/DashboardsMenuItems'
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
+import { NewMenu } from '~/layout/panel-layout/menus/NewMenu'
+import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { UserBasicType } from '~/types'
 
 import { PanelLayoutPanel } from '../PanelLayoutPanel'
+import { TreeFiltersDropdownMenu } from './TreeFiltersDropdownMenu'
+import { TreeSearchField } from './TreeSearchField'
+import { TreeSortDropdownMenu } from './TreeSortDropdownMenu'
 import { BrowserLikeMenuItems } from './menus/BrowserLikeMenuItems'
 import { ProductAnalyticsMenuItems } from './menus/ProductAnalyticsMenuItems'
 import { SessionReplayMenuItems } from './menus/SessionReplayMenuItems'
 import { projectTreeLogic } from './projectTreeLogic'
-import { TreeFiltersDropdownMenu } from './TreeFiltersDropdownMenu'
-import { TreeSearchField } from './TreeSearchField'
-import { TreeSortDropdownMenu } from './TreeSortDropdownMenu'
 import { calculateMovePath } from './utils'
 
 export interface ProjectTreeProps {
@@ -449,8 +451,8 @@ export function ProjectTree({
                 const folder = newItem
                     ? newItem.path || ''
                     : newId && String(newId).startsWith('project://')
-                    ? String(newId).substring(10)
-                    : ''
+                      ? String(newId).substring(10)
+                      : ''
 
                 if (checkedItems[oldId]) {
                     moveCheckedItems(folder)
@@ -622,8 +624,8 @@ export function ProjectTree({
                                             {header.formatComponent
                                                 ? header.formatComponent(value, item)
                                                 : header.formatString
-                                                ? header.formatString(value, item)
-                                                : value}
+                                                  ? header.formatString(value, item)
+                                                  : value}
                                         </span>
                                     </Tooltip>
                                 </span>

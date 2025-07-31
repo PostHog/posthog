@@ -1,7 +1,9 @@
-import { LemonInputSelect } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { fullName } from 'lib/utils'
 import { useEffect } from 'react'
+
+import { LemonInputSelect } from '@posthog/lemon-ui'
+
+import { fullName } from 'lib/utils'
 import { membersLogic } from 'scenes/organization/membersLogic'
 
 import { UserBasicType } from '~/types'
@@ -20,7 +22,7 @@ export function MemberSelectMultiple({ idKey, value, onChange }: MemberSelectMul
 
     useEffect(() => {
         ensureAllMembersLoaded()
-    }, [])
+    }, [ensureAllMembersLoaded])
 
     const options = filteredMembers.map((member) => ({
         key: member.user[idKey].toString(),

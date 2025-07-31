@@ -1,8 +1,9 @@
 import './LemonColorGlyph.scss'
 
 import { useValues } from 'kea'
+
 import { DataColorToken } from 'lib/colors'
-import { hexToRGBA, lightenDarkenColor, RGBToRGBA } from 'lib/utils'
+import { RGBToRGBA, hexToRGBA, lightenDarkenColor } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
 

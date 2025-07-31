@@ -1,7 +1,10 @@
 import { useActions, useValues } from 'kea'
-import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-import { ReloadAll } from '~/queries/nodes/DataNode/Reload'
+
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
+import { DateFilter } from 'lib/components/DateFilter/DateFilter'
+
+import { ReloadAll } from '~/queries/nodes/DataNode/Reload'
+
 import { marketingAnalyticsLogic } from '../../logic/marketingAnalyticsLogic'
 
 export const MarketingAnalyticsFilters = (): JSX.Element => {

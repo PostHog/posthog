@@ -1,3 +1,8 @@
+// sort-imports-ignore
+import { SecureRequestError, fetch, legacyFetch, raiseIfUserProvidedUrlUnsafe } from './request'
+import { range } from 'lodash'
+
+// Mock before importing
 const realDnsLookup = jest.requireActual('dns/promises').lookup
 jest.mock('dns/promises', () => ({
     lookup: jest.fn((hostname: string, options?: any) => {
@@ -6,9 +11,6 @@ jest.mock('dns/promises', () => ({
 }))
 
 import dns from 'dns/promises'
-import { range } from 'lodash'
-
-import { fetch, legacyFetch, raiseIfUserProvidedUrlUnsafe, SecureRequestError } from './request'
 
 describe('fetch', () => {
     beforeEach(() => {

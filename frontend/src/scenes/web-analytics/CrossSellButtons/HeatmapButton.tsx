@@ -1,10 +1,12 @@
-import { LemonButton } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
+
+import { LemonButton } from '@posthog/lemon-ui'
+
 import { appEditorUrl } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconHeatmap } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { addProductIntentForCrossSell, ProductIntentContext } from 'lib/utils/product-intents'
+import { ProductIntentContext, addProductIntentForCrossSell } from 'lib/utils/product-intents'
 import { urls } from 'scenes/urls'
 
 import { WebStatsBreakdown } from '~/queries/schema/schema-general'

@@ -1,11 +1,12 @@
 import { Meta } from '@storybook/react'
+
+import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import {
     featureFlagsActivityResponseJson,
     insightsActivityResponseJson,
     personActivityResponseJson,
     teamActivityResponseJson,
 } from 'lib/components/ActivityLog/__mocks__/activityLogMocks'
-import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 
 import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
 import organizationCurrent from '~/mocks/fixtures/api/organizations/@current/@current.json'

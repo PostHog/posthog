@@ -3,10 +3,10 @@ import {
     HighLevelProducer,
     LibrdKafkaError,
     MessageHeader,
-    MessageKey as RdKafkaMessageKey,
     MessageValue,
     NumberNullUndefined,
     ProducerGlobalConfig,
+    MessageKey as RdKafkaMessageKey,
 } from 'node-rdkafka'
 import { hostname } from 'os'
 import { Counter, Summary } from 'prom-client'
@@ -14,7 +14,7 @@ import { Counter, Summary } from 'prom-client'
 import { PluginsServerConfig } from '../types'
 import { DependencyUnavailableError, MessageSizeTooLarge } from '../utils/db/error'
 import { logger } from '../utils/logger'
-import { getKafkaConfigFromEnv, KafkaConfigTarget } from './config'
+import { KafkaConfigTarget, getKafkaConfigFromEnv } from './config'
 
 // TODO: Rewrite this description
 /** This class is a wrapper around the rdkafka producer, and does very little.

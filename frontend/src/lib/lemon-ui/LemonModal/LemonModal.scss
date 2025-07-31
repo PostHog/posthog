@@ -5,7 +5,8 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    transition: background-color var(--modal-transition-time) ease-out,
+    transition:
+        background-color var(--modal-transition-time) ease-out,
         backdrop-filter var(--modal-transition-time) ease-out;
 
     &.LemonModal__overlay--force-modal-above-popovers {
@@ -43,7 +44,9 @@
     border-radius: var(--radius);
     box-shadow: var(--modal-shadow-elevation);
     opacity: 0;
-    transition: opacity var(--modal-transition-time) ease-out, transform var(--modal-transition-time) ease-out;
+    transition:
+        opacity var(--modal-transition-time) ease-out,
+        transform var(--modal-transition-time) ease-out;
     transform: scale(0.85);
 
     // Transition properties

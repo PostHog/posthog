@@ -1,6 +1,8 @@
-import { LemonButton, LemonCheckbox, LemonModal, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
+
+import { LemonButton, LemonCheckbox, LemonModal, Link } from '@posthog/lemon-ui'
+
 import { personDeleteModalLogic } from 'scenes/persons/personDeleteModalLogic'
 
 import { PersonType } from '~/types'

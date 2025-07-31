@@ -13,11 +13,12 @@ import {
     selectors,
 } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
+import { v4 as uuidv4 } from 'uuid'
+
 import api from 'lib/api'
 import { isEmptyProperty } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType, TaxonomicFilterProps } from 'lib/components/TaxonomicFilter/types'
 import { objectsEqual, range } from 'lib/utils'
-import { v4 as uuidv4 } from 'uuid'
 import { projectLogic } from 'scenes/projectLogic'
 
 import { groupsModel } from '~/models/groupsModel'
@@ -30,6 +31,7 @@ import {
     PropertyFilterType,
     UserBlastRadiusType,
 } from '~/types'
+
 import type { featureFlagReleaseConditionsLogicType } from './featureFlagReleaseConditionsLogicType'
 
 // Helper function to move a condition set to a new index

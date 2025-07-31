@@ -2,6 +2,7 @@ import { actions, connect, isBreakpoint, kea, key, listeners, path, props, reduc
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
+
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
@@ -28,11 +29,11 @@ import { teamLogic } from 'scenes/teamLogic'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { urls } from 'scenes/urls'
 
-import { activationLogic, ActivationTask } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
+import { ActivationTask, activationLogic } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
 import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
-import { performQuery, QUERY_TIMEOUT_ERROR_MESSAGE } from '~/queries/query'
+import { QUERY_TIMEOUT_ERROR_MESSAGE, performQuery } from '~/queries/query'
 import {
     AnyEntityNode,
     CachedExperimentFunnelsQueryResponse,
@@ -70,12 +71,19 @@ import {
     PropertyMathType,
     TrendExperimentVariant,
 } from '~/types'
+
+import { getDefaultMetricTitle } from './MetricsView/shared/utils'
+import { SharedMetric } from './SharedMetrics/sharedMetricLogic'
+import { sharedMetricsLogic } from './SharedMetrics/sharedMetricsLogic'
 import {
     EXPERIMENT_MAX_PRIMARY_METRICS,
     EXPERIMENT_MAX_SECONDARY_METRICS,
     EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS,
     MetricInsightId,
 } from './constants'
+import type { experimentLogicType } from './experimentLogicType'
+import { experimentsLogic } from './experimentsLogic'
+import { holdoutsLogic } from './holdoutsLogic'
 import {
     conversionRateForVariant,
     expectedRunningTime,
@@ -83,14 +91,8 @@ import {
     minimumSampleSizePerVariant,
     recommendedExposureForCountData,
 } from './legacyExperimentCalculations'
-import type { experimentLogicType } from './experimentLogicType'
-import { experimentsLogic } from './experimentsLogic'
-import { holdoutsLogic } from './holdoutsLogic'
 import { addExposureToMetric, compose, getInsight, getQuery } from './metricQueryUtils'
-import { getDefaultMetricTitle } from './MetricsView/shared/utils'
 import { modalsLogic } from './modalsLogic'
-import { SharedMetric } from './SharedMetrics/sharedMetricLogic'
-import { sharedMetricsLogic } from './SharedMetrics/sharedMetricsLogic'
 import {
     featureFlagEligibleForExperiment,
     isLegacyExperiment,
@@ -686,8 +688,8 @@ export const experimentLogic = kea<experimentLogicType>([
                     const name = originalMetric.name
                         ? `${originalMetric.name} (copy)`
                         : originalMetric.kind === NodeKind.ExperimentMetric
-                        ? `${getDefaultMetricTitle(originalMetric)} (copy)`
-                        : undefined
+                          ? `${getDefaultMetricTitle(originalMetric)} (copy)`
+                          : undefined
 
                     const newMetric = { ...originalMetric, uuid: uuid(), name }
                     metrics.splice(metricIndex + 1, 0, newMetric)

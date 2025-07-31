@@ -1,6 +1,8 @@
+import { useActions, useValues } from 'kea'
+
 import { IconExternal } from '@posthog/icons'
 import { LemonButton, Spinner } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { ProductIntentContext } from 'lib/utils/product-intents'
 import { teamLogic } from 'scenes/teamLogic'

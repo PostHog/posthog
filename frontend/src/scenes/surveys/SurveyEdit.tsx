@@ -2,6 +2,9 @@ import './EditSurvey.scss'
 
 import { DndContext } from '@dnd-kit/core'
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
+import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
+import { useState } from 'react'
+
 import { IconInfo, IconPlus, IconTrash } from '@posthog/icons'
 import {
     LemonButton,
@@ -17,26 +20,25 @@ import {
     Link,
     Popover,
 } from '@posthog/lemon-ui'
-import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
+
 import { EventSelect } from 'lib/components/EventSelect/EventSelect'
 import { FlagSelector } from 'lib/components/FlagSelector'
 import { PropertyValue } from 'lib/components/PropertyFilters/components/PropertyValue'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { IconCancel } from 'lib/lemon-ui/icons'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonRadio, LemonRadioOption } from 'lib/lemon-ui/LemonRadio'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { IconCancel } from 'lib/lemon-ui/icons'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { formatDate } from 'lib/utils'
-import { useState } from 'react'
-import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlagReleaseConditions'
-import { Customization } from 'scenes/surveys/survey-appearance/SurveyCustomization'
+import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 import { SurveyRepeatSchedule } from 'scenes/surveys/SurveyRepeatSchedule'
 import { SurveyResponsesCollection } from 'scenes/surveys/SurveyResponsesCollection'
 import { SurveyWidgetCustomization } from 'scenes/surveys/SurveyWidgetCustomization'
+import { Customization } from 'scenes/surveys/survey-appearance/SurveyCustomization'
 import { sanitizeSurveyAppearance, validateSurveyAppearance } from 'scenes/surveys/utils'
 
 import { actionsModel } from '~/models/actionsModel'
@@ -54,12 +56,12 @@ import {
     SurveyType,
 } from '~/types'
 
-import { defaultSurveyFieldValues, SurveyMatchTypeLabels } from './constants'
 import { SurveyAPIEditor } from './SurveyAPIEditor'
 import { SurveyAppearancePreview } from './SurveyAppearancePreview'
 import { HTMLEditor, PresentationTypeCard } from './SurveyAppearanceUtils'
 import { SurveyEditQuestionGroup, SurveyEditQuestionHeader } from './SurveyEditQuestionRow'
 import { SurveyFormAppearance } from './SurveyFormAppearance'
+import { SurveyMatchTypeLabels, defaultSurveyFieldValues } from './constants'
 import { DataCollectionType, SurveyEditSection, surveyLogic } from './surveyLogic'
 
 function SurveyCompletionConditions(): JSX.Element {
@@ -460,8 +462,7 @@ export default function SurveyEdit(): JSX.Element {
                                                                                           )
                                                                                           setSurveyValue('appearance', {
                                                                                               ...survey.appearance,
-                                                                                              displayThankYouMessage:
-                                                                                                  false,
+                                                                                              displayThankYouMessage: false,
                                                                                           })
                                                                                       }
 

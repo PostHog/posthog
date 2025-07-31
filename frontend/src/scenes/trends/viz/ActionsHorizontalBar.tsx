@@ -1,5 +1,6 @@
 import { useValues } from 'kea'
 import { useEffect, useState } from 'react'
+
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { formatBreakdownLabel } from 'scenes/insights/utils'
 import { datasetToActorsQuery } from 'scenes/trends/viz/datasetToActorsQuery'

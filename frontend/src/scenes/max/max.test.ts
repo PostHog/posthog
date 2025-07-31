@@ -8,7 +8,7 @@ import { maxGlobalLogic } from './maxGlobalLogic'
 import { maxLogic } from './maxLogic'
 import { maxThreadLogic } from './maxThreadLogic'
 import { MOCK_IN_PROGRESS_CONVERSATION, mockStream } from './testUtils'
-import { maxMocks, MOCK_CONVERSATION_ID } from './testUtils'
+import { MOCK_CONVERSATION_ID, maxMocks } from './testUtils'
 
 describe('Max Logics Integration Tests', () => {
     let logic: ReturnType<typeof maxLogic.build>

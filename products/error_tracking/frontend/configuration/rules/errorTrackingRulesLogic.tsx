@@ -1,11 +1,12 @@
 import { actions, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+
 import api from 'lib/api'
 
 import { FilterLogicalOperator } from '~/types'
 
 import type { errorTrackingRulesLogicType } from './errorTrackingRulesLogicType'
-import { ErrorTrackingRule, ErrorTrackingRuleNew, ErrorTrackingRulesLogicProps, ErrorTrackingRuleType } from './types'
+import { ErrorTrackingRule, ErrorTrackingRuleNew, ErrorTrackingRuleType, ErrorTrackingRulesLogicProps } from './types'
 
 function createNewRule(ruleType: ErrorTrackingRuleType, order_key: number): ErrorTrackingRuleNew {
     switch (ruleType) {

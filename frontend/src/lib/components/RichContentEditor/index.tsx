@@ -2,9 +2,11 @@ import './RichContentEditor.scss'
 
 import { EditorContent, Extensions, useEditor } from '@tiptap/react'
 import { BindLogic } from 'kea'
-import { richContentEditorLogic } from './richContentEditorLogic'
-import { cn } from 'lib/utils/css-classes'
 import { PropsWithChildren } from 'react'
+
+import { cn } from 'lib/utils/css-classes'
+
+import { richContentEditorLogic } from './richContentEditorLogic'
 import { JSONContent, TTEditor } from './types'
 
 export const RichContentEditor = ({

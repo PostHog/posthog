@@ -1,4 +1,5 @@
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
+
 import { range } from 'lib/utils'
 
 import { Lettermark, LettermarkColor, LettermarkProps } from './Lettermark'

@@ -1,5 +1,6 @@
-import { PluginAttachment } from '@posthog/plugin-scaffold'
 import { Summary } from 'prom-client'
+
+import { PluginAttachment } from '@posthog/plugin-scaffold'
 
 import { Hub, Plugin, PluginConfig, PluginConfigId, PluginId, PluginMethod, TeamId } from '../../types'
 import { getActivePluginRows, getPluginAttachmentRows, getPluginConfigRows } from '../../utils/db/sql'

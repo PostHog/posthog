@@ -1,12 +1,14 @@
-import { IconInfo, IconRewindPlay } from '@posthog/icons'
-import { LemonButton, LemonTable, LemonTableColumns, LemonTag, Tooltip } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { router } from 'kea-router'
+import posthog from 'posthog-js'
+
+import { IconInfo, IconRewindPlay } from '@posthog/icons'
+import { LemonButton, LemonTable, LemonTableColumns, LemonTag, Tooltip } from '@posthog/lemon-ui'
+
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { humanFriendlyNumber } from 'lib/utils'
-import posthog from 'posthog-js'
 import { urls } from 'scenes/urls'
 
 import {
@@ -25,6 +27,7 @@ import {
     TrendExperimentVariant,
 } from '~/types'
 
+import { experimentLogic } from '../experimentLogic'
 import {
     calculateDelta,
     conversionRateForVariant,
@@ -33,7 +36,6 @@ import {
     exposureCountDataForVariant,
     getHighestProbabilityVariant,
 } from '../legacyExperimentCalculations'
-import { experimentLogic } from '../experimentLogic'
 import { getViewRecordingFilters, getViewRecordingFiltersLegacy, isLegacyExperimentQuery } from '../utils'
 import { VariantTag } from './components'
 
@@ -235,7 +237,7 @@ export function SummaryTable({
                 },
             })
         }
-        columns.push({
+        ;(columns.push({
             key: 'conversionRate',
             title: 'Conversion rate',
             render: function Key(_, item): JSX.Element {
@@ -305,7 +307,7 @@ export function SummaryTable({
                         }${upperBound.toFixed(2)}%]`}</div>
                     )
                 },
-            })
+            }))
     }
 
     if (featureFlags[FEATURE_FLAGS.EXPERIMENT_P_VALUE]) {
@@ -328,8 +330,8 @@ export function SummaryTable({
                                         {percentage >= 99.9
                                             ? '> 99.9%'
                                             : percentage <= 0.1
-                                            ? '< 0.1%'
-                                            : `${percentage.toFixed(1)}%`}
+                                              ? '< 0.1%'
+                                              : `${percentage.toFixed(1)}%`}
                                     </span>
                                 </span>
                             ) : (
@@ -426,10 +428,10 @@ export function SummaryTable({
                             date_to: experiment?.end_date,
                             filter_test_accounts:
                                 metric.kind === NodeKind.ExperimentMetric
-                                    ? experiment.exposure_criteria?.filterTestAccounts ?? false
+                                    ? (experiment.exposure_criteria?.filterTestAccounts ?? false)
                                     : metric.kind === NodeKind.ExperimentTrendsQuery
-                                    ? metric.count_query.filterTestAccounts
-                                    : metric.funnels_query.filterTestAccounts,
+                                      ? metric.count_query.filterTestAccounts
+                                      : metric.funnels_query.filterTestAccounts,
                         }
                         router.actions.push(urls.replay(ReplayTabs.Home, filterGroup))
                         posthog.capture('viewed recordings from experiment', { variant: variantKey })

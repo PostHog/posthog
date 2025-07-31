@@ -1,20 +1,23 @@
 import './ImagePreview.scss'
 
+import { useValues } from 'kea'
+import { useState } from 'react'
+
 import { IconShare, IconWarning } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonMenu, LemonTabs, Link } from '@posthog/lemon-ui'
-import { useValues } from 'kea'
+
 import { ErrorDisplay } from 'lib/components/Errors/ErrorDisplay'
+import { getExceptionAttributes } from 'lib/components/Errors/utils'
 import { HTMLElementsDisplay } from 'lib/components/HTMLElementsDisplay/HTMLElementsDisplay'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { SimpleKeyValueList } from 'lib/components/SimpleKeyValueList'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TitledSnack } from 'lib/components/TitledSnack'
-import { IconLink, IconOpenInNew } from 'lib/lemon-ui/icons'
 import { Spinner } from 'lib/lemon-ui/Spinner'
+import { IconLink, IconOpenInNew } from 'lib/lemon-ui/icons'
 import { autoCaptureEventToDescription, capitalizeFirstLetter, isString } from 'lib/utils'
 import { AutocaptureImageTab, AutocapturePreviewImage, autocaptureToImage } from 'lib/utils/autocapture-previews'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import { useState } from 'react'
 import { insightUrlForEvent } from 'scenes/insights/utils'
 import { eventPropertyFilteringLogic } from 'scenes/session-recordings/player/inspector/components/eventPropertyFilteringLogic'
 import { urls } from 'scenes/urls'
@@ -24,7 +27,6 @@ import { CORE_FILTER_DEFINITIONS_BY_GROUP } from '~/taxonomy/taxonomy'
 
 import { InspectorListItemEvent } from '../playerInspectorLogic'
 import { AIEventExpanded, AIEventSummary } from './AIEventItems'
-import { getExceptionAttributes } from 'lib/components/Errors/utils'
 
 export interface ItemEventProps {
     item: InspectorListItemEvent

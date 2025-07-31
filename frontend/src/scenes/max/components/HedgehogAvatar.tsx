@@ -1,8 +1,10 @@
+import { useActions, useValues } from 'kea'
+import { useEffect, useRef } from 'react'
+
 import { IconSparkles } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { HedgehogActor, HedgehogBuddy } from 'lib/components/HedgehogBuddy/HedgehogBuddy'
-import { useEffect, useRef } from 'react'
 import { userLogic } from 'scenes/userLogic'
 
 import { maxGlobalLogic } from '../maxGlobalLogic'

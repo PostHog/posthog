@@ -1,4 +1,5 @@
 import '~/styles'
+
 import '~/toolbar/styles.scss'
 
 import { Meta, StoryFn } from '@storybook/react'
@@ -99,7 +100,16 @@ const BasicTemplate: StoryFn<ToolbarStoryProps> = (props) => {
         setVisibleMenu(props.menu || 'none')
         toggleMinimized(props.minimized ?? false)
         toggleTheme(props.theme || 'light')
-    }, [Object.values(props)])
+    }, [
+        Object.values(props),
+        props.minimized,
+        setVisibleMenu,
+        toggleTheme,
+        props.theme,
+        props.menu,
+        toggleMinimized,
+        setDragPosition,
+    ])
 
     return (
         <div className="min-h-[32rem]">

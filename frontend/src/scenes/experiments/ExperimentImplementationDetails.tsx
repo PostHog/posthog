@@ -1,4 +1,7 @@
+import { useState } from 'react'
+
 import { LemonSelect, Link } from '@posthog/lemon-ui'
+
 import {
     IconAndroidOS,
     IconAppleIOS,
@@ -10,7 +13,6 @@ import {
     IconPython,
     IconRuby,
 } from 'lib/lemon-ui/icons'
-import { useState } from 'react'
 
 import { Experiment, MultivariateFlagVariant, SDKKey } from '~/types'
 
@@ -23,8 +25,8 @@ import {
     NodeJSSnippet,
     PHPSnippet,
     PythonSnippet,
-    ReactSnippet,
     RNSnippet,
+    ReactSnippet,
     RubySnippet,
 } from './ExperimentCodeSnippets'
 

@@ -1,4 +1,7 @@
+import { Ref, forwardRef, useEffect, useState } from 'react'
+
 import { IconX } from '@posthog/icons'
+
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import {
     DataWarehousePopoverField,
@@ -7,7 +10,6 @@ import {
 } from 'lib/components/TaxonomicFilter/types'
 import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'
-import { forwardRef, Ref, useEffect, useState } from 'react'
 import { LocalFilter } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 import { MaxContextTaxonomicFilterOption } from 'scenes/max/maxTypes'
 
@@ -50,7 +52,7 @@ export function TaxonomicStringPopover(props: TaxonomicPopoverProps<string>): JS
 }
 
 export const TaxonomicPopover = forwardRef(function TaxonomicPopover_<
-    ValueType extends TaxonomicFilterValue = TaxonomicFilterValue
+    ValueType extends TaxonomicFilterValue = TaxonomicFilterValue,
 >(
     {
         groupType,
@@ -94,7 +96,7 @@ export const TaxonomicPopover = forwardRef(function TaxonomicPopover_<
         if (!buttonPropsFinal.loading) {
             setLocalValue(value || ('' as ValueType))
         }
-    }, [value])
+    }, [value, buttonPropsFinal.loading])
 
     return (
         <LemonDropdown

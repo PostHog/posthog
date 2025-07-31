@@ -1,5 +1,7 @@
-import { IconPerson } from '@posthog/icons'
 import { useValues } from 'kea'
+
+import { IconPerson } from '@posthog/icons'
+
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { relatedGroupsLogic } from 'scenes/groups/relatedGroupsLogic'

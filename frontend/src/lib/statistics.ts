@@ -1,4 +1,4 @@
-import { standardDeviation, probit } from 'simple-statistics'
+import { probit, standardDeviation } from 'simple-statistics'
 
 /**
  * Calculates the confidence interval ranges for a given set of values.

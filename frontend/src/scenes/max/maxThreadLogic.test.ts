@@ -4,18 +4,18 @@ import { expectLogic } from 'kea-test-utils'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { useMocks } from '~/mocks/jest'
 import { AssistantMessageType } from '~/queries/schema/schema-assistant-messages'
-import { ConversationDetail, ConversationStatus } from '~/types'
 import { initKeaTests } from '~/test/init'
+import { ConversationDetail, ConversationStatus } from '~/types'
 
 import { maxContextLogic } from './maxContextLogic'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { maxLogic } from './maxLogic'
 import { maxThreadLogic } from './maxThreadLogic'
 import {
-    maxMocks,
     MOCK_CONVERSATION_ID,
     MOCK_IN_PROGRESS_CONVERSATION,
     MOCK_TEMP_CONVERSATION_ID,
+    maxMocks,
     mockStream,
 } from './testUtils'
 

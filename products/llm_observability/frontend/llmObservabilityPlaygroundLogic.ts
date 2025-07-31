@@ -1,7 +1,9 @@
-import { lemonToast } from '@posthog/lemon-ui'
 import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
+
+import { lemonToast } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
 import { uuid } from 'lib/utils'
 import { isObject } from 'lib/utils'

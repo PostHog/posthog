@@ -1,10 +1,12 @@
-import { LemonTag } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { useEffect } from 'react'
+
+import { LemonTag } from '@posthog/lemon-ui'
+
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { PROPERTY_DEFINITIONS_PER_EVENT } from 'lib/constants'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { useEffect } from 'react'
 import { eventDefinitionsTableLogic } from 'scenes/data-management/events/eventDefinitionsTableLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { urls } from 'scenes/urls'
@@ -20,7 +22,7 @@ export function EventDefinitionProperties({ definition }: { definition: EventDef
 
     useEffect(() => {
         loadPropertiesForEvent(definition)
-    }, [])
+    }, [definition, loadPropertiesForEvent])
 
     const columns: LemonTableColumns<PropertyDefinition> = [
         {

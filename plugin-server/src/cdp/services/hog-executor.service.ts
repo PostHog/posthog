@@ -1,13 +1,14 @@
-import { convertHogToJS, ExecResult } from '@posthog/hogvm'
 import { pickBy } from 'lodash'
 import { DateTime } from 'luxon'
 import { Counter, Histogram } from 'prom-client'
+
+import { ExecResult, convertHogToJS } from '@posthog/hogvm'
 
 import {
     CyclotronInvocationQueueParametersEmailSchema,
     CyclotronInvocationQueueParametersFetchSchema,
 } from '~/schema/cyclotron'
-import { fetch, FetchOptions, FetchResponse, InvalidRequestError, SecureRequestError } from '~/utils/request'
+import { FetchOptions, FetchResponse, InvalidRequestError, SecureRequestError, fetch } from '~/utils/request'
 import { tryCatch } from '~/utils/try-catch'
 
 import { buildIntegerMatcher } from '../../config/config'
@@ -340,10 +341,13 @@ export class HogExecutorService {
                 let hogLogs = 0
 
                 const asyncFunctionsNames = options.asyncFunctionsNames ?? ['fetch', 'sendEmail']
-                const asyncFunctions = asyncFunctionsNames.reduce((acc, fn) => {
-                    acc[fn] = async () => Promise.resolve()
-                    return acc
-                }, {} as Record<string, (args: any[]) => Promise<void>>)
+                const asyncFunctions = asyncFunctionsNames.reduce(
+                    (acc, fn) => {
+                        acc[fn] = async () => Promise.resolve()
+                        return acc
+                    },
+                    {} as Record<string, (args: any[]) => Promise<void>>
+                )
 
                 const execHogOutcome = await execHog(invocationInput, {
                     globals,

@@ -1,26 +1,28 @@
 import { Monaco } from '@monaco-editor/react'
-import { IconBook, IconDownload, IconPlayFilled, IconSidebarClose } from '@posthog/icons'
-import { LemonDivider, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { IconCancel } from 'lib/lemon-ui/icons'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { Link } from 'lib/lemon-ui/Link'
 import type { editor as importedEditor } from 'monaco-editor'
 import { useMemo } from 'react'
+
+import { IconBook, IconDownload, IconPlayFilled, IconSidebarClose } from '@posthog/icons'
+import { LemonDivider, Spinner } from '@posthog/lemon-ui'
+
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { Link } from 'lib/lemon-ui/Link'
+import { IconCancel } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
 
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
-import { FixErrorButton } from './components/FixErrorButton'
-import { editorSizingLogic } from './editorSizingLogic'
-import { multitabEditorLogic } from './multitabEditorLogic'
 import { OutputPane } from './OutputPane'
 import { QueryHistoryModal } from './QueryHistoryModal'
 import { QueryPane } from './QueryPane'
 import { QueryTabs } from './QueryTabs'
+import { FixErrorButton } from './components/FixErrorButton'
+import { editorSizingLogic } from './editorSizingLogic'
+import { multitabEditorLogic } from './multitabEditorLogic'
 
 interface QueryWindowProps {
     onSetMonacoAndEditor: (monaco: Monaco, editor: importedEditor.IStandaloneCodeEditor) => void
@@ -153,7 +155,7 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
                                         ...sourceQuery.source,
                                         query: queryInput,
                                     },
-                                    types: response && 'types' in response ? response?.types ?? [] : [],
+                                    types: response && 'types' in response ? (response?.types ?? []) : [],
                                     shouldRematerialize: isMaterializedView,
                                     edited_history_id: inProgressViewEdits[editingView.id],
                                 })

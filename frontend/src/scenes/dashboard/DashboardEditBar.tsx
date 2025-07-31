@@ -1,7 +1,9 @@
-import { IconCalendar } from '@posthog/icons'
-import { LemonButton, Popover } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
+
+import { IconCalendar } from '@posthog/icons'
+import { LemonButton, Popover } from '@posthog/lemon-ui'
+
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'

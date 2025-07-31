@@ -1,6 +1,7 @@
+import React from 'react'
+
 import { ErrorTrackingRuntime } from 'lib/components/Errors/types'
 import { IconJavascript, IconNodeJS, IconPython, LemonIconProps } from 'lib/lemon-ui/icons'
-import React from 'react'
 
 const RuntimeIconMap = {
     python: IconPython,

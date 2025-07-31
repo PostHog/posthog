@@ -1,8 +1,9 @@
 import { Meta } from '@storybook/react'
 import { useActions } from 'kea'
+import { useEffect } from 'react'
+
 import { commandBarLogic } from 'lib/components/CommandBar/commandBarLogic'
 import { BarStatus } from 'lib/components/CommandBar/types'
-import { useEffect } from 'react'
 
 import { mswDecorator } from '~/mocks/browser'
 
@@ -539,7 +540,7 @@ export function Search(): JSX.Element {
 
     useEffect(() => {
         setCommandBar(BarStatus.SHOW_SEARCH)
-    }, [])
+    }, [setCommandBar])
 
     return <CommandBar />
 }
@@ -549,7 +550,7 @@ export function Actions(): JSX.Element {
 
     useEffect(() => {
         setCommandBar(BarStatus.SHOW_ACTIONS)
-    }, [])
+    }, [setCommandBar])
 
     return <CommandBar />
 }
@@ -559,7 +560,7 @@ export function Shortcuts(): JSX.Element {
 
     useEffect(() => {
         setCommandBar(BarStatus.SHOW_SHORTCUTS)
-    }, [])
+    }, [setCommandBar])
 
     return <CommandBar />
 }

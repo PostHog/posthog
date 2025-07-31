@@ -1,10 +1,11 @@
 import { useValues } from 'kea'
+
 import { NotFound } from 'lib/components/NotFound'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { ExperimentForm } from './ExperimentForm'
-import { experimentLogic, ExperimentLogicProps, FORM_MODES } from './experimentLogic'
 import { ExperimentView } from './ExperimentView/ExperimentView'
+import { ExperimentLogicProps, FORM_MODES, experimentLogic } from './experimentLogic'
 
 export const scene: SceneExport = {
     component: Experiment,

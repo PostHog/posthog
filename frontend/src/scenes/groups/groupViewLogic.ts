@@ -1,11 +1,15 @@
-import { lemonToast } from '@posthog/lemon-ui'
 import { actions, connect, kea, listeners, path, reducers } from 'kea'
 import posthog from 'posthog-js'
-import type { groupViewLogicType } from './groupViewLogicType'
-import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
+
+import { lemonToast } from '@posthog/lemon-ui'
+
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+
+import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { GroupTypeIndex } from '~/types'
+
+import type { groupViewLogicType } from './groupViewLogicType'
 
 export const groupViewLogic = kea<groupViewLogicType>([
     path(['scenes', 'groups', 'groupView']),

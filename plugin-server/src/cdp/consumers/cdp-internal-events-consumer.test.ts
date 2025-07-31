@@ -1,10 +1,10 @@
+// sort-imports-ignore
 import '../../../tests/helpers/mocks/producer.mock'
-
 import { getFirstTeam, resetTestDatabase } from '../../../tests/helpers/sql'
 import { Hub, Team } from '../../types'
 import { closeHub, createHub } from '../../utils/db/hub'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../_tests/examples'
-import { createInternalEvent, createKafkaMessage, insertHogFunction as _insertHogFunction } from '../_tests/fixtures'
+import { insertHogFunction as _insertHogFunction, createInternalEvent, createKafkaMessage } from '../_tests/fixtures'
 import { HogFunctionType } from '../types'
 import { CdpInternalEventsConsumer } from './cdp-internal-event.consumer'
 

@@ -1,15 +1,13 @@
-import { LemonDialog, LemonInput, LemonSkeleton, LemonTextArea, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 
-import { ErrorTrackingRelationalIssue } from '~/queries/schema/schema-general'
-import { IntegrationKind, IntegrationType } from '~/types'
-import { urls } from 'scenes/urls'
-import { integrationsLogic } from 'lib/integrations/integrationsLogic'
-import { errorTrackingIssueSceneLogic } from '../errorTrackingIssueSceneLogic'
-import { LemonField } from 'lib/lemon-ui/LemonField'
-import { LinearTeamSelectField } from 'lib/integrations/LinearIntegrationHelpers'
-import { ICONS } from 'lib/integrations/utils'
+import { IconPlus } from '@posthog/icons'
+import { LemonDialog, LemonInput, LemonSkeleton, LemonTextArea, Link } from '@posthog/lemon-ui'
+
 import { GitHubRepositorySelectField } from 'lib/integrations/GitHubIntegrationHelpers'
+import { LinearTeamSelectField } from 'lib/integrations/LinearIntegrationHelpers'
+import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+import { ICONS } from 'lib/integrations/utils'
+import { LemonField } from 'lib/lemon-ui/LemonField'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import {
     DropdownMenu,
@@ -17,7 +15,12 @@ import {
     DropdownMenuItem,
     DropdownMenuTrigger,
 } from 'lib/ui/DropdownMenu/DropdownMenu'
-import { IconPlus } from '@posthog/icons'
+import { urls } from 'scenes/urls'
+
+import { ErrorTrackingRelationalIssue } from '~/queries/schema/schema-general'
+import { IntegrationKind, IntegrationType } from '~/types'
+
+import { errorTrackingIssueSceneLogic } from '../errorTrackingIssueSceneLogic'
 
 const ERROR_TRACKING_INTEGRATIONS: IntegrationKind[] = ['linear', 'github']
 

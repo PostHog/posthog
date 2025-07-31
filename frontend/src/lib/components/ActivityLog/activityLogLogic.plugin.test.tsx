@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
-
 import { render } from '@testing-library/react'
+
 import { ApiConfig } from 'lib/api'
 import { MOCK_ORGANIZATION_ID } from 'lib/api.mock'
 import { makeTestSetup } from 'lib/components/ActivityLog/activityLogLogic.test.setup'

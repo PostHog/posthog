@@ -1,5 +1,4 @@
 /// <reference types="cypress" />
-
 import { CaptureResult } from 'posthog-js'
 
 declare global {

@@ -1,11 +1,14 @@
+import { useActions } from 'kea'
+import { useState } from 'react'
+
 import { IconPencil, IconTrash } from '@posthog/icons'
 import { LemonButton, Link } from '@posthog/lemon-ui'
-import { useActions } from 'kea'
+
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
-import { useState } from 'react'
 import { DataWarehouseSourceIcon } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
 
 import { MARKETING_ANALYTICS_SCHEMA, MarketingAnalyticsColumnsSchemaNames } from '~/queries/schema/schema-general'
+
 import { useSortedPaginatedList } from '../../hooks/useSortedPaginatedList'
 import { ExternalTable } from '../../logic/marketingAnalyticsLogic'
 import { marketingAnalyticsSettingsLogic } from '../../logic/marketingAnalyticsSettingsLogic'

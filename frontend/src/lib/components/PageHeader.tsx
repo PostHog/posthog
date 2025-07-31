@@ -1,12 +1,13 @@
 import clsx from 'clsx'
 import { useValues } from 'kea'
-import { WithinPageHeaderContext } from 'lib/lemon-ui/LemonButton/LemonButton'
 import { useContext } from 'react'
 import { createPortal } from 'react-dom'
+
+import { WithinPageHeaderContext } from 'lib/lemon-ui/LemonButton/LemonButton'
 import { DraggableToNotebookProps } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 
-import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 import { WithinSidePanelContext } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
+import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 
 interface PageHeaderProps {
     caption?: string | JSX.Element | null | false

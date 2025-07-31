@@ -1,6 +1,7 @@
-import api from 'lib/api'
 import posthog from 'posthog-js'
 import { useEffect, useRef, useState } from 'react'
+
+import api from 'lib/api'
 
 import { MediaUploadResponse } from '~/types'
 
@@ -124,7 +125,7 @@ export function useUploadFiles({
             }
         }
         uploadFiles().catch(console.error)
-    }, [filesToUpload])
+    }, [filesToUpload, onError, onUpload])
 
     return { setFilesToUpload, filesToUpload, uploading }
 }

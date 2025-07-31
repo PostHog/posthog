@@ -1,17 +1,19 @@
 import './Dashboard.scss'
 
-import { LemonButton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
+import { useEffect } from 'react'
+
+import { LemonButton } from '@posthog/lemon-ui'
+
 import { AccessDenied } from 'lib/components/AccessDenied'
 import { NotFound } from 'lib/components/NotFound'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
-import { useEffect } from 'react'
 import { DashboardEditBar } from 'scenes/dashboard/DashboardEditBar'
 import { DashboardItems } from 'scenes/dashboard/DashboardItems'
-import { dashboardLogic, DashboardLogicProps } from 'scenes/dashboard/dashboardLogic'
 import { DashboardReloadAction, LastRefreshText } from 'scenes/dashboard/DashboardReloadAction'
+import { DashboardLogicProps, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
 import { InsightErrorState } from 'scenes/insights/EmptyStates'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -70,7 +72,7 @@ function DashboardScene(): JSX.Element {
             // request cancellation of any running queries when this component is no longer in the dom
             abortAnyRunningQuery()
         }
-    }, [])
+    }, [abortAnyRunningQuery, reportDashboardViewed])
 
     useKeyboardHotkeys(
         placement == DashboardPlacement.Dashboard

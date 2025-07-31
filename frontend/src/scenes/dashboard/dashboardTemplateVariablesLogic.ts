@@ -1,4 +1,5 @@
 import { actions, connect, kea, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
+
 import { iframedToolbarBrowserLogic } from 'lib/components/IframedToolbarBrowser/iframedToolbarBrowserLogic'
 import { PostHogAppToolbarEvent } from 'lib/components/IframedToolbarBrowser/utils'
 import { isEmptyObject } from 'lib/utils'

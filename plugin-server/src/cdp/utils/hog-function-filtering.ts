@@ -1,13 +1,14 @@
-import { ExecResult } from '@posthog/hogvm'
 import { DateTime } from 'luxon'
 import { Histogram } from 'prom-client'
 import RE2 from 're2'
+
+import { ExecResult } from '@posthog/hogvm'
 
 import { HogFlow } from '../../schema/hogflow'
 import { RawClickHouseEvent } from '../../types'
 import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
-import { clickHouseTimestampToISO, UUIDT } from '../../utils/utils'
+import { UUIDT, clickHouseTimestampToISO } from '../../utils/utils'
 import {
     HogFunctionFilterGlobals,
     HogFunctionInvocationGlobals,

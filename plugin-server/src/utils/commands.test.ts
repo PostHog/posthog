@@ -1,3 +1,4 @@
+// sort-imports-ignore
 import '../../tests/helpers/mocks/producer.mock'
 
 import { Server } from 'http'
@@ -6,7 +7,6 @@ import express from 'ultimate-express'
 
 import { setupExpressApp } from '~/router'
 import { waitForExpect } from '~/tests/helpers/expectations'
-
 import { resetTestDatabase } from '../../tests/helpers/sql'
 import { Hub } from '../types'
 import { closeHub, createHub } from '../utils/db/hub'

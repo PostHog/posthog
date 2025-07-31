@@ -1,10 +1,11 @@
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
+import { useState } from 'react'
+
 import { dayjs } from 'lib/dayjs'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonCalendarSelect, LemonCalendarSelectProps } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import { formatDate } from 'lib/utils'
-import { useState } from 'react'
 
 type Story = StoryObj<typeof LemonCalendarSelect>
 const meta: Meta<typeof LemonCalendarSelect> = {

@@ -1,18 +1,20 @@
-import { IconCheckCircle, IconChevronRight, IconCollapse, IconExpand, IconLock, IconPlus } from '@posthog/icons'
-import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { ProfessorHog } from 'lib/components/hedgehogs'
-import type { LemonIconProps } from 'lib/lemon-ui/icons'
-import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
-import { LemonProgressCircle } from 'lib/lemon-ui/LemonProgressCircle'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import React from 'react'
 
+import { IconCheckCircle, IconChevronRight, IconCollapse, IconExpand, IconLock, IconPlus } from '@posthog/icons'
+import { LemonButton, Tooltip } from '@posthog/lemon-ui'
+
+import { ProfessorHog } from 'lib/components/hedgehogs'
+import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
+import { LemonProgressCircle } from 'lib/lemon-ui/LemonProgressCircle'
+import type { LemonIconProps } from 'lib/lemon-ui/icons'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+
 import {
-    activationLogic,
     type ActivationSection,
     ActivationTaskType,
+    activationLogic,
 } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
 
 import { SidePanelPaneHeader } from '../../components/SidePanelPaneHeader'

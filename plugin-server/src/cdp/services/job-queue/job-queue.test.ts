@@ -7,7 +7,7 @@ import { HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../../_tests/examples
 import { HOG_EXAMPLES } from '../../_tests/examples'
 import { createHogExecutionGlobals, createHogFunction } from '../../_tests/fixtures'
 import { createInvocation } from '../../utils/invocation-utils'
-import { CyclotronJobQueue, getProducerMapping, JOB_SCHEDULED_AT_FUTURE_THRESHOLD_MS } from './job-queue'
+import { CyclotronJobQueue, JOB_SCHEDULED_AT_FUTURE_THRESHOLD_MS, getProducerMapping } from './job-queue'
 
 describe('CyclotronJobQueue', () => {
     let config: PluginsServerConfig

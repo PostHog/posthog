@@ -1,13 +1,15 @@
-import { IconGear, IconPencil, IconRefresh, IconWarning } from '@posthog/icons'
-import { LemonButton, LemonModal, Link, ProfilePicture, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { useEffect, useState } from 'react'
+
+import { IconGear, IconPencil, IconRefresh, IconWarning } from '@posthog/icons'
+import { LemonButton, LemonModal, Link, ProfilePicture, Tooltip } from '@posthog/lemon-ui'
+
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
-import { useEffect, useState } from 'react'
+import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
 
 import { ExperimentStatsMethod, ProgressStatus } from '~/types'
@@ -16,9 +18,9 @@ import { CONCLUSION_DISPLAY_CONFIG } from '../constants'
 import { experimentLogic } from '../experimentLogic'
 import { getExperimentStatus } from '../experimentsLogic'
 import { modalsLogic } from '../modalsLogic'
-import { StatusTag } from './components'
 import { ExperimentDates } from './ExperimentDates'
 import { StatsMethodModal } from './StatsMethodModal'
+import { StatusTag } from './components'
 
 export function Info(): JSX.Element {
     const {
@@ -140,16 +142,16 @@ export function Info(): JSX.Element {
                                                 ? dayjs().diff(dayjs(lastRefresh), 'hours') > 12
                                                     ? 'text-danger'
                                                     : dayjs().diff(dayjs(lastRefresh), 'hours') > 6
-                                                    ? 'text-warning'
-                                                    : ''
+                                                      ? 'text-warning'
+                                                      : ''
                                                 : ''
                                         }`}
                                     >
                                         {primaryMetricsResultsLoading || secondaryMetricsResultsLoading
                                             ? 'Loading…'
                                             : lastRefresh
-                                            ? dayjs(lastRefresh).fromNow()
-                                            : 'a while ago'}
+                                              ? dayjs(lastRefresh).fromNow()
+                                              : 'a while ago'}
                                     </span>
                                     <LemonButton
                                         type="secondary"

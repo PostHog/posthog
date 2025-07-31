@@ -1,3 +1,4 @@
+// sort-imports-ignore
 import { DateTime } from 'luxon'
 
 import { OffsetHighWaterMarker } from '../../../../../src/main/ingestion-queues/session-recording/services/offset-high-water-marker'
@@ -8,7 +9,6 @@ import { parseJSON } from '../../../../../src/utils/json-parse'
 import { castTimestampOrNow } from '../../../../../src/utils/utils'
 
 jest.mock('../../../../../src/utils/logger')
-
 import { mockProducer, mockProducerObserver } from '../../../../helpers/mocks/producer.mock'
 
 const makeIncomingMessage = (

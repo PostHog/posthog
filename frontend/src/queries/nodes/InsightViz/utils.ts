@@ -1,4 +1,6 @@
 import equal from 'fast-deep-equal'
+
+import { ApiError } from 'lib/api'
 import { getEventNamesForAction } from 'lib/utils'
 
 import { examples } from '~/queries/examples'
@@ -25,7 +27,6 @@ import {
 
 import { nodeKindToDefaultQuery } from '../InsightQuery/defaults'
 import { filtersToQueryNode } from '../InsightQuery/utils/filtersToQueryNode'
-import { ApiError } from 'lib/api'
 
 export const getAllEventNames = (query: InsightQueryNode, allActions: ActionType[]): string[] => {
     if (!isInsightQueryWithSeries(query)) {
@@ -84,8 +85,8 @@ type InputInsightModel = InsightModel | Partial<InsightModel>
 type ReturnInsightModel<T> = T extends InsightModel
     ? QueryBasedInsightModel
     : T extends Partial<InsightModel>
-    ? Partial<QueryBasedInsightModel>
-    : never
+      ? Partial<QueryBasedInsightModel>
+      : never
 
 /** Get an insight with `query` only. Eventual `filters` will be converted.  */
 export function getQueryBasedInsightModel<T extends InputInsightModel>(insight: T): ReturnInsightModel<T> {
@@ -169,7 +170,7 @@ export const getQueryBasedDashboard = (
                 ({
                     ...tile,
                     ...(tile.insight != null ? { insight: getQueryBasedInsightModel(tile.insight) } : {}),
-                } as DashboardTile<QueryBasedInsightModel>)
+                }) as DashboardTile<QueryBasedInsightModel>
         ),
     }
 }

@@ -1,4 +1,7 @@
+import { useEffect, useState } from 'react'
+
 import { LemonSelect, LemonSelectProps } from '@posthog/lemon-ui'
+
 import { allOperatorsToHumanName } from 'lib/components/DefinitionPopover/utils'
 import { dayjs } from 'lib/dayjs'
 import {
@@ -11,7 +14,6 @@ import {
     isOperatorRange,
     isOperatorRegex,
 } from 'lib/utils'
-import { useEffect, useState } from 'react'
 
 import {
     GroupTypeIndex,
@@ -143,7 +145,7 @@ export function OperatorValueSelect({
             }
             setCurrentOperator(defaultProperty)
         }
-    }, [propertyDefinition, propertyKey, operator])
+    }, [propertyDefinition, propertyKey, operator, type, currentOperator, isDateTimeProperty, startingOperator])
 
     return (
         <>

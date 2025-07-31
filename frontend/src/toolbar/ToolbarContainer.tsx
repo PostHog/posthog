@@ -1,7 +1,8 @@
 import { useValues } from 'kea'
+import { useRef } from 'react'
+
 import { Fade } from 'lib/components/Fade/Fade'
 import { FloatingContainerContext } from 'lib/hooks/useFloatingContainerContext'
-import { useRef } from 'react'
 
 import { Toolbar } from './bar/Toolbar'
 import { ToolbarFixedZones } from './bar/ToolbarFixedZones'

@@ -1,8 +1,10 @@
 import { useDraggable, useDroppable } from '@dnd-kit/core'
+import { CSSProperties, useEffect, useRef } from 'react'
+
 import { IconChevronRight, IconCircleDashed, IconDocument, IconFolder, IconFolderOpenFilled } from '@posthog/icons'
+
 import { buttonPrimitiveVariants } from 'lib/ui/Button/ButtonPrimitives'
 import { cn } from 'lib/utils/css-classes'
-import { CSSProperties, useEffect, useRef } from 'react'
 
 import { LemonCheckbox } from '../LemonCheckbox'
 import { TreeDataItem } from './LemonTree'

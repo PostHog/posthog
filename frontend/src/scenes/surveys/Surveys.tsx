@@ -1,3 +1,7 @@
+import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
+import posthog from 'posthog-js'
+
 import {
     LemonButton,
     LemonDialog,
@@ -10,21 +14,22 @@ import {
     Link,
     Spinner,
 } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
-import { router } from 'kea-router'
+
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { PageHeader } from 'lib/components/PageHeader'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { VersionCheckerBanner } from 'lib/components/VersionChecker/VersionCheckerBanner'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTableColumn } from 'lib/lemon-ui/LemonTable'
-import { createdAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
+import { createdAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { ProductIntentContext } from 'lib/utils/product-intents'
 import stringWithWBR from 'lib/utils/stringWithWBR'
-import posthog from 'posthog-js'
 import { LinkedHogFunctions } from 'scenes/hog-functions/list/LinkedHogFunctions'
 import MaxTool from 'scenes/max/MaxTool'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -34,12 +39,9 @@ import { userLogic } from 'scenes/userLogic'
 
 import { ActivityScope, ProductKey, ProgressStatus, Survey } from '~/types'
 
-import { ProductIntentContext } from 'lib/utils/product-intents'
+import { SurveySettings, SurveysDisabledBanner } from './SurveySettings'
 import { SURVEY_TYPE_LABEL_MAP, SurveyQuestionLabel } from './constants'
-import { SurveysDisabledBanner, SurveySettings } from './SurveySettings'
-import { getSurveyStatus, surveysLogic, SurveysTabs } from './surveysLogic'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { SurveysTabs, getSurveyStatus, surveysLogic } from './surveysLogic'
 
 export const scene: SceneExport = {
     component: Surveys,

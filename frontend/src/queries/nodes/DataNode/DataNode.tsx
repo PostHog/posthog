@@ -1,8 +1,9 @@
 import { useValues } from 'kea'
-import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
-import { CodeEditor } from 'lib/monaco/CodeEditor'
 import { useState } from 'react'
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
+
+import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
+import { CodeEditor } from 'lib/monaco/CodeEditor'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { OpenEditorButton } from '~/queries/nodes/Node/OpenEditorButton'

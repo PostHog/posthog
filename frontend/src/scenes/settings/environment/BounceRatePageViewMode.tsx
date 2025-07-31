@@ -1,8 +1,9 @@
 import { useActions, useValues } from 'kea'
+import { useState } from 'react'
+
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonRadio, LemonRadioOption } from 'lib/lemon-ui/LemonRadio'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { useState } from 'react'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { HogQLQueryModifiers } from '~/queries/schema/schema-general'

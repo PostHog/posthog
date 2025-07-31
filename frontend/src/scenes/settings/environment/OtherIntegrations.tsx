@@ -1,12 +1,15 @@
+import { useActions, useValues } from 'kea'
+
 import { IconTrash, IconWarning } from '@posthog/icons'
 import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
-import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+
 import { IntegrationView } from 'lib/integrations/IntegrationView'
+import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
-import { ChannelType } from 'products/messaging/frontend/Channels/MessageChannels'
 
 import { IntegrationKind, IntegrationType } from '~/types'
+
+import { ChannelType } from 'products/messaging/frontend/Channels/MessageChannels'
 
 export function OtherIntegrations({
     integrationKinds,

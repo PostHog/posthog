@@ -1,4 +1,5 @@
 import { Meta } from '@storybook/react'
+
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 

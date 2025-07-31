@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import * as path from 'path'
 import { fileURLToPath } from 'url'
+
 import { buildInParallel } from '@posthog/esbuilder'
 
 export const __dirname = path.dirname(fileURLToPath(import.meta.url))

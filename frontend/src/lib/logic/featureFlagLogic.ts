@@ -1,7 +1,8 @@
 import { actions, afterMount, kea, path, reducers } from 'kea'
+import posthog from 'posthog-js'
+
 import { FeatureFlagKey } from 'lib/constants'
 import { getAppContext } from 'lib/utils/getAppContext'
-import posthog from 'posthog-js'
 
 import { AppContext } from '~/types'
 

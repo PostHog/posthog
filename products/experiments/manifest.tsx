@@ -1,4 +1,5 @@
 import { IconFlask } from '@posthog/icons'
+
 import { toParams } from 'lib/utils'
 import { urls } from 'scenes/urls'
 

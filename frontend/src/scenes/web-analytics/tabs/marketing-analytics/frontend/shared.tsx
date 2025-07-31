@@ -1,6 +1,8 @@
 import { IconGraph, IconLineGraph } from '@posthog/icons'
 import { LemonSegmentedButtonOption } from '@posthog/lemon-ui'
+
 import { IconAreaChart } from 'lib/lemon-ui/icons'
+
 import { ChartDisplayType } from '~/types'
 
 // Simple mapping for the display mode options and their icons

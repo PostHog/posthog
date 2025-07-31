@@ -1,5 +1,4 @@
 // Postgres
-
 import { Client, Pool, PoolClient, QueryConfig, QueryResult, QueryResultRow } from 'pg'
 
 import { PluginsServerConfig } from '../../types'

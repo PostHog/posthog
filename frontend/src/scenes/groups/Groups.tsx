@@ -1,21 +1,22 @@
 import { useActions, useValues } from 'kea'
-import { groupsAccessLogic, GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
-import { Link } from 'lib/lemon-ui/Link'
+
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { GroupsAccessStatus, groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonInput } from 'lib/lemon-ui/LemonInput'
+import { LemonModal } from 'lib/lemon-ui/LemonModal'
+import { Link } from 'lib/lemon-ui/Link'
 import { GroupsIntroduction } from 'scenes/groups/GroupsIntroduction'
 import { SceneExport } from 'scenes/sceneTypes'
-import { LemonModal } from 'lib/lemon-ui/LemonModal'
-import { LemonInput } from 'lib/lemon-ui/LemonInput'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
 import { Query } from '~/queries/Query/Query'
+import { QueryContext } from '~/queries/types'
 import { GroupTypeIndex } from '~/types'
 
-import { groupsListLogic } from './groupsListLogic'
-import { groupsSceneLogic } from './groupsSceneLogic'
-import { QueryContext } from '~/queries/types'
 import { getCRMColumns } from './crm/utils'
 import { groupViewLogic } from './groupViewLogic'
+import { groupsListLogic } from './groupsListLogic'
+import { groupsSceneLogic } from './groupsSceneLogic'
 
 export function Groups({ groupTypeIndex }: { groupTypeIndex: GroupTypeIndex }): JSX.Element {
     const { groupTypeName, groupTypeNamePlural } = useValues(groupsSceneLogic)

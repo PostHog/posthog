@@ -1,25 +1,25 @@
+import { generateViolinPath } from '../legacy/violinUtils'
 import { useChartColors } from '../shared/colors'
 import {
     type ExperimentVariantResult,
-    getVariantInterval,
-    getIntervalBounds,
     getDelta,
-    isBayesianResult,
+    getIntervalBounds,
     getNiceTickValues,
+    getVariantInterval,
+    isBayesianResult,
 } from '../shared/utils'
-import { generateViolinPath } from '../legacy/violinUtils'
+import { ChartGradients } from './ChartGradients'
+import { GridLines } from './GridLines'
 import {
+    CELL_HEIGHT,
+    CHART_BAR_OPACITY,
+    CHART_CELL_BAR_HEIGHT_PERCENT,
+    CHART_CELL_VIEW_BOX_HEIGHT,
+    GRID_LINES_OPACITY,
     SVG_EDGE_MARGIN,
     VIEW_BOX_WIDTH,
-    CHART_CELL_VIEW_BOX_HEIGHT,
-    CHART_CELL_BAR_HEIGHT_PERCENT,
-    CHART_BAR_OPACITY,
-    GRID_LINES_OPACITY,
-    CELL_HEIGHT,
 } from './constants'
-import { GridLines } from './GridLines'
 import { useAxisScale } from './useAxisScale'
-import { ChartGradients } from './ChartGradients'
 
 interface ChartCellProps {
     variantResult: ExperimentVariantResult

@@ -1,6 +1,8 @@
+import { useActions, useAsyncActions, useValues } from 'kea'
+
 import { IconEllipsis } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonInput, LemonMenu } from '@posthog/lemon-ui'
-import { useActions, useAsyncActions, useValues } from 'kea'
+
 import { PageHeader } from 'lib/components/PageHeader'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Link } from 'lib/lemon-ui/Link'
@@ -9,7 +11,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { Query } from '~/queries/Query/Query'
-import { ProductKey, OnboardingStepKey } from '~/types'
+import { OnboardingStepKey, ProductKey } from '~/types'
 
 export function Persons(): JSX.Element {
     const { query } = useValues(personsSceneLogic)

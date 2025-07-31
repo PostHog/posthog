@@ -1,20 +1,22 @@
 import { offset } from '@floating-ui/react'
-import { IconArrowRight, IconStopFilled, IconWrench } from '@posthog/icons'
-import { LemonButton, LemonTextArea, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { ReactNode, useState, useEffect } from 'react'
+import posthog from 'posthog-js'
+import { ReactNode, useEffect, useState } from 'react'
 import React from 'react'
+
+import { IconArrowRight, IconStopFilled, IconWrench } from '@posthog/icons'
+import { LemonButton, LemonTextArea, Tooltip } from '@posthog/lemon-ui'
+
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 
+import { ContextDisplay } from '../Context'
 import { maxGlobalLogic } from '../maxGlobalLogic'
 import { maxLogic } from '../maxLogic'
 import { maxThreadLogic } from '../maxThreadLogic'
-import { ContextDisplay } from '../Context'
 import { SlashCommandAutocomplete } from './SlashCommandAutocomplete'
-import posthog from 'posthog-js'
 
 interface QuestionInputProps {
     isFloating?: boolean
@@ -124,8 +126,8 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                                     threadLoading
                                         ? 'Thinking…'
                                         : isFloating
-                                        ? placeholder || 'Ask follow-up (/ for commands)'
-                                        : 'Ask away (/ for commands)'
+                                          ? placeholder || 'Ask follow-up (/ for commands)'
+                                          : 'Ask away (/ for commands)'
                                 }
                                 onPressEnter={() => {
                                     if (question && !submissionDisabledReason && !threadLoading) {

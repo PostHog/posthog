@@ -1,6 +1,7 @@
-import { LemonInputSelect, LemonInputSelectOption } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { useEffect, useMemo } from 'react'
+
+import { LemonInputSelect, LemonInputSelectOption } from '@posthog/lemon-ui'
 
 import { IntegrationType, LinkedInAdsAccountType, LinkedInAdsConversionRuleType } from '~/types'
 
@@ -121,7 +122,7 @@ export function LinkedInAdsAccountIdPicker({
         if (!disabled) {
             loadLinkedInAdsAccounts()
         }
-    }, [loadLinkedInAdsAccounts])
+    }, [loadLinkedInAdsAccounts, disabled])
 
     return (
         <>

@@ -1,4 +1,5 @@
 import { actions, connect, kea, key, path, props, reducers } from 'kea'
+
 import { entityFilterLogic } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 import { getDisplayNameFromEntityFilter } from 'scenes/insights/utils'
 

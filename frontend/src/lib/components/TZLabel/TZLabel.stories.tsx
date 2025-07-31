@@ -1,8 +1,9 @@
 import { Meta } from '@storybook/react'
+import { useEffect, useState } from 'react'
+
 import { TZLabel } from 'lib/components/TZLabel/index'
 import { now } from 'lib/dayjs'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { useEffect, useState } from 'react'
 
 import { mswDecorator } from '~/mocks/browser'
 

@@ -1,3 +1,4 @@
+// sort-imports-ignore
 import { Redis } from 'ioredis'
 
 import { OverflowManager } from '../../../../../src/main/ingestion-queues/session-recording/services/overflow-manager'
@@ -5,7 +6,6 @@ import { Hub } from '../../../../../src/types'
 import { closeHub, createHub } from '../../../../../src/utils/db/hub'
 
 jest.mock('../../../../../src/utils/logger')
-
 import '../../../../helpers/mocks/producer.mock'
 
 const CAPTURE_OVERFLOW_REDIS_KEY = '@posthog/capture-overflow/replay'

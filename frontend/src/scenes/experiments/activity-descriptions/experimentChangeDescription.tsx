@@ -1,10 +1,12 @@
 import clsx from 'clsx'
+import { match } from 'ts-pattern'
+
 import { ActivityChange } from 'lib/components/ActivityLog/humanizeActivity'
 import { dayjs } from 'lib/dayjs'
 import { Link } from 'lib/lemon-ui/Link'
 import { CONCLUSION_DISPLAY_CONFIG } from 'scenes/experiments/constants'
 import { urls } from 'scenes/urls'
-import { match } from 'ts-pattern'
+
 import { Experiment, ExperimentConclusion } from '~/types'
 
 const ExperimentConclusionTag = ({ conclusion }: { conclusion: ExperimentConclusion }): JSX.Element => (

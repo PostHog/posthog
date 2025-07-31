@@ -1,3 +1,6 @@
+import { useActions, useValues } from 'kea'
+import { useEffect, useMemo, useState } from 'react'
+
 import {
     LemonBanner,
     LemonButton,
@@ -6,10 +9,9 @@ import {
     Link,
     ProfilePicture,
 } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { usePeriodicRerender } from 'lib/hooks/usePeriodicRerender'
 import { IconSlackExternal } from 'lib/lemon-ui/icons'
-import { useEffect, useMemo, useState } from 'react'
 
 import { IntegrationType, SlackChannelType } from '~/types'
 

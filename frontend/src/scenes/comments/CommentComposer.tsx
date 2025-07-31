@@ -1,11 +1,13 @@
-import { LemonButton, LemonTextAreaMarkdown } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { humanizeScope } from 'lib/components/ActivityLog/humanizeActivity'
 import { useEffect } from 'react'
+
+import { LemonButton, LemonTextAreaMarkdown } from '@posthog/lemon-ui'
+
+import { humanizeScope } from 'lib/components/ActivityLog/humanizeActivity'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 
-import { commentsLogic, CommentsLogicProps } from './commentsLogic'
+import { CommentsLogicProps, commentsLogic } from './commentsLogic'
 
 export const CommentComposer = (props: CommentsLogicProps): JSX.Element => {
     const { key, composedComment, commentsLoading, replyingCommentId, itemContext } = useValues(commentsLogic(props))

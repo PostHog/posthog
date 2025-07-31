@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
-import { QueryFeature } from '~/queries/nodes/DataTable/queryFeatures'
 import { Query } from '~/queries/Query/Query'
+import { QueryFeature } from '~/queries/nodes/DataTable/queryFeatures'
 
 import { eventsSceneLogic } from './eventsSceneLogic'
 

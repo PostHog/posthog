@@ -1,5 +1,6 @@
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { membershipLevelToName } from 'lib/utils/permissioning'
+
 import { OrganizationBasicType } from '~/types'
 
 export function AccessLevelIndicator({ organization }: { organization: OrganizationBasicType }): JSX.Element {

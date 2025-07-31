@@ -1,19 +1,21 @@
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { router } from 'kea-router'
+
+import { IconCompass } from '@posthog/icons'
 
 import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
+import { sceneLogic } from 'scenes/sceneLogic'
+import { Scene } from 'scenes/sceneTypes'
+import { routes } from 'scenes/scenes'
+import { urls } from 'scenes/urls'
+
+import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
+import { AssistantContextualTool, AssistantNavigateUrls } from '~/queries/schema/schema-assistant-messages'
+import { SidePanelTab } from '~/types'
 
 import type { maxGlobalLogicType } from './maxGlobalLogicType'
-import { sceneLogic } from 'scenes/sceneLogic'
-import { urls } from 'scenes/urls'
-import { router } from 'kea-router'
-import { AssistantContextualTool, AssistantNavigateUrls } from '~/queries/schema/schema-assistant-messages'
-import { routes } from 'scenes/scenes'
-import { IconCompass } from '@posthog/icons'
-import { Scene } from 'scenes/sceneTypes'
-import { SidePanelTab } from '~/types'
-import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 export interface ToolDefinition {
     /** A unique identifier for the tool */

@@ -1,9 +1,10 @@
 import './ConditionalFormattingTab.scss'
 
+import { useActions, useValues } from 'kea'
+
 import { IconPlusSmall, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonCollapse, LemonColorGlyph, LemonInput, LemonSelect, LemonTag } from '@posthog/lemon-ui'
 import { LemonColorPicker } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
 
 import { ConditionalFormattingRule } from '~/queries/schema/schema-general'
 

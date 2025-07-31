@@ -1,8 +1,9 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { useMemo, useState } from 'react'
+
 import { parseAliasToReadable } from 'lib/components/PathCleanFilters/PathCleanFilterItem'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { useMemo, useState } from 'react'
 import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 
 import {
@@ -16,11 +17,11 @@ import { PropertyFilterType } from '~/types'
 
 import { dataNodeLogic } from '../DataNode/dataNodeLogic'
 import {
-    computePositionInBand,
-    getValueWithUnit,
     ICON_PER_BAND,
     WEB_VITALS_COLORS,
     WEB_VITALS_THRESHOLDS,
+    computePositionInBand,
+    getValueWithUnit,
 } from './definitions'
 
 let uniqueNode = 0

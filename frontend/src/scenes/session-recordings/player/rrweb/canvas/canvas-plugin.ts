@@ -1,15 +1,17 @@
-import { canvasMutation, Replayer } from '@posthog/rrweb'
+import posthog from 'posthog-js'
+
+import { Replayer, canvasMutation } from '@posthog/rrweb'
 import { ReplayPlugin } from '@posthog/rrweb'
 import {
     CanvasArg,
+    EventType,
+    IncrementalSource,
     canvasMutationData,
     canvasMutationParam,
-    EventType,
     eventWithTime,
-    IncrementalSource,
 } from '@posthog/rrweb-types'
+
 import { debounce } from 'lib/utils'
-import posthog from 'posthog-js'
 
 import { deserializeCanvasArg } from './deserialize-canvas-args'
 
@@ -191,8 +193,8 @@ export const CanvasReplayerPlugin = (events: eventWithTime[]): ReplayPlugin => {
         const currentIndex = nextPreloadIndex
             ? nextPreloadIndex
             : currentEvent
-            ? quickFindClosestCanvasEventIndex(canvasMutationEvents, currentEvent, 0, canvasMutationEvents.length)
-            : 0
+              ? quickFindClosestCanvasEventIndex(canvasMutationEvents, currentEvent, 0, canvasMutationEvents.length)
+              : 0
 
         const eventsToPreload = canvasMutationEvents
             .slice(currentIndex, currentIndex + PRELOAD_BUFFER_SIZE)

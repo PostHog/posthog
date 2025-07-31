@@ -4,7 +4,7 @@ import { PluginsServerConfig } from '~/types'
 import { parseJSON } from '~/utils/json-parse'
 
 import { logger } from '../../utils/logger'
-import { fetch, FetchOptions, FetchResponse } from '../../utils/request'
+import { FetchOptions, FetchResponse, fetch } from '../../utils/request'
 import { tryCatch } from '../../utils/try-catch'
 import { NATIVE_HOG_FUNCTIONS_BY_ID } from '../templates'
 import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult, Response } from '../types'

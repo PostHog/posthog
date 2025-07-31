@@ -13,8 +13,8 @@ import { HogFunctionTemplateManagerService } from '../services/managers/hog-func
 import { PersonsManagerService } from '../services/managers/persons-manager.service'
 import { HogFunctionMonitoringService } from '../services/monitoring/hog-function-monitoring.service'
 import { HogMaskerService } from '../services/monitoring/hog-masker.service'
-import { HogWatcherService } from '../services/monitoring/hog-watcher.service'
 import { HogWatcherService2 } from '../services/monitoring/hog-watcher-2.service'
+import { HogWatcherService } from '../services/monitoring/hog-watcher.service'
 import { NativeDestinationExecutorService } from '../services/native-destination-executor.service'
 import { SegmentDestinationExecutorService } from '../services/segment-destination-executor.service'
 

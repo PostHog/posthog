@@ -1,6 +1,7 @@
 import { Meta } from '@storybook/react'
-import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/PropertyFiltersDisplay'
+
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
+import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/PropertyFiltersDisplay'
 
 import { useStorybookMocks } from '~/mocks/browser'
 import { AnyPropertyFilter, PropertyOperator } from '~/types'

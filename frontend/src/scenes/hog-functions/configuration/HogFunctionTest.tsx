@@ -1,3 +1,9 @@
+import clsx from 'clsx'
+import { useActions, useValues } from 'kea'
+import { Form } from 'kea-forms'
+import { MarkerSeverity, editor as monacoEditor } from 'monaco-editor'
+import { useRef } from 'react'
+
 import { IconInfo, IconX } from '@posthog/icons'
 import {
     LemonBanner,
@@ -10,15 +16,11 @@ import {
     Spinner,
     Tooltip,
 } from '@posthog/lemon-ui'
-import clsx from 'clsx'
-import { useActions, useValues } from 'kea'
-import { Form } from 'kea-forms'
+
 import { TZLabel } from 'lib/components/TZLabel'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
-import { editor as monacoEditor, MarkerSeverity } from 'monaco-editor'
-import { useRef } from 'react'
 
 import { hogFunctionConfigurationLogic } from './hogFunctionConfigurationLogic'
 import { hogFunctionTestLogic } from './hogFunctionTestLogic'
@@ -356,17 +358,17 @@ export function HogFunctionTest(): JSX.Element {
                                         testResult.status === 'success'
                                             ? 'success'
                                             : testResult.status === 'skipped'
-                                            ? 'warning'
-                                            : 'error'
+                                              ? 'warning'
+                                              : 'error'
                                     }
                                 >
                                     {testResult.status === 'success'
                                         ? 'Success'
                                         : testResult.status === 'skipped'
-                                        ? `${
-                                              type.charAt(0).toUpperCase() + type.slice(1)
-                                          } was skipped because the event did not match the filter criteria`
-                                        : 'Error'}
+                                          ? `${
+                                                type.charAt(0).toUpperCase() + type.slice(1)
+                                            } was skipped because the event did not match the filter criteria`
+                                          : 'Error'}
                                 </LemonBanner>
 
                                 {type === 'transformation' && testResult.status !== 'error' ? (

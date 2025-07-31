@@ -1,6 +1,8 @@
 import React from 'react'
+
 import { IconAI } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
+
 import { JSONViewer } from 'lib/components/JSONViewer'
 import { ExplainCSPViolationButton } from 'lib/components/LLMButton/ExplainCSPViolationButton'
 import { Sparkline } from 'lib/components/Sparkline'
@@ -118,13 +120,13 @@ export function renderHogQLX(value: any): JSX.Element {
             return (
                 <LightErrorBoundary>
                     <Link to={href} target={target ?? undefined}>
-                        {children ?? source ? renderHogQLX(children ?? source) : href}
+                        {(children ?? source) ? renderHogQLX(children ?? source) : href}
                     </Link>
                 </LightErrorBoundary>
             )
         } else if (tag === 'blink' || tag === 'marquee' || tag === 'redacted') {
             const { children, source } = rest
-            const renderedChildren = children ?? source ? renderHogQLX(children ?? source) : ''
+            const renderedChildren = (children ?? source) ? renderHogQLX(children ?? source) : ''
             return (
                 <LightErrorBoundary>
                     <span className={`hogqlx-${tag}`}>
@@ -137,7 +139,7 @@ export function renderHogQLX(value: any): JSX.Element {
             const element = React.createElement(
                 tag,
                 { key: key ?? undefined },
-                children ?? source ? renderHogQLX(children ?? source ?? '') : undefined
+                (children ?? source) ? renderHogQLX(children ?? source ?? '') : undefined
             )
             return <LightErrorBoundary>{element}</LightErrorBoundary>
         }

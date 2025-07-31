@@ -1,6 +1,7 @@
 import { Meta, StoryObj } from '@storybook/react'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { useEffect } from 'react'
+
+import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 

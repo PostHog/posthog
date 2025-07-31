@@ -1,10 +1,11 @@
 import { useActions, useValues } from 'kea'
+import { useEffect, useState } from 'react'
+
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { capitalizeFirstLetter } from 'lib/utils'
-import { useEffect, useState } from 'react'
 
 import { unitPickerModalLogic } from './unitPickerModalLogic'
 

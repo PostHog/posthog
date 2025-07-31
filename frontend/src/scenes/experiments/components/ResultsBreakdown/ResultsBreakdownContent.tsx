@@ -1,5 +1,7 @@
 import { useValues } from 'kea'
 
+import { isNewExperimentResponse } from 'scenes/experiments/experimentLogic'
+
 import {
     CachedExperimentQueryResponse,
     CachedNewExperimentQueryResponse,
@@ -8,7 +10,6 @@ import {
 } from '~/queries/schema/schema-general'
 import { FunnelStep } from '~/types'
 
-import { isNewExperimentResponse } from 'scenes/experiments/experimentLogic'
 import { resultsBreakdownLogic } from './resultsBreakdownLogic'
 import type { ResultBreakdownRenderProps } from './types'
 

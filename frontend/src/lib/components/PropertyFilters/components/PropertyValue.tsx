@@ -1,3 +1,6 @@
+import { useActions, useValues } from 'kea'
+import { useEffect } from 'react'
+
 import { LemonButton } from '@posthog/lemon-ui'
 import {
     AssigneeIconDisplay,
@@ -5,7 +8,7 @@ import {
     AssigneeResolver,
 } from '@posthog/products-error-tracking/frontend/components/Assignee/AssigneeDisplay'
 import { AssigneeSelect } from '@posthog/products-error-tracking/frontend/components/Assignee/AssigneeSelect'
-import { useActions, useValues } from 'kea'
+
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { DurationPicker } from 'lib/components/DurationPicker/DurationPicker'
 import { PropertyFilterDatePicker } from 'lib/components/PropertyFilters/components/PropertyFilterDatePicker'
@@ -13,7 +16,6 @@ import { propertyFilterTypeToPropertyDefinitionType } from 'lib/components/Prope
 import { dayjs } from 'lib/dayjs'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { formatDate, isOperatorDate, isOperatorFlag, isOperatorMulti, toString } from 'lib/utils'
-import { useEffect } from 'react'
 
 import {
     PROPERTY_FILTER_TYPES_WITH_ALL_TIME_SUGGESTIONS,
@@ -90,13 +92,13 @@ export function PropertyValue({
         if (preloadValues) {
             load('')
         }
-    }, [])
+    }, [preloadValues, load])
 
     useEffect(() => {
         if (!isDateTimeProperty) {
             load('')
         }
-    }, [propertyKey, isDateTimeProperty])
+    }, [propertyKey, isDateTimeProperty, load])
 
     const displayOptions = options[propertyKey]?.values || []
 
@@ -215,8 +217,8 @@ export function PropertyValue({
                 PROPERTY_FILTER_TYPES_WITH_TEMPORAL_SUGGESTIONS.includes(type)
                     ? 'Suggested values (last 7 days)'
                     : PROPERTY_FILTER_TYPES_WITH_ALL_TIME_SUGGESTIONS.includes(type)
-                    ? 'Suggested values'
-                    : undefined
+                      ? 'Suggested values'
+                      : undefined
             }
             popoverClassName="max-w-200"
             options={displayOptions.map(({ name: _name }, index) => {

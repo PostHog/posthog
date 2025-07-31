@@ -1,17 +1,19 @@
 import './EditableField.scss'
 
-import { IconPencil } from '@posthog/icons'
 import clsx from 'clsx'
 import { useValues } from 'kea'
+import React, { useEffect, useRef, useState } from 'react'
+import TextareaAutosize from 'react-textarea-autosize'
+
+import { IconPencil } from '@posthog/icons'
+
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
-import { IconMarkdown } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { RawInputAutosize } from 'lib/lemon-ui/LemonInput/RawInputAutosize'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { IconMarkdown } from 'lib/lemon-ui/icons'
 import { pluralize } from 'lib/utils'
-import React, { useEffect, useRef, useState } from 'react'
-import TextareaAutosize from 'react-textarea-autosize'
 
 import { AvailableFeature } from '~/types'
 

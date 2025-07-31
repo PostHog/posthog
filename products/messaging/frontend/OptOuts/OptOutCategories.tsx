@@ -1,14 +1,17 @@
+import { useActions, useValues } from 'kea'
 import { useEffect, useMemo, useState } from 'react'
-import { PageHeader } from 'lib/components/PageHeader'
-import { LemonButton, LemonCollapse, LemonDialog, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
+
 import { IconPlusSmall } from '@posthog/icons'
+import { LemonButton, LemonCollapse, LemonDialog, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
+
+import { PageHeader } from 'lib/components/PageHeader'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { useActions, useValues } from 'kea'
-import { optOutCategoriesLogic } from './optOutCategoriesLogic'
-import { OptOutList } from './OptOutList'
-import { NewCategoryModal } from './NewCategoryModal'
 import { capitalizeFirstLetter } from 'lib/utils'
+
+import { NewCategoryModal } from './NewCategoryModal'
+import { OptOutList } from './OptOutList'
+import { optOutCategoriesLogic } from './optOutCategoriesLogic'
 
 interface MessageCategory {
     id: string

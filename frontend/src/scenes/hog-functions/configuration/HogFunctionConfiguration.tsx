@@ -1,3 +1,8 @@
+import clsx from 'clsx'
+import { BindLogic, useActions, useValues } from 'kea'
+import { Form } from 'kea-forms'
+import { useRef } from 'react'
+
 import { IconCheck, IconInfo, IconPlus, IconX } from '@posthog/icons'
 import {
     LemonBanner,
@@ -11,9 +16,7 @@ import {
     Link,
     SpinnerOverlay,
 } from '@posthog/lemon-ui'
-import clsx from 'clsx'
-import { BindLogic, useActions, useValues } from 'kea'
-import { Form } from 'kea-forms'
+
 import { CyclotronJobInputs } from 'lib/components/CyclotronJob/CyclotronJobInputs'
 import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
@@ -23,7 +26,6 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
-import { useRef } from 'react'
 import { hogFunctionConfigurationLogic } from 'scenes/hog-functions/configuration/hogFunctionConfigurationLogic'
 import { HogFunctionFilters } from 'scenes/hog-functions/filters/HogFunctionFilters'
 import { HogFunctionMappings } from 'scenes/hog-functions/mapping/HogFunctionMappings'
@@ -34,10 +36,10 @@ import { AvailableFeature, CyclotronJobInputSchemaType } from '~/types'
 
 import { HogFunctionStatusIndicator } from '../misc/HogFunctionStatusIndicator'
 import { HogFunctionStatusTag } from '../misc/HogFunctionStatusTag'
-import { HogFunctionSourceWebhookInfo } from './components/HogFunctionSourceWebhookInfo'
-import { HogFunctionSourceWebhookTest } from './components/HogFunctionSourceWebhookTest'
 import { HogFunctionIconEditable } from './HogFunctionIcon'
 import { HogFunctionTest } from './HogFunctionTest'
+import { HogFunctionSourceWebhookInfo } from './components/HogFunctionSourceWebhookInfo'
+import { HogFunctionSourceWebhookTest } from './components/HogFunctionSourceWebhookTest'
 
 export interface HogFunctionConfigurationProps {
     templateId?: string | null
@@ -148,8 +150,8 @@ export function HogFunctionConfiguration({ templateId, id, logicKey }: HogFuncti
                         !configurationChanged
                             ? 'No changes'
                             : isConfigurationSubmitting
-                            ? 'Saving in progress…'
-                            : undefined
+                              ? 'Saving in progress…'
+                              : undefined
                     }
                 >
                     Clear changes
@@ -165,8 +167,8 @@ export function HogFunctionConfiguration({ templateId, id, logicKey }: HogFuncti
                 {willReEnableOnSave
                     ? ' & re-enable'
                     : willChangeEnabledOnSave
-                    ? ` & ${configuration.enabled ? 'enable' : 'disable'}`
-                    : ''}
+                      ? ` & ${configuration.enabled ? 'enable' : 'disable'}`
+                      : ''}
             </LemonButton>
         </>
     )

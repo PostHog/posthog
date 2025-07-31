@@ -1,9 +1,9 @@
 import {
     EitherMemberType,
     ExplicitTeamMemberType,
+    OrganizationBasicType,
     OrganizationMemberType,
     UserType,
-    OrganizationBasicType,
 } from '../../types'
 import { EitherMembershipLevel, OrganizationMembershipLevel, TeamMembershipLevel } from '../constants'
 

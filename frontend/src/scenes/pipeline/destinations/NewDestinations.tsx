@@ -1,6 +1,8 @@
+import { useActions, useValues } from 'kea'
+
 import { IconMegaphone, IconPlusSmall } from '@posthog/icons'
 import { LemonButton, LemonTable, Link } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { PayGateButton } from 'lib/components/PayGateMini/PayGateButton'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -13,9 +15,9 @@ import { SidePanelTab } from '~/types'
 import { AvailableFeature, HogFunctionTypeType, PipelineStage } from '~/types'
 
 import { pipelineAccessLogic } from '../pipelineAccessLogic'
+import { DestinationTag } from './DestinationTag'
 import { DestinationsFilters } from './DestinationsFilters'
 import { destinationsFiltersLogic } from './destinationsFiltersLogic'
-import { DestinationTag } from './DestinationTag'
 import { getDestinationDocPath, newDestinationsLogic } from './newDestinationsLogic'
 
 export interface NewDestinationsProps {

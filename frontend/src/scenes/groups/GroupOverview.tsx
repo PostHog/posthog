@@ -1,4 +1,5 @@
 import { useValues } from 'kea'
+
 import { capitalizeFirstLetter } from 'lib/utils'
 
 import { Group } from '~/types'

@@ -1,5 +1,6 @@
 import { connect, kea, path, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
+
 import { sceneLogic } from 'scenes/sceneLogic'
 import { SettingSectionId } from 'scenes/settings/types'
 

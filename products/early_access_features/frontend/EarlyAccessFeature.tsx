@@ -1,3 +1,9 @@
+import clsx from 'clsx'
+import { useActions, useValues } from 'kea'
+import { Form } from 'kea-forms'
+import { router } from 'kea-router'
+import { useState } from 'react'
+
 import { IconFlag, IconQuestion, IconTrash, IconX } from '@posthog/icons'
 import {
     LemonBanner,
@@ -11,23 +17,25 @@ import {
     LemonTextArea,
     Link,
 } from '@posthog/lemon-ui'
-import clsx from 'clsx'
-import { useActions, useValues } from 'kea'
-import { Form } from 'kea-forms'
-import { router } from 'kea-router'
+
 import { FlagSelector } from 'lib/components/FlagSelector'
 import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
+import { SceneFile } from 'lib/components/Scenes/SceneFile'
+import { SceneMetalyticsSummaryButton } from 'lib/components/Scenes/SceneMetalyticsSummaryButton'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { ProductIntentContext } from 'lib/utils/product-intents'
-import { useState } from 'react'
 import { LinkedHogFunctions } from 'scenes/hog-functions/list/LinkedHogFunctions'
 import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { ScenePanel, ScenePanelActions, ScenePanelDivider, ScenePanelMetaInfo } from '~/layout/scenes/SceneLayout'
 import { Query } from '~/queries/Query/Query'
 import { Node, NodeKind, QuerySchema } from '~/queries/schema/schema-general'
 import {
@@ -44,15 +52,8 @@ import {
     ReplayTabs,
 } from '~/types'
 
-import { SceneFile } from 'lib/components/Scenes/SceneFile'
-
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
-import { ScenePanel, ScenePanelActions, ScenePanelDivider, ScenePanelMetaInfo } from '~/layout/scenes/SceneLayout'
-import { earlyAccessFeatureLogic } from './earlyAccessFeatureLogic'
 import { InstructionsModal } from './InstructionsModal'
-import { SceneMetalyticsSummaryButton } from 'lib/components/Scenes/SceneMetalyticsSummaryButton'
+import { earlyAccessFeatureLogic } from './earlyAccessFeatureLogic'
 
 const RESOURCE_TYPE = 'early-access-feature'
 
@@ -389,9 +390,9 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                                                 earlyAccessFeature.stage === EarlyAccessFeatureStage.Beta
                                                     ? 'warning'
                                                     : earlyAccessFeature.stage ===
-                                                      EarlyAccessFeatureStage.GeneralAvailability
-                                                    ? 'success'
-                                                    : 'default'
+                                                        EarlyAccessFeatureStage.GeneralAvailability
+                                                      ? 'success'
+                                                      : 'default'
                                             }
                                             className="mt-2 uppercase"
                                         >

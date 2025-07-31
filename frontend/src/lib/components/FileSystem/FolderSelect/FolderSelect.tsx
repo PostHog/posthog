@@ -1,4 +1,6 @@
 import { useActions, useValues } from 'kea'
+import { ReactNode, useEffect, useRef, useState } from 'react'
+
 import { dayjs } from 'lib/dayjs'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
@@ -7,9 +9,8 @@ import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { ContextMenuGroup, ContextMenuItem } from 'lib/ui/ContextMenu/ContextMenu'
 import { DropdownMenuGroup, DropdownMenuItem } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { cn } from 'lib/utils/css-classes'
-import { ReactNode, useEffect, useRef, useState } from 'react'
 
-import { projectTreeLogic, ProjectTreeLogicProps } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
+import { ProjectTreeLogicProps, projectTreeLogic } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { ScrollableShadows } from '~/lib/components/ScrollableShadows/ScrollableShadows'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 
@@ -67,7 +68,7 @@ export function FolderSelect({
         } else {
             expandProjectFolder(value || '')
         }
-    }, [value])
+    }, [value, expandProjectFolder, includeProtocol])
 
     useEffect(() => {
         const timeout = setTimeout(() => {
@@ -183,7 +184,7 @@ export function FolderSelect({
                     checkedItemCount={0}
                     onFolderClick={(folder, isExpanded) => {
                         if (folder) {
-                            const folderPath = includeProtocol ? folder.id : folder.record?.path ?? ''
+                            const folderPath = includeProtocol ? folder.id : (folder.record?.path ?? '')
 
                             if (includeProtocol) {
                                 toggleFolderOpen(folder.id, isExpanded)

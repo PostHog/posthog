@@ -1,5 +1,6 @@
 import { connect, kea, path, props, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+
 import { capitalizeFirstLetter } from 'lib/utils'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -66,10 +67,10 @@ export const pipelineNodeNewLogic = kea<pipelineNodeNewLogicType>([
                         name: kind
                             ? `New ${capitalizeFirstLetter(kind)} source`
                             : pluginId
-                            ? 'New'
-                            : batchDestination
-                            ? `New ${batchDestination} destination`
-                            : `New ${parsedStage}`.trim(),
+                              ? 'New'
+                              : batchDestination
+                                ? `New ${batchDestination} destination`
+                                : `New ${parsedStage}`.trim(),
                     },
                 ]
             },

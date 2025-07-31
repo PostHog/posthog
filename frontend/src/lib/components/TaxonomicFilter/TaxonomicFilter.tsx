@@ -1,8 +1,11 @@
 import './TaxonomicFilter.scss'
 
-import { IconKeyboard } from '@posthog/icons'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
+import { forwardRef, useEffect, useMemo, useRef, useState } from 'react'
+
+import { IconKeyboard } from '@posthog/icons'
+
 import {
     TaxonomicFilterGroupType,
     TaxonomicFilterLogicProps,
@@ -10,7 +13,6 @@ import {
 } from 'lib/components/TaxonomicFilter/types'
 import { LemonInput, LemonInputPropsText } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { Tooltip, TooltipProps } from 'lib/lemon-ui/Tooltip'
-import { forwardRef, useEffect, useMemo, useRef, useState } from 'react'
 
 import { InfiniteSelectResults } from './InfiniteSelectResults'
 import { defaultDataWarehousePopoverFields, taxonomicFilterLogic } from './taxonomicFilterLogic'

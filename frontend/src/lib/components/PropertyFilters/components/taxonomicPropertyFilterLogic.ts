@@ -1,4 +1,5 @@
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+
 import { TaxonomicPropertyFilterLogicProps } from 'lib/components/PropertyFilters/types'
 import {
     createDefaultPropertyFilter,

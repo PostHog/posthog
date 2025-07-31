@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+
 import { CompactList } from 'lib/components/CompactList/CompactList'
 import { ProductIntentContext } from 'lib/utils/product-intents'
 import { InsightRow } from 'scenes/project-homepage/RecentInsights'

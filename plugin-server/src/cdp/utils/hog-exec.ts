@@ -1,7 +1,8 @@
-import { DEFAULT_TIMEOUT_MS, exec, ExecOptions, ExecResult } from '@posthog/hogvm'
 import crypto from 'crypto'
 import { Counter } from 'prom-client'
 import RE2 from 're2'
+
+import { DEFAULT_TIMEOUT_MS, ExecOptions, ExecResult, exec } from '@posthog/hogvm'
 
 import { Semaphore } from './sempahore'
 

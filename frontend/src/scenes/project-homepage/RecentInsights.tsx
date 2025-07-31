@@ -1,10 +1,11 @@
 import './ProjectHomepage.scss'
 
 import { useActions, useValues } from 'kea'
+import { useEffect } from 'react'
+
 import { CompactList } from 'lib/components/CompactList/CompactList'
 import { dayjs } from 'lib/dayjs'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { useEffect } from 'react'
 import { InsightIcon } from 'scenes/saved-insights/SavedInsights'
 import { urls } from 'scenes/urls'
 
@@ -39,7 +40,7 @@ export function RecentInsights(): JSX.Element {
 
     useEffect(() => {
         loadRecentInsights()
-    }, [])
+    }, [loadRecentInsights])
     return (
         <>
             <CompactList

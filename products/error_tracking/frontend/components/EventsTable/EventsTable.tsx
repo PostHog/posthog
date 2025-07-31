@@ -1,12 +1,19 @@
-import { LemonButton, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useValues } from 'kea'
+
+import { IconAI } from '@posthog/icons'
+import { LemonButton, Link } from '@posthog/lemon-ui'
+
 import { ErrorEventType } from 'lib/components/Errors/types'
 import { getExceptionAttributes, getRecordingStatus, getSessionId } from 'lib/components/Errors/utils'
 import { TZLabel } from 'lib/components/TZLabel'
 import ViewRecordingButton from 'lib/components/ViewRecordingButton/ViewRecordingButton'
-import { asDisplay } from 'scenes/persons/person-utils'
+import { More } from 'lib/lemon-ui/LemonButton/More'
+import { IconLink } from 'lib/lemon-ui/icons'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { PersonDisplay, PersonIcon } from 'scenes/persons/PersonDisplay'
+import { asDisplay } from 'scenes/persons/person-utils'
+import { urls } from 'scenes/urls'
 
 import { useErrorTagRenderer } from '../../hooks/use-error-tag-renderer'
 import { cancelEvent } from '../../utils'
@@ -14,11 +21,6 @@ import { DataSourceTable, DataSourceTableColumn } from '../DataSourceTable'
 import { ExceptionAttributesPreview } from '../ExceptionAttributesPreview'
 import { eventsQueryLogic } from './eventsQueryLogic'
 import { eventsSourceLogic } from './eventsSourceLogic'
-import { IconAI } from '@posthog/icons'
-import { urls } from 'scenes/urls'
-import { More } from 'lib/lemon-ui/LemonButton/More'
-import { IconLink } from 'lib/lemon-ui/icons'
-import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 export interface EventsTableProps {
     issueId: string

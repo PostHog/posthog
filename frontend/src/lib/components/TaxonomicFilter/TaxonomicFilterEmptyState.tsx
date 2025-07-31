@@ -1,10 +1,12 @@
-import { IconOpenSidebar, IconPlus } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
 import { useActions } from 'kea'
 import { router } from 'kea-router'
+import type React from 'react'
+
+import { IconOpenSidebar, IconPlus } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
+
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { ProductIntentContext } from 'lib/utils/product-intents'
-import type React from 'react'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 

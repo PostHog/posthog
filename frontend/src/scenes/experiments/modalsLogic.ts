@@ -1,10 +1,10 @@
-import { actions, connect, kea, reducers, path } from 'kea'
+import { actions, connect, kea, path, reducers } from 'kea'
+
 import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { SharedMetric } from './SharedMetrics/sharedMetricLogic'
-
 import type { modalsLogicType } from './modalsLogicType'
 
 export const modalsLogic = kea<modalsLogicType>([

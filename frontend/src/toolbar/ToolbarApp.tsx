@@ -1,11 +1,12 @@
 import { useValues } from 'kea'
-import { useSecondRender } from 'lib/hooks/useSecondRender'
 import { useEffect, useRef, useState } from 'react'
 import root from 'react-shadow'
 import { Slide, ToastContainer } from 'react-toastify'
 
-import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
+import { useSecondRender } from 'lib/hooks/useSecondRender'
+
 import { ToolbarContainer } from '~/toolbar/ToolbarContainer'
+import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { ToolbarProps } from '~/types'
 
 import { TOOLBAR_ID } from './utils'

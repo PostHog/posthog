@@ -1,17 +1,21 @@
+import './MarketingAnalyticsTableStyleOverride.scss'
+
 import { useActions } from 'kea'
+
+import { IconGear } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
+
 import { Query } from '~/queries/Query/Query'
+import { ColumnFeature } from '~/queries/nodes/DataTable/DataTable'
+import { DataTableNode } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import { webAnalyticsDataTableQueryContext } from '~/scenes/web-analytics/tiles/WebAnalyticsTile'
-import { ColumnFeature } from '~/queries/nodes/DataTable/DataTable'
-import { DraftConversionGoalControls } from './DraftConversionGoalControls'
-import { marketingAnalyticsTableLogic } from '../../logic/marketingAnalyticsTableLogic'
-import { DataTableNode } from '~/queries/schema/schema-general'
 import { InsightLogicProps } from '~/types'
-import { MarketingAnalyticsColumnConfigModal } from './MarketingAnalyticsColumnConfigModal'
+
 import { marketingAnalyticsLogic } from '../../logic/marketingAnalyticsLogic'
-import { LemonButton } from '@posthog/lemon-ui'
-import { IconGear } from '@posthog/icons'
-import './MarketingAnalyticsTableStyleOverride.scss'
+import { marketingAnalyticsTableLogic } from '../../logic/marketingAnalyticsTableLogic'
+import { DraftConversionGoalControls } from './DraftConversionGoalControls'
+import { MarketingAnalyticsColumnConfigModal } from './MarketingAnalyticsColumnConfigModal'
 
 export type MarketingAnalyticsTableProps = {
     query: DataTableNode

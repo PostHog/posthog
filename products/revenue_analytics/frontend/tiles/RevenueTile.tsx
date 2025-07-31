@@ -6,10 +6,10 @@ import { InsightVizNode } from '~/queries/schema/schema-general'
 import { InsightLogicProps } from '~/types'
 
 import {
-    buildDashboardItemId,
     REVENUE_ANALYTICS_DATA_COLLECTION_NODE_ID,
-    revenueAnalyticsLogic,
     RevenueAnalyticsQuery,
+    buildDashboardItemId,
+    revenueAnalyticsLogic,
 } from '../revenueAnalyticsLogic'
 
 const QUERY_ID = RevenueAnalyticsQuery.REVENUE

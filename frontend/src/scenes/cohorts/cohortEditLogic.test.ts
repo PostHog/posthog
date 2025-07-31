@@ -1,11 +1,12 @@
 import { router } from 'kea-router'
 import { expectLogic, partial } from 'kea-test-utils'
+import { v4 as uuidv4 } from 'uuid'
+
 import { api } from 'lib/api.mock'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { v4 as uuidv4 } from 'uuid'
-import { cohortEditLogic, CohortLogicProps } from 'scenes/cohorts/cohortEditLogic'
 import { CRITERIA_VALIDATIONS, NEW_CRITERIA, ROWS } from 'scenes/cohorts/CohortFilters/constants'
 import { BehavioralFilterKey } from 'scenes/cohorts/CohortFilters/types'
+import { CohortLogicProps, cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 

@@ -1,6 +1,8 @@
-import { LemonButton, LemonButtonProps, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+
+import { LemonButton, LemonButtonProps, Tooltip } from '@posthog/lemon-ui'
+
 import { useKeyHeld } from 'lib/hooks/useKeyHeld'
 import { IconSkipBackward } from 'lib/lemon-ui/icons'
 import { capitalizeFirstLetter, colonDelimitedDuration } from 'lib/utils'
@@ -10,7 +12,7 @@ import { ONE_FRAME_MS, sessionRecordingPlayerLogic } from 'scenes/session-record
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { HotKeyOrModifier } from '~/types'
 
-import { playerSettingsLogic, TimestampFormat } from '../playerSettingsLogic'
+import { TimestampFormat, playerSettingsLogic } from '../playerSettingsLogic'
 import { seekbarLogic } from './seekbarLogic'
 
 function RelativeTimestampLabel({ size }: { size: 'small' | 'normal' }): JSX.Element {

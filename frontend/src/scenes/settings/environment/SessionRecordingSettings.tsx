@@ -1,3 +1,7 @@
+import clsx from 'clsx'
+import { useActions, useValues } from 'kea'
+import { ReactNode, useState } from 'react'
+
 import { IconCheck, IconInfo, IconPlus, IconX } from '@posthog/icons'
 import {
     LemonBanner,
@@ -10,8 +14,7 @@ import {
     Link,
     Tooltip,
 } from '@posthog/lemon-ui'
-import clsx from 'clsx'
-import { useActions, useValues } from 'kea'
+
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { EventSelect } from 'lib/components/EventSelect/EventSelect'
@@ -19,11 +22,9 @@ import { InternalMultipleChoiceSurvey } from 'lib/components/InternalSurvey/Inte
 import { PropertySelect } from 'lib/components/PropertySelect/PropertySelect'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { SESSION_RECORDING_OPT_OUT_SURVEY_ID_2 } from 'lib/constants'
-import { IconSelectEvents } from 'lib/lemon-ui/icons'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
+import { IconSelectEvents } from 'lib/lemon-ui/icons'
 import { isObject, objectsEqual } from 'lib/utils'
-import { ReactNode, useState } from 'react'
-
 import { getMaskingConfigFromLevel, getMaskingLevelFromConfig } from 'scenes/session-recordings/utils'
 import { teamLogic } from 'scenes/teamLogic'
 

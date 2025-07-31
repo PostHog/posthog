@@ -1,3 +1,6 @@
+import { useActions, useValues } from 'kea'
+import { useEffect, useState } from 'react'
+
 import { IconCheckCircle, IconRevert, IconTrash, IconUpload, IconWarning } from '@posthog/icons'
 import {
     LemonButton,
@@ -9,15 +12,14 @@ import {
     LemonTabs,
     Tooltip,
 } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { stackFrameLogic } from 'lib/components/Errors/stackFrameLogic'
 import { ErrorTrackingSymbolSet, SymbolSetStatusFilter } from 'lib/components/Errors/types'
 import { JSONViewer } from 'lib/components/JSONViewer'
 import { humanFriendlyDetailedTime } from 'lib/utils'
-import { useEffect, useState } from 'react'
 
-import { errorTrackingSymbolSetLogic } from './errorTrackingSymbolSetLogic'
 import { SymbolSetUploadModal } from './SymbolSetUploadModal'
+import { errorTrackingSymbolSetLogic } from './errorTrackingSymbolSetLogic'
 
 const SYMBOL_SET_FILTER_OPTIONS = [
     {

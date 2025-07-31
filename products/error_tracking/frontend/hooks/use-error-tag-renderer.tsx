@@ -1,7 +1,8 @@
 import { useValues } from 'kea'
+import { useCallback } from 'react'
+
 import { ErrorEventType } from 'lib/components/Errors/types'
 import { dayjs } from 'lib/dayjs'
-import { useCallback } from 'react'
 
 import { ErrorTag } from '../components/ErrorTag'
 import { errorTrackingIssueSceneLogic } from '../errorTrackingIssueSceneLogic'

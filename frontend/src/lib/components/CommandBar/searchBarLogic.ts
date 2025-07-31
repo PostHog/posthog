@@ -2,6 +2,7 @@ import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, redu
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
+
 import api, { CountedPaginatedResponse } from 'lib/api'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -10,10 +11,10 @@ import { urls } from 'scenes/urls'
 import { getDefaultTreeProducts, iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { groupsModel } from '~/models/groupsModel'
 import { FileSystemImport } from '~/queries/schema/schema-general'
-import { Group, InsightShortId, PersonType, SearchableEntity, SearchResponse } from '~/types'
+import { Group, InsightShortId, PersonType, SearchResponse, SearchableEntity } from '~/types'
 
 import { commandBarLogic } from './commandBarLogic'
-import { clickhouseTabs, Tab, TabGroup } from './constants'
+import { Tab, TabGroup, clickhouseTabs } from './constants'
 import type { searchBarLogicType } from './searchBarLogicType'
 import { BarStatus, GroupResult, PersonResult, SearchResult, TreeItemResult } from './types'
 

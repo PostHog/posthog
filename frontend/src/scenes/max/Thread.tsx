@@ -1,3 +1,9 @@
+import clsx from 'clsx'
+import { useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
+import React, { useEffect, useMemo, useState } from 'react'
+import { twMerge } from 'tailwind-merge'
+
 import {
     IconBolt,
     IconCollapse,
@@ -21,19 +27,16 @@ import {
     Spinner,
     Tooltip,
 } from '@posthog/lemon-ui'
-import clsx from 'clsx'
-import { useActions, useValues } from 'kea'
+
 import { BreakdownSummary, PropertiesSummary, SeriesSummary } from 'lib/components/Cards/InsightCard/InsightDetails'
 import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
+import { supportLogic } from 'lib/components/Support/supportLogic'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
-import posthog from 'posthog-js'
-import React, { useEffect, useMemo, useState } from 'react'
-import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
-import { twMerge } from 'tailwind-merge'
 
 import { Query } from '~/queries/Query/Query'
 import {
@@ -49,8 +52,9 @@ import { ProductKey } from '~/types'
 
 import { ContextSummary } from './Context'
 import { MarkdownMessage } from './MarkdownMessage'
+import { MAX_SLASH_COMMANDS } from './components/SlashCommandAutocomplete'
 import { maxGlobalLogic } from './maxGlobalLogic'
-import { maxLogic, MessageStatus, ThreadMessage } from './maxLogic'
+import { MessageStatus, ThreadMessage, maxLogic } from './maxLogic'
 import { maxThreadLogic } from './maxThreadLogic'
 import {
     castAssistantQuery,
@@ -61,8 +65,6 @@ import {
     isReasoningMessage,
     isVisualizationMessage,
 } from './utils'
-import { supportLogic } from 'lib/components/Support/supportLogic'
-import { MAX_SLASH_COMMANDS } from './components/SlashCommandAutocomplete'
 
 export function Thread({ className }: { className?: string }): JSX.Element | null {
     const { conversationLoading, conversationId } = useValues(maxLogic)

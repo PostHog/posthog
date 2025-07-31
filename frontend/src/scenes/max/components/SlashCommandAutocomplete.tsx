@@ -1,7 +1,9 @@
 import { offset } from '@floating-ui/react'
-import { IconRocket } from '@posthog/icons'
-import { LemonMenu, LemonMenuItem } from 'lib/lemon-ui/LemonMenu'
 import { useEffect, useMemo, useState } from 'react'
+
+import { IconRocket } from '@posthog/icons'
+
+import { LemonMenu, LemonMenuItem } from 'lib/lemon-ui/LemonMenu'
 
 export interface SlashCommand {
     name: `/${string}`

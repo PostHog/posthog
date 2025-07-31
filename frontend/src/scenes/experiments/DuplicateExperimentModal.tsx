@@ -1,7 +1,9 @@
-import { IconOpenInNew } from 'lib/lemon-ui/icons'
-import { LemonModal, LemonTable, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+
+import { LemonModal, LemonTable, Link } from '@posthog/lemon-ui'
+
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { experimentsLogic } from 'scenes/experiments/experimentsLogic'
 import { urls } from 'scenes/urls'
 

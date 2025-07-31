@@ -1,9 +1,11 @@
-import { LemonButton, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+import { useEffect } from 'react'
+
+import { LemonButton, Link } from '@posthog/lemon-ui'
+
 import { PageHeader } from 'lib/components/PageHeader'
 import { CodeEditor } from 'lib/monaco/CodeEditor'
-import { useEffect } from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
@@ -84,7 +86,7 @@ export function CustomCssScene(): JSX.Element {
 
     useEffect(() => {
         setPreviewingCustomCss(previewingCustomCss || persistedCustomCss || '')
-    }, [])
+    }, [previewingCustomCss, persistedCustomCss, setPreviewingCustomCss])
 
     const onPreview = (): void => {
         router.actions.push(urls.projectHomepage())

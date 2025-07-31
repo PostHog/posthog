@@ -1,22 +1,24 @@
 import './NotebookPanel.scss'
 
+import { useActions, useValues } from 'kea'
+import { useMemo } from 'react'
+
 import { IconExternal } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
-import { useMemo } from 'react'
 import { urls } from 'scenes/urls'
 
 import { SidePanelPaneHeader } from '~/layout/navigation-3000/sidepanel/components/SidePanelPaneHeader'
 
 import { Notebook } from '../Notebook/Notebook'
 import { NotebookListMini } from '../Notebook/NotebookListMini'
-import { notebookLogic } from '../Notebook/notebookLogic'
 import { NotebookExpandButton, NotebookSyncInfo } from '../Notebook/NotebookMeta'
+import { notebookLogic } from '../Notebook/notebookLogic'
 import { NotebookMenu } from '../NotebookMenu'
+import { NotebookTarget } from '../types'
 import { NotebookPanelDropzone } from './NotebookPanelDropzone'
 import { notebookPanelLogic } from './notebookPanelLogic'
-import { NotebookTarget } from '../types'
 
 export function NotebookPanel(): JSX.Element | null {
     const { selectedNotebook, initialAutofocus, droppedResource, dropProperties } = useValues(notebookPanelLogic)

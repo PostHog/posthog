@@ -1,7 +1,9 @@
 import './SurveyTemplates.scss'
 
-import { LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+
+import { LemonButton } from '@posthog/lemon-ui'
+
 import { PageHeader } from 'lib/components/PageHeader'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -10,8 +12,8 @@ import { urls } from 'scenes/urls'
 
 import { Survey } from '~/types'
 
-import { defaultSurveyAppearance, defaultSurveyTemplates, errorTrackingSurvey } from './constants'
 import { SurveyAppearancePreview } from './SurveyAppearancePreview'
+import { defaultSurveyAppearance, defaultSurveyTemplates, errorTrackingSurvey } from './constants'
 import { surveyLogic } from './surveyLogic'
 
 export const scene: SceneExport = {

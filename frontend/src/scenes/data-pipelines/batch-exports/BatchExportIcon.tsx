@@ -1,12 +1,13 @@
 import { Link, Tooltip } from '@posthog/lemon-ui'
+
+import { BatchExportService } from '~/types'
+
 import IconHTTP from 'public/hedgehog/running-hog.png'
 import IconS3 from 'public/services/aws-s3.png'
 import IconBigQuery from 'public/services/bigquery.png'
 import IconPostgres from 'public/services/postgres.png'
 import IconRedshift from 'public/services/redshift.png'
 import IconSnowflake from 'public/services/snowflake.png'
-
-import { BatchExportService } from '~/types'
 
 export function getBatchExportUrl(service: BatchExportService['type']): string {
     return `https://posthog.com/docs/cdp/batch-exports/${service.toLowerCase()}`

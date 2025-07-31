@@ -1,7 +1,8 @@
 import clsx from 'clsx'
 import { useValues } from 'kea'
-import { Popover } from 'lib/lemon-ui/Popover'
 import { useState } from 'react'
+
+import { Popover } from 'lib/lemon-ui/Popover'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { QueryTiming } from '~/queries/schema/schema-general'

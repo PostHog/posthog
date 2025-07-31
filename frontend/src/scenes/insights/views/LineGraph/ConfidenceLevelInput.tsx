@@ -1,11 +1,14 @@
-import { LemonInput, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
+import { useEffect, useState } from 'react'
+import { useDebouncedCallback } from 'use-debounce'
+
+import { LemonInput, Tooltip } from '@posthog/lemon-ui'
+
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
+
 import { isTrendsQuery } from '~/queries/utils'
-import { useDebouncedCallback } from 'use-debounce'
-import { useState, useEffect } from 'react'
 
 export function ConfidenceLevelInput(): JSX.Element {
     const { insightProps } = useValues(insightLogic)

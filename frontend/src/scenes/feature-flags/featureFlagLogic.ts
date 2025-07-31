@@ -1,7 +1,8 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
-import { DeepPartialMap, forms, ValidationErrorType } from 'kea-forms'
+import { DeepPartialMap, ValidationErrorType, forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
+
 import api, { PaginatedResponse } from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -10,11 +11,10 @@ import { sum, toParams } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { ProductIntentContext } from 'lib/utils/product-intents'
-import { NEW_EARLY_ACCESS_FEATURE } from 'products/early_access_features/frontend/earlyAccessFeatureLogic'
 import { dashboardsLogic } from 'scenes/dashboard/dashboards/dashboardsLogic'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 import { experimentLogic } from 'scenes/experiments/experimentLogic'
-import { featureFlagsLogic, FeatureFlagsTab } from 'scenes/feature-flags/featureFlagsLogic'
+import { FeatureFlagsTab, featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 import { filterTrendsClientSideParams } from 'scenes/insights/sharedUtils'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { projectLogic } from 'scenes/projectLogic'
@@ -23,7 +23,7 @@ import { NEW_SURVEY, NewSurvey } from 'scenes/surveys/constants'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { activationLogic, ActivationTask } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
+import { ActivationTask, activationLogic } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { deleteFromTree, refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
@@ -64,11 +64,13 @@ import {
     SurveyQuestionType,
 } from '~/types'
 
+import { NEW_EARLY_ACCESS_FEATURE } from 'products/early_access_features/frontend/earlyAccessFeatureLogic'
+
 import { organizationLogic } from '../organizationLogic'
 import { teamLogic } from '../teamLogic'
+import { checkFeatureFlagConfirmation } from './featureFlagConfirmationLogic'
 import type { featureFlagLogicType } from './featureFlagLogicType'
 import { featureFlagPermissionsLogic } from './featureFlagPermissionsLogic'
-import { checkFeatureFlagConfirmation } from './featureFlagConfirmationLogic'
 
 export type ScheduleFlagPayload = Pick<FeatureFlagType, 'filters' | 'active'>
 
@@ -136,10 +138,10 @@ export function validateFeatureFlagKey(key: string): string | undefined {
     return !key
         ? 'Please set a key'
         : key.length > 400
-        ? 'Key must be 400 characters or less.'
-        : !key.match?.(/^[a-zA-Z0-9_-]+$/)
-        ? 'Only letters, numbers, hyphens (-) & underscores (_) are allowed.'
-        : undefined
+          ? 'Key must be 400 characters or less.'
+          : !key.match?.(/^[a-zA-Z0-9_-]+$/)
+            ? 'Only letters, numbers, hyphens (-) & underscores (_) are allowed.'
+            : undefined
 }
 
 function validatePayloadRequired(is_remote_configuration: boolean, payload?: JsonType): string | undefined {
@@ -1184,8 +1186,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 featureFlag?.is_remote_configuration
                     ? 'remote_config'
                     : featureFlag?.filters.multivariate
-                    ? 'multivariate'
-                    : 'boolean',
+                      ? 'multivariate'
+                      : 'boolean',
         ],
         flagTypeString: [
             (s) => [s.featureFlag],
@@ -1193,8 +1195,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 featureFlag?.is_remote_configuration
                     ? 'Remote configuration (single payload)'
                     : featureFlag?.filters.multivariate
-                    ? 'Multiple variants with rollout percentages (A/B/n test)'
-                    : 'Release toggle (boolean)',
+                      ? 'Multiple variants with rollout percentages (A/B/n test)'
+                      : 'Release toggle (boolean)',
         ],
         roleBasedAccessEnabled: [
             (s) => [s.hasAvailableFeature],

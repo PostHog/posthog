@@ -4,8 +4,9 @@ import clsx from 'clsx'
 import { useValues } from 'kea'
 import { useEffect, useState } from 'react'
 import { CSSTransition } from 'react-transition-group'
-import { WelcomeLogo } from 'scenes/authentication/WelcomeLogo'
+
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { WelcomeLogo } from 'scenes/authentication/WelcomeLogo'
 
 import { Region } from '~/types'
 

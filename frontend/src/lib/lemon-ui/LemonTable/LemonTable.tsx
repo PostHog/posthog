@@ -1,19 +1,21 @@
 import './LemonTable.scss'
 
-import { IconInfo } from '@posthog/icons'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+import React, { HTMLProps, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+
+import { IconInfo } from '@posthog/icons'
+
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import React, { HTMLProps, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { PaginationAuto, PaginationControl, PaginationManual, usePagination } from '../PaginationControl'
 import { Tooltip } from '../Tooltip'
 import { LemonTableLoader } from './LemonTableLoader'
-import { getNextSorting, Sorting, SortingIndicator } from './sorting'
 import { TableRow } from './TableRow'
+import { Sorting, SortingIndicator, getNextSorting } from './sorting'
 import { ExpandableConfig, LemonTableColumn, LemonTableColumnGroup, LemonTableColumns } from './types'
 
 /**
@@ -156,7 +158,7 @@ export function LemonTable<T extends Record<string, any>>({
                 )
             }
         },
-        [location, searchParams, hashParams, push]
+        [location, searchParams, hashParams, push, useURLForSorting, onSort, currentSortingParam]
     )
 
     const columnGroups = (
@@ -199,7 +201,7 @@ export function LemonTable<T extends Record<string, any>>({
             }
         }
         return dataSource
-    }, [dataSource, currentSorting])
+    }, [dataSource, currentSorting, columns])
 
     const paginationState = usePagination(sortedDataSource, pagination, id)
 
@@ -219,7 +221,7 @@ export function LemonTable<T extends Record<string, any>>({
         throw new Error('LemonTable `firstColumnSticky` prop cannot be used with `expandable`')
     }
 
-    const isRowExpansionToggleShown = expandable ? expandable?.showRowExpansionToggle ?? true : false
+    const isRowExpansionToggleShown = expandable ? (expandable?.showRowExpansionToggle ?? true) : false
 
     return (
         <div
@@ -410,7 +412,7 @@ export function LemonTable<T extends Record<string, any>>({
                                     const rowKeyDetermined = rowKey
                                         ? typeof rowKey === 'function'
                                             ? rowKey(record, rowIndex)
-                                            : record[rowKey] ?? rowIndex
+                                            : (record[rowKey] ?? rowIndex)
                                         : paginationState.currentStartIndex + rowIndex
                                     const rowClassNameDetermined =
                                         typeof rowClassName === 'function'

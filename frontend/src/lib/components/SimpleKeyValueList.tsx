@@ -1,8 +1,8 @@
 // A React component that renders a list of key-value pairs in a simple way.
+import { ReactNode, useEffect, useState } from 'react'
 
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { ReactNode, useEffect, useState } from 'react'
 
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 

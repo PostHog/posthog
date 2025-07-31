@@ -1,4 +1,5 @@
 import { actions, connect, defaults, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+
 import {
     breakdownFilterToTaxonomicFilterType,
     propertyFilterTypeToPropertyDefinitionType,
@@ -414,7 +415,7 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
                                 histogram_bin_count: isHistogramable
                                     ? savedBreakdown.histogram_bin_count || 10
                                     : undefined,
-                                normalize_url: isNormalizeable ? savedBreakdown.normalize_url ?? true : undefined,
+                                normalize_url: isNormalizeable ? (savedBreakdown.normalize_url ?? true) : undefined,
                             }
                         }
 

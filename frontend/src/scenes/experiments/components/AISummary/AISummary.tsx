@@ -1,15 +1,18 @@
+import { useActions, useValues } from 'kea'
+
 import { IconSparkles } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { ExperimentsHog } from 'lib/components/hedgehogs'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
-
 import { experimentLogic } from 'scenes/experiments/experimentLogic'
 // import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { MaxTool } from 'scenes/max/MaxTool'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
+
 import { ExperimentIdType } from '~/types'
+
 import { experimentSummaryLogic } from './experimentSummaryLogic'
 
 /**

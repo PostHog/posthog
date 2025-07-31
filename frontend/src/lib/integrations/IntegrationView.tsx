@@ -1,4 +1,5 @@
 import { LemonBanner, LemonTag, Tooltip } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import { IntegrationScopesWarning } from 'lib/integrations/IntegrationScopesWarning'

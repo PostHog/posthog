@@ -1,7 +1,8 @@
-import type { PluginEvent } from '@posthog/plugin-scaffold'
 import fs from 'fs'
 import { Message } from 'node-rdkafka'
 import path from 'path'
+
+import type { PluginEvent } from '@posthog/plugin-scaffold'
 
 import { createOrganization, createTeam, getTeam } from '~/tests/helpers/sql'
 
@@ -13,10 +14,10 @@ import { PostgresUse } from '../../utils/db/postgres'
 import { parseJSON } from '../../utils/json-parse'
 import { UUID7 } from '../../utils/utils'
 import {
-    bufferToSessionState,
     COOKIELESS_MODE_FLAG_PROPERTY,
     COOKIELESS_SENTINEL_VALUE,
     CookielessManager,
+    bufferToSessionState,
     extractRootDomain,
     getRedisIdentifiesKey,
     hashToDistinctId,

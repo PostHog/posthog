@@ -1,14 +1,16 @@
+import isEqual from 'lodash.isequal'
+import { ReactNode } from 'react'
+
 import api from 'lib/api'
 import { DataColorTheme, DataColorToken } from 'lib/colors'
 import { dayjs } from 'lib/dayjs'
 import { ensureStringIsNotBlank, humanFriendlyNumber, objectsEqual } from 'lib/utils'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
-import { ReactNode } from 'react'
 import { IndexedTrendResult } from 'scenes/trends/types'
 import { urls } from 'scenes/urls'
-import isEqual from 'lodash.isequal'
 
 import { propertyFilterTypeToPropertyDefinitionType } from '~/lib/components/PropertyFilters/utils'
+import { removeUndefinedAndNull } from '~/lib/utils'
 import { FormatPropertyValueForDisplayFunction } from '~/models/propertyDefinitionsModel'
 import { examples } from '~/queries/examples'
 import {
@@ -27,6 +29,7 @@ import {
     ResultCustomizationByValue,
 } from '~/queries/schema/schema-general'
 import { isDataWarehouseNode, isEventsNode } from '~/queries/utils'
+import { cleanInsightQuery } from '~/scenes/insights/utils/queryUtils'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP } from '~/taxonomy/taxonomy'
 import {
     ActionFilter,
@@ -49,8 +52,6 @@ import {
 
 import { RESULT_CUSTOMIZATION_DEFAULT } from './EditorFilters/ResultCustomizationByPicker'
 import { insightLogic } from './insightLogic'
-import { cleanInsightQuery } from '~/scenes/insights/utils/queryUtils'
-import { removeUndefinedAndNull } from '~/lib/utils'
 
 export const isAllEventsEntityFilter = (filter: EntityFilter | ActionFilter | null): boolean => {
     return (
@@ -364,8 +365,8 @@ export function formatBreakdownLabel(
         return isOtherBreakdown(breakdown_value) || breakdown_value === 'nan'
             ? BREAKDOWN_OTHER_DISPLAY
             : isNullBreakdown(breakdown_value) || breakdown_value === ''
-            ? BREAKDOWN_NULL_DISPLAY
-            : breakdown_value
+              ? BREAKDOWN_NULL_DISPLAY
+              : breakdown_value
     }
 
     return ''
@@ -488,8 +489,8 @@ export function getTrendDatasetKey(dataset: IndexedTrendResult): string {
         series: Number.isInteger(dataset.action?.order)
             ? dataset.action?.order
             : dataset.seriesIndex > 0
-            ? `formula${dataset.seriesIndex + 1}`
-            : 'formula',
+              ? `formula${dataset.seriesIndex + 1}`
+              : 'formula',
         breakdown_value: dataset.breakdown_value,
         compare_label: dataset.compare_label,
     }
@@ -515,7 +516,7 @@ export function getFunnelDatasetPosition(
     if (isFunnelStepWithConversionMetrics(dataset)) {
         // increment the minimum order for funnels where there baseline is hidden
         // i.e. funnels for experiments where only the respective variants matter
-        return disableFunnelBreakdownBaseline ? (dataset.order ?? 0) + 1 : dataset.order ?? 0
+        return disableFunnelBreakdownBaseline ? (dataset.order ?? 0) + 1 : (dataset.order ?? 0)
     }
 
     return dataset?.breakdownIndex ?? 0

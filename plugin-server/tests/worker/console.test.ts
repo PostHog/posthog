@@ -1,7 +1,8 @@
-// eslint-disable-next-line simple-import-sort/imports
+// sort-imports-ignore
 import { mockProducerObserver } from '../helpers/mocks/producer.mock'
 
 import { ConsoleExtension } from '@posthog/plugin-scaffold'
+
 import { KAFKA_PLUGIN_LOG_ENTRIES } from '../../src/config/kafka-topics'
 import { Hub, PluginLogEntrySource, PluginLogEntryType } from '../../src/types'
 import { closeHub, createHub } from '../../src/utils/db/hub'

@@ -1,13 +1,15 @@
-import { LemonButton, LemonButtonProps } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
+
+import { LemonButton, LemonButtonProps } from '@posthog/lemon-ui'
+
 import { getUpgradeProductLink } from 'scenes/billing/billing-utils'
 import { paymentEntryLogic } from 'scenes/billing/paymentEntryLogic'
 import { urls } from 'scenes/urls'
 
 import { BillingProductV2Type } from '~/types'
 
-import { payGateMiniLogic, PayGateMiniLogicProps } from './payGateMiniLogic'
+import { PayGateMiniLogicProps, payGateMiniLogic } from './payGateMiniLogic'
 
 type PayGateButtonProps = PayGateMiniLogicProps & Partial<LemonButtonProps>
 export const PayGateButton = ({ feature, currentUsage, ...buttonProps }: PayGateButtonProps): JSX.Element | null => {

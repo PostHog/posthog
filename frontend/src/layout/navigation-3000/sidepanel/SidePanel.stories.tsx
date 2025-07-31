@@ -1,7 +1,8 @@
 import { Meta, StoryFn } from '@storybook/react'
 import { useActions } from 'kea'
-import { supportLogic } from 'lib/components/Support/supportLogic'
 import { useEffect } from 'react'
+
+import { supportLogic } from 'lib/components/Support/supportLogic'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
@@ -46,7 +47,7 @@ const BaseTemplate = (props: { panel: SidePanelTab }): JSX.Element => {
     const { openSidePanel } = useActions(sidePanelStateLogic)
     useEffect(() => {
         openSidePanel(props.panel)
-    }, [])
+    }, [openSidePanel, props.panel])
 
     return <App />
 }
@@ -102,7 +103,7 @@ export const SidePanelSupportWithEmail: StoryFn = () => {
 
     useEffect(() => {
         openEmailForm()
-    }, [])
+    }, [openEmailForm])
 
     return <BaseTemplate panel={SidePanelTab.Support} />
 }

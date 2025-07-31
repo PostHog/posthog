@@ -1,7 +1,8 @@
 import { IconClock, IconWarning } from '@posthog/icons'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { dayjs } from 'lib/dayjs'
+
 import { TZLabel } from 'lib/components/TZLabel'
+import { dayjs } from 'lib/dayjs'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 export function InsightFreshness({ lastRefresh }: { lastRefresh: string }): JSX.Element | null {
     if (!lastRefresh) {

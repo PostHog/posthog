@@ -1,7 +1,8 @@
 import { BindLogic, useActions } from 'kea'
+import { useEffect } from 'react'
+
 import { errorPropertiesLogic } from 'lib/components/Errors/errorPropertiesLogic'
 import { ErrorEventProperties } from 'lib/components/Errors/types'
-import { useEffect } from 'react'
 
 import { exceptionCardLogic } from '../../components/ExceptionCard/exceptionCardLogic'
 import javascript_empty from './javascript_empty.json'

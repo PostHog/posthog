@@ -1,6 +1,8 @@
-import { lemonToast } from '@posthog/lemon-ui'
 import { actions, kea, listeners, path, reducers } from 'kea'
 import { forms } from 'kea-forms'
+
+import { lemonToast } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
 
 import { DataColorThemeModelPayload } from '~/types'

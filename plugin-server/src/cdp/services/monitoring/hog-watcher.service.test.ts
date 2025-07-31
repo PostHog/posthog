@@ -1,8 +1,5 @@
-jest.mock('~/utils/posthog', () => {
-    return {
-        captureTeamEvent: jest.fn(),
-    }
-})
+// sort-imports-ignore
+// prettier-ignore
 
 import { Hub, ProjectId, Team } from '../../../types'
 import { closeHub, createHub } from '../../../utils/db/hub'
@@ -13,6 +10,13 @@ import { CdpRedis, createCdpRedisPool } from '../../redis'
 import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult } from '../../types'
 import { createInvocationResult } from '../../utils/invocation-utils'
 import { BASE_REDIS_KEY, HogWatcherService, HogWatcherState } from './hog-watcher.service'
+
+// Mock before importing
+jest.mock('~/utils/posthog', () => {
+    return {
+        captureTeamEvent: jest.fn(),
+    }
+})
 
 const mockNow: jest.SpyInstance = jest.spyOn(Date, 'now')
 const mockCaptureTeamEvent: jest.Mock = require('~/utils/posthog').captureTeamEvent as any
@@ -151,7 +155,7 @@ describe('HogWatcher', () => {
 
     const cases: [
         { name: string; cost: number; state: number },
-        CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>[]
+        CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>[],
     ][] = [
         [
             { name: 'should calculate cost and state for single default result', cost: 0, state: 1 },

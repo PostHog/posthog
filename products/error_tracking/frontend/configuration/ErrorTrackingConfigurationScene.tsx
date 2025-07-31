@@ -1,5 +1,6 @@
 import { actions, connect, kea, path, props, reducers, selectors } from 'kea'
 import { actionToUrl, router } from 'kea-router'
+
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { Settings } from 'scenes/settings/Settings'
 import { settingsLogic } from 'scenes/settings/settingsLogic'

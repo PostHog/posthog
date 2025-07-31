@@ -1,5 +1,7 @@
-import { IconGear, IconSearch } from '@posthog/icons'
 import type { Meta } from '@storybook/react'
+
+import { IconGear, IconSearch } from '@posthog/icons'
+
 import { Link } from 'lib/lemon-ui/Link/Link'
 import {
     DropdownMenu,

@@ -1,3 +1,7 @@
+import clsx from 'clsx'
+import { useActions, useValues } from 'kea'
+import { useEffect, useState } from 'react'
+
 import { IconFlask } from '@posthog/icons'
 import {
     LemonBanner,
@@ -14,15 +18,13 @@ import {
     Link,
     Tooltip,
 } from '@posthog/lemon-ui'
-import clsx from 'clsx'
-import { useActions, useValues } from 'kea'
+
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { PageHeader } from 'lib/components/PageHeader'
 import { PropertyFilterButton } from 'lib/components/PropertyFilters/components/PropertyFilterButton'
-import { IconAreaChart } from 'lib/lemon-ui/icons'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
-import { useEffect, useState } from 'react'
+import { IconAreaChart } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
 
 import { groupsModel } from '~/models/groupsModel'
@@ -46,8 +48,8 @@ import {
     ProgressStatus,
 } from '~/types'
 
-import { CONCLUSION_DISPLAY_CONFIG, EXPERIMENT_VARIANT_MULTIPLE } from '../constants'
 import { DuplicateExperimentModal } from '../DuplicateExperimentModal'
+import { CONCLUSION_DISPLAY_CONFIG, EXPERIMENT_VARIANT_MULTIPLE } from '../constants'
 import { experimentLogic } from '../experimentLogic'
 import { getExperimentStatusColor } from '../experimentsLogic'
 import { getIndexForVariant } from '../legacyExperimentCalculations'
