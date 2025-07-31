@@ -71,7 +71,7 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         assert response.json()["count"] == len(self.EXPECTED_PROPERTY_DEFINITIONS)
 
         assert [{"name": r["name"], "is_numerical": r["is_numerical"]} for r in response.json()["results"]] == sorted(
-            self.EXPECTED_PROPERTY_DEFINITIONS, key=lambda x: x["name"]
+            self.EXPECTED_PROPERTY_DEFINITIONS, key=lambda x: str(x["name"])
         )
 
     def test_list_property_definitions_with_excluded_properties(self):
@@ -337,7 +337,18 @@ class TestPropertyDefinitionAPI(APIBaseTest):
 
         assert [row["name"] for row in response.json()["results"]] == expected_results
 
-    def test_group_property_filter(self):
+    @parameterized.expand(
+        [
+            ("Get all group1 properties", "type=group&group_type_index=1", ["group1 another", "group1 property"]),
+            ("Get all group2 properties", "type=group&group_type_index=2", ["group2 property"]),
+            (
+                "Search group1 properties containing 'prop'",
+                "type=group&search=prop&group_type_index=1",
+                ["group1 property"],
+            ),
+        ]
+    )
+    def test_group_property_filter(self, _name: str, query_params: str, expected_results: list[str]) -> None:
         PropertyDefinition.objects.create(
             team=self.team,
             name="group1 property",
@@ -360,23 +371,12 @@ class TestPropertyDefinitionAPI(APIBaseTest):
             group_type_index=2,
         )
 
-        response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?type=group&group_type_index=1")
+        response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?{query_params}")
         assert response.status_code == status.HTTP_200_OK
-        assert [row["name"] for row in response.json()["results"]] == ["group1 another", "group1 property"]
-
-        response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?type=group&group_type_index=2")
-        assert response.status_code == status.HTTP_200_OK
-        assert [row["name"] for row in response.json()["results"]] == ["group2 property"]
-
-        response = self.client.get(
-            f"/api/projects/{self.team.pk}/property_definitions/?type=group&search=prop&group_type_index=1"
-        )
-        assert response.status_code == status.HTTP_200_OK
-        assert [row["name"] for row in response.json()["results"]] == ["group1 property"]
+        assert [row["name"] for row in response.json()["results"]] == expected_results
 
     @parameterized.expand(
         [
-            # (test_name, query_params, expected_count, expected_names)
             ("Search for 'plan' without filter", "search=plan", 2, None),
             ("Search for 'plan' feature flags only", "search=plan&is_feature_flag=true", 1, ["$feature/plan"]),
             ("Search for 'plan' non-feature flags only", "search=plan&is_feature_flag=false", 1, ["plan"]),
@@ -481,7 +481,6 @@ class TestPropertyDefinitionAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            # (test_name, setup_func, expected_results)
             (
                 "Event property coexistence when custom event has no session_id",
                 lambda self: EventProperty.objects.create(team=self.team, event="$pageview", property="$session_id"),
