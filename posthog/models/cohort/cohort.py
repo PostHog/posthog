@@ -165,10 +165,10 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
     is_static = models.BooleanField(default=False)
 
     COHORT_TYPE_OPTIONS = [
-        ("static", "Static"),
-        ("person_property", "Person Property"),
-        ("behavioral", "Behavioral"),
-        ("analytical", "Analytical"),
+        "static",
+        "person_property",
+        "behavioral",
+        "analytical",
     ]
     cohort_type = models.CharField(
         max_length=20,
@@ -272,7 +272,11 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
     @property
     def can_be_used_in_real_time(self) -> bool:
         """Check if cohort can be used in real-time features like feature flags"""
-        return self.cohort_type in ["static", "person_property", "behavioral"]
+        return self.cohort_type in [
+            self.CohortType.STATIC,
+            self.CohortType.PERSON_PROPERTY,
+            self.CohortType.BEHAVIORAL,
+        ]
 
     @staticmethod
     def determine_cohort_type_from_filters(
