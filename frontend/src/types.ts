@@ -4536,6 +4536,11 @@ export interface DataWarehouseSavedQueryDraft {
     edited_history_id?: string
 }
 
+export interface DataWarehouseViewLinkConfiguration {
+    experiments_optimized?: boolean
+    experiments_timestamp_key?: string | null
+}
+
 export interface DataWarehouseViewLink {
     id: string
     source_table_name?: string
@@ -4545,10 +4550,7 @@ export interface DataWarehouseViewLink {
     field_name?: string
     created_by?: UserBasicType | null
     created_at?: string | null
-    configuration?: {
-        experiments_optimized?: boolean
-        experiments_timestamp_key?: string | null
-    }
+    configuration?: DataWarehouseViewLinkConfiguration
 }
 
 export interface QueryTabState {
