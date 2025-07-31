@@ -1134,6 +1134,7 @@ class TestSurvey(APIBaseTest):
                         "ensure_experience_continuity": False,
                         "has_encrypted_payloads": False,
                         "version": ANY,  # Add version field with ANY matcher
+                        "evaluation_runtime": "all",
                     },
                     "linked_flag": None,
                     "linked_flag_id": None,
@@ -2308,6 +2309,29 @@ class TestSurveyQuestionValidationWithEnterpriseFeatures(APIBaseTest):
         assert Survey.objects.filter(id=response_data["id"]).exists()
         assert response_data["appearance"]["thankYouMessageDescriptionContentType"] == "html"
         assert response_data["appearance"]["thankYouMessageDescription"] == "<b>This is a thank you message</b>"
+
+    def test_create_survey_with_white_label(self):
+        self.organization.available_product_features = []
+        self.organization.save()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Notebooks beta release survey",
+                "description": "Get feedback on the new notebooks feature",
+                "type": "popover",
+                "appearance": {
+                    "thankYouMessageHeader": "Thanks for your feedback!",
+                    "thankYouMessageDescription": "<b>This is a thank you message</b>",
+                    "thankYouMessageDescriptionContentType": "html",
+                    "whiteLabel": True,
+                },
+            },
+            format="json",
+        )
+        response_data = response.json()
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response_data
+        assert response_data["detail"] == "You need to upgrade to PostHog Enterprise to use white labelling"
 
 
 class TestSurveyWithActions(APIBaseTest):

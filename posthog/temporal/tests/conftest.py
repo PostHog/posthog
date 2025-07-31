@@ -10,8 +10,8 @@ from django.conf import settings
 from psycopg import sql
 from temporalio.testing import ActivityEnvironment
 
-from posthog.otel_instrumentation import initialize_otel
 from posthog.models import Organization, Team
+from posthog.otel_instrumentation import initialize_otel
 from posthog.temporal.common.clickhouse import ClickHouseClient
 from posthog.temporal.common.client import connect
 
@@ -150,10 +150,7 @@ async def temporal_worker(temporal_client, workflows, activities):
 
 @pytest.fixture(scope="session")
 def event_loop():
-    try:
-        loop = asyncio.get_running_loop()
-    except RuntimeError:
-        loop = asyncio.new_event_loop()
+    loop = asyncio.new_event_loop()
     yield loop
     loop.close()
 

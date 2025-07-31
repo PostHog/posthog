@@ -1,36 +1,29 @@
-import datetime
-from abc import ABC
 from collections.abc import Sequence
-from typing import Any
+from typing import Any, Generic
 from uuid import UUID
 
-from django.utils import timezone
 from langchain_core.runnables import RunnableConfig
 
+from ee.hogai.graph.mixins import AssistantContextMixin
 from ee.hogai.utils.exceptions import GenerationCanceled
 from ee.hogai.utils.helpers import find_last_ui_context
-from ee.models import Conversation, CoreMemory
+from ee.models import Conversation
 from posthog.models import Team
 from posthog.models.user import User
-from posthog.schema import AssistantMessage, AssistantToolCall, MaxUIContext
+from posthog.schema import AssistantMessage, AssistantToolCall, MaxUIContext, MaxBillingContext
 from posthog.sync import database_sync_to_async
-from typing import Generic
 
-
+from ..graph.filter_options.types import FilterOptionsState, PartialFilterOptionsState
 from ..utils.types import (
     AssistantMessageUnion,
     AssistantState,
     PartialAssistantState,
-    StateType,
     PartialStateType,
+    StateType,
 )
-from ..graph.filter_options.types import FilterOptionsState, PartialFilterOptionsState
 
 
-class BaseAssistantNode(ABC, Generic[StateType, PartialStateType]):
-    _team: Team
-    _user: User
-
+class BaseAssistantNode(Generic[StateType, PartialStateType], AssistantContextMixin):
     def __init__(self, team: Team, user: User):
         self._team = team
         self._user = user
@@ -54,62 +47,6 @@ class BaseAssistantNode(ABC, Generic[StateType, PartialStateType]):
 
     async def arun(self, state: StateType, config: RunnableConfig) -> PartialStateType | None:
         raise NotImplementedError
-
-    async def _aget_conversation(self, conversation_id: UUID) -> Conversation | None:
-        try:
-            return await Conversation.objects.aget(team=self._team, id=conversation_id)
-        except Conversation.DoesNotExist:
-            return None
-
-    def _get_conversation(self, conversation_id: UUID) -> Conversation | None:
-        try:
-            return Conversation.objects.get(team=self._team, id=conversation_id)
-        except Conversation.DoesNotExist:
-            return None
-
-    async def _aget_core_memory(self) -> CoreMemory | None:
-        try:
-            return await CoreMemory.objects.aget(team=self._team)
-        except CoreMemory.DoesNotExist:
-            return None
-
-    @property
-    def core_memory(self) -> CoreMemory | None:
-        try:
-            return CoreMemory.objects.get(team=self._team)
-        except CoreMemory.DoesNotExist:
-            return None
-
-    @property
-    def core_memory_text(self) -> str:
-        if not self.core_memory:
-            return ""
-        return self.core_memory.formatted_text
-
-    @property
-    def _utc_now_datetime(self) -> datetime.datetime:
-        return timezone.now().astimezone(datetime.UTC)
-
-    @property
-    def utc_now(self) -> str:
-        """
-        Returns the current time in UTC.
-        """
-        return self._utc_now_datetime.strftime("%Y-%m-%d %H:%M:%S")
-
-    @property
-    def project_now(self) -> str:
-        """
-        Returns the current time in the project's timezone.
-        """
-        return self._utc_now_datetime.astimezone(self._team.timezone_info).strftime("%Y-%m-%d %H:%M:%S")
-
-    @property
-    def project_timezone(self) -> str | None:
-        """
-        Returns the timezone of the project, e.g. "PST" or "UTC".
-        """
-        return self._team.timezone_info.tzname(self._utc_now_datetime)
 
     async def _is_conversation_cancelled(self, conversation_id: UUID) -> bool:
         conversation = await self._aget_conversation(conversation_id)
@@ -143,17 +80,14 @@ class BaseAssistantNode(ABC, Generic[StateType, PartialStateType]):
             return find_last_ui_context(state.messages)
         return None
 
-    def _get_user_distinct_id(self, config: RunnableConfig) -> Any | None:
+    def _get_billing_context(self, config: RunnableConfig) -> MaxBillingContext | None:
         """
-        Extracts the user distinct ID from the runnable config.
+        Extracts the billing context from the runnable config.
         """
-        return (config.get("configurable") or {}).get("distinct_id") or None
-
-    def _get_trace_id(self, config: RunnableConfig) -> Any | None:
-        """
-        Extracts the trace ID from the runnable config.
-        """
-        return (config.get("configurable") or {}).get("trace_id") or None
+        billing_context = (config.get("configurable") or {}).get("billing_context")
+        if not billing_context:
+            return None
+        return MaxBillingContext.model_validate(billing_context)
 
 
 AssistantNode = BaseAssistantNode[AssistantState, PartialAssistantState]

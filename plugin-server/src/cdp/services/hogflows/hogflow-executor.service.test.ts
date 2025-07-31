@@ -60,7 +60,7 @@ describe('Hogflow Executor', () => {
         await insertHogFunctionTemplate(hub.postgres, {
             id: 'template-test-hogflow-executor',
             name: 'Test Template',
-            hog: exampleHog,
+            code: exampleHog,
             inputs_schema: [
                 {
                     key: 'name',
@@ -81,7 +81,7 @@ describe('Hogflow Executor', () => {
         await insertHogFunctionTemplate(hub.postgres, {
             id: 'template-test-hogflow-executor-async',
             name: 'Test template multi fetch',
-            hog: exampleHogMultiFetch,
+            code: exampleHogMultiFetch,
             inputs_schema: [
                 {
                     key: 'name',
@@ -120,6 +120,7 @@ describe('Hogflow Executor', () => {
                                         bytecode: await compileHog(`return f'Mr {event?.properties?.name}'`),
                                     },
                                 },
+                                message_category_id: 'test-category-id',
                             },
                         },
 

@@ -1,7 +1,6 @@
 from datetime import datetime
 from typing import Any
 
-import emoji
 from django.db.models import Q, QuerySet
 from django.db.models.signals import post_save
 from django.dispatch import receiver
@@ -35,8 +34,6 @@ class AnnotationSerializer(serializers.ModelSerializer):
             "updated_at",
             "deleted",
             "scope",
-            "recording_id",
-            "is_emoji",
         ]
         read_only_fields = [
             "id",
@@ -54,15 +51,10 @@ class AnnotationSerializer(serializers.ModelSerializer):
         return super().update(instance, validated_data)
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
-        is_emoji = attrs.get("is_emoji", False)
-        content = attrs.get("content", "")
+        scope = attrs.get("scope", None)
 
-        if is_emoji and content:
-            # Check if content is an emoji
-            if not emoji.is_emoji(content):
-                raise serializers.ValidationError("When is_emoji is True, content must be a single emoji")
-        elif is_emoji and not content:
-            raise serializers.ValidationError("When is_emoji is True, content cannot be empty")
+        if scope == Annotation.Scope.RECORDING.value:
+            raise serializers.ValidationError("Recording scope is deprecated")
 
         return attrs
 

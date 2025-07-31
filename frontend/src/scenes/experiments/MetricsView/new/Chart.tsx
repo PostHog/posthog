@@ -33,7 +33,7 @@ export function Chart({
                     ref={chartSvgRef}
                     viewBox={`0 0 ${VIEW_BOX_WIDTH} ${chartHeight}`}
                     preserveAspectRatio="xMidYMid meet"
-                    className="ml-12 max-w-[1000px]"
+                    className="ml-12"
                 >
                     <g className="grid-lines-layer">
                         {/* Vertical grid lines */}

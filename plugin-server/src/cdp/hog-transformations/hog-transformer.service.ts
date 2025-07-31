@@ -171,7 +171,12 @@ export class HogTransformerService {
                         const functionState = this.cachedStates[hogFunction.id]
 
                         // If the function is in a degraded state, skip it
-                        if (functionState && functionState >= HogWatcherState.disabledForPeriod) {
+                        if (
+                            functionState &&
+                            [HogWatcherState.disabledForPeriod, HogWatcherState.disabledIndefinitely].includes(
+                                functionState
+                            )
+                        ) {
                             this.hogFunctionMonitoringService.queueAppMetric(
                                 {
                                     team_id: event.team_id,

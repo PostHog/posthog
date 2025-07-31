@@ -96,6 +96,8 @@ pub struct FeatureFlag {
     pub ensure_experience_continuity: Option<bool>,
     #[serde(default)]
     pub version: Option<i32>,
+    #[serde(default)]
+    pub evaluation_runtime: Option<String>,
 }
 
 #[derive(Debug, Serialize, sqlx::FromRow)]
@@ -109,6 +111,8 @@ pub struct FeatureFlagRow {
     pub active: bool,
     pub ensure_experience_continuity: Option<bool>,
     pub version: Option<i32>,
+    #[serde(default)]
+    pub evaluation_runtime: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]

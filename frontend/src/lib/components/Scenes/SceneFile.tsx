@@ -16,7 +16,7 @@ import {
 } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { Label } from 'lib/ui/Label/Label'
 
-export function SceneFile(): JSX.Element | null {
+export function SceneFile({ dataAttrKey }: { dataAttrKey: string }): JSX.Element | null {
     const { assureVisibility } = useActions(projectTreeLogic({ key: PROJECT_TREE_KEY }))
     const { showLayoutPanel, setActivePanelIdentifier } = useActions(panelLayoutLogic)
     const { addShortcutItem } = useActions(projectTreeDataLogic)
@@ -25,17 +25,17 @@ export function SceneFile(): JSX.Element | null {
 
     return projectTreeRefEntry ? (
         <div className="flex flex-col">
-            <Label intent="menu">File</Label>
+            <Label intent="menu" className="mx-2">
+                File
+            </Label>
             <DropdownMenu>
-                <div className="-ml-1.5">
-                    <DropdownMenuTrigger asChild>
-                        <ButtonPrimitive menuItem>
-                            <IconFolderOpen />
-                            {splitPath(projectTreeRefEntry.path).slice(0, -1).join('/')}
-                            <DropdownMenuOpenIndicator className="ml-auto" />
-                        </ButtonPrimitive>
-                    </DropdownMenuTrigger>
-                </div>
+                <DropdownMenuTrigger asChild>
+                    <ButtonPrimitive menuItem data-attr={`${dataAttrKey}-file-dropdown-menu-trigger`}>
+                        <IconFolderOpen />
+                        {splitPath(projectTreeRefEntry.path).slice(0, -1).join('/')}
+                        <DropdownMenuOpenIndicator className="ml-auto" />
+                    </ButtonPrimitive>
+                </DropdownMenuTrigger>
                 <DropdownMenuContent align="start" matchTriggerWidth>
                     <DropdownMenuItem className="w-full">
                         <ButtonPrimitive
@@ -51,13 +51,21 @@ export function SceneFile(): JSX.Element | null {
                         </ButtonPrimitive>
                     </DropdownMenuItem>
                     <DropdownMenuItem asChild>
-                        <ButtonPrimitive menuItem onClick={() => openMoveToModal([projectTreeRefEntry])}>
+                        <ButtonPrimitive
+                            menuItem
+                            onClick={() => openMoveToModal([projectTreeRefEntry])}
+                            data-attr={`${dataAttrKey}-move-to-dropdown-menu-item`}
+                        >
                             <IconFolderMove />
                             Move to another folder
                         </ButtonPrimitive>
                     </DropdownMenuItem>
                     <DropdownMenuItem asChild>
-                        <ButtonPrimitive menuItem onClick={() => addShortcutItem(projectTreeRefEntry)}>
+                        <ButtonPrimitive
+                            menuItem
+                            onClick={() => addShortcutItem(projectTreeRefEntry)}
+                            data-attr={`${dataAttrKey}-add-to-shortcuts-dropdown-menu-item`}
+                        >
                             <IconShortcut />
                             Add to shortcuts panel
                         </ButtonPrimitive>

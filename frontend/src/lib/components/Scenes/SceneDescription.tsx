@@ -1,19 +1,24 @@
-import { IconCheck, IconX } from '@posthog/icons'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
-import { Label } from 'lib/ui/Label/Label'
 import { TextareaPrimitive } from 'lib/ui/TextareaPrimitive/TextareaPrimitive'
 import { useEffect, useState } from 'react'
+import { ScenePanelLabel } from '~/layout/scenes/SceneLayout'
+import { SceneLoadingSkeleton } from './SceneLoadingSkeleton'
+import { SceneInputProps, SceneSaveCancelButtons } from './utils'
 
-type SceneDescriptionProps = {
-    defaultValue: string
-    onSave: (value: string) => void
-    dataAttr?: string
-}
+type SceneDescriptionProps = SceneInputProps
 
-export function SceneDescription({ defaultValue, onSave, dataAttr }: SceneDescriptionProps): JSX.Element {
+export function SceneDescription({
+    defaultValue,
+    onSave,
+    dataAttrKey,
+    optional = false,
+    canEdit = true,
+    isLoading = false,
+}: SceneDescriptionProps): JSX.Element {
     const [localValue, setLocalValue] = useState(defaultValue)
     const [localIsEditing, setLocalIsEditing] = useState(false)
     const [hasChanged, setHasChanged] = useState(false)
+    const [error, setError] = useState<string | null>(null)
 
     const handleSubmit = (e: React.FormEvent<HTMLFormElement>): void => {
         e.preventDefault()
@@ -24,64 +29,67 @@ export function SceneDescription({ defaultValue, onSave, dataAttr }: SceneDescri
 
     useEffect(() => {
         setHasChanged(localValue !== defaultValue)
-    }, [localValue, defaultValue])
+        if (localValue.length === 0 && !optional) {
+            setError('Description is required')
+        } else {
+            setError(null)
+        }
+    }, [localValue, defaultValue, optional])
+
+    useEffect(() => {
+        if (!isLoading && !localIsEditing) {
+            setLocalValue(defaultValue)
+        }
+    }, [isLoading, defaultValue, localIsEditing])
+
+    if (isLoading) {
+        return <SceneLoadingSkeleton />
+    }
 
     return localIsEditing ? (
         <form onSubmit={handleSubmit} name="page-description-form" className="flex flex-col gap-1">
-            <div className="flex flex-col gap-0">
-                <Label intent="menu" htmlFor="page-description-input">
-                    Description
-                </Label>
+            <ScenePanelLabel htmlFor="page-description-input" title="Description">
                 <TextareaPrimitive
                     value={localValue}
                     onChange={(e) => {
                         setLocalValue(e.target.value)
                     }}
-                    placeholder="Description (optional)"
+                    placeholder={optional ? 'Description (optional)' : 'Description'}
                     id="page-description-input"
-                    data-attr={`${dataAttr}-description-input`}
+                    data-attr={`${dataAttrKey}-description-input`}
                     autoFocus
-                    className="-ml-1.5"
+                    error={!!error}
                 />
-            </div>
-            <div className="flex gap-1">
-                <ButtonPrimitive
-                    type="submit"
-                    variant="outline"
-                    disabled={!hasChanged}
-                    tooltip={hasChanged ? 'Update description' : 'No changes to update'}
-                    data-attr={`${dataAttr}-description-update-button`}
-                >
-                    <IconCheck />
-                </ButtonPrimitive>
-                <ButtonPrimitive
-                    type="button"
-                    variant="outline"
-                    onClick={() => {
-                        setLocalValue(defaultValue)
-                        setLocalIsEditing(false)
-                    }}
-                    tooltip="Cancel"
-                >
-                    <IconX />
-                </ButtonPrimitive>
-            </div>
+            </ScenePanelLabel>
+
+            <SceneSaveCancelButtons
+                name="description"
+                onCancel={() => {
+                    setLocalValue(defaultValue)
+                    setLocalIsEditing(false)
+                }}
+                hasChanged={hasChanged}
+                error={error}
+                dataAttrKey={dataAttrKey}
+                isLoading={isLoading}
+            />
         </form>
     ) : (
-        <div className="gap-0">
-            <Label intent="menu">Description</Label>
-            <div className="-ml-1.5">
-                <ButtonPrimitive
-                    className="hyphens-auto flex gap-1 items-center"
-                    lang="en"
-                    onClick={() => setLocalIsEditing(true)}
-                    tooltip="Edit description"
-                    autoHeight
-                    menuItem
-                >
-                    {defaultValue || <span className="text-tertiary font-normal">Description (optional)</span>}
-                </ButtonPrimitive>
-            </div>
-        </div>
+        <ScenePanelLabel title="Description">
+            <ButtonPrimitive
+                className="flex gap-1 items-center break-words line-clamp-5"
+                onClick={() => setLocalIsEditing(true)}
+                tooltip={canEdit ? 'Edit description' : 'Description is read-only'}
+                autoHeight
+                menuItem
+                inert={!canEdit}
+            >
+                {defaultValue !== '' ? (
+                    defaultValue
+                ) : (
+                    <span className="text-tertiary font-normal">No description {optional ? '(optional)' : ''}</span>
+                )}
+            </ButtonPrimitive>
+        </ScenePanelLabel>
     )
 }

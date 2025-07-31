@@ -164,7 +164,7 @@ describe('Hog Inputs', () => {
 
             const inputs = await hogInputsService.buildInputs(hogFunction, globals)
 
-            expect(inputs.slack).toMatchInlineSnapshot(`1`)
+            expect(inputs.slack).toMatchInlineSnapshot(`null`)
         })
     })
 })

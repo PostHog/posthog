@@ -1283,6 +1283,12 @@ export const surveyLogic = kea<surveyLogicType>([
                         )`
             },
         ],
+        isExternalSurveyFFEnabled: [
+            (s) => [s.enabledFlags],
+            (enabledFlags: FeatureFlagsSet): boolean => {
+                return !!enabledFlags[FEATURE_FLAGS.EXTERNAL_SURVEYS]
+            },
+        ],
         isAdaptiveLimitFFEnabled: [
             (s) => [s.enabledFlags],
             (enabledFlags: FeatureFlagsSet): boolean => {
@@ -1375,7 +1381,10 @@ export const surveyLogic = kea<surveyLogicType>([
                     name: 'Surveys',
                     path: urls.surveys(),
                 },
-                { key: [Scene.Survey, survey?.id || 'new'], name: survey.name },
+                {
+                    key: [Scene.Survey, survey?.id || 'new'],
+                    name: survey.name,
+                },
             ],
         ],
         projectTreeRef: [

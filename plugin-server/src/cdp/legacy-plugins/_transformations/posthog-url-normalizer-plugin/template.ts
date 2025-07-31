@@ -14,7 +14,7 @@ export const posthogUrlNormalizerPlugin: LegacyTransformationPlugin = {
         icon_url: 'https://raw.githubusercontent.com/posthog/posthog-url-normalizer-plugin/main/logo.png',
         category: ['Transformation'],
         code_language: 'javascript',
-        hog: `return event`,
+        code: `return event`,
         inputs_schema: [],
     },
 }

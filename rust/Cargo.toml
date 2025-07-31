@@ -25,6 +25,7 @@ members = [
     "common/geoip",
     "common/hogvm",
     "log-capture",
+    "kafka-deduplicator",
 ]
 
 [workspace.lints.rust]
