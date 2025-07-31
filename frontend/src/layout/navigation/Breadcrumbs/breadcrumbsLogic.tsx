@@ -212,7 +212,7 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType>([
             (sceneBreadcrumbs): string =>
                 sceneBreadcrumbs
                     .filter((breadcrumb) => !!breadcrumb.name)
-                    .map((breadcrumb) => breadcrumb.name)
+                    .map((breadcrumb) => String(breadcrumb.name))
                     .pop() ?? 'Untitled',
         ],
     })),
