@@ -774,6 +774,7 @@ class TestBillingAPI(APILicensedTest):
                     "usage": 0,
                 },
                 "period": ["2022-10-07T11:12:48", "2022-11-07T11:12:48"],
+                "surveys": {"limit": None, "usage": 0, "todays_usage": 0},
             },
         )
 
@@ -853,6 +854,7 @@ class TestBillingAPI(APILicensedTest):
             "feature_flag_requests": {"limit": None, "usage": 0, "todays_usage": 0},
             "api_queries_read_bytes": {"limit": None, "usage": 0, "todays_usage": 0},
             "period": ["2022-10-07T11:12:48", "2022-11-07T11:12:48"],
+            "surveys": {"limit": None, "usage": 0, "todays_usage": 0},
         }
 
     @patch("ee.api.billing.requests.get")
@@ -884,6 +886,7 @@ class TestBillingAPI(APILicensedTest):
             "rows_synced": 0,
             "feature_flags": 0,
             "api_queries_read_bytes": 17,
+            "surveys": 0,
         }
         self.organization.save()
 
@@ -898,6 +901,7 @@ class TestBillingAPI(APILicensedTest):
             "rows_synced": 0,
             "feature_flags": 0,
             "api_queries_read_bytes": 17,
+            "surveys": 0,
         }
 
     @patch("ee.api.billing.requests.get")
