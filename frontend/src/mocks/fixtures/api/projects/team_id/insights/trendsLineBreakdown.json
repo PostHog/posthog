@@ -537,7 +537,8 @@
             ],
             "trendsFilter": {
                 "display": "ActionsLineGraph",
-                "resultCustomizationBy": "value"
+                "resultCustomizationBy": "value",
+                "hiddenLegendIndexes": [2]
             }
         },
         "full": true
