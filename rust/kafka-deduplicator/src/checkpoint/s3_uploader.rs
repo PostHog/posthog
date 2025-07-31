@@ -4,7 +4,7 @@ use aws_config::{meta::region::RegionProviderChain, Region};
 use aws_sdk_s3::{Client, Config};
 use std::path::{Path, PathBuf};
 use tokio::fs;
-use tracing::{error, info, warn};
+use tracing::{error, info};
 
 use super::config::CheckpointConfig;
 use super::uploader::CheckpointUploader;
@@ -146,58 +146,6 @@ impl CheckpointUploader for S3Uploader {
 
         info!("Successfully uploaded {} files to S3", uploaded_keys.len());
         Ok(uploaded_keys)
-    }
-
-    async fn list_checkpoints(&self) -> Result<Vec<String>> {
-        let response = self
-            .client
-            .list_objects_v2()
-            .bucket(&self.config.s3_bucket)
-            .prefix(&self.config.s3_key_prefix)
-            .send()
-            .await
-            .context("Failed to list S3 objects")?;
-
-        let keys = response
-            .contents()
-            .iter()
-            .filter_map(|obj| obj.key())
-            .map(|k| k.to_string())
-            .collect();
-
-        Ok(keys)
-    }
-
-    async fn cleanup_old_checkpoints(&self, keep_count: usize) -> Result<()> {
-        let mut checkpoint_keys = self.list_checkpoints().await?;
-
-        // Sort by key name (which should include timestamp)
-        checkpoint_keys.sort();
-
-        if checkpoint_keys.len() <= keep_count {
-            return Ok(());
-        }
-
-        let keys_to_delete: Vec<String> = checkpoint_keys
-            .into_iter()
-            .rev() // Keep the most recent ones
-            .skip(keep_count)
-            .collect();
-
-        if keys_to_delete.is_empty() {
-            return Ok(());
-        }
-
-        warn!("Deleting {} old checkpoints from S3", keys_to_delete.len());
-
-        for key in keys_to_delete {
-            if let Err(e) = self.delete_object(&key).await {
-                error!("Failed to delete S3 object {key}: {e}");
-                // Continue with other deletions
-            }
-        }
-
-        Ok(())
     }
 
     async fn is_available(&self) -> bool {
