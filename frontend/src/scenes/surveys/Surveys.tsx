@@ -20,7 +20,7 @@ import { VersionCheckerBanner } from 'lib/components/VersionChecker/VersionCheck
 import { dayjs } from 'lib/dayjs'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTableColumn } from 'lib/lemon-ui/LemonTable'
-import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { createdAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import stringWithWBR from 'lib/utils/stringWithWBR'
@@ -316,7 +316,6 @@ function Surveys(): JSX.Element {
                                                 : 'Multiple'
                                         },
                                     },
-                                    createdByColumn<Survey>() as LemonTableColumn<Survey, keyof Survey | undefined>,
                                     ...(tab === SurveysTabs.Active
                                         ? [
                                               createdAtColumn<Survey>() as LemonTableColumn<
