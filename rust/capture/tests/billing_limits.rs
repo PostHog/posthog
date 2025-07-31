@@ -424,9 +424,9 @@ async fn test_survey_quota_limit_filters_only_survey_events() {
     // Should return OK even when survey limited
     assert_eq!(response.status(), StatusCode::OK);
 
-    // Only "survey sent" events should be filtered out, other events should be captured
+    // ALL survey events should be filtered out when quota exceeded, other events should be captured
     let captured_events = sink.events();
-    assert_eq!(captured_events.len(), 4); // pageview, survey shown, click, $exception
+    assert_eq!(captured_events.len(), 3); // pageview, click, $exception
 
     let event_names: Vec<String> = captured_events
         .iter()
@@ -441,11 +441,9 @@ async fn test_survey_quota_limit_filters_only_survey_events() {
     assert!(event_names.contains(&"click".to_string()));
     assert!(event_names.contains(&"$exception".to_string()));
 
-    // Only "survey sent" should be filtered out
+    // All survey events should be filtered out when quota exceeded
     assert!(!event_names.contains(&"survey sent".to_string()));
-
-    // Other survey events should be kept
-    assert!(event_names.contains(&"survey shown".to_string()));
+    assert!(!event_names.contains(&"survey shown".to_string()));
 }
 
 #[tokio::test]
@@ -469,9 +467,9 @@ async fn test_survey_quota_limit_returns_error_when_only_survey_events() {
     // Should return OK (legacy behavior - errors are converted to OK for v0 endpoints)
     assert_eq!(response.status(), StatusCode::OK);
 
-    // Only "survey sent" should be filtered, "survey shown" and "survey dismissed" should be kept
+    // When quota exceeded, ALL survey events should be filtered out
     let captured_events = sink.events();
-    assert_eq!(captured_events.len(), 2);
+    assert_eq!(captured_events.len(), 0);
 
     let event_names: Vec<String> = captured_events
         .iter()
@@ -481,12 +479,10 @@ async fn test_survey_quota_limit_returns_error_when_only_survey_events() {
         })
         .collect();
 
-    // "survey sent" should be filtered out
+    // All survey events should be filtered out when quota exceeded
     assert!(!event_names.contains(&"survey sent".to_string()));
-
-    // Other survey events should be kept
-    assert!(event_names.contains(&"survey shown".to_string()));
-    assert!(event_names.contains(&"survey dismissed".to_string()));
+    assert!(!event_names.contains(&"survey shown".to_string()));
+    assert!(!event_names.contains(&"survey dismissed".to_string()));
 }
 
 #[tokio::test]
@@ -731,9 +727,9 @@ async fn test_survey_quota_backward_compatibility_without_submission_id() {
 
     assert_eq!(response.status(), StatusCode::OK);
 
-    // Only "survey sent" should be filtered out, "survey shown" and pageview should remain
+    // When quota exceeded, ALL survey events should be filtered out, only pageview should remain
     let captured_events = sink.events();
-    assert_eq!(captured_events.len(), 2);
+    assert_eq!(captured_events.len(), 1);
 
     let event_names: Vec<String> = captured_events
         .iter()
@@ -743,11 +739,11 @@ async fn test_survey_quota_backward_compatibility_without_submission_id() {
         })
         .collect();
 
-    // "survey sent" should be filtered out
+    // All survey events should be filtered out when quota exceeded
     assert!(!event_names.contains(&"survey sent".to_string()));
+    assert!(!event_names.contains(&"survey shown".to_string()));
 
-    // Other events should be kept
-    assert!(event_names.contains(&"survey shown".to_string()));
+    // Non-survey events should be kept
     assert!(event_names.contains(&"pageview".to_string()));
 }
 
@@ -1159,12 +1155,12 @@ async fn test_survey_quota_only_limits_survey_sent_events() {
     let (router, sink) = setup_survey_limited_router(token, true).await;
     let client = TestClient::new(router);
 
-    // Mix of all survey event types - only "survey sent" should be subject to quota limiting
+    // Mix of all survey event types - when quota exceeded, ALL survey events should be dropped
     let events = [
         ("survey sent", Some("submission_123")), // This should be dropped due to quota
-        ("survey shown", Some("submission_123")), // This should be kept (not subject to quota)
-        ("survey dismissed", Some("submission_123")), // This should be kept (not subject to quota)
-        ("pageview", None),                      // Non-survey event
+        ("survey shown", Some("submission_123")), // This should also be dropped when quota exceeded
+        ("survey dismissed", Some("submission_123")), // This should also be dropped when quota exceeded
+        ("pageview", None),                           // Non-survey event
     ];
     let payload = create_survey_events_with_submission_ids(&events, token);
 
@@ -1178,9 +1174,9 @@ async fn test_survey_quota_only_limits_survey_sent_events() {
 
     assert_eq!(response.status(), StatusCode::OK);
 
-    // Only "survey sent" should be dropped due to quota, other survey events should be kept
+    // When survey quota is exceeded, ALL survey events should be dropped
     let captured_events = sink.events();
-    assert_eq!(captured_events.len(), 3); // survey shown, survey dismissed, pageview
+    assert_eq!(captured_events.len(), 1); // only pageview
 
     let event_names: Vec<String> = captured_events
         .iter()
@@ -1190,12 +1186,12 @@ async fn test_survey_quota_only_limits_survey_sent_events() {
         })
         .collect();
 
-    // "survey sent" should be dropped
+    // All survey events should be dropped when quota exceeded
     assert!(!event_names.contains(&"survey sent".to_string()));
+    assert!(!event_names.contains(&"survey shown".to_string()));
+    assert!(!event_names.contains(&"survey dismissed".to_string()));
 
-    // Other survey events should be kept
-    assert!(event_names.contains(&"survey shown".to_string()));
-    assert!(event_names.contains(&"survey dismissed".to_string()));
+    // Non-survey events should be kept
     assert!(event_names.contains(&"pageview".to_string()));
 }
 
@@ -1205,11 +1201,11 @@ async fn test_survey_quota_backward_compatibility_survey_sent_only() {
     let (router, sink) = setup_survey_limited_router(token, true).await;
     let client = TestClient::new(router);
 
-    // Survey events without submission_id - only "survey sent" should be dropped
+    // Survey events without submission_id - when quota exceeded, ALL survey events should be dropped
     let events = [
         ("survey sent", None),      // Should be dropped due to quota (no submission_id)
-        ("survey shown", None),     // Should be kept (not subject to quota)
-        ("survey dismissed", None), // Should be kept (not subject to quota)
+        ("survey shown", None),     // Should also be dropped when quota exceeded
+        ("survey dismissed", None), // Should also be dropped when quota exceeded
         ("pageview", None),         // Non-survey event
     ];
     let payload = create_survey_events_with_submission_ids(&events, token);
@@ -1224,9 +1220,9 @@ async fn test_survey_quota_backward_compatibility_survey_sent_only() {
 
     assert_eq!(response.status(), StatusCode::OK);
 
-    // Only "survey sent" should be dropped, other events should be kept
+    // When quota exceeded, ALL survey events should be dropped
     let captured_events = sink.events();
-    assert_eq!(captured_events.len(), 3);
+    assert_eq!(captured_events.len(), 1);
 
     let event_names: Vec<String> = captured_events
         .iter()
@@ -1236,11 +1232,11 @@ async fn test_survey_quota_backward_compatibility_survey_sent_only() {
         })
         .collect();
 
-    // "survey sent" should be dropped
+    // All survey events should be dropped when quota exceeded
     assert!(!event_names.contains(&"survey sent".to_string()));
+    assert!(!event_names.contains(&"survey shown".to_string()));
+    assert!(!event_names.contains(&"survey dismissed".to_string()));
 
-    // Other events should be kept
-    assert!(event_names.contains(&"survey shown".to_string()));
-    assert!(event_names.contains(&"survey dismissed".to_string()));
+    // Non-survey events should be kept
     assert!(event_names.contains(&"pageview".to_string()));
 }

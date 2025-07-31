@@ -132,24 +132,38 @@ async fn check_survey_quota_and_filter(
             new_survey_sent_to_check.extend(survey_sent_without_submission_id);
 
             // Now apply normal survey quota limiting to new "survey sent" events only
-            if !new_survey_sent_to_check.is_empty() {
-                let survey_limited = state
+            let survey_limited = if !new_survey_sent_to_check.is_empty() {
+                let limited = state
                     .survey_limiter
                     .as_ref()
                     .unwrap()
                     .is_limited(context.token.as_str())
                     .await;
-                if survey_limited {
+                if limited {
                     // Drop new "survey sent" events due to quota limit
                     total_dropped_events += new_survey_sent_to_check.len();
                 } else {
                     // Keep new "survey sent" events
                     events_to_keep.extend(new_survey_sent_to_check);
                 }
-            }
+                limited
+            } else {
+                // If no new survey sent events to check, we need to check if quota is exceeded
+                // to determine if we should drop other survey events
+                state
+                    .survey_limiter
+                    .as_ref()
+                    .unwrap()
+                    .is_limited(context.token.as_str())
+                    .await
+            };
 
-            // Always keep other survey events ("survey shown", "survey dismissed") regardless of quota
-            events_to_keep.extend(other_survey_events);
+            // Drop other survey events ("survey shown", "survey dismissed") if survey quota is exceeded
+            if survey_limited {
+                total_dropped_events += other_survey_events.len();
+            } else {
+                events_to_keep.extend(other_survey_events);
+            }
 
             if total_dropped_events > 0 {
                 report_dropped_events("survey_over_quota", total_dropped_events as u64);
