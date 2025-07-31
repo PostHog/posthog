@@ -61,7 +61,7 @@ class TestPropertyDefinitionAPI(APIBaseTest):
             team=self.team, name="timestamp_property", property_type="DateTime"
         )
         response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/{property.id}")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         assert response.json()["property_type"] == "DateTime"
 
     def test_list_property_definitions(self):
@@ -69,7 +69,6 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
 
         assert response.json()["count"] == len(self.EXPECTED_PROPERTY_DEFINITIONS)
-        assert len(response.json()["results"]) == len(self.EXPECTED_PROPERTY_DEFINITIONS)
 
         assert [{"name": r["name"], "is_numerical": r["is_numerical"]} for r in response.json()["results"]] == sorted(
             self.EXPECTED_PROPERTY_DEFINITIONS, key=lambda x: x["name"]
@@ -90,19 +89,16 @@ class TestPropertyDefinitionAPI(APIBaseTest):
 
         response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?exclude_core_properties=true")
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], 6)
-        self.assertEqual(len(response.json()["results"]), 6)
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["count"] == 6
+        assert len(response.json()["results"]) == 6
 
     def test_list_numerical_property_definitions(self):
         response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?is_numerical=true")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], 3)
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["count"] == 3
 
-        self.assertEqual(len(response.json()["results"]), 3)
-        properties = sorted([_i["name"] for _i in response.json()["results"]])
-
-        self.assertEqual(properties, ["app_rating", "purchase", "purchase_value"])
+        assert sorted([_i["name"] for _i in response.json()["results"]]) == ["app_rating", "purchase", "purchase_value"]
 
     def test_pagination_of_property_definitions(self):
         PropertyDefinition.objects.bulk_create(
@@ -111,15 +107,11 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         expected_property_count = 310
 
         response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], expected_property_count)
-        self.assertEqual(len(response.json()["results"]), 100)  # Default page size
-        self.assertEqual(response.json()["results"][0]["name"], "$browser")
-        self.assertEqual(
-            response.json()["results"][1]["name"],
-            "$browser_version",
-            [r["name"] for r in response.json()["results"]],
-        )
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["count"] == expected_property_count
+        assert len(response.json()["results"]) == 100  # Default page size
+        assert response.json()["results"][0]["name"] == "$browser"
+        assert response.json()["results"][1]["name"] == "$browser_version"
 
         property_checkpoints = [
             180,
@@ -130,16 +122,11 @@ class TestPropertyDefinitionAPI(APIBaseTest):
 
         for i in range(0, 3):
             response = self.client.get(response.json()["next"])
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            assert response.status_code == status.HTTP_200_OK
 
-            self.assertEqual(response.json()["count"], expected_property_count)
-            self.assertEqual(
-                len(response.json()["results"]), 100 if i < 2 else 10
-            )  # Each page has 100 except the last one
-            self.assertEqual(
-                response.json()["results"][0]["name"],
-                f"z_property_{property_checkpoints[i]}",
-            )
+            assert response.json()["count"] == expected_property_count
+            assert len(response.json()["results"]) == (100 if i < 2 else 10)  # Each page has 100 except the last one
+            assert response.json()["results"][0]["name"] == f"z_property_{property_checkpoints[i]}"
 
     def test_cant_see_property_definitions_for_another_team(self):
         org = Organization.objects.create(name="Separate Org")
@@ -148,14 +135,14 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         team.save()
 
         response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         for item in response.json()["results"]:
-            self.assertNotIn("should_be_invisible", item["name"])
+            assert "should_be_invisible" not in item["name"]
 
         # Also can't fetch for a team to which the user doesn't have permissions
         response = self.client.get(f"/api/projects/{team.pk}/property_definitions/")
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEqual(response.json(), self.permission_denied_response("You don't have access to the project."))
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response.json() == self.permission_denied_response("You don't have access to the project.")
 
     def test_list_all_property_definitions_without_search(self):
         response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions")
@@ -178,7 +165,6 @@ class TestPropertyDefinitionAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            # (search_term, expected_property_names)
             ("Searching for properties starting with 'firs'", "firs", ["first_visit", "is_first_movie"]),
             ("Fuzzy search: 'p ting' matches 'app_rating'", "p ting", ["app_rating"]),
             ("Alias search: 'ary' matches '$lib' (library)", "ary", ["$lib"]),
@@ -217,7 +203,7 @@ class TestPropertyDefinitionAPI(APIBaseTest):
 
     def test_is_event_property_filter(self):
         response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?search=firs")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         assert [r["name"] for r in response.json()["results"]] == [
             "first_visit",
             "is_first_movie",
@@ -229,8 +215,7 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         response = self.client.get(
             f"/api/projects/{self.team.pk}/property_definitions/?event_names=%5B%22%24pageview%22%5D"
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        # sort a list of tuples by the first element
+        assert response.status_code == status.HTTP_200_OK
 
         assert sorted(
             [(r["name"], r["is_seen_on_filtered_events"]) for r in response.json()["results"]],
@@ -252,7 +237,7 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         response = self.client.get(
             f"/api/projects/{self.team.pk}/property_definitions/?event_names=%5B%22%24pageview%22%5D&filter_by_event_names=true"
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         assert sorted(
             [(r["name"], r["is_seen_on_filtered_events"]) for r in response.json()["results"]],
             key=lambda tup: tup[0],
@@ -265,11 +250,10 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         response = self.client.get(
             "/api/projects/@current/property_definitions/?search=firs&event_names=%5B%22%24pageview%22%5D&filter_by_event_names=true"
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(
-            [(r["name"], r["is_seen_on_filtered_events"]) for r in response.json()["results"]],
-            [("first_visit", True)],
-        )
+        assert response.status_code == status.HTTP_200_OK
+        assert [(r["name"], r["is_seen_on_filtered_events"]) for r in response.json()["results"]] == [
+            ("first_visit", True)
+        ]
 
     def test_person_property_filter(self):
         PropertyDefinition.objects.create(
@@ -298,35 +282,32 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         )
 
         response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?type=person")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(
-            [row["name"] for row in response.json()["results"]],
-            [
-                "$initial_referrer",
-                "another",
-                "person property",
-                "$virt_initial_channel_type",
-                "$virt_initial_referring_domain_type",
-                "$virt_revenue",
-                "$virt_revenue_last_30_days",
-            ],
-        )
+        assert response.status_code == status.HTTP_200_OK
+        assert [row["name"] for row in response.json()["results"]] == [
+            "$initial_referrer",
+            "another",
+            "person property",
+            "$virt_initial_channel_type",
+            "$virt_initial_referring_domain_type",
+            "$virt_revenue",
+            "$virt_revenue_last_30_days",
+        ]
 
         response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?type=person&search=prop")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual([row["name"] for row in response.json()["results"]], ["person property"])
+        assert response.status_code == status.HTTP_200_OK
+        assert [row["name"] for row in response.json()["results"]] == ["person property"]
 
         response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?search=prop")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual([row["name"] for row in response.json()["results"]], ["event property"])
+        assert response.status_code == status.HTTP_200_OK
+        assert [row["name"] for row in response.json()["results"]] == ["event property"]
 
         response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?type=person&search=latest")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual([row["name"] for row in response.json()["results"]], ["another", "person property"])
+        assert response.status_code == status.HTTP_200_OK
+        assert [row["name"] for row in response.json()["results"]] == ["another", "person property"]
 
         response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?type=person&search=late")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual([row["name"] for row in response.json()["results"]], ["another", "person property"])
+        assert response.status_code == status.HTTP_200_OK
+        assert [row["name"] for row in response.json()["results"]] == ["another", "person property"]
 
     def test_group_property_filter(self):
         PropertyDefinition.objects.create(
@@ -352,42 +333,39 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         )
 
         response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?type=group&group_type_index=1")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(
-            [row["name"] for row in response.json()["results"]],
-            ["group1 another", "group1 property"],
-        )
+        assert response.status_code == status.HTTP_200_OK
+        assert [row["name"] for row in response.json()["results"]] == ["group1 another", "group1 property"]
 
         response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?type=group&group_type_index=2")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual([row["name"] for row in response.json()["results"]], ["group2 property"])
+        assert response.status_code == status.HTTP_200_OK
+        assert [row["name"] for row in response.json()["results"]] == ["group2 property"]
 
         response = self.client.get(
             f"/api/projects/{self.team.pk}/property_definitions/?type=group&search=prop&group_type_index=1"
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual([row["name"] for row in response.json()["results"]], ["group1 property"])
+        assert response.status_code == status.HTTP_200_OK
+        assert [row["name"] for row in response.json()["results"]] == ["group1 property"]
 
     def test_is_feature_flag_property_filter(self):
         PropertyDefinition.objects.create(team=self.team, name="$feature/plan", property_type="String")
 
         response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?search=plan")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], 2)
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["count"] == 2
 
         response = self.client.get(
             f"/api/projects/{self.team.pk}/property_definitions/?search=plan&is_feature_flag=true"
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], 1)
-        self.assertEqual(response.json()["results"][0]["name"], "$feature/plan")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["count"] == 1
+        assert response.json()["results"][0]["name"] == "$feature/plan"
 
         response = self.client.get(
             f"/api/projects/{self.team.pk}/property_definitions/?search=plan&is_feature_flag=false"
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], 1)
-        self.assertEqual(response.json()["results"][0]["name"], "plan")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["count"] == 1
+        assert response.json()["results"][0]["name"] == "plan"
 
     @patch("posthoganalytics.capture")
     def test_delete_property_definition(self, mock_capture):
@@ -395,8 +373,8 @@ class TestPropertyDefinitionAPI(APIBaseTest):
             team=self.team, name="test_property", property_type="String"
         )
         response = self.client.delete(f"/api/projects/{self.team.pk}/property_definitions/{property_definition.id}")
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
-        self.assertEqual(PropertyDefinition.objects.filter(id=property_definition.id).count(), 0)
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert PropertyDefinition.objects.filter(id=property_definition.id).count() == 0
         mock_capture.assert_called_once_with(
             event="property definition deleted",
             distinct_id=self.user.distinct_id,
@@ -418,7 +396,7 @@ class TestPropertyDefinitionAPI(APIBaseTest):
     def test_event_name_filter_json_contains_int(self):
         event_name_json = json.dumps([1])
         response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?event_names={event_name_json}")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
     @patch("posthog.models.Organization.is_feature_available", return_value=False)
     def test_update_property_definition_without_taxonomy_entitlement(self, mock_is_feature_available):
@@ -521,13 +499,13 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         PropertyDefinition.objects.create(team=other_team, name="other_team_prop", property_type="String")
 
         response = self.client.get(f"/api/projects/{self.project.id}/property_definitions/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         # Should return properties with either project_id or team_id matching
         property_names = {p["name"] for p in response.json()["results"]}
-        self.assertIn("legacy_team_prop", property_names)  # Found via team_id
-        self.assertIn("newer_prop", property_names)  # Found via project_id
-        self.assertNotIn("other_team_prop", property_names)  # Different team, should not be found
+        assert "legacy_team_prop" in property_names  # Found via team_id
+        assert "newer_prop" in property_names  # Found via project_id
+        assert "other_team_prop" not in property_names  # Different team, should not be found
 
     def test_property_definition_project_id_coalesce_detail(self):
         # Create legacy property with only team_id (old style)
@@ -549,17 +527,17 @@ class TestPropertyDefinitionAPI(APIBaseTest):
 
         # Test retrieving legacy property
         response = self.client.get(f"/api/projects/{self.project.id}/property_definitions/{legacy_prop.id}")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["name"], "legacy_team_prop")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["name"] == "legacy_team_prop"
 
         # Test retrieving newer property
         response = self.client.get(f"/api/projects/{self.project.id}/property_definitions/{newer_prop.id}")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["name"], "newer_prop")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["name"] == "newer_prop"
 
         # Test retrieving other team's property should fail
         response = self.client.get(f"/api/projects/{self.project.id}/property_definitions/{other_team_prop.id}")
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        assert response.status_code == status.HTTP_404_NOT_FOUND
 
     def test_virtual_property_numerical_filter(self):
         # Mock virtual properties to include some numerical ones
