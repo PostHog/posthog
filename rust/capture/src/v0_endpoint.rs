@@ -187,9 +187,6 @@ async fn check_survey_quota_and_filter(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use common_types::RawEvent;
-    use serde_json::Value;
-    use std::collections::HashMap;
 
     #[test]
     fn test_is_survey_event() {
