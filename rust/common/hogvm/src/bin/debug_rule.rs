@@ -18,6 +18,15 @@ pub fn main() {
     let rule_bytecode = json.get("bytecode").unwrap().as_str().unwrap();
     let rule_bytecode: Vec<Value> =
         serde_json::from_str(rule_bytecode).expect("Failed to convert bytecode to json");
+    println!(
+        "Bytecode:\n{}",
+        rule_bytecode
+            .iter()
+            .cloned()
+            .enumerate()
+            .map(|i| format!("{:?}\n", i))
+            .collect::<String>()
+    );
 
     // Grab the data we fed in to the invocation that caused the rule to be disabled
     let disabled_data = json.get("disabled_data").unwrap().as_str().unwrap();
