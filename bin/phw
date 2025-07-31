@@ -33,12 +33,11 @@ phw() {
                 # Check if we need to switch to a different Flox environment
                 local expected_flox_env="$worktree_path/.flox/run"
                 if [ -n "$FLOX_ENV" ] && [[ "$FLOX_ENV" != "$expected_flox_env"* ]]; then
-                    echo "Switching Flox environments..."
-                    # Note: This will still create nesting, but it's unavoidable without direnv
-                    eval "$(flox activate)"
+                    echo "Switching Flox environments (replacing current shell)..."
+                    exec flox activate
                 elif [ -z "$FLOX_ENV" ]; then
                     echo "Activating Flox environment..."
-                    eval "$(flox activate)"
+                    exec flox activate
                 else
                     echo "Flox environment already active for this worktree"
                 fi
@@ -60,12 +59,11 @@ phw() {
                 # Check if we need to switch to a different Flox environment
                 local expected_flox_env="$pr_dir/.flox/run"
                 if [ -n "$FLOX_ENV" ] && [[ "$FLOX_ENV" != "$expected_flox_env"* ]]; then
-                    echo "Switching Flox environments..."
-                    # Note: This will still create nesting, but it's unavoidable without direnv
-                    eval "$(flox activate)"
+                    echo "Switching Flox environments (replacing current shell)..."
+                    exec flox activate
                 elif [ -z "$FLOX_ENV" ]; then
                     echo "Activating Flox environment..."
-                    eval "$(flox activate)"
+                    exec flox activate
                 else
                     echo "Flox environment already active for this worktree"
                 fi
