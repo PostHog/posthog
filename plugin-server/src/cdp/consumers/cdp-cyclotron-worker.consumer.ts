@@ -114,13 +114,9 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
                         captureException(err)
                         logger.error('Error processing invocation results', { err })
                     }),
-                this.hogWatcher.observeResults(invocationResults).catch((err) => {
+                this.hogWatcher.observeResults(invocationResults).catch((err: any) => {
                     captureException(err)
                     logger.error('Error observing results', { err })
-                }),
-                this.hogWatcher2.observeResults(invocationResults).catch((err) => {
-                    captureException(err)
-                    logger.error('Error observing results with hogWatcher2', { err })
                 }),
             ])
         })

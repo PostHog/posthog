@@ -18,7 +18,7 @@ const REDIS_KEY_TOKENS = `${BASE_REDIS_KEY}/tokens`
 const REDIS_KEY_STATE = `${BASE_REDIS_KEY}/state`
 const REDIS_KEY_STATE_LOCK = `${BASE_REDIS_KEY}/state-lock`
 
-export enum HogWatcherStateEnum {
+export enum HogWatcherState {
     healthy = 1,
     degraded = 2,
     disabled = 3,
@@ -26,7 +26,7 @@ export enum HogWatcherStateEnum {
 
 export type HogWatcherFunctionState = {
     tokens: number
-    state: HogWatcherStateEnum
+    state: HogWatcherState
 }
 
 export const hogFunctionStateChange = new Counter({
@@ -89,8 +89,8 @@ export class HogWatcherService {
         previousState,
     }: {
         hogFunction: HogFunctionType
-        state: HogWatcherStateEnum
-        previousState: HogWatcherStateEnum
+        state: HogWatcherState
+        previousState: HogWatcherState
     }) {
         const team = await this.hub.teamManager.getTeam(hogFunction.team_id)
 
@@ -107,8 +107,8 @@ export class HogWatcherService {
                 hog_function_type: hogFunction.type,
                 hog_function_name: hogFunction.name,
                 hog_function_template_id: hogFunction.template_id,
-                state: HogWatcherStateEnum[state], // Convert numeric state to readable string
-                previous_state: HogWatcherStateEnum[previousState], // Convert numeric state to readable string
+                state: HogWatcherState[state], // Convert numeric state to readable string
+                previous_state: HogWatcherState[previousState], // Convert numeric state to readable string
             })
         }
     }
@@ -126,17 +126,17 @@ export class HogWatcherService {
         ] as const
     }
 
-    public calculateNewState(tokens: number): HogWatcherStateEnum {
+    public calculateNewState(tokens: number): HogWatcherState {
         const rating = tokens / this.hub.CDP_WATCHER_BUCKET_SIZE
 
         if (rating < 0 && this.hub.CDP_WATCHER_AUTOMATICALLY_DISABLE_FUNCTIONS) {
-            return HogWatcherStateEnum.disabled
+            return HogWatcherState.disabled
         }
         if (rating <= this.hub.CDP_WATCHER_THRESHOLD_DEGRADED) {
-            return HogWatcherStateEnum.degraded
+            return HogWatcherState.degraded
         }
 
-        return HogWatcherStateEnum.healthy
+        return HogWatcherState.healthy
     }
 
     public async getPersistedStates(
@@ -157,7 +157,7 @@ export class HogWatcherService {
             const state = res ? res[resIndex + 1][1] : undefined
 
             acc[id] = {
-                state: state ? Number(state) : HogWatcherStateEnum.healthy,
+                state: state ? Number(state) : HogWatcherState.healthy,
                 tokens: tokens ?? this.hub.CDP_WATCHER_BUCKET_SIZE,
             }
 
@@ -177,7 +177,7 @@ export class HogWatcherService {
     }
 
     public async doStageChanges(
-        changes: [HogFunctionType, HogWatcherStateEnum][],
+        changes: [HogFunctionType, HogWatcherState][],
         forceReset: boolean = false
     ): Promise<void> {
         logger.info('[HogWatcherService] Performing state changes', { changes, forceReset })
@@ -185,9 +185,9 @@ export class HogWatcherService {
             for (const [hogFunction, state] of changes) {
                 const id = hogFunction.id
                 const newScore =
-                    state === HogWatcherStateEnum.healthy
+                    state === HogWatcherState.healthy
                         ? this.hub.CDP_WATCHER_BUCKET_SIZE
-                        : state === HogWatcherStateEnum.degraded
+                        : state === HogWatcherState.degraded
                         ? this.hub.CDP_WATCHER_BUCKET_SIZE * this.hub.CDP_WATCHER_THRESHOLD_DEGRADED
                         : 0
 
@@ -211,7 +211,7 @@ export class HogWatcherService {
         await Promise.all(
             changes.map(async ([hogFunction, state], index) => {
                 const [stateResult] = getPipelineResults(res, index, numOperations)
-                const previousState = Number(stateResult[1] ?? HogWatcherStateEnum.healthy)
+                const previousState = Number(stateResult[1] ?? HogWatcherState.healthy)
                 if (previousState !== state) {
                     await this.onStateChange({
                         hogFunction,
@@ -223,7 +223,7 @@ export class HogWatcherService {
         )
     }
 
-    public async forceStateChange(hogFunction: HogFunctionType, state: HogWatcherStateEnum): Promise<void> {
+    public async forceStateChange(hogFunction: HogFunctionType, state: HogWatcherState): Promise<void> {
         await this.doStageChanges([[hogFunction, state]])
     }
 
@@ -285,7 +285,7 @@ export class HogWatcherService {
             Object.values(functionCosts).map(async (functionCost, index) => {
                 const [stateResult, lockResult, tokenResult] = getPipelineResults(res, index, 3)
 
-                const currentState: HogWatcherStateEnum = Number(stateResult[1] ?? HogWatcherStateEnum.healthy)
+                const currentState: HogWatcherState = Number(stateResult[1] ?? HogWatcherState.healthy)
                 const tokens = Number(tokenResult[1] ?? this.hub.CDP_WATCHER_BUCKET_SIZE)
                 const newState = this.calculateNewState(tokens)
 
@@ -295,7 +295,7 @@ export class HogWatcherService {
                         return
                     }
 
-                    if (currentState === HogWatcherStateEnum.disabled) {
+                    if (currentState === HogWatcherState.disabled) {
                         // We never modify the state of a disabled function automatically
                         return
                     }

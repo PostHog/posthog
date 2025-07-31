@@ -11,7 +11,7 @@ import { deleteKeysWithPrefix } from '../../_tests/redis'
 import { CdpRedis, createCdpRedisPool } from '../../redis'
 import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult, HogFunctionType } from '../../types'
 import { createInvocationResult } from '../../utils/invocation-utils'
-import { BASE_REDIS_KEY, HogWatcherService, HogWatcherStateEnum } from './hog-watcher.service'
+import { BASE_REDIS_KEY, HogWatcherService, HogWatcherState } from './hog-watcher.service'
 
 const mockNow: jest.SpyInstance = jest.spyOn(Date, 'now')
 const mockCaptureTeamEvent: jest.Mock = require('~/utils/posthog').captureTeamEvent as any
@@ -257,8 +257,8 @@ describe('HogWatcher', () => {
                 expect(onStateChangeSpy).toHaveBeenCalledTimes(1) // New state change
                 expect(onStateChangeSpy).toHaveBeenLastCalledWith({
                     hogFunction,
-                    state: HogWatcherStateEnum.degraded,
-                    previousState: HogWatcherStateEnum.healthy,
+                    state: HogWatcherState.degraded,
+                    previousState: HogWatcherState.healthy,
                 })
 
                 await watcher.clearLock(hogFunctionId) // For testing the logic
@@ -282,8 +282,8 @@ describe('HogWatcher', () => {
                 expect(onStateChangeSpy).toHaveBeenCalledTimes(2) // New state change
                 expect(onStateChangeSpy).toHaveBeenLastCalledWith({
                     hogFunction,
-                    state: HogWatcherStateEnum.disabled,
-                    previousState: HogWatcherStateEnum.degraded,
+                    state: HogWatcherState.disabled,
+                    previousState: HogWatcherState.degraded,
                 })
             })
 
@@ -299,8 +299,8 @@ describe('HogWatcher', () => {
                 expect(onStateChangeSpy).toHaveBeenCalledTimes(1)
                 expect(onStateChangeSpy).toHaveBeenLastCalledWith({
                     hogFunction,
-                    state: HogWatcherStateEnum.degraded,
-                    previousState: HogWatcherStateEnum.healthy,
+                    state: HogWatcherState.degraded,
+                    previousState: HogWatcherState.healthy,
                 })
 
                 await watcher.observeResults(Array(1000).fill(createResult({ duration: 1000, kind: 'hog' })))
@@ -335,9 +335,9 @@ describe('HogWatcher', () => {
             })
 
             it('should not change states if recently changed', async () => {
-                await watcher.doStageChanges([[hogFunction, HogWatcherStateEnum.healthy]])
+                await watcher.doStageChanges([[hogFunction, HogWatcherState.healthy]])
                 await watcher.observeResults(Array(1000).fill(createResult({ duration: 1000, kind: 'hog' })))
-                expect((await watcher.getPersistedState(hogFunctionId)).state).toEqual(HogWatcherStateEnum.healthy)
+                expect((await watcher.getPersistedState(hogFunctionId)).state).toEqual(HogWatcherState.healthy)
                 const res = await redis.usePipeline({ name: 'getLock' }, (pipeline) => {
                     pipeline.get(`@posthog-test/hog-watcher-2/state-lock/${hogFunctionId}`)
                     pipeline.ttl(`@posthog-test/hog-watcher-2/state-lock/${hogFunctionId}`)
@@ -363,43 +363,43 @@ describe('HogWatcher', () => {
 
         it('should change the state of a hog function', async () => {
             expect(await watcher.getPersistedState(hogFunction.id)).toEqual({
-                state: HogWatcherStateEnum.healthy,
+                state: HogWatcherState.healthy,
                 tokens: 10000,
             })
-            await watcher.doStageChanges([[hogFunction, HogWatcherStateEnum.degraded]], true)
+            await watcher.doStageChanges([[hogFunction, HogWatcherState.degraded]], true)
             expect(await watcher.getPersistedState(hogFunction.id)).toEqual({
-                state: HogWatcherStateEnum.degraded,
+                state: HogWatcherState.degraded,
                 tokens: 8000,
             })
 
             expect(onStateChangeSpy).toHaveBeenCalledWith({
                 hogFunction,
-                state: HogWatcherStateEnum.degraded,
-                previousState: HogWatcherStateEnum.healthy,
+                state: HogWatcherState.degraded,
+                previousState: HogWatcherState.healthy,
             })
         })
 
         it('should only trigger state change events if the state actually changed', async () => {
-            await watcher.doStageChanges([[hogFunction, HogWatcherStateEnum.degraded]], true)
+            await watcher.doStageChanges([[hogFunction, HogWatcherState.degraded]], true)
             expect(onStateChangeSpy).toHaveBeenCalledTimes(1)
             expect(onStateChangeSpy).toHaveBeenLastCalledWith({
                 hogFunction,
-                state: HogWatcherStateEnum.degraded,
-                previousState: HogWatcherStateEnum.healthy,
+                state: HogWatcherState.degraded,
+                previousState: HogWatcherState.healthy,
             })
             expectMockCaptureTeamEvent('degraded', 'healthy')
 
-            await watcher.doStageChanges([[hogFunction, HogWatcherStateEnum.degraded]], true)
+            await watcher.doStageChanges([[hogFunction, HogWatcherState.degraded]], true)
             expect(onStateChangeSpy).toHaveBeenCalledTimes(1)
-            await watcher.doStageChanges([[hogFunction, HogWatcherStateEnum.disabled]], true)
+            await watcher.doStageChanges([[hogFunction, HogWatcherState.disabled]], true)
             expect(onStateChangeSpy).toHaveBeenCalledTimes(2)
             expect(onStateChangeSpy).toHaveBeenLastCalledWith({
                 hogFunction,
-                state: HogWatcherStateEnum.disabled,
-                previousState: HogWatcherStateEnum.degraded,
+                state: HogWatcherState.disabled,
+                previousState: HogWatcherState.degraded,
             })
             expectMockCaptureTeamEvent('disabled', 'degraded')
-            await watcher.doStageChanges([[hogFunction, HogWatcherStateEnum.disabled]], true)
+            await watcher.doStageChanges([[hogFunction, HogWatcherState.disabled]], true)
             expect(onStateChangeSpy).toHaveBeenCalledTimes(2)
         })
     })
