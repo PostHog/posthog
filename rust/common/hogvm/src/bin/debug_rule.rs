@@ -22,7 +22,6 @@ pub fn main() {
         "Bytecode:\n{}",
         rule_bytecode
             .iter()
-            .cloned()
             .enumerate()
             .fold(String::new(), |acc, (i, value)| format!(
                 "{}({}){:?}\n",
