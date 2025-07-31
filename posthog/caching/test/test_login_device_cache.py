@@ -12,7 +12,7 @@ class TestLoginDeviceCache(BaseTest):
 
     def test_new_device_login(self):
         """Test new device login"""
-        result = check_and_cache_login_device(1, "192.168.1.1", "Chrome 135.0.0 on Windows 10")
+        result = check_and_cache_login_device(11, "192.168.1.1", "Chrome 135.0.0 on Windows 10")
         self.assertEqual(result, True)
 
     def test_same_user_same_device(self):
