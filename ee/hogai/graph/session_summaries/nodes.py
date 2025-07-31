@@ -46,10 +46,14 @@ class SessionSummarizationNode(AssistantNode):
                 "current_filters": {},  # Empty state, as we need results from the query-to-filter
             }
         )
-        # TODO: Check if data is present in the result
-        if not result or not isinstance(result, dict):
+        if (
+            not result
+            or not isinstance(result, dict)
+            or not result.get("generated_filter_options")
+            or not result["generated_filter_options"].get("data")
+        ):
             self.logger.error(
-                "Invalid result from filter options graph",
+                f"Invalid result from filter options graph: {result}",
                 extra={
                     "team_id": getattr(self._team, "id", "unknown"),
                     "user_id": getattr(self._user, "id", "unknown"),
@@ -58,7 +62,7 @@ class SessionSummarizationNode(AssistantNode):
             )
             return None
         # Extract the generated filters
-        filters_data = result.get("generated_filter_options", {}).get("data", None)
+        filters_data = result["generated_filter_options"]["data"]
         if not filters_data:
             return None
         max_filters = cast(MaxRecordingUniversalFilters, filters_data)
