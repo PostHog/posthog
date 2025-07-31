@@ -1270,11 +1270,26 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         # the matching session
         session_id = f"test_get_matching_events-1-{uuid7()}"
         self.produce_replay_summary("user", session_id, base_time)
-        event_id = _create_event(
+        event_id_one = _create_event(
             event="$pageview",
             properties={"$session_id": session_id},
             team=self.team,
             distinct_id=uuid7(),
+            timestamp=base_time + timedelta(seconds=1),
+        )
+        event_id_two = _create_event(
+            event="$pageview",
+            properties={"$session_id": session_id},
+            team=self.team,
+            distinct_id=uuid7(),
+            timestamp=base_time + timedelta(seconds=10),
+        )
+        event_id_three = _create_event(
+            event="$pageview",
+            properties={"$session_id": session_id},
+            team=self.team,
+            distinct_id=uuid7(),
+            timestamp=base_time + timedelta(seconds=6),
         )
 
         # a non-matching session
@@ -1297,7 +1312,8 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         )
 
         assert response.status_code == status.HTTP_200_OK, response.json()
-        assert response.json() == {"results": [event_id]}
+        # TODO: right now we don't care about the order of events in the response
+        assert sorted(response.json()["results"]) == sorted([event_id_one, event_id_three, event_id_two])
 
     # checks that we 404 without patching the "exists" check
     # that is patched in other tests or freezing time doesn't work
