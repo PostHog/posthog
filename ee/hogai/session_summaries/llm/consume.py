@@ -4,6 +4,8 @@ import os
 from typing import Any
 import openai
 import structlog
+
+from ee.hogai.session_summaries.constants import SESSION_SUMMARIES_SYNC_MODEL
 from ee.hogai.session_summaries.llm.call import call_llm, stream_llm
 from ee.hogai.session_summaries.session.output_data import (
     enrich_raw_session_summary_with_meta,

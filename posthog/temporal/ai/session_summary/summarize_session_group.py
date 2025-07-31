@@ -13,7 +13,7 @@ from ee.hogai.session_summaries.constants import (
     FAILED_SESSION_SUMMARIES_MIN_RATIO,
     FAILED_PATTERNS_EXTRACTION_MIN_RATIO,
 )
-from ee.hogai.session_summaries.constants import FAILED_SESSION_SUMMARIES_MIN_RATIO, SESSION_SUMMARIES_SYNC_MODEL
+from ee.hogai.session_summaries.constants import SESSION_SUMMARIES_SYNC_MODEL
 from ee.hogai.session_summaries.session.input_data import add_context_and_filter_events, get_team
 from ee.hogai.session_summaries.session_group.patterns import EnrichedSessionGroupSummaryPatternsList
 from ee.hogai.session_summaries.session.summarize_session import (
