@@ -19,3 +19,8 @@ FAILED_PATTERNS_ASSIGNMENT_MIN_RATIO = 0.75  # If less than 75% of patterns assi
 
 # Patterns
 PATTERNS_ASSIGNMENT_CHUNK_SIZE = 10  # How many single-session-summaries to feed at once to assign events to patterns
+PATTERNS_EXTRACTION_MAX_TOKENS = (
+    150000  # Maximum tokens allowed for pattern extraction (below o3 model limit and within expected quality range)
+)
+SINGLE_ENTITY_MAX_TOKENS = 200000  # General limit to avoid hitting the o3 model limit, used in case of exceptions (like one session to large for a regular chunk)
+FAILED_PATTERNS_EXTRACTION_MIN_RATIO = 0.75  # If less than 75% of pattern extraction chunks succeed, stop the workflow

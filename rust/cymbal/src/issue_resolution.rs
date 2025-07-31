@@ -3,8 +3,9 @@ use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
 use common_kafka::kafka_messages::internal_events::{InternalEvent, InternalEventEvent};
-use common_kafka::kafka_producer::send_iter_to_kafka;
+use common_kafka::kafka_producer::{send_iter_to_kafka, KafkaProduceError};
 
+use rdkafka::types::RDKafkaErrorCode;
 use sqlx::{Acquire, PgConnection};
 use uuid::Uuid;
 
@@ -117,6 +118,8 @@ impl Issue {
     where
         E: sqlx::Executor<'c, Database = sqlx::Postgres>,
     {
+        // Truncate the description to 255 characters, we've seen very large exception values
+        let description = description.chars().take(255).collect();
         let issue = Self {
             id: Uuid::now_v7(),
             team_id,
@@ -423,20 +426,44 @@ async fn send_internal_event(
             .expect("Strings are serializable");
     }
 
-    send_iter_to_kafka(
+    let iter = [InternalEvent {
+        team_id: issue.team_id,
+        event,
+        person: None,
+    }];
+
+    let res = send_iter_to_kafka(
         &context.immediate_producer,
         &context.config.internal_events_topic,
-        &[InternalEvent {
-            team_id: issue.team_id,
-            event,
-            person: None,
-        }],
+        &iter,
     )
     .await
     .into_iter()
-    .collect::<Result<Vec<_>, _>>()?;
+    .collect::<Result<Vec<_>, _>>();
 
-    Ok(())
+    match res {
+        Ok(_) => Ok(()),
+        Err(KafkaProduceError::KafkaProduceError { error })
+            if matches!(
+                error.rdkafka_error_code(),
+                Some(RDKafkaErrorCode::MessageSizeTooLarge)
+            ) =>
+        {
+            let mut iter = iter;
+            iter[0].event.properties.remove("exception_props");
+            iter[0].event.insert_prop("message_was_too_large", true)?;
+            send_iter_to_kafka(
+                &context.immediate_producer,
+                &context.config.internal_events_topic,
+                &iter,
+            )
+            .await
+            .into_iter()
+            .collect::<Result<Vec<_>, _>>()?;
+            Ok(())
+        }
+        Err(e) => Err(e.into()),
+    }
 }
 
 impl From<String> for IssueStatus {

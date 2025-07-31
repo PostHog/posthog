@@ -158,6 +158,29 @@ async def get_llm_session_group_patterns_assignment(
     return patterns
 
 
+async def get_llm_session_group_patterns_combination(
+    prompt: PatternsPrompt, user_id: int, session_ids: list[str], trace_id: str | None = None
+) -> RawSessionGroupSummaryPatternsList:
+    """Call LLM to combine patterns from multiple chunks."""
+    sessions_identifier = ",".join(session_ids)
+    result = await call_llm(
+        input_prompt=prompt.patterns_prompt,
+        user_key=user_id,
+        session_id=sessions_identifier,
+        system_prompt=prompt.system_prompt,
+        model=SESSION_SUMMARIES_SYNC_MODEL,
+        reasoning=True,
+        trace_id=trace_id,
+    )
+    raw_content = _get_raw_content(result)
+    if not raw_content:
+        raise ValueError(
+            f"No content consumed when calling LLM for session group patterns chunks combination, sessions {sessions_identifier}"
+        )
+    patterns = load_patterns_from_llm_content(raw_content, sessions_identifier)
+    return patterns
+
+
 async def get_llm_single_session_summary(
     summary_prompt: str,
     user_id: int,
@@ -176,6 +199,7 @@ async def get_llm_single_session_summary(
 ) -> str:
     """Generate a single session summary in one LLM call."""
     try:
+        # TODO: Think about edge-case like one summary too large for o3 (cut some context or use other model)
         result = await call_llm(
             input_prompt=summary_prompt,
             user_key=user_id,

@@ -1,10 +1,9 @@
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
-import { EarlyAccessFeatureStage, EarlyAccessFeatureType, NotebookNodeType } from '~/types'
+import { EarlyAccessFeatureStage, EarlyAccessFeatureType } from '~/types'
 import { BindLogic, useActions, useValues } from 'kea'
 import { LemonDivider, LemonTag } from '@posthog/lemon-ui'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { notebookNodeLogic } from './notebookNodeLogic'
-import { JSONContent, NotebookNodeProps } from '../Notebook/utils'
 
 import {
     EarlyAccessFeatureLogicProps,
@@ -17,6 +16,8 @@ import { useEffect } from 'react'
 import { NotFound } from 'lib/components/NotFound'
 import { IconFlag, IconRocket } from '@posthog/icons'
 import { UUID_REGEX_MATCH_GROUPS } from './utils'
+import { JSONContent } from 'lib/components/RichContentEditor/types'
+import { NotebookNodeProps, NotebookNodeType } from '../types'
 
 const Component = ({ attributes }: NotebookNodeProps<NotebookNodeEarlyAccessAttributes>): JSX.Element => {
     const { id } = attributes
@@ -40,12 +41,14 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeEarlyAccessAttr
                   ]
                 : []
         )
+        // oxlint-disable-next-line exhaustive-deps
     }, [earlyAccessFeature])
 
     useEffect(() => {
         setTitlePlaceholder(
             earlyAccessFeature.name ? `Early Access Management: ${earlyAccessFeature.name}` : 'Early Access Management'
         )
+        // oxlint-disable-next-line exhaustive-deps
     }, [earlyAccessFeature?.name])
 
     if (earlyAccessFeatureMissing) {

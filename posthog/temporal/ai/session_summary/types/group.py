@@ -30,8 +30,21 @@ class SessionGroupSummarySingleSessionOutput:
 
 @dataclasses.dataclass(frozen=True, kw_only=True)
 class SessionGroupSummaryOfSummariesInputs:
+    """Base input for group summary activities"""
+
     single_session_summaries_inputs: list[SingleSessionSummaryInputs]
     user_id: int
     redis_key_base: str
     model_to_use: str
+    extra_summary_context: ExtraSummaryContext | None = None
+
+
+@dataclasses.dataclass(frozen=True, kw_only=True)
+class SessionGroupSummaryPatternsExtractionChunksInputs:
+    """Input from patterns extraction activity to activity combining patterns from different sessions chunks"""
+
+    redis_keys_of_chunks_to_combine: list[str]
+    session_ids: list[str]
+    user_id: int
+    redis_key_base: str
     extra_summary_context: ExtraSummaryContext | None = None
