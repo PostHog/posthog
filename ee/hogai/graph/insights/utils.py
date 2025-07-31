@@ -1,5 +1,5 @@
 """
-Utility functions for insights processing, including legacy filter conversion.
+Utility functions for insights processing, including filter conversion.
 """
 
 import json
@@ -9,29 +9,17 @@ from typing import Any, Optional
 logger = structlog.get_logger(__name__)
 
 
-def convert_legacy_filters_to_query(filters: str | dict) -> Optional[dict[str, Any]]:
+def convert_filters_to_query(filters: str | dict) -> Optional[dict[str, Any]]:
     """
-    Convert legacy insight filters to modern query format.
-
-    Args:
-        filters: Legacy filter dictionary or JSON string
-
-    Returns:
-        Modern query dictionary or None if conversion fails
+    Convert insight filters to modern query format or None if conversion fails.
     """
     try:
-        # Parse filters if it's a string
-        if isinstance(filters, str):
-            filters_dict = json.loads(filters)
-        elif isinstance(filters, dict):
-            filters_dict = filters
-        else:
+        filters_dict = _parse_filters(filters)
+        if not filters_dict:
             return None
 
-        # Get insight type - default to trends if not specified
+        # Get insight type and convert to query kind
         insight_type = filters_dict.get("insight", "TRENDS")
-
-        # Map insight types to query kinds
         insight_type_to_query_kind = {
             "TRENDS": "TrendsQuery",
             "FUNNELS": "FunnelsQuery",
@@ -45,33 +33,22 @@ def convert_legacy_filters_to_query(filters: str | dict) -> Optional[dict[str, A
         if not query_kind:
             return None
 
-        # Build base query structure
-        query_dict = {
-            "kind": query_kind,
+        query_dict = {"kind": query_kind}
+        base_fields = {
+            "interval": "interval",
+            "properties": "properties",
+            "filter_test_accounts": "filterTestAccounts",
         }
+        _add_optional_fields(query_dict, filters_dict, base_fields)
 
-        # Add date range
         date_range = {}
-        if filters_dict.get("date_from"):
-            date_range["date_from"] = filters_dict["date_from"]
-        if filters_dict.get("date_to"):
-            date_range["date_to"] = filters_dict["date_to"]
+        for field in ["date_from", "date_to"]:
+            if filters_dict.get(field):
+                date_range[field] = filters_dict[field]
         if date_range:
             query_dict["dateRange"] = date_range
 
-        # Add interval
-        if filters_dict.get("interval"):
-            query_dict["interval"] = filters_dict["interval"]
-
-        # Add global properties
-        if filters_dict.get("properties"):
-            query_dict["properties"] = filters_dict["properties"]
-
-        # Add filter test accounts
-        if "filter_test_accounts" in filters_dict:
-            query_dict["filterTestAccounts"] = filters_dict["filter_test_accounts"]
-
-        # Handle insight-specific conversions
+        # Insight-specific conversions
         if query_kind == "TrendsQuery":
             _convert_trends_filters(filters_dict, query_dict)
         elif query_kind == "FunnelsQuery":
@@ -82,184 +59,13 @@ def convert_legacy_filters_to_query(filters: str | dict) -> Optional[dict[str, A
         return query_dict
 
     except Exception as e:
-        logger.warning(f"Failed to convert legacy filters to query: {e}")
+        logger.warning(f"Failed to convert filters to query: {e}")
         return None
-
-
-def _convert_trends_filters(filters_dict: dict[str, Any], query_dict: dict[str, Any]) -> None:
-    """Convert trends-specific filters to query format."""
-    series = []
-
-    # Handle events
-    events = filters_dict.get("events", [])
-    for event in events:
-        series_item = {
-            "kind": "EventsNode",
-            "event": event.get("id"),
-            "math": event.get("math", "total"),
-        }
-
-        # Add custom name if present
-        if event.get("name"):
-            series_item["name"] = event["name"]
-        if event.get("custom_name"):
-            series_item["custom_name"] = event["custom_name"]
-
-        # Add math property if present
-        if event.get("math_property"):
-            series_item["math_property"] = event["math_property"]
-
-        # Add properties if present
-        if event.get("properties"):
-            series_item["properties"] = event["properties"]
-
-        series.append(series_item)
-
-    # Handle actions
-    actions = filters_dict.get("actions", [])
-    for action in actions:
-        series_item = {
-            "kind": "ActionsNode",
-            "id": action.get("id"),
-            "math": action.get("math", "total"),
-        }
-
-        # Add name if present
-        if action.get("name"):
-            series_item["name"] = action["name"]
-        if action.get("custom_name"):
-            series_item["custom_name"] = action["custom_name"]
-
-        # Add math property if present
-        if action.get("math_property"):
-            series_item["math_property"] = action["math_property"]
-
-        # Add properties if present
-        if action.get("properties"):
-            series_item["properties"] = action["properties"]
-
-        series.append(series_item)
-
-    if series:
-        query_dict["series"] = series
-
-    # Add trends filter
-    trends_filter = {}
-
-    # Display type
-    if filters_dict.get("display"):
-        trends_filter["display"] = filters_dict["display"]
-
-    # Formula
-    if filters_dict.get("formula"):
-        trends_filter["formula"] = filters_dict["formula"]
-
-    # Show legend
-    if "show_legend" in filters_dict:
-        trends_filter["showLegend"] = filters_dict["show_legend"]
-
-    # Show values on series
-    if "show_values_on_series" in filters_dict:
-        trends_filter["showValuesOnSeries"] = filters_dict["show_values_on_series"]
-
-    if trends_filter:
-        query_dict["trendsFilter"] = trends_filter
-
-    if filters_dict.get("compare"):
-        query_dict["compareFilter"] = {"compare": filters_dict["compare"]}
-
-    # Add breakdown filter
-    breakdown_filter = {}
-    if filters_dict.get("breakdown"):
-        breakdown_filter["breakdown"] = filters_dict["breakdown"]
-    if filters_dict.get("breakdown_type"):
-        breakdown_filter["breakdown_type"] = filters_dict["breakdown_type"]
-    if filters_dict.get("breakdown_limit"):
-        breakdown_filter["breakdown_limit"] = filters_dict["breakdown_limit"]
-    if breakdown_filter:
-        query_dict["breakdownFilter"] = breakdown_filter
-
-
-def _convert_funnels_filters(filters_dict: dict[str, Any], query_dict: dict[str, Any]) -> None:
-    """Convert funnels-specific filters to query format."""
-    series = []
-
-    # Handle events
-    events = filters_dict.get("events", [])
-    for event in events:
-        series_item = {
-            "kind": "EventsNode",
-            "event": event.get("id"),
-        }
-
-        # Add properties if present
-        if event.get("properties"):
-            series_item["properties"] = event["properties"]
-
-        series.append(series_item)
-
-    # Handle actions
-    actions = filters_dict.get("actions", [])
-    for action in actions:
-        series_item = {
-            "kind": "ActionsNode",
-            "id": action.get("id"),
-        }
-
-        # Add properties if present
-        if action.get("properties"):
-            series_item["properties"] = action["properties"]
-
-        series.append(series_item)
-
-    if series:
-        query_dict["series"] = series
-
-    # Add funnels filter
-    funnels_filter = {}
-
-    if filters_dict.get("funnel_window_interval"):
-        funnels_filter["funnelWindowInterval"] = filters_dict["funnel_window_interval"]
-
-    if filters_dict.get("funnel_window_interval_unit"):
-        funnels_filter["funnelWindowIntervalUnit"] = filters_dict["funnel_window_interval_unit"]
-
-    if filters_dict.get("breakdown_attribution_type"):
-        funnels_filter["breakdownAttributionType"] = filters_dict["breakdown_attribution_type"]
-
-    if funnels_filter:
-        query_dict["funnelsFilter"] = funnels_filter
-
-
-def _convert_retention_filters(filters_dict: dict[str, Any], query_dict: dict[str, Any]) -> None:
-    """Convert retention-specific filters to query format."""
-    retention_filter = {}
-
-    if filters_dict.get("retention_type"):
-        retention_filter["retentionType"] = filters_dict["retention_type"]
-
-    if filters_dict.get("returning_entity"):
-        retention_filter["returningEntity"] = filters_dict["returning_entity"]
-
-    if filters_dict.get("target_entity"):
-        retention_filter["targetEntity"] = filters_dict["target_entity"]
-
-    if filters_dict.get("period"):
-        retention_filter["period"] = filters_dict["period"]
-
-    if retention_filter:
-        query_dict["retentionFilter"] = retention_filter
 
 
 def can_visualize_insight(insight: dict) -> bool:
     """
     Check if an insight can be visualized (has query or convertible filters).
-
-    Args:
-        insight: Insight dictionary from database
-
-    Returns:
-        True if insight can be visualized, False otherwise
     """
     # Has query - can visualize
     if insight.get("insight__query"):
@@ -268,7 +74,7 @@ def can_visualize_insight(insight: dict) -> bool:
     # Has filters that can be converted - can visualize
     insight_filters = insight.get("insight__filters")
     if insight_filters:
-        converted = convert_legacy_filters_to_query(insight_filters)
+        converted = convert_filters_to_query(insight_filters)
         return converted is not None
 
     return False
@@ -276,22 +82,128 @@ def can_visualize_insight(insight: dict) -> bool:
 
 def get_insight_type_from_filters(filters: str | dict) -> Optional[str]:
     """
-    Extract insight type from legacy filters.
-
-    Args:
-        filters: Legacy filter dictionary or JSON string
-
-    Returns:
-        Insight type string or None if not found
+    Extract insight type from filters.
     """
+    filters_dict = _parse_filters(filters)
+    return filters_dict.get("insight", "TRENDS") if filters_dict else None
+
+
+def _parse_filters(filters: str | dict) -> Optional[dict[str, Any]]:
+    """Parse filters from string or dict format."""
     try:
         if isinstance(filters, str):
-            filters_dict = json.loads(filters)
+            return json.loads(filters)
         elif isinstance(filters, dict):
-            filters_dict = filters
-        else:
-            return None
-
-        return filters_dict.get("insight", "TRENDS")
+            return filters
     except Exception:
         return None
+
+
+def _add_optional_fields(target: dict, source: dict, field_mappings: dict[str, str]) -> None:
+    """Add optional fields from source to target using field mappings."""
+    for source_key, target_key in field_mappings.items():
+        if source_key in source:
+            target[target_key] = source[source_key]
+
+
+def _create_series_item(item: dict, kind: str, math_support: bool = True) -> dict[str, Any]:
+    """Create a series item for events or actions."""
+    series_item = {"kind": kind}
+
+    if kind == "EventsNode":
+        series_item["event"] = item.get("id")
+        if math_support:
+            series_item["math"] = item.get("math", "total")
+    else:  # ActionsNode
+        series_item["id"] = item.get("id")
+        if math_support:
+            series_item["math"] = item.get("math", "total")
+
+    optional_fields = {
+        "name": "name",
+        "custom_name": "custom_name",
+        "math_property": "math_property",
+        "properties": "properties",
+    }
+    _add_optional_fields(series_item, item, optional_fields)
+
+    return series_item
+
+
+def _convert_trends_filters(filters_dict: dict[str, Any], query_dict: dict[str, Any]) -> None:
+    """Convert trends-specific filters to query format."""
+    series = []
+    for event in filters_dict.get("events", []):
+        series.append(_create_series_item(event, "EventsNode", math_support=True))
+    for action in filters_dict.get("actions", []):
+        series.append(_create_series_item(action, "ActionsNode", math_support=True))
+
+    if series:
+        query_dict["series"] = series
+
+    # Trends filter
+    trends_filter = {}
+    trends_fields = {
+        "display": "display",
+        "formula": "formula",
+        "show_legend": "showLegend",
+        "show_values_on_series": "showValuesOnSeries",
+    }
+    _add_optional_fields(trends_filter, filters_dict, trends_fields)
+
+    if trends_filter:
+        query_dict["trendsFilter"] = trends_filter
+
+    if filters_dict.get("compare"):
+        query_dict["compareFilter"] = {"compare": filters_dict["compare"]}
+
+    # Breakdown filter
+    breakdown_filter = {}
+    breakdown_fields = {
+        "breakdown": "breakdown",
+        "breakdown_type": "breakdown_type",
+        "breakdown_limit": "breakdown_limit",
+    }
+    _add_optional_fields(breakdown_filter, filters_dict, breakdown_fields)
+
+    if breakdown_filter:
+        query_dict["breakdownFilter"] = breakdown_filter
+
+
+def _convert_funnels_filters(filters_dict: dict[str, Any], query_dict: dict[str, Any]) -> None:
+    """Convert funnels-specific filters to query format."""
+    series = []
+    for event in filters_dict.get("events", []):
+        series.append(_create_series_item(event, "EventsNode", math_support=False))
+    for action in filters_dict.get("actions", []):
+        series.append(_create_series_item(action, "ActionsNode", math_support=False))
+
+    if series:
+        query_dict["series"] = series
+
+    # Funnels filter
+    funnels_filter = {}
+    funnels_fields = {
+        "funnel_window_interval": "funnelWindowInterval",
+        "funnel_window_interval_unit": "funnelWindowIntervalUnit",
+        "breakdown_attribution_type": "breakdownAttributionType",
+    }
+    _add_optional_fields(funnels_filter, filters_dict, funnels_fields)
+
+    if funnels_filter:
+        query_dict["funnelsFilter"] = funnels_filter
+
+
+def _convert_retention_filters(filters_dict: dict[str, Any], query_dict: dict[str, Any]) -> None:
+    """Convert retention-specific filters to query format."""
+    retention_filter = {}
+    retention_fields = {
+        "retention_type": "retentionType",
+        "returning_entity": "returningEntity",
+        "target_entity": "targetEntity",
+        "period": "period",
+    }
+    _add_optional_fields(retention_filter, filters_dict, retention_fields)
+
+    if retention_filter:
+        query_dict["retentionFilter"] = retention_filter

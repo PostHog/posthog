@@ -22,7 +22,7 @@ from posthog.schema import (
 )
 from ee.hogai.graph.base import AssistantNode
 from .prompts import INSIGHT_EVALUATION_SYSTEM_PROMPT, ITERATIVE_SEARCH_SYSTEM_PROMPT, ITERATIVE_SEARCH_USER_PROMPT
-from .utils import convert_legacy_filters_to_query
+from .utils import convert_filters_to_query
 
 from posthog.models import InsightViewed
 
@@ -91,7 +91,7 @@ class InsightSearchNode(AssistantNode):
                 # Create visualization messages for the insights to show actual charts
                 messages_to_return = []
 
-                formatted_content = f"**MANDATORY HYPERLINK RULE**: Always use clickable links for insight names. Replace 'Weekly signups' with '[Weekly signups](URL)', 'User Signups' with '[User Signups](Insight URL)', etc.\n\n**Evaluation Result**: {evaluation_result['explanation']}"
+                formatted_content = f"**Evaluation Result**: {evaluation_result['explanation']}"
 
                 messages_to_return.append(
                     AssistantToolCallMessage(
@@ -349,9 +349,9 @@ class InsightSearchNode(AssistantNode):
                 else:
                     return None, None
 
-            # If no query but we have filters, try to convert legacy filters to query
+            # If no query but we have filters, try to convert filters to query
             elif insight_filters:
-                query_dict = convert_legacy_filters_to_query(insight_filters)
+                query_dict = convert_filters_to_query(insight_filters)
                 if not query_dict:
                     return None, None
 
@@ -368,9 +368,6 @@ class InsightSearchNode(AssistantNode):
     def _process_insight_for_evaluation(self, insight: dict, query_executor: AssistantQueryExecutor) -> dict:
         """
         Process an insight for evaluation: convert to query, execute it, and create visualization message.
-
-        Returns:
-            dict with keys: name, insight_id, description, query, filters, results, visualization_message
         """
         insight_info = {
             "name": insight.get("insight__name") or insight.get("insight__derived_name", "Unnamed"),
@@ -510,14 +507,6 @@ class InsightSearchNode(AssistantNode):
                 "visualization_messages": [],
             }
 
-        # Remove duplicates while preserving order
-        # unique_insights = []
-        # seen_ids = set()
-        # for insight_id in selected_insights:
-        #     if insight_id not in seen_ids:
-        #         unique_insights.append(insight_id)
-        #         seen_ids.add(insight_id)
-
         query_executor = AssistantQueryExecutor(self._team, self._utc_now_datetime)
         insights_with_results = []
         visualization_messages = []
@@ -544,33 +533,14 @@ class InsightSearchNode(AssistantNode):
             }
 
         formatted_insights = []
-        insight_hyperlinks = {}  # Store hyperlinks for later use
 
         for _, insight in enumerate(insights_with_results, 1):
-            insight_short_id = None
-            # Find the original insight data to get the short_id for hyperlink
-            original_insight = next(
-                (ins for ins in self._all_insights if ins["insight_id"] == insight["insight_id"]), None
-            )
-            if original_insight:
-                insight_short_id = original_insight.get("insight__short_id")
-
-            insight_url = (
-                f"/project/{self._team.project_id}/insights/{insight_short_id}"
-                if insight_short_id
-                else "URL unavailable"
-            )
-
-            # Store the hyperlink for this insight
-            insight_hyperlinks[insight["name"]] = f"[{insight['name']}]({insight_url})"
-
             formatted_insight = f"""
 **Insight: {insight['name']} (ID: {insight['insight_id']})**
 - Description: {insight['description'] or 'No description'}
 - Query: {insight['query']}
 - Results: {insight['results']}
 - Filters: {insight['filters']}
-- **HYPERLINK FORMAT: [{insight['name']}]({insight_url})**
 """
             formatted_insights.append(formatted_insight)
 
@@ -605,12 +575,6 @@ class InsightSearchNode(AssistantNode):
     def _format_insight_metadata(self, insight: dict) -> str:
         """
         Format insight metadata into a user-friendly string.
-
-        Args:
-            insight: Insight dictionary from _all_insights
-
-        Returns:
-            Formatted metadata string
         """
         metadata_parts = []
 
@@ -665,7 +629,9 @@ class InsightSearchNode(AssistantNode):
         else:
             return ""
 
-    def router(self, state: AssistantState) -> Literal["root"]:
+    def router(self, state: AssistantState) -> Literal["root", "insights"]:
+        if state.root_tool_insight_plan and not state.search_insights_query:
+            return "insights"
         return "root"
 
     @property
