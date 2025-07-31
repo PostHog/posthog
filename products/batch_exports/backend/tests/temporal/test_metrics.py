@@ -136,7 +136,7 @@ async def test_interceptor_calls_histogram_metrics(
             description="Counter tracking every attempt at running an activity",
         )
         mocked_meter.return_value.create_counter.assert_any_call(
-            name="batch_exports_activity_completed_attempts",
+            name="batch_exports_activity_success_attempts",
             description="Counter tracking the attempts it took to complete activities",
         )
 

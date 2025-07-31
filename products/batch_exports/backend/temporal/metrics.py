@@ -111,11 +111,11 @@ class _BatchExportsMetricsActivityInboundInterceptor(ActivityInboundInterceptor)
             )
             attempts_total_counter.add(1)
 
-        attempts_completed_counter = meter.create_counter(
-            name="batch_exports_activity_completed_attempts",
+        attempts_success_counter = meter.create_counter(
+            name="batch_exports_activity_success_attempts",
             description="Counter tracking the attempts it took to complete activities",
         )
-        attempts_completed_counter.add(activity_info.attempt)
+        attempts_success_counter.add(activity_info.attempt)
 
         return result
 
