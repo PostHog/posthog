@@ -8,6 +8,7 @@ import { urls } from 'scenes/urls'
 import { ExternalDataSource, PipelineNodeTab, PipelineStage } from '~/types'
 
 import { revenueAnalyticsSettingsLogic } from './revenueAnalyticsSettingsLogic'
+import { IconPlus } from '@posthog/icons'
 
 const VALID_REVENUE_SOURCES: ExternalDataSource['source_type'][] = ['Stripe']
 
@@ -29,10 +30,25 @@ export function ExternalDataSourceConfiguration({
                 PostHog can display revenue data in our Revenue Analytics product from the following data warehouse
                 sources. You can enable/disable each source to stop it from being used for revenue data.
             </p>
+            <div className="flex flex-col mb-1 items-end w-full">
+                <LemonButton
+                    className="my-1"
+                    ref={buttonRef}
+                    type="primary"
+                    icon={<IconPlus />}
+                    size="small"
+                    onClick={() => {
+                        router.actions.push(urls.pipelineNodeNew(PipelineStage.Source, { source: 'Stripe' }))
+                    }}
+                >
+                    Add new source
+                </LemonButton>
+            </div>
             <LemonTable
                 rowKey={(item) => item.id}
                 loading={dataWarehouseSources === null}
                 dataSource={revenueSources}
+                emptyState="No DWH revenue sources configured yet"
                 columns={[
                     {
                         key: 'source',
@@ -54,7 +70,7 @@ export function ExternalDataSourceConfiguration({
                                         PipelineNodeTab.Schemas
                                     )}
                                 >
-                                    {item.prefix || item.source_type}
+                                    {item.source_type}&nbsp;{item.prefix && `(${item.prefix})`}
                                 </Link>
                             )
                         },
@@ -72,25 +88,6 @@ export function ExternalDataSourceConfiguration({
                                 />
                             )
                         },
-                    },
-                    {
-                        key: 'actions',
-                        width: 0,
-                        title: (
-                            <LemonButton
-                                className="my-1"
-                                ref={buttonRef}
-                                type="primary"
-                                onClick={() => {
-                                    router.actions.push(
-                                        urls.pipelineNodeNew(PipelineStage.Source, { source: 'Stripe' })
-                                    )
-                                }}
-                            >
-                                Add new source
-                            </LemonButton>
-                        ),
-                        render: () => null,
                     },
                 ]}
             />
