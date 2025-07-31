@@ -136,6 +136,10 @@ function CannotConfigureHelpMessage(): JSX.Element {
 
 const helpMessages = [
     {
+        title: 'Cannot configure to my needs',
+        content: <CannotConfigureHelpMessage />,
+    },
+    {
         title: 'Privacy/Legal concerns',
         content: <PrivacyHelpMessage />,
     },
@@ -146,10 +150,6 @@ const helpMessages = [
     {
         title: 'Performance issues',
         content: <PerformanceHelpMessage />,
-    },
-    {
-        title: 'Cannot configure to my needs',
-        content: <CannotConfigureHelpMessage />,
     },
 ]
 
