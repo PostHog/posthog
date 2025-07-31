@@ -183,11 +183,6 @@ field_with_masked_contents: dict[ActivityScope, list[str]] = {
     ],
     "BatchImport": [
         "import_config",
-        "secrets",
-    ],
-    "PersonalAPIKey": [
-        "value",
-        "secure_value",
     ],
     "Subscription": [
         "target_value",
