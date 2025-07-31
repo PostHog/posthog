@@ -27,6 +27,7 @@ from posthog.schema import (
     TestCachedBasicQueryResponse as TheTestCachedBasicQueryResponse,
     IntervalType,
 )
+from products.marketing_analytics.backend.hogql_queries.test.utils import MARKETING_ANALYTICS_SOURCES_MAP_SAMPLE
 from products.revenue_analytics.backend.hogql_queries.test.data.structure import (
     REVENUE_ANALYTICS_CONFIG_SAMPLE_EVENT,
 )
@@ -106,17 +107,7 @@ class TestQueryRunner(BaseTest):
         team.base_currency = CurrencyCode.GBP.value
         team.save()
         config = team.marketing_analytics_config
-        config.sources_map = {
-            "01977f7b-7f29-0000-a028-7275d1a767a4": {
-                "cost": "cost",
-                "date": "date",
-                "clicks": "clicks",
-                "source": "_metadata_launched_at",
-                "campaign": "campaignname",
-                "currency": "USD",
-                "impressions": "impressions",
-            },
-        }
+        config.sources_map = MARKETING_ANALYTICS_SOURCES_MAP_SAMPLE
         config.save()
 
         runner = TestQueryRunner(query={"some_attr": "bla", "tags": {"scene": "foo", "productKey": "bar"}}, team=team)
@@ -143,17 +134,7 @@ class TestQueryRunner(BaseTest):
             "products_modifiers": {
                 "marketing_analytics": {
                     "base_currency": "GBP",
-                    "sources_map": {
-                        "01977f7b-7f29-0000-a028-7275d1a767a4": {
-                            "cost": "cost",
-                            "date": "date",
-                            "clicks": "clicks",
-                            "source": "_metadata_launched_at",
-                            "campaign": "campaignname",
-                            "currency": "USD",
-                            "impressions": "impressions",
-                        },
-                    },
+                    "sources_map": MARKETING_ANALYTICS_SOURCES_MAP_SAMPLE,
                 },
                 "revenue_analytics": {
                     "base_currency": "GBP",
