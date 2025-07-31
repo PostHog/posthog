@@ -1,13 +1,9 @@
 from datetime import datetime
-import json
-from typing import cast
 
 from django.test import override_settings
 from freezegun import freeze_time
 from parameterized import parameterized
-from rest_framework.exceptions import ValidationError
 
-from posthog.constants import ExperimentNoResultsErrorKeys
 from posthog.hogql_queries.experiments.experiment_query_runner import (
     ExperimentQueryRunner,
 )
@@ -524,17 +520,10 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
 
         # Handle cases where filters result in no exposures
         if filter_expected["control_absolute_exposure"] == 0 and filter_expected["test_absolute_exposure"] == 0:
-            with self.assertRaises(ValidationError) as context:
+            with self.assertRaises(ValueError) as context:
                 query_runner.calculate()
 
-            expected_errors = json.dumps(
-                {
-                    ExperimentNoResultsErrorKeys.NO_EXPOSURES: True,
-                    ExperimentNoResultsErrorKeys.NO_CONTROL_VARIANT: True,
-                    ExperimentNoResultsErrorKeys.NO_TEST_VARIANT: True,
-                }
-            )
-            self.assertEqual(cast(list, context.exception.detail)[0], expected_errors)
+            self.assertEqual(str(context.exception), "No control variant found")
         else:
             with freeze_time("2023-01-07"):
                 result = query_runner.calculate()
