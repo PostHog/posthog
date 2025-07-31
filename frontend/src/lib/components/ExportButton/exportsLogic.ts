@@ -14,6 +14,7 @@ import { AnyDataNode } from '~/queries/schema/schema-general'
 import { CohortType, ExportContext, ExportedAssetType, LocalExportContext, SidePanelTab } from '~/types'
 
 import type { exportsLogicType } from './exportsLogicType'
+import { makePrivateLink } from 'scenes/session-recordings/player/share/playerShareLogic'
 
 const POLL_DELAY_MS = 10000
 
@@ -31,6 +32,15 @@ export const exportsLogic = kea<exportsLogicType>([
         addFresh: (exportedAsset: ExportedAssetType) => ({ exportedAsset }),
         removeFresh: (exportedAsset: ExportedAssetType) => ({ exportedAsset }),
         createStaticCohort: (name: string, query: AnyDataNode) => ({ query, name }),
+        startReplayExport: (
+            replayId: string,
+            timestamp?: number,
+            options?: {
+                width?: number
+                css_selector?: string
+                filename?: string
+            }
+        ) => ({ replayId, timestamp, options }),
     }),
 
     connect(() => ({
@@ -108,6 +118,21 @@ export const exportsLogic = kea<exportsLogicType>([
                 lemonToast.dismiss(toastId)
                 lemonToast.error('Cohort save failed')
             }
+        },
+        startReplayExport: async ({ replayId, timestamp, options }) => {
+            const replayUrl = makePrivateLink(replayId, { includeTime: true, time: timestamp ? `${timestamp}` : null })
+
+            const exportData: TriggerExportProps = {
+                export_format: 'image/png',
+                export_context: {
+                    replay_url: replayUrl,
+                    css_selector: options?.css_selector || '.SessionRecordingPlayer',
+                    width: options?.width || 1400,
+                    filename: options?.filename || `replay-${replayId}${timestamp ? `-t${timestamp}` : ''}`,
+                },
+            }
+
+            actions.startExport(exportData)
         },
     })),
 

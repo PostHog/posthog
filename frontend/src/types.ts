@@ -4251,7 +4251,14 @@ export type QueryExportContext = {
     filename?: string
 }
 
-export type ExportContext = OnlineExportContext | LocalExportContext | QueryExportContext
+export interface ReplayExportContext {
+    replay_url: string
+    css_selector?: string
+    width?: number
+    filename?: string
+}
+
+export type ExportContext = OnlineExportContext | LocalExportContext | QueryExportContext | ReplayExportContext
 
 export interface ExportedAssetType {
     id: number

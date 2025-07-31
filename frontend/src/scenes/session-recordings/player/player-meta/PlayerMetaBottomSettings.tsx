@@ -8,7 +8,6 @@ import {
 } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
-import { ScreenShotEditor } from 'lib/components/TakeScreenshot/ScreenShotEditor'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconHeatmap } from 'lib/lemon-ui/icons'
 import { LemonMenuItem } from 'lib/lemon-ui/LemonMenu'
@@ -26,6 +25,7 @@ import {
     PLAYBACK_SPEEDS,
     sessionRecordingPlayerLogic,
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
+import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 
 function SetPlaybackSpeed(): JSX.Element {
     const { speed, sessionPlayerData } = useValues(sessionRecordingPlayerLogic)
@@ -91,19 +91,34 @@ function InspectDOM(): JSX.Element {
 }
 
 function Screenshot(): JSX.Element {
-    const { takeScreenshot } = useActions(sessionRecordingPlayerLogic)
+    const { startReplayExport } = useActions(exportsLogic)
+    const { sessionRecordingId, logicProps } = useValues(sessionRecordingPlayerLogic)
+    const { setPause } = useActions(sessionRecordingPlayerLogic)
+
+    const getCurrentPlayerTime = (): number => {
+        // NOTE: We pull this value at call time as otherwise it would trigger re-renders if pulled from the hook
+        const playerTime = sessionRecordingPlayerLogic.findMounted(logicProps)?.values.currentPlayerTime || 0
+        return Math.floor(playerTime / 1000)
+    }
+
+    const handleScreenshot = (): void => {
+        const timestamp = getCurrentPlayerTime()
+        setPause()
+        startReplayExport(sessionRecordingId, timestamp, {
+            width: 1400,
+            css_selector: '.SessionRecordingPlayer',
+            filename: `replay-${sessionRecordingId}`,
+        })
+    }
 
     return (
-        <>
-            <ScreenShotEditor screenshotKey="replay" />
-            <SettingsButton
-                title="Take a screenshot of the current frame"
-                label="Screenshot"
-                data-attr="screenshot"
-                onClick={takeScreenshot}
-                icon={<IconLlmPromptEvaluation />}
-            />
-        </>
+        <SettingsButton
+            title="Take a screenshot of the current frame"
+            label="Screenshot"
+            data-attr="screenshot"
+            onClick={handleScreenshot}
+            icon={<IconLlmPromptEvaluation />}
+        />
     )
 }
 

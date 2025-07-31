@@ -39,8 +39,8 @@ logger = structlog.get_logger(__name__)
 
 TMP_DIR = "/tmp"  # NOTE: Externalise this to ENV var
 
-ScreenWidth = Literal[800, 1920]
-CSSSelector = Literal[".InsightCard", ".ExportedInsight"]
+ScreenWidth = Literal[800, 1920, 1400]
+CSSSelector = Literal[".InsightCard", ".ExportedInsight", ".SessionRecordingPlayer"]
 
 
 # NOTE: We purposefully DON'T re-use the driver. It would be slightly faster but would keep an in-memory browser
@@ -116,8 +116,16 @@ def _export_to_png(exported_asset: ExportedAsset) -> None:
             url_to_render = absolute_uri(f"/exporter?token={access_token}")
             wait_for_css_selector = ".InsightCard"
             screenshot_width = 1920
+        elif exported_asset.export_context and exported_asset.export_context.get("replay_url"):
+            # Handle replay export using existing token system
+            replay_url = exported_asset.export_context["replay_url"]
+            url_to_render = absolute_uri(f"{replay_url}?token={access_token}")
+            wait_for_css_selector = exported_asset.export_context.get("css_selector", ".SessionRecordingPlayer")
+            screenshot_width = exported_asset.export_context.get("width", 1400)
+
+            logger.info("exporting_replay", replay_url=replay_url, token_preview=access_token[:10])
         else:
-            raise Exception(f"Export is missing required dashboard or insight ID")
+            raise Exception(f"Export is missing required dashboard, insight ID, or replay_url in export_context")
 
         logger.info("exporting_asset", asset_id=exported_asset.id, render_url=url_to_render)
 
@@ -181,7 +189,9 @@ def _screenshot_asset(
         # Get the height of the visualization container specifically
         height = driver.execute_script(
             """
-            const element = document.querySelector('.InsightCard__viz') || document.querySelector('.ExportedInsight__content');
+            const element = document.querySelector('.InsightCard__viz') ||
+                          document.querySelector('.ExportedInsight__content') ||
+                          document.querySelector('.SessionRecordingPlayer');
             if (element) {
                 const rect = element.getBoundingClientRect();
                 return Math.max(rect.height, document.body.scrollHeight);
@@ -191,9 +201,16 @@ def _screenshot_asset(
         )
 
         # For example funnels use a table that can get very wide, so try to get its width
+        # For replay players, check for player width
         width = driver.execute_script(
             """
-            tableElement = document.querySelector('table');
+            // Check for replay player first
+            const replayElement = document.querySelector('.SessionRecordingPlayer');
+            if (replayElement) {
+                return replayElement.offsetWidth;
+            }
+            // Fall back to table width for insights
+            const tableElement = document.querySelector('table');
             if (tableElement) {
                 return tableElement.offsetWidth * 1.5;
             }
@@ -213,7 +230,9 @@ def _screenshot_asset(
         # Get the final height after any dynamic adjustments
         final_height = driver.execute_script(
             """
-            const element = document.querySelector('.InsightCard__viz') || document.querySelector('.ExportedInsight__content');
+            const element = document.querySelector('.InsightCard__viz') ||
+                          document.querySelector('.ExportedInsight__content') ||
+                          document.querySelector('.SessionRecordingPlayer');
             if (element) {
                 const rect = element.getBoundingClientRect();
                 return Math.max(rect.height, document.body.scrollHeight);
