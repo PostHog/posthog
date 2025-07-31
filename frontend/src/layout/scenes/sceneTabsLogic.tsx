@@ -5,6 +5,7 @@ import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLog
 
 import type { sceneTabsLogicType } from './sceneTabsLogicType'
 import { addProjectIdIfMissing } from 'lib/utils/router-utils'
+import { urls } from 'scenes/urls'
 
 export interface SceneTab {
     pathname: string
@@ -12,7 +13,22 @@ export interface SceneTab {
     hash: string
     title: string
     active: boolean
-    persist: boolean
+}
+
+const TAB_STATE_KEY = 'scene-tabs-state'
+const persistTabs = (tabs: SceneTab[]): void => {
+    sessionStorage.setItem(TAB_STATE_KEY, JSON.stringify(tabs))
+}
+const getPersistedTabs: () => SceneTab[] | null = () => {
+    const savedTabs = sessionStorage.getItem(TAB_STATE_KEY)
+    if (savedTabs) {
+        try {
+            return JSON.parse(savedTabs)
+        } catch (e) {
+            console.error('Failed to parse saved tabs from sessionStorage:', e)
+        }
+    }
+    return null
 }
 
 export const sceneTabsLogic = kea<sceneTabsLogicType>([
@@ -26,7 +42,6 @@ export const sceneTabsLogic = kea<sceneTabsLogicType>([
         newTab: true,
         removeTab: (tab: SceneTab) => ({ tab }),
         activateTab: (tab: SceneTab) => ({ tab }),
-        persistTab: (tab: SceneTab) => ({ tab }),
         clickOnTab: (tab: SceneTab) => ({ tab }),
     }),
     reducers({
@@ -36,11 +51,10 @@ export const sceneTabsLogic = kea<sceneTabsLogicType>([
                 setTabs: (_, { tabs }) => tabs,
                 newTab: (state) => {
                     return [
-                        ...state.map((tab) => ({ ...tab, active: false, persist: true })),
+                        ...state.map((tab) => (tab.active ? { ...tab, active: false } : tab)),
                         {
-                            persist: false,
                             active: true,
-                            pathname: '/new',
+                            pathname: addProjectIdIfMissing('/new'),
                             search: '',
                             hash: '',
                             title: 'New tab',
@@ -60,153 +74,115 @@ export const sceneTabsLogic = kea<sceneTabsLogicType>([
                     }
                     return newState
                 },
-                persistTab: (state, { tab }) => {
-                    return state.map((t) => (t === tab && !t.persist ? { ...t, persist: true } : t))
-                },
                 activateTab: (state, { tab }) => {
-                    return state.map((t) =>
-                        t === tab && !t.active ? { ...t, active: true } : t.active ? { ...t, active: false } : t
+                    const newState = state.map((t) =>
+                        t === tab
+                            ? !t.active
+                                ? { ...t, active: true }
+                                : t
+                            : t.active
+                            ? {
+                                  ...t,
+                                  active: false,
+                              }
+                            : t
                     )
+                    return newState
                 },
             },
         ],
     }),
     listeners(({ values, actions }) => ({
+        setTabs: () => persistTabs(values.tabs),
+        newTab: () => {
+            persistTabs(values.tabs)
+            router.actions.push(urls.newTab())
+        },
+        activateTab: () => persistTabs(values.tabs),
+        removeTab: ({ tab }) => {
+            if (tab.active) {
+                const activeTab = values.tabs.find((tab) => tab.active)
+                if (activeTab) {
+                    router.actions.push(activeTab.pathname, activeTab.search, activeTab.hash)
+                } else {
+                    persistTabs(values.tabs)
+                }
+            } else {
+                persistTabs(values.tabs)
+            }
+        },
         clickOnTab: ({ tab }) => {
-            const clickedIndex = values.tabs.findIndex((t) => t === tab)
-            actions.persistTab(tab)
-            // Activate before pushing so that the new title would be attributed to the right tab
-            if (!values.tabs[clickedIndex]?.active) {
+            if (!tab.active) {
                 actions.activateTab(tab)
             }
             router.actions.push(tab.pathname, tab.search, tab.hash)
+            persistTabs(values.tabs)
         },
         push: ({ url, hashInput, searchInput }) => {
             let { pathname, search, hash } = combineUrl(url, searchInput, hashInput)
             pathname = addProjectIdIfMissing(pathname)
-            let existingTabIndex = values.tabs.findIndex(
-                (tab) => tab.pathname === pathname && tab.search === search && tab.hash === hash && tab.active
-            )
-            if (existingTabIndex === -1) {
-                existingTabIndex = values.tabs.findIndex(
-                    (tab) => tab.pathname === pathname && tab.search === search && tab.hash === hash
-                )
-            }
-            if (existingTabIndex !== -1) {
+
+            const activeTabIndex = values.tabs.findIndex((tab) => tab.active)
+            if (activeTabIndex !== -1) {
                 actions.setTabs(
                     values.tabs.map((tab, i) =>
-                        i === existingTabIndex ? { ...tab, active: true } : { ...tab, active: false }
+                        i === activeTabIndex
+                            ? { ...tab, active: true, pathname, search, hash }
+                            : tab.active
+                            ? {
+                                  ...tab,
+                                  active: false,
+                              }
+                            : tab
                     )
                 )
             } else {
-                const notPersistedTabIndex = values.tabs.findIndex((t) => !t.persist)
-                if (notPersistedTabIndex === -1) {
-                    actions.setTabs([
-                        ...values.tabs,
-                        {
-                            persist: false,
-                            active: true,
-                            pathname,
-                            search,
-                            hash,
-                            title: 'Loading...',
-                        },
-                    ])
-                } else {
-                    actions.setTabs(
-                        values.tabs.map((tab, i) =>
-                            i === notPersistedTabIndex
-                                ? { ...tab, active: true, pathname, search, hash }
-                                : { ...tab, active: false }
-                        )
-                    )
-                }
+                actions.setTabs([...values.tabs, { active: true, pathname, search, hash, title: 'Loading...' }])
             }
+            persistTabs(values.tabs)
         },
-        locationChanged: ({ pathname, search, hash, method }) => {
-            if (method === 'REPLACE') {
-                const activeTabIndex = values.tabs.findIndex((tab) => tab.active)
-                const notPersistedTabIndex = values.tabs.findIndex((tab) => !tab.persist)
-                if (activeTabIndex === -1) {
-                    if (notPersistedTabIndex === -1) {
-                        actions.setTabs([
-                            ...values.tabs,
-                            {
-                                persist: false,
-                                active: true,
-                                pathname,
-                                search,
-                                hash,
-                                title: 'Loading...',
-                            },
-                        ])
-                    } else {
-                        actions.setTabs(
-                            values.tabs.map((tab, i) =>
-                                i === notPersistedTabIndex
-                                    ? {
-                                          ...tab,
-                                          active: true,
-                                          pathname,
-                                          search,
-                                          hash,
-                                      }
-                                    : { ...tab, active: false }
-                            )
-                        )
-                    }
-                } else {
-                    actions.setTabs(
-                        values.tabs.map((tab, i) =>
-                            i === activeTabIndex ? { ...tab, pathname, search, hash } : { ...tab, active: false }
-                        )
-                    )
-                }
-            } else if (method === 'PUSH' || method === 'POP') {
-                const existingTabIndex = values.tabs.findIndex(
-                    (tab) => tab.pathname === pathname && tab.search === search && tab.hash === hash
-                )
-                if (existingTabIndex !== -1) {
-                    actions.setTabs(
-                        values.tabs.map((tab, i) =>
-                            i === existingTabIndex ? { ...tab, active: true } : { ...tab, active: false }
-                        )
-                    )
-                } else {
-                    const notPersistedTabIndex = values.tabs.findIndex((t) => !t.persist)
-                    if (notPersistedTabIndex === -1) {
-                        actions.setTabs([
-                            ...values.tabs,
-                            {
-                                persist: false,
-                                active: true,
-                                pathname,
-                                search,
-                                hash,
-                                title: 'Loading...',
-                            },
-                        ])
-                    } else {
-                        actions.setTabs(
-                            values.tabs.map((tab, i) =>
-                                i === notPersistedTabIndex
-                                    ? { ...tab, active: true, pathname, search, hash }
-                                    : { ...tab, active: false }
-                            )
-                        )
-                    }
-                }
+        locationChanged: ({ pathname, search, hash, routerState }) => {
+            pathname = addProjectIdIfMissing(pathname)
+            if (routerState?.tabs) {
+                actions.setTabs(routerState.tabs)
+                return
             }
+            const activeTabIndex = values.tabs.findIndex((tab) => tab.active)
+            if (activeTabIndex !== -1) {
+                actions.setTabs(
+                    values.tabs.map((tab, i) =>
+                        i === activeTabIndex
+                            ? { ...tab, active: true, pathname, search, hash }
+                            : tab.active
+                            ? {
+                                  ...tab,
+                                  active: false,
+                              }
+                            : tab
+                    )
+                )
+            } else {
+                actions.setTabs([...values.tabs, { active: true, pathname, search, hash, title: 'Loading...' }])
+            }
+            persistTabs(values.tabs)
         },
     })),
-    subscriptions(({ actions, values }) => ({
+    subscriptions(({ actions, values, cache }) => ({
         title: (title) => {
+            // this fires before afterMount below, so... doing the logic here
+            if (!cache.tagsLoaded) {
+                const savedTabs = getPersistedTabs()
+                if (savedTabs) {
+                    actions.setTabs(savedTabs)
+                }
+                cache.tagsLoaded = true
+            }
+
             const activeIndex = values.tabs.findIndex((t) => t.active)
             if (activeIndex === -1) {
                 const { currentLocation } = router.values
                 actions.setTabs([
                     {
-                        persist: false,
                         active: true,
                         pathname: currentLocation.pathname,
                         search: currentLocation.search,
@@ -219,12 +195,19 @@ export const sceneTabsLogic = kea<sceneTabsLogicType>([
             }
         },
     })),
-    afterMount(({ actions, values }) => {
+    afterMount(({ actions, cache, values }) => {
+        // this logic is fired above in "title", but keeping here just in case
+        if (!cache.tagsLoaded) {
+            const savedTabs = getPersistedTabs()
+            if (savedTabs) {
+                actions.setTabs(savedTabs)
+            }
+            cache.tagsLoaded = true
+        }
         if (values.tabs.length === 0) {
             const { currentLocation } = router.values
             actions.setTabs([
                 {
-                    persist: false,
                     active: true,
                     pathname: currentLocation.pathname,
                     search: currentLocation.search,
