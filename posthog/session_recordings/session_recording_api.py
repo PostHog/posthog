@@ -518,8 +518,19 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
 
         try:
             with tracer.start_as_current_span("list_recordings", kind=trace.SpanKind.SERVER):
-                trace.get_current_span().set_attribute("team_id", self.team_id)
-                trace.get_current_span().set_attribute("distinct_id", user_distinct_id or "unknown")
+                try:
+                    trace.get_current_span().set_attribute("team_id", self.team_id)
+                    trace.get_current_span().set_attribute("distinct_id", user_distinct_id or "unknown")
+                    trace.get_current_span().set_attribute(
+                        "is_personal_api_key",
+                        isinstance(request.successful_authenticator, PersonalAPIKeyAuthentication),
+                    )
+                except Exception as e:
+                    # if this fails, we don't want to fail the request
+                    # so we log it and continue
+                    posthoganalytics.capture_exception(
+                        e, distinct_id=user_distinct_id or "unknown", properties={"while": "setting tracing attributes"}
+                    )
 
                 with tracer.start_as_current_span("convert_filters"):
                     query = filter_from_params_to_query(request.GET.dict())
