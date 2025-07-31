@@ -198,18 +198,4 @@ export const groupsListLogic = kea<groupsListLogicType>([
             actions.setQueryWasModified(false)
         }
     }),
-    // Similar to permanentlyMount, except with try/catch
-    (logic) => {
-        afterMount(() => {
-            if (!logic.cache._permanentMount) {
-                logic.cache._permanentMount = true
-                try {
-                    // In test environment, this mounting will fail
-                    logic.wrapper.mount()
-                } catch {
-                    console.warn('Logic failed to mount.')
-                }
-            }
-        })(logic)
-    },
 ])
