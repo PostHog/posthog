@@ -12,8 +12,9 @@ import { userLogic } from 'scenes/userLogic'
 
 import { activationLogic, ActivationTask } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
 import { deleteFromTree } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
-import { AvailableFeature, Breadcrumb, ProgressStatus, Survey } from '~/types'
+import { AvailableFeature, Breadcrumb, ProductKey, ProgressStatus, Survey } from '~/types'
 
+import { ProductIntentContext } from 'lib/utils/product-intents'
 import type { surveysLogicType } from './surveysLogicType'
 import { billingLogic } from 'scenes/billing/billingLogic'
 
@@ -100,15 +101,7 @@ function updateSurvey(surveys: Survey[], id: string, updatedSurvey: Survey): Sur
 export const surveysLogic = kea<surveysLogicType>([
     path(['scenes', 'surveys', 'surveysLogic']),
     connect(() => ({
-        values: [
-            userLogic,
-            ['hasAvailableFeature'],
-            teamLogic,
-            ['currentTeam', 'currentTeamLoading'],
-            billingLogic,
-            ['billing'],
-        ],
-        actions: [teamLogic, ['loadCurrentTeam'], billingLogic, ['loadBilling']],
+
     })),
     actions({
         setIsAppearanceModalOpen: (isOpen: boolean) => ({ isOpen }),
@@ -118,7 +111,7 @@ export const surveysLogic = kea<surveysLogicType>([
         loadNextPage: true,
         loadNextSearchPage: true,
     }),
-    loaders(({ values }) => ({
+    loaders(({ values, actions }) => ({
         data: {
             __default: {
                 surveys: [] as Survey[],
@@ -168,16 +161,32 @@ export const surveysLogic = kea<surveysLogicType>([
                 return mergeSearchSurveysData(values.data, response, true)
             },
             deleteSurvey: async (id) => {
-                await api.surveys.delete(id)
-                deleteFromTree('survey', String(id))
+                const surveyId = String(id)
+                await api.surveys.delete(surveyId)
+                deleteFromTree('survey', surveyId)
                 return {
                     ...values.data,
                     surveys: deleteSurvey(values.data.surveys, id),
                     searchSurveys: deleteSurvey(values.data.searchSurveys, id),
                 }
             },
-            updateSurvey: async ({ id, updatePayload }) => {
+            updateSurvey: async ({
+                id,
+                updatePayload,
+                intentContext,
+            }: {
+                id: string
+                updatePayload: any
+                intentContext?: ProductIntentContext
+            }) => {
                 const updatedSurvey = await api.surveys.update(id, { ...updatePayload })
+                if (intentContext) {
+                    actions.addProductIntent({
+                        product_type: ProductKey.SURVEYS,
+                        intent_context: intentContext,
+                        metadata: { survey_id: id },
+                    })
+                }
                 return {
                     ...values.data,
                     surveys: updateSurvey(values.data.surveys, id, updatedSurvey),
@@ -237,9 +246,16 @@ export const surveysLogic = kea<surveysLogicType>([
         ],
     }),
     listeners(({ actions, values }) => ({
-        deleteSurveySuccess: () => {
+        deleteSurveySuccess: (_, __, action) => {
             lemonToast.success('Survey deleted')
             router.actions.push(urls.surveys())
+            actions.addProductIntent({
+                product_type: ProductKey.SURVEYS,
+                intent_context: ProductIntentContext.SURVEY_DELETED,
+                metadata: {
+                    survey_id: String(action.payload),
+                },
+            })
         },
         updateSurveySuccess: () => {
             lemonToast.success('Survey updated')
@@ -332,27 +348,6 @@ export const surveysLogic = kea<surveysLogicType>([
         globalSurveyAppearanceConfigAvailable: [
             (s) => [s.hasAvailableFeature],
             (hasAvailableFeature) => hasAvailableFeature(AvailableFeature.SURVEYS_STYLING),
-        ],
-        surveysHTMLAvailable: [
-            (s) => [s.hasAvailableFeature],
-            (hasAvailableFeature) => hasAvailableFeature(AvailableFeature.SURVEYS_TEXT_HTML),
-        ],
-        surveysMultipleQuestionsAvailable: [
-            (s) => [s.hasAvailableFeature],
-            (hasAvailableFeature) => hasAvailableFeature(AvailableFeature.SURVEYS_MULTIPLE_QUESTIONS),
-        ],
-        surveysRecurringScheduleAvailable: [
-            (s) => [s.hasAvailableFeature],
-            (hasAvailableFeature) => hasAvailableFeature(AvailableFeature.SURVEYS_RECURRING),
-        ],
-        surveysEventsAvailable: [
-            (s) => [s.hasAvailableFeature],
-            (hasAvailableFeature) => hasAvailableFeature(AvailableFeature.SURVEYS_EVENTS),
-        ],
-        surveysActionsAvailable: [
-            (s) => [s.hasAvailableFeature],
-            (hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean) =>
-                hasAvailableFeature(AvailableFeature.SURVEYS_ACTIONS),
         ],
         showSurveysDisabledBanner: [
             (s) => [s.currentTeam],

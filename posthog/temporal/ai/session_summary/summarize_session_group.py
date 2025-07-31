@@ -10,11 +10,14 @@ import temporalio
 from asgiref.sync import async_to_sync
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 from django.conf import settings
-from ee.hogai.session_summaries.constants import FAILED_SESSION_SUMMARIES_MIN_RATIO
-from ee.session_recordings.session_summary.input_data import add_context_and_filter_events, get_team
-from ee.session_recordings.session_summary.llm.consume import get_llm_single_session_summary
-from ee.session_recordings.session_summary.patterns.output_data import EnrichedSessionGroupSummaryPatternsList
-from ee.session_recordings.session_summary.summarize_session import (
+from ee.hogai.session_summaries.constants import (
+    FAILED_SESSION_SUMMARIES_MIN_RATIO,
+    FAILED_PATTERNS_EXTRACTION_MIN_RATIO,
+)
+from ee.hogai.session_summaries.session.input_data import add_context_and_filter_events, get_team
+from ee.hogai.session_summaries.llm.consume import get_llm_single_session_summary
+from ee.hogai.session_summaries.session_group.patterns import EnrichedSessionGroupSummaryPatternsList
+from ee.hogai.session_summaries.session.summarize_session import (
     ExtraSummaryContext,
     SingleSessionSummaryLlmInputs,
     SessionSummaryDBData,
@@ -25,11 +28,13 @@ from posthog import constants
 from posthog.models.team.team import Team
 from posthog.schema import CachedSessionBatchEventsQueryResponse
 from posthog.session_recordings.constants import DEFAULT_TOTAL_EVENTS_PER_QUERY
-from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
+from posthog.session_recordings.queries_to_replace.session_replay_events import SessionReplayEvents
 from posthog.sync import database_sync_to_async
 from posthog.temporal.ai.session_summary.activities.patterns import (
     assign_events_to_patterns_activity,
+    combine_patterns_from_chunks_activity,
     extract_session_group_patterns_activity,
+    split_session_summaries_into_chunks_for_patterns_extraction_activity,
 )
 from posthog.hogql_queries.ai.session_batch_events_query_runner import (
     SessionBatchEventsQueryRunner,
@@ -47,6 +52,7 @@ from posthog.redis import get_async_client
 from posthog.temporal.ai.session_summary.types.group import (
     SessionGroupSummaryInputs,
     SessionGroupSummaryOfSummariesInputs,
+    SessionGroupSummaryPatternsExtractionChunksInputs,
 )
 from posthog.temporal.ai.session_summary.types.single import SingleSessionSummaryInputs
 from posthog.temporal.common.base import PostHogWorkflow
@@ -386,29 +392,130 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
             raise ApplicationError(exception_message)
         return session_inputs
 
+    @staticmethod
+    async def _run_patterns_extraction_chunk(inputs: SessionGroupSummaryOfSummariesInputs) -> None | Exception:
+        """
+        Run and handle pattern extraction for a chunk of sessions to avoid one activity failing the whole group.
+        """
+        try:
+            await temporalio.workflow.execute_activity(
+                extract_session_group_patterns_activity,
+                inputs,
+                start_to_close_timeout=timedelta(minutes=30),
+                retry_policy=RetryPolicy(maximum_attempts=3),
+            )
+            return None
+        except Exception as err:  # Activity retries exhausted
+            # Let caller handle the error
+            return err
+
+    async def _run_patterns_extraction(
+        self,
+        inputs: SessionGroupSummaryOfSummariesInputs,
+    ) -> list[str] | None:
+        """Extract patterns from session summaries using chunking if needed."""
+        # Execute chunking activity to split sessions based on token count
+        chunks = await temporalio.workflow.execute_activity(
+            split_session_summaries_into_chunks_for_patterns_extraction_activity,
+            inputs,
+            start_to_close_timeout=timedelta(minutes=5),
+            retry_policy=RetryPolicy(maximum_attempts=3),
+        )
+        # If a single chunk is returned, use the activity directly, as it should cover all the sessions, so combination step is not needed
+        if len(chunks) == 1:
+            result = await self._run_patterns_extraction_chunk(inputs)
+            if isinstance(result, Exception):
+                raise result
+            return None
+        # Process chunks in parallel
+        chunk_tasks = {}
+        async with asyncio.TaskGroup() as tg:
+            for chunk_session_ids in chunks:
+                # Keep only session inputs related to sessions in this chunk
+                chunk_inputs = [
+                    input for input in inputs.single_session_summaries_inputs if input.session_id in chunk_session_ids
+                ]
+                chunk_state_id = ",".join(chunk_session_ids)
+                chunk_summaries_input = SessionGroupSummaryOfSummariesInputs(
+                    single_session_summaries_inputs=chunk_inputs,
+                    user_id=inputs.user_id,
+                    extra_summary_context=inputs.extra_summary_context,
+                    redis_key_base=inputs.redis_key_base,
+                )
+                # Generate Redis key to store patterns extracted from sessions in this chunk
+                chunk_redis_key = generate_state_key(
+                    key_base=inputs.redis_key_base,
+                    label=StateActivitiesEnum.SESSION_GROUP_EXTRACTED_PATTERNS,
+                    state_id=chunk_state_id,
+                )
+                # Extract patterns through LLM (one activity per chunk)
+                chunk_tasks[chunk_redis_key] = (
+                    tg.create_task(self._run_patterns_extraction_chunk(chunk_summaries_input)),
+                    chunk_session_ids,
+                )
+        # Check for failures
+        redis_keys_of_chunks_to_combine = []
+        session_ids_with_patterns_extracted = []
+        for chunk_redis_key, (task, chunk_session_ids) in chunk_tasks.items():
+            res = task.result()
+            if isinstance(res, Exception):
+                temporalio.workflow.logger.warning(
+                    f"Pattern extraction failed for chunk {chunk_redis_key} containing sessions {chunk_session_ids}: {res}"
+                )
+                continue
+            # Store only chunks of sessions were extracted successfully
+            redis_keys_of_chunks_to_combine.append(chunk_redis_key)
+            session_ids_with_patterns_extracted.extend(chunk_session_ids)
+        # Check failure ratio
+        if len(redis_keys_of_chunks_to_combine) < len(chunks) * FAILED_PATTERNS_EXTRACTION_MIN_RATIO:
+            raise ApplicationError(
+                f"Too many chunks failed during pattern extraction: "
+                f"{len(chunks) - len(redis_keys_of_chunks_to_combine)}/{len(chunks)} chunks failed"
+            )
+        # If enough chunks succeeded - combine patterns extracted from chunks in a single list
+        await temporalio.workflow.execute_activity(
+            combine_patterns_from_chunks_activity,
+            SessionGroupSummaryPatternsExtractionChunksInputs(
+                redis_keys_of_chunks_to_combine=redis_keys_of_chunks_to_combine,
+                session_ids=session_ids_with_patterns_extracted,
+                user_id=inputs.user_id,
+                redis_key_base=inputs.redis_key_base,
+                extra_summary_context=inputs.extra_summary_context,
+            ),
+            start_to_close_timeout=timedelta(minutes=10),
+            retry_policy=RetryPolicy(maximum_attempts=3),
+        )
+        return session_ids_with_patterns_extracted
+
     @temporalio.workflow.run
     async def run(self, inputs: SessionGroupSummaryInputs) -> EnrichedSessionGroupSummaryPatternsList:
         db_session_inputs = await self._fetch_session_group_data(inputs)
         summaries_session_inputs = await self._run_summaries(db_session_inputs)
-
-        # Extract patterns from session summaries
-        await temporalio.workflow.execute_activity(
-            extract_session_group_patterns_activity,
+        # Extract patterns from session summaries (with chunking if needed)
+        session_ids_to_process = await self._run_patterns_extraction(
             SessionGroupSummaryOfSummariesInputs(
                 single_session_summaries_inputs=summaries_session_inputs,
                 user_id=inputs.user_id,
                 extra_summary_context=inputs.extra_summary_context,
                 redis_key_base=inputs.redis_key_base,
-            ),
-            start_to_close_timeout=timedelta(minutes=30),
-            retry_policy=RetryPolicy(maximum_attempts=3),
+            )
         )
-
+        # If no session ids returned - then all the session ids got patterns extracted and cached successfully
+        if session_ids_to_process is None:
+            # Keeping all the initial sessions
+            single_session_summaries_inputs = summaries_session_inputs
+        # If specific ids returned - then patterns were extracted for session chunks, and combined,
+        # so we need to continue specifically with sessions that succeeded
+        else:
+            # Keep only sessions that got patterns extracted
+            single_session_summaries_inputs = [
+                x for x in summaries_session_inputs if x.session_id in session_ids_to_process
+            ]
         # Assign events to patterns
         patterns_assignments = await temporalio.workflow.execute_activity(
             assign_events_to_patterns_activity,
             SessionGroupSummaryOfSummariesInputs(
-                single_session_summaries_inputs=summaries_session_inputs,
+                single_session_summaries_inputs=single_session_summaries_inputs,
                 user_id=inputs.user_id,
                 extra_summary_context=inputs.extra_summary_context,
                 redis_key_base=inputs.redis_key_base,

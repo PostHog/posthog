@@ -1,10 +1,10 @@
 from copy import deepcopy
 import dataclasses
-from posthog.cdp.templates.hog_function_template import HogFunctionTemplate, HogFunctionTemplateMigrator
+from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC, HogFunctionTemplateMigrator
 
 # Based off of https://customer.io/docs/api/track/#operation/entity
 
-template: HogFunctionTemplate = HogFunctionTemplate(
+template: HogFunctionTemplateDC = HogFunctionTemplateDC(
     status="stable",
     free=False,
     type="destination",
@@ -13,7 +13,8 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     description="Identify or track events against customers in Customer.io",
     icon_url="/static/services/customerio.png",
     category=["Email Marketing"],
-    hog="""
+    code_language="hog",
+    code="""
 let action := inputs.action
 let name := event.event
 
@@ -224,6 +225,8 @@ class TemplateCustomerioMigrator(HogFunctionTemplateMigrator):
     @classmethod
     def migrate(cls, obj):
         hf = deepcopy(dataclasses.asdict(template))
+        hf["hog"] = hf["code"]
+        del hf["code"]
 
         host = obj.config.get("host", "track.customer.io")
         events_to_send = obj.config.get("eventsToSend")

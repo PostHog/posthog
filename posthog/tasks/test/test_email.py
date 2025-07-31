@@ -250,6 +250,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
                     "type": "destination",
                     "succeeded": 95,
                     "failed": 5,
+                    "failure_rate": 5.0,
                     "url": "http://localhost:8000/project/1/pipeline/destinations/test-hog-function-1",
                 },
                 {
@@ -258,6 +259,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
                     "type": "transformation",
                     "succeeded": 200,
                     "failed": 50,
+                    "failure_rate": 20.0,
                     "url": "http://localhost:8000/project/1/pipeline/destinations/test-hog-function-2",
                 },
             ],
@@ -285,6 +287,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
                     "type": "destination",
                     "succeeded": 1000,
                     "failed": 50000,
+                    "failure_rate": 98.0,
                     "url": "http://localhost:8000/project/1/pipeline/destinations/test-hog-function-1",
                 },
                 {
@@ -293,6 +296,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
                     "type": "transformation",
                     "succeeded": 1500000,
                     "failed": 25000,
+                    "failure_rate": 1.6,
                     "url": "http://localhost:8000/project/1/pipeline/destinations/test-hog-function-2",
                 },
                 {
@@ -301,6 +305,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
                     "type": "destination",
                     "succeeded": 75000,
                     "failed": 3500,
+                    "failure_rate": 4.5,
                     "url": "http://localhost:8000/project/1/pipeline/destinations/test-hog-function-3",
                 },
                 {
@@ -309,6 +314,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
                     "type": "destination",
                     "succeeded": 2000000,
                     "failed": 150000,
+                    "failure_rate": 7.0,
                     "url": "http://localhost:8000/project/1/pipeline/destinations/test-hog-function-4",
                 },
                 {
@@ -317,6 +323,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
                     "type": "transformation",
                     "succeeded": 500000,
                     "failed": 12000,
+                    "failure_rate": 2.3,
                     "url": "http://localhost:8000/project/1/pipeline/destinations/test-hog-function-5",
                 },
             ],
@@ -368,6 +375,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
                     "type": "destination",
                     "succeeded": 1000,
                     "failed": 50000,
+                    "failure_rate": 98.0,
                     "url": "http://localhost:8000/project/1/pipeline/destinations/test-hog-function-1",
                 },
                 {
@@ -376,6 +384,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
                     "type": "transformation",
                     "succeeded": 1500000,
                     "failed": 25000,
+                    "failure_rate": 1.6,
                     "url": "http://localhost:8000/project/1/pipeline/destinations/test-hog-function-2",
                 },
             ],
@@ -464,6 +473,92 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         assert len(mocked_email_messages) == 1
         assert mocked_email_messages[0].send.call_count == 1
         assert mocked_email_messages[0].html_body
+
+        # Reset mocked messages
+        mocked_email_messages.clear()
+
+        # Test 4: Using '*' in allowlist - should send email to all teams with failures
+        with self.settings(HOG_FUNCTIONS_DAILY_DIGEST_TEAM_IDS=["*"]):
+            send_hog_functions_daily_digest()
+
+        assert len(mocked_email_messages) == 1
+        assert mocked_email_messages[0].send.call_count == 1
+        assert mocked_email_messages[0].html_body
+
+        # Reset mocked messages
+        mocked_email_messages.clear()
+
+        # Test 5: Test notification settings - user with plugin_disabled: False should not receive email
+        self._create_user("test2@posthog.com")
+        self.user.partial_notification_settings = {"plugin_disabled": False}
+        self.user.save()
+
+        send_hog_functions_daily_digest()
+        # Should only be sent to user2 (user1 has notifications disabled)
+        assert mocked_email_messages[0].to == [{"recipient": "test2@posthog.com", "raw_email": "test2@posthog.com"}]
+
+        # Test 6: Test notification settings - user with plugin_disabled: True should receive email
+        self.user.partial_notification_settings = {"plugin_disabled": True}
+        self.user.save()
+
+        send_hog_functions_daily_digest()
+        # Should now be sent to both users
+        assert len(mocked_email_messages[1].to) == 2
+
+    def test_send_hog_functions_digest_email_with_test_email_override(self, MockEmailMessage: MagicMock) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+
+        # Create users for testing
+        self._create_user("test2@posthog.com")
+        self._create_user("override@posthog.com")
+
+        # Disable notifications for the main user to verify override bypasses settings
+        self.user.partial_notification_settings = {"plugin_disabled": False}
+        self.user.save()
+
+        digest_data = {
+            "team_id": self.team.id,
+            "functions": [
+                {
+                    "id": "test-hog-function-1",
+                    "name": "Test Function 1",
+                    "type": "destination",
+                    "succeeded": 95,
+                    "failed": 5,
+                    "failure_rate": 5.0,
+                    "url": "http://localhost:8000/project/1/pipeline/destinations/test-hog-function-1",
+                },
+            ],
+        }
+
+        # Test with valid email override (user is member of org) - should send only to override email
+        send_hog_functions_digest_email(digest_data, test_email_override="override@posthog.com")
+
+        assert len(mocked_email_messages) == 1
+        assert mocked_email_messages[0].send.call_count == 1
+        # Should only be sent to the override email, not to other team members
+        assert len(mocked_email_messages[0].to) == 1
+        assert mocked_email_messages[0].to[0]["raw_email"] == "override@posthog.com"
+        assert mocked_email_messages[0].html_body
+
+        # Reset mocked messages
+        mocked_email_messages.clear()
+
+        # Test with invalid email override (user not member of org) - should not send email
+        send_hog_functions_digest_email(digest_data, test_email_override="invalid@example.com")
+
+        # No email should be sent since invalid@example.com is not a member of the organization
+        assert len(mocked_email_messages) == 0
+
+        # Test without email override - should follow normal notification settings
+        send_hog_functions_digest_email(digest_data)
+
+        # Should be sent to test2 and override user (both have notifications enabled), but not to main user
+        assert len(mocked_email_messages) == 1
+        assert len(mocked_email_messages[0].to) == 2
+        sent_emails = {recipient["raw_email"] for recipient in mocked_email_messages[0].to}
+        assert "test2@posthog.com" in sent_emails
+        assert "override@posthog.com" in sent_emails
 
     def test_send_hog_functions_daily_digest_no_eligible_functions(self, MockEmailMessage: MagicMock) -> None:
         from posthog.test.fixtures import create_app_metric2

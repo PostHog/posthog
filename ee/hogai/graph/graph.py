@@ -1,11 +1,12 @@
 from collections.abc import Hashable
-from typing import Literal, Optional, cast
+from typing import Literal, Optional, cast, Generic
 
 from langchain_core.runnables.base import RunnableLike
 from langgraph.graph.state import StateGraph
 
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
 from ee.hogai.graph.query_planner.nodes import QueryPlannerNode, QueryPlannerToolsNode
+from ee.hogai.graph.billing.nodes import BillingNode
 from ee.hogai.graph.title_generator.nodes import TitleGeneratorNode
 from ee.hogai.utils.types import AssistantNodeName, AssistantState
 from posthog.models.team.team import Team
@@ -35,21 +36,21 @@ from .retention.nodes import (
 from .root.nodes import RootNode, RootNodeTools
 from .sql.nodes import SQLGeneratorNode, SQLGeneratorToolsNode
 from .trends.nodes import TrendsGeneratorNode, TrendsGeneratorToolsNode
-
+from .base import StateType
 from .insights.nodes import InsightSearchNode
 
 global_checkpointer = DjangoCheckpointer()
 
 
-class BaseAssistantGraph:
+class BaseAssistantGraph(Generic[StateType]):
     _team: Team
     _user: User
     _graph: StateGraph
 
-    def __init__(self, team: Team, user: User):
+    def __init__(self, team: Team, user: User, state_type: type[StateType]):
         self._team = team
         self._user = user
-        self._graph = StateGraph(AssistantState)
+        self._graph = StateGraph(state_type)
         self._has_start_node = False
 
     def add_edge(self, from_node: AssistantNodeName, to_node: AssistantNodeName):
@@ -68,7 +69,10 @@ class BaseAssistantGraph:
         return self._graph.compile(checkpointer=checkpointer or global_checkpointer)
 
 
-class InsightsAssistantGraph(BaseAssistantGraph):
+class InsightsAssistantGraph(BaseAssistantGraph[AssistantState]):
+    def __init__(self, team: Team, user: User):
+        super().__init__(team, user, AssistantState)
+
     def add_rag_context(self):
         builder = self._graph
         self._has_start_node = True
@@ -214,7 +218,10 @@ class InsightsAssistantGraph(BaseAssistantGraph):
         return self.add_query_creation_flow().add_query_executor().compile(checkpointer=checkpointer)
 
 
-class AssistantGraph(BaseAssistantGraph):
+class AssistantGraph(BaseAssistantGraph[AssistantState]):
+    def __init__(self, team: Team, user: User):
+        super().__init__(team, user, AssistantState)
+
     def add_root(
         self,
         path_map: Optional[dict[Hashable, AssistantNodeName]] = None,
@@ -224,7 +231,7 @@ class AssistantGraph(BaseAssistantGraph):
             "insights": AssistantNodeName.INSIGHTS_SUBGRAPH,
             "search_documentation": AssistantNodeName.INKEEP_DOCS,
             "root": AssistantNodeName.ROOT,
-            "memory_onboarding": AssistantNodeName.MEMORY_ONBOARDING,
+            "billing": AssistantNodeName.BILLING,
             "end": AssistantNodeName.END,
             "insights_search": AssistantNodeName.INSIGHTS_SEARCH,
         }
@@ -363,6 +370,13 @@ class AssistantGraph(BaseAssistantGraph):
         builder.add_edge(AssistantNodeName.TITLE_GENERATOR, end_node)
         return self
 
+    def add_billing(self):
+        builder = self._graph
+        billing_node = BillingNode(self._team, self._user)
+        builder.add_node(AssistantNodeName.BILLING, billing_node)
+        builder.add_edge(AssistantNodeName.BILLING, AssistantNodeName.ROOT)
+        return self
+
     def add_insights_search(self, end_node: AssistantNodeName = AssistantNodeName.END):
         builder = self._graph
         path_map = {
@@ -388,6 +402,7 @@ class AssistantGraph(BaseAssistantGraph):
             .add_root()
             .add_insights()
             .add_inkeep_docs()
+            .add_billing()
             .add_insights_search()
             .compile(checkpointer=checkpointer)
         )

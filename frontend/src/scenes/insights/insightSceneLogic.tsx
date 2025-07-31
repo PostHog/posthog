@@ -230,6 +230,11 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                     ? {
                           activity_scope: ActivityScope.INSIGHT,
                           activity_item_id: `${insight.id}`,
+                          // when e.g. constructing URLs for an insight we don't use the id,
+                          // so we also store the short id
+                          activity_item_context: {
+                              short_id: `${insight.short_id}`,
+                          },
                           access_control_resource: 'insight',
                           access_control_resource_id: `${insight.id}`,
                       }
@@ -337,8 +342,9 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
 
             if (
                 currentScene?.activeScene === Scene.Insight &&
-                currentScene.activeSceneLogic?.values.insightId === insightId &&
-                currentScene.activeSceneLogic?.values.mode === insightMode
+                currentScene.activeSceneLogic &&
+                (currentScene.activeSceneLogic as BuiltLogic<insightSceneLogicType>).values.insightId === insightId &&
+                (currentScene.activeSceneLogic as BuiltLogic<insightSceneLogicType>).values.insightMode === insightMode
             ) {
                 // If nothing about the scene has changed, don't do anything
                 return

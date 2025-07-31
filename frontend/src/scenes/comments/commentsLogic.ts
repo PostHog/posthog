@@ -8,10 +8,12 @@ import { CommentType } from '~/types'
 
 import type { commentsLogicType } from './commentsLogicType'
 import { sidePanelDiscussionLogic } from '~/layout/navigation-3000/sidepanel/panels/discussion/sidePanelDiscussionLogic'
+import { isEmptyObject } from 'lib/utils'
 
 export type CommentsLogicProps = {
     scope: CommentType['scope']
     item_id?: CommentType['item_id']
+    item_context?: CommentType['item_context']
     disabled?: boolean
 }
 
@@ -104,11 +106,19 @@ export const commentsLogic = kea<commentsLogicType>([
                 sendComposedContent: async () => {
                     const existingComments = values.comments ?? []
 
+                    let itemContext: Record<string, any> | undefined = {
+                        ...values.itemContext?.context,
+                        ...props.item_context,
+                    }
+                    if (isEmptyObject(itemContext)) {
+                        itemContext = undefined
+                    }
+
                     const newComment = await api.comments.create({
                         content: values.composedComment,
                         scope: props.scope,
                         item_id: props.item_id,
-                        item_context: values.itemContext?.context,
+                        item_context: itemContext,
                         source_comment: values.replyingCommentId ?? undefined,
                     })
 

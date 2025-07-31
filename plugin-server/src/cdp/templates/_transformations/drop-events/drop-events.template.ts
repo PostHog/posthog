@@ -9,7 +9,8 @@ export const template: HogFunctionTemplate = {
     description: 'Drop events based on defined filters.',
     icon_url: '/static/hedgehog/builder-hog-01.png',
     category: ['Custom'],
-    hog: `
+    code_language: 'hog',
+    code: `
 return null`,
     inputs_schema: [],
     filters: {

@@ -17,7 +17,7 @@ from rest_framework.response import Response
 
 from posthog.api.app_metrics2 import AppMetricsMixin
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
-from posthog.api.hog_function_template import HogFunctionTemplateSerializer, HogFunctionTemplates
+from posthog.api.hog_function_template import HogFunctionTemplateSerializer
 from posthog.api.log_entries import LogEntryMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
@@ -43,8 +43,7 @@ from posthog.models.hog_functions.hog_function import (
 )
 from posthog.models.plugin import TranspilerError
 from posthog.plugins.plugin_server_api import create_hog_invocation_test
-from django.conf import settings
-from posthog.models.hog_function_template import HogFunctionTemplate as DBHogFunctionTemplate
+from posthog.models.hog_function_template import HogFunctionTemplate
 
 # Maximum size of HOG code as a string in bytes (100KB)
 MAX_HOG_CODE_SIZE_BYTES = 100 * 1024
@@ -63,6 +62,7 @@ class HogFunctionStatusSerializer(serializers.Serializer):
 class HogFunctionMinimalSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
     status = HogFunctionStatusSerializer(read_only=True, required=False, allow_null=True)
+    template = HogFunctionTemplateSerializer(read_only=True)
 
     class Meta:
         model = HogFunction
@@ -178,37 +178,36 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         self.context["function_type"] = data["type"]
         self.context["encrypted_inputs"] = instance.encrypted_inputs if instance else {}
 
-        template = HogFunctionTemplates.template(data["template_id"]) if data["template_id"] else None
-        if not template:
-            properties = {"team_id": team.id, "template_id": data.get("template_id")}
-            if instance and instance.id:
-                properties["hog_function_id"] = instance.id
-            capture_exception(
-                Exception(f"No template found for id '{data['template_id']}'"), additional_properties=properties
-            )
+        template = None
+        if data["template_id"]:
+            template = HogFunctionTemplate.get_template(data["template_id"])
+            if not template:
+                properties = {"team_id": team.id, "template_id": data.get("template_id")}
+                if instance and instance.id:
+                    properties["hog_function_id"] = instance.id
+                capture_exception(
+                    Exception(f"No template found for id '{data['template_id']}'"), additional_properties=properties
+                )
 
-        if data["type"] == "transformation":
-            if not settings.HOG_TRANSFORMATIONS_CUSTOM_ENABLED:
-                if not template:
-                    raise serializers.ValidationError(
-                        {"template_id": "Transformation functions must be created from a template."}
-                    )
-        elif not has_addon:
+                raise serializers.ValidationError({"template_id": f"No template found for id '{data['template_id']}'"})
+
+        if data["type"] != "transformation" and not has_addon:
+            if not template:
+                raise serializers.ValidationError(
+                    {"template_id": "The Data Pipelines addon is required to create custom functions."}
+                )
+
             if not bypass_addon_check:
                 # If they don't have the addon, they can only use free templates and can't modify them
-                if not template:
-                    raise serializers.ValidationError(
-                        {"template_id": "The Data Pipelines addon is required to create custom functions."}
-                    )
-
                 if not template.free and data["type"] != "internal_destination" and not instance:
                     raise serializers.ValidationError(
                         {"template_id": "The Data Pipelines addon is required for this template."}
                     )
 
             # Without the addon you can't deviate from the template
-            data["hog"] = template.hog
+            data["hog"] = template.code
             data["inputs_schema"] = template.inputs_schema
+
         if is_create:
             # Set defaults for new functions
             data["inputs_schema"] = data.get("inputs_schema") or []
@@ -218,9 +217,9 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             # Handle template values
             template_id = data.get("template_id")
             if template_id:
-                template = HogFunctionTemplates.template(template_id)
+                template = HogFunctionTemplate.objects.get(template_id=data["template_id"])
                 if template:
-                    data["hog"] = data.get("hog") or template.hog
+                    data["hog"] = data.get("hog") or template.code
                     data["inputs_schema"] = data.get("inputs_schema") or template.inputs_schema
                     data["inputs"] = data.get("inputs") or {}
                     data["icon_url"] = data.get("icon_url") or template.icon_url
@@ -329,7 +328,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
 
         template_id = validated_data.get("template_id")
         if template_id:
-            db_template = DBHogFunctionTemplate.get_template(template_id)
+            db_template = HogFunctionTemplate.objects.get(template_id=template_id)
             if not db_template:
                 raise serializers.ValidationError({"template_id": f"No template found for id '{template_id}'"})
             validated_data["hog_function_template"] = db_template

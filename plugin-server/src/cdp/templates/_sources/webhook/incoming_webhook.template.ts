@@ -9,7 +9,8 @@ export const template: HogFunctionTemplate = {
     description: 'Capture an event via a custom incoming webhook',
     icon_url: '/static/services/webhook.svg',
     category: ['Custom'],
-    hog: `
+    code_language: 'hog',
+    code: `
 
 if(inputs.debug) {
   print('Incoming request:', request.body)
@@ -26,17 +27,31 @@ if(notEmpty(inputs.auth_header) and notEquals(inputs.auth_header, request.header
 }
 
 if(empty(inputs.event)) {
-  throw Error('"event" cannot be empty')
+  return {
+    'httpResponse': {
+      'status': 400,
+      'body': {
+        'error': '"event" could not be parsed correctly',
+      }
+    }
+  }
 }
 
 if(empty(inputs.distinct_id)) {
-  throw Error('"distinct_id" cannot be empty')
+  return {
+    'httpResponse': {
+      'status': 400,
+      'body': {
+        'error': '"distinct_id" could not be parsed correctly',
+      }
+    }
+  }
 }
 
 postHogCapture({
-    'event': inputs.event,
-    'distinct_id': inputs.distinct_id,
-    'properties': inputs.properties
+  'event': inputs.event,
+  'distinct_id': inputs.distinct_id,
+  'properties': inputs.properties
 })
 `,
     inputs_schema: [

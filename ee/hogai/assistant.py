@@ -27,6 +27,7 @@ from ee.hogai.graph import (
     TrendsGeneratorNode,
 )
 from ee.hogai.graph.base import AssistantNode
+from ee.hogai.graph.filter_options.types import FilterOptionsNodeName
 from ee.hogai.tool import CONTEXTUAL_TOOL_NAME_TO_TOOL
 from ee.hogai.utils.exceptions import GenerationCanceled
 from ee.hogai.utils.helpers import find_last_ui_context, should_output_assistant_message
@@ -42,6 +43,7 @@ from ee.hogai.utils.state import (
     validate_value_update,
 )
 from ee.hogai.utils.types import (
+    AssistantMessageOrStatusUnion,
     AssistantMessageUnion,
     AssistantMode,
     AssistantNodeName,
@@ -60,6 +62,7 @@ from posthog.schema import (
     AssistantMessageType,
     FailureMessage,
     HumanMessage,
+    MaxBillingContext,
     ReasoningMessage,
     VisualizationMessage,
 )
@@ -77,25 +80,28 @@ VISUALIZATION_NODES_TOOL_CALL_MODE: dict[AssistantNodeName, type[AssistantNode]]
     AssistantNodeName.QUERY_EXECUTOR: QueryExecutorNode,
 }
 
-STREAMING_NODES: set[AssistantNodeName] = {
+STREAMING_NODES: set[AssistantNodeName | FilterOptionsNodeName] = {
     AssistantNodeName.ROOT,
     AssistantNodeName.INKEEP_DOCS,
     AssistantNodeName.MEMORY_ONBOARDING,
     AssistantNodeName.MEMORY_INITIALIZER,
     AssistantNodeName.MEMORY_ONBOARDING_ENQUIRY,
     AssistantNodeName.MEMORY_ONBOARDING_FINALIZE,
+    FilterOptionsNodeName.FILTER_OPTIONS,
 }
 """Nodes that can stream messages to the client."""
 
 
-VERBOSE_NODES = STREAMING_NODES | {
+VERBOSE_NODES: set[AssistantNodeName | FilterOptionsNodeName] = STREAMING_NODES | {
     AssistantNodeName.MEMORY_INITIALIZER_INTERRUPT,
     AssistantNodeName.ROOT_TOOLS,
+    FilterOptionsNodeName.FILTER_OPTIONS_TOOLS,
 }
 """Nodes that can send messages to the client."""
 
-THINKING_NODES = {
+THINKING_NODES: set[AssistantNodeName | FilterOptionsNodeName] = {
     AssistantNodeName.QUERY_PLANNER,
+    FilterOptionsNodeName.FILTER_OPTIONS,
 }
 """Nodes that pass on thinking messages to the client. Current implementation assumes o3/o4 style of reasoning summaries!"""
 
@@ -109,6 +115,7 @@ class Assistant:
     _user: User
     _contextual_tools: dict[str, Any]
     _conversation: Conversation
+    _session_id: Optional[str]
     _latest_message: Optional[HumanMessage]
     _state: Optional[AssistantState]
     _callback_handler: Optional[BaseCallbackHandler]
@@ -118,6 +125,7 @@ class Assistant:
     """Like a message chunk, but specifically for the reasoning headline (and just a plain string)."""
     _last_reasoning_headline: Optional[str]
     """Last emittted reasoning headline, to be able to carry it over."""
+    _billing_context: Optional[MaxBillingContext]
 
     def __init__(
         self,
@@ -127,14 +135,17 @@ class Assistant:
         new_message: Optional[HumanMessage] = None,
         mode: AssistantMode = AssistantMode.ASSISTANT,
         user: User,
+        session_id: Optional[str] = None,
         contextual_tools: Optional[dict[str, Any]] = None,
         is_new_conversation: bool = False,
         trace_id: Optional[str | UUID] = None,
         tool_call_partial_state: Optional[AssistantState] = None,
+        billing_context: Optional[MaxBillingContext] = None,
     ):
         self._team = team
         self._contextual_tools = contextual_tools or {}
         self._user = user
+        self._session_id = session_id
         self._conversation = conversation
         self._latest_message = new_message.model_copy(deep=True, update={"id": str(uuid4())}) if new_message else None
         self._is_new_conversation = is_new_conversation
@@ -156,6 +167,8 @@ class Assistant:
                 properties={
                     "conversation_id": str(self._conversation.id),
                     "is_first_conversation": is_new_conversation,
+                    "$session_id": self._session_id,
+                    "assistant_mode": mode.value,
                 },
                 trace_id=trace_id,
             )
@@ -166,6 +179,7 @@ class Assistant:
         self._custom_update_ids = set()
         self._reasoning_headline_chunk = None
         self._last_reasoning_headline = None
+        self._billing_context = billing_context
 
     async def ainvoke(self) -> list[tuple[Literal[AssistantEventType.MESSAGE], AssistantMessageUnion]]:
         """Returns all messages in once without streaming."""
@@ -220,7 +234,7 @@ class Assistant:
                                     self._custom_update_ids.add(message.id)
                                 elif message.id in self._custom_update_ids:
                                     continue
-                            yield AssistantEventType.MESSAGE, cast(AssistantMessageUnion, message)
+                            yield AssistantEventType.MESSAGE, cast(AssistantMessageOrStatusUnion, message)
 
                 # Check if the assistant has requested help.
                 state = await self._graph.aget_state(config)
@@ -258,7 +272,16 @@ class Assistant:
 
                 if not isinstance(e, GenerationCanceled):
                     logger.exception("Error in assistant stream", error=e)
-                    posthoganalytics.capture_exception(e)
+                    posthoganalytics.capture_exception(
+                        e,
+                        distinct_id=self._user.distinct_id if self._user else None,
+                        properties={
+                            "$session_id": self._session_id,
+                            "$ai_trace_id": self._trace_id,
+                            "thread_id": self._conversation.id,
+                            "tag": "max_ai",
+                        },
+                    )
 
                     # This is an unhandled error, so we just stop further generation at this point
                     snapshot = await self._graph.aget_state(config)
@@ -271,18 +294,6 @@ class Assistant:
                     last_assistant_message=last_ai_message, last_visualization_message=last_viz_message
                 )
 
-    @property
-    def _initial_state(self) -> AssistantState:
-        if self._latest_message and self._mode == AssistantMode.ASSISTANT:
-            return AssistantState(
-                messages=[self._latest_message],
-                start_id=self._latest_message.id,
-            )
-        else:
-            return AssistantState(
-                messages=[],
-            )
-
     def _get_config(self) -> RunnableConfig:
         callbacks = [self._callback_handler] if self._callback_handler else None
         config: RunnableConfig = {
@@ -291,10 +302,17 @@ class Assistant:
             "configurable": {
                 "thread_id": self._conversation.id,
                 "trace_id": self._trace_id,
+                "session_id": self._session_id,
                 "distinct_id": self._user.distinct_id if self._user else None,
                 "contextual_tools": self._contextual_tools,
                 "team": self._team,
                 "user": self._user,
+                "billing_context": self._billing_context,
+                # Metadata to be sent to PostHog SDK (error tracking, etc).
+                "sdk_metadata": {
+                    "assistant_mode": self._mode.value,
+                    "tag": "max_ai",
+                },
             },
         }
         return config
@@ -309,12 +327,26 @@ class Assistant:
             if saved_state.graph_status == "interrupted":
                 self._state = saved_state
                 await self._graph.aupdate_state(
-                    config, PartialAssistantState(messages=[self._latest_message], graph_status="resumed")
+                    config,
+                    PartialAssistantState(
+                        messages=[self._latest_message], graph_status="resumed", query_generation_retry_count=0
+                    ),
                 )
                 # Return None to indicate that we want to continue the execution from the interrupted point.
                 return None
 
-        initial_state = self._initial_state
+        # Append the new message and reset some fields to their default values.
+        if self._latest_message and self._mode == AssistantMode.ASSISTANT:
+            initial_state = AssistantState(
+                messages=[self._latest_message],
+                start_id=self._latest_message.id,
+                query_generation_retry_count=0,
+                graph_status=None,
+                rag_context=None,
+            )
+        else:
+            initial_state = AssistantState(messages=[])
+
         if self._tool_call_partial_state:
             for key, value in self._tool_call_partial_state.model_dump().items():
                 setattr(initial_state, key, value)
@@ -322,10 +354,10 @@ class Assistant:
         return initial_state
 
     async def _node_to_reasoning_message(
-        self, node_name: AssistantNodeName, input: AssistantState
+        self, node_name: AssistantNodeName | FilterOptionsNodeName, input: AssistantState
     ) -> Optional[ReasoningMessage]:
         match node_name:
-            case AssistantNodeName.QUERY_PLANNER:
+            case AssistantNodeName.QUERY_PLANNER | FilterOptionsNodeName.FILTER_OPTIONS:
                 substeps: list[str] = []
                 if input:
                     if intermediate_steps := input.intermediate_steps:
@@ -382,11 +414,15 @@ class Assistant:
                     return ReasoningMessage(content="Coming up with an insight")
                 if tool_call.name == "search_documentation":
                     return ReasoningMessage(content="Checking PostHog docs")
+                if tool_call.name == "retrieve_billing_information":
+                    return ReasoningMessage(content="Checking your billing data")
                 # This tool should be in CONTEXTUAL_TOOL_NAME_TO_TOOL, but it might not be in the rare case
                 # when the tool has been removed from the backend since the user's frontent was loaded
                 ToolClass = CONTEXTUAL_TOOL_NAME_TO_TOOL.get(tool_call.name)  # type: ignore
                 return ReasoningMessage(
-                    content=ToolClass().thinking_message if ToolClass else f"Running tool {tool_call.name}"
+                    content=ToolClass(team=self._team, user=self._user).thinking_message
+                    if ToolClass
+                    else f"Running tool {tool_call.name}"
                 )
             case AssistantNodeName.ROOT:
                 ui_context = find_last_ui_context(input.messages)
@@ -423,7 +459,7 @@ class Assistant:
             # Reset chunks when schema validation fails.
             self._chunks = AIMessageChunk(content="")
 
-            node_name = intersected_nodes.pop()
+            node_name: AssistantNodeName | FilterOptionsNodeName = intersected_nodes.pop()
             node_val = state_update[node_name]
             if not isinstance(node_val, PartialAssistantState):
                 return None
@@ -447,12 +483,12 @@ class Assistant:
                 # If update involves new state from a thinking node, we reset the thinking headline to be sure
                 self._reasoning_headline_chunk = None
 
-        return None
+        return [AssistantGenerationStatusEvent(type=AssistantGenerationStatusType.ACK)]
 
     def _process_message_update(self, update: GraphMessageUpdateTuple) -> BaseModel | None:
         langchain_message, langgraph_state = update[1]
         if isinstance(langchain_message, AIMessageChunk):
-            node_name = langgraph_state["langgraph_node"]
+            node_name: AssistantNodeName | FilterOptionsNodeName = langgraph_state["langgraph_node"]
             if node_name in STREAMING_NODES:
                 self._chunks += langchain_message  # type: ignore
                 if node_name == AssistantNodeName.MEMORY_INITIALIZER:

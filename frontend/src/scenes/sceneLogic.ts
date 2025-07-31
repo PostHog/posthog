@@ -4,7 +4,7 @@ import { commandBarLogic } from 'lib/components/CommandBar/commandBarLogic'
 import { BarStatus } from 'lib/components/CommandBar/types'
 import { TeamMembershipLevel } from 'lib/constants'
 import { getRelativeNextPath } from 'lib/utils'
-import { addProjectIdIfMissing, removeProjectIdIfPresent } from 'lib/utils/router-utils'
+import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
 import { withForwardedSearchParams } from 'lib/utils/sceneLogicUtils'
 import posthog from 'posthog-js'
 import {
@@ -198,6 +198,18 @@ export const sceneLogic = kea<sceneLogicType>([
         params: [(s) => [s.sceneParams], (sceneParams): Record<string, string> => sceneParams.params || {}],
         searchParams: [(s) => [s.sceneParams], (sceneParams): Record<string, any> => sceneParams.searchParams || {}],
         hashParams: [(s) => [s.sceneParams], (sceneParams): Record<string, any> => sceneParams.hashParams || {}],
+        productFromUrl: [
+            () => [router.selectors.location],
+            (location: Location): ProductKey | null => {
+                const pathname = location.pathname
+                for (const [productKey, urls] of Object.entries(productUrlMapping)) {
+                    if (urls.some((url) => pathname.includes(url))) {
+                        return productKey as ProductKey
+                    }
+                }
+                return null
+            },
+        ],
     }),
     listeners(({ values, actions, props, selectors }) => ({
         setScene: ({ scene, scrollToTop }, _, __, previousState) => {
@@ -226,14 +238,6 @@ export const sceneLogic = kea<sceneLogicType>([
             }
             if (scene === Scene.MoveToPostHogCloud && preflight?.cloud) {
                 router.actions.replace(urls.projectHomepage())
-                return
-            }
-
-            // Redirect to the scene's canonical pathname if needed
-            const currentPathname = router.values.location.pathname
-            const canonicalPathname = addProjectIdIfMissing(router.values.location.pathname)
-            if (currentPathname !== canonicalPathname) {
-                router.actions.replace(canonicalPathname, router.values.searchParams, router.values.hashParams)
                 return
             }
 

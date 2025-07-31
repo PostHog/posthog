@@ -1,5 +1,4 @@
-from typing import cast
-
+from collections.abc import AsyncGenerator
 import pydantic
 import structlog
 from django.conf import settings
@@ -10,20 +9,24 @@ from rest_framework.mixins import ListModelMixin, RetrieveModelMixin
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.viewsets import GenericViewSet
+from typing import cast
 
 from ee.hogai.api.serializers import ConversationSerializer
-from ee.hogai.assistant import Assistant
+from ee.hogai.stream.conversation_stream import ConversationStreamManager
 from ee.hogai.graph.graph import AssistantGraph
 from ee.hogai.utils.aio import async_to_sync
+from asgiref.sync import async_to_sync as asgi_async_to_sync
 from ee.hogai.utils.sse import AssistantSSESerializer
 from ee.hogai.utils.types import AssistantMode
 from ee.models.assistant import Conversation
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.exceptions import Conflict
 from posthog.models.user import User
 from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
-from posthog.schema import HumanMessage
+from posthog.schema import HumanMessage, MaxBillingContext
+from posthog.temporal.ai.conversation import AssistantConversationRunnerWorkflowInputs
 from posthog.utils import get_instance_region
+from posthog.exceptions import Conflict
+from posthog.exceptions_capture import capture_exception
 
 logger = structlog.get_logger(__name__)
 
@@ -31,13 +34,17 @@ logger = structlog.get_logger(__name__)
 class MessageSerializer(serializers.Serializer):
     content = serializers.CharField(
         required=True,
-        allow_null=True,  # Null content means we're continuing previous generation
+        allow_null=True,  # Null content means we're continuing previous generation or resuming streaming
         max_length=40000,  # Roughly 10k tokens
     )
-    conversation = serializers.UUIDField(required=False)
+    conversation = serializers.UUIDField(
+        required=True
+    )  # this either retrieves an existing conversation or creates a new one
     contextual_tools = serializers.DictField(required=False, child=serializers.JSONField())
     ui_context = serializers.JSONField(required=False)
+    billing_context = serializers.JSONField(required=False)
     trace_id = serializers.UUIDField(required=True)
+    session_id = serializers.CharField(required=False)
 
     def validate(self, data):
         if data["content"] is not None:
@@ -49,9 +56,18 @@ class MessageSerializer(serializers.Serializer):
                 raise serializers.ValidationError("Invalid message content.")
             data["message"] = message
         else:
-            # NOTE: If content is empty, it means we're continuing generation with only the contextual_tools potentially different
+            # NOTE: If content is empty, it means we're resuming streaming or continuing generation with only the contextual_tools potentially different
             # Because we intentionally don't add a HumanMessage, we are NOT updating ui_context here
             data["message"] = None
+        billing_context = data.get("billing_context")
+        if billing_context:
+            try:
+                billing_context = MaxBillingContext.model_validate(billing_context)
+                data["billing_context"] = billing_context
+            except pydantic.ValidationError as e:
+                capture_exception(e)
+                # billing data relies on a lot of legacy code, this might break and we don't want to block the conversation
+                data["billing_context"] = None
         return data
 
 
@@ -96,40 +112,89 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
         return context
 
     def create(self, request: Request, *args, **kwargs):
+        """
+        Unified endpoint that handles both conversation creation and streaming.
+
+        - If message is provided: Start new conversation processing
+        - If no message: Stream from existing conversation
+        """
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        conversation_id = serializer.validated_data.get("conversation")
-        if conversation_id:
+        conversation_id = serializer.validated_data["conversation"]
+
+        has_message = serializer.validated_data.get("content") is not None
+
+        is_new_conversation = False
+        # Safely set the lookup kwarg for potential error handling
+        if self.lookup_url_kwarg:
             self.kwargs[self.lookup_url_kwarg] = conversation_id
-            conversation = self.get_object()
-        else:
-            conversation = self.get_queryset().create(user=request.user, team=self.team)
-        if conversation.is_locked:
-            raise Conflict("Conversation is locked.")
-        assistant = Assistant(
-            self.team,
-            conversation,
-            new_message=serializer.validated_data["message"],
-            user=cast(User, request.user),
+        try:
+            conversation = Conversation.objects.get(id=conversation_id)
+            if conversation.user != request.user or conversation.team != self.team:
+                return Response(
+                    {"error": "Cannot access other users' conversations"}, status=status.HTTP_400_BAD_REQUEST
+                )
+        except Conversation.DoesNotExist:
+            # Conversation doesn't exist, create it if we have a message
+            if not has_message:
+                return Response(
+                    {"error": "Cannot stream from non-existent conversation"}, status=status.HTTP_400_BAD_REQUEST
+                )
+            # Use frontend-provided conversation ID
+            conversation = Conversation.objects.create(
+                user=cast(User, request.user), team=self.team, id=conversation_id
+            )
+            is_new_conversation = True
+
+        is_idle = conversation.status == Conversation.Status.IDLE
+        has_message = serializer.validated_data.get("message") is not None
+
+        if has_message and not is_idle:
+            raise Conflict("Cannot resume streaming with a new message")
+
+        workflow_inputs = AssistantConversationRunnerWorkflowInputs(
+            team_id=self.team_id,
+            user_id=cast(User, request.user).pk,  # Use pk instead of id for User model
+            conversation_id=conversation.id,
+            message=serializer.validated_data["message"].model_dump() if has_message else None,
             contextual_tools=serializer.validated_data.get("contextual_tools"),
-            is_new_conversation=not conversation_id,
+            is_new_conversation=is_new_conversation,
             trace_id=serializer.validated_data["trace_id"],
+            session_id=request.headers.get("X-POSTHOG-SESSION-ID"),  # Relies on posthog-js __add_tracing_headers
             mode=AssistantMode.ASSISTANT,
+            billing_context=serializer.validated_data.get("billing_context"),
         )
 
-        async def async_handler():
-            """Async handler for ASGI servers."""
+        async def async_stream(
+            workflow_inputs: AssistantConversationRunnerWorkflowInputs,
+        ) -> AsyncGenerator[bytes, None]:
             serializer = AssistantSSESerializer()
-            async for event in assistant.astream():
-                yield serializer.dumps(event)
+            stream_manager = ConversationStreamManager(conversation)
+            async for chunk in stream_manager.astream(workflow_inputs):
+                yield serializer.dumps(chunk).encode("utf-8")
 
-        handler = async_handler() if settings.SERVER_GATEWAY_INTERFACE == "ASGI" else async_to_sync(async_handler)
-        return StreamingHttpResponse(handler, content_type="text/event-stream")
+        return StreamingHttpResponse(
+            async_stream(workflow_inputs)
+            if settings.SERVER_GATEWAY_INTERFACE == "ASGI"
+            else async_to_sync(lambda: async_stream(workflow_inputs)),
+            content_type="text/event-stream",
+        )
 
     @action(detail=True, methods=["PATCH"])
     def cancel(self, request: Request, *args, **kwargs):
         conversation = self.get_object()
-        if conversation.status != Conversation.Status.CANCELING:
-            conversation.status = Conversation.Status.CANCELING
-            conversation.save()
+
+        if conversation.status in [Conversation.Status.CANCELING, Conversation.Status.IDLE]:
+            return Response(status=status.HTTP_204_NO_CONTENT)
+
+        async def cancel_workflow():
+            conversation_manager = ConversationStreamManager(conversation)
+            await conversation_manager.cancel_conversation()
+
+        try:
+            asgi_async_to_sync(cancel_workflow)()
+        except Exception as e:
+            logger.exception("Failed to cancel conversation", conversation_id=conversation.id, error=str(e))
+            return Response({"error": "Failed to cancel conversation"}, status=status.HTTP_422_UNPROCESSABLE_ENTITY)
+
         return Response(status=status.HTTP_204_NO_CONTENT)

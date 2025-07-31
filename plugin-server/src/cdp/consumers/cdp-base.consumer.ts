@@ -6,6 +6,7 @@ import { CdpRedis, createCdpRedisPool } from '../redis'
 import { HogExecutorService } from '../services/hog-executor.service'
 import { HogFlowExecutorService } from '../services/hogflows/hogflow-executor.service'
 import { HogFlowManagerService } from '../services/hogflows/hogflow-manager.service'
+import { LegacyPluginExecutorService } from '../services/legacy-plugin-executor.service'
 import { GroupsManagerService } from '../services/managers/groups-manager.service'
 import { HogFunctionManagerService } from '../services/managers/hog-function-manager.service'
 import { HogFunctionTemplateManagerService } from '../services/managers/hog-function-template-manager.service'
@@ -13,6 +14,9 @@ import { PersonsManagerService } from '../services/managers/persons-manager.serv
 import { HogFunctionMonitoringService } from '../services/monitoring/hog-function-monitoring.service'
 import { HogMaskerService } from '../services/monitoring/hog-masker.service'
 import { HogWatcherService } from '../services/monitoring/hog-watcher.service'
+import { HogWatcherService2 } from '../services/monitoring/hog-watcher-2.service'
+import { NativeDestinationExecutorService } from '../services/native-destination-executor.service'
+import { SegmentDestinationExecutorService } from '../services/segment-destination-executor.service'
 
 export interface TeamIDWithConfig {
     teamId: TeamId | null
@@ -25,6 +29,7 @@ export abstract class CdpConsumerBase {
     hogExecutor: HogExecutorService
     hogFlowExecutor: HogFlowExecutorService
     hogWatcher: HogWatcherService
+    hogWatcher2: HogWatcherService2
     hogMasker: HogMaskerService
     personsManager: PersonsManagerService
     groupsManager: GroupsManagerService
@@ -32,6 +37,9 @@ export abstract class CdpConsumerBase {
     hogFunctionMonitoringService: HogFunctionMonitoringService
     redis: CdpRedis
     hogFunctionTemplateManager: HogFunctionTemplateManagerService
+    pluginDestinationExecutorService: LegacyPluginExecutorService
+    nativeDestinationExecutorService: NativeDestinationExecutorService
+    segmentDestinationExecutorService: SegmentDestinationExecutorService
 
     protected kafkaProducer?: KafkaProducerWrapper
     protected abstract name: string
@@ -43,6 +51,7 @@ export abstract class CdpConsumerBase {
         this.hogFunctionManager = new HogFunctionManagerService(hub)
         this.hogFlowManager = new HogFlowManagerService(hub)
         this.hogWatcher = new HogWatcherService(hub, this.redis)
+        this.hogWatcher2 = new HogWatcherService2(hub, this.redis)
         this.hogMasker = new HogMaskerService(this.redis)
         this.hogExecutor = new HogExecutorService(this.hub)
         this.hogFunctionTemplateManager = new HogFunctionTemplateManagerService(this.hub)
@@ -50,6 +59,9 @@ export abstract class CdpConsumerBase {
         this.personsManager = new PersonsManagerService(this.hub)
         this.groupsManager = new GroupsManagerService(this.hub)
         this.hogFunctionMonitoringService = new HogFunctionMonitoringService(this.hub)
+        this.pluginDestinationExecutorService = new LegacyPluginExecutorService(this.hub)
+        this.nativeDestinationExecutorService = new NativeDestinationExecutorService(this.hub)
+        this.segmentDestinationExecutorService = new SegmentDestinationExecutorService(this.hub)
     }
 
     public get service(): PluginServerService {

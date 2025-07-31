@@ -4,7 +4,7 @@ import api from 'lib/api'
 import { MOCK_TEAM_ID } from 'lib/api.mock'
 import { now } from 'lib/dayjs'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
@@ -526,8 +526,8 @@ describe('dashboardLogic', () => {
             })
         })
 
-        describe('reload items', () => {
-            it('reloads all items', async () => {
+        describe('insight refresh', () => {
+            it('manual refresh reloads all insights', async () => {
                 const dashboard = dashboards[5]
                 const insight1 = dashboard.tiles[0].insight!
                 const insight2 = dashboard.tiles[1].insight!
@@ -587,6 +587,70 @@ describe('dashboardLogic', () => {
                         refreshMetrics: {
                             completed: 2,
                             total: 2,
+                        },
+                    })
+            })
+
+            it('automatic refresh reloads stale insights (but not fresh ones)', async () => {
+                const dashboard = dashboards[5]
+                const staleInsight = {
+                    ...dashboard.tiles[0].insight!,
+                    cache_target_age: now().subtract(1, 'minute').toISOString(),
+                }
+                const freshInsight = {
+                    ...dashboard.tiles[1].insight!,
+                    cache_target_age: now().add(1, 'minute').toISOString(),
+                }
+
+                // patch dashboard tiles
+                dashboard.tiles[0].insight = staleInsight
+                dashboard.tiles[1].insight = freshInsight
+
+                await expectLogic(logic, () => {
+                    logic.actions.loadDashboard({
+                        action: DashboardLoadAction.InitialLoad,
+                    })
+                })
+                    .toDispatchActions([
+                        // starts loading
+                        'loadDashboard',
+                        'updateDashboardItems',
+                        // sets the "reloading" status for the stale insight
+                        logic.actionCreators.setRefreshStatuses([staleInsight.short_id], false, true),
+                    ])
+                    .toMatchValues({
+                        refreshStatus: {
+                            [staleInsight.short_id]: {
+                                loading: false,
+                                queued: true,
+                                timer: null,
+                            },
+                            [freshInsight.short_id]: undefined,
+                        },
+                        refreshMetrics: {
+                            completed: 0,
+                            total: 1,
+                        },
+                    })
+                    .toDispatchActionsInAnyOrder([
+                        // and updates the action in the model
+                        (a) =>
+                            a.type === dashboardsModel.actionTypes.updateDashboardInsight &&
+                            a.payload.insight.short_id === staleInsight.short_id,
+                        // no longer reloading
+                        logic.actionCreators.setRefreshStatus(staleInsight.short_id, false),
+                    ])
+                    .toMatchValues({
+                        refreshStatus: {
+                            [staleInsight.short_id]: {
+                                refreshed: true,
+                                timer: expect.any(Date),
+                            },
+                            [freshInsight.short_id]: undefined,
+                        },
+                        refreshMetrics: {
+                            completed: 1,
+                            total: 1,
                         },
                     })
             })
