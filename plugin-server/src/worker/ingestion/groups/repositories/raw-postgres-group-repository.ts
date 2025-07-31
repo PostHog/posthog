@@ -9,7 +9,8 @@ export interface RawPostgresGroupRepository {
         teamId: TeamId,
         groupTypeIndex: GroupTypeIndex,
         groupKey: string,
-        options?: { forUpdate?: boolean; useReadReplica?: boolean }
+        options?: { forUpdate?: boolean; useReadReplica?: boolean },
+        tx?: TransactionClient
     ): Promise<Group | undefined>
 
     insertGroup(
