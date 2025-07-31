@@ -95,20 +95,20 @@ class TestQueryRunner(BaseTest):
     def test_cache_payload(self):
         TestQueryRunner = self.setup_test_query_runner_class()
 
-        # set the pk directly as it affects the hash in the _cache_key call
-        team = Team.objects.create(pk=42, organization=self.organization)
+        team = Team.objects.create(
+            organization=self.organization,
+            base_currency=CurrencyCode.GBP.value,
+        )
 
-        # Basic RevAnalytics config``
-        team.revenue_analytics_config.base_currency = CurrencyCode.GBP.value
-        team.revenue_analytics_config.events = [REVENUE_ANALYTICS_CONFIG_SAMPLE_EVENT]
-        team.revenue_analytics_config.save()
+        # Basic Revenue Analytics config
+        ra_config = team.revenue_analytics_config
+        ra_config.events = [REVENUE_ANALYTICS_CONFIG_SAMPLE_EVENT]
+        ra_config.save()
 
         # Basic Marketing Analytics config
-        team.base_currency = CurrencyCode.GBP.value
-        team.save()
-        config = team.marketing_analytics_config
-        config.sources_map = MARKETING_ANALYTICS_SOURCES_MAP_SAMPLE
-        config.save()
+        ma_config = team.marketing_analytics_config
+        ma_config.sources_map = MARKETING_ANALYTICS_SOURCES_MAP_SAMPLE
+        ma_config.save()
 
         runner = TestQueryRunner(query={"some_attr": "bla", "tags": {"scene": "foo", "productKey": "bar"}}, team=team)
         cache_payload = runner.get_cache_payload()
@@ -134,7 +134,17 @@ class TestQueryRunner(BaseTest):
             "products_modifiers": {
                 "marketing_analytics": {
                     "base_currency": "GBP",
-                    "sources_map": MARKETING_ANALYTICS_SOURCES_MAP_SAMPLE,
+                    "sources_map": {
+                        "01977f7b-7f29-0000-a028-7275d1a767a4": {
+                            "cost": "cost",
+                            "date": "date",
+                            "clicks": "clicks",
+                            "source": "_metadata_launched_at",
+                            "campaign": "campaignname",
+                            "currency": "USD",
+                            "impressions": "impressions",
+                        },
+                    },
                 },
                 "revenue_analytics": {
                     "base_currency": "GBP",
@@ -157,7 +167,7 @@ class TestQueryRunner(BaseTest):
             "limit_context": LimitContext.QUERY,
             "query": {"kind": "TestQuery", "some_attr": "bla"},
             "query_runner": "TestQueryRunner",
-            "team_id": 42,
+            "team_id": team.id,
             "timezone": "UTC",
             "week_start_day": WeekStartDay.SUNDAY,
             "version": 2,
