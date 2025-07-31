@@ -13,7 +13,7 @@ from posthog.models.event.util import bulk_create_events
 from posthog.models.person.util import bulk_create_persons
 from posthog.models.team.team import Team
 from posthog.schema import ActorsQuery, BaseMathType, FunnelsActorsQuery, FunnelsQuery
-from posthog.session_recordings.queries_to_replace.test.session_replay_sql import produce_replay_summary
+from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,

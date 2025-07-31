@@ -7,7 +7,7 @@ from clickhouse_driver import Client
 import pytz
 
 from posthog.session_recordings.models.metadata import RecordingMetadata
-from posthog.session_recordings.queries_to_replace.session_replay_events import SessionReplayEvents
+from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 
 
 def _get_ch_client_local_reads_prod() -> Client:
