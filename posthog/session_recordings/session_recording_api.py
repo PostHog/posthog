@@ -34,7 +34,6 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.utils.encoders import JSONEncoder
 
-import posthog
 from ee.hogai.session_summaries.llm.call import get_openai_client
 from ee.hogai.session_summaries.session.stream import stream_recording_summary
 from posthog.cloud_utils import is_cloud
@@ -61,13 +60,10 @@ from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.session_recordings.models.session_recording_event import (
     SessionRecordingViewed,
 )
-from posthog.session_recordings.queries_to_delete.session_recording_list_from_query import (
-    SessionRecordingListFromQuery as OriginalSessionRecordingListFromQuery,
+from posthog.session_recordings.queries.session_recording_list_from_query import (
+    SessionRecordingListFromQuery,
 )
-from posthog.session_recordings.queries_to_replace.session_recording_list_from_query import (
-    SessionRecordingListFromQuery as RewrittenSessionRecordingListFromQuery,
-)
-from posthog.session_recordings.queries_to_replace.session_replay_events import SessionReplayEvents
+from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 from posthog.session_recordings.realtime_snapshots import (
     get_realtime_snapshots,
     publish_subscription,
@@ -78,6 +74,7 @@ from posthog.session_recordings.utils import clean_prompt_whitespace
 from posthog.settings.session_replay import SESSION_REPLAY_AI_REGEX_MODEL
 from posthog.storage import object_storage, session_recording_v2_object_storage
 from posthog.storage.session_recording_v2_object_storage import BlockFetchError
+from .queries.sub_queries.events_subquery import ReplayFiltersEventsSubQuery
 from ..models.product_intent.product_intent import ProductIntent
 from posthog.models.activity_logging.activity_log import log_activity, Detail
 from loginas.utils import is_impersonated_session
@@ -573,28 +570,10 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
 
         distinct_id = str(cast(User, request.user).distinct_id)
         modifiers = safely_read_modifiers_overrides(distinct_id, self.team)
-        user = cast(User, request.user)
-        use_multiple_sub_queries = (
-            posthoganalytics.feature_enabled(
-                "use-multiple-sub-queries",
-                str(user.distinct_id),
-            )
-            if user
-            else False
-        )
 
-        if use_multiple_sub_queries:
-            results, _, timings = (
-                posthog.session_recordings.queries_to_replace.sub_queries.events_subquery.ReplayFiltersEventsSubQuery(
-                    query=query, team=self.team, hogql_query_modifiers=modifiers
-                ).get_event_ids_for_session()
-            )
-        else:
-            results, _, timings = (
-                posthog.session_recordings.queries_to_delete.sub_queries.events_subquery.ReplayFiltersEventsSubQuery(
-                    query=query, team=self.team, hogql_query_modifiers=modifiers
-                ).get_event_ids_for_session()
-            )
+        results, _, timings = ReplayFiltersEventsSubQuery(
+            query=query, team=self.team, hogql_query_modifiers=modifiers
+        ).get_event_ids_for_session()
 
         response = JsonResponse(data={"results": results})
 
@@ -1504,16 +1483,10 @@ def list_recordings_from_query(
 
         with timer("load_recordings_from_hogql"), posthoganalytics.new_context():
             posthoganalytics.tag("use_multiple_sub_queries", use_multiple_sub_queries)
-            if use_multiple_sub_queries:
-                (ch_session_recordings, more_recordings_available, hogql_timings) = (
-                    RewrittenSessionRecordingListFromQuery(
-                        query=query, team=team, hogql_query_modifiers=modifiers
-                    ).run()
-                )
-            else:
-                (ch_session_recordings, more_recordings_available, hogql_timings) = (
-                    OriginalSessionRecordingListFromQuery(query=query, team=team, hogql_query_modifiers=modifiers).run()
-                )
+
+            (ch_session_recordings, more_recordings_available, hogql_timings) = SessionRecordingListFromQuery(
+                query=query, team=team, hogql_query_modifiers=modifiers
+            ).run()
 
         with timer("build_recordings"):
             recordings_from_clickhouse = SessionRecording.get_or_build_from_clickhouse(team, ch_session_recordings)
