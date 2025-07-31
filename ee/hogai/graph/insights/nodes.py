@@ -665,11 +665,7 @@ class InsightSearchNode(AssistantNode):
         else:
             return ""
 
-    def router(self, state: AssistantState) -> Literal["end", "root", "insights"]:
-        # Check if we need to continue with insight creation after evaluation
-        # if state.root_tool_insight_plan and not state.search_insights_query:
-        if state.root_tool_insight_plan:
-            return "insights"
+    def router(self, state: AssistantState) -> Literal["root"]:
         return "root"
 
     @property
