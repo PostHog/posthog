@@ -121,7 +121,7 @@ services:
         restart: on-failure
 
     kafka:
-        image: docker.redpanda.com/redpandadata/redpanda:v24.1.2
+        image: docker.redpanda.com/redpandadata/redpanda:v25.1.9
         restart: on-failure
         command:
             - redpanda
