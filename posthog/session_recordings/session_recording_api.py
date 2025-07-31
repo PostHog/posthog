@@ -517,7 +517,6 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         user_distinct_id = cast(User, request.user).distinct_id
 
         try:
-            # i think we can override the sample rate by setting context none, but then we also lose previous context
             with tracer.start_as_current_span("list_recordings", kind=trace.SpanKind.SERVER):
                 trace.get_current_span().set_attribute("team_id", self.team_id)
                 trace.get_current_span().set_attribute("distinct_id", user_distinct_id or "unknown")
