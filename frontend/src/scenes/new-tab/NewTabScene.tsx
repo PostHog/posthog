@@ -53,7 +53,7 @@ export function NewTabScene(): JSX.Element {
             </div>
 
             {itemsGrid.map(({ category, types }, catIndex) => (
-                <div className="w-full overflow-auto p-4 px-12 max-w-[880px] m-auto">
+                <div className="w-full overflow-auto p-4 px-12 max-w-[880px] m-auto" key={catIndex}>
                     <div className="px-2 py-8 text-center">{category}</div>
                     <div
                         className="grid gap-12"

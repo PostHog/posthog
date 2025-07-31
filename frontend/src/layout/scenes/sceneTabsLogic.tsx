@@ -131,7 +131,7 @@ export const sceneTabsLogic = kea<sceneTabsLogicType>([
             router.actions.push(tab.pathname, tab.search, tab.hash)
             persistTabs(values.tabs)
         },
-        reoderTabs: () => {
+        reorderTabs: () => {
             persistTabs(values.tabs)
         },
         push: ({ url, hashInput, searchInput }) => {

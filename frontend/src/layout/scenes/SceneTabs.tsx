@@ -43,7 +43,7 @@ export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
                         <Link
                             to={urls.newTab()}
                             className="rounded-none px-2 py-1.5 text-primary hover:text-primary-hover hover:bg-surface-primary focus:text-primary-hover focus:outline-none"
-                            data-attr="sql-editor-new-tab-button"
+                            data-attr="scene-tab-new-button"
                             onClick={(e) => {
                                 e.preventDefault()
                                 newTab()
@@ -96,7 +96,7 @@ function SceneTabComponent({ tab, className, isDragging }: SceneTabProps): JSX.E
             className={cn(
                 'deprecated-space-y-px p-1 flex border-b-2 flex-row items-center gap-1 cursor-pointer',
                 tab.active
-                    ? 'text-primary bg-surface-primary border-b-2 !border-brand-yellow'
+                    ? 'text-primary bg-surface-primary !border-brand-yellow'
                     : 'text-secondary bg-surface-secondary border-transparent',
                 canRemoveTab ? 'pl-3 pr-2' : 'px-3',
                 'hover:bg-surface-primary hover:text-primary-hover focus:outline-none',
