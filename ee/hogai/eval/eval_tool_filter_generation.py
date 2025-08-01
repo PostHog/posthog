@@ -21,15 +21,7 @@ from posthog.schema import (
     EventPropertyFilter,
     PersonPropertyFilter,
 )
-
-TEST_FILTER_OPTIONS_PROMPT = """
-Goal: {change}
-
-Current filters: {current_filters}
-
-DO NOT CHANGE the fields that are not relevant to the change.
-""".strip()
-
+from products.replay.backend.prompts import USER_FILTER_OPTIONS_PROMPT
 
 logger = logging.getLogger(__name__)
 
@@ -58,10 +50,10 @@ def call_search_session_recordings(demo_org_team_user):
         conversation = await Conversation.objects.acreate(team=demo_org_team_user[1], user=demo_org_team_user[2])
 
         # Convert filters to JSON string and use test-specific prompt
-        filters_json = DUMMY_CURRENT_FILTERS.model_dump_json()
+        filters_json = DUMMY_CURRENT_FILTERS.model_dump_json(indent=2)
 
         graph_input = {
-            "instructions": TEST_FILTER_OPTIONS_PROMPT.format(change=change, current_filters=filters_json),
+            "instructions": USER_FILTER_OPTIONS_PROMPT.format(change=change, current_filters=filters_json),
             "output": None,
         }
 
@@ -529,7 +521,7 @@ async def eval_tool_search_session_recordings(call_search_session_recordings, py
 
 
 @pytest.mark.django_db
-async def eval_tool_search_session_recordings_ask_user_for_help(call_search_session_recordings):
+async def eval_tool_search_session_recordings_ask_user_for_help(call_search_session_recordings, pytestconfig):
     await MaxEval(
         experiment_name="tool_search_session_recordings_ask_user_for_help",
         task=call_search_session_recordings,
@@ -537,4 +529,5 @@ async def eval_tool_search_session_recordings_ask_user_for_help(call_search_sess
         data=[
             EvalCase(input="Tell me something about insights", expected="clarify"),
         ],
+        pytestconfig=pytestconfig,
     )

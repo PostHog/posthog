@@ -259,9 +259,9 @@ Below is a refined description for the date fields and their types:
 """.strip()
 
 USER_FILTER_OPTIONS_PROMPT = """
-Goal: {{{change}}}
+Goal: {change}
 
-Current filters: {{{current_filters}}}
+Current filters: {current_filters}
 
 DO NOT CHANGE THE CURRENT FILTERS. ONLY ADD NEW FILTERS or update the existing filters.
 """.strip()

@@ -1,4 +1,5 @@
 import logging
+import json
 from pydantic import BaseModel, Field
 from ee.hogai.graph.taxonomy.nodes import TaxonomyAgentNode, TaxonomyAgentToolsNode
 from ee.hogai.graph.taxonomy.toolkit import TaxonomyAgentToolkit
@@ -100,10 +101,10 @@ class SearchSessionRecordingsTool(MaxTool):
 
     async def _arun_impl(self, change: str) -> tuple[str, MaxRecordingUniversalFilters]:
         # Create the graph
+
         graph = SessionReplayFilterOptionsGraph(team=self._team, user=self._user)
-        instructions = USER_FILTER_OPTIONS_PROMPT.format(
-            change=change, current_filters=self.context.get("current_filters", {})
-        )
+        pretty_filters = json.dumps(self.context.get("current_filters", {}), indent=2)
+        instructions = USER_FILTER_OPTIONS_PROMPT.format(change=change, current_filters=pretty_filters)
         # Set the context
         graph_context = {
             "instructions": instructions,
