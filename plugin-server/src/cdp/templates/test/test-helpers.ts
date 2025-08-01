@@ -49,7 +49,7 @@ const compileObject = async (obj: any): Promise<any> => {
     }
 }
 
-const compileInputs = async (
+export const compileInputs = async (
     template: HogFunctionTemplate | NativeTemplate,
     _inputs: Record<string, any>
 ): Promise<Record<string, CyclotronInputType>> => {

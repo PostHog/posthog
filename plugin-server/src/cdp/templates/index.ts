@@ -49,7 +49,7 @@ export const HOG_FUNCTION_TEMPLATES_TRANSFORMATIONS: HogFunctionTemplate[] = [
     urlNormalizationTemplate,
 ]
 
-export const NATIVE_HOG_FUNCTIONS: NativeTemplate[] = [nativeWebhookTemplate].map((plugin) => ({
+export const NATIVE_HOG_FUNCTIONS: (HogFunctionTemplate & NativeTemplate)[] = [nativeWebhookTemplate].map((plugin) => ({
     ...plugin,
     code_language: 'javascript',
     code: 'return event;',
@@ -92,5 +92,5 @@ export const HOG_FUNCTION_TEMPLATES: HogFunctionTemplate[] = [
     ...HOG_FUNCTION_TEMPLATES_TRANSFORMATIONS_DEPRECATED,
     ...HOG_FUNCTION_TEMPLATES_SOURCES,
     ...HOG_FUNCTION_TEMPLATES_COMING_SOON,
-    ...(NATIVE_HOG_FUNCTIONS as unknown as HogFunctionTemplate[]),
+    ...NATIVE_HOG_FUNCTIONS,
 ]

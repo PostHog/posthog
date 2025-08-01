@@ -51,6 +51,7 @@ ACTIVITIES = [
     fetch_session_data_activity,
     combine_patterns_from_chunks_activity,
     split_session_summaries_into_chunks_for_patterns_extraction_activity,
+    process_conversation_activity,
 ]
 
 __all__ = [
