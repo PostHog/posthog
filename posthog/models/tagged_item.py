@@ -6,6 +6,7 @@ from django.db import models
 from django.db.models import Q, UniqueConstraint
 
 from posthog.models.utils import UUIDModel
+from posthog.models.activity_logging.model_activity import ModelActivityMixin
 
 RELATED_OBJECTS = (
     "dashboard",
@@ -41,7 +42,7 @@ def build_partial_uniqueness_constraint(field: str):
     )
 
 
-class TaggedItem(UUIDModel):
+class TaggedItem(ModelActivityMixin, UUIDModel):
     """
     Taggable describes global tag-object relationships.
     Note: This is an EE only feature, however the model exists in posthog so that it is backwards accessible from all
