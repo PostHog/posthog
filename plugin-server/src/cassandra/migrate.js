@@ -13,6 +13,9 @@ const config = {
         process.env.CASSANDRA_USER && process.env.CASSANDRA_PASSWORD
             ? { username: process.env.CASSANDRA_USER, password: process.env.CASSANDRA_PASSWORD }
             : undefined,
+    protocolOptions: {
+        port: process.env.CASSANDRA_PORT || 9042,
+    },
 }
 
 const client = new cassandra.Client(config)
