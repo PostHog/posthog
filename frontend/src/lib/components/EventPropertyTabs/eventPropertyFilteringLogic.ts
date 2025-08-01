@@ -1,14 +1,12 @@
-import { connect, kea, path, selectors } from 'kea'
+import { connect, kea, selectors, path } from 'kea'
 import { userPreferencesLogic } from 'lib/logic/userPreferencesLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-
-import { CLOUD_INTERNAL_POSTHOG_PROPERTY_KEYS } from '~/taxonomy/taxonomy'
-import { PROPERTY_KEYS } from '~/taxonomy/taxonomy'
+import { CLOUD_INTERNAL_POSTHOG_PROPERTY_KEYS, PROPERTY_KEYS } from '~/taxonomy/taxonomy'
 
 import type { eventPropertyFilteringLogicType } from './eventPropertyFilteringLogicType'
 
 export const eventPropertyFilteringLogic = kea<eventPropertyFilteringLogicType>([
-    path(['scenes', 'session-recordings', 'player', 'inspector', 'components', 'eventPropertyFilteringLogic']),
+    path(['lib', 'components', 'EventPropertyTabs', 'eventPropertyFilteringLogic']),
     connect(() => ({
         values: [userPreferencesLogic, ['hidePostHogPropertiesInTable'], preflightLogic, ['isCloudOrDev']],
     })),
@@ -26,7 +24,8 @@ export const eventPropertyFilteringLogic = kea<eventPropertyFilteringLogicType>(
                             const isPostHogProperty = key.startsWith('$') && PROPERTY_KEYS.includes(key)
                             const isNonDollarPostHogProperty =
                                 isCloudOrDev && CLOUD_INTERNAL_POSTHOG_PROPERTY_KEYS.includes(key)
-                            return !isPostHogProperty && !isNonDollarPostHogProperty
+                            const isSystemProperty = props[key]?.system
+                            return !isPostHogProperty && !isNonDollarPostHogProperty && !isSystemProperty
                         })
                     )
                 }

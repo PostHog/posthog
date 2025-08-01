@@ -14,6 +14,7 @@ class CoreFilterDefinition(TypedDict):
     type: NotRequired[Literal["String", "Numeric", "DateTime", "Boolean"]]
     ignored_in_assistant: NotRequired[bool]
     virtual: NotRequired[bool]
+    used_for_debug: NotRequired[bool]
 
 
 """
@@ -318,10 +319,73 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
     },
     "event_properties": {
+        "$session_recording_masking": {
+            "label": "Replay config - masking",
+            "description": "The masking configuration for the session recording.",
+            "type": "String",
+            "used_for_debug": True,
+        },
+        "$sdk_debug_session_start": {
+            "label": "Session start",
+            "description": "The timestamp of the session start for the current session id. Not necessarily the same as SDK init time.",
+            "type": "Numeric",
+            "used_for_debug": True,
+        },
+        "$sdk_debug_current_session_duration": {
+            "label": "Current session duration",
+            "description": "The current session duration in milliseconds.",
+            "type": "Numeric",
+            "used_for_debug": True,
+        },
+        "$sdk_debug_replay_event_trigger_status": {
+            "label": "event trigger status",
+            "description": "The status of the recording event trigger.",
+            "examples": ["trigger_disabled", "trigger_pending", "trigger_matched"],
+            "type": "String",
+            "used_for_debug": True,
+        },
+        "$sdk_debug_replay_linked_flag_trigger_status": {
+            "label": "linked flag trigger status",
+            "description": "The status of the linked flag trigger.",
+            "examples": ["trigger_disabled", "trigger_pending", "trigger_matched"],
+            "type": "String",
+            "used_for_debug": True,
+        },
+        "$sdk_debug_replay_remote_trigger_matching_config": {
+            "label": "remote trigger matching config",
+            "description": "Whether to match on all or any triggers.",
+            "examples": ["all", "any"],
+            "type": "String",
+            "used_for_debug": True,
+        },
+        "$sdk_debug_replay_url_trigger_status": {
+            "label": "URL trigger status",
+            "description": "The status of the recording url trigger.",
+            "examples": ["trigger_disabled", "trigger_pending", "trigger_matched"],
+            "type": "String",
+            "used_for_debug": True,
+        },
+        "$initialization_time": {
+            "label": "initialization time",
+            "description": "The iso formatted timestamp of SDK initialization.",
+            "type": "String",
+            "used_for_debug": True,
+        },
+        "$transformations_skipped": {
+            "label": "Transformations skipped",
+            "description": "Array of transformations skipped during ingestion.",
+            "used_for_debug": True,
+        },
+        "$transformations_succeeded": {
+            "label": "Transformations succeeded",
+            "description": "Array of transformations that succeeded during ingestion.",
+            "used_for_debug": True,
+        },
         "$config_defaults": {
             "label": "Config defaults",
             "description": "The version of the PostHog config defaults that were used when capturing the event.",
             "type": "String",
+            "used_for_debug": True,
         },
         "$python_runtime": {
             "label": "Python runtime",
@@ -343,6 +407,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "examples": ["100"],
             "system": True,
             "ignored_in_assistant": True,
+            "used_for_debug": True,
         },
         "$sdk_debug_replay_internal_buffer_size": {
             "label": "Replay internal buffer size",
@@ -350,6 +415,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "examples": ["100"],
             "system": True,
             "ignored_in_assistant": True,
+            "used_for_debug": True,
         },
         "$sdk_debug_retry_queue_size": {
             "label": "Retry queue size",
@@ -357,12 +423,14 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "examples": ["100"],
             "system": True,
             "ignored_in_assistant": True,
+            "used_for_debug": True,
         },
         "$last_posthog_reset": {
             "label": "Timestamp of last call to `Reset` in the web sdk",
             "description": "The timestamp of the last call to `Reset` in the web SDK. This can be useful for debugging.",
             "ignored_in_assistant": True,
             "system": True,
+            "used_for_debug": True,
         },
         # do we need distinct_id and $session_duration here in the back end?
         "$copy_type": {
@@ -565,6 +633,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "examples": ["v2"],
             "system": True,
             "ignored_in_assistant": True,
+            "used_for_debug": True,
         },
         "$session_is_sampled": {
             "label": "Whether the session is sampled",
@@ -572,6 +641,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "examples": ["true", "false"],
             "system": True,
             "ignored_in_assistant": True,
+            "used_for_debug": True,
         },
         "$feature_flag_payloads": {
             "label": "Feature flag payloads",
@@ -588,6 +658,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "Remaining rate limit tokens for the posthog-js library client-side rate limiting implementation.",
             "examples": ["100"],
             "ignored_in_assistant": True,
+            "used_for_debug": True,
         },
         "token": {
             "label": "Token",
@@ -732,57 +803,67 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "Config for minimum duration before emitting a session recording.",
             "examples": ["1000"],
             "system": True,
+            "used_for_debug": True,
         },
         "$replay_sample_rate": {
             "label": "Replay config - sample rate",
             "description": "Config for sampling rate of session recordings.",
             "examples": ["0.1"],
             "system": True,
+            "used_for_debug": True,
         },
         "$session_recording_start_reason": {
             "label": "Session recording start reason",
             "description": "Reason for starting the session recording. Useful for e.g. if you have sampling enabled and want to see on batch exported events which sessions have recordings available.",
             "examples": ["sampling_override", "recording_initialized", "linked_flag_match"],
             "system": True,
+            "used_for_debug": True,
         },
         "$session_recording_canvas_recording": {
             "label": "Session recording canvas recording",
             "description": "Session recording canvas capture config.",
             "examples": ['{"enabled": false}'],
             "system": True,
+            "used_for_debug": True,
         },
         "$session_recording_network_payload_capture": {
             "label": "Session recording network payload capture",
             "description": "Session recording network payload capture config.",
             "examples": ['{"recordHeaders": false}'],
             "system": True,
+            "used_for_debug": True,
         },
         "$configured_session_timeout_ms": {
             "label": "Configured session timeout",
             "description": "Configured session timeout in milliseconds.",
             "examples": ["1800000"],
             "system": True,
+            "used_for_debug": True,
         },
         "$replay_script_config": {
             "label": "Replay script config",
             "description": "Sets an alternative recorder script for the web sdk.",
             "examples": ['{"script": "recorder-next"}'],
             "system": True,
+            "used_for_debug": True,
         },
         "$session_recording_url_trigger_activated_session": {
             "label": "Session recording URL trigger activated session",
             "description": "Session recording URL trigger activated session config. Used by posthog-js to track URL activation of session replay.",
             "system": True,
+            "used_for_debug": True,
         },
         "$session_recording_url_trigger_status": {
             "label": "Session recording URL trigger status",
             "description": "Session recording URL trigger status. Used by posthog-js to track URL activation of session replay.",
             "system": True,
+            "used_for_debug": True,
         },
         "$recording_status": {
             "label": "Session recording status",
             "description": "The status of session recording at the time the event was captured",
             "system": True,
+            "used_for_debug": True,
         },
         "$cymbal_errors": {
             "label": "Exception processing errors",
@@ -1084,7 +1165,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "The time taken until the browser's page load event in milliseconds.",
         },
         "$performance_raw": {
-            "label": "Browser performance",
+            "label": "Browser performance (deprecated)",
             "description": "The browser performance entries for navigation (the page), paint, and resources. That were available when the page view event fired",
             "system": True,
         },

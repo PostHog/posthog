@@ -1,4 +1,4 @@
-import { standardDeviation, probit } from 'simple-statistics'
+import { standardDeviation, probit, linearRegression } from 'simple-statistics'
 
 /**
  * Calculates the confidence interval ranges for a given set of values.
@@ -23,4 +23,39 @@ export function ciRanges(values: number[], ci: number = 0.95): [number[], number
     const upper = values.map((v) => v + h)
     const lower = values.map((v) => v - h)
     return [lower, upper]
+}
+
+export function trendLine(values: number[]): number[] {
+    const n = values.length
+    if (n < 2) {
+        return values
+    }
+
+    const coordinates: [number, number][] = values.map((y, x) => [x, y])
+    const { m, b } = linearRegression(coordinates)
+
+    return values.map((_, x) => m * x + b)
+}
+
+/**
+ * Calculates a moving average for the given set of values.
+ *
+ * @param values - An array of numbers for which to calculate the moving average.
+ * @param intervals - The number of intervals to use for the moving average calculation. Defaults to 7.
+ * @returns An array of numbers representing the moving average.
+ */
+export function movingAverage(values: number[], intervals: number = 7): number[] {
+    const n = values.length
+    if (n < intervals) {
+        return values
+    }
+
+    return values.map((_, index) => {
+        const start = Math.max(0, index - Math.floor(intervals / 2))
+        const end = Math.min(n, start + intervals)
+        const actualStart = Math.max(0, end - intervals)
+
+        const slice = values.slice(actualStart, end)
+        return slice.reduce((sum, val) => sum + val, 0) / slice.length
+    })
 }

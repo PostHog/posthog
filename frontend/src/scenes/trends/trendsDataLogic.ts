@@ -29,6 +29,7 @@ import {
     CountPerActorMathType,
     HogQLMathType,
     InsightLogicProps,
+    IntervalType,
     LifecycleToggle,
     PropertyMathType,
     TrendAPIResponse,
@@ -44,6 +45,14 @@ const POSSIBLY_FRACTIONAL_MATH_TYPES: Set<MathType> = new Set(
         .concat(Object.values(HogQLMathType))
         .concat(Object.values(PropertyMathType))
 )
+
+export const INTERVAL_TO_DEFAULT_MOVING_AVERAGE_PERIOD: Record<IntervalType, number> = {
+    minute: 10,
+    hour: 6,
+    day: 7,
+    week: 4,
+    month: 3,
+}
 
 const DEFAULT_CONFIDENCE_LEVEL = 95
 
@@ -264,6 +273,51 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                     [ChartDisplayType.ActionsLineGraph, ChartDisplayType.ActionsLineGraphCumulative].includes(display)
 
                 return (trendsFilter?.showConfidenceIntervals && isLineGraph && isLinearScale) || false
+            },
+        ],
+
+        showTrendLines: [
+            (s) => [s.trendsFilter, s.isTrends, s.hasDataWarehouseSeries, s.yAxisScaleType],
+            (
+                trendsFilter: TrendsFilter | undefined | null,
+                isTrends: boolean,
+                hasDataWarehouseSeries: boolean,
+                yAxisScaleType: string | undefined
+            ): boolean => {
+                const isLinearScale = !yAxisScaleType || yAxisScaleType === 'linear'
+                const display = trendsFilter?.display || ChartDisplayType.ActionsLineGraph
+                const isLineGraph =
+                    isTrends &&
+                    !hasDataWarehouseSeries &&
+                    [ChartDisplayType.ActionsLineGraph, ChartDisplayType.ActionsLineGraphCumulative].includes(display)
+
+                return (trendsFilter?.showTrendLines && isLineGraph && isLinearScale) || false
+            },
+        ],
+
+        showMovingAverage: [
+            (s) => [s.trendsFilter, s.isTrends, s.hasDataWarehouseSeries, s.yAxisScaleType],
+            (
+                trendsFilter: TrendsFilter | undefined | null,
+                isTrends: boolean,
+                hasDataWarehouseSeries: boolean,
+                yAxisScaleType: string | undefined
+            ): boolean => {
+                const isLinearScale = !yAxisScaleType || yAxisScaleType === 'linear'
+                const display = trendsFilter?.display || ChartDisplayType.ActionsLineGraph
+                const isLineGraph =
+                    isTrends &&
+                    !hasDataWarehouseSeries &&
+                    [ChartDisplayType.ActionsLineGraph, ChartDisplayType.ActionsLineGraphCumulative].includes(display)
+
+                return (trendsFilter?.showMovingAverage && isLineGraph && isLinearScale) || false
+            },
+        ],
+
+        movingAverageIntervals: [
+            (s) => [s.trendsFilter, s.interval],
+            (trendsFilter: TrendsFilter | undefined | null, interval: IntervalType): number => {
+                return trendsFilter?.movingAverageIntervals || INTERVAL_TO_DEFAULT_MOVING_AVERAGE_PERIOD[interval]
             },
         ],
 

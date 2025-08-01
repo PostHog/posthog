@@ -4,8 +4,11 @@ import { useEffect, useState } from 'react'
 import { ScenePanelLabel } from '~/layout/scenes/SceneLayout'
 import { SceneLoadingSkeleton } from './SceneLoadingSkeleton'
 import { SceneInputProps, SceneSaveCancelButtons } from './utils'
+import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown/LemonMarkdown'
 
-type SceneDescriptionProps = SceneInputProps
+type SceneDescriptionProps = SceneInputProps & {
+    markdown?: boolean
+}
 
 export function SceneDescription({
     defaultValue,
@@ -14,6 +17,7 @@ export function SceneDescription({
     optional = false,
     canEdit = true,
     isLoading = false,
+    markdown = false,
 }: SceneDescriptionProps): JSX.Element {
     const [localValue, setLocalValue] = useState(defaultValue)
     const [localIsEditing, setLocalIsEditing] = useState(false)
@@ -59,6 +63,7 @@ export function SceneDescription({
                     data-attr={`${dataAttrKey}-description-input`}
                     autoFocus
                     error={!!error}
+                    markdown={markdown}
                 />
             </ScenePanelLabel>
 
@@ -85,7 +90,11 @@ export function SceneDescription({
                 inert={!canEdit}
             >
                 {defaultValue !== '' ? (
-                    defaultValue
+                    markdown ? (
+                        <LemonMarkdown lowKeyHeadings>{defaultValue}</LemonMarkdown>
+                    ) : (
+                        defaultValue
+                    )
                 ) : (
                     <span className="text-tertiary font-normal">No description {optional ? '(optional)' : ''}</span>
                 )}

@@ -31,6 +31,7 @@ from posthog.hogql_queries.experiments.exposure_query_logic import (
 )
 from posthog.hogql_queries.experiments.utils import (
     get_bayesian_experiment_result_new_format,
+    get_experiment_stats_method,
     get_frequentist_experiment_result_new_format,
     get_new_variant_results,
     split_baseline_and_test_variants,
@@ -91,14 +92,7 @@ class ExperimentQueryRunner(QueryRunner):
             and self.query.metric.source.kind == "ExperimentDataWarehouseNode"
         )
 
-        # Determine which statistical method to use
-        if self.experiment.stats_config is None:
-            # Default to "bayesian" if not specified
-            self.stats_method = "bayesian"
-        else:
-            self.stats_method = self.experiment.stats_config.get("method", "bayesian")
-            if self.stats_method not in ["bayesian", "frequentist"]:
-                self.stats_method = "bayesian"
+        self.stats_method = get_experiment_stats_method(self.experiment)
 
         # Determine how to handle entities exposed to multiple variants
         self.multiple_variant_handling = get_multiple_variant_handling_from_experiment(self.experiment)
