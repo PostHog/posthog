@@ -104,7 +104,6 @@ async def deliver_subscription_report_async(
         SUBSCRIPTION_QUEUED.labels(destination="slack").inc()
 
         try:
-            # Only wrap the database query part
             integration = await database_sync_to_async(get_slack_integration_for_team)(subscription.team)
 
             if not integration:
@@ -112,7 +111,6 @@ async def deliver_subscription_report_async(
                 SUBSCRIPTION_FAILURE.labels(destination="slack").inc()
                 return
 
-            # This part is pure HTTP calls - no database_sync_to_async needed
             send_slack_message_with_integration(
                 integration,
                 subscription,
@@ -134,9 +132,7 @@ async def deliver_subscription_report_async(
     else:
         raise NotImplementedError(f"{subscription.target_type} is not supported")
 
-    # Update subscription if needed (for regular subscriptions, not new target changes)
-    should_update = not is_new_subscription_target
-    if should_update:
+    if not is_new_subscription_target:
         subscription.set_next_delivery_date(subscription.next_delivery_date)
         await database_sync_to_async(subscription.save)(update_fields=["next_delivery_date"])
 
@@ -147,7 +143,6 @@ def deliver_subscription_report_sync(
     invite_message: Optional[str] = None,
 ) -> None:
     """Sync function for delivering subscription reports."""
-    # Fetch subscription synchronously
     subscription = (
         Subscription.objects.prefetch_related("dashboard__insights")
         .select_related("created_by", "insight", "dashboard")
@@ -163,7 +158,7 @@ def deliver_subscription_report_sync(
             # Same value as before so nothing to do
             return
 
-    insights, assets = generate_assets(subscription)  # Uses Celery by default
+    insights, assets = generate_assets(subscription)
 
     if not assets:
         capture_exception(Exception("No assets are in this subscription"), {"subscription_id": subscription.id})
@@ -223,9 +218,7 @@ def deliver_subscription_report_sync(
     else:
         raise NotImplementedError(f"{subscription.target_type} is not supported")
 
-    # Update subscription if needed (for regular subscriptions, not new target changes)
-    should_update = not is_new_subscription_target
-    if should_update:
+    if not is_new_subscription_target:
         subscription.set_next_delivery_date(subscription.next_delivery_date)
         subscription.save(update_fields=["next_delivery_date"])
 

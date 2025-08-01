@@ -54,7 +54,6 @@ def generate_assets(
         if not assets:
             return insights, assets
 
-        # Export assets - branch based on execution context
         if use_celery:
             # Celery approach - queue tasks and wait for completion
             tasks = [exporter.export_asset.si(asset.id) for asset in assets]
