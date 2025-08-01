@@ -2,7 +2,7 @@ from typing import Any, cast
 from uuid import uuid4
 from ee.hogai.graph.base import AssistantNode
 from ee.hogai.graph.billing.prompts import BILLING_CONTEXT_PROMPT
-from ee.hogai.utils.types import AssistantState, PartialAssistantState
+from ee.hogai.utils.graph_states import AssistantGraphState, PartialAssistantGraphState
 from langchain_core.prompts import PromptTemplate
 from langchain_core.runnables import RunnableConfig
 
@@ -27,10 +27,10 @@ USAGE_TYPES = [
 class BillingNode(AssistantNode):
     _teams_map: dict[int, str] = {}
 
-    def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
+    def run(self, state: AssistantGraphState, config: RunnableConfig) -> PartialAssistantGraphState:
         billing_context = self._get_billing_context(config)
         if not billing_context:
-            return PartialAssistantState(
+            return PartialAssistantGraphState(
                 messages=[
                     AssistantToolCallMessage(
                         content="No billing information available", id=str(uuid4()), tool_call_id=str(uuid4())
@@ -39,7 +39,7 @@ class BillingNode(AssistantNode):
             )
         formatted_billing_context = self._format_billing_context(billing_context)
         tool_call_id = cast(str, state.root_tool_call_id)
-        return PartialAssistantState(
+        return PartialAssistantGraphState(
             messages=[
                 AssistantToolCallMessage(content=formatted_billing_context, tool_call_id=tool_call_id, id=str(uuid4())),
             ]

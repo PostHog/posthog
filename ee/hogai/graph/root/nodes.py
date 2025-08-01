@@ -21,7 +21,7 @@ from ee.hogai.graph.shared_prompts import CORE_MEMORY_PROMPT
 from ee.hogai.llm import MaxChatOpenAI
 
 # Import moved inside functions to avoid circular imports
-from ee.hogai.utils.types import AssistantState, PartialAssistantState
+from ee.hogai.utils.graph_states import AssistantGraphState, PartialAssistantGraphState
 from posthog.hogql_queries.apply_dashboard_filters import (
     apply_dashboard_filters_to_dict,
     apply_dashboard_variables_to_dict,
@@ -291,7 +291,7 @@ class RootNode(RootNodeUIContextMixin):
     Determines the maximum number of tokens allowed in the conversation window.
     """
 
-    def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
+    def run(self, state: AssistantGraphState, config: RunnableConfig) -> PartialAssistantGraphState:
         from ee.hogai.tool import get_contextual_tool_class
 
         history, new_window_id = self._construct_and_update_messages_window(state, config)
@@ -345,7 +345,7 @@ class RootNode(RootNodeUIContextMixin):
         )
         message = cast(LangchainAIMessage, message)
 
-        return PartialAssistantState(
+        return PartialAssistantGraphState(
             root_conversation_start_id=new_window_id,
             messages=[
                 AssistantMessage(
@@ -377,7 +377,7 @@ class RootNode(RootNodeUIContextMixin):
 
         return has_access, prompt
 
-    def _get_model(self, state: AssistantState, config: RunnableConfig, extra_tools: list[str] | None = None):
+    def _get_model(self, state: AssistantGraphState, config: RunnableConfig, extra_tools: list[str] | None = None):
         if extra_tools is None:
             extra_tools = []
         # Research suggests temperature is not _massively_ correlated with creativity (https://arxiv.org/html/2405.00492v1).
@@ -426,7 +426,7 @@ class RootNode(RootNodeUIContextMixin):
 
         return base_model.bind_tools(available_tools, strict=True, parallel_tool_calls=False)
 
-    def _get_assistant_messages_in_window(self, state: AssistantState) -> list[RootMessageUnion]:
+    def _get_assistant_messages_in_window(self, state: AssistantGraphState) -> list[RootMessageUnion]:
         filtered_conversation = [message for message in state.messages if isinstance(message, RootMessageUnion)]
         if state.root_conversation_start_id is not None:
             filtered_conversation = self._get_conversation_window(
@@ -434,7 +434,7 @@ class RootNode(RootNodeUIContextMixin):
             )
         return filtered_conversation
 
-    def _construct_messages(self, state: AssistantState) -> list[BaseMessage]:
+    def _construct_messages(self, state: AssistantGraphState) -> list[BaseMessage]:
         # Filter out messages that are not part of the conversation window.
         conversation_window = self._get_assistant_messages_in_window(state)
 
@@ -474,7 +474,7 @@ class RootNode(RootNodeUIContextMixin):
         return history
 
     def _construct_and_update_messages_window(
-        self, state: AssistantState, config: RunnableConfig
+        self, state: AssistantGraphState, config: RunnableConfig
     ) -> tuple[list[BaseMessage], str | None]:
         """
         Retrieves the current conversation window, finds a new window if necessary, and enforces the tool call limit.
@@ -493,11 +493,11 @@ class RootNode(RootNodeUIContextMixin):
 
         return history, new_window_id
 
-    def _is_hard_limit_reached(self, state: AssistantState) -> bool:
+    def _is_hard_limit_reached(self, state: AssistantGraphState) -> bool:
         return state.root_tool_calls_count is not None and state.root_tool_calls_count >= self.MAX_TOOL_CALLS
 
     def _find_new_window_id(
-        self, state: AssistantState, config: RunnableConfig, window: list[BaseMessage]
+        self, state: AssistantGraphState, config: RunnableConfig, window: list[BaseMessage]
     ) -> str | None:
         """
         If we simply trim the conversation on N tokens, the cache will be invalidated for every new message after that
@@ -534,11 +534,11 @@ class RootNode(RootNodeUIContextMixin):
 
 
 class RootNodeTools(AssistantNode):
-    async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
+    async def arun(self, state: AssistantGraphState, config: RunnableConfig) -> PartialAssistantGraphState:
         last_message = state.messages[-1]
         if not isinstance(last_message, AssistantMessage) or not last_message.tool_calls:
             # Reset tools.
-            return PartialAssistantState(root_tool_calls_count=0)
+            return PartialAssistantGraphState(root_tool_calls_count=0)
 
         tool_call_count = state.root_tool_calls_count or 0
 
@@ -553,18 +553,18 @@ class RootNodeTools(AssistantNode):
         from ee.hogai.tool import get_contextual_tool_class
 
         if tool_call.name == "create_and_query_insight" and not is_editing_insight:
-            return PartialAssistantState(
+            return PartialAssistantGraphState(
                 root_tool_call_id=tool_call.id,
                 root_tool_insight_plan=tool_call.args["query_description"],
                 root_tool_calls_count=tool_call_count + 1,
             )
         elif tool_call.name in ["search_documentation", "retrieve_billing_information"]:
-            return PartialAssistantState(
+            return PartialAssistantGraphState(
                 root_tool_call_id=tool_call.id,
                 root_tool_calls_count=tool_call_count + 1,
             )
         elif tool_call.name == "search_insights":
-            return PartialAssistantState(
+            return PartialAssistantGraphState(
                 root_tool_call_id=tool_call.id,
                 search_insights_query=tool_call.args["search_query"],
                 root_tool_calls_count=tool_call_count + 1,
@@ -594,13 +594,13 @@ class RootNodeTools(AssistantNode):
             new_state = tool_class._state  # latest state, in case the tool has updated it
             last_message = new_state.messages[-1]
             if isinstance(last_message, AssistantToolCallMessage) and last_message.tool_call_id == tool_call.id:
-                return PartialAssistantState(
+                return PartialAssistantGraphState(
                     # we send all messages from the tool call onwards
                     messages=new_state.messages[len(state.messages) :],
                     root_tool_calls_count=tool_call_count + 1,
                 )
 
-            return PartialAssistantState(
+            return PartialAssistantGraphState(
                 messages=[
                     AssistantToolCallMessage(
                         content=str(result.content) if result.content else "",
@@ -615,7 +615,7 @@ class RootNodeTools(AssistantNode):
         else:
             raise ValueError(f"Unknown tool called: {tool_call.name}")
 
-    def router(self, state: AssistantState) -> RouteName:
+    def router(self, state: AssistantGraphState) -> RouteName:
         last_message = state.messages[-1]
 
         if isinstance(last_message, AssistantToolCallMessage):

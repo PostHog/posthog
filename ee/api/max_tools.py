@@ -9,7 +9,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.viewsets import GenericViewSet
 
-from ee.hogai.utils.types import AssistantMode, AssistantState
+from ee.hogai.utils.types import AssistantState
 from ee.models.assistant import Conversation
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import PersonalAPIKeyAuthentication
@@ -52,17 +52,17 @@ class MaxToolsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         required_scopes=["insight:read", "query:read"],
     )
     def create_and_query_insight(self, request: Request, *args, **kwargs):
-        from ee.hogai.assistant import Assistant
+        from ee.hogai.assistant_factory import AssistantFactory
 
         serializer = InsightsToolCallSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         conversation = self.get_queryset().create(user=request.user, team=self.team, type=Conversation.Type.TOOL_CALL)
-        assistant = Assistant(
-            self.team,
-            conversation,
+        assistant = AssistantFactory.create(
+            assistant_type="insights",
+            team=self.team,
+            conversation=conversation,
             user=cast(User, request.user),
             is_new_conversation=False,  # we don't care about the conversation id being sent back to the client
-            mode=AssistantMode.INSIGHTS_TOOL,
             tool_call_partial_state=serializer.validated_data["state"],
         )
 

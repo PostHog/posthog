@@ -198,6 +198,8 @@ class _SharedAssistantState(BaseState):
     """
 
 
+# TO_BE_REMOVED: Legacy monolithic state classes replaced by graph-specific states
+# in ee.hogai.utils.graph_states (AssistantGraphState, InsightsGraphState, etc.)
 class AssistantState(_SharedAssistantState):
     messages: Annotated[Sequence[AssistantMessageUnion], add_and_merge_messages] = Field(default=[])
     """

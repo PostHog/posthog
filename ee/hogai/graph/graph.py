@@ -1,14 +1,16 @@
 from collections.abc import Hashable
 from typing import Literal, Optional, cast, Generic
 
+import logging
 from langchain_core.runnables.base import RunnableLike
 from langgraph.graph.state import StateGraph
 
-from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
+from ee.hogai.django_checkpointer.migrating_checkpointer import MigratingDjangoCheckpointer
 from ee.hogai.graph.query_planner.nodes import QueryPlannerNode, QueryPlannerToolsNode
 from ee.hogai.graph.billing.nodes import BillingNode
 from ee.hogai.graph.title_generator.nodes import TitleGeneratorNode
-from ee.hogai.utils.types import AssistantNodeName, AssistantState
+from ee.hogai.utils.types import AssistantNodeName
+from ee.hogai.states.graph_states import AssistantGraphState, InsightsGraphState
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
@@ -39,7 +41,9 @@ from .trends.nodes import TrendsGeneratorNode, TrendsGeneratorToolsNode
 from .base import StateType
 from .insights.nodes import InsightSearchNode
 
-global_checkpointer = DjangoCheckpointer()
+logger = logging.getLogger(__name__)
+
+global_checkpointer = MigratingDjangoCheckpointer()
 
 
 class BaseAssistantGraph(Generic[StateType]):
@@ -63,15 +67,15 @@ class BaseAssistantGraph(Generic[StateType]):
         self._graph.add_node(node, action)
         return self
 
-    def compile(self, checkpointer: DjangoCheckpointer | None = None):
+    def compile(self, checkpointer: MigratingDjangoCheckpointer | None = None):
         if not self._has_start_node:
             raise ValueError("Start node not added to the graph")
         return self._graph.compile(checkpointer=checkpointer or global_checkpointer)
 
 
-class InsightsAssistantGraph(BaseAssistantGraph[AssistantState]):
+class InsightsAssistantGraph(BaseAssistantGraph[InsightsGraphState]):
     def __init__(self, team: Team, user: User):
-        super().__init__(team, user, AssistantState)
+        super().__init__(team, user, InsightsGraphState)
 
     def add_rag_context(self):
         builder = self._graph
@@ -214,13 +218,13 @@ class InsightsAssistantGraph(BaseAssistantGraph[AssistantState]):
             .add_sql_generator(next_node=next_node)
         )
 
-    def compile_full_graph(self, checkpointer: DjangoCheckpointer | None = None):
+    def compile_full_graph(self, checkpointer: MigratingDjangoCheckpointer | None = None):
         return self.add_query_creation_flow().add_query_executor().compile(checkpointer=checkpointer)
 
 
-class AssistantGraph(BaseAssistantGraph[AssistantState]):
+class AssistantGraph(BaseAssistantGraph[AssistantGraphState]):
     def __init__(self, team: Team, user: User):
-        super().__init__(team, user, AssistantState)
+        super().__init__(team, user, AssistantGraphState)
 
     def add_root(
         self,
@@ -249,6 +253,7 @@ class AssistantGraph(BaseAssistantGraph[AssistantState]):
         builder = self._graph
         insights_assistant_graph = InsightsAssistantGraph(self._team, self._user)
         compiled_graph = insights_assistant_graph.compile_full_graph()
+        # Use simple add_node - LangGraph will automatically filter compatible fields
         builder.add_node(AssistantNodeName.INSIGHTS_SUBGRAPH, compiled_graph)
         builder.add_edge(AssistantNodeName.INSIGHTS_SUBGRAPH, next_node)
         return self
@@ -393,7 +398,7 @@ class AssistantGraph(BaseAssistantGraph[AssistantState]):
         )
         return self
 
-    def compile_full_graph(self, checkpointer: DjangoCheckpointer | None = None):
+    def compile_full_graph(self, checkpointer: MigratingDjangoCheckpointer | None = None):
         return (
             self.add_title_generator()
             .add_memory_onboarding()

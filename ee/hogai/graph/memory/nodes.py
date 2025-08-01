@@ -22,7 +22,7 @@ from ee.hogai.graph.root.nodes import SLASH_COMMAND_INIT
 from ee.hogai.llm import MaxChatOpenAI
 from ee.hogai.utils.helpers import filter_and_merge_messages, find_last_message_of_type
 from ee.hogai.utils.markdown import remove_markdown
-from ee.hogai.utils.types import AssistantState, PartialAssistantState
+from ee.hogai.utils.graph_states import AssistantGraphState, PartialAssistantGraphState
 from ee.models.assistant import CoreMemory
 from posthog.event_usage import report_user_action
 from posthog.hogql_queries.ai.event_taxonomy_query_runner import EventTaxonomyQueryRunner
@@ -82,11 +82,11 @@ class MemoryInitializerContextMixin(AssistantContextMixin):
 
 
 class MemoryOnboardingShouldRunMixin(AssistantNode):
-    def should_run_onboarding_at_start(self, state: AssistantState) -> Literal["continue", "memory_onboarding"]:
+    def should_run_onboarding_at_start(self, state: AssistantGraphState) -> Literal["continue", "memory_onboarding"]:
         """
         Only trigger memory onboarding when explicitly requested with /init command.
         If another user has already started the onboarding process, or it has already been completed, do not trigger it again.
-        If no messages are to be found in the AssistantState, do not run onboarding.
+        If no messages are to be found in the AssistantGraphState, do not run onboarding.
         """
         core_memory = self.core_memory
 
@@ -108,7 +108,7 @@ class MemoryOnboardingShouldRunMixin(AssistantNode):
 
 
 class MemoryOnboardingNode(MemoryInitializerContextMixin, MemoryOnboardingShouldRunMixin):
-    def run(self, state: AssistantState, config: RunnableConfig) -> Optional[PartialAssistantState]:
+    def run(self, state: AssistantGraphState, config: RunnableConfig) -> Optional[PartialAssistantGraphState]:
         core_memory, _ = CoreMemory.objects.get_or_create(team=self._team)
         core_memory.change_status_to_pending()
 
@@ -116,7 +116,7 @@ class MemoryOnboardingNode(MemoryInitializerContextMixin, MemoryOnboardingShould
         if self._team.project.product_description:
             core_memory.append_question_to_initial_text("What does the company do?")
             core_memory.append_answer_to_initial_text(self._team.project.product_description)
-            return PartialAssistantState(
+            return PartialAssistantGraphState(
                 messages=[
                     AssistantMessage(
                         content=ENQUIRY_INITIAL_MESSAGE,
@@ -129,7 +129,7 @@ class MemoryOnboardingNode(MemoryInitializerContextMixin, MemoryOnboardingShould
 
         # No host or app bundle ID found
         if not retrieved_properties or retrieved_properties[0].sample_count == 0:
-            return PartialAssistantState(
+            return PartialAssistantGraphState(
                 messages=[
                     AssistantMessage(
                         content=ENQUIRY_INITIAL_MESSAGE,
@@ -138,7 +138,7 @@ class MemoryOnboardingNode(MemoryInitializerContextMixin, MemoryOnboardingShould
                 ]
             )
 
-        return PartialAssistantState(
+        return PartialAssistantGraphState(
             messages=[
                 AssistantMessage(
                     content=SCRAPING_INITIAL_MESSAGE,
@@ -147,7 +147,7 @@ class MemoryOnboardingNode(MemoryInitializerContextMixin, MemoryOnboardingShould
             ]
         )
 
-    def router(self, state: AssistantState) -> Literal["initialize_memory", "onboarding_enquiry"]:
+    def router(self, state: AssistantGraphState) -> Literal["initialize_memory", "onboarding_enquiry"]:
         core_memory = self.core_memory
         if core_memory is None or core_memory.initial_text == "":
             return "initialize_memory"
@@ -159,7 +159,7 @@ class MemoryInitializerNode(MemoryInitializerContextMixin, AssistantNode):
     Scrapes the product description from the given origin or app bundle IDs with Perplexity.
     """
 
-    def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
+    def run(self, state: AssistantGraphState, config: RunnableConfig) -> PartialAssistantGraphState | None:
         core_memory, _ = CoreMemory.objects.get_or_create(team=self._team)
         retrieved_properties = self._retrieve_context()
         # No host or app bundle ID found, continue.
@@ -188,16 +188,18 @@ class MemoryInitializerNode(MemoryInitializerContextMixin, AssistantNode):
         answer = chain.invoke({}, config=config)
         # Perplexity has failed to scrape the data, continue.
         if "no data available." in answer.lower():
-            return PartialAssistantState(
+            return PartialAssistantGraphState(
                 messages=[AssistantMessage(content=SCRAPING_TERMINATION_MESSAGE, id=str(uuid4()))]
             )
 
         # Otherwise, proceed to confirmation that the memory is correct.
         core_memory.append_question_to_initial_text("What does the company do?")
         core_memory.append_answer_to_initial_text(answer)
-        return PartialAssistantState(messages=[AssistantMessage(content=self.format_message(answer), id=str(uuid4()))])
+        return PartialAssistantGraphState(
+            messages=[AssistantMessage(content=self.format_message(answer), id=str(uuid4()))]
+        )
 
-    def router(self, state: AssistantState) -> Literal["interrupt", "continue"]:
+    def router(self, state: AssistantGraphState) -> Literal["interrupt", "continue"]:
         last_message = state.messages[-1]
         if (
             isinstance(last_message, AssistantMessage)
@@ -225,7 +227,7 @@ class MemoryInitializerInterruptNode(AssistantNode):
     Prompts the user to confirm or reject the scraped memory. Since Perplexity doesn't guarantee the quality of the scraped data, we need to verify it with the user.
     """
 
-    def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
+    def run(self, state: AssistantGraphState, config: RunnableConfig) -> PartialAssistantGraphState | None:
         raise NodeInterrupt(
             AssistantMessage(
                 content=SCRAPING_VERIFICATION_MESSAGE,
@@ -247,7 +249,7 @@ class MemoryOnboardingEnquiryNode(AssistantNode):
     Prompts the user to give more information about the product, feature, business, etc.
     """
 
-    def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
+    def run(self, state: AssistantGraphState, config: RunnableConfig) -> PartialAssistantGraphState:
         human_message = find_last_message_of_type(state.messages, HumanMessage)
         if not human_message:
             raise ValueError("No human message found.")
@@ -277,8 +279,8 @@ class MemoryOnboardingEnquiryNode(AssistantNode):
             if "[Done]" not in response and "===" in response:
                 question = self._format_question(response)
                 core_memory.append_question_to_initial_text(question)
-                return PartialAssistantState(onboarding_question=question)
-        return PartialAssistantState(onboarding_question=None)
+                return PartialAssistantGraphState(onboarding_question=question)
+        return PartialAssistantGraphState(onboarding_question=None)
 
     @property
     def _model(self):
@@ -291,7 +293,7 @@ class MemoryOnboardingEnquiryNode(AssistantNode):
             team=self._team,
         )
 
-    def router(self, state: AssistantState) -> Literal["continue", "interrupt"]:
+    def router(self, state: AssistantGraphState) -> Literal["continue", "interrupt"]:
         core_memory = self.core_memory
         if core_memory is None:
             raise ValueError("No core memory found.")
@@ -312,17 +314,17 @@ class MemoryOnboardingEnquiryNode(AssistantNode):
 
 
 class MemoryOnboardingEnquiryInterruptNode(AssistantNode):
-    def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
+    def run(self, state: AssistantGraphState, config: RunnableConfig) -> PartialAssistantGraphState:
         last_assistant_message = find_last_message_of_type(state.messages, AssistantMessage)
         if not state.onboarding_question:
             raise ValueError("No onboarding question found.")
         if last_assistant_message and last_assistant_message.content != state.onboarding_question:
             raise NodeInterrupt(AssistantMessage(content=state.onboarding_question, id=str(uuid4())))
-        return PartialAssistantState(onboarding_question=None)
+        return PartialAssistantGraphState(onboarding_question=None)
 
 
 class MemoryOnboardingFinalizeNode(AssistantNode):
-    def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
+    def run(self, state: AssistantGraphState, config: RunnableConfig) -> PartialAssistantGraphState:
         core_memory = self.core_memory
         if core_memory is None:
             raise ValueError("No core memory found.")
@@ -337,7 +339,7 @@ class MemoryOnboardingFinalizeNode(AssistantNode):
         compressed_memory = cast(str, chain.invoke({"memory_content": core_memory.initial_text}, config=config))
         compressed_memory = compressed_memory.replace("\n", " ").strip()
         core_memory.set_core_memory(compressed_memory)
-        return PartialAssistantState(
+        return PartialAssistantGraphState(
             messages=[AssistantMessage(content=SCRAPING_MEMORY_SAVED_MESSAGE, id=str(uuid4()))]
         )
 
@@ -352,7 +354,7 @@ class MemoryOnboardingFinalizeNode(AssistantNode):
             team=self._team,
         )
 
-    def router(self, state: AssistantState) -> Literal["continue", "insights"]:
+    def router(self, state: AssistantGraphState) -> Literal["continue", "insights"]:
         core_memory = self.core_memory
         if core_memory is None:
             raise ValueError("No core memory found.")
@@ -388,7 +390,7 @@ class MemoryCollectorNode(MemoryOnboardingShouldRunMixin):
     The Memory Collector manages the core memory of the agent. Core memory is a text containing facts about a user's company and product. It helps the agent save and remember facts that could be useful for insight generation or other agentic functions requiring deeper context about the product.
     """
 
-    def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
+    def run(self, state: AssistantGraphState, config: RunnableConfig) -> PartialAssistantGraphState | None:
         if self.should_run_onboarding_at_start(state) != "continue":
             return None
 
@@ -408,10 +410,12 @@ class MemoryCollectorNode(MemoryOnboardingShouldRunMixin):
                 config=config,
             )
         except MemoryCollectionCompleted:
-            return PartialAssistantState(memory_collection_messages=None)
-        return PartialAssistantState(memory_collection_messages=[*node_messages, cast(LangchainAIMessage, response)])
+            return PartialAssistantGraphState(memory_collection_messages=None)
+        return PartialAssistantGraphState(
+            memory_collection_messages=[*node_messages, cast(LangchainAIMessage, response)]
+        )
 
-    def router(self, state: AssistantState) -> Literal["tools", "next"]:
+    def router(self, state: AssistantGraphState) -> Literal["tools", "next"]:
         if not state.memory_collection_messages:
             return "next"
         return "tools"
@@ -422,7 +426,7 @@ class MemoryCollectorNode(MemoryOnboardingShouldRunMixin):
             model="gpt-4.1", temperature=0.3, disable_streaming=True, user=self._user, team=self._team
         ).bind_tools(memory_collector_tools)
 
-    def _construct_messages(self, state: AssistantState) -> list[BaseMessage]:
+    def _construct_messages(self, state: AssistantGraphState) -> list[BaseMessage]:
         node_messages = state.memory_collection_messages or []
 
         filtered_messages = filter_and_merge_messages(
@@ -451,7 +455,7 @@ class MemoryCollectorNode(MemoryOnboardingShouldRunMixin):
 
 
 class MemoryCollectorToolsNode(AssistantNode):
-    def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
+    def run(self, state: AssistantGraphState, config: RunnableConfig) -> PartialAssistantGraphState:
         node_messages = state.memory_collection_messages
         if not node_messages:
             raise ValueError("No memory collection messages found.")
@@ -469,7 +473,7 @@ class MemoryCollectorToolsNode(AssistantNode):
             failover_messages = ChatPromptTemplate.from_messages(
                 [("user", TOOL_CALL_ERROR_PROMPT)], template_format="mustache"
             ).format_messages(validation_error_message=e.errors(include_url=False))
-            return PartialAssistantState(
+            return PartialAssistantGraphState(
                 memory_collection_messages=[*node_messages, *failover_messages],
             )
 
@@ -485,6 +489,6 @@ class MemoryCollectorToolsNode(AssistantNode):
                 except ValueError as e:
                     new_messages.append(LangchainToolMessage(content=str(e), tool_call_id=tool_call["id"]))
 
-        return PartialAssistantState(
+        return PartialAssistantGraphState(
             memory_collection_messages=[*node_messages, *new_messages],
         )
