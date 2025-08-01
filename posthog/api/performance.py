@@ -67,6 +67,8 @@ class PerformanceViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
         where_clause = " AND ".join(conditions)
 
+        # Using direct ClickHouse query for simple filtering - similar to app_metrics2.py pattern
+        # This avoids the overhead of a full HogQL QueryRunner for straightforward SELECT operations
         query = f"""
         SELECT
             uuid,
