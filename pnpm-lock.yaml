@@ -384,8 +384,8 @@ importers:
         specifier: '*'
         version: 4.3.0(postcss@8.5.6)(webpack@5.88.2)
       posthog-js:
-        specifier: 1.258.3
-        version: 1.258.3(@rrweb/types@2.0.0-alpha.17)
+        specifier: 1.258.5
+        version: 1.258.5(@rrweb/types@2.0.0-alpha.17)
       sass-loader:
         specifier: '*'
         version: 10.3.1(sass@1.56.0)(webpack@5.88.2)
@@ -457,8 +457,8 @@ importers:
         specifier: '*'
         version: 8.57.0
       posthog-js:
-        specifier: 1.258.3
-        version: 1.258.3(@rrweb/types@2.0.0-alpha.17)
+        specifier: 1.258.5
+        version: 1.258.5(@rrweb/types@2.0.0-alpha.17)
       prettier:
         specifier: '*'
         version: 3.4.2
@@ -824,8 +824,8 @@ importers:
         specifier: ^3.1.0
         version: 3.1.0(kea@3.1.5(react@18.2.0))
       kea-router:
-        specifier: ^3.3.1
-        version: 3.3.1(kea@3.1.5(react@18.2.0))
+        specifier: ^3.4.0
+        version: 3.4.0(kea@3.1.5(react@18.2.0))
       kea-subscriptions:
         specifier: ^3.0.1
         version: 3.0.1(kea@3.1.5(react@18.2.0))
@@ -887,8 +887,8 @@ importers:
         specifier: ^2.11.0
         version: 2.11.0
       posthog-js:
-        specifier: 1.258.3
-        version: 1.258.3(@rrweb/types@2.0.0-alpha.17)
+        specifier: 1.258.5
+        version: 1.258.5(@rrweb/types@2.0.0-alpha.17)
       posthog-js-lite:
         specifier: 4.1.0
         version: 4.1.0
@@ -1383,6 +1383,9 @@ importers:
       pino:
         specifier: ^8.6.0
         version: 8.11.0
+      piscina:
+        specifier: ^5.1.3
+        version: 5.1.3
       posthog-node:
         specifier: 4.14.0
         version: 4.14.0
@@ -1598,8 +1601,8 @@ importers:
         specifier: ^3.1.1
         version: 3.1.1(kea@3.1.5(react@18.2.0))
       kea-router:
-        specifier: ^3.3.1
-        version: 3.3.1(kea@3.1.5(react@18.2.0))
+        specifier: ^3.4.0
+        version: 3.4.0(kea@3.1.5(react@18.2.0))
       react:
         specifier: '*'
         version: 18.2.0
@@ -1625,8 +1628,8 @@ importers:
         specifier: ^3.1.1
         version: 3.1.1(kea@3.1.5(react@18.2.0))
       kea-router:
-        specifier: ^3.3.1
-        version: 3.3.1(kea@3.1.5(react@18.2.0))
+        specifier: ^3.4.0
+        version: 3.4.0(kea@3.1.5(react@18.2.0))
       react:
         specifier: '*'
         version: 18.2.0
@@ -1652,8 +1655,8 @@ importers:
         specifier: ^3.1.1
         version: 3.1.1(kea@3.1.5(react@18.2.0))
       kea-router:
-        specifier: ^3.3.1
-        version: 3.3.1(kea@3.1.5(react@18.2.0))
+        specifier: ^3.4.0
+        version: 3.4.0(kea@3.1.5(react@18.2.0))
       react:
         specifier: '*'
         version: 18.2.0
@@ -1682,8 +1685,8 @@ importers:
         specifier: ^3.1.1
         version: 3.1.1(kea@3.1.5(react@18.2.0))
       kea-router:
-        specifier: ^3.3.1
-        version: 3.3.1(kea@3.1.5(react@18.2.0))
+        specifier: ^3.4.0
+        version: 3.4.0(kea@3.1.5(react@18.2.0))
       react:
         specifier: '*'
         version: 18.2.0
@@ -1742,14 +1745,14 @@ importers:
         specifier: ^3.1.1
         version: 3.1.1(kea@3.1.5(react@18.2.0))
       kea-router:
-        specifier: ^3.3.1
-        version: 3.3.1(kea@3.1.5(react@18.2.0))
+        specifier: ^3.4.0
+        version: 3.4.0(kea@3.1.5(react@18.2.0))
       kea-subscriptions:
         specifier: ^3.0.1
         version: 3.0.1(kea@3.1.5(react@18.2.0))
       posthog-js:
-        specifier: 1.258.3
-        version: 1.258.3(@rrweb/types@2.0.0-alpha.17)
+        specifier: 1.258.5
+        version: 1.258.5(@rrweb/types@2.0.0-alpha.17)
       react:
         specifier: '*'
         version: 18.2.0
@@ -1787,8 +1790,8 @@ importers:
         specifier: ^3.1.1
         version: 3.1.1(kea@3.1.5(react@18.2.0))
       kea-router:
-        specifier: ^3.3.1
-        version: 3.3.1(kea@3.1.5(react@18.2.0))
+        specifier: ^3.4.0
+        version: 3.4.0(kea@3.1.5(react@18.2.0))
       react:
         specifier: '*'
         version: 18.2.0
@@ -1814,8 +1817,8 @@ importers:
         specifier: ^3.1.1
         version: 3.1.1(kea@3.1.5(react@18.2.0))
       kea-router:
-        specifier: ^3.3.1
-        version: 3.3.1(kea@3.1.5(react@18.2.0))
+        specifier: ^3.4.0
+        version: 3.4.0(kea@3.1.5(react@18.2.0))
       react:
         specifier: '*'
         version: 18.2.0
@@ -1841,8 +1844,8 @@ importers:
         specifier: ^3.1.1
         version: 3.1.1(kea@3.1.5(react@18.2.0))
       kea-router:
-        specifier: ^3.3.1
-        version: 3.3.1(kea@3.1.5(react@18.2.0))
+        specifier: ^3.4.0
+        version: 3.4.0(kea@3.1.5(react@18.2.0))
       react:
         specifier: '*'
         version: 18.2.0
@@ -1868,8 +1871,8 @@ importers:
         specifier: ^3.1.1
         version: 3.1.1(kea@3.1.5(react@18.2.0))
       kea-router:
-        specifier: ^3.3.1
-        version: 3.3.1(kea@3.1.5(react@18.2.0))
+        specifier: ^3.4.0
+        version: 3.4.0(kea@3.1.5(react@18.2.0))
       react:
         specifier: '*'
         version: 18.2.0
@@ -1898,8 +1901,8 @@ importers:
         specifier: ^3.1.1
         version: 3.1.1(kea@3.1.5(react@18.2.0))
       kea-router:
-        specifier: ^3.3.1
-        version: 3.3.1(kea@3.1.5(react@18.2.0))
+        specifier: ^3.4.0
+        version: 3.4.0(kea@3.1.5(react@18.2.0))
       qrcode.react:
         specifier: ^4.2.0
         version: 4.2.0(react@18.2.0)
@@ -1937,8 +1940,8 @@ importers:
         specifier: ^3.1.1
         version: 3.1.1(kea@3.1.5(react@18.2.0))
       kea-router:
-        specifier: ^3.3.1
-        version: 3.3.1(kea@3.1.5(react@18.2.0))
+        specifier: ^3.4.0
+        version: 3.4.0(kea@3.1.5(react@18.2.0))
       prettier:
         specifier: '*'
         version: 3.4.2
@@ -1991,8 +1994,8 @@ importers:
         specifier: ^3.1.1
         version: 3.1.1(kea@3.1.5(react@18.2.0))
       kea-router:
-        specifier: ^3.3.1
-        version: 3.3.1(kea@3.1.5(react@18.2.0))
+        specifier: ^3.4.0
+        version: 3.4.0(kea@3.1.5(react@18.2.0))
       prettier:
         specifier: '*'
         version: 3.4.2
@@ -2016,7 +2019,7 @@ importers:
         version: 0.26.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@posthog/lemon-ui':
         specifier: '*'
-        version: 0.0.0(antd@5.26.0(date-fns@2.30.0)(luxon@3.5.0)(moment@2.29.4)(react-dom@18.2.0(react@18.2.0))(react@18.2.0))(kea-router@3.3.0(kea@3.1.5(react@18.2.0)))(kea@3.1.5(react@18.2.0))(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        version: 0.0.0(antd@5.26.0(date-fns@2.30.0)(luxon@3.5.0)(moment@2.29.4)(react-dom@18.2.0(react@18.2.0))(react@18.2.0))(kea-router@3.4.0(kea@3.1.5(react@18.2.0)))(kea@3.1.5(react@18.2.0))(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@types/react':
         specifier: '*'
         version: 17.0.52
@@ -2030,8 +2033,8 @@ importers:
         specifier: ^3.1.1
         version: 3.1.1(kea@3.1.5(react@18.2.0))
       kea-router:
-        specifier: ^3.3.1
-        version: 3.3.1(kea@3.1.5(react@18.2.0))
+        specifier: ^3.4.0
+        version: 3.4.0(kea@3.1.5(react@18.2.0))
       react:
         specifier: '*'
         version: 18.2.0
@@ -2069,14 +2072,14 @@ importers:
         specifier: ^3.1.1
         version: 3.1.1(kea@3.1.5(react@18.2.0))
       kea-router:
-        specifier: ^3.3.1
-        version: 3.3.1(kea@3.1.5(react@18.2.0))
+        specifier: ^3.4.0
+        version: 3.4.0(kea@3.1.5(react@18.2.0))
       kea-subscriptions:
         specifier: ^3.0.1
         version: 3.0.1(kea@3.1.5(react@18.2.0))
       posthog-js:
-        specifier: 1.258.3
-        version: 1.258.3(@rrweb/types@2.0.0-alpha.17)
+        specifier: 1.258.5
+        version: 1.258.5(@rrweb/types@2.0.0-alpha.17)
       react:
         specifier: '*'
         version: 18.2.0
@@ -2105,8 +2108,8 @@ importers:
         specifier: ^3.1.1
         version: 3.1.1(kea@3.1.5(react@18.2.0))
       kea-router:
-        specifier: ^3.3.1
-        version: 3.3.1(kea@3.1.5(react@18.2.0))
+        specifier: ^3.4.0
+        version: 3.4.0(kea@3.1.5(react@18.2.0))
       react:
         specifier: '*'
         version: 18.2.0
@@ -2132,8 +2135,8 @@ importers:
         specifier: ^3.1.1
         version: 3.1.1(kea@3.1.5(react@18.2.0))
       kea-router:
-        specifier: ^3.3.1
-        version: 3.3.1(kea@3.1.5(react@18.2.0))
+        specifier: ^3.4.0
+        version: 3.4.0(kea@3.1.5(react@18.2.0))
       react:
         specifier: '*'
         version: 18.2.0
@@ -2159,8 +2162,8 @@ importers:
         specifier: ^3.1.1
         version: 3.1.1(kea@3.1.5(react@18.2.0))
       kea-router:
-        specifier: ^3.3.1
-        version: 3.3.1(kea@3.1.5(react@18.2.0))
+        specifier: ^3.4.0
+        version: 3.4.0(kea@3.1.5(react@18.2.0))
       react:
         specifier: '*'
         version: 18.2.0
@@ -2186,8 +2189,8 @@ importers:
         specifier: ^3.1.1
         version: 3.1.1(kea@3.1.5(react@18.2.0))
       kea-router:
-        specifier: ^3.3.1
-        version: 3.3.1(kea@3.1.5(react@18.2.0))
+        specifier: ^3.4.0
+        version: 3.4.0(kea@3.1.5(react@18.2.0))
       react:
         specifier: '*'
         version: 18.2.0
@@ -2216,8 +2219,8 @@ importers:
         specifier: ^3.1.1
         version: 3.1.1(kea@3.1.5(react@18.2.0))
       kea-router:
-        specifier: ^3.3.1
-        version: 3.3.1(kea@3.1.5(react@18.2.0))
+        specifier: ^3.4.0
+        version: 3.4.0(kea@3.1.5(react@18.2.0))
       react:
         specifier: '*'
         version: 18.2.0
@@ -2243,8 +2246,8 @@ importers:
         specifier: ^3.1.1
         version: 3.1.1(kea@3.1.5(react@18.2.0))
       kea-router:
-        specifier: ^3.3.1
-        version: 3.3.1(kea@3.1.5(react@18.2.0))
+        specifier: ^3.4.0
+        version: 3.4.0(kea@3.1.5(react@18.2.0))
       react:
         specifier: '*'
         version: 18.2.0
@@ -2267,11 +2270,11 @@ importers:
         specifier: ^3.1.1
         version: 3.1.1(kea@3.1.5(react@18.2.0))
       kea-router:
-        specifier: ^3.3.1
-        version: 3.3.1(kea@3.1.5(react@18.2.0))
+        specifier: ^3.4.0
+        version: 3.4.0(kea@3.1.5(react@18.2.0))
       posthog-js:
-        specifier: 1.258.3
-        version: 1.258.3(@rrweb/types@2.0.0-alpha.17)
+        specifier: 1.258.5
+        version: 1.258.5(@rrweb/types@2.0.0-alpha.17)
       react:
         specifier: '*'
         version: 18.2.0
@@ -2297,8 +2300,8 @@ importers:
         specifier: ^3.1.1
         version: 3.1.1(kea@3.1.5(react@18.2.0))
       kea-router:
-        specifier: ^3.3.1
-        version: 3.3.1(kea@3.1.5(react@18.2.0))
+        specifier: ^3.4.0
+        version: 3.4.0(kea@3.1.5(react@18.2.0))
       react:
         specifier: '*'
         version: 18.2.0
@@ -4512,6 +4515,106 @@ packages:
   '@mswjs/interceptors@0.17.10':
     resolution: {integrity: sha512-N8x7eSLGcmUFNWZRxT1vsHvypzIRgQYdG0rJey/rZCy6zT/30qDt8Joj7FxzGNLSwXbeZqJOMqDurp7ra4hgbw==}
     engines: {node: '>=14'}
+
+  '@napi-rs/nice-android-arm-eabi@1.0.4':
+    resolution: {integrity: sha512-OZFMYUkih4g6HCKTjqJHhMUlgvPiDuSLZPbPBWHLjKmFTv74COzRlq/gwHtmEVaR39mJQ6ZyttDl2HNMUbLVoA==}
+    engines: {node: '>= 10'}
+    cpu: [arm]
+    os: [android]
+
+  '@napi-rs/nice-android-arm64@1.0.4':
+    resolution: {integrity: sha512-k8u7cjeA64vQWXZcRrPbmwjH8K09CBnNaPnI9L1D5N6iMPL3XYQzLcN6WwQonfcqCDv5OCY3IqX89goPTV4KMw==}
+    engines: {node: '>= 10'}
+    cpu: [arm64]
+    os: [android]
+
+  '@napi-rs/nice-darwin-arm64@1.0.4':
+    resolution: {integrity: sha512-GsLdQvUcuVzoyzmtjsThnpaVEizAqH5yPHgnsBmq3JdVoVZHELFo7PuJEdfOH1DOHi2mPwB9sCJEstAYf3XCJA==}
+    engines: {node: '>= 10'}
+    cpu: [arm64]
+    os: [darwin]
+
+  '@napi-rs/nice-darwin-x64@1.0.4':
+    resolution: {integrity: sha512-1y3gyT3e5zUY5SxRl3QDtJiWVsbkmhtUHIYwdWWIQ3Ia+byd/IHIEpqAxOGW1nhhnIKfTCuxBadHQb+yZASVoA==}
+    engines: {node: '>= 10'}
+    cpu: [x64]
+    os: [darwin]
+
+  '@napi-rs/nice-freebsd-x64@1.0.4':
+    resolution: {integrity: sha512-06oXzESPRdXUuzS8n2hGwhM2HACnDfl3bfUaSqLGImM8TA33pzDXgGL0e3If8CcFWT98aHows5Lk7xnqYNGFeA==}
+    engines: {node: '>= 10'}
+    cpu: [x64]
+    os: [freebsd]
+
+  '@napi-rs/nice-linux-arm-gnueabihf@1.0.4':
+    resolution: {integrity: sha512-CgklZ6g8WL4+EgVVkxkEvvsi2DSLf9QIloxWO0fvQyQBp6VguUSX3eHLeRpqwW8cRm2Hv/Q1+PduNk7VK37VZw==}
+    engines: {node: '>= 10'}
+    cpu: [arm]
+    os: [linux]
+
+  '@napi-rs/nice-linux-arm64-gnu@1.0.4':
+    resolution: {integrity: sha512-wdAJ7lgjhAlsANUCv0zi6msRwq+D4KDgU+GCCHssSxWmAERZa2KZXO0H2xdmoJ/0i03i6YfK/sWaZgUAyuW2oQ==}
+    engines: {node: '>= 10'}
+    cpu: [arm64]
+    os: [linux]
+
+  '@napi-rs/nice-linux-arm64-musl@1.0.4':
+    resolution: {integrity: sha512-4b1KYG+sriufhFrpUS9uNOEYYJqSfcbnwGx6uGX7JjrH8tELG90cOpCawz5THNIwlS3DhLgnCOcn0+4p6z26QA==}
+    engines: {node: '>= 10'}
+    cpu: [arm64]
+    os: [linux]
+
+  '@napi-rs/nice-linux-ppc64-gnu@1.0.4':
+    resolution: {integrity: sha512-iaf3vMRgr23oe1PUaKpxaH3DS0IMN0+N9iEiWVwYPm/U15vZFYdqVegGfN2PzrZLUl5lc8ZxbmEKDfuqslhAMA==}
+    engines: {node: '>= 10'}
+    cpu: [ppc64]
+    os: [linux]
+
+  '@napi-rs/nice-linux-riscv64-gnu@1.0.4':
+    resolution: {integrity: sha512-UXoREY6Yw6rHrGuTwQgBxpfjK34t6mTjibE9/cXbefL9AuUCJ9gEgwNKZiONuR5QGswChqo9cnthjdKkYyAdDg==}
+    engines: {node: '>= 10'}
+    cpu: [riscv64]
+    os: [linux]
+
+  '@napi-rs/nice-linux-s390x-gnu@1.0.4':
+    resolution: {integrity: sha512-eFbgYCRPmsqbYPAlLYU5hYTNbogmIDUvknilehHsFhCH1+0/kN87lP+XaLT0Yeq4V/rpwChSd9vlz4muzFArtw==}
+    engines: {node: '>= 10'}
+    cpu: [s390x]
+    os: [linux]
+
+  '@napi-rs/nice-linux-x64-gnu@1.0.4':
+    resolution: {integrity: sha512-4T3E6uTCwWT6IPnwuPcWVz3oHxvEp/qbrCxZhsgzwTUBEwu78EGNXGdHfKJQt3soth89MLqZJw+Zzvnhrsg1mQ==}
+    engines: {node: '>= 10'}
+    cpu: [x64]
+    os: [linux]
+
+  '@napi-rs/nice-linux-x64-musl@1.0.4':
+    resolution: {integrity: sha512-NtbBkAeyBPLvCBkWtwkKXkNSn677eaT0cX3tygq+2qVv71TmHgX4gkX6o9BXjlPzdgPGwrUudavCYPT9tzkEqQ==}
+    engines: {node: '>= 10'}
+    cpu: [x64]
+    os: [linux]
+
+  '@napi-rs/nice-win32-arm64-msvc@1.0.4':
+    resolution: {integrity: sha512-vubOe3i+YtSJGEk/++73y+TIxbuVHi+W8ZzrRm2eETCjCRwNlgbfToQZ85dSA+4iBB/NJRGNp+O4hfdbbttZWA==}
+    engines: {node: '>= 10'}
+    cpu: [arm64]
+    os: [win32]
+
+  '@napi-rs/nice-win32-ia32-msvc@1.0.4':
+    resolution: {integrity: sha512-BMOVrUDZeg1RNRKVlh4eyLv5djAAVLiSddfpuuQ47EFjBcklg0NUeKMFKNrKQR4UnSn4HAiACLD7YK7koskwmg==}
+    engines: {node: '>= 10'}
+    cpu: [ia32]
+    os: [win32]
+
+  '@napi-rs/nice-win32-x64-msvc@1.0.4':
+    resolution: {integrity: sha512-kCNk6HcRZquhw/whwh4rHsdPyOSCQCgnVDVik+Y9cuSVTDy3frpiCJTScJqPPS872h4JgZKkr/+CwcwttNEo9Q==}
+    engines: {node: '>= 10'}
+    cpu: [x64]
+    os: [win32]
+
+  '@napi-rs/nice@1.0.4':
+    resolution: {integrity: sha512-Sqih1YARrmMoHlXGgI9JrrgkzxcaaEso0AH+Y7j8NHonUs+xe4iDsgC3IBIDNdzEewbNpccNN6hip+b5vmyRLw==}
+    engines: {node: '>= 10'}
 
   '@napi-rs/snappy-android-arm-eabi@7.2.2':
     resolution: {integrity: sha512-H7DuVkPCK5BlAr1NfSU8bDEN7gYs+R78pSHhDng83QxRnCLmVIZk33ymmIwurmoA1HrdTxbkbuNl+lMvNqnytw==}
@@ -12240,13 +12343,8 @@ packages:
     peerDependencies:
       kea: '>= 3'
 
-  kea-router@3.3.0:
-    resolution: {integrity: sha512-lcun+z/MFVaK/FK6rFSr1/Epu/cpHir1X7nW9Cr4XMBbbNS6t0MA0SsgAiKY35eM5Vd6c0Y33uI2BIWg/dXBfA==}
-    peerDependencies:
-      kea: '>= 3'
-
-  kea-router@3.3.1:
-    resolution: {integrity: sha512-SA1RiFbWalvJ1u8pRZf8zACvm2UP1fLIr7Jq8uyIvWQov2V0xyh28pI6TgndJUeSp4i1yoGlA6IMmCHoi0q2nA==}
+  kea-router@3.4.0:
+    resolution: {integrity: sha512-jlSKsQCrp/obQZRTzr86C7Zh+oO2u3giHwZIZ0XxoDb4u6oK1R5jFIkPKcssKupwwIiY/YasIKeiAOG+Eg7yQQ==}
     peerDependencies:
       kea: '>= 3'
 
@@ -13607,6 +13705,10 @@ packages:
     resolution: {integrity: sha512-saLsH7WeYYPiD25LDuLRRY/i+6HaPYr6G1OUlN39otzkSTxKnubR9RTxS3/Kk50s1g2JTgFwWQDQyplC5/SHZg==}
     engines: {node: '>= 6'}
 
+  piscina@5.1.3:
+    resolution: {integrity: sha512-0u3N7H4+hbr40KjuVn2uNhOcthu/9usKhnw5vT3J7ply79v3D3M8naI00el9Klcy16x557VsEkkUQaHCWFXC/g==}
+    engines: {node: '>=20.x'}
+
   pixelmatch@5.3.0:
     resolution: {integrity: sha512-o8mkY4E/+LNUf6LzX96ht6k6CEDi65k9G2rjMtBe9Oo+VPKSvl+0GKHuH/AlG+GA5LPG/i5hrekkxUc3s2HU+Q==}
     hasBin: true
@@ -14097,8 +14199,8 @@ packages:
   posthog-js-lite@4.1.0:
     resolution: {integrity: sha512-a+MoPmflhYtnKOuDg7tEgeiwT70mWwcZdqeMhduJw/3LPTFMTvnssTJ0jppmnwTkBoPdBgLYTO40l8k64Tl/yQ==}
 
-  posthog-js@1.258.3:
-    resolution: {integrity: sha512-bX4Ehzo/yBGY7o23CUAQelX+oUdLn5bKhEjTSiveXsjkZhRURxfKDinYTwI6tjs19FC8BWfHFyO3q3TgT2E7CA==}
+  posthog-js@1.258.5:
+    resolution: {integrity: sha512-Tx6CzS8MsGAQGPrQth5TbkGxGQgAY01SktNW773/KDmVOWiRVZq/WQF/MRJRiuFxJ7qjethZQi3aBWfWKdr1RA==}
     peerDependencies:
       '@rrweb/types': 2.0.0-alpha.17
       rrweb-snapshot: 2.0.0-alpha.17
@@ -14131,8 +14233,8 @@ packages:
   potpack@2.0.0:
     resolution: {integrity: sha512-Q+/tYsFU9r7xoOJ+y/ZTtdVQwTWfzjbiXBDMM/JKUux3+QPP02iUuIoeBQ+Ot6oEDlC+/PGjB/5A3K7KKb7hcw==}
 
-  preact@10.26.9:
-    resolution: {integrity: sha512-SSjF9vcnF27mJK1XyFMNJzFd5u3pQiATFqoaDy03XuN00u4ziveVVEGt5RKJrDR8MHE/wJo9Nnad56RLzS2RMA==}
+  preact@10.27.0:
+    resolution: {integrity: sha512-/DTYoB6mwwgPytiqQTh/7SFRL98ZdiD8Sk8zIUVOxtwq4oWcwrcd1uno9fE/zZmUaUrFNYzbH14CPebOz9tZQw==}
 
   prelude-ls@1.2.1:
     resolution: {integrity: sha512-vkcDPrRZo1QZLbn5RLGPpg/WmIQ65qoWWhcGKf/b5eplkkarX0m9z8ppCat4mlOqUsWpyNuYgO3VRyrYHSzX5g==}
@@ -20834,6 +20936,74 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
+  '@napi-rs/nice-android-arm-eabi@1.0.4':
+    optional: true
+
+  '@napi-rs/nice-android-arm64@1.0.4':
+    optional: true
+
+  '@napi-rs/nice-darwin-arm64@1.0.4':
+    optional: true
+
+  '@napi-rs/nice-darwin-x64@1.0.4':
+    optional: true
+
+  '@napi-rs/nice-freebsd-x64@1.0.4':
+    optional: true
+
+  '@napi-rs/nice-linux-arm-gnueabihf@1.0.4':
+    optional: true
+
+  '@napi-rs/nice-linux-arm64-gnu@1.0.4':
+    optional: true
+
+  '@napi-rs/nice-linux-arm64-musl@1.0.4':
+    optional: true
+
+  '@napi-rs/nice-linux-ppc64-gnu@1.0.4':
+    optional: true
+
+  '@napi-rs/nice-linux-riscv64-gnu@1.0.4':
+    optional: true
+
+  '@napi-rs/nice-linux-s390x-gnu@1.0.4':
+    optional: true
+
+  '@napi-rs/nice-linux-x64-gnu@1.0.4':
+    optional: true
+
+  '@napi-rs/nice-linux-x64-musl@1.0.4':
+    optional: true
+
+  '@napi-rs/nice-win32-arm64-msvc@1.0.4':
+    optional: true
+
+  '@napi-rs/nice-win32-ia32-msvc@1.0.4':
+    optional: true
+
+  '@napi-rs/nice-win32-x64-msvc@1.0.4':
+    optional: true
+
+  '@napi-rs/nice@1.0.4':
+    optionalDependencies:
+      '@napi-rs/nice-android-arm-eabi': 1.0.4
+      '@napi-rs/nice-android-arm64': 1.0.4
+      '@napi-rs/nice-darwin-arm64': 1.0.4
+      '@napi-rs/nice-darwin-x64': 1.0.4
+      '@napi-rs/nice-freebsd-x64': 1.0.4
+      '@napi-rs/nice-linux-arm-gnueabihf': 1.0.4
+      '@napi-rs/nice-linux-arm64-gnu': 1.0.4
+      '@napi-rs/nice-linux-arm64-musl': 1.0.4
+      '@napi-rs/nice-linux-ppc64-gnu': 1.0.4
+      '@napi-rs/nice-linux-riscv64-gnu': 1.0.4
+      '@napi-rs/nice-linux-s390x-gnu': 1.0.4
+      '@napi-rs/nice-linux-x64-gnu': 1.0.4
+      '@napi-rs/nice-linux-x64-musl': 1.0.4
+      '@napi-rs/nice-win32-arm64-msvc': 1.0.4
+      '@napi-rs/nice-win32-ia32-msvc': 1.0.4
+      '@napi-rs/nice-win32-x64-msvc': 1.0.4
+    optional: true
+
   '@napi-rs/snappy-android-arm-eabi@7.2.2':
     optional: true
 
@@ -21754,11 +21924,11 @@ snapshots:
       react: 18.2.0
       react-dom: 18.2.0(react@18.2.0)
 
-  '@posthog/lemon-ui@0.0.0(antd@5.26.0(date-fns@2.30.0)(luxon@3.5.0)(moment@2.29.4)(react-dom@18.2.0(react@18.2.0))(react@18.2.0))(kea-router@3.3.0(kea@3.1.5(react@18.2.0)))(kea@3.1.5(react@18.2.0))(react-dom@18.2.0(react@18.2.0))(react@18.2.0)':
+  '@posthog/lemon-ui@0.0.0(antd@5.26.0(date-fns@2.30.0)(luxon@3.5.0)(moment@2.29.4)(react-dom@18.2.0(react@18.2.0))(react@18.2.0))(kea-router@3.4.0(kea@3.1.5(react@18.2.0)))(kea@3.1.5(react@18.2.0))(react-dom@18.2.0(react@18.2.0))(react@18.2.0)':
     dependencies:
       antd: 5.26.0(date-fns@2.30.0)(luxon@3.5.0)(moment@2.29.4)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       kea: 3.1.5(react@18.2.0)
-      kea-router: 3.3.0(kea@3.1.5(react@18.2.0))
+      kea-router: 3.4.0(kea@3.1.5(react@18.2.0))
       react: 18.2.0
       react-dom: 18.2.0(react@18.2.0)
 
@@ -29769,7 +29939,7 @@ snapshots:
       hogan.js: 3.0.2
       htm: 3.1.1
       instantsearch-ui-components: 0.3.0
-      preact: 10.26.9
+      preact: 10.27.0
       qs: 6.9.7
       search-insights: 2.13.0
 
@@ -30817,12 +30987,7 @@ snapshots:
     dependencies:
       kea: 3.1.5(react@18.2.0)
 
-  kea-router@3.3.0(kea@3.1.5(react@18.2.0)):
-    dependencies:
-      kea: 3.1.5(react@18.2.0)
-      url-pattern: 1.0.3
-
-  kea-router@3.3.1(kea@3.1.5(react@18.2.0)):
+  kea-router@3.4.0(kea@3.1.5(react@18.2.0)):
     dependencies:
       kea: 3.1.5(react@18.2.0)
       url-pattern: 1.0.3
@@ -32331,6 +32496,10 @@ snapshots:
 
   pirates@4.0.6: {}
 
+  piscina@5.1.3:
+    optionalDependencies:
+      '@napi-rs/nice': 1.0.4
+
   pixelmatch@5.3.0:
     dependencies:
       pngjs: 6.0.0
@@ -33044,11 +33213,11 @@ snapshots:
 
   posthog-js-lite@4.1.0: {}
 
-  posthog-js@1.258.3(@rrweb/types@2.0.0-alpha.17):
+  posthog-js@1.258.5(@rrweb/types@2.0.0-alpha.17):
     dependencies:
       core-js: 3.44.0
       fflate: 0.4.8
-      preact: 10.26.9
+      preact: 10.27.0
       web-vitals: 4.2.4
     optionalDependencies:
       '@rrweb/types': 2.0.0-alpha.17
@@ -33078,7 +33247,7 @@ snapshots:
 
   potpack@2.0.0: {}
 
-  preact@10.26.9: {}
+  preact@10.27.0: {}
 
   prelude-ls@1.2.1: {}
 
