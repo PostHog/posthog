@@ -21,6 +21,9 @@ from posthog.temporal.subscriptions.subscription_scheduling_workflow import (
     DeliverSubscriptionReportActivityInputs,
 )
 from posthog.utils import str_to_bool
+from posthog.models.activity_logging.activity_log import Detail, log_activity, changes_between
+from posthog.models.signals import model_activity_signal
+from django.dispatch import receiver
 
 
 class SubscriptionSerializer(serializers.ModelSerializer):
@@ -163,3 +166,28 @@ def unsubscribe(request: HttpRequest):
         return JsonResponse({"success": False})
 
     return JsonResponse({"success": True})
+
+
+@receiver(model_activity_signal, sender=Subscription)
+def handle_subscription_change(sender, scope, before_update, after_update, activity, was_impersonated=False, **kwargs):
+    from posthog.utils import get_current_user_from_thread
+
+    user = get_current_user_from_thread()
+
+    # Get the resource name for better context
+    resource_name = after_update.title or "Subscription"
+    if after_update.dashboard:
+        resource_name = f"Dashboard: {after_update.dashboard.name}"
+    elif after_update.insight:
+        resource_name = f"Insight: {after_update.insight.name}"
+
+    log_activity(
+        organization_id=after_update.team.organization_id,
+        team_id=after_update.team_id,
+        user=user,
+        was_impersonated=was_impersonated,
+        item_id=after_update.id,
+        scope=scope,
+        activity=activity,
+        detail=Detail(changes=changes_between(scope, previous=before_update, current=after_update), name=resource_name),
+    )
