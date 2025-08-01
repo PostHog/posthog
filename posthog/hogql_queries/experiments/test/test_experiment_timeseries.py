@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Any, cast
 from freezegun import freeze_time
 
 from posthog.hogql_queries.experiments.experiment_timeseries import ExperimentTimeseries
@@ -235,7 +236,9 @@ class TestExperimentTimeseries(BaseTest):
 
         self.assertEqual(len(results), len(expected_results))
 
-        for _, (actual_result, expected_result) in enumerate(zip(results, expected_results)):
+        for _, (_actual_result, _expected_result) in enumerate(zip(results, expected_results)):
+            actual_result = cast(dict[str, Any], _actual_result)
+            expected_result = cast(dict[str, Any], _expected_result)
             self.assertTrue(actual_result["date"].startswith(expected_result["date"]))
 
             # Check if this expected result has data or is just a date-only bucket
@@ -476,7 +479,9 @@ class TestExperimentTimeseries(BaseTest):
 
         self.assertEqual(len(results), len(expected_results))
 
-        for _, (actual_result, expected_result) in enumerate(zip(results, expected_results)):
+        for _, (_actual_result, _expected_result) in enumerate(zip(results, expected_results)):
+            actual_result = cast(dict[str, Any], _actual_result)
+            expected_result = cast(dict[str, Any], _expected_result)
             self.assertTrue(actual_result["date"].startswith(expected_result["date"]))
 
             # Check if this expected result has data or is just a date-only bucket

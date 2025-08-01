@@ -1,5 +1,5 @@
 import logging
-from typing import Union
+from typing import Union, Any
 from datetime import datetime, timedelta
 
 from posthog.hogql_queries.experiments.utils import (
@@ -509,7 +509,7 @@ class ExperimentTimeseries:
 
         return dates
 
-    def get_result(self) -> list[dict]:
+    def get_result(self) -> list[dict[str, Any]]:
         experiment_query = self._get_experiment_timeseries_query()
 
         timings = HogQLTimings()
@@ -525,7 +525,7 @@ class ExperimentTimeseries:
         timeseries = []
 
         # Group db results by date
-        grouped_by_date = {}
+        grouped_by_date: dict[str, list[tuple[str, int, int, int]]] = {}
         for variant, date, num_users, total_sum, total_sum_of_squares in response.results:
             date_key = date.date().isoformat()  # e.g. '2024-01-01'
             if date_key not in grouped_by_date:
