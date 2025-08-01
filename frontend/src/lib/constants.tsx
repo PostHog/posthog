@@ -203,7 +203,6 @@ export const FEATURE_FLAGS = {
     METALYTICS: 'metalytics', // owner: @surbhi
     REMOTE_CONFIG: 'remote-config', // owner: @benjackwhite
     SITE_DESTINATIONS: 'site-destinations', // owner: @mariusandra #team-cdp
-    HOG_TRANSFORMATIONS_CUSTOM_HOG_ENABLED: 'hog-transformation-custom-hog-code', // owner: #team-cdp
     REPLAY_HOGQL_FILTERS: 'replay-hogql-filters', // owner: @pauldambra #team-replay
     REPLAY_GROUPS_FILTERS: 'replay-groups-filters', // owner: @pauldambra #team-replay
     SUPPORT_MESSAGE_OVERRIDE: 'support-message-override', // owner: @abigail
@@ -281,11 +280,14 @@ export const FEATURE_FLAGS = {
     NEW_SCENE_LAYOUT: 'new-scene-layout', // owner: @adamleithp #team-devex
     EXPERIMENTS_AI_SUMMARY: 'experiments-ai-summary', // owner: @rodrigoi #team-experiments
     WEB_ANALYTICS_API: 'web-analytics-api', // owner: #team-web-analytics
-    EXPERIMENTS_NEW_METRICS_TABLE: 'experiments-new-metrics-table', // owner: @andehen #team-experiments
     MEMBERS_CAN_USE_PERSONAL_API_KEYS: 'members-can-use-personal-api-keys', // owner: @yasen-posthog #team-platform-features
     FLAG_EVALUATION_RUNTIMES: 'flag-evaluation-runtimes', // owner: @dylan #team-feature-flags
     PATH_CLEANING_FILTER_TABLE_UI: 'path-cleaning-filter-table-ui', // owner: @lricoy #team-web-analytics
+    REPLAY_SETTINGS_HELP: 'replay-settings-help', // owner: @veryayskiy #team-replay
+    EDITOR_DRAFTS: 'editor-drafts', // owner: @EDsCODE #team-data-warehouse
+    DATA_WAREHOUSE_SCENE: 'data-warehouse-scene', // owner: @naumaanh #team-data-warehouse
     MAX_BILLING_CONTEXT: 'max-billing-context', // owner: @pawel-cebula #team-billing
+    SCENE_TABS: 'scene-tabs', // owner @mariusandra #team-devex
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 
@@ -406,8 +408,7 @@ export const SESSION_REPLAY_MINIMUM_DURATION_OPTIONS: LemonSelectOptions<number 
 ]
 
 export const UNSUBSCRIBE_SURVEY_ID = '018b6e13-590c-0000-decb-c727a2b3f462'
-export const SESSION_RECORDING_OPT_OUT_SURVEY_ID = '0194a763-9a13-0000-8088-32b52acf7156'
-export const SESSION_RECORDING_OPT_OUT_SURVEY_ID_2 = '0195ec93-5f91-0000-15fa-55aaf5e0c562'
+export const SESSION_RECORDING_OPT_OUT_SURVEY_ID = '01985c68-bd25-0000-b7e3-f1ccc987e979'
 
 export const TAILWIND_BREAKPOINTS = {
     sm: 526,
