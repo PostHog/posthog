@@ -83,6 +83,7 @@ class AssistantContextualTool(StrEnum):
     SEARCH_ERROR_TRACKING_ISSUES = "search_error_tracking_issues"
     EXPERIMENT_RESULTS_SUMMARY = "experiment_results_summary"
     CREATE_SURVEY = "create_survey"
+    SESSION_RECORDING_SETTINGS_HELP = "session_recording_settings_help"
 
 
 class AssistantDateRange(BaseModel):
@@ -13467,7 +13468,7 @@ class HogQLMetadata(BaseModel):
     )
     tags: Optional[QueryLogTags] = None
     variables: Optional[dict[str, HogQLVariable]] = Field(
-        default=None, description="Variables to be substituted into the query"
+        default=None, description="Variables to be subsituted into the query"
     )
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
