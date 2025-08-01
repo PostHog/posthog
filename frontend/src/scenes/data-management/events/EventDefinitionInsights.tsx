@@ -79,7 +79,7 @@ export function EventDefinitionInsights({ definition }: { definition: EventDefin
                 dataSource={insights.results ? insights.results : []}
                 pagination={{
                     controlled: true,
-                    currentPage: insights?.page ?? 1,
+                    currentPage: page ?? 1,
                     entryCount: insights?.count ?? 0,
                     pageSize: INSIGHTS_PER_PAGE,
                     onForward: insights?.next
