@@ -12,6 +12,9 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.models.batch_imports import BatchImport, ContentType, DateRangeExportSource
 from posthog.models.user import User
+from posthog.models.activity_logging.activity_log import Detail, log_activity, changes_between
+from posthog.models.signals import model_activity_signal
+from django.dispatch import receiver
 
 
 class BatchImportKafkaTopic(str, Enum):
@@ -414,3 +417,26 @@ class BatchImportViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         batch_import.save(update_fields=["status", "status_message", "updated_at"])
 
         return Response({"status": "resumed"})
+
+
+@receiver(model_activity_signal, sender=BatchImport)
+def handle_batch_import_change(sender, scope, before_update, after_update, activity, was_impersonated=False, **kwargs):
+    from posthog.utils import get_current_user_from_thread
+
+    user = get_current_user_from_thread()
+
+    import_name = "BatchImport"
+    if after_update.import_config and "source" in after_update.import_config:
+        source_type = after_update.import_config.get("source", {}).get("type", "Unknown")
+        import_name = f"{source_type} Import"
+
+    log_activity(
+        organization_id=after_update.team.organization_id,
+        team_id=after_update.team_id,
+        user=user,
+        was_impersonated=was_impersonated,
+        item_id=after_update.id,
+        scope=scope,
+        activity=activity,
+        detail=Detail(changes=changes_between(scope, previous=before_update, current=after_update), name=import_name),
+    )
