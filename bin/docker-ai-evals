@@ -17,4 +17,4 @@ bin/check_kafka_clickhouse_up
 
 echo "✅ Services ready! Running tests..."
 
-pytest -vv -s ee/hogai/eval/eval_root_style.py
+$EVAL_SCRIPT
