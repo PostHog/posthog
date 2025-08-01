@@ -1,10 +1,10 @@
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
-import { NotebookNodeType } from '~/types'
-import { JSONContent, NotebookNodeAttributeProperties, NotebookNodeProps } from '../Notebook/utils'
 import { LemonButton, LemonInput, SpinnerOverlay } from '@posthog/lemon-ui'
 import { useEffect, useMemo, useState } from 'react'
 import { useActions } from 'kea'
 import { notebookNodeLogic } from './notebookNodeLogic'
+import { JSONContent } from 'lib/components/RichContentEditor/types'
+import { NotebookNodeAttributeProperties, NotebookNodeProps, NotebookNodeType } from '../types'
 
 type NotebookNodeEmbedAttributes = {
     src?: string
@@ -52,6 +52,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeEmbedAttributes
         } else {
             setTitlePlaceholder('Embedded iframe')
         }
+        // oxlint-disable-next-line exhaustive-deps
     }, [validUrl])
 
     return (

@@ -66,6 +66,7 @@ PROPERTY_FILTER_VERBOSE_NAME: dict[PropertyOperator, str] = {
     PropertyOperator.IN_: "is one of the values in",
     PropertyOperator.NOT_IN: "is not one of the values in",
     PropertyOperator.IS_CLEANED_PATH_EXACT: "has a link without a hash and URL parameters that matches exactly",
+    PropertyOperator.FLAG_EVALUATES_TO: "evaluates to",
 }
 
 

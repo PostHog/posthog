@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import collections
+from contextlib import _GeneratorContextManager
 import math
 from collections.abc import Iterator
 from typing import Any, LiteralString, Optional, cast
+from collections.abc import Callable
 
 import psycopg
 import pyarrow as pa
@@ -62,6 +64,12 @@ def get_postgres_row_count(
     try:
         with connection.cursor() as cursor:
             cursor.execute(
+                sql.SQL("SET LOCAL statement_timeout = {timeout}").format(
+                    timeout=sql.Literal(1000 * 30)  # 30 secs
+                )
+            )
+
+            cursor.execute(
                 """
                 SELECT tablename as table_name FROM pg_tables WHERE schemaname = %(schema)s
                 UNION ALL
@@ -86,6 +94,8 @@ def get_postgres_row_count(
             row_count_result = cursor.fetchall()
             row_counts = {row[0]: row[1] for row in row_count_result}
         return row_counts
+    except:
+        return {}
     finally:
         connection.close()
 
@@ -525,8 +535,7 @@ def _get_table(cursor: psycopg.Cursor, schema: str, table_name: str) -> Table[Po
 
 
 def postgres_source(
-    host: str,
-    port: int,
+    tunnel: Callable[[], _GeneratorContextManager[tuple[str, int]]],
     user: str,
     password: str,
     database: str,
@@ -544,70 +553,7 @@ def postgres_source(
     if not table_name:
         raise ValueError("Table name is missing")
 
-    with psycopg.connect(
-        host=host,
-        port=port,
-        dbname=database,
-        user=user,
-        password=password,
-        sslmode=sslmode,
-        connect_timeout=5,
-        sslrootcert="/tmp/no.txt",
-        sslcert="/tmp/no.txt",
-        sslkey="/tmp/no.txt",
-    ) as connection:
-        with connection.cursor() as cursor:
-            inner_query_with_limit = _build_query(
-                schema,
-                table_name,
-                should_use_incremental_field,
-                incremental_field,
-                incremental_field_type,
-                db_incremental_field_last_value,
-                add_limit=True,
-            )
-
-            inner_query_without_limit = _build_query(
-                schema,
-                table_name,
-                should_use_incremental_field,
-                incremental_field,
-                incremental_field_type,
-                db_incremental_field_last_value,
-            )
-            cursor.execute(
-                sql.SQL("SET LOCAL statement_timeout = {timeout}").format(
-                    timeout=sql.Literal(1000 * 60 * 10)  # 10 mins
-                )
-            )
-            try:
-                primary_keys = _get_primary_keys(cursor, schema, table_name)
-                table = _get_table(cursor, schema, table_name)
-                chunk_size = _get_table_chunk_size(cursor, inner_query_with_limit, logger)
-                rows_to_sync = _get_rows_to_sync(cursor, inner_query_without_limit, logger)
-                partition_settings = (
-                    _get_partition_settings(cursor, schema, table_name, logger)
-                    if should_use_incremental_field
-                    else None
-                )
-                has_duplicate_primary_keys = False
-
-                # Fallback on checking for an `id` field on the table
-                if primary_keys is None and "id" in table:
-                    primary_keys = ["id"]
-                    has_duplicate_primary_keys = _has_duplicate_primary_keys(cursor, schema, table_name, primary_keys)
-            except psycopg.errors.QueryCanceled:
-                if should_use_incremental_field:
-                    raise QueryTimeoutException(
-                        f"10 min timeout statement reached. Please ensure your incremental field ({incremental_field}) has an appropriate index created"
-                    )
-                raise
-            except Exception:
-                raise
-
-    def get_rows(chunk_size: int) -> Iterator[Any]:
-        arrow_schema = table.to_arrow_schema()
-
+    with tunnel() as (host, port):
         with psycopg.connect(
             host=host,
             port=port,
@@ -619,19 +565,19 @@ def postgres_source(
             sslrootcert="/tmp/no.txt",
             sslcert="/tmp/no.txt",
             sslkey="/tmp/no.txt",
-            cursor_factory=psycopg.ServerCursor,
         ) as connection:
-            connection.adapters.register_loader("json", JsonAsStringLoader)
-            connection.adapters.register_loader("jsonb", JsonAsStringLoader)
-            connection.adapters.register_loader("int4range", RangeAsStringLoader)
-            connection.adapters.register_loader("int8range", RangeAsStringLoader)
-            connection.adapters.register_loader("numrange", RangeAsStringLoader)
-            connection.adapters.register_loader("tsrange", RangeAsStringLoader)
-            connection.adapters.register_loader("tstzrange", RangeAsStringLoader)
-            connection.adapters.register_loader("daterange", RangeAsStringLoader)
+            with connection.cursor() as cursor:
+                inner_query_with_limit = _build_query(
+                    schema,
+                    table_name,
+                    should_use_incremental_field,
+                    incremental_field,
+                    incremental_field_type,
+                    db_incremental_field_last_value,
+                    add_limit=True,
+                )
 
-            with connection.cursor(name=f"posthog_{team_id}_{schema}.{table_name}") as cursor:
-                query = _build_query(
+                inner_query_without_limit = _build_query(
                     schema,
                     table_name,
                     should_use_incremental_field,
@@ -639,18 +585,84 @@ def postgres_source(
                     incremental_field_type,
                     db_incremental_field_last_value,
                 )
-                logger.debug(f"Postgres query: {query.as_string()}")
+                cursor.execute(
+                    sql.SQL("SET LOCAL statement_timeout = {timeout}").format(
+                        timeout=sql.Literal(1000 * 60 * 10)  # 10 mins
+                    )
+                )
+                try:
+                    primary_keys = _get_primary_keys(cursor, schema, table_name)
+                    table = _get_table(cursor, schema, table_name)
+                    chunk_size = _get_table_chunk_size(cursor, inner_query_with_limit, logger)
+                    rows_to_sync = _get_rows_to_sync(cursor, inner_query_without_limit, logger)
+                    partition_settings = (
+                        _get_partition_settings(cursor, schema, table_name, logger)
+                        if should_use_incremental_field
+                        else None
+                    )
+                    has_duplicate_primary_keys = False
 
-                cursor.execute(query)
+                    # Fallback on checking for an `id` field on the table
+                    if primary_keys is None and "id" in table:
+                        primary_keys = ["id"]
+                        has_duplicate_primary_keys = _has_duplicate_primary_keys(
+                            cursor, schema, table_name, primary_keys
+                        )
+                except psycopg.errors.QueryCanceled:
+                    if should_use_incremental_field:
+                        raise QueryTimeoutException(
+                            f"10 min timeout statement reached. Please ensure your incremental field ({incremental_field}) has an appropriate index created"
+                        )
+                    raise
+                except Exception:
+                    raise
 
-                column_names = [column.name for column in cursor.description or []]
+    def get_rows(chunk_size: int) -> Iterator[Any]:
+        arrow_schema = table.to_arrow_schema()
+        with tunnel() as (host, port):
+            with psycopg.connect(
+                host=host,
+                port=port,
+                dbname=database,
+                user=user,
+                password=password,
+                sslmode=sslmode,
+                connect_timeout=5,
+                sslrootcert="/tmp/no.txt",
+                sslcert="/tmp/no.txt",
+                sslkey="/tmp/no.txt",
+                cursor_factory=psycopg.ServerCursor,
+            ) as connection:
+                connection.adapters.register_loader("json", JsonAsStringLoader)
+                connection.adapters.register_loader("jsonb", JsonAsStringLoader)
+                connection.adapters.register_loader("int4range", RangeAsStringLoader)
+                connection.adapters.register_loader("int8range", RangeAsStringLoader)
+                connection.adapters.register_loader("numrange", RangeAsStringLoader)
+                connection.adapters.register_loader("tsrange", RangeAsStringLoader)
+                connection.adapters.register_loader("tstzrange", RangeAsStringLoader)
+                connection.adapters.register_loader("daterange", RangeAsStringLoader)
 
-                while True:
-                    rows = cursor.fetchmany(chunk_size)
-                    if not rows:
-                        break
+                with connection.cursor(name=f"posthog_{team_id}_{schema}.{table_name}") as cursor:
+                    query = _build_query(
+                        schema,
+                        table_name,
+                        should_use_incremental_field,
+                        incremental_field,
+                        incremental_field_type,
+                        db_incremental_field_last_value,
+                    )
+                    logger.debug(f"Postgres query: {query.as_string()}")
 
-                    yield table_from_iterator((dict(zip(column_names, row)) for row in rows), arrow_schema)
+                    cursor.execute(query)
+
+                    column_names = [column.name for column in cursor.description or []]
+
+                    while True:
+                        rows = cursor.fetchmany(chunk_size)
+                        if not rows:
+                            break
+
+                        yield table_from_iterator((dict(zip(column_names, row)) for row in rows), arrow_schema)
 
     name = NamingConvention().normalize_identifier(table_name)
 

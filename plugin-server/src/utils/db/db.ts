@@ -1,4 +1,3 @@
-import ClickHouse from '@posthog/clickhouse'
 import { CacheOptions, Properties } from '@posthog/plugin-scaffold'
 import { Pool as GenericPool } from 'generic-pool'
 import Redis from 'ioredis'
@@ -9,15 +8,8 @@ import { KAFKA_GROUPS, KAFKA_PLUGIN_LOG_ENTRIES } from '../../config/kafka-topic
 import { KafkaProducerWrapper, TopicMessage } from '../../kafka/producer'
 import {
     Action,
-    ClickHouseEvent,
-    ClickhouseGroup,
-    ClickHousePerson,
-    ClickHousePersonDistinctId2,
-    ClickHouseTimestamp,
     Cohort,
     CohortPeople,
-    Database,
-    DeadLetterQueueEvent,
     Group,
     GroupKey,
     GroupTypeIndex,
@@ -26,29 +18,25 @@ import {
     PersonDistinctId,
     Plugin,
     PluginConfig,
-    PluginLogEntry,
     PluginLogEntrySource,
     PluginLogEntryType,
     PluginLogLevel,
     ProjectId,
     PropertiesLastOperation,
     PropertiesLastUpdatedAt,
-    RawClickHouseEvent,
     RawGroup,
     RawOrganization,
     RawPerson,
-    RawSessionRecordingEvent,
     Team,
     TeamId,
     TimestampFormat,
 } from '../../types'
 import { fetchAction, fetchAllActionsGroupedByTeam } from '../../worker/ingestion/action-manager'
-import { parseRawClickHouseEvent } from '../event'
 import { parseJSON } from '../json-parse'
 import { logger } from '../logger'
 import { instrumentQuery } from '../metrics'
 import { captureException } from '../posthog'
-import { castTimestampOrNow, escapeClickHouseString, RaceConditionError, tryTwice, UUID, UUIDT } from '../utils'
+import { castTimestampOrNow, RaceConditionError, tryTwice, UUID, UUIDT } from '../utils'
 import { OrganizationPluginsAccessLevel } from './../../types'
 import { RedisOperationError } from './error'
 import { pluginLogEntryCounter } from './metrics'
@@ -56,9 +44,24 @@ import { PostgresRouter, PostgresUse, TransactionClient } from './postgres'
 import { safeClickhouseString, shouldStoreLog, timeoutGuard } from './utils'
 
 export type MoveDistinctIdsResult =
-    | { readonly success: true; readonly messages: TopicMessage[] }
+    | { readonly success: true; readonly messages: TopicMessage[]; readonly distinctIdsMoved: string[] }
     | { readonly success: false; readonly error: 'TargetNotFound' }
     | { readonly success: false; readonly error: 'SourceNotFound' }
+
+export type CreatePersonResult =
+    | {
+          readonly success: true
+          readonly person: InternalPerson
+          readonly messages: TopicMessage[]
+          readonly created: true
+      }
+    | {
+          readonly success: true
+          readonly person: InternalPerson
+          readonly messages: TopicMessage[]
+          readonly created: false
+      }
+    | { readonly success: false; readonly error: 'CreationConflict'; readonly distinctIds: string[] }
 
 export interface LogEntryPayload {
     pluginConfig: PluginConfig
@@ -106,11 +109,6 @@ export interface CreatePersonalApiKeyPayload {
 
 export type GroupId = [GroupTypeIndex, GroupKey]
 
-export interface CachedGroupData {
-    properties: Properties
-    created_at: ClickHouseTimestamp
-}
-
 export interface PersonPropertiesSize {
     total_props_bytes: number
 }
@@ -137,8 +135,6 @@ export class DB {
 
     /** Kafka producer used for syncing Postgres and ClickHouse person data. */
     kafkaProducer: KafkaProducerWrapper
-    /** ClickHouse used for syncing Postgres and ClickHouse person data. */
-    clickhouse: ClickHouse
 
     /** Default log level for plugins that don't specify it */
     pluginsDefaultLogLevel: PluginLogLevel
@@ -150,35 +146,14 @@ export class DB {
         postgres: PostgresRouter,
         redisPool: GenericPool<Redis.Redis>,
         kafkaProducer: KafkaProducerWrapper,
-        clickhouse: ClickHouse,
         pluginsDefaultLogLevel: PluginLogLevel,
         personAndGroupsCacheTtl = 1
     ) {
         this.postgres = postgres
         this.redisPool = redisPool
         this.kafkaProducer = kafkaProducer
-        this.clickhouse = clickhouse
         this.pluginsDefaultLogLevel = pluginsDefaultLogLevel
         this.PERSONS_AND_GROUPS_CACHE_TTL = personAndGroupsCacheTtl
-    }
-
-    // ClickHouse
-
-    public clickhouseQuery<R extends Record<string, any> = Record<string, any>>(
-        query: string,
-        options?: ClickHouse.QueryOptions
-    ): Promise<ClickHouse.ObjectQueryResult<R>> {
-        return instrumentQuery('query.clickhouse', undefined, async () => {
-            const timeout = timeoutGuard('ClickHouse slow query warning after 30 sec', { query })
-            try {
-                const queryResult = await this.clickhouse.querying(query, options)
-                // This is annoying to type, because the result depends on contructor and query options provided
-                // at runtime. However, with our options we can safely assume ObjectQueryResult<R>
-                return queryResult as unknown as ClickHouse.ObjectQueryResult<R>
-            } finally {
-                clearTimeout(timeout)
-            }
-        })
     }
 
     // Redis
@@ -454,86 +429,26 @@ export class DB {
         }
     }
 
-    public async fetchPersons(database?: Database.Postgres, teamId?: number): Promise<InternalPerson[]>
-    public async fetchPersons(database: Database.ClickHouse, teamId?: number): Promise<ClickHousePerson[]>
-    public async fetchPersons(
-        database: Database = Database.Postgres,
-        teamId?: number
-    ): Promise<InternalPerson[] | ClickHousePerson[]> {
-        if (database === Database.ClickHouse) {
-            const query = `
-            SELECT id, team_id, is_identified, ts as _timestamp, properties, created_at, is_del as is_deleted, _offset
-            FROM (
-                SELECT id,
-                    team_id,
-                    max(is_identified) as is_identified,
-                    max(_timestamp) as ts,
-                    argMax(properties, _timestamp) as properties,
-                    argMin(created_at, _timestamp) as created_at,
-                    max(is_deleted) as is_del,
-                    argMax(_offset, _timestamp) as _offset
-                FROM person
-                FINAL
-                ${teamId ? `WHERE team_id = ${teamId}` : ''}
-                GROUP BY team_id, id
-                HAVING max(is_deleted)=0
-            )
-            `
-            return (await this.clickhouseQuery(query)).data.map((row) => {
-                const { 'person_max._timestamp': _discard1, 'person_max.id': _discard2, ...rest } = row
-                return rest
-            }) as ClickHousePerson[]
-        } else if (database === Database.Postgres) {
-            return await this.postgres
-                .query<RawPerson>(PostgresUse.PERSONS_WRITE, 'SELECT * FROM posthog_person', undefined, 'fetchPersons')
-                .then(({ rows }) => rows.map(this.toPerson))
-        } else {
-            throw new Error(`Can't fetch persons for database: ${database}`)
-        }
+    public async fetchPersons(): Promise<InternalPerson[]> {
+        return await this.postgres
+            .query<RawPerson>(PostgresUse.PERSONS_WRITE, 'SELECT * FROM posthog_person', undefined, 'fetchPersons')
+            .then(({ rows }) => rows.map(this.toPerson))
     }
 
     // PersonDistinctId
     // testutil
-    public async fetchDistinctIds(person: InternalPerson, database?: Database.Postgres): Promise<PersonDistinctId[]>
-    public async fetchDistinctIds(
-        person: InternalPerson,
-        database: Database.ClickHouse
-    ): Promise<ClickHousePersonDistinctId2[]>
-    public async fetchDistinctIds(
-        person: InternalPerson,
-        database: Database = Database.Postgres
-    ): Promise<PersonDistinctId[] | ClickHousePersonDistinctId2[]> {
-        if (database === Database.ClickHouse) {
-            return (
-                await this.clickhouseQuery(
-                    `
-                        SELECT *
-                        FROM person_distinct_id2
-                        FINAL
-                        WHERE person_id='${escapeClickHouseString(person.uuid)}'
-                          AND team_id='${person.team_id}'
-                          AND is_deleted=0
-                        ORDER BY _offset`
-                )
-            ).data as ClickHousePersonDistinctId2[]
-        } else if (database === Database.Postgres) {
-            const result = await this.postgres.query(
-                PostgresUse.PERSONS_WRITE, // used in tests only
-                'SELECT * FROM posthog_persondistinctid WHERE person_id=$1 AND team_id=$2 ORDER BY id',
-                [person.id, person.team_id],
-                'fetchDistinctIds'
-            )
-            return result.rows as PersonDistinctId[]
-        } else {
-            throw new Error(`Can't fetch persons for database: ${database}`)
-        }
+    public async fetchDistinctIds(person: InternalPerson): Promise<PersonDistinctId[]> {
+        const result = await this.postgres.query(
+            PostgresUse.PERSONS_WRITE, // used in tests only
+            'SELECT * FROM posthog_persondistinctid WHERE person_id=$1 AND team_id=$2 ORDER BY id',
+            [person.id, person.team_id],
+            'fetchDistinctIds'
+        )
+        return result.rows as PersonDistinctId[]
     }
 
-    public async fetchDistinctIdValues(
-        person: InternalPerson,
-        database: Database = Database.Postgres
-    ): Promise<string[]> {
-        const personDistinctIds = await this.fetchDistinctIds(person, database as any)
+    public async fetchDistinctIdValues(person: InternalPerson): Promise<string[]> {
+        const personDistinctIds = await this.fetchDistinctIds(person)
         return personDistinctIds.map((pdi) => pdi.distinct_id)
     }
 
@@ -583,40 +498,6 @@ export class DB {
     }
 
     // Event (NOTE: not a Django model, stored in ClickHouse table `events`)
-
-    public async fetchEvents(): Promise<ClickHouseEvent[]> {
-        const queryResult = await this.clickhouseQuery<RawClickHouseEvent>(
-            `SELECT * FROM events ORDER BY timestamp ASC`
-        )
-        return queryResult.data.map(parseRawClickHouseEvent)
-    }
-
-    public async fetchDeadLetterQueueEvents(): Promise<DeadLetterQueueEvent[]> {
-        const result = await this.clickhouseQuery(`SELECT * FROM events_dead_letter_queue ORDER BY _timestamp ASC`)
-        const events = result.data as DeadLetterQueueEvent[]
-        return events
-    }
-
-    // SessionRecordingEvent
-
-    public async fetchSessionRecordingEvents(): Promise<RawSessionRecordingEvent[]> {
-        const events = (
-            await this.clickhouseQuery<RawSessionRecordingEvent>(`SELECT * FROM session_recording_events`)
-        ).data.map((event) => {
-            return {
-                ...event,
-                snapshot_data: event.snapshot_data ? parseJSON(event.snapshot_data) : null,
-            }
-        })
-        return events
-    }
-
-    // PluginLogEntry (NOTE: not a Django model, stored in ClickHouse table `plugin_log_entries`)
-
-    public async fetchPluginLogEntries(): Promise<PluginLogEntry[]> {
-        const queryResult = await this.clickhouseQuery(`SELECT * FROM plugin_log_entries`)
-        return queryResult.data as PluginLogEntry[]
-    }
 
     public queuePluginLogEntry(entry: LogEntryPayload): Promise<void> {
         const { pluginConfig, source, message, type, timestamp, instanceId } = entry
@@ -931,14 +812,6 @@ export class DB {
                 },
             ],
         })
-    }
-
-    // Used in tests
-    public async fetchClickhouseGroups(): Promise<ClickhouseGroup[]> {
-        const query = `
-        SELECT group_type_index, group_key, created_at, team_id, group_properties FROM groups FINAL
-        `
-        return (await this.clickhouseQuery(query)).data as ClickhouseGroup[]
     }
 
     public async getTeamsInOrganizationsWithRootPluginAccess(): Promise<Team[]> {

@@ -1,0 +1,4 @@
+["_H", 1, 32, "[\"test\", \"test2\", \"test3\"]", 32, "test", 32, "test2", 32, "test3", 43, 3, 52, "lambda", 1, 0, 6,
+32, "%test%", 36, 0, 18, 38, 53, 0, 36, 0, 32, "Array(String)", 2, "JSONExtract", 2, 2, "arrayExists", 2, 29, 2,
+"assert_eq", 2, 35, 52, "lambda", 1, 0, 6, 32, "%test%", 36, 0, 18, 38, 53, 0, 36, 1, 32, "Array(String)", 2,
+"JSONExtract", 2, 2, "arrayExists", 2, 29, 2, "assert_eq", 2, 35, 29, 38, 35, 35]
