@@ -43,6 +43,7 @@ import { insightDataLogic } from './insightDataLogic'
 import type { insightLogicType } from './insightLogicType'
 import { getInsightId } from './utils'
 import { insightsApi } from './utils/api'
+import { IndexedTrendResult } from 'scenes/trends/types'
 
 export const UNSAVED_INSIGHT_MIN_REFRESH_INTERVAL_MINUTES = 3
 
@@ -121,7 +122,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
         ) => ({
             metadataUpdate,
         }),
-        highlightSeries: (seriesIndex: number | null) => ({ seriesIndex }),
+        highlightSeries: (series: number | null) => ({ series }),
         setAccessDeniedToInsight: true,
         handleInsightSuggested: (suggestedInsight: Node | null) => ({ suggestedInsight }),
         onRejectSuggestedInsight: true,
@@ -215,9 +216,9 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
     })),
     reducers(({ props }) => ({
         highlightedSeries: [
-            null as number | null,
+            null as IndexedTrendResult | null,
             {
-                highlightSeries: (_, { seriesIndex }) => seriesIndex,
+                highlightSeries: (_, { series }) => series,
             },
         ],
         insight: {

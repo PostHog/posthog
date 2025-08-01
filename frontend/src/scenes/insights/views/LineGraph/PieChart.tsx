@@ -200,7 +200,7 @@ export function PieChart({
                                     (dp) => dp.datasetIndex >= 0 && dp.datasetIndex < _datasets.length
                                 )
 
-                                highlightSeries(seriesData[0].dataIndex)
+                                highlightSeries(seriesData[0])
 
                                 tooltipRoot.render(
                                     <InsightTooltip

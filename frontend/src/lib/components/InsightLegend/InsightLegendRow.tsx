@@ -5,7 +5,7 @@ import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { useEffect, useRef } from 'react'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { formatBreakdownLabel } from 'scenes/insights/utils'
+import { formatBreakdownLabel, getTrendResultCustomizationKey } from 'scenes/insights/utils'
 import { formatCompareLabel } from 'scenes/insights/views/InsightsTable/columns/SeriesColumn'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { IndexedTrendResult } from 'scenes/trends/types'
@@ -14,14 +14,11 @@ import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { ChartDisplayType } from '~/types'
 
-import { shouldHighlightThisRow } from './utils'
-
 type InsightLegendRowProps = {
-    rowIndex: number
     item: IndexedTrendResult
 }
 
-export function InsightLegendRow({ rowIndex, item }: InsightLegendRowProps): JSX.Element {
+export function InsightLegendRow({ item }: InsightLegendRowProps): JSX.Element {
     const { allCohorts } = useValues(cohortsModel)
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
 
@@ -31,13 +28,20 @@ export function InsightLegendRow({ rowIndex, item }: InsightLegendRowProps): JSX
         trendsFilter,
         breakdownFilter,
         isSingleSeries,
-        hiddenLegendIndexes,
         getTrendsColor,
         getTrendsHidden,
+        resultCustomizationBy,
     } = useValues(trendsDataLogic(insightProps))
     const { toggleHiddenLegendIndex } = useActions(trendsDataLogic(insightProps))
 
-    const highlighted = shouldHighlightThisRow(rowIndex, highlightedSeries, hiddenLegendIndexes)
+    let highlighted = false
+    if (highlightedSeries) {
+        const currentKey = getTrendResultCustomizationKey(resultCustomizationBy, item)
+        const highlightedKey = highlightedSeries
+            ? getTrendResultCustomizationKey(resultCustomizationBy, highlightedSeries)
+            : null
+        highlighted = currentKey === highlightedKey
+    }
     const highlightStyle: Record<string, any> = highlighted
         ? {
               style: { backgroundColor: getSeriesBackgroundColor(item.seriesIndex) },
