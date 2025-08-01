@@ -70,6 +70,7 @@ export const THINKING_MESSAGES = [
     'Scuttling', // fast, scurrying motion
     'Framing', // contextualizing view
     'Sharpening', // refining details
+    'Thinking', // just thinking, like in the old days
 ]
 
 export const getRandomThinkingMessage = (): string => {
