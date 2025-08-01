@@ -66,6 +66,7 @@ from . import (
     organization_feature_flag,
     organization_invite,
     organization_member,
+    performance,
     personal_api_key,
     plugin,
     plugin_log_entry,
@@ -494,6 +495,14 @@ environment_sessions_recordings_router, legacy_project_session_recordings_router
         "environment_session_recordings",
         ["team_id"],
     )
+)
+
+# Performance analytics endpoints for network performance data
+register_grandfathered_environment_nested_viewset(
+    r"performance",
+    performance.PerformanceViewSet,
+    "environment_performance",
+    ["team_id"],
 )
 
 register_grandfathered_environment_nested_viewset(
