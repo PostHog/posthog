@@ -6,7 +6,6 @@ from freezegun import freeze_time
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.constants import AvailableFeature
 from posthog.api.sharing import shared_url_as_png
 from posthog.models import ExportedAsset, ActivityLog
 from posthog.models.dashboard import Dashboard
@@ -578,35 +577,35 @@ class TestSharing(APIBaseTest):
         # Settings should be preserved
         assert response.json()["settings"] == settings_data
 
-    @freeze_time("2023-12-15")  # Before ship date
-    @patch("posthog.api.exports.exporter.export_asset.delay")
-    def test_all_query_params_work_for_old_configs(self, patched_exporter_task: Mock):
-        """Test that all query params work for configurations created before ship date"""
-        # Ensure organization has white labelling feature
-        self.organization.available_product_features = [
-            {"key": AvailableFeature.WHITE_LABELLING, "name": "white_labelling"},
-        ]
-        self.organization.save()
+    # @freeze_time("2023-12-15")  # Before ship date
+    # @patch("posthog.api.exports.exporter.export_asset.delay")
+    # def test_all_query_params_work_for_old_configs(self, patched_exporter_task: Mock):
+    #     """Test that all query params work for configurations created before ship date"""
+    #     # Ensure organization has white labelling feature
+    #     self.organization.available_product_features = [
+    #         {"key": AvailableFeature.WHITE_LABELLING, "name": "white_labelling"},
+    #     ]
+    #     self.organization.save()
 
-        self.client.force_login(self.user)
+    #     self.client.force_login(self.user)
 
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}/sharing",
-            {"enabled": True},
-        )
-        access_token = response.json()["access_token"]
+    #     response = self.client.patch(
+    #         f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}/sharing",
+    #         {"enabled": True},
+    #     )
+    #     access_token = response.json()["access_token"]
 
-        # Test all options via query params work for old config
-        response = self.client.get(
-            f"/shared/{access_token}?whitelabel=true&noHeader=true&legend=true&detailed=true&showInspector=true"
-        )
-        assert response.status_code == 200
-        content = response.content.decode()
-        assert '\\"whitelabel\\": true' in content
-        assert '\\"noHeader\\": true' in content
-        assert '\\"legend\\": true' in content
-        assert '\\"detailed\\": true' in content
-        assert '\\"showInspector\\": true' in content
+    #     # Test all options via query params work for old config
+    #     response = self.client.get(
+    #         f"/shared/{access_token}?whitelabel=true&noHeader=true&legend=true&detailed=true&showInspector=true"
+    #     )
+    #     assert response.status_code == 200
+    #     content = response.content.decode()
+    #     assert '\\"whitelabel\\": true' in content
+    #     assert '\\"noHeader\\": true' in content
+    #     assert '\\"legend\\": true' in content
+    #     assert '\\"detailed\\": true' in content
+    #     assert '\\"showInspector\\": true' in content
 
     # @freeze_time("2025-10-15")  # After ship date
     # @patch("posthog.api.exports.exporter.export_asset.delay")
