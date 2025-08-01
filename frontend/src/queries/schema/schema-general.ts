@@ -890,6 +890,14 @@ export interface TableSettings {
     conditionalFormatting?: ConditionalFormattingRule[]
 }
 
+export interface SharingConfigurationSettings {
+    whitelabel?: boolean
+    noHeader?: boolean
+    showInspector?: boolean
+    legend?: boolean
+    detailed?: boolean
+}
+
 export interface DataVisualizationNode extends Node<never> {
     kind: NodeKind.DataVisualizationNode
     source: HogQLQuery
