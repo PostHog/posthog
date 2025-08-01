@@ -1505,7 +1505,9 @@ def list_recordings_from_query(
             tracer.start_as_current_span("load_recordings_from_hogql"),
         ):
             (ch_session_recordings, more_recordings_available, hogql_timings) = SessionRecordingListFromQuery(
-                query=query, team=team
+                query=query,
+                team=team,
+                hogql_query_modifiers=None,
             ).run()
 
         with timer("build_recordings"), tracer.start_as_current_span("build_recordings"):
