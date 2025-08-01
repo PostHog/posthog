@@ -12592,6 +12592,7 @@ class ExperimentTrendsQuery(BaseModel):
     name: Optional[str] = None
     response: Optional[ExperimentTrendsQueryResponse] = None
     tags: Optional[QueryLogTags] = None
+    uuid: Optional[str] = None
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -12878,6 +12879,7 @@ class ExperimentFunnelsQuery(BaseModel):
     name: Optional[str] = None
     response: Optional[ExperimentFunnelsQueryResponse] = None
     tags: Optional[QueryLogTags] = None
+    uuid: Optional[str] = None
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
