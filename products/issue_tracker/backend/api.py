@@ -8,7 +8,7 @@ from posthog.permissions import APIScopePermission
 from .models import Issue, IssueProgress
 from .serializers import IssueSerializer
 from .temporal.client import execute_issue_processing_workflow
-
+import logging
 
 class IssueViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     serializer_class = IssueSerializer
@@ -151,8 +151,9 @@ class IssueViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             })
 
         except Exception as e:
+            logging.exception("Error fetching issue progress")
             return Response({
-                "error": f"Failed to fetch progress: {str(e)}"
+                "error": "An internal error occurred while fetching progress."
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
     @action(detail=True, methods=["get"])
