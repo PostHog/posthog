@@ -1091,6 +1091,9 @@ export type TrendsFilter = {
     goalLines?: GoalLine[]
     showConfidenceIntervals?: boolean
     confidenceLevel?: number
+    showTrendLines?: boolean
+    showMovingAverage?: boolean
+    movingAverageIntervals?: number
 }
 
 export type CalendarHeatmapFilter = {
