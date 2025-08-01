@@ -23,7 +23,7 @@ function TooExpensiveHelpMessage(): JSX.Element {
     return (
         <>
             <p>
-                We aim to be significantly cheaper than our competitors. In addition to our pay-as-you-go pricing, below
+		There 
                 are few ways to reduce costs by recording fewer sessions:
                 <ul className="list-disc pl-4 text-secondary">
                     <li>Disable automatic recording and programmatically start and stop recordings</li>
@@ -32,10 +32,8 @@ function TooExpensiveHelpMessage(): JSX.Element {
                     </li>
                     <li>Set a minimum recording duration.</li>
                     <li>Set a sampling rate for recordings.</li>
-                    <li>
-                        Make sure you capture at least one event per session to reduce the costs while maintaining all
-                        filtering options.
-                    </li>
+                   <li>Start recording only after certain events (for example after an error).</li>
+                   <li>Start recording only after visiting certain pages (for example to avoid starting for every visit to the home page).</li>
                 </ul>
             </p>
             <Link to="https://posthog.com/docs/session-replay/cutting-costs" target="_blank">
