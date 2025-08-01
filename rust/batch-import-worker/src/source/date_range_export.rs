@@ -265,7 +265,10 @@ impl DateRangeExportSource {
 
         let mut retries = self.retries;
         loop {
-            match self.download_and_prepare_part_data_inner(key, start, end).await {
+            match self
+                .download_and_prepare_part_data_inner(key, start, end)
+                .await
+            {
                 Ok(result) => return Ok(result),
                 Err(e) if e.to_string().contains("Rate limit exceeded") && retries > 0 => {
                     info!("Rate limit hit (429), sleeping for 30 seconds before retry. Retries remaining: {}", retries);
@@ -318,7 +321,10 @@ impl DateRangeExportSource {
         // We want to return something to the .process() thread so that we end up making a commit
         // for this key/part of the overall job
         if response.status() == 404 {
-            info!("No data available for key: {} (404 response), sleeping for 2 seconds", key);
+            info!(
+                "No data available for key: {} (404 response), sleeping for 2 seconds",
+                key
+            );
             tokio::time::sleep(Duration::from_secs(2)).await;
             let temp_dir = self.get_temp_dir_path().await?;
 
@@ -1011,7 +1017,7 @@ mod tests {
     #[tokio::test]
     async fn test_429_retry_eventually_succeeds() {
         let server = MockServer::start();
-        
+
         let success_mock = server.mock(|when, then| {
             when.method(httpmock::Method::GET)
                 .path("/export")
@@ -1054,7 +1060,7 @@ mod tests {
     #[tokio::test]
     async fn test_429_exhausts_retries() {
         let server = MockServer::start();
-        
+
         let _mock = server.mock(|when, then| {
             when.method(httpmock::Method::GET).path("/export");
             then.status(429); // Always return 429
@@ -1080,7 +1086,10 @@ mod tests {
 
         let result = source.prepare_key(key).await;
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Rate limit exceeded"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Rate limit exceeded"));
 
         source.cleanup_after_job().await.unwrap();
     }
