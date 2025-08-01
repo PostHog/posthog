@@ -88,6 +88,7 @@ describe('BatchWritingPersonStore', () => {
     const createMockRepository = () => {
         const mockRepo = {
             fetchPerson: jest.fn().mockResolvedValue(person),
+            fetchPersonDistinctIds: jest.fn().mockResolvedValue([]),
             createPerson: jest.fn().mockResolvedValue([person, []]),
             updatePerson: jest.fn().mockResolvedValue([person, [], false]),
             updatePersonAssertVersion: jest.fn().mockResolvedValue([person.version + 1, []]),
@@ -107,6 +108,7 @@ describe('BatchWritingPersonStore', () => {
 
     const createMockTransaction = () => {
         const mockTransaction = {
+            fetchPersonDistinctIds: jest.fn().mockResolvedValue([]),
             createPerson: jest.fn().mockResolvedValue([person, []]),
             updatePerson: jest.fn().mockResolvedValue([person, [], false]),
             deletePerson: jest.fn().mockResolvedValue([]),

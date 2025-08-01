@@ -60,6 +60,10 @@ export class PostgresPersonRepositoryTransaction implements PersonRepositoryTran
         return await this.repository.moveDistinctIds(source, target, this.transaction)
     }
 
+    async fetchPersonDistinctIds(person: InternalPerson, limit?: number): Promise<string[]> {
+        return await this.repository.fetchPersonDistinctIds(person, limit, this.transaction)
+    }
+
     async addPersonlessDistinctIdForMerge(teamId: Team['id'], distinctId: string): Promise<boolean> {
         return await this.repository.addPersonlessDistinctIdForMerge(teamId, distinctId, this.transaction)
     }

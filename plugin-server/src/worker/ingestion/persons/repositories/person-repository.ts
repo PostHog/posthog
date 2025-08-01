@@ -53,6 +53,8 @@ export interface PersonRepository {
 
     moveDistinctIds(source: InternalPerson, target: InternalPerson): Promise<MoveDistinctIdsResult>
 
+    fetchPersonDistinctIds(person: InternalPerson, limit?: number): Promise<string[]>
+
     addPersonlessDistinctId(teamId: Team['id'], distinctId: string): Promise<boolean>
     addPersonlessDistinctIdForMerge(teamId: Team['id'], distinctId: string): Promise<boolean>
 

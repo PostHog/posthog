@@ -690,6 +690,104 @@ describe('PostgresPersonRepository', () => {
         })
     })
 
+    describe('fetchPersonDistinctIds()', () => {
+        it('should fetch all distinct IDs when no limit is specified', async () => {
+            const team = await getFirstTeam(hub)
+            const person = await createTestPerson(team.id, 'test-distinct-id', { name: 'Test Person' })
+
+            // Add more distinct IDs
+            await repository.addDistinctId(person, 'distinct-id-2', 1)
+            await repository.addDistinctId(person, 'distinct-id-3', 1)
+            await repository.addDistinctId(person, 'distinct-id-4', 1)
+
+            const distinctIds = await repository.fetchPersonDistinctIds(person)
+
+            expect(distinctIds).toHaveLength(4)
+            expect(distinctIds).toContain('test-distinct-id')
+            expect(distinctIds).toContain('distinct-id-2')
+            expect(distinctIds).toContain('distinct-id-3')
+            expect(distinctIds).toContain('distinct-id-4')
+        })
+
+        it('should fetch limited distinct IDs when limit is specified', async () => {
+            const team = await getFirstTeam(hub)
+            const person = await createTestPerson(team.id, 'test-limit-distinct', { name: 'Test Person' })
+
+            // Add more distinct IDs
+            await repository.addDistinctId(person, 'limit-distinct-2', 1)
+            await repository.addDistinctId(person, 'limit-distinct-3', 1)
+            await repository.addDistinctId(person, 'limit-distinct-4', 1)
+
+            const distinctIds = await repository.fetchPersonDistinctIds(person, 2)
+
+            expect(distinctIds).toHaveLength(2)
+            // Should be deterministic due to ORDER BY id
+            expect(distinctIds).toEqual(expect.arrayContaining([expect.any(String), expect.any(String)]))
+        })
+
+        it('should return distinct IDs in deterministic order', async () => {
+            const team = await getFirstTeam(hub)
+            const person = await createTestPerson(team.id, 'order-test-distinct', { name: 'Test Person' })
+
+            // Add distinct IDs in non-alphabetical order
+            await repository.addDistinctId(person, 'z-distinct', 1)
+            await repository.addDistinctId(person, 'a-distinct', 1)
+            await repository.addDistinctId(person, 'm-distinct', 1)
+
+            const distinctIds1 = await repository.fetchPersonDistinctIds(person)
+            const distinctIds2 = await repository.fetchPersonDistinctIds(person)
+
+            // Should return the same order both times due to ORDER BY id
+            expect(distinctIds1).toEqual(distinctIds2)
+            expect(distinctIds1).toHaveLength(4) // 1 from createTestPerson + 3 added
+        })
+
+        it('should return empty array when person has no distinct IDs', async () => {
+            const team = await getFirstTeam(hub)
+            // Create person without distinct IDs
+            const uuid = new UUIDT().toString()
+            const result = await repository.createPerson(TIMESTAMP, {}, {}, {}, team.id, null, true, uuid, [])
+            if (!result.success) {
+                throw new Error('Failed to create person')
+            }
+            const person = result.person
+
+            const distinctIds = await repository.fetchPersonDistinctIds(person)
+
+            expect(distinctIds).toEqual([])
+        })
+
+        it('should handle limit larger than available distinct IDs', async () => {
+            const team = await getFirstTeam(hub)
+            const person = await createTestPerson(team.id, 'large-limit-distinct', { name: 'Test Person' })
+
+            // Add only 2 more distinct IDs (total of 3)
+            await repository.addDistinctId(person, 'large-limit-2', 1)
+            await repository.addDistinctId(person, 'large-limit-3', 1)
+
+            const distinctIds = await repository.fetchPersonDistinctIds(person, 10) // Limit is larger than available
+
+            expect(distinctIds).toHaveLength(3) // Should return all 3 available
+            expect(distinctIds).toContain('large-limit-distinct')
+            expect(distinctIds).toContain('large-limit-2')
+            expect(distinctIds).toContain('large-limit-3')
+        })
+
+        it('should work with transactions', async () => {
+            const team = await getFirstTeam(hub)
+            const person = await createTestPerson(team.id, 'tx-distinct', { name: 'Test Person' })
+
+            await repository.addDistinctId(person, 'tx-distinct-2', 1)
+
+            await postgres.transaction(PostgresUse.PERSONS_WRITE, 'test-fetch-distinct-ids', async (tx) => {
+                const distinctIds = await repository.fetchPersonDistinctIds(person, undefined, tx)
+                expect(distinctIds).toHaveLength(2)
+                expect(distinctIds).toContain('tx-distinct')
+                expect(distinctIds).toContain('tx-distinct-2')
+            })
+        })
+    })
+
     describe('addPersonlessDistinctId', () => {
         it('should insert personless distinct ID successfully', async () => {
             const team = await getFirstTeam(hub)

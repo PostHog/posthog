@@ -550,6 +550,26 @@ export class PostgresPersonRepository
         }
     }
 
+    async fetchPersonDistinctIds(person: InternalPerson, limit?: number, tx?: TransactionClient): Promise<string[]> {
+        const limitClause = limit ? `LIMIT ${limit}` : ''
+        const queryString = `
+            SELECT distinct_id
+            FROM posthog_persondistinctid
+            WHERE person_id = $1 AND team_id = $2
+            ORDER BY id
+            ${limitClause}
+        `
+
+        const { rows } = await this.postgres.query<{ distinct_id: string }>(
+            tx ?? PostgresUse.PERSONS_READ,
+            queryString,
+            [person.id, person.team_id],
+            'fetchPersonDistinctIds'
+        )
+
+        return rows.map((row) => row.distinct_id)
+    }
+
     async addPersonlessDistinctId(teamId: number, distinctId: string): Promise<boolean> {
         const result = await this.postgres.query(
             PostgresUse.PERSONS_WRITE,
