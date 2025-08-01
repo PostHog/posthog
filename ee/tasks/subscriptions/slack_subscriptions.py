@@ -10,11 +10,6 @@ logger = structlog.get_logger(__name__)
 UTM_TAGS_BASE = "utm_source=posthog&utm_campaign=subscription_report"
 
 
-def get_slack_integration_for_team(team) -> Integration | None:
-    """Get Slack integration for a team. Returns None if not found."""
-    return Integration.objects.filter(team=team, kind="slack").first()
-
-
 def _block_for_asset(asset: ExportedAsset) -> dict:
     image_url = asset.get_public_content_url()
     alt_text = None
@@ -27,6 +22,11 @@ def _block_for_asset(asset: ExportedAsset) -> dict:
     return {"type": "image", "image_url": image_url, "alt_text": alt_text}
 
 
+def get_slack_integration_for_team(team_id: int) -> Integration | None:
+    """Get Slack integration for a team. Returns None if not found."""
+    return Integration.objects.filter(team_id=team_id, kind="slack").first()
+
+
 def send_slack_subscription_report(
     subscription: Subscription,
     assets: list[ExportedAsset],
@@ -34,7 +34,7 @@ def send_slack_subscription_report(
     is_new_subscription: bool = False,
 ) -> None:
     """Send Slack subscription report."""
-    integration = get_slack_integration_for_team(subscription.team)
+    integration = get_slack_integration_for_team(subscription.team_id)
 
     if not integration:
         # TODO: Write error to subscription...

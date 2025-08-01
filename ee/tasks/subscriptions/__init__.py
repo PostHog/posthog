@@ -104,7 +104,7 @@ async def deliver_subscription_report_async(
         SUBSCRIPTION_QUEUED.labels(destination="slack").inc()
 
         try:
-            integration = await database_sync_to_async(get_slack_integration_for_team)(subscription.team)
+            integration = await database_sync_to_async(get_slack_integration_for_team)(subscription.team_id)
 
             if not integration:
                 logger.error("No Slack integration found for team...")
