@@ -14742,7 +14742,8 @@
             "additionalProperties": false,
             "properties": {
                 "compareFilter": {
-                    "$ref": "#/definitions/CompareFilter"
+                    "$ref": "#/definitions/CompareFilter",
+                    "description": "Compare to date range"
                 },
                 "conversionGoal": {
                     "anyOf": [

@@ -12,6 +12,39 @@ import { marketingAnalyticsLogic } from '../../logic/marketingAnalyticsLogic'
 import { LemonButton } from '@posthog/lemon-ui'
 import { IconGear } from '@posthog/icons'
 import './MarketingAnalyticsTableStyleOverride.scss'
+import { humanFriendlyNumber } from 'lib/utils'
+
+// Generic cell renderer function that handles marketing analytics data
+const renderMarketingAnalyticsCell = (value: any): JSX.Element | null => {
+    if (!value) {
+        return <span>-</span>
+    }
+
+    if (!Array.isArray(value)) {
+        return <span>{String(value)}</span>
+    }
+
+    const [current, previous] = value as [number, number]
+
+    const formatValue = (num: number | null): string => {
+        if (num === null || num === undefined) {
+            return '-'
+        }
+        return humanFriendlyNumber(num)
+    }
+
+    const currentFormatted = formatValue(current)
+    const previousFormatted = formatValue(previous)
+
+    return (
+        <div className="flex flex-wrap gap-2">
+            <div className="w-full">{currentFormatted}</div>
+            <div className="w-full text-muted">
+                {previous !== null && previous !== undefined ? previousFormatted : '-'}
+            </div>
+        </div>
+    )
+}
 
 export type MarketingAnalyticsTableProps = {
     query: DataTableNode
@@ -26,8 +59,8 @@ export const MarketingAnalyticsTable = ({ query, insightProps }: MarketingAnalyt
     const marketingAnalyticsContext: QueryContext = {
         ...webAnalyticsDataTableQueryContext,
         insightProps,
-        formatNumbers: true,
         columnFeatures: [ColumnFeature.canSort, ColumnFeature.canRemove],
+        cellRenderer: renderMarketingAnalyticsCell,
     }
 
     return (

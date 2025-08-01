@@ -2508,6 +2508,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 s.shouldFilterTestAccounts,
                 s.draftConversionGoal,
                 s.defaultColumns,
+                s.marketingCompareFilter,
             ],
             (
                 loading: boolean,
@@ -2516,7 +2517,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 webAnalyticsFilters: WebAnalyticsPropertyFilters,
                 filterTestAccounts: boolean,
                 draftConversionGoal: ConversionGoalFilter | null,
-                defaultColumns: string[]
+                defaultColumns: string[],
+                marketingCompareFilter: CompareFilter | undefined
             ): DataTableNode | null => {
                 if (loading) {
                     return null
@@ -2554,6 +2556,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         orderBy,
                         tags: MARKETING_ANALYTICS_DEFAULT_QUERY_TAGS,
                         select: orderedColumns,
+                        compareFilter: marketingCompareFilter,
                     },
                     full: true,
                     embedded: false,
