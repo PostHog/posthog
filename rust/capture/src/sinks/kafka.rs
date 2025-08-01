@@ -309,13 +309,12 @@ impl KafkaSink {
                     ))
                 }
                 Some(RDKafkaErrorCode::QueueFull) => {
-                    // Don't make this retryable - it causes retry death spirals
+                    // Don't make this retryable, the queue is already full
                     report_dropped_events("kafka_queue_full", 1);
                     error!(
                         "Kafka producer queue full - dropping event to prevent retry storm: {}",
                         e
                     );
-                    // Return NonRetryableSinkError to avoid HTTP 503 and client retries
                     Err(CaptureError::NonRetryableSinkError)
                 }
                 _ => {
