@@ -128,9 +128,12 @@ checkout_pr_worktree() {
         exit 1
     fi
     
-    # Check if gh is installed
+    # Check if gh and jq are installed
     if ! command_exists gh; then
         fatal "GitHub CLI (gh) is required. Install with: brew install gh"
+    fi
+    if ! command_exists jq; then
+        fatal "jq is required for parsing JSON. Install with: brew install jq"
     fi
     
     print_color blue "Fetching PR #${pr_number} information..."
