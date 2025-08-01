@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Optional, cast
+from typing import Any, Optional, cast
 from collections.abc import Callable
 
 from posthog import settings as app_settings
@@ -65,10 +65,12 @@ class HogQLQueryRunner(QueryRunner):
                 parsed_select = replace_variables(parsed_select, list(self.query.variables.values()), self.team)
         if finder.placeholder_fields or finder.placeholder_expressions:
             with self.timings.measure("replace_placeholders"):
-                values = {"variables": {}, **values} if values else {"variables": {}}
-                for var in list(self.query.variables.values()):
-                    values["variables"][var.code_name] = var.value
-                parsed_select = cast(ast.SelectQuery, replace_placeholders(parsed_select, values))
+                var_dict: dict[str, Any] = {}
+                var_values: dict[str, Any] = {"variables": var_dict, **values} if values else {"variables": var_dict}
+                if self.query.variables:
+                    for var in list(self.query.variables.values()):
+                        var_values["variables"][var.code_name] = var.value
+                    parsed_select = cast(ast.SelectQuery, replace_placeholders(parsed_select, var_values))
 
         return parsed_select
 
