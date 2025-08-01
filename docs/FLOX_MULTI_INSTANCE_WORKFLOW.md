@@ -162,7 +162,7 @@ bin/start
 
 # 2:00 PM - Back to feature work
 # Stop current instance and switch back
-cd ~/.worktrees/posthog/haacked/analytics-dashboard
+phw switch haacked/analytics-dashboard
 # You may see interactive prompt - press Enter to skip nesting, or run 'exit' first
 bin/start    # Continue where you left off
 
@@ -184,17 +184,17 @@ phw checkout bugfix/login-issue
 phw pr 1234
 
 # Work on feature
-cd ~/.worktrees/posthog/haacked/feature-analytics
+phw switch haacked/feature-analytics
 bin/start  # Work on feature
 
 # Stop and switch to bug fix
 # Ctrl+C to stop
-cd ~/.worktrees/posthog/bugfix/login-issue
+phw switch bugfix/login-issue
 bin/start  # Switch to bug fix work
 
 # Stop and switch to PR review
 # Ctrl+C to stop
-cd ~/.worktrees/posthog/pr-1234-teammate
+phw switch pr-1234-teammate
 bin/start  # Review PR
 ```
 
@@ -321,7 +321,7 @@ git worktree list
 
 ```bash
 # Make sure direnv is allowed in the worktree
-cd ~/.worktrees/posthog/your-branch
+phw switch your-branch
 direnv allow
 
 # Check direnv is properly hooked into your shell
@@ -368,7 +368,7 @@ flox activate -- uv sync --reinstall
 # Option 1: Skip nesting (recommended)
 # Press Enter or 'n' when prompted, then:
 exit  # Leave current environment
-cd ~/.worktrees/posthog/your-branch  # Switch cleanly
+phw switch your-branch  # Switch cleanly and consistently
 
 # Option 2: Allow nesting (if you prefer)
 # Type 'y' when prompted, then remember to exit multiple times later
