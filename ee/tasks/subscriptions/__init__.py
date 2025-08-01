@@ -15,6 +15,7 @@ from posthog import settings
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 from posthog.models.subscription import Subscription
+from posthog.sync import database_sync_to_async
 from posthog.tasks.utils import CeleryQueue
 
 logger = structlog.get_logger(__name__)
@@ -37,16 +38,20 @@ SUBSCRIPTION_FAILURE = Counter(
 
 
 def _deliver_subscription_report(
-    subscription_id: int,
+    subscription: Subscription,
     previous_value: Optional[str] = None,
     invite_message: Optional[str] = None,
-) -> None:
-    subscription = (
-        Subscription.objects.prefetch_related("dashboard__insights")
-        .select_related("created_by", "insight", "dashboard")
-        .get(pk=subscription_id)
-    )
+) -> bool:
+    """Core logic for delivering subscription reports.
 
+    Args:
+        subscription: The subscription object to process
+        previous_value: Previous target value for "new" or "invite" messages
+        invite_message: Optional invite message for new subscriptions
+
+    Returns:
+        bool: True if subscription should be updated (next_delivery_date), False otherwise
+    """
     is_new_subscription_target = False
     if previous_value is not None:
         # If previous_value is set we are triggering a "new" or "invite" message
@@ -54,13 +59,13 @@ def _deliver_subscription_report(
 
         if not is_new_subscription_target:
             # Same value as before so nothing to do
-            return
+            return False
 
     insights, assets = generate_assets(subscription)
 
     if not assets:
         capture_exception(Exception("No assets are in this subscription"), {"subscription_id": subscription.id})
-        return
+        return False
 
     if subscription.target_type == "email":
         SUBSCRIPTION_QUEUED.labels(destination="email").inc()
@@ -117,7 +122,50 @@ def _deliver_subscription_report(
     else:
         raise NotImplementedError(f"{subscription.target_type} is not supported")
 
-    if not is_new_subscription_target:
+    # Return True if we should update subscription (for regular subscriptions, not new target changes)
+    return not is_new_subscription_target
+
+
+async def deliver_subscription_report_async(
+    subscription_id: int,
+    previous_value: Optional[str] = None,
+    invite_message: Optional[str] = None,
+) -> None:
+    """Async wrapper for delivering subscription reports."""
+    # Fetch subscription asynchronously
+    subscription = await database_sync_to_async(
+        Subscription.objects.prefetch_related("dashboard__insights")
+        .select_related("created_by", "insight", "dashboard")
+        .get
+    )(pk=subscription_id)
+
+    # Call core logic
+    should_update = _deliver_subscription_report(subscription, previous_value, invite_message)
+
+    # Update subscription if needed
+    if should_update:
+        subscription.set_next_delivery_date(subscription.next_delivery_date)
+        await database_sync_to_async(subscription.save)(update_fields=["next_delivery_date"])
+
+
+def deliver_subscription_report_sync(
+    subscription_id: int,
+    previous_value: Optional[str] = None,
+    invite_message: Optional[str] = None,
+) -> None:
+    """Sync wrapper for delivering subscription reports."""
+    # Fetch subscription synchronously
+    subscription = (
+        Subscription.objects.prefetch_related("dashboard__insights")
+        .select_related("created_by", "insight", "dashboard")
+        .get(pk=subscription_id)
+    )
+
+    # Call core logic
+    should_update = _deliver_subscription_report(subscription, previous_value, invite_message)
+
+    # Update subscription if needed
+    if should_update:
         subscription.set_next_delivery_date(subscription.next_delivery_date)
         subscription.save(update_fields=["next_delivery_date"])
 
@@ -160,7 +208,7 @@ report_timeout_seconds = settings.PARALLEL_ASSET_GENERATION_MAX_TIMEOUT_MINUTES 
     queue=CeleryQueue.SUBSCRIPTION_DELIVERY.value,
 )
 def deliver_subscription_report(subscription_id: int) -> None:
-    return _deliver_subscription_report(subscription_id)
+    return deliver_subscription_report_sync(subscription_id)
 
 
 @shared_task(
@@ -171,7 +219,7 @@ def deliver_subscription_report(subscription_id: int) -> None:
 def handle_subscription_value_change(
     subscription_id: int, previous_value: str, invite_message: Optional[str] = None
 ) -> None:
-    return _deliver_subscription_report(subscription_id, previous_value, invite_message)
+    return deliver_subscription_report_sync(subscription_id, previous_value, invite_message)
 
 
 def team_use_temporal_flag(team: Team) -> bool:

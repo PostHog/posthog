@@ -14,12 +14,12 @@ from django.conf import settings
 
 
 from posthog.models.subscription import Subscription
+from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_internal_logger
 
-from ee.tasks.subscriptions import _deliver_subscription_report, team_use_temporal_flag
-from posthog.sync import database_sync_to_async
+from ee.tasks.subscriptions import deliver_subscription_report_async, team_use_temporal_flag
 
 logger = structlog.get_logger(__name__)
 
@@ -96,7 +96,7 @@ async def deliver_subscription_report_activity(inputs: DeliverSubscriptionReport
             subscription_id=inputs.subscription_id,
         )
 
-        await database_sync_to_async(_deliver_subscription_report)(
+        await deliver_subscription_report_async(
             subscription_id=inputs.subscription_id,
             previous_value=inputs.previous_value,
             invite_message=inputs.invite_message,
