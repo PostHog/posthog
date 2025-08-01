@@ -199,6 +199,7 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     CASSANDRA_KEYSPACE: string
     CASSANDRA_USER: string | null
     CASSANDRA_PASSWORD: string | null
+    CREATE_KEYSPACE_FOR_CASSANDRA: boolean
     WRITE_BEHAVIOURAL_COUNTERS_TO_CASSANDRA: boolean
     EXCEPTIONS_SYMBOLIFICATION_KAFKA_TOPIC: string // (advanced) topic to send exception event data for stack trace processing
     CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: string

@@ -9,6 +9,10 @@ const config = {
     contactPoints: [process.env.CASSANDRA_HOST || 'localhost'],
     localDataCenter: 'datacenter1',
     keyspace: process.env.CASSANDRA_KEYSPACE || 'posthog',
+    credentials:
+        process.env.CASSANDRA_USER && process.env.CASSANDRA_PASSWORD
+            ? { username: process.env.CASSANDRA_USER, password: process.env.CASSANDRA_PASSWORD }
+            : undefined,
 }
 
 const client = new cassandra.Client(config)
@@ -17,6 +21,7 @@ async function createKeyspace() {
     const systemClient = new cassandra.Client({
         contactPoints: config.contactPoints,
         localDataCenter: 'datacenter1',
+        credentials: config.credentials,
     })
 
     try {
@@ -110,8 +115,12 @@ async function executeMigration(filename, content) {
 
 async function runMigrations() {
     try {
-        // Create keyspace first
-        await createKeyspace()
+        // Create keyspace first (only if enabled)
+        if (process.env.CREATE_KEYSPACE_FOR_CASSANDRA) {
+            await createKeyspace()
+        } else {
+            console.log('Skipping keyspace creation (set CREATE_KEYSPACE_FOR_CASSANDRA=true to enable)')
+        }
 
         // Connect to the keyspace
         await client.connect()
