@@ -264,8 +264,8 @@ pub fn router<
             )
             .route(
                 "/i/v0/e/",
-                post(v0_endpoint::event)
-                    .get(v0_endpoint::event)
+                post(v0_endpoint::event_next)
+                    .get(v0_endpoint::event_next)
                     .options(v0_endpoint::options),
             )
     };
