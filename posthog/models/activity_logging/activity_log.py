@@ -11,6 +11,7 @@ from posthog.exceptions_capture import capture_exception
 import structlog
 from django.core.paginator import Paginator
 from django.core.exceptions import ObjectDoesNotExist
+from django.db import transaction
 
 from django.db import models
 from django.utils import timezone
@@ -556,18 +557,26 @@ def log_activity(
             )
             return None
 
-        activity_log = ActivityLog.objects.create(
-            organization_id=organization_id,
-            team_id=team_id,
-            user=user,
-            was_impersonated=was_impersonated,
-            is_system=user is None,
-            item_id=str(item_id),
-            scope=scope,
-            activity=activity,
-            detail=detail,
-        )
-        return activity_log
+        def _do_log_activity():
+            return ActivityLog.objects.create(
+                organization_id=organization_id,
+                team_id=team_id,
+                user=user,
+                was_impersonated=was_impersonated,
+                is_system=user is None,
+                item_id=str(item_id),
+                scope=scope,
+                activity=activity,
+                detail=detail,
+            )
+
+        # Check if we're in a transaction, if yes, defer the activity log creation to the commit signal
+        if not transaction.get_autocommit() and getattr(settings, "ACTIVITY_LOG_TRANSACTION_MANAGEMENT", True):
+            transaction.on_commit(_do_log_activity)
+            return None
+        else:
+            return _do_log_activity()
+
     except Exception as e:
         logger.warn(
             "activity_log.failed_to_write_to_activity_log",

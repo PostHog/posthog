@@ -1,6 +1,7 @@
 from typing import Optional
 from unittest.mock import MagicMock, patch
 
+from django.test.utils import override_settings
 from freezegun import freeze_time
 
 from posthog.models.alert import AlertCheck
@@ -310,6 +311,7 @@ class TestAlertChecks(APIBaseTest, ClickhouseDestroyTablesMixin):
                 error_message = latest_alert_check.error["message"]
                 assert "Some error" in error_message
 
+    @override_settings(ACTIVITY_LOG_TRANSACTION_MANAGEMENT=True)
     def test_alert_with_insight_with_filter(
         self, mock_send_notifications_for_breaches: MagicMock, mock_send_errors: MagicMock
     ) -> None:
