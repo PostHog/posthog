@@ -233,6 +233,13 @@ services:
         depends_on:
             - jaeger
 
+    echo_server:
+        extends:
+            file: docker-compose.base.yml
+            service: echo_server
+        expose:
+            - '18081:18081'
+
     jaeger:
         extends:
             file: docker-compose.base.yml

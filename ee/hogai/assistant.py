@@ -13,6 +13,7 @@ from langgraph.errors import GraphRecursionError
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import StreamMode
 from posthoganalytics.ai.langchain.callbacks import CallbackHandler
+from posthog.exceptions_capture import capture_exception
 from pydantic import BaseModel
 
 from ee.hogai.graph import (
@@ -30,7 +31,11 @@ from ee.hogai.graph.base import AssistantNode
 from ee.hogai.graph.filter_options.types import FilterOptionsNodeName
 from ee.hogai.tool import CONTEXTUAL_TOOL_NAME_TO_TOOL
 from ee.hogai.utils.exceptions import GenerationCanceled
-from ee.hogai.utils.helpers import find_last_ui_context, should_output_assistant_message
+from ee.hogai.utils.helpers import (
+    extract_content_from_ai_message,
+    find_last_ui_context,
+    should_output_assistant_message,
+)
 from ee.hogai.utils.state import (
     GraphMessageUpdateTuple,
     GraphTaskStartedUpdateTuple,
@@ -62,6 +67,7 @@ from posthog.schema import (
     AssistantMessageType,
     FailureMessage,
     HumanMessage,
+    MaxBillingContext,
     ReasoningMessage,
     VisualizationMessage,
 )
@@ -124,6 +130,7 @@ class Assistant:
     """Like a message chunk, but specifically for the reasoning headline (and just a plain string)."""
     _last_reasoning_headline: Optional[str]
     """Last emittted reasoning headline, to be able to carry it over."""
+    _billing_context: Optional[MaxBillingContext]
 
     def __init__(
         self,
@@ -138,6 +145,7 @@ class Assistant:
         is_new_conversation: bool = False,
         trace_id: Optional[str | UUID] = None,
         tool_call_partial_state: Optional[AssistantState] = None,
+        billing_context: Optional[MaxBillingContext] = None,
     ):
         self._team = team
         self._contextual_tools = contextual_tools or {}
@@ -176,6 +184,7 @@ class Assistant:
         self._custom_update_ids = set()
         self._reasoning_headline_chunk = None
         self._last_reasoning_headline = None
+        self._billing_context = billing_context
 
     async def ainvoke(self) -> list[tuple[Literal[AssistantEventType.MESSAGE], AssistantMessageUnion]]:
         """Returns all messages in once without streaming."""
@@ -303,6 +312,7 @@ class Assistant:
                 "contextual_tools": self._contextual_tools,
                 "team": self._team,
                 "user": self._user,
+                "billing_context": self._billing_context,
                 # Metadata to be sent to PostHog SDK (error tracking, etc).
                 "sdk_metadata": {
                     "assistant_mode": self._mode.value,
@@ -409,6 +419,8 @@ class Assistant:
                     return ReasoningMessage(content="Coming up with an insight")
                 if tool_call.name == "search_documentation":
                     return ReasoningMessage(content="Checking PostHog docs")
+                if tool_call.name == "retrieve_billing_information":
+                    return ReasoningMessage(content="Checking your billing data")
                 # This tool should be in CONTEXTUAL_TOOL_NAME_TO_TOOL, but it might not be in the rare case
                 # when the tool has been removed from the backend since the user's frontent was loaded
                 ToolClass = CONTEXTUAL_TOOL_NAME_TO_TOOL.get(tool_call.name)  # type: ignore
@@ -480,57 +492,92 @@ class Assistant:
 
     def _process_message_update(self, update: GraphMessageUpdateTuple) -> BaseModel | None:
         langchain_message, langgraph_state = update[1]
-        if isinstance(langchain_message, AIMessageChunk):
-            node_name: AssistantNodeName | FilterOptionsNodeName = langgraph_state["langgraph_node"]
-            if node_name in STREAMING_NODES:
-                self._chunks += langchain_message  # type: ignore
-                if node_name == AssistantNodeName.MEMORY_INITIALIZER:
-                    if not MemoryInitializerNode.should_process_message_chunk(langchain_message):
-                        return None
-                    else:
-                        return AssistantMessage(
-                            content=MemoryInitializerNode.format_message(cast(str, self._chunks.content))
-                        )
-                if self._chunks.content:
-                    # Only return an in-progress message if there is already some content (and not e.g. just tool calls)
-                    return AssistantMessage(content=cast(str, self._chunks.content))
-            if reasoning := langchain_message.additional_kwargs.get("reasoning"):
-                if reasoning_headline := self._chunk_reasoning_headline(reasoning):
-                    return ReasoningMessage(content=reasoning_headline)
-        return None
+        if not isinstance(langchain_message, AIMessageChunk):
+            return None
+
+        node_name: AssistantNodeName | FilterOptionsNodeName = langgraph_state["langgraph_node"]
+
+        # Check for reasoning content first (for all nodes that support it)
+        if reasoning := langchain_message.additional_kwargs.get("reasoning"):
+            if reasoning_headline := self._chunk_reasoning_headline(reasoning):
+                return ReasoningMessage(content=reasoning_headline)
+
+        # Only process streaming nodes
+        if node_name not in STREAMING_NODES:
+            return None
+
+        # Merge message chunks
+        self._merge_message_chunk(langchain_message)
+
+        if node_name == AssistantNodeName.MEMORY_INITIALIZER:
+            return self._process_memory_initializer_chunk(langchain_message)
+
+        # Extract and process content
+        message_content = extract_content_from_ai_message(self._chunks)
+        if not message_content:
+            return None
+
+        return AssistantMessage(content=message_content)
+
+    def _merge_message_chunk(self, langchain_message: AIMessageChunk) -> None:
+        """Merge a new message chunk with existing chunks, handling content format compatibility.
+
+        # This is because we reset to AIMessageChunk(content="") in a few places,
+        # but if we're switching between reasoning and non-reasoning models between different nodes,
+        # the format of the content will change, and we need to reset the chunks to the right format.
+        """
+
+        current_is_list = isinstance(self._chunks.content, list)
+        new_is_list = isinstance(langchain_message.content, list)
+
+        if current_is_list != new_is_list:
+            # Content types are incompatible - reset with new chunk
+            self._chunks = langchain_message
+        else:
+            # Compatible types - merge normally
+            self._chunks += langchain_message  # type: ignore
+
+    def _process_memory_initializer_chunk(self, langchain_message: AIMessageChunk) -> Optional[AssistantMessage]:
+        """Process memory initializer specific chunk logic."""
+        if not MemoryInitializerNode.should_process_message_chunk(langchain_message):
+            return None
+        return AssistantMessage(content=MemoryInitializerNode.format_message(cast(str, self._chunks.content)))
 
     def _chunk_reasoning_headline(self, reasoning: dict[str, Any]) -> Optional[str]:
         """Process a chunk of OpenAI `reasoning`, and if a new headline was just finalized, return it."""
         try:
             summary_text_chunk = reasoning["summary"][0]["text"]
-        except (KeyError, IndexError):
-            self._reasoning_headline_chunk = None  # Not expected, so let's just reset
+        except (KeyError, IndexError) as e:
+            capture_exception(e)
+            self._reasoning_headline_chunk = None  # not expected, so let's just reset
             return None
 
-        index_of_bold_in_text = summary_text_chunk.find("**")
-        if index_of_bold_in_text != -1:
-            # The headline is either beginning or ending with bold text in this chunk
-            if self._reasoning_headline_chunk is None:
-                # If we don't have a headline, we should start reading it
-                remaining_text = summary_text_chunk[index_of_bold_in_text + 2 :]  # Remove the ** from start
-                # Check if there's another ** in the remaining text (complete headline in one chunk)
-                end_index = remaining_text.find("**")
-                if end_index != -1:
-                    # Complete headline in one chunk
-                    self._last_reasoning_headline = remaining_text[:end_index]
-                    return self._last_reasoning_headline
-                else:
-                    # Start of headline, continue chunking
-                    self._reasoning_headline_chunk = remaining_text
-            else:
-                # If we already have a headline, it means we should wrap up
-                self._reasoning_headline_chunk += summary_text_chunk[:index_of_bold_in_text]  # Remove the ** from end
-                self._last_reasoning_headline = self._reasoning_headline_chunk
-                self._reasoning_headline_chunk = None
+        bold_marker_index = summary_text_chunk.find("**")
+        if bold_marker_index == -1:
+            # No bold markers - continue building headline if in progress
+            if self._reasoning_headline_chunk is not None:
+                self._reasoning_headline_chunk += summary_text_chunk
+            return None
+
+        # Handle bold markers
+        if self._reasoning_headline_chunk is None:
+            # Start of headline
+            remaining_text = summary_text_chunk[bold_marker_index + 2 :]
+            end_index = remaining_text.find("**")
+
+            if end_index != -1:
+                # Complete headline in one chunk
+                self._last_reasoning_headline = remaining_text[:end_index]
                 return self._last_reasoning_headline
-        elif self._reasoning_headline_chunk is not None:
-            # No bold text in this chunk, so we should just add the text to the headline
-            self._reasoning_headline_chunk += summary_text_chunk
+            else:
+                # Start of multi-chunk headline
+                self._reasoning_headline_chunk = remaining_text
+        else:
+            # End of headline
+            self._reasoning_headline_chunk += summary_text_chunk[:bold_marker_index]
+            self._last_reasoning_headline = self._reasoning_headline_chunk
+            self._reasoning_headline_chunk = None
+            return self._last_reasoning_headline
 
         return None
 

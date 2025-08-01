@@ -71,6 +71,7 @@ import {
     DataColorThemeModel,
     DataModelingJob,
     DataWarehouseSavedQuery,
+    DataWarehouseSavedQueryDraft,
     DataWarehouseTable,
     DataWarehouseViewLink,
     EarlyAccessFeatureType,
@@ -170,7 +171,9 @@ import {
     LOGS_PORTION_LIMIT,
 } from './constants'
 import type { ProductIntentProperties } from './utils/product-intents'
+import { OptOutEntry } from 'products/messaging/frontend/OptOuts/optOutListLogic'
 import { NotebookListItemType, NotebookNodeResource, NotebookType } from 'scenes/notebooks/types'
+import { MaxBillingContext } from 'scenes/max/maxBillingContextLogic'
 
 /**
  * WARNING: Be very careful importing things here. This file is heavily used and can trigger a lot of cyclic imports
@@ -973,6 +976,14 @@ export class ApiRequest {
         return this.dataWarehouseSavedQueries(teamId).addPathComponent(id)
     }
 
+    public dataWarehouseSavedQueryDrafts(teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('warehouse_saved_query_drafts')
+    }
+
+    public dataWarehouseSavedQueryDraft(id: DataWarehouseSavedQueryDraft['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.dataWarehouseSavedQueryDrafts(teamId).addPathComponent(id)
+    }
+
     public dataWarehouseSavedQueryActivity(id: DataWarehouseSavedQuery['id'], teamId?: TeamType['id']): ApiRequest {
         return this.dataWarehouseSavedQuery(id, teamId).addPathComponent('activity')
     }
@@ -1328,6 +1339,18 @@ export class ApiRequest {
 
     public messagingCategory(categoryId: string): ApiRequest {
         return this.messagingCategories().addPathComponent(categoryId)
+    }
+
+    public messagingPreferences(): ApiRequest {
+        return this.environments().current().addPathComponent('messaging_preferences')
+    }
+
+    public messagingPreferencesLink(): ApiRequest {
+        return this.environments().current().addPathComponent('messaging_preferences').addPathComponent('generate_link')
+    }
+
+    public messagingPreferencesOptOuts(): ApiRequest {
+        return this.environments().current().addPathComponent('messaging_preferences').addPathComponent('opt_outs')
     }
 
     public oauthApplicationPublicMetadata(clientId: string): ApiRequest {
@@ -3191,6 +3214,28 @@ const api = {
             },
         },
     },
+
+    dataWarehouseSavedQueryDrafts: {
+        async list(): Promise<PaginatedResponse<DataWarehouseSavedQueryDraft>> {
+            return await new ApiRequest().dataWarehouseSavedQueryDrafts().get()
+        },
+        async get(id: DataWarehouseSavedQueryDraft['id']): Promise<DataWarehouseSavedQueryDraft> {
+            return await new ApiRequest().dataWarehouseSavedQueryDraft(id).get()
+        },
+        async create(data: Partial<DataWarehouseSavedQueryDraft>): Promise<DataWarehouseSavedQueryDraft> {
+            return await new ApiRequest().dataWarehouseSavedQueryDrafts().create({ data })
+        },
+        async delete(id: DataWarehouseSavedQueryDraft['id']): Promise<void> {
+            await new ApiRequest().dataWarehouseSavedQueryDraft(id).delete()
+        },
+        async update(
+            id: DataWarehouseSavedQueryDraft['id'],
+            data: Partial<DataWarehouseSavedQueryDraft>
+        ): Promise<DataWarehouseSavedQueryDraft> {
+            return await new ApiRequest().dataWarehouseSavedQueryDraft(id).update({ data })
+        },
+    },
+
     externalDataSources: {
         async list(options?: ApiMethodOptions | undefined): Promise<PaginatedResponse<ExternalDataSource>> {
             return await new ApiRequest().externalDataSources().get(options)
@@ -3584,6 +3629,22 @@ const api = {
         async deleteCategory(categoryId: string): Promise<void> {
             return await new ApiRequest().messagingCategory(categoryId).delete()
         },
+        async generateMessagingPreferencesLink(recipient?: string): Promise<string | null> {
+            const response = await new ApiRequest().messagingPreferencesLink().create({
+                data: {
+                    recipient,
+                },
+            })
+            return response.preferences_url || null
+        },
+        async getMessageOptOuts(categoryKey?: string): Promise<OptOutEntry[]> {
+            return await new ApiRequest()
+                .messagingPreferencesOptOuts()
+                .withQueryString({
+                    category_key: categoryKey,
+                })
+                .get()
+        },
     },
     oauthApplication: {
         async getPublicMetadata(clientId: string): Promise<OAuthApplicationPublicMetadata> {
@@ -3693,6 +3754,7 @@ const api = {
                 content: string | null
                 contextual_tools?: Record<string, any>
                 ui_context?: MaxUIContext
+                billing_context?: MaxBillingContext
                 conversation?: string | null
                 trace_id: string
             },

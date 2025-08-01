@@ -10,6 +10,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { identifierToHuman } from 'lib/utils'
 import { addProjectIdIfMissing, removeProjectIdIfPresent } from 'lib/utils/router-utils'
 import posthog from 'posthog-js'
+import { sceneTabsLogic } from '~/layout/scenes/sceneTabsLogic'
 
 /*
 Actions for which we don't want to show error alerts,
@@ -32,6 +33,7 @@ interface InitKeaProps {
     routerHistory?: any
     routerLocation?: any
     beforePlugins?: KeaPlugin[]
+    replaceInitialPathInWindow?: boolean
 }
 
 // Used in some tests to make life easier
@@ -62,7 +64,12 @@ export const loggerPlugin: () => KeaPlugin = () => ({
     },
 })
 
-export function initKea({ routerHistory, routerLocation, beforePlugins }: InitKeaProps = {}): void {
+export function initKea({
+    routerHistory,
+    routerLocation,
+    beforePlugins,
+    replaceInitialPathInWindow,
+}: InitKeaProps = {}): void {
     const plugins = [
         ...(beforePlugins || []),
         localStoragePlugin(),
@@ -83,6 +90,16 @@ export function initKea({ routerHistory, routerLocation, beforePlugins }: InitKe
             },
             pathFromWindowToRoutes: (path) => {
                 return removeProjectIdIfPresent(path)
+            },
+            replaceInitialPathInWindow:
+                typeof replaceInitialPathInWindow === 'undefined' ? true : replaceInitialPathInWindow,
+            getRouterState: () => {
+                // This state is persisted into window.history
+                const logic = sceneTabsLogic.findMounted()
+                if (logic) {
+                    return { tabs: structuredClone(logic.values.tabs) }
+                }
+                return undefined
             },
         }),
         formsPlugin,
