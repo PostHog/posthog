@@ -52,6 +52,19 @@ class ModelActivityMixin(models.Model):
                 was_impersonated=get_was_impersonated(),
             )
 
+    def _get_before_update(self, **kwargs) -> Any:
+        before_update = None
+        # Get a copy of the existing instance before saving
+        if self.pk:
+            before_update = self.__class__.objects.filter(pk=self.pk).first()  # type: ignore[attr-defined]
+            if before_update:
+                before_update._state.adding = False  # Ensure the copy knows it's not a new instance
+                before_update.pk = before_update.pk  # Ensure pk is copied
+        else:
+            before_update = None
+
+        return before_update
+
     def _should_log_activity_for_update(self, **kwargs) -> tuple[bool, Any]:
         from posthog.models.activity_logging.activity_log import signal_exclusions, ActivityScope
         from typing import cast
@@ -60,13 +73,13 @@ class ModelActivityMixin(models.Model):
         signal_excluded_fields = signal_exclusions.get(model_name, [])
 
         if not signal_excluded_fields:
-            return True, None
+            return True, self._get_before_update()
 
         update_fields = kwargs.get("update_fields")
         if update_fields and all(field in signal_excluded_fields for field in update_fields):
             return False, None
 
-        before_update = self.__class__.objects.filter(pk=self.pk).first()  # type: ignore[attr-defined]
+        before_update = self._get_before_update()
         if not before_update:
             return True, None
 
