@@ -67,9 +67,29 @@ function PerformanceHelpMessage(): JSX.Element {
                 performance and potential issues. This feature can be particularly useful for debugging and optimizing
                 your application's network interactions.
             </p>
-            <Link to="https://posthog.com/docs/session-replay/network-performance-recording" target="_blank">
-                Network performance recording
-            </Link>
+            <ul className="list-disc pl-4 text-secondary">
+                <li>
+                    <Link to="https://posthog.com/docs/session-replay/network-performance-recording" target="_blank">
+                        Network performance recording
+                    </Link>
+                </li>
+                <li>
+                    <Link
+                        to="https://posthog.com/docs/session-replay/canvas-recording#canvas-recording-performance"
+                        target="_blank"
+                    >
+                        Canvas recording performance
+                    </Link>
+                </li>
+                <li>
+                    <Link
+                        to="https://posthog.com/docs/session-replay/troubleshooting#angular-performance"
+                        target="_blank"
+                    >
+                        Angular performance
+                    </Link>
+                </li>
+            </ul>
         </>
     )
 }
