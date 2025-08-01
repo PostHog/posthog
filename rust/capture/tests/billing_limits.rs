@@ -94,16 +94,14 @@ async fn setup_router_with_limits(
 
     // Set up survey limiter - always required now
     let survey_key = format!("{}{}", QUOTA_LIMITER_CACHE_KEY, "surveys");
-    let survey_redis = Arc::new(
-        MockRedisClient::new().zrangebyscore_ret(
-            &survey_key, 
-            if is_survey_limited { 
-                vec![token.to_string()] 
-            } else { 
-                vec![] 
-            }
-        )
-    );
+    let survey_redis = Arc::new(MockRedisClient::new().zrangebyscore_ret(
+        &survey_key,
+        if is_survey_limited {
+            vec![token.to_string()]
+        } else {
+            vec![]
+        },
+    ));
 
     let survey_limiter = RedisLimiter::new(
         Duration::from_secs(60),

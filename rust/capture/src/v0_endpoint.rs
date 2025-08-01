@@ -50,24 +50,27 @@ async fn check_survey_quota_and_filter(
     context: &ProcessingContext,
     events: Vec<RawEvent>,
 ) -> Result<Vec<RawEvent>, CaptureError> {
-    let survey_limited = state.survey_limiter.is_limited(context.token.as_str()).await;
-    
+    let survey_limited = state
+        .survey_limiter
+        .is_limited(context.token.as_str())
+        .await;
+
     if survey_limited {
         // Drop all survey events when quota is exceeded
         let (survey_events, non_survey_events): (Vec<_>, Vec<_>) = events
             .into_iter()
             .partition(|event| is_survey_event(&event.event));
-        
+
         let dropped_count = survey_events.len();
         if dropped_count > 0 {
             report_dropped_events("survey_over_quota", dropped_count as u64);
         }
-        
+
         // If no events remain, return billing limit error
         if non_survey_events.is_empty() {
             return Err(CaptureError::BillingLimit);
         }
-        
+
         return Ok(non_survey_events);
     }
 
@@ -93,7 +96,6 @@ mod tests {
         assert!(!is_survey_event("Survey Sent")); // case sensitivity
         assert!(!is_survey_event(""));
     }
-
 }
 
 /// handle_legacy owns the /e, /capture, /track, and /engage capture endpoints
