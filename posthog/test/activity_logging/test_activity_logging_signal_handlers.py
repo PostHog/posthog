@@ -178,17 +178,32 @@ class TestAllActivityLogSignalHandlers(APIBaseTest):
 
     def test_activity_logs_user_context(self):
         """Test that activity logs capture user context correctly."""
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/annotations/",
-            {"content": "Test user context", "date_marker": "2024-01-01T12:00:00Z", "scope": "project"},
-        )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        from threading import current_thread
+        from django.test import RequestFactory
 
-        new_logs = ActivityLog.objects.filter(scope="Annotation").order_by("-created_at")
-        self.assertTrue(new_logs.exists())
+        # Create a mock request with the user attached
+        factory = RequestFactory()
+        request = factory.post(f"/api/projects/{self.team.id}/annotations/")
+        request.user = self.user
 
-        latest_log = new_logs.first()
-        assert latest_log is not None
-        self.assertEqual(latest_log.user, self.user)
-        self.assertEqual(latest_log.organization_id, self.organization.id)
-        self.assertEqual(latest_log.team_id, self.team.id)
+        # Set the request on the current thread
+        current_thread().request = request
+        try:
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/annotations/",
+                {"content": "Test user context", "date_marker": "2024-01-01T12:00:00Z", "scope": "project"},
+            )
+            self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+            new_logs = ActivityLog.objects.filter(scope="Annotation").order_by("-created_at")
+            self.assertTrue(new_logs.exists())
+
+            latest_log = new_logs.first()
+            assert latest_log is not None
+            self.assertEqual(latest_log.user, self.user)
+            self.assertEqual(latest_log.organization_id, self.organization.id)
+            self.assertEqual(latest_log.team_id, self.team.id)
+        finally:
+            # Clean up thread-local storage
+            if hasattr(current_thread(), "request"):
+                delattr(current_thread(), "request")
