@@ -1037,8 +1037,8 @@ class GitHubIntegration:
                 algorithm="RS256",
             )
         except Exception as e:
-            logger.error(f"Failed to encode JWT token: {str(e)}")
-            raise ValidationError(f"Failed to create GitHub App JWT token. Please check your GITHUB_APP_PRIVATE_KEY format: {str(e)}")
+            logger.error("Failed to encode JWT token", exc_info=True)
+            raise ValidationError("Failed to create GitHub App JWT token. Please check your GITHUB_APP_PRIVATE_KEY format.")
 
         return requests.request(
             method,
