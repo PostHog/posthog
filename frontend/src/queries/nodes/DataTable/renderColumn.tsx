@@ -98,7 +98,9 @@ export function renderColumn(
         )
     } else if (context?.cellRenderer) {
         const rendered = context.cellRenderer(value)
-        return rendered !== null ? rendered : String(value)
+        if (rendered !== null) {
+            return rendered
+        }
     } else if (typeof value === 'object' && Array.isArray(value) && value[0] === '__hx_tag') {
         return renderHogQLX(value)
     } else if (value === null) {
