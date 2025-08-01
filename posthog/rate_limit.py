@@ -442,10 +442,10 @@ class SetupWizardQueryRateThrottle(SimpleRateThrottle):
 class BreakGlassBurstThrottle(UserOrEmailRateThrottle):
     # Throttle class that can be applied when a bug is causing too many requests to hit and an endpoint, e.g. a bug in the frontend hitting an endpoint in a loop.
     # Prefer making a subclass of this for specific endpoints, and setting a scope
-    rate = "60/minute"
+    rate = "15/minute"
 
 
 class BreakGlassSustainedThrottle(UserOrEmailRateThrottle):
     # Throttle class that can be applied when a bug is causing too many requests to hit and an endpoint, e.g. a bug in the frontend hitting an endpoint in a loop
     # Prefer making a subclass of this for specific endpoints, and setting a scope
-    rate = "300/hour"
+    rate = "75/hour"
