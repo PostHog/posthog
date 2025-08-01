@@ -22,13 +22,14 @@ class TestPerformanceAPI(ClickhouseTestMixin, APIBaseTest):
         super().setUp()
 
         # Create mock performance data matching ClickHouse schema
+        fixed_datetime = datetime(2024, 1, 15, 12, 0, 0)
         self.mock_performance_data = [
             (
-                "uuid-1", "session-123", datetime.now(), "https://example.com/api/users",
+                "uuid-1", "session-123", fixed_datetime, "https://example.com/api/users",
                 "resource", 250.5, 200, 1024, "fetch", "https://example.com"
             ),
             (
-                "uuid-2", "session-123", datetime.now(), "https://example.com/api/posts",
+                "uuid-2", "session-123", fixed_datetime, "https://example.com/api/posts",
                 "resource", 150.2, 404, 512, "xmlhttprequest", "https://example.com"
             ),
         ]

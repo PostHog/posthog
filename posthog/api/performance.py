@@ -115,7 +115,8 @@ class PerformanceViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         if date_to:
             date_to = relative_date_parse(date_to, self.team.timezone_info)
         else:
-            date_to = datetime.now()
+            from django.utils import timezone
+            date_to = timezone.now()
 
         date_from = relative_date_parse(data["date_from"], self.team.timezone_info)
         return date_from, date_to

@@ -10,7 +10,7 @@ from posthog.hogql.database.models import (
 class PerformanceEventsTable(Table):
     """HogQL table definition for network performance events stored in ClickHouse."""
 
-    fields: dict[str, any] = {
+    fields: dict[str, StringDatabaseField | DateTimeDatabaseField | IntegerDatabaseField | FloatDatabaseField] = {
         "uuid": StringDatabaseField(name="uuid"),
         "session_id": StringDatabaseField(name="session_id"),
         "window_id": StringDatabaseField(name="window_id"),

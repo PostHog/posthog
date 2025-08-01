@@ -181,7 +181,7 @@ class TestNetworkPerformanceExtractor(TestCase):
         self.extractor.send_performance_events_to_kafka(events)
 
         # Should log error but not raise
-        mock_logger.error.assert_called_once()
+        mock_logger.exception.assert_called_once()
 
     def test_process_session_recording_integration(self):
         """Test the full process_session_recording method."""

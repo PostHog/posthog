@@ -19,6 +19,7 @@ class NetworkPerformanceExtractor:
     """
     NETWORK_PLUGIN_NAME = "posthog/network@1"
     RRWEB_NETWORK_PLUGIN_NAME = "rrweb/network@1"
+    RRWEB_PLUGIN_EVENT_TYPE = 6  # RRWeb plugin event type
 
     def __init__(self, kafka_producer: KafkaProducer | None = None):
         self.kafka_producer = kafka_producer or KafkaProducer()
@@ -37,7 +38,7 @@ class NetworkPerformanceExtractor:
             if not isinstance(snapshot, dict):
                 continue
 
-            if (snapshot.get("type") == 6 and
+            if (snapshot.get("type") == self.RRWEB_PLUGIN_EVENT_TYPE and
                 snapshot.get("data", {}).get("plugin") in [self.NETWORK_PLUGIN_NAME, self.RRWEB_NETWORK_PLUGIN_NAME]):
 
                 events = self._extract_network_events_from_plugin(snapshot, session_id, team_id, distinct_id)
@@ -120,7 +121,10 @@ class NetworkPerformanceExtractor:
                 "initiator_type": request.get("initiatorType", ""),
                 "next_hop_protocol": request.get("nextHopProtocol", ""),
                 "render_blocking_status": request.get("renderBlockingStatus", ""),
-                "response_status": self._safe_int(request.get("responseStatus") or request.get("status")),
+                "response_status": self._safe_int(
+                    request.get("responseStatus") if request.get("responseStatus") is not None 
+                    else request.get("status")
+                ),
                 "dom_complete": self._safe_float(request.get("domComplete")),
                 "dom_content_loaded_event": self._safe_float(request.get("domContentLoadedEvent")),
                 "dom_interactive": self._safe_float(request.get("domInteractive")),
