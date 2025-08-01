@@ -6,6 +6,7 @@ import { LogicWrapper } from 'kea'
 import { ChartDataset, ChartType, InteractionItem } from 'lib/Chart'
 import { DashboardCompatibleScenes } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { ReactNode } from 'react'
 import {
     BIN_COUNT_AUTO,
     DashboardPrivilegeLevel,
@@ -58,6 +59,7 @@ import type {
     RecordingOrder,
     RecordingsQuery,
     RevenueAnalyticsConfig,
+    SharingConfigurationSettings,
 } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 
@@ -819,6 +821,7 @@ export enum ExperimentsTabs {
     Holdouts = 'holdouts',
     SharedMetrics = 'shared-metrics',
     History = 'history',
+    Settings = 'settings',
 }
 
 export enum ActivityTab {
@@ -1044,9 +1047,9 @@ export interface RecordingConsoleLogBase {
     parsedPayload: string
     hash?: string // md5() on parsedPayload. Used for deduping console logs.
     count?: number // Number of duplicate console logs
-    previewContent?: React.ReactNode // Content to show in first line
-    fullContent?: React.ReactNode // Full content to show when item is expanded
-    traceContent?: React.ReactNode // Url content to show on right side
+    previewContent?: ReactNode // Content to show in first line
+    fullContent?: ReactNode // Full content to show when item is expanded
+    traceContent?: ReactNode // Url content to show on right side
     rawString: string // Raw text used for fuzzy search
     level: LogLevel
 }
@@ -1565,6 +1568,8 @@ export interface RecordingEventType
     extends Pick<EventType, 'id' | 'event' | 'properties' | 'timestamp' | 'elements'>,
         RecordingTimeMixinType {
     fullyLoaded: boolean
+    // allowing for absent distinct id which events don't
+    distinct_id?: EventType['distinct_id']
 }
 
 export interface PlaylistCollectionCount {
@@ -2020,6 +2025,10 @@ export interface DashboardTile<T = InsightModel> extends Tileable {
     deleted?: boolean
     is_cached?: boolean
     order?: number
+    error?: {
+        type: string
+        message: string
+    }
 }
 
 export interface DashboardTileBasicType {
@@ -3807,13 +3816,15 @@ export interface SelectOptionWithChildren extends SelectOption {
 
 export interface CoreFilterDefinition {
     label: string
-    description?: string | JSX.Element
+    description?: string | ReactNode
     examples?: (string | number)[]
     /** System properties are hidden in properties table by default. */
     system?: boolean
     type?: PropertyType
     /** Virtual properties are not "sent as", because they are calculated from other properties or SQL expressions **/
     virtual?: boolean
+    /** whether this is a property PostHog adds to aid with debugging */
+    used_for_debug?: boolean
 }
 
 export interface TileParams {
@@ -4221,6 +4232,7 @@ export interface SharingConfigurationType {
     enabled: boolean
     access_token: string
     created_at: string
+    settings?: SharingConfigurationSettings
 }
 
 export enum ExporterFormat {
@@ -4526,6 +4538,21 @@ export interface DataWarehouseSavedQuery {
     latest_history_id?: string
 }
 
+export interface DataWarehouseSavedQueryDraft {
+    id: string
+    query: HogQLQuery
+    saved_query_id?: string
+    created_at: string
+    updated_at: string
+    name: string
+    edited_history_id?: string
+}
+
+export interface DataWarehouseViewLinkConfiguration {
+    experiments_optimized?: boolean
+    experiments_timestamp_key?: string | null
+}
+
 export interface DataWarehouseViewLink {
     id: string
     source_table_name?: string
@@ -4535,10 +4562,7 @@ export interface DataWarehouseViewLink {
     field_name?: string
     created_by?: UserBasicType | null
     created_at?: string | null
-    configuration?: {
-        experiments_optimized?: boolean
-        experiments_timestamp_key?: string | null
-    }
+    configuration?: DataWarehouseViewLinkConfiguration
 }
 
 export interface QueryTabState {
@@ -4981,7 +5005,7 @@ export enum SDKTag {
     OTHER = 'Other',
 }
 
-export type SDKInstructionsMap = Partial<Record<SDKKey, React.ReactNode>>
+export type SDKInstructionsMap = Partial<Record<SDKKey, ReactNode>>
 
 export interface AppMetricsUrlParams {
     tab?: AppMetricsTab
@@ -5033,7 +5057,7 @@ export type BillingTableTierRow = {
     basePrice: string
     usage: string
     total: string
-    projectedTotal: string | React.ReactNode
+    projectedTotal: string | ReactNode
     subrows: ProductPricingTierSubrows
 }
 
@@ -5331,7 +5355,7 @@ export type ReplayTemplateType = {
     description: string
     variables?: ReplayTemplateVariableType[]
     categories: ReplayTemplateCategory[]
-    icon?: React.ReactNode
+    icon?: ReactNode
     order?: RecordingOrder
 }
 export type ReplayTemplateCategory = 'B2B' | 'B2C' | 'More'
