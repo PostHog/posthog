@@ -7,7 +7,6 @@ import MaxTool from 'scenes/max/MaxTool'
 import { hogFunctionConfigurationLogic } from '../hogFunctionConfigurationLogic'
 import { useValues, useActions } from 'kea'
 import { useRef } from 'react'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { HogFunctionTemplateOptions } from './HogFunctionTemplateOptions'
 
 export function HogFunctionCode(): JSX.Element {
@@ -35,7 +34,6 @@ export function HogFunctionCode(): JSX.Element {
     } = useActions(hogFunctionConfigurationLogic)
 
     const sourceCodeRef = useRef<HTMLDivElement>(null)
-    const aiHogFunctionCreation = !!useFeatureFlag('AI_HOG_FUNCTION_CREATION')
 
     const content = (
         <div
@@ -159,10 +157,6 @@ export function HogFunctionCode(): JSX.Element {
             ) : null}
         </div>
     )
-
-    if (!aiHogFunctionCreation) {
-        return content
-    }
 
     return (
         <MaxTool
