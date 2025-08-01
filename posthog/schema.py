@@ -2351,6 +2351,7 @@ class SharingConfigurationSettings(BaseModel):
         extra="forbid",
     )
     detailed: Optional[bool] = None
+    hideExtraDetails: Optional[bool] = None
     legend: Optional[bool] = None
     noHeader: Optional[bool] = None
     showInspector: Optional[bool] = None

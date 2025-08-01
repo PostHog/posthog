@@ -892,10 +892,13 @@ export interface TableSettings {
 
 export interface SharingConfigurationSettings {
     whitelabel?: boolean
+    // Insights
     noHeader?: boolean
-    showInspector?: boolean
     legend?: boolean
     detailed?: boolean
+    hideExtraDetails?: boolean
+    // Recordings
+    showInspector?: boolean
 }
 
 export interface DataVisualizationNode extends Node<never> {

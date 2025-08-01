@@ -15,6 +15,7 @@ import { BREAKPOINT_COLUMN_COUNTS, BREAKPOINTS } from 'scenes/dashboard/dashboar
 import { urls } from 'scenes/urls'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
+import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
 import { insightsModel } from '~/models/insightsModel'
 import { DashboardMode, DashboardPlacement, DashboardType } from '~/types'
 
@@ -149,7 +150,10 @@ export function DashboardItems(): JSX.Element {
                                     refreshEnabled={!itemsLoading}
                                     rename={() => renameInsight(insight)}
                                     duplicate={() => duplicateInsight(insight)}
-                                    showDetailsControls={placement != DashboardPlacement.Export}
+                                    showDetailsControls={
+                                        placement != DashboardPlacement.Export &&
+                                        !getCurrentExporterData()?.hideExtraDetails
+                                    }
                                     placement={placement}
                                     loadPriority={smLayout ? smLayout.y * 1000 + smLayout.x : undefined}
                                     variablesOverride={temporaryVariables}
