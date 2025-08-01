@@ -23,7 +23,7 @@ function TooExpensiveHelpMessage(): JSX.Element {
     return (
         <>
             <p>
-                There are few ways to reduce costs by recording fewer sessions:
+                There are several ways to reduce costs by recording fewer sessions:
                 <ul className="list-disc pl-4 text-secondary">
                     <li>Disable automatic recording and programmatically start and stop recordings</li>
                     <li>
