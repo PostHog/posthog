@@ -11,8 +11,8 @@ from posthog.schema import (
     CachedEventTaxonomyQueryResponse,
     EventTaxonomyQuery,
 )
-
-
+from xml.etree import ElementTree as ET
+from posthog.clickhouse.query_tagging import Product, tags_context
 from langchain_core.agents import AgentAction
 from typing import Union
 from functools import cached_property
@@ -198,7 +198,8 @@ class TaxonomyAgentToolkit:
             query = EventTaxonomyQuery(actionId=event_name_or_action_id, maxPropertyValues=25)
             verbose_name = f"action with ID {event_name_or_action_id}"
         runner = EventTaxonomyQueryRunner(query, self._team)
-        response = runner.run(ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS)
+        with tags_context(product=Product.MAX_AI, team_id=self._team.pk, org_id=self._team.organization_id):
+            response = runner.run(ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS)
         return response, verbose_name
 
     def _generate_properties_output(self, props: list[tuple[str, str | None, str | None]]) -> str:
@@ -209,8 +210,6 @@ class TaxonomyAgentToolkit:
         return self._generate_properties_xml(props)
 
     def _generate_properties_xml(self, children: list[tuple[str, str | None, str | None]]):
-        import xml.etree.ElementTree as ET
-
         root = ET.Element("properties")
         property_type_to_tag = {}
 
@@ -272,10 +271,11 @@ class TaxonomyAgentToolkit:
 
     def retrieve_entity_properties(self, entity: str, max_properties: int = 500) -> str:
         """
-        Retrieve properties for an entity like person, session, or one of the groups.
+        Retrieve properties for an entitiy like person, session, or one of the groups.
         """
+
         if entity not in ("person", "session", *[group.group_type for group in self._groups]):
-            return TaxonomyErrorMessages.entity_not_found(entity, self._entity_names)
+            return f"Entity {entity} does not exist in the taxonomy."
 
         if entity == "person":
             qs = PropertyDefinition.objects.filter(team=self._team, type=PropertyDefinition.Type.PERSON).values_list(
@@ -292,19 +292,20 @@ class TaxonomyAgentToolkit:
                     if prop.get("type") is not None
                 ],
             )
+
         else:
             group_type_index = next(
                 (group.group_type_index for group in self._groups if group.group_type == entity), None
             )
             if group_type_index is None:
-                return TaxonomyErrorMessages.entity_not_found(entity)
+                return f"Group {entity} does not exist in the taxonomy."
             qs = PropertyDefinition.objects.filter(
                 team=self._team, type=PropertyDefinition.Type.GROUP, group_type_index=group_type_index
             ).values_list("name", "property_type")[:max_properties]
             props = self._enrich_props_with_descriptions(entity, qs)
 
         if not props:
-            return TaxonomyErrorMessages.properties_not_found(entity)
+            return f"Properties do not exist in the taxonomy for the entity {entity}."
 
         return self._generate_properties_output(props)
 
@@ -346,9 +347,10 @@ class TaxonomyAgentToolkit:
         except PropertyDefinition.DoesNotExist:
             return TaxonomyErrorMessages.property_not_found(property_name, entity)
 
-        response = ActorsPropertyTaxonomyQueryRunner(query, self._team).run(
-            ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS
-        )
+        with tags_context(product=Product.MAX_AI, team_id=self._team.pk, org_id=self._team.organization_id):
+            response = ActorsPropertyTaxonomyQueryRunner(query, self._team).run(
+                ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS
+            )
 
         if not isinstance(response, CachedActorsPropertyTaxonomyQueryResponse):
             return TaxonomyErrorMessages.entity_not_found(entity)

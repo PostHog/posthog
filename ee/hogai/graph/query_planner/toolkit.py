@@ -1,13 +1,14 @@
 import re
 from typing import Literal
 
-from pydantic import BaseModel, field_validator
 from ee.hogai.graph.taxonomy import (
     TaxonomyAgentToolkit,
     retrieve_action_properties,
     retrieve_action_property_values,
     TaxonomyToolNotFoundError,
 )
+from pydantic import BaseModel, field_validator
+
 from ee.hogai.graph.taxonomy.tools import get_dynamic_entity_tools
 from posthog.models import Team
 
@@ -19,8 +20,8 @@ class final_answer(BaseModel):
     Use this tool to finalize the answer to the user's question.
     """
 
-    query_kind: MaxSupportedQueryKind
     plan: str
+    query_kind: MaxSupportedQueryKind  # query_kind is intentionally AFTER plan so that these tokens are generated after decision explanation
 
     @field_validator("plan", mode="before")
     def normalize_plan(cls, plan: str) -> str:
@@ -56,7 +57,7 @@ class QueryPlannerTaxonomyAgentToolkit(TaxonomyAgentToolkit):
     def handle_tools(self, tool_name: str, tool_input: BaseModel) -> tuple[str, str]:
         """Handle tool execution and return (tool_id, result)."""
         try:
-            return super().handle_tools(tool_name, tool_input)
+            tool_name, result = super().handle_tools(tool_name, tool_input)
         except TaxonomyToolNotFoundError:
             # We come here if the tool is not available in the taxonomy toolkit.
             # Must be a custom tool

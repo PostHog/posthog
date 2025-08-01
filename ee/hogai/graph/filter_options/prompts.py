@@ -3,7 +3,6 @@ FILTER_OPTIONS_ITERATION_LIMIT_PROMPT = """I've tried several approaches but hav
 - What properties do you want to filter on?
 - Are you looking for specific values or ranges?"""
 
-
 FILTER_FIELDS_TAXONOMY_PROMPT = """
 <filter_fields_taxonomy>
 For the filter fields, you will find information on how to correctly discover the type of the filter field.

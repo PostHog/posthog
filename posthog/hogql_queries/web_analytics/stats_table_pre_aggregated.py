@@ -1,13 +1,13 @@
-from typing import TYPE_CHECKING, Literal, cast
+from typing import TYPE_CHECKING, Literal, cast, Optional
 
 from posthog.hogql import ast
+from posthog.hogql.parser import parse_select, parse_expr
 
 from posthog.hogql.database.schema.channel_type import (
     wrap_with_null_if_empty,
     create_channel_type_expr,
     ChannelTypeExprs,
 )
-from posthog.hogql.parser import parse_select
 from posthog.hogql_queries.web_analytics.pre_aggregated.query_builder import WebAnalyticsPreAggregatedQueryBuilder
 from posthog.hogql_queries.web_analytics.pre_aggregated.properties import STATS_TABLE_SUPPORTED_FILTERS
 from posthog.schema import WebAnalyticsOrderByDirection, WebAnalyticsOrderByFields, WebStatsBreakdown
@@ -220,6 +220,10 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
 
         query.order_by = [self._get_order_by()]
 
+        fill_fraction_expr = self.runner._fill_fraction(query.order_by)
+        if fill_fraction_expr:
+            query.select.append(fill_fraction_expr)
+
         return query
 
     def _get_order_by(self):
@@ -242,7 +246,54 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
             if column:
                 return ast.OrderExpr(expr=ast.Field(chain=[column]), order=direction)
 
-        return ast.OrderExpr(expr=ast.Field(chain=["context.columns.views"]), order="DESC")
+        return ast.OrderExpr(expr=ast.Field(chain=["context.columns.visitors"]), order="DESC")
+
+    def _fill_fraction(self, order: Optional[list[ast.OrderExpr]]):
+        # use whatever column we are sorting by to also visually fill the row by some fraction
+        col_name = (
+            order[0].expr.chain[0]
+            if order and isinstance(order[0].expr, ast.Field) and len(order[0].expr.chain) == 1
+            else None
+        )
+
+        if col_name:
+            # for these columns, use the fraction of the overall total belonging to this row
+            if col_name in [
+                "context.columns.visitors",
+                "context.columns.views",
+                "context.columns.clicks",
+                "context.columns.total_conversions",
+                "context.columns.unique_conversions",
+                "context.columns.rage_clicks",
+                "context.columns.dead_clicks",
+                "context.columns.errors",
+            ]:
+                return ast.Alias(
+                    alias="context.columns.ui_fill_fraction",
+                    expr=parse_expr(
+                        "{col}.1 / sum({col}.1) OVER ()",
+                        placeholders={"col": ast.Field(chain=[col_name])},
+                    ),
+                )
+            # these columns are fractions already, use them directly
+            if col_name in [
+                "context.columns.bounce_rate",
+                "context.columns.average_scroll_percentage",
+                "context.columns.scroll_gt80_percentage",
+                "context.columns.conversion_rate",
+            ]:
+                return ast.Alias(
+                    alias="context.columns.ui_fill_fraction",
+                    expr=parse_expr(
+                        "{col}.1",
+                        placeholders={"col": ast.Field(chain=[col_name])},
+                    ),
+                )
+        # use visitors as a fallback
+        return ast.Alias(
+            alias="context.columns.ui_fill_fraction",
+            expr=parse_expr(""" "context.columns.visitors".1 / sum("context.columns.visitors".1) OVER ()"""),
+        )
 
     @_nullif_empty_decorator
     def _get_breakdown_field(self):

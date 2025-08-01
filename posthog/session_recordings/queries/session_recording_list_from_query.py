@@ -1,7 +1,8 @@
-from typing import Any, cast, Optional, Union
+from typing import Any, cast, Optional, Union, Literal
 from datetime import datetime, timedelta, UTC
 
 from posthog.hogql import ast
+
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.parser import parse_select
 from posthog.hogql.property import property_to_expr
@@ -66,7 +67,6 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         WHERE {where_predicates}
         GROUP BY session_id
         HAVING {having_predicates}
-        ORDER BY {order_by} DESC
         """
 
     @staticmethod
@@ -137,7 +137,7 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         )
 
     def get_query(self):
-        return parse_select(
+        parsed_query = parse_select(
             self.BASE_QUERY,
             {
                 # Check if the most recent _timestamp is within five minutes of the current time
@@ -153,16 +153,22 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
                         op=ast.CompareOperationOp.GtEq,
                     ),
                 ),
-                "order_by": self._order_by_clause(),
                 "where_predicates": self._where_predicates(),
                 "having_predicates": self._having_predicates() or ast.Constant(value=True),
             },
         )
+        if isinstance(parsed_query, ast.SelectSetQuery):
+            raise Exception("replay does not support SelectSetQuery")
 
-    def _order_by_clause(self) -> ast.Field:
+        parsed_query.order_by = [self._order_by_clause()]
+        return parsed_query
+
+    def _order_by_clause(self) -> ast.OrderExpr:
         # KLUDGE: we only need a default here because mypy is silly
         order_by = self._query.order.value if self._query.order else RecordingOrder.START_TIME
-        return ast.Field(chain=[order_by])
+        direction = cast(Literal["ASC", "DESC"], self._query.order_direction or "DESC")
+
+        return ast.OrderExpr(expr=ast.Field(chain=[order_by]), order=direction)
 
     def _where_predicates(self) -> Union[ast.And, ast.Or]:
         exprs: list[ast.Expr] = [
@@ -219,8 +225,8 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         optional_exprs: list[ast.Expr] = []
 
         # if in PoE mode then we should be pushing person property queries into here
-        events_sub_query = ReplayFiltersEventsSubQuery(self._team, self._query).get_query_for_session_id_matching()
-        if events_sub_query:
+        events_sub_queries = ReplayFiltersEventsSubQuery(self._team, self._query).get_queries_for_session_id_matching()
+        for events_sub_query in events_sub_queries:
             optional_exprs.append(
                 ast.CompareOperation(
                     # this hits the distributed events table from the distributed session_replay_events table
@@ -285,7 +291,7 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
             )
 
         if optional_exprs:
-            exprs.append(self.ast_operand(exprs=optional_exprs))
+            exprs.append(self.wrapped_with_query_operand(exprs=optional_exprs))
 
         return ast.And(exprs=exprs)
 

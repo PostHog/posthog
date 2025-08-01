@@ -1,0 +1,56 @@
+#!/bin/bash
+
+set -e
+
+SCRIPT_DIR=$(dirname "$(readlink -f "$0")")
+
+# Set default environment variables following Cyclotron pattern
+CASSANDRA_HOST=${CASSANDRA_HOST:-localhost}
+CASSANDRA_PORT=${CASSANDRA_PORT:-9042}
+CASSANDRA_KEYSPACE=${CASSANDRA_KEYSPACE:-posthog}
+CLOUD_DEPLOYMENT=${CLOUD_DEPLOYMENT}
+
+echo "Performing Cassandra migrations for keyspace $CASSANDRA_KEYSPACE (HOST=$CASSANDRA_HOST:$CASSANDRA_PORT)"
+
+cd "$SCRIPT_DIR/.."
+
+# Wait for Cassandra to be ready
+echo "Waiting for Cassandra to be ready..."
+max_attempts=5
+attempt=0
+
+while [ $attempt -lt $max_attempts ]; do
+    if nc -z "$CASSANDRA_HOST" "$CASSANDRA_PORT" > /dev/null 2>&1; then
+        echo "Cassandra port is open!"
+        # Give Cassandra a bit more time to fully initialize after port opens
+        sleep 3
+        echo "Cassandra is ready!"
+        break
+    fi
+    
+    attempt=$((attempt + 1))
+    echo "Attempt $attempt/$max_attempts: Cassandra not ready, waiting 2 seconds..."
+    sleep 2
+done
+
+if [ $attempt -eq $max_attempts ]; then
+    echo "ERROR: Cassandra failed to become ready after $max_attempts attempts"
+    if [ "$DEBUG" = "1" ]; then
+        echo "DEBUG mode enabled, skipping Cassandra migrations"
+        exit 0
+    fi
+    exit 1
+fi
+
+# Export environment variables for the Node.js migration script
+export CASSANDRA_HOST
+export CASSANDRA_PORT  
+export CASSANDRA_KEYSPACE
+export CLOUD_DEPLOYMENT
+
+# Run migrations using our custom Node.js script
+echo "Running migrations using custom migration runner..."
+cd "$SCRIPT_DIR/../cassandra"
+node migrate.js
+
+echo "Cassandra migrations completed successfully!"

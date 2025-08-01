@@ -146,7 +146,7 @@ class AskUserForHelp(Scorer):
 
 
 @pytest.mark.django_db
-async def eval_tool_search_session_recordings(call_search_session_recordings):
+async def eval_tool_search_session_recordings(call_search_session_recordings, pytestconfig):
     await MaxEval(
         experiment_name="tool_search_session_recordings",
         task=call_search_session_recordings,
@@ -524,6 +524,7 @@ async def eval_tool_search_session_recordings(call_search_session_recordings):
                 ),
             ),
         ],
+        pytestconfig=pytestconfig,
     )
 
 
