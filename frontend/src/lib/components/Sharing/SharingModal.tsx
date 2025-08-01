@@ -248,7 +248,7 @@ export function SharingModalContent({
                                                         label={
                                                             <div className="flex items-center">
                                                                 <span>Show insight details</span>
-                                                                <Tooltip title="When enabled, viewers won't see the extra insights details like the who created the insight and the applied filters.">
+                                                                <Tooltip title="When disabled, viewers won't see the extra insights details like the who created the insight and the applied filters.">
                                                                     <IconInfo className="ml-1.5 text-secondary text-lg" />
                                                                 </Tooltip>
                                                             </div>
