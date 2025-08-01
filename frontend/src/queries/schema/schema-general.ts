@@ -14,6 +14,7 @@ import {
     ChartDisplayCategory,
     ChartDisplayType,
     CountPerActorMathType,
+    DataWarehouseViewLink,
     EventPropertyFilter,
     EventType,
     ExperimentHoldoutType,
@@ -887,6 +888,14 @@ export interface ConditionalFormattingRule {
 export interface TableSettings {
     columns?: ChartAxis[]
     conditionalFormatting?: ConditionalFormattingRule[]
+}
+
+export interface SharingConfigurationSettings {
+    whitelabel?: boolean
+    noHeader?: boolean
+    showInspector?: boolean
+    legend?: boolean
+    detailed?: boolean
 }
 
 export interface DataVisualizationNode extends Node<never> {
@@ -2790,6 +2799,7 @@ export type DatabaseSchemaTable =
 
 export interface DatabaseSchemaQueryResponse {
     tables: Record<string, DatabaseSchemaTable>
+    joins: DataWarehouseViewLink[]
 }
 
 export interface DatabaseSchemaQuery extends DataNode<DatabaseSchemaQueryResponse> {
