@@ -4,7 +4,7 @@ from freezegun import freeze_time
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.models import Team, Organization
+from posthog.models import Team, Organization, Notebook
 from posthog.models.user import User
 from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries
 
@@ -205,6 +205,16 @@ class TestNotebooks(APIBaseTest, QueryMatchingTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["count"] == 1
         assert response.json()["results"][0]["short_id"] == this_team_notebook_short_id
+
+    def test_listing_does_not_return_internal_visibility(self) -> None:
+        Notebook.objects.create(team=self.team, visibility=Notebook.Visibility.INTERNAL)
+        default_visibility_notebook = Notebook.objects.create(team=self.team, visibility=Notebook.Visibility.DEFAULT)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/notebooks")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["count"] == 1
+        assert response.json()["results"][0]["short_id"] == default_visibility_notebook.short_id
 
     def test_creating_does_not_leak_between_teams(self) -> None:
         another_org = Organization.objects.create(name="other org")
