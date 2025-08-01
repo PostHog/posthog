@@ -102,6 +102,7 @@ from posthog.hogql.database.schema.web_analytics_preaggregated import (
     WebStatsCombinedTable,
     WebBouncesCombinedTable,
 )
+from posthog.hogql.database.schema.performance_events import PerformanceEventsTable
 from posthog.hogql.errors import QueryError, ResolutionError
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.timings import HogQLTimings
@@ -152,6 +153,7 @@ class Database(BaseModel):
     sessions: Union[SessionsTableV1, SessionsTableV2] = SessionsTableV1()
     heatmaps: HeatmapsTable = HeatmapsTable()
     exchange_rate: ExchangeRateTable = ExchangeRateTable()
+    performance_events: PerformanceEventsTable = PerformanceEventsTable()
 
     # Web analytics pre-aggregated tables (internal use only)
     web_stats_daily: WebStatsDailyTable = WebStatsDailyTable()
@@ -189,6 +191,7 @@ class Database(BaseModel):
         "persons",
         "sessions",
         "query_log",
+        "performance_events",
     ]
 
     _warehouse_table_names: list[str] = []
