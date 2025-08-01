@@ -3,8 +3,8 @@ from typing import Union, Any
 from datetime import datetime, timedelta
 
 from posthog.hogql_queries.experiments.utils import (
-    get_bayesian_experiment_result_new_format,
-    get_frequentist_experiment_result_new_format,
+    get_bayesian_experiment_result,
+    get_frequentist_experiment_result,
     get_new_variant_results,
     split_baseline_and_test_variants,
     get_experiment_stats_method,
@@ -543,13 +543,13 @@ class ExperimentTimeseries:
                     control_variant, test_variants = split_baseline_and_test_variants(variants)
 
                     if self.stats_method == "bayesian":
-                        daily_result = get_bayesian_experiment_result_new_format(
+                        daily_result = get_bayesian_experiment_result(
                             metric=self.metric,
                             control_variant=control_variant,
                             test_variants=test_variants,
                         )
                     elif self.stats_method == "frequentist":
-                        daily_result = get_frequentist_experiment_result_new_format(
+                        daily_result = get_frequentist_experiment_result(
                             metric=self.metric,
                             control_variant=control_variant,
                             test_variants=test_variants,

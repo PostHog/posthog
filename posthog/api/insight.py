@@ -3,6 +3,7 @@ from functools import lru_cache
 import logging
 from typing import Any, Optional, Union, cast
 
+from posthog.api.insight_variable import map_stale_to_latest
 from posthog.schema_migrations.upgrade import upgrade
 from posthog.schema_migrations.upgrade_manager import upgrade_query
 import posthoganalytics
@@ -88,7 +89,6 @@ from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDT
 from posthog.models.insight_variable import InsightVariable
-from posthog.api.insight_variable import InsightVariableMappingMixin
 from posthog.queries.funnels import (
     ClickhouseFunnelTimeToConvert,
     ClickhouseFunnelTrends,
@@ -303,7 +303,7 @@ class QueryFieldSerializer(serializers.Serializer):
         return data
 
 
-class InsightSerializer(InsightBasicSerializer, InsightVariableMappingMixin):
+class InsightSerializer(InsightBasicSerializer):
     result = serializers.SerializerMethodField()
     hasMore = serializers.SerializerMethodField()
     columns = serializers.SerializerMethodField()
@@ -633,7 +633,7 @@ class InsightSerializer(InsightBasicSerializer, InsightVariableMappingMixin):
             and query.get("kind") == "DataVisualizationNode"
             and query.get("source", {}).get("variables")
         ):
-            query["source"]["variables"] = self.map_stale_to_latest(
+            query["source"]["variables"] = map_stale_to_latest(
                 query["source"]["variables"], list(self.context["insight_variables"])
             )
 
@@ -672,7 +672,9 @@ class InsightSerializer(InsightBasicSerializer, InsightVariableMappingMixin):
         dashboard: Optional[Dashboard] = self.context.get("dashboard")
         request: Optional[Request] = self.context.get("request")
         dashboard_filters_override = filters_override_requested_by_client(request) if request else None
-        dashboard_variables_override = variables_override_requested_by_client(request) if request else None
+        dashboard_variables_override = variables_override_requested_by_client(
+            request, dashboard, list(self.context["insight_variables"])
+        )
 
         if hogql_insights_replace_filters(instance.team) and (
             instance.query is not None or instance.query_from_filters is not None
@@ -730,7 +732,9 @@ class InsightSerializer(InsightBasicSerializer, InsightVariableMappingMixin):
                 refresh_requested = refresh_requested_by_client(self.context["request"])
                 execution_mode = execution_mode_from_refresh(refresh_requested)
                 filters_override = filters_override_requested_by_client(self.context["request"])
-                variables_override = variables_override_requested_by_client(self.context["request"])
+                variables_override = variables_override_requested_by_client(
+                    self.context["request"], dashboard, list(self.context["insight_variables"])
+                )
 
                 if self.context.get("is_shared", False):
                     execution_mode = shared_insights_execution_mode(execution_mode)
