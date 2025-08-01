@@ -1398,7 +1398,7 @@ class _Printer(Visitor[str]):
 
     def visit_placeholder(self, node: ast.Placeholder):
         if node.field is None:
-            raise QueryError("You can not use expressions inside placeholders")
+            raise QueryError("You can not use placeholders here")
         raise QueryError(f"Unresolved placeholder: {{{node.field}}}")
 
     def visit_alias(self, node: ast.Alias):

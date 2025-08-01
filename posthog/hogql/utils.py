@@ -1,7 +1,7 @@
 from dataclasses import fields
 from typing import Any, Union, get_args, get_origin
 
-from posthog.hogql.ast import AST_CLASSES, AST, Expr, Constant
+from posthog.hogql.ast import AST_CLASSES, AST, Expr, Constant, HogQLXTag, HogQLXAttribute
 
 
 def unwrap_optional(t):
@@ -31,7 +31,34 @@ def is_simple_value(value: Any) -> bool:
     return False
 
 
+def deserialize_hx_tag(hog_tag: dict) -> HogQLXTag:
+    tag_kind = hog_tag.get("__hx_tag", None)
+    if tag_kind is None:
+        raise ValueError("Missing '__hx_tag' key in HogQLXTag")
+
+    attributes = []
+    for k, v in hog_tag.items():
+        if k == "__hx_tag":
+            continue
+        if isinstance(v, list):
+            value = [
+                deserialize_hx_ast(item)
+                if isinstance(item, dict) and ("__hx_tag" in item or "__hx_ast" in item)
+                else item
+                for item in v
+            ]
+        else:
+            value = deserialize_hx_ast(v) if isinstance(v, dict) and ("__hx_tag" in v or "__hx_ast" in v) else v
+        attributes.append(HogQLXAttribute(name=k, value=value))
+
+    return HogQLXTag(kind=tag_kind, attributes=attributes)
+
+
 def deserialize_hx_ast(hog_ast: dict) -> AST:
+    tag_kind = hog_ast.get("__hx_tag", None)
+    if tag_kind is not None:
+        return deserialize_hx_tag(hog_ast)
+
     kind = hog_ast.get("__hx_ast", None)
     if kind is None or kind not in AST_CLASSES:
         raise ValueError(f"Invalid or missing '__hx_ast' kind: {kind}")
