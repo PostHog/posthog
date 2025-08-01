@@ -37,21 +37,19 @@ SUBSCRIPTION_FAILURE = Counter(
 )
 
 
-def _deliver_subscription_report(
-    subscription: Subscription,
+async def deliver_subscription_report_async(
+    subscription_id: int,
     previous_value: Optional[str] = None,
     invite_message: Optional[str] = None,
-) -> bool:
-    """Core logic for delivering subscription reports.
+) -> None:
+    """Async function for delivering subscription reports."""
+    # Fetch subscription asynchronously
+    subscription = await database_sync_to_async(
+        Subscription.objects.prefetch_related("dashboard__insights")
+        .select_related("created_by", "insight", "dashboard")
+        .get
+    )(pk=subscription_id)
 
-    Args:
-        subscription: The subscription object to process
-        previous_value: Previous target value for "new" or "invite" messages
-        invite_message: Optional invite message for new subscriptions
-
-    Returns:
-        bool: True if subscription should be updated (next_delivery_date), False otherwise
-    """
     is_new_subscription_target = False
     if previous_value is not None:
         # If previous_value is set we are triggering a "new" or "invite" message
@@ -59,13 +57,103 @@ def _deliver_subscription_report(
 
         if not is_new_subscription_target:
             # Same value as before so nothing to do
-            return False
+            return
 
-    insights, assets = generate_assets(subscription)
+    insights, assets = await database_sync_to_async(generate_assets)(subscription, use_celery=False)
 
     if not assets:
         capture_exception(Exception("No assets are in this subscription"), {"subscription_id": subscription.id})
-        return False
+        return
+
+    if subscription.target_type == "email":
+        SUBSCRIPTION_QUEUED.labels(destination="email").inc()
+
+        # Send emails
+        emails = subscription.target_value.split(",")
+        if is_new_subscription_target:
+            previous_emails = previous_value.split(",") if previous_value else []
+            emails = list(set(emails) - set(previous_emails))
+
+        for email in emails:
+            try:
+                await database_sync_to_async(send_email_subscription_report)(
+                    email,
+                    subscription,
+                    assets,
+                    invite_message=invite_message or "" if is_new_subscription_target else None,
+                    total_asset_count=len(insights),
+                    send_async=False,
+                )
+                SUBSCRIPTION_SUCCESS.labels(destination="email").inc()
+            except Exception as e:
+                SUBSCRIPTION_FAILURE.labels(destination="email").inc()
+                logger.error(
+                    "sending subscription failed",
+                    subscription_id=subscription.id,
+                    next_delivery_date=subscription.next_delivery_date,
+                    destination=subscription.target_type,
+                    exc_info=True,
+                )
+                capture_exception(e)
+
+    elif subscription.target_type == "slack":
+        SUBSCRIPTION_QUEUED.labels(destination="slack").inc()
+
+        try:
+            await database_sync_to_async(send_slack_subscription_report)(
+                subscription,
+                assets,
+                total_asset_count=len(insights),
+                is_new_subscription=is_new_subscription_target,
+            )
+            SUBSCRIPTION_SUCCESS.labels(destination="slack").inc()
+        except Exception as e:
+            SUBSCRIPTION_FAILURE.labels(destination="slack").inc()
+            logger.error(
+                "sending subscription failed",
+                subscription_id=subscription.id,
+                next_delivery_date=subscription.next_delivery_date,
+                destination=subscription.target_type,
+                exc_info=True,
+            )
+            capture_exception(e)
+    else:
+        raise NotImplementedError(f"{subscription.target_type} is not supported")
+
+    # Update subscription if needed (for regular subscriptions, not new target changes)
+    should_update = not is_new_subscription_target
+    if should_update:
+        subscription.set_next_delivery_date(subscription.next_delivery_date)
+        await database_sync_to_async(subscription.save)(update_fields=["next_delivery_date"])
+
+
+def deliver_subscription_report_sync(
+    subscription_id: int,
+    previous_value: Optional[str] = None,
+    invite_message: Optional[str] = None,
+) -> None:
+    """Sync function for delivering subscription reports."""
+    # Fetch subscription synchronously
+    subscription = (
+        Subscription.objects.prefetch_related("dashboard__insights")
+        .select_related("created_by", "insight", "dashboard")
+        .get(pk=subscription_id)
+    )
+
+    is_new_subscription_target = False
+    if previous_value is not None:
+        # If previous_value is set we are triggering a "new" or "invite" message
+        is_new_subscription_target = subscription.target_value != previous_value
+
+        if not is_new_subscription_target:
+            # Same value as before so nothing to do
+            return
+
+    insights, assets = generate_assets(subscription)  # Uses Celery by default
+
+    if not assets:
+        capture_exception(Exception("No assets are in this subscription"), {"subscription_id": subscription.id})
+        return
 
     if subscription.target_type == "email":
         SUBSCRIPTION_QUEUED.labels(destination="email").inc()
@@ -121,141 +209,8 @@ def _deliver_subscription_report(
     else:
         raise NotImplementedError(f"{subscription.target_type} is not supported")
 
-    # Return True if we should update subscription (for regular subscriptions, not new target changes)
-    return not is_new_subscription_target
-
-
-async def _deliver_subscription_report_async(
-    subscription: Subscription,
-    previous_value: Optional[str] = None,
-    invite_message: Optional[str] = None,
-) -> bool:
-    """Async core logic for delivering subscription reports (Temporal-compatible).
-
-    Args:
-        subscription: The subscription object to process
-        previous_value: Previous target value for "new" or "invite" messages
-        invite_message: Optional invite message for new subscriptions
-
-    Returns:
-        bool: True if subscription should be updated (next_delivery_date), False otherwise
-    """
-    is_new_subscription_target = False
-    if previous_value is not None:
-        # If previous_value is set we are triggering a "new" or "invite" message
-        is_new_subscription_target = subscription.target_value != previous_value
-
-        if not is_new_subscription_target:
-            # Same value as before so nothing to do
-            return False
-
-    # Use database_sync_to_async wrapper for generate_assets (safer approach)
-    # Pass use_celery=False for Temporal compatibility
-    insights, assets = await database_sync_to_async(generate_assets)(subscription, use_celery=False)
-
-    if not assets:
-        capture_exception(Exception("No assets are in this subscription"), {"subscription_id": subscription.id})
-        return False
-
-    if subscription.target_type == "email":
-        SUBSCRIPTION_QUEUED.labels(destination="email").inc()
-
-        # Send emails
-        emails = subscription.target_value.split(",")
-        if is_new_subscription_target:
-            previous_emails = previous_value.split(",") if previous_value else []
-            emails = list(set(emails) - set(previous_emails))
-
-        for email in emails:
-            try:
-                await database_sync_to_async(send_email_subscription_report)(
-                    email,
-                    subscription,
-                    assets,
-                    invite_message=invite_message or "" if is_new_subscription_target else None,
-                    total_asset_count=len(insights),
-                    send_async=False,
-                )
-            except Exception as e:
-                SUBSCRIPTION_FAILURE.labels(destination="email").inc()
-                logger.error(
-                    "sending subscription failed",
-                    subscription_id=subscription.id,
-                    next_delivery_date=subscription.next_delivery_date,
-                    destination=subscription.target_type,
-                    exc_info=True,
-                )
-                capture_exception(e)
-
-        SUBSCRIPTION_SUCCESS.labels(destination="email").inc()
-
-    elif subscription.target_type == "slack":
-        SUBSCRIPTION_QUEUED.labels(destination="slack").inc()
-
-        try:
-            await database_sync_to_async(send_slack_subscription_report)(
-                subscription,
-                assets,
-                total_asset_count=len(insights),
-                is_new_subscription=is_new_subscription_target,
-            )
-            SUBSCRIPTION_SUCCESS.labels(destination="slack").inc()
-        except Exception as e:
-            SUBSCRIPTION_FAILURE.labels(destination="slack").inc()
-            logger.error(
-                "sending subscription failed",
-                subscription_id=subscription.id,
-                next_delivery_date=subscription.next_delivery_date,
-                destination=subscription.target_type,
-                exc_info=True,
-            )
-            capture_exception(e)
-    else:
-        raise NotImplementedError(f"{subscription.target_type} is not supported")
-
-    # Return True if we should update subscription (for regular subscriptions, not new target changes)
-    return not is_new_subscription_target
-
-
-async def deliver_subscription_report_async(
-    subscription_id: int,
-    previous_value: Optional[str] = None,
-    invite_message: Optional[str] = None,
-) -> None:
-    """Async wrapper for delivering subscription reports."""
-    # Fetch subscription asynchronously
-    subscription = await database_sync_to_async(
-        Subscription.objects.prefetch_related("dashboard__insights")
-        .select_related("created_by", "insight", "dashboard")
-        .get
-    )(pk=subscription_id)
-
-    # Call async core logic
-    should_update = await _deliver_subscription_report_async(subscription, previous_value, invite_message)
-
-    # Update subscription if needed
-    if should_update:
-        subscription.set_next_delivery_date(subscription.next_delivery_date)
-        await database_sync_to_async(subscription.save)(update_fields=["next_delivery_date"])
-
-
-def deliver_subscription_report_sync(
-    subscription_id: int,
-    previous_value: Optional[str] = None,
-    invite_message: Optional[str] = None,
-) -> None:
-    """Sync wrapper for delivering subscription reports."""
-    # Fetch subscription synchronously
-    subscription = (
-        Subscription.objects.prefetch_related("dashboard__insights")
-        .select_related("created_by", "insight", "dashboard")
-        .get(pk=subscription_id)
-    )
-
-    # Call core logic
-    should_update = _deliver_subscription_report(subscription, previous_value, invite_message)
-
-    # Update subscription if needed
+    # Update subscription if needed (for regular subscriptions, not new target changes)
+    should_update = not is_new_subscription_target
     if should_update:
         subscription.set_next_delivery_date(subscription.next_delivery_date)
         subscription.save(update_fields=["next_delivery_date"])
