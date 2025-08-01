@@ -68,7 +68,7 @@ export function MetricsTable({
         <div className="w-full overflow-x-auto rounded-md border">
             <table className="w-full border-collapse text-sm">
                 <colgroup>
-                    <col />
+                    <col className="min-w-[200px]" />
                     <col />
                     <col />
                     <col />

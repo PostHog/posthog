@@ -70,6 +70,8 @@ from posthog.queries.util import get_earliest_timestamp
 from posthog.rate_limit import (
     ClickHouseBurstRateThrottle,
     ClickHouseSustainedRateThrottle,
+    BreakGlassBurstThrottle,
+    BreakGlassSustainedThrottle,
 )
 from posthog.renderers import SafeJSONRenderer
 from posthog.settings import EE_AVAILABLE
@@ -146,6 +148,14 @@ class PersonsThrottle(ClickHouseSustainedRateThrottle):
     # Throttle class that's scoped just to the person endpoint.
     # This makes the rate limit apply to all endpoints under /api/person/
     # and independent of other endpoints.
+    scope = "persons"
+
+
+class PersonsBreakGlassBurstThrottle(BreakGlassBurstThrottle):
+    scope = "persons"
+
+
+class PersonsBreakGlassSustainedThrottle(BreakGlassSustainedThrottle):
     scope = "persons"
 
 
@@ -231,7 +241,12 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     queryset = Person.objects.all()
     serializer_class = PersonSerializer
     pagination_class = PersonLimitOffsetPagination
-    throttle_classes = [ClickHouseBurstRateThrottle, PersonsThrottle]
+    throttle_classes = [
+        ClickHouseBurstRateThrottle,
+        PersonsThrottle,
+        PersonsBreakGlassBurstThrottle,
+        PersonsBreakGlassSustainedThrottle,
+    ]
     lifecycle_class = Lifecycle
     stickiness_class = Stickiness
 

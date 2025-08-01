@@ -3,6 +3,7 @@ from typing import Optional, Union, cast
 from posthog.constants import NON_TIME_SERIES_DISPLAY_TYPES
 from posthog.hogql import ast
 from posthog.hogql.base import Expr
+from posthog.hogql.placeholders import replace_placeholders
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql_queries.insights.data_warehouse_mixin import (
     DataWarehouseInsightQueryMixin,
@@ -26,6 +27,10 @@ from posthog.schema import (
 
 DEFAULT_CURRENCY_VALUE = "USD"
 DEFAULT_REVENUE_PROPERTY = "$revenue"
+
+
+def create_placeholder(name: str) -> ast.Placeholder:
+    return ast.Placeholder(expr=ast.Field(chain=[name]))
 
 
 class AggregationOperations(DataWarehouseInsightQueryMixin):
@@ -60,13 +65,9 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
             actor = self._get_person_field()
             return parse_expr(f"count(DISTINCT {actor})")
         elif self.series.math == "weekly_active":
-            return ast.Placeholder(
-                expr=ast.Field(chain=["replaced"])
-            )  # This gets replaced when doing query orchestration
+            return create_placeholder("replaced")  # This gets replaced when doing query orchestration
         elif self.series.math == "monthly_active":
-            return ast.Placeholder(
-                expr=ast.Field(chain=["replaced"])
-            )  # This gets replaced when doing query orchestration
+            return create_placeholder("replaced")  # This gets replaced when doing query orchestration
         elif self.series.math == "unique_session":
             return parse_expr('count(DISTINCT e."$session_id")')
         elif self.series.math == "unique_group" and self.series.math_group_type_index is not None:
@@ -313,13 +314,11 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
     def _interval_function_name(self) -> str:
         return f"toStartOf{self.query_date_range.interval_name.title()}"
 
-    def _actors_parent_select_query(
-        self, inner_query: ast.SelectQuery | ast.SelectSetQuery
-    ) -> ast.SelectQuery | ast.SelectSetQuery:
+    def _actors_parent_select_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         if self.is_count_per_actor_variant():
             query = parse_select(
                 "SELECT total FROM {inner_query}",
-                placeholders={"inner_query": inner_query},
+                placeholders={"inner_query": create_placeholder("inner_query")},
             )
             assert isinstance(query, ast.SelectQuery)
 
@@ -343,7 +342,7 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
             """,
                 placeholders={
                     **self.query_date_range.to_placeholders(),
-                    "inner_query": inner_query,
+                    "inner_query": create_placeholder("inner_query"),
                 },
             ),
         )
@@ -359,9 +358,7 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
 
         return query
 
-    def _actors_inner_select_query(
-        self, cross_join_select_query: ast.SelectQuery | ast.SelectSetQuery
-    ) -> ast.SelectQuery | ast.SelectSetQuery:
+    def _actors_inner_select_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         if self.is_count_per_actor_variant():
             if self.series.math == "avg_count_per_actor":
                 math_func = self._math_func("avg", ["total"])
@@ -391,7 +388,7 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
                     FROM {inner_query}
                 """,
                 placeholders={
-                    "inner_query": cross_join_select_query,
+                    "inner_query": create_placeholder("events_query"),
                     "total_alias": total_alias,
                 },
             )
@@ -424,7 +421,7 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
             placeholders={
                 **self.query_date_range.to_placeholders(),
                 **self._interval_placeholders(),
-                "cross_join_select_query": cross_join_select_query,
+                "cross_join_select_query": create_placeholder("events_query"),
             },
         )
         assert isinstance(query, ast.SelectQuery)
@@ -535,8 +532,8 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
 
     def get_actors_query_orchestrator(self, events_where_clause: ast.Expr, sample_value: ast.RatioExpr):
         events_query = cast(ast.SelectQuery, self._actors_events_query(events_where_clause, sample_value))
-        inner_select = cast(ast.SelectQuery, self._actors_inner_select_query(events_query))
-        parent_select = cast(ast.SelectQuery, self._actors_parent_select_query(inner_select))
+        inner_select = cast(ast.SelectQuery, self._actors_inner_select_query())
+        parent_select = cast(ast.SelectQuery, self._actors_parent_select_query())
 
         class QueryOrchestrator:
             events_query_builder: QueryAlternator
@@ -549,19 +546,21 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
                 self.parent_select_query_builder = QueryAlternator(parent_select)
 
             def build(self):
-                self.events_query_builder.build()
-                self.inner_select_query_builder.build()
-                return self.parent_select_query_builder.build()
+                events_query = self.events_query_builder.build()
+                inner_query = replace_placeholders(
+                    self.inner_select_query_builder.build(), {"events_query": events_query}
+                )
+                return replace_placeholders(self.parent_select_query_builder.build(), {"inner_query": inner_query})
 
         return QueryOrchestrator()
 
-    def _first_time_parent_query(self, inner_query: ast.SelectQuery):
+    def _first_time_parent_query(self):
         aggregation_type = self.select_aggregation()
         query = ast.SelectQuery(
             select=[
                 ast.Alias(expr=aggregation_type, alias="total"),
             ],
-            select_from=ast.JoinExpr(table=inner_query),
+            select_from=ast.JoinExpr(table=create_placeholder("events_query")),
         )
         query.group_by = []
 
@@ -596,7 +595,7 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
         )
 
         events_query = ast.SelectQuery(select=[])
-        parent_select = self._first_time_parent_query(events_query)
+        parent_select = self._first_time_parent_query()
         is_first_matching_event = self.is_first_matching_event()
 
         class QueryOrchestrator:
@@ -616,7 +615,7 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
                 self.parent_query_builder = QueryAlternator(parent_select)
 
             def build(self):
-                self.events_query_builder.build()
-                return self.parent_query_builder.build()
+                events_query = self.events_query_builder.build()
+                return replace_placeholders(self.parent_query_builder.build(), {"events_query": events_query})
 
         return QueryOrchestrator()

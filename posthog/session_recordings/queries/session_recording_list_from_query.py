@@ -30,8 +30,10 @@ from posthog.session_recordings.queries.utils import (
     _strip_person_and_event_and_cohort_properties,
     expand_test_account_filters,
 )
+from opentelemetry import trace
 
 logger = structlog.get_logger(__name__)
+tracer = trace.get_tracer(__name__)
 
 
 class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
@@ -118,6 +120,7 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         )
         self._hogql_query_modifiers = hogql_query_modifiers
 
+    @tracer.start_as_current_span("SessionRecordingListFromQuery.run")
     def run(self) -> SessionRecordingQueryResult:
         query = self.get_query()
 
@@ -136,6 +139,7 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
             timings=paginated_response.timings,
         )
 
+    @tracer.start_as_current_span("SessionRecordingListFromQuery.get_query")
     def get_query(self):
         parsed_query = parse_select(
             self.BASE_QUERY,

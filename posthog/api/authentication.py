@@ -4,6 +4,7 @@ from typing import Any, Optional, cast
 from uuid import uuid4
 
 from django.conf import settings
+from django.utils import timezone
 from django.contrib.auth import authenticate, login
 from django.contrib.auth import views as auth_views
 from django.contrib.auth.password_validation import validate_password
@@ -41,15 +42,36 @@ from posthog.models import OrganizationDomain, User
 from posthog.rate_limit import UserPasswordResetThrottle
 from posthog.tasks.email import send_password_reset, send_two_factor_auth_backup_code_used_email
 from posthog.utils import get_instance_available_sso_providers
+from posthog.tasks.email import login_from_new_device_notification
+from posthog.utils import get_short_user_agent, get_ip_address
+from posthog.cloud_utils import is_cloud
 
 
 @receiver(user_logged_in)
 def post_login(sender, user, request: HttpRequest, **kwargs):
     """
-    This is the most reliable way of setting this value as it will be called regardless of where the login occurs
-    including tests.
+    Runs after every user login (including tests):
+    - Sets SESSION_COOKIE_CREATED_AT_KEY in the session to the current time.
+    - Sends a login notification email if the user is logging in from a new device.
     """
-    request.session[settings.SESSION_COOKIE_CREATED_AT_KEY] = time.time()
+    current_time = time.time()
+    previous_session_time = request.session.get(settings.SESSION_COOKIE_CREATED_AT_KEY)
+
+    # Check if this is reauthentication
+    is_reauthentication = (
+        previous_session_time and (current_time - previous_session_time) < settings.SESSION_SENSITIVE_ACTIONS_AGE
+    )
+
+    request.session[settings.SESSION_COOKIE_CREATED_AT_KEY] = current_time
+
+    # Treat as signup if user was created in the last 30s
+    is_signup = (timezone.now() - user.date_joined) < datetime.timedelta(seconds=30)
+
+    short_user_agent = get_short_user_agent(request)
+    ip_address = get_ip_address(request)
+
+    if not is_reauthentication and not is_signup and is_cloud() and not settings.TEST:
+        login_from_new_device_notification.delay(user.id, timezone.now(), short_user_agent, ip_address)
 
 
 @csrf_protect

@@ -85,6 +85,10 @@ NON_RETRYABLE_ERROR_TYPES = (
     # This can also happen when merging tables with a different number of columns:
     # "Target relation and source relation must have the same number of columns"
     "FeatureNotSupported",
+    # There is a mismatch between the schema of the table and our data. This
+    # usually means the table was created by the user, as we resolve types the
+    # same way every time.
+    "DatatypeMismatch",
 )
 
 

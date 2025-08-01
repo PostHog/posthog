@@ -10,6 +10,7 @@ import { urls } from 'scenes/urls'
 
 import { Survey } from '~/types'
 
+import { SurveyFeedbackButton } from 'scenes/surveys/components/SurveyFeedbackButton'
 import { defaultSurveyAppearance, defaultSurveyTemplates, errorTrackingSurvey } from './constants'
 import { SurveyAppearancePreview } from './SurveyAppearancePreview'
 import { surveyLogic } from './surveyLogic'
@@ -33,9 +34,12 @@ export function SurveyTemplates(): JSX.Element {
         <>
             <PageHeader
                 buttons={
-                    <LemonButton type="primary" to={urls.survey('new')} data-attr="new-blank-survey">
-                        Create blank survey
-                    </LemonButton>
+                    <>
+                        <SurveyFeedbackButton />
+                        <LemonButton type="primary" to={urls.survey('new')} data-attr="new-blank-survey">
+                            Create blank survey
+                        </LemonButton>
+                    </>
                 }
             />
             <div className="flex flex-row flex-wrap gap-8 mt-8">

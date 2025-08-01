@@ -619,6 +619,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                             dataAttrKey={RESOURCE_TYPE}
                             optional
                             canEdit={canEditInsight}
+                            markdown
                         />
 
                         <SceneTags

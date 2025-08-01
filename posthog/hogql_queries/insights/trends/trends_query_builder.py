@@ -251,8 +251,14 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
             assert wrapper.group_by is not None
 
             if not self._trends_display.is_total_value():
-                default_query.select.append(day_start)
-                default_query.group_by.append(ast.Field(chain=["day_start"]))
+                assert wrapper.group_by is not None
+                assert isinstance(wrapper.select_from, ast.JoinExpr)
+                assert isinstance(wrapper.select_from.table, ast.SelectQuery)
+                assert wrapper.select_from.table.group_by is not None
+
+                # can't use "default_query" directly anymore, must use "wrapper.select_from.table"
+                wrapper.select_from.table.select.append(day_start)
+                wrapper.select_from.table.group_by.append(ast.Field(chain=["day_start"]))
 
                 wrapper.select.append(ast.Field(chain=["day_start"]))
                 wrapper.group_by.append(ast.Field(chain=["day_start"]))
@@ -278,9 +284,13 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
 
             if not self._trends_display.is_total_value():
                 assert wrapper.group_by is not None
+                assert isinstance(wrapper.select_from, ast.JoinExpr)
+                assert isinstance(wrapper.select_from.table, ast.SelectQuery)
+                assert wrapper.select_from.table.group_by is not None
 
-                default_query.select.append(day_start)
-                default_query.group_by.append(ast.Field(chain=["day_start"]))
+                # can't use "default_query" directly anymore, must use "wrapper.select_from.table"
+                wrapper.select_from.table.select.append(day_start)
+                wrapper.select_from.table.group_by.append(ast.Field(chain=["day_start"]))
 
                 wrapper.select.append(ast.Field(chain=["day_start"]))
                 wrapper.group_by.append(ast.Field(chain=["day_start"]))

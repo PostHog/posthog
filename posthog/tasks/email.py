@@ -26,6 +26,9 @@ from posthog.models.error_tracking import ErrorTrackingIssueAssignment
 from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.models.utils import UUIDT
 from posthog.user_permissions import UserPermissions
+from posthog.caching.login_device_cache import check_and_cache_login_device
+from posthog.geoip import get_geoip_properties
+from posthog.event_usage import report_user_action
 
 logger = structlog.get_logger(__name__)
 
@@ -446,6 +449,47 @@ def send_two_factor_auth_backup_code_used_email(user_id: int) -> None:
     )
     message.add_recipient(user.email)
     message.send()
+
+
+@shared_task(**EMAIL_TASK_KWARGS)
+def login_from_new_device_notification(
+    user_id: int, login_time: datetime, short_user_agent: str, ip_address: str
+) -> None:
+    """Send login notification email if login is from a new device"""
+    if not is_email_available(with_absolute_urls=True):
+        return
+
+    is_new_device = check_and_cache_login_device(user_id, ip_address, short_user_agent)
+    if not is_new_device:
+        return
+
+    login_time_str = login_time.strftime("%B %-d, %Y at %H:%M UTC")
+
+    geoip_data = get_geoip_properties(ip_address)
+
+    # Compose location as "City, Country" (omit city if missing)
+    location = ", ".join(
+        part
+        for part in [geoip_data.get("$geoip_city_name", ""), geoip_data.get("$geoip_country_name", "Unknown")]
+        if part
+    )
+
+    user: User = User.objects.get(pk=user_id)
+    message = EmailMessage(
+        use_http=True,
+        campaign_key=f"login_notification_{user.uuid}-{timezone.now().timestamp()}",
+        template_name="login_notification",
+        subject="A new device logged into your account",
+        template_context={
+            "login_time": login_time_str,
+            "ip_address": ip_address,
+            "location": location,
+            "browser": short_user_agent,
+        },
+    )
+    message.add_recipient(user.email)
+    message.send()
+    report_user_action(user=user, event="login notification sent")
 
 
 def get_users_for_orgs_with_no_ingested_events(org_created_from: datetime, org_created_to: datetime) -> list[User]:
