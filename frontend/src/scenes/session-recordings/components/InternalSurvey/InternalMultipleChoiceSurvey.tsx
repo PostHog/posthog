@@ -32,6 +32,8 @@ function TooExpensiveHelpMessage(): JSX.Element {
                     </li>
                     <li>Set a minimum recording duration.</li>
                     <li>Set a sampling rate for recordings.</li>
+                   <li>Start recording only after certain events (for example after an error).</li>
+                   <li>Start recording only after visiting certain pages (for example to avoid starting for every visit to the home page).</li>
                 </ul>
             </p>
             <Link to="https://posthog.com/docs/session-replay/cutting-costs" target="_blank">
