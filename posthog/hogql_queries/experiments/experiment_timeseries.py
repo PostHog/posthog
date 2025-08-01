@@ -1,7 +1,14 @@
 import logging
-from typing import Union
-from datetime import datetime
+from typing import Union, Any
+from datetime import datetime, timedelta
 
+from posthog.hogql_queries.experiments.utils import (
+    get_bayesian_experiment_result_new_format,
+    get_frequentist_experiment_result_new_format,
+    get_new_variant_results,
+    split_baseline_and_test_variants,
+    get_experiment_stats_method,
+)
 from posthog.models import Experiment
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
@@ -58,6 +65,8 @@ class ExperimentTimeseries:
         self.is_data_warehouse_query = isinstance(self.metric, ExperimentMeanMetric) and isinstance(
             self.metric.source, ExperimentDataWarehouseNode
         )
+
+        self.stats_method = get_experiment_stats_method(self.experiment)
 
     def _get_daily_exposure_counts_query(self, exposure_query: ast.SelectQuery) -> ast.SelectQuery:
         """
@@ -465,46 +474,6 @@ class ExperimentTimeseries:
 
         return self._get_cumulative_timeseries_query(combined_daily_query)
 
-    def _transform_timeseries_results(self, results: list[tuple]) -> list[dict]:
-        """
-        Transform raw query results:
-        [
-            {
-                "date": "2025-07-15T00:00:00Z",
-                "variant_results": [
-                    {
-                        "key": "control",
-                        "number_of_samples": 1000,
-                        "sum": 226537017.70000008,
-                        "sum_squares": 567352528220837.6
-                    },
-                    ...
-                ]
-            },
-            ...
-        ]
-        """
-
-        grouped_by_date: dict[str, list[dict[str, Union[str, int, float]]]] = {}
-        for variant, date, num_users, total_sum, total_sum_of_squares in results:
-            date_str = f"{date.isoformat()}T00:00:00Z"
-            if date_str not in grouped_by_date:
-                grouped_by_date[date_str] = []
-
-            grouped_by_date[date_str].append(
-                {
-                    "key": variant,
-                    "number_of_samples": num_users,
-                    "sum": total_sum,
-                    "sum_squares": total_sum_of_squares,
-                }
-            )
-
-        return [
-            {"date": date_str, "variant_results": variant_data}
-            for date_str, variant_data in sorted(grouped_by_date.items())
-        ]
-
     def _create_experiment_stats_base(
         self, variant: str, num_users: int, total_sum: float, total_sum_of_squares: float
     ) -> ExperimentStatsBase:
@@ -516,28 +485,31 @@ class ExperimentTimeseries:
             sum_squares=total_sum_of_squares,
         )
 
-    def get_result(self) -> list[dict]:
+    def _generate_experiment_dates(self) -> list[str]:
         """
-        Get the experiment timeseries results.
+        Generate all dates that should be included in the timeseries based on experiment start/end dates.
+        Returns dates as ISO strings without timezone info (e.g. '2025-07-15').
+        """
+        if not self.date_range.date_from:
+            return []
 
-        Returns:
-            list[dict]: Transformed timeseries results with format:
-                [
-                    {
-                        "date": "2025-07-15T00:00:00Z",
-                        "variant_results": [
-                            {
-                                "key": "control",
-                                "number_of_samples": 1000,
-                                "sum": 226537017.70000008,
-                                "sum_squares": 567352528220837.6
-                            },
-                            ...
-                        ]
-                    },
-                    ...
-                ]
-        """
+        start_date = datetime.fromisoformat(self.date_range.date_from).date()
+
+        # If no end date, use today
+        if self.date_range.date_to:
+            end_date = datetime.fromisoformat(self.date_range.date_to).date()
+        else:
+            end_date = datetime.now().date()
+
+        dates = []
+        current_date = start_date
+        while current_date <= end_date:
+            dates.append(current_date.isoformat())  # e.g. '2025-07-15'
+            current_date += timedelta(days=1)
+
+        return dates
+
+    def get_result(self) -> list[dict[str, Any]]:
         experiment_query = self._get_experiment_timeseries_query()
 
         timings = HogQLTimings()
@@ -550,4 +522,45 @@ class ExperimentTimeseries:
             settings=HogQLGlobalSettings(max_execution_time=180),
         )
 
-        return self._transform_timeseries_results(response.results)
+        timeseries = []
+
+        # Group db results by date
+        grouped_by_date: dict[str, list[tuple[str, int, int, int]]] = {}
+        for variant, date, num_users, total_sum, total_sum_of_squares in response.results:
+            date_key = date.date().isoformat()  # e.g. '2024-01-01'
+            if date_key not in grouped_by_date:
+                grouped_by_date[date_key] = []
+            grouped_by_date[date_key].append((variant, num_users, total_sum, total_sum_of_squares))
+
+        experiment_dates = self._generate_experiment_dates()
+
+        # Calculate statistical results for each date in the experiment period
+        for date_key in experiment_dates:
+            if date_key in grouped_by_date:
+                try:
+                    variants_tuples = grouped_by_date[date_key]
+                    variants = get_new_variant_results(variants_tuples)
+                    control_variant, test_variants = split_baseline_and_test_variants(variants)
+
+                    if self.stats_method == "bayesian":
+                        daily_result = get_bayesian_experiment_result_new_format(
+                            metric=self.metric,
+                            control_variant=control_variant,
+                            test_variants=test_variants,
+                        )
+                    elif self.stats_method == "frequentist":
+                        daily_result = get_frequentist_experiment_result_new_format(
+                            metric=self.metric,
+                            control_variant=control_variant,
+                            test_variants=test_variants,
+                        )
+
+                    daily_result_dict = {"date": date_key, **daily_result.model_dump()}
+                except Exception as e:
+                    daily_result_dict = {"date": date_key, "error": str(e)}
+            else:
+                daily_result_dict = {"date": date_key}
+
+            timeseries.append(daily_result_dict)
+
+        return timeseries
