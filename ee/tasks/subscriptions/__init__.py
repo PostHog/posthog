@@ -10,7 +10,7 @@ from prometheus_client import Counter
 
 from ee.tasks.subscriptions.email_subscriptions import send_email_subscription_report
 from ee.tasks.subscriptions.slack_subscriptions import send_slack_subscription_report
-from ee.tasks.subscriptions.subscription_utils import generate_assets, generate_assets_async
+from ee.tasks.subscriptions.subscription_utils import generate_assets
 from posthog import settings
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
@@ -149,8 +149,9 @@ async def _deliver_subscription_report_async(
             # Same value as before so nothing to do
             return False
 
-    # Use async version of generate_assets (Temporal-compatible)
-    insights, assets = await generate_assets_async(subscription)
+    # Use database_sync_to_async wrapper for generate_assets (safer approach)
+    # Pass use_celery=False for Temporal compatibility
+    insights, assets = await database_sync_to_async(generate_assets)(subscription, use_celery=False)
 
     if not assets:
         capture_exception(Exception("No assets are in this subscription"), {"subscription_id": subscription.id})
@@ -175,7 +176,6 @@ async def _deliver_subscription_report_async(
                     total_asset_count=len(insights),
                     send_async=False,
                 )
-                SUBSCRIPTION_SUCCESS.labels(destination="email").inc()
             except Exception as e:
                 SUBSCRIPTION_FAILURE.labels(destination="email").inc()
                 logger.error(
@@ -186,6 +186,8 @@ async def _deliver_subscription_report_async(
                     exc_info=True,
                 )
                 capture_exception(e)
+
+        SUBSCRIPTION_SUCCESS.labels(destination="email").inc()
 
     elif subscription.target_type == "slack":
         SUBSCRIPTION_QUEUED.labels(destination="slack").inc()
