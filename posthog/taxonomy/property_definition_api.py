@@ -336,7 +336,9 @@ class QueryContext:
 
         preaggregated_table_ordering = ""
         if self.enable_preaggregated_table_hints:
-            self.params.update({"preaggregated_table_supported_properties": PREAGGREGATED_TABLE_SUPPORTED_PROPERTIES})
+            self.params.update(
+                {"preaggregated_table_supported_properties": list(PREAGGREGATED_TABLE_SUPPORTED_PROPERTIES)}
+            )
             preaggregated_table_ordering = "CASE WHEN posthog_propertydefinition.name = ANY(%(preaggregated_table_supported_properties)s) THEN 0 ELSE 1 END,"
 
         query = f"""
