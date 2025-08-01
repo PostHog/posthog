@@ -12,7 +12,8 @@ class ExportConfig(BaseModel):
         extra = "allow"
 
     database_url: str
-    s3_path: str
+    bucket_name: str
+    endpoint_url: str
     file_key: str
 
 
@@ -44,10 +45,15 @@ def main():
         context.log.info(f"Dump file size: {os.path.getsize(temp_file.name)} bytes")
 
         # Upload the dump to S3
-        s3_client = boto3.client("s3")
-        s3_client.upload_file(temp_file.name, config.s3_path, config.file_key)
+        s3_client = boto3.client(
+            "s3",
+            endpoint_url=config.endpoint_url,
+            aws_access_key_id=os.getenv("OBJECT_STORAGE_ACCESS_KEY_ID"),
+            aws_secret_access_key=os.getenv("OBJECT_STORAGE_SECRET_ACCESS_KEY"),
+        )
+        s3_client.upload_file(temp_file.name, config.bucket_name, config.file_key)
 
-        context.log.info(f"Database dump uploaded to {config.s3_path}")
+        context.log.info(f"Database dump uploaded to {config.bucket_name}/{config.file_key}")
         file_size = os.path.getsize(temp_file.name)
         context.report_asset_materialization(metadata={"size": file_size})
         context.report_asset_check(check_name="no_empty_dump", passed=file_size > 0)
