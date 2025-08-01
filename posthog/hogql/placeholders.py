@@ -9,9 +9,9 @@ from posthog.hogql.visitor import CloningVisitor, TraversingVisitor
 class FindPlaceholders(TraversingVisitor):
     def __init__(self):
         super().__init__()
-        self.has_expr_placeholders = False
-        self.has_filters = False
-        self.placeholder_fields: set[list[str]] = set()
+        self.has_filters = False  # Legacy fallback: treat filters as before
+        self.placeholder_fields: set[list[str]] = set()  # Did we find simple fields
+        self.placeholder_expressions = set[ast.Expr] = set()  # Did we find complex expressions
 
     def visit_cte(self, node: ast.CTE):
         super().visit(node.expr)
@@ -23,7 +23,7 @@ class FindPlaceholders(TraversingVisitor):
             else:
                 self.placeholder_fields.add(chain)
         else:
-            self.has_expr_placeholders = True
+            self.placeholder_expressions.add(node.field)
 
 
 def find_placeholders(node: ast.Expr) -> FindPlaceholders:

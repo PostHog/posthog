@@ -84,12 +84,6 @@ class TestParser(BaseTest):
 
 
 class TestBytecodePlaceholders(BaseTest):
-    """
-    These tests hit the _visit_placeholder_via_bytecode branch in
-    ReplacePlaceholders, ensuring that arbitrary HogVM expressions - including
-    sql() helpers and HogQLX JSX tags – are compiled and substituted correctly.
-    """
-
     def _first_select_expr(self, select_query: ast.SelectQuery):
         """Small helper to grab the first expression in the SELECT list."""
         self.assertGreater(len(select_query.select), 0)
@@ -109,7 +103,7 @@ class TestBytecodePlaceholders(BaseTest):
 
         # Finder should report an *expression* placeholder, not a field string.
         finder = find_placeholders(query)
-        self.assertTrue(finder.has_expr_placeholders)
+        self.assertTrue(len(finder.placeholder_expressions) > 0)
         self.assertEqual(len(finder.placeholder_fields), 0)
 
     def test_string_literal_placeholder(self):
@@ -203,5 +197,5 @@ class TestBytecodePlaceholders(BaseTest):
         """
         expr = parse_expr("{1+2}")
         finder = find_placeholders(expr)
-        self.assertTrue(finder.has_expr_placeholders)
+        self.assertTrue(len(finder.placeholder_expressions) > 0)
         self.assertEqual(finder.placeholder_fields, set())
