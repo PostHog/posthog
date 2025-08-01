@@ -83,6 +83,7 @@ class AssistantContextualTool(StrEnum):
     SEARCH_ERROR_TRACKING_ISSUES = "search_error_tracking_issues"
     EXPERIMENT_RESULTS_SUMMARY = "experiment_results_summary"
     CREATE_SURVEY = "create_survey"
+    SESSION_RECORDING_SETTINGS_HELP = "session_recording_settings_help"
 
 
 class AssistantDateRange(BaseModel):
