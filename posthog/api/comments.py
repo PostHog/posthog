@@ -88,6 +88,9 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
         if params.get("item_id"):
             queryset = queryset.filter(item_id=params.get("item_id"))
 
+        if params.get("search"):
+            queryset = queryset.filter(content__search=params.get("search"))
+
         source_comment = params.get("source_comment")
         if self.action == "thread":
             # Filter based on the source_comment

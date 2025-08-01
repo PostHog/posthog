@@ -1,4 +1,8 @@
 import type { MaxUIContext } from 'scenes/max/maxTypes'
+import type { MaxBillingContext } from 'scenes/max/maxBillingContextLogic'
+
+// re-export MaxBillingContext to make it available in the schema
+export type { MaxBillingContext }
 
 import {
     AssistantFunnelsQuery,
@@ -125,6 +129,7 @@ export type AssistantContextualTool =
     | 'search_error_tracking_issues'
     | 'experiment_results_summary'
     | 'create_survey'
+    | 'session_recording_settings_help'
 
 /** Exact possible `urls` keys for the `navigate` tool. */
 // Extracted using the following Claude Code prompt, then tweaked manually:

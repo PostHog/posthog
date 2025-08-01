@@ -246,6 +246,12 @@ export const getDefaultTreeData = (): FileSystemImport[] => [
         href: urls.annotations(),
     },
     {
+        path: 'Comments',
+        category: 'Metadata',
+        iconType: 'notification',
+        href: urls.comments(),
+    },
+    {
         path: 'Ingestion warnings',
         category: 'Pipeline',
         iconType: 'warning',

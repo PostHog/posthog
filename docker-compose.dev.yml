@@ -233,11 +233,28 @@ services:
         depends_on:
             - jaeger
 
+    echo_server:
+        extends:
+            file: docker-compose.base.yml
+            service: echo_server
+        expose:
+            - '18081:18081'
+
     jaeger:
         extends:
             file: docker-compose.base.yml
             service: jaeger
 
+    cassandra:
+        extends:
+            file: docker-compose.base.yml
+            service: cassandra
+        ports:
+            - '9042:9042'
+
 networks:
     otel_network:
         driver: bridge
+
+volumes:
+    cassandra_data:
