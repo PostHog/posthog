@@ -97,7 +97,6 @@ export function renderColumn(
             String(value)
         )
     } else if (context?.cellRenderer) {
-        // Use the generic cell renderer if provided
         const rendered = context.cellRenderer(value)
         return rendered !== null ? rendered : String(value)
     } else if (typeof value === 'object' && Array.isArray(value) && value[0] === '__hx_tag') {
