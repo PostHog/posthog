@@ -46,6 +46,7 @@ import { groupsModel } from '~/models/groupsModel'
 import { GoalLine, TrendsFilter } from '~/queries/schema/schema-general'
 import { isInsightVizNode } from '~/queries/utils'
 import { GraphDataset, GraphPoint, GraphPointPayload, GraphType } from '~/types'
+import { filterNestedDataset } from './filterNestedDataset'
 
 let tooltipRoot: Root
 
@@ -193,27 +194,6 @@ export function onChartHover(
 
     // Give the chart `cursor: pointer` only when hovering over a clickable area
     target.style.cursor = onClick && point.length ? 'pointer' : 'default'
-}
-
-export const filterNestedDataset = (
-    hiddenLegendIndexes: number[] | undefined,
-    datasets: GraphDataset[]
-): GraphDataset[] => {
-    if (!hiddenLegendIndexes) {
-        return datasets
-    }
-    // If series are nested (for ActionsHorizontalBar and Pie), filter out the series by index
-    const filterFn = (_: any, i: number): boolean => !hiddenLegendIndexes?.includes(i)
-    return datasets.map((_data) => {
-        // Performs a filter transformation on properties that contain arrayed data
-        return Object.fromEntries(
-            Object.entries(_data).map(([key, val]) =>
-                Array.isArray(val) && val.length === datasets?.[0]?.actions?.length
-                    ? [key, val?.filter(filterFn)]
-                    : [key, val]
-            )
-        ) as GraphDataset
-    })
 }
 
 function createPinstripePattern(color: string, isDarkMode: boolean): CanvasPattern {

@@ -19,18 +19,13 @@ import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisForma
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
 import { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
-import {
-    ensureTooltip,
-    filterNestedDataset,
-    LineGraphProps,
-    onChartClick,
-    onChartHover,
-} from 'scenes/insights/views/LineGraph/LineGraph'
+import { ensureTooltip, LineGraphProps, onChartClick, onChartHover } from 'scenes/insights/views/LineGraph/LineGraph'
 import { createTooltipData } from 'scenes/insights/views/LineGraph/tooltip-data'
 
 import { groupsModel } from '~/models/groupsModel'
 import { BreakdownFilter } from '~/queries/schema/schema-general'
 import { GraphType } from '~/types'
+import { filterNestedDataset } from './filterNestedDataset'
 
 let timer: NodeJS.Timeout | null = null
 
