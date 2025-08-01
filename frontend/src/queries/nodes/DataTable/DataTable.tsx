@@ -790,6 +790,7 @@ export function DataTable({
                                 ) : null
                             }
                             onRow={onRow}
+                            pinnedColumns={query.pinnedColumns}
                         />
                     )}
                     {/* TODO: this doesn't seem like the right solution... */}
