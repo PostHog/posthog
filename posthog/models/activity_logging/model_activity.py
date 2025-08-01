@@ -1,14 +1,24 @@
 from threading import local
 from typing import Any
 from django.db import models
+from posthog.models.activity_logging.utils import get_changed_fields_local
 from posthog.models.signals import model_activity_signal
-from loginas.utils import is_impersonated_session
 
 _thread_local = local()
 
 
 def get_was_impersonated():
     return getattr(_thread_local, "was_impersonated", False)
+
+
+def is_impersonated_session(request):
+    """Lazy import to avoid circular import issues during Django setup"""
+    try:
+        from loginas.utils import is_impersonated_session as _is_impersonated_session
+
+        return _is_impersonated_session(request)
+    except ImportError:
+        return False
 
 
 class ModelActivityMixin(models.Model):
@@ -22,6 +32,28 @@ class ModelActivityMixin(models.Model):
         abstract = True
 
     def save(self, *args: Any, **kwargs: Any) -> None:
+        change_type = "updated" if self.pk else "created"
+        should_log = True
+        before_update = None
+
+        # For updates, check if we need activity logging at all
+        if change_type == "updated" and self.pk:
+            should_log, before_update = self._should_log_activity_for_update(**kwargs)
+
+        super().save(*args, **kwargs)
+
+        if should_log:
+            model_activity_signal.send(
+                sender=self.__class__,
+                scope=self.__class__.__name__,
+                before_update=before_update,
+                after_update=self,
+                activity=change_type,
+                was_impersonated=get_was_impersonated(),
+            )
+
+    def _get_before_update(self, **kwargs) -> Any:
+        before_update = None
         # Get a copy of the existing instance before saving
         if self.pk:
             before_update = self.__class__.objects.filter(pk=self.pk).first()  # type: ignore[attr-defined]
@@ -31,18 +63,30 @@ class ModelActivityMixin(models.Model):
         else:
             before_update = None
 
-        change_type = "updated" if self.pk else "created"
+        return before_update
 
-        super().save(*args, **kwargs)
+    def _should_log_activity_for_update(self, **kwargs) -> tuple[bool, Any]:
+        from posthog.models.activity_logging.activity_log import signal_exclusions, ActivityScope
+        from typing import cast
 
-        model_activity_signal.send(
-            sender=self.__class__,
-            scope=self.__class__.__name__,
-            before_update=before_update,
-            after_update=self,
-            activity=change_type,
-            was_impersonated=get_was_impersonated(),
-        )
+        model_name = cast(ActivityScope, self.__class__.__name__)
+        signal_excluded_fields = signal_exclusions.get(model_name, [])
+
+        if not signal_excluded_fields:
+            return True, self._get_before_update()
+
+        update_fields = kwargs.get("update_fields")
+        if update_fields and all(field in signal_excluded_fields for field in update_fields):
+            return False, None
+
+        before_update = self._get_before_update()
+        if not before_update:
+            return True, None
+
+        changed_fields = get_changed_fields_local(before_update, self)
+        should_log = len(changed_fields) > 0
+
+        return should_log, before_update
 
 
 class ImpersonatedContext:
