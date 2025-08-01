@@ -121,16 +121,16 @@ def get_dynamic_entity_tools(team_group_types: list[str]):
 
 def create_final_answer_model(response_model: type[OutputType]) -> type[BaseModel]:
     """
-    Create a dynamic final_answer model based on the response model from FilterProfile.
+    Create a dynamic final_answer model based on the response model from the prompt.
     """
 
     class final_answer(BaseModel):
         """
-        Use this tool to finalize the filter options answer.
-        You MUST use this tool ONLY when you have all the information you need to build the filter.
+        Use this tool to finalize the answer.
+        You MUST use this tool ONLY when you have all the information you need to build the answer.
         If you don't have all the information you need, use the `ask_user_for_help` tool to ask the user for clarification.
         """
 
-        data: response_model = Field(description="Complete filter object as defined in the prompts")  # type: ignore[valid-type]
+        data: response_model = Field(description="Complete response object as defined in the prompts")  # type: ignore[valid-type]
 
     return final_answer
