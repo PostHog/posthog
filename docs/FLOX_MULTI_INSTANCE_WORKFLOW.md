@@ -47,6 +47,7 @@ The `phw list` and `phw remove` commands work with **all** your PostHog worktree
 - Want to clean up old worktrees from previous setups
 
 **Example scenario:**
+
 ```bash
 # You had worktrees in the old location
 ls ~/.worktrees/posthog/
@@ -381,10 +382,6 @@ phw checkout your-branch  # Automatically handles switching
 ```bash
 # Remove a specific worktree
 phw remove haacked/old-feature
-
-# ⚠️ DANGER: Remove all worktrees (this will delete ALL your work!)
-# Only run this if you're absolutely sure and have committed all changes
-git worktree list | grep -v "bare" | awk '{print $1}' | xargs -I {} git worktree remove {} --force
 
 # Clean up unused worktree references (safe to run)
 git worktree prune
