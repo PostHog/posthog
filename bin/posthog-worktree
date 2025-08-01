@@ -195,7 +195,7 @@ setup_worktree_environment() {
         # direnv will automatically activate flox and run uv sync
     else
         # Manual activation if direnv not present
-        print_color blue "Installing Python dependencies via uv sync..."
+        print_color blue "Installing Python dependencies via uv sync (this may take a minute)..."
         # Clean up any stale environment variables that might conflict
         unset VIRTUAL_ENV PYTHONPATH CONDA_DEFAULT_ENV
         flox activate --trust -- uv sync
