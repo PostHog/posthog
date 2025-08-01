@@ -22,6 +22,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { match } from 'ts-pattern'
 import { ActivityScope, Experiment, ExperimentsTabs, ProductKey, ProgressStatus } from '~/types'
+import { ExperimentsSettings } from './ExperimentsSettings'
 
 import { DuplicateExperimentModal } from './DuplicateExperimentModal'
 import { EXPERIMENTS_PER_PAGE, experimentsLogic, getExperimentStatus } from './experimentsLogic'
@@ -259,6 +260,11 @@ export function Experiments(): JSX.Element {
                         key: ExperimentsTabs.History,
                         label: 'History',
                         content: <ActivityLog scope={ActivityScope.EXPERIMENT} />,
+                    },
+                    {
+                        key: ExperimentsTabs.Settings,
+                        label: 'Settings',
+                        content: <ExperimentsSettings />,
                     },
                 ]}
             />

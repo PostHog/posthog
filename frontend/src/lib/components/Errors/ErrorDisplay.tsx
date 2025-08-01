@@ -10,6 +10,16 @@ import { errorPropertiesLogic } from './errorPropertiesLogic'
 import { ChainedStackTraces } from './StackTraces'
 import { ErrorEventId, ErrorEventProperties } from './types'
 import { concatValues } from './utils'
+import { EventType, RecordingEventType } from '~/types'
+import { dayjs } from 'lib/dayjs'
+
+export function idFrom(event: EventType | RecordingEventType): string {
+    if ('uuid' in event && event.uuid) {
+        return event.uuid
+    }
+    // Fallback to timestamp if uuid is not available
+    return event.timestamp ? dayjs(event.timestamp).toISOString() : event.id ?? 'error'
+}
 
 export function ErrorDisplay({
     eventProperties,
