@@ -105,7 +105,7 @@ function LLMObservabilityDashboard(): JSX.Element {
 }
 
 function LLMObservabilityGenerations(): JSX.Element {
-    const { setDates, setShouldFilterTestAccounts, setPropertyFilters, setGenerationsQuery } =
+    const { setDates, setShouldFilterTestAccounts, setPropertyFilters, setGenerationsQuery, setGenerationsColumns } =
         useActions(llmObservabilityLogic)
     const { generationsQuery } = useValues(llmObservabilityLogic)
 
@@ -119,6 +119,11 @@ function LLMObservabilityGenerations(): JSX.Element {
                 setDates(query.source.after || null, query.source.before || null)
                 setShouldFilterTestAccounts(query.source.filterTestAccounts || false)
                 setPropertyFilters(query.source.properties || [])
+
+                if (query.source.select) {
+                    setGenerationsColumns(query.source.select)
+                }
+
                 setGenerationsQuery(query)
             }}
             context={{

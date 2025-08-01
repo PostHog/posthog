@@ -24,6 +24,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.client.async_task_chain import task_chain_context
 from posthog.constants import AvailableFeature
 from posthog.models import SessionRecording, SharingConfiguration, Team, InsightViewed
+from posthog.schema import SharingConfigurationSettings
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.dashboard import Dashboard
 from posthog.models.exported_asset import (
@@ -37,6 +38,7 @@ from posthog.session_recordings.session_recording_api import SessionRecordingSer
 from posthog.user_permissions import UserPermissions
 from posthog.utils import render_template
 import secrets
+from posthog.exceptions_capture import capture_exception
 
 
 def shared_url_as_png(url: str = "") -> str:
@@ -86,10 +88,27 @@ def get_themes_for_team(team: Team):
 
 
 class SharingConfigurationSerializer(serializers.ModelSerializer):
+    settings = serializers.JSONField(required=False, allow_null=True)
+
     class Meta:
         model = SharingConfiguration
-        fields = ["created_at", "enabled", "access_token"]
+        fields = ["created_at", "enabled", "access_token", "settings"]
         read_only_fields = ["created_at", "access_token"]
+
+    def validate_settings(self, value: Optional[dict[str, Any]]) -> Optional[dict[str, Any]]:
+        if value is None:
+            return None
+        try:
+            # Filter out unknown fields before validation since the schema has extra="forbid"
+            known_fields = SharingConfigurationSettings.model_fields.keys()
+            filtered_data = {k: v for k, v in value.items() if k in known_fields}
+
+            validated_settings = SharingConfigurationSettings.model_validate(filtered_data, strict=False)
+            result = validated_settings.model_dump(exclude_none=True)
+            return result
+        except Exception as e:
+            capture_exception(e)
+            raise serializers.ValidationError("Invalid settings format")
 
 
 class SharingConfigurationViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.GenericViewSet):
@@ -400,17 +419,43 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
         else:
             raise NotFound()
 
-        if "whitelabel" in request.GET and resource.team.organization.is_feature_available(
+        # Get sharing settings using Pydantic model for validation and defaults
+        settings_data = getattr(resource, "settings", {}) or {}
+        base_settings = SharingConfigurationSettings.model_validate(settings_data, strict=False)
+
+        # Only check query params for configurations created before SETTINGS_SHIP_DATE
+        SETTINGS_SHIP_DATE = "2025-07-31"
+        created_before_settings_ship = False
+        if isinstance(resource, SharingConfiguration):
+            created_before_settings_ship = resource.created_at.strftime("%Y-%m-%d") < SETTINGS_SHIP_DATE
+
+        # Exported assets don't have settings so we can continue to use query params
+        can_use_query_params = created_before_settings_ship or not isinstance(resource, SharingConfiguration)
+
+        # Merge query params with base settings if allowed
+        if can_use_query_params:
+            # Convert query params to dict and merge with base settings
+            merged_data = base_settings.model_dump()
+            for field_name in base_settings.model_fields.keys():
+                if field_name in request.GET:
+                    merged_data[field_name] = bool(request.GET[field_name])
+            final_settings = SharingConfigurationSettings.model_validate(merged_data, strict=False)
+        else:
+            final_settings = base_settings
+
+        # Apply settings to exported data
+        if final_settings.whitelabel and resource.team.organization.is_feature_available(
             AvailableFeature.WHITE_LABELLING
         ):
             exported_data.update({"whitelabel": True})
-        if "noHeader" in request.GET:
+
+        if final_settings.noHeader:
             exported_data.update({"noHeader": True})
-        if "showInspector" in request.GET:
+        if final_settings.showInspector:
             exported_data.update({"showInspector": True})
-        if "legend" in request.GET:
+        if final_settings.legend:
             exported_data.update({"legend": True})
-        if "detailed" in request.GET:
+        if final_settings.detailed:
             exported_data.update({"detailed": True})
 
         if request.path.endswith(f".json"):

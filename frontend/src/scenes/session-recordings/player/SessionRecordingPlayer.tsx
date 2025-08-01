@@ -5,6 +5,7 @@ import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 
 import { BuilderHog2, SleepingHog } from 'lib/components/hedgehogs'
+import { FloatingContainerContext } from 'lib/hooks/useFloatingContainerContext'
 import { HotkeysInterface, useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { usePageVisibilityCb } from 'lib/hooks/usePageVisibility'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
@@ -206,70 +207,80 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
                 onMouseMove={() => setPlayNextAnimationInterrupted(true)}
                 onMouseOut={() => setPlayNextAnimationInterrupted(false)}
             >
-                {explorerMode ? (
-                    <SessionRecordingPlayerExplorer {...explorerMode} onClose={() => closeExplorer()} />
-                ) : (
-                    <>
-                        <div className="SessionRecordingPlayer__main flex flex-col h-full w-full" ref={playerMainRef}>
-                            {isRecentAndInvalid ? (
-                                <div className="flex flex-1 flex-col items-center justify-center">
-                                    <BuilderHog2 height={200} />
-                                    <h1>We're still working on it</h1>
-                                    <p>
-                                        This recording hasn't been fully ingested yet. It should be ready to watch in a
-                                        few minutes.
-                                    </p>
-                                    <LemonButton type="secondary" onClick={loadSnapshots}>
-                                        Reload
-                                    </LemonButton>
-                                </div>
-                            ) : isLikelyPastTTL ? (
-                                <div
-                                    className="flex flex-1 flex-col items-center justify-center"
-                                    data-attr="session-recording-player-past-ttl"
-                                >
-                                    <SleepingHog height={200} />
-                                    <h1>This recording is no longer available</h1>
-                                    <p>
-                                        We store session recordings for a limited time, and this one has expired and
-                                        been deleted.
-                                    </p>
-                                    <div className="text-right">
-                                        <LemonButton
-                                            type="secondary"
-                                            to="https://posthog.com/docs/session-replay/data-retention"
-                                        >
-                                            Learn more about data retention
+                <FloatingContainerContext.Provider value={playerRef}>
+                    {explorerMode ? (
+                        <SessionRecordingPlayerExplorer {...explorerMode} onClose={() => closeExplorer()} />
+                    ) : (
+                        <>
+                            <div
+                                className="SessionRecordingPlayer__main flex flex-col h-full w-full"
+                                ref={playerMainRef}
+                            >
+                                {isRecentAndInvalid ? (
+                                    <div className="flex flex-1 flex-col items-center justify-center">
+                                        <BuilderHog2 height={200} />
+                                        <h1>We're still working on it</h1>
+                                        <p>
+                                            This recording hasn't been fully ingested yet. It should be ready to watch
+                                            in a few minutes.
+                                        </p>
+                                        <LemonButton type="secondary" onClick={loadSnapshots}>
+                                            Reload
                                         </LemonButton>
                                     </div>
-                                </div>
-                            ) : (
-                                <div className="flex w-full h-full">
-                                    <div className="flex flex-col flex-1 w-full">
-                                        {mode !== SessionRecordingPlayerMode.Screenshot &&
-                                            (!noMeta || isFullScreen) && <PlayerMeta />}
-                                        <div
-                                            className="SessionRecordingPlayer__body"
-                                            draggable={draggable}
-                                            {...elementProps}
-                                        >
-                                            <PlayerFrame />
-                                            {mode !== SessionRecordingPlayerMode.Screenshot ? (
-                                                <PlayerFrameOverlay />
+                                ) : isLikelyPastTTL ? (
+                                    <div
+                                        className="flex flex-1 flex-col items-center justify-center"
+                                        data-attr="session-recording-player-past-ttl"
+                                    >
+                                        <SleepingHog height={200} />
+                                        <h1>This recording is no longer available</h1>
+                                        <p>
+                                            We store session recordings for a limited time, and this one has expired and
+                                            been deleted.
+                                        </p>
+                                        <div className="text-right">
+                                            <LemonButton
+                                                type="secondary"
+                                                to="https://posthog.com/docs/session-replay/data-retention"
+                                            >
+                                                Learn more about data retention
+                                            </LemonButton>
+                                        </div>
+                                    </div>
+                                ) : (
+                                    <div className="flex w-full h-full">
+                                        <div className="flex flex-col flex-1 w-full">
+                                            {mode !== SessionRecordingPlayerMode.Screenshot &&
+                                            (!noMeta || isFullScreen) ? (
+                                                <PlayerMeta />
                                             ) : null}
+
+                                            <div
+                                                className="SessionRecordingPlayer__body"
+                                                draggable={draggable}
+                                                {...elementProps}
+                                            >
+                                                <PlayerFrame />
+                                                {mode !== SessionRecordingPlayerMode.Screenshot ? (
+                                                    <PlayerFrameOverlay />
+                                                ) : null}
+                                                {mode !== SessionRecordingPlayerMode.Screenshot ? (
+                                                    <PlayerFrameCommentOverlay />
+                                                ) : null}
+                                            </div>
                                             {mode !== SessionRecordingPlayerMode.Screenshot ? (
-                                                <PlayerFrameCommentOverlay />
+                                                <PlayerController />
                                             ) : null}
                                         </div>
-                                        {mode !== SessionRecordingPlayerMode.Screenshot ? <PlayerController /> : null}
                                     </div>
-                                </div>
-                            )}
-                        </div>
+                                )}
+                            </div>
 
-                        {!noInspector && <PlayerSidebar />}
-                    </>
-                )}
+                            {!noInspector && <PlayerSidebar />}
+                        </>
+                    )}
+                </FloatingContainerContext.Provider>
             </div>
             <SessionRecordingNextConfirmation />
         </BindLogic>

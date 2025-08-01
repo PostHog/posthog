@@ -91,6 +91,7 @@ CUSTOMER_IO_TEMPLATE_ID_MAP = {
     "email_change_old_address": "36",
     "email_change_new_address": "37",
     "password_changed": "42",
+    "login_notification": "44",
 }
 
 
