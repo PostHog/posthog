@@ -9,6 +9,7 @@ from dags.web_preaggregated_team_selection import (
     get_team_ids_from_sources,
     get_teams_from_env,
     get_teams_from_top_pageviews,
+    get_teams_from_feature_enrollment,
     store_team_selection_in_clickhouse,
 )
 
@@ -41,7 +42,7 @@ class TestGetTeamIdsFromSources:
     def test_includes_pageview_teams_when_pageviews_strategy_enabled(self, mock_pageviews):
         mock_pageviews.return_value = {999, 888}
 
-        with patch.dict(os.environ, {"WEB_ANALYTICS_TEAM_STRATEGIES": "pageviews"}):
+        with patch.dict(os.environ, {"WEB_ANALYTICS_TEAM_STRATEGIES": "most_pageviews"}):
             result = get_team_ids_from_sources(self.mock_context)
 
         assert 999 in result
@@ -65,6 +66,53 @@ class TestGetTeamIdsFromSources:
 
         assert isinstance(result, list)
         assert result == sorted(result)
+
+    @patch("dags.web_preaggregated_team_selection.get_teams_from_feature_enrollment")
+    def test_includes_feature_enrollment_teams_when_strategy_enabled(self, mock_enrollment):
+        mock_enrollment.return_value = {777, 666}
+
+        with patch.dict(
+            os.environ,
+            {"WEB_ANALYTICS_TEAM_STRATEGIES": "feature_enrollment", "WEB_ANALYTICS_FEATURE_FLAG_KEY": "test-flag"},
+        ):
+            result = get_team_ids_from_sources(self.mock_context)
+
+        assert 777 in result
+        assert 666 in result
+        mock_enrollment.assert_called_once_with(self.mock_context, "test-flag")
+
+    @patch("dags.web_preaggregated_team_selection.get_teams_from_feature_enrollment")
+    def test_uses_default_flag_key_when_not_specified(self, mock_enrollment):
+        mock_enrollment.return_value = {555}
+
+        with patch.dict(os.environ, {"WEB_ANALYTICS_TEAM_STRATEGIES": "feature_enrollment"}):
+            result = get_team_ids_from_sources(self.mock_context)
+
+        assert 555 in result
+        mock_enrollment.assert_called_once_with(self.mock_context, "web-analytics-enabled")
+
+    @patch("dags.web_preaggregated_team_selection.get_teams_from_top_pageviews")
+    @patch("dags.web_preaggregated_team_selection.get_teams_from_feature_enrollment")
+    def test_combines_multiple_strategies(self, mock_enrollment, mock_pageviews):
+        mock_enrollment.return_value = {111, 222}
+        mock_pageviews.return_value = {333, 444}
+
+        with patch.dict(
+            os.environ,
+            {
+                "WEB_ANALYTICS_TEAM_STRATEGIES": "most_pageviews,feature_enrollment",
+                "WEB_ANALYTICS_ENABLED_TEAM_IDS": "555",
+            },
+        ):
+            result = get_team_ids_from_sources(self.mock_context)
+
+        # Should include teams from all strategies plus defaults
+        assert 111 in result  # from feature enrollment
+        assert 222 in result  # from feature enrollment
+        assert 333 in result  # from pageviews
+        assert 444 in result  # from pageviews
+        for default_team in DEFAULT_ENABLED_TEAM_IDS:
+            assert default_team in result
 
 
 class TestHelperFunctions:
@@ -104,6 +152,51 @@ class TestHelperFunctions:
 
         assert result == set()
         mock_context.log.warning.assert_called_once()
+
+    @patch("posthog.models.person.person.Person.objects")
+    def test_get_teams_from_feature_enrollment_returns_teams(self, mock_person_objects):
+        mock_context = Mock()
+        mock_context.log = Mock()
+
+        # Mock the Django ORM query chain
+        mock_queryset = Mock()
+        mock_queryset.values_list.return_value.distinct.return_value = [1, 2, 3]
+        mock_person_objects.filter.return_value = mock_queryset
+
+        result = get_teams_from_feature_enrollment(mock_context, "test-flag")
+
+        assert result == {1, 2, 3}
+        mock_person_objects.filter.assert_called_once_with(**{"properties__$feature_enrollment/test-flag": True})
+        mock_context.log.info.assert_called_once()
+
+    @patch("posthog.models.person.person.Person.objects")
+    def test_get_teams_from_feature_enrollment_handles_errors(self, mock_person_objects):
+        mock_context = Mock()
+        mock_context.log = Mock()
+        mock_person_objects.filter.side_effect = Exception("DB error")
+
+        result = get_teams_from_feature_enrollment(mock_context, "test-flag")
+
+        assert result == set()
+        mock_context.log.warning.assert_called_once_with(
+            "Failed to get teams with feature enrollment for 'test-flag': DB error"
+        )
+
+    @patch("posthog.models.person.person.Person.objects")
+    def test_get_teams_from_feature_enrollment_uses_default_flag_key(self, mock_person_objects):
+        mock_context = Mock()
+        mock_context.log = Mock()
+
+        mock_queryset = Mock()
+        mock_queryset.values_list.return_value.distinct.return_value = [5, 6]
+        mock_person_objects.filter.return_value = mock_queryset
+
+        result = get_teams_from_feature_enrollment(mock_context)  # No flag_key specified
+
+        assert result == {5, 6}
+        mock_person_objects.filter.assert_called_once_with(
+            **{"properties__$feature_enrollment/web-analytics-enabled": True}
+        )
 
 
 class TestStoreTeamSelectionInClickhouse:

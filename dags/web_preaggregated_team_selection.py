@@ -36,6 +36,30 @@ def get_teams_from_top_pageviews(context: dagster.OpExecutionContext) -> set[int
         return set()
 
 
+def get_teams_from_feature_enrollment(
+    context: dagster.OpExecutionContext, flag_key: str = "web-analytics-enabled"
+) -> set[int]:
+    """Get teams where users have enrolled in a feature preview"""
+    try:
+        from posthog.models.person.person import Person
+
+        # Query PostgreSQL for teams with enrolled users
+        enrollment_key = f"$feature_enrollment/{flag_key}"
+        team_ids = (
+            Person.objects.filter(**{f"properties__{enrollment_key}": True})
+            .values_list("team_id", flat=True)
+            .distinct()
+        )
+
+        team_ids_set = set(team_ids)
+        context.log.info(f"Found {len(team_ids_set)} teams with users enrolled in '{flag_key}'")
+        return team_ids_set
+
+    except Exception as e:
+        context.log.warning(f"Failed to get teams with feature enrollment for '{flag_key}': {e}")
+        return set()
+
+
 def get_team_ids_from_sources(context: dagster.OpExecutionContext) -> list[int]:
     all_team_ids = set(DEFAULT_ENABLED_TEAM_IDS)  # Always include defaults
 
@@ -56,6 +80,13 @@ def get_team_ids_from_sources(context: dagster.OpExecutionContext) -> list[int]:
         pageview_teams = get_teams_from_top_pageviews(context)
         all_team_ids.update(pageview_teams)
         context.log.info(f"Added {len(pageview_teams)} teams from top pageviews")
+
+    # Add teams with feature flag enrollment
+    if "feature_enrollment" in enabled_strategies:
+        flag_key = os.getenv("WEB_ANALYTICS_FEATURE_FLAG_KEY", "web-analytics-api")
+        enrollment_teams = get_teams_from_feature_enrollment(context, flag_key)
+        all_team_ids.update(enrollment_teams)
+        context.log.info(f"Added {len(enrollment_teams)} teams from feature enrollment")
 
     team_list = sorted(all_team_ids)
     context.log.info(f"Total unique team IDs: {len(team_list)}")
