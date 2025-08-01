@@ -54,7 +54,15 @@ from posthog.rate_limit import (
     PersonalApiKeyRateThrottle,
 )
 from posthog.renderers import ServerSentEventRenderer
-from posthog.schema import PropertyFilterType, QueryTiming, RecordingsQuery, RecordingPropertyFilter, PropertyOperator
+from posthog.schema import (
+    PropertyFilterType,
+    QueryTiming,
+    RecordingsQuery,
+    RecordingPropertyFilter,
+    PropertyOperator,
+    MatchingEventsResponse,
+    MatchedRecordingEvent,
+)
 from posthog.session_recordings.ai_data.ai_regex_prompts import AI_REGEX_PROMPTS
 from posthog.session_recordings.ai_data.ai_regex_schema import AiRegexSchema
 from posthog.session_recordings.models.session_recording import SessionRecording
@@ -639,7 +647,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         This API is intended for internal use and might have unannounced breaking changes.""",
     )
     @action(methods=["GET"], detail=False)
-    def matching_events(self, request: request.Request, *args: Any, **kwargs: Any) -> JsonResponse:
+    def matching_events(self, request: request.Request, *args: Any, **kwargs: Any) -> MatchingEventsResponse:
         tag_queries(product=Product.REPLAY)
         data_dict = query_as_params_to_dict(request.GET.dict())
         query = RecordingsQuery.model_validate(data_dict)
@@ -660,7 +668,11 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
 
         results, _, timings = ReplayFiltersEventsSubQuery(query=query, team=self.team).get_event_ids_for_session()
 
-        response = JsonResponse(data={"results": results})
+        response = JsonResponse(
+            data=MatchingEventsResponse(
+                results=[MatchedRecordingEvent(uuid=str(row[0]), timestamp=row[1].isoformat()) for row in results]
+            ).model_dump()
+        )
 
         response.headers["Server-Timing"] = ServerTimingsGathered().to_header_string(timings)
         return response

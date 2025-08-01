@@ -1721,7 +1721,15 @@ class MatchedRecordingEvent(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    timestamp: Optional[str] = None
     uuid: str
+
+
+class MatchingEventsResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    results: list[MatchedRecordingEvent]
 
 
 class MaxActionContext(BaseModel):

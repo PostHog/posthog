@@ -49,6 +49,7 @@ import {
     StepOrderValue,
     StickinessFilterType,
     TrendsFilterType,
+    MatchedRecordingEvent,
 } from '~/types'
 
 import { integer, numerical_key } from './type-utils'
@@ -426,6 +427,10 @@ export interface HogQuery extends DataNode<HogQueryResponse> {
 export interface RecordingsQueryResponse {
     results: SessionRecordingType[]
     has_next: boolean
+}
+
+export interface MatchingEventsResponse {
+    results: MatchedRecordingEvent[]
 }
 
 export type RecordingOrder =
