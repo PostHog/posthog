@@ -37,16 +37,14 @@ export function EventDefinitionInsights({ definition }: { definition: EventDefin
             key: 'name',
             render: function renderName(name: string, insight) {
                 return (
-                    <>
-                        <div className="flex flex-col gap-1">
-                            <div className="inline-flex">
-                                <Link to={urls.insightView(insight.short_id)} target="_blank">
-                                    {name || <i>{summarizeInsight(insight.query)}</i>}
-                                </Link>
-                            </div>
-                            <div className="text-xs text-tertiary">{insight.description}</div>
+                    <div className="flex flex-col gap-1">
+                        <div className="inline-flex">
+                            <Link to={urls.insightView(insight.short_id)} target="_blank">
+                                {name || <i>{summarizeInsight(insight.query)}</i>}
+                            </Link>
                         </div>
-                    </>
+                        <div className="text-xs text-tertiary">{insight.description}</div>
+                    </div>
                 )
             },
         },
