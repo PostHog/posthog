@@ -5,7 +5,11 @@ from rest_framework.viewsets import GenericViewSet
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.constants import AvailableFeature
 from posthog.models import Tag, TaggedItem, User
+from posthog.models.tagged_item import RELATED_OBJECTS
 from posthog.models.tag import tagify
+from posthog.models.activity_logging.activity_log import Detail, log_activity, changes_between
+from posthog.models.signals import model_activity_signal
+from django.dispatch import receiver
 
 
 class TaggedItemSerializerMixin(serializers.Serializer):
@@ -117,3 +121,51 @@ class TaggedItemViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             return response.Response([], status=status.HTTP_402_PAYMENT_REQUIRED)
 
         return response.Response(Tag.objects.filter(team=self.team).values_list("name", flat=True).distinct())
+
+
+@receiver(model_activity_signal, sender=Tag)
+def handle_tag_change(sender, scope, before_update, after_update, activity, was_impersonated=False, **kwargs):
+    from posthog.utils import get_current_user_from_thread
+
+    user = get_current_user_from_thread()
+
+    log_activity(
+        organization_id=after_update.team.organization_id,
+        team_id=after_update.team_id,
+        user=user,
+        was_impersonated=was_impersonated,
+        item_id=after_update.id,
+        scope=scope,
+        activity=activity,
+        detail=Detail(
+            changes=changes_between(scope, previous=before_update, current=after_update), name=after_update.name
+        ),
+    )
+
+
+@receiver(model_activity_signal, sender=TaggedItem)
+def handle_tagged_item_change(sender, scope, before_update, after_update, activity, was_impersonated=False, **kwargs):
+    from posthog.utils import get_current_user_from_thread
+
+    user = get_current_user_from_thread()
+
+    tagged_object = None
+    for field in RELATED_OBJECTS:
+        obj = getattr(after_update, field, None)
+        if obj:
+            tagged_object = f"{field}: {getattr(obj, 'name', str(obj))}"
+            break
+
+    log_activity(
+        organization_id=after_update.tag.team.organization_id,
+        team_id=after_update.tag.team_id,
+        user=user,
+        was_impersonated=was_impersonated,
+        item_id=after_update.id,
+        scope=scope,
+        activity=activity,
+        detail=Detail(
+            changes=changes_between(scope, previous=before_update, current=after_update),
+            name=f"Tag '{after_update.tag.name}' on {tagged_object or 'object'}",
+        ),
+    )
