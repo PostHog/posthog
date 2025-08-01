@@ -1609,3 +1609,12 @@ def opt_slash_path(route: str, view: Callable, name: Optional[str] = None) -> UR
     """Catches path with or without trailing slash, taking into account query param and hash."""
     # Ignoring the type because while name can be optional on re_path, mypy doesn't agree
     return re_path(rf"^{route}/?(?:[?#].*)?$", view, name=name)  # type: ignore
+
+
+def get_current_user_from_thread() -> Optional["User"]:
+    from threading import current_thread
+
+    request = getattr(current_thread(), "request", None)
+    if request and hasattr(request, "user"):
+        return request.user
+    return None
