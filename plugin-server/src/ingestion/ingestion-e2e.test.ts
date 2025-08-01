@@ -196,6 +196,11 @@ const testWithTeamIngester = (
             isHealthy: jest.fn(),
         } as any
 
+        jest.spyOn(hub.groupRepository, 'fetchGroup')
+        jest.spyOn(hub.groupRepository, 'insertGroup')
+        jest.spyOn(hub.groupRepository, 'updateGroup')
+        jest.spyOn(hub.groupRepository, 'updateGroupOptimistically')
+
         await ingester.start()
         await testFn(ingester, hub, fetchedTeam)
         await ingester.stop()
@@ -320,7 +325,7 @@ describe('Event Pipeline E2E tests', () => {
                 expect(events[1].properties.$group_set).toEqual({ prop: 'value' })
             })
 
-            // Group methods moved to repository pattern - no longer spying on DB methods
+            expect(hub.groupRepository.fetchGroup).toHaveBeenCalledTimes(4)
         }
     )
 
@@ -348,13 +353,17 @@ describe('Event Pipeline E2E tests', () => {
             expect(events.length).toEqual(n)
         })
 
-        // Group methods moved to repository pattern - no longer spying on DB methods
+        expect(hub.groupRepository.fetchGroup).toHaveBeenCalledTimes(1)
+        expect(hub.groupRepository.insertGroup).toHaveBeenCalledTimes(1)
+        expect(hub.groupRepository.updateGroup).toHaveBeenCalledTimes(0)
+        expect(hub.groupRepository.updateGroupOptimistically).toHaveBeenCalledTimes(1)
     })
 
     testWithTeamIngester('can handle multiple $groupidentify in same batch', {}, async (ingester, hub, team) => {
         const timestamp = DateTime.now().toMillis()
         const distinctId = new UUIDT().toString()
         const groupKey = 'group_key'
+
         const events = [
             new EventBuilder(team, distinctId)
                 .withEvent('$groupidentify')
@@ -387,8 +396,10 @@ describe('Event Pipeline E2E tests', () => {
             expect(events[2].properties.$group_set).toEqual({ k2: 'v3', k4: 'v3' })
         })
 
-        // Should have fetched the group once
-        // Group methods moved to repository pattern - no longer spying on DB methods
+        expect(hub.groupRepository.fetchGroup).toHaveBeenCalledTimes(1)
+        expect(hub.groupRepository.insertGroup).toHaveBeenCalledTimes(1)
+        expect(hub.groupRepository.updateGroup).toHaveBeenCalledTimes(0)
+        expect(hub.groupRepository.updateGroupOptimistically).toHaveBeenCalledTimes(1)
 
         await waitForExpect(async () => {
             const group = await hub.groupRepository.fetchGroup(team.id, 0, groupKey)
