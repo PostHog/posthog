@@ -37,44 +37,40 @@ export function ActionsHorizontalBar({ showPersonsModal = true, context }: Chart
         theme,
     } = useValues(trendsDataLogic(insightProps))
 
-    function updateData(): void {
-        const visibleResults = indexedResults.filter((item) => !getTrendsHidden(item))
-        const colorList = visibleResults.map(getTrendsColor)
-
-        setData([
-            {
-                labels: visibleResults.map((item) => item.label),
-                data: visibleResults.map((item) => item.aggregated_value),
-                actions: visibleResults.map((item) => item.action),
-                personsValues: visibleResults.map((item) => item.persons),
-                breakdownValues: visibleResults.map((item) => item.breakdown_value),
-                breakdownLabels: visibleResults.map((item) => {
-                    return formatBreakdownLabel(
-                        item.breakdown_value,
-                        breakdownFilter,
-                        cohorts?.results,
-                        formatPropertyValueForDisplay,
-                        undefined,
-                        item.label
-                    )
-                }),
-                compareLabels: visibleResults.map((item) => item.compare_label),
-                backgroundColor: colorList,
-                hoverBackgroundColor: colorList,
-                hoverBorderColor: colorList,
-                borderColor: colorList,
-                hoverBorderWidth: 10,
-                borderWidth: 1,
-            },
-        ])
-        setTotal(visibleResults.reduce((prev, item) => prev + item.aggregated_value, 0))
-    }
-
     useEffect(() => {
         if (indexedResults) {
-            updateData()
+            const visibleResults = indexedResults.filter((item) => !getTrendsHidden(item))
+            const colorList = visibleResults.map(getTrendsColor)
+
+            setData([
+                {
+                    labels: visibleResults.map((item) => item.label),
+                    data: visibleResults.map((item) => item.aggregated_value),
+                    actions: visibleResults.map((item) => item.action),
+                    personsValues: visibleResults.map((item) => item.persons),
+                    breakdownValues: visibleResults.map((item) => item.breakdown_value),
+                    breakdownLabels: visibleResults.map((item) => {
+                        return formatBreakdownLabel(
+                            item.breakdown_value,
+                            breakdownFilter,
+                            cohorts?.results,
+                            formatPropertyValueForDisplay,
+                            undefined,
+                            item.label
+                        )
+                    }),
+                    compareLabels: visibleResults.map((item) => item.compare_label),
+                    backgroundColor: colorList,
+                    hoverBackgroundColor: colorList,
+                    hoverBorderColor: colorList,
+                    borderColor: colorList,
+                    hoverBorderWidth: 10,
+                    borderWidth: 1,
+                },
+            ])
+            setTotal(visibleResults.reduce((prev, item) => prev + item.aggregated_value, 0))
         }
-    }, [indexedResults, theme])
+    }, [indexedResults, theme, breakdownFilter, cohorts?.results, formatPropertyValueForDisplay, getTrendsColor])
 
     return data && total > 0 ? (
         <LineGraph
@@ -97,6 +93,8 @@ export function ActionsHorizontalBar({ showPersonsModal = true, context }: Chart
                           const { index, points } = point
 
                           const dataset = points.referencePoint.dataset
+                          dataset.action = dataset.actions?.[index]
+
                           const label = dataset.labels?.[point.index]
 
                           if (context?.onDataPointClick) {

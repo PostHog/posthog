@@ -2,14 +2,11 @@ from .revenue_analytics_base_view import RevenueAnalyticsBaseView
 from typing import cast
 from posthog.hogql import ast
 from posthog.models.team.team import Team
-from posthog.schema import (
-    DatabaseSchemaManagedViewTableKind,
-    HogQLQueryModifiers,
-)
+from posthog.schema import DatabaseSchemaManagedViewTableKind
 from posthog.warehouse.models.external_data_source import ExternalDataSource
 from posthog.warehouse.models.table import DataWarehouseTable
 from posthog.warehouse.models.external_data_schema import ExternalDataSchema
-from posthog.temporal.data_imports.pipelines.stripe.constants import (
+from posthog.temporal.data_imports.sources.stripe.constants import (
     SUBSCRIPTION_RESOURCE_NAME as STRIPE_SUBSCRIPTION_RESOURCE_NAME,
 )
 from posthog.hogql.database.models import (
@@ -49,13 +46,11 @@ class RevenueAnalyticsSubscriptionView(RevenueAnalyticsBaseView):
 
     # No subscription views for events, we only have that for schema sources
     @classmethod
-    def for_events(cls, _team: "Team", _modifiers: HogQLQueryModifiers) -> list["RevenueAnalyticsBaseView"]:
+    def for_events(cls, _team: "Team") -> list["RevenueAnalyticsBaseView"]:
         return []
 
     @classmethod
-    def for_schema_source(
-        cls, source: ExternalDataSource, _modifiers: HogQLQueryModifiers
-    ) -> list["RevenueAnalyticsBaseView"]:
+    def for_schema_source(cls, source: ExternalDataSource) -> list["RevenueAnalyticsBaseView"]:
         # Currently only works for stripe sources
         if not source.source_type == ExternalDataSource.Type.STRIPE:
             return []

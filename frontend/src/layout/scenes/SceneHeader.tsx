@@ -1,4 +1,4 @@
-import { IconChevronDown, IconGear, IconInfo, IconX } from '@posthog/icons'
+import { IconChevronDown, IconGear, IconInfo, IconPencil, IconX } from '@posthog/icons'
 import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { IconMenu, IconSlash } from 'lib/lemon-ui/icons'
@@ -6,8 +6,10 @@ import { Link } from 'lib/lemon-ui/Link'
 import { cn } from 'lib/utils/css-classes'
 import React, { useState } from 'react'
 
+import { EditableField } from 'lib/components/EditableField/EditableField'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { TopBarSettingsButton } from 'lib/components/TopBarSettingsButton/TopBarSettingsButton'
+import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
@@ -26,10 +28,11 @@ export function SceneHeader({ className }: { className?: string }): JSX.Element 
     const { showLayoutNavBar } = useActions(panelLayoutLogic)
     const { isLayoutNavbarVisibleForMobile } = useValues(panelLayoutLogic)
     const { projectTreeRefEntry } = useValues(projectTreeDataLogic)
-    const { scenePanelOpen, scenePanelIsPresent, scenePanelIsOverlay } = useValues(sceneLayoutLogic)
+    const { scenePanelOpen, scenePanelIsPresent, useSceneTabs } = useValues(sceneLayoutLogic)
     const { setScenePanelOpen } = useActions(sceneLayoutLogic)
 
-    return breadcrumbs.length || projectTreeRefEntry ? (
+    const effectiveBreadcrumbs = useSceneTabs ? breadcrumbs.slice(1) : breadcrumbs
+    return effectiveBreadcrumbs.length || projectTreeRefEntry ? (
         <>
             <div
                 className={cn(
@@ -46,16 +49,19 @@ export function SceneHeader({ className }: { className?: string }): JSX.Element 
                     />
                 )}
                 <div className="flex gap-1 justify-between w-full items-center overflow-x-hidden py-1">
-                    {breadcrumbs.length > 0 && (
+                    {effectiveBreadcrumbs.length > 0 && (
                         <ScrollableShadows
                             direction="horizontal"
                             styledScrollbars
-                            className="h-[var(--scene-layout-header-height)] pr-2"
+                            className="h-[var(--scene-layout-header-height)] pr-2 flex-1"
                             innerClassName="flex gap-0 flex-1 items-center overflow-x-auto show-scrollbar-on-hover h-full"
                         >
-                            {breadcrumbs.map((breadcrumb, index) => (
+                            {effectiveBreadcrumbs.map((breadcrumb, index) => (
                                 <React.Fragment key={joinBreadcrumbKey(breadcrumb.key)}>
-                                    <Breadcrumb breadcrumb={breadcrumb} here={index === breadcrumbs.length - 1} />
+                                    <Breadcrumb
+                                        breadcrumb={breadcrumb}
+                                        here={index === effectiveBreadcrumbs.length - 1}
+                                    />
                                     {index < breadcrumbs.length - 1 && (
                                         <span className="flex items-center shrink-0 opacity-50">
                                             <IconSlash fontSize="1rem" />
@@ -66,14 +72,10 @@ export function SceneHeader({ className }: { className?: string }): JSX.Element 
                         </ScrollableShadows>
                     )}
 
-                    <div
-                        className={cn('flex gap-1 items-center shrink-0', {
-                            'pr-px': !scenePanelIsOverlay,
-                        })}
-                    >
+                    <div className="flex gap-1 items-center shrink-0 pr-px">
                         <div className="contents" ref={setActionsContainer} />
 
-                        {scenePanelIsPresent && scenePanelIsOverlay && (
+                        {scenePanelIsPresent && (
                             <LemonButton
                                 onClick={() => setScenePanelOpen(!scenePanelOpen)}
                                 icon={<IconInfo className="text-primary" />}
@@ -98,9 +100,15 @@ interface BreadcrumbProps {
 }
 
 function Breadcrumb({ breadcrumb, here, isOnboarding }: BreadcrumbProps): JSX.Element {
+    const [popoverShown, setPopoverShown] = useState(false)
+    const [isEditing, setIsEditing] = useState(false)
+
     const { assureVisibility } = useActions(projectTreeLogic({ key: PROJECT_TREE_KEY }))
     const { showLayoutPanel, setActivePanelIdentifier } = useActions(panelLayoutLogic)
-    const [popoverShown, setPopoverShown] = useState(false)
+    const { scenePanelOpen, scenePanelIsPresent, useSceneTabs } = useValues(sceneLayoutLogic)
+    const { setScenePanelOpen } = useActions(sceneLayoutLogic)
+    const { renameState } = useValues(breadcrumbsLogic)
+    const { tentativelyRename, finishRenaming } = useActions(breadcrumbsLogic)
 
     const joinedKey = joinBreadcrumbKey(breadcrumb.key)
 
@@ -111,7 +119,7 @@ function Breadcrumb({ breadcrumb, here, isOnboarding }: BreadcrumbProps): JSX.El
         nameElement = breadcrumb.symbol
     } else {
         nameElement = (
-            <span className={cn('flex items-center gap-1.5 inline-block whitespace-nowrap')}>
+            <span className={cn('items-center gap-1.5 inline-block whitespace-nowrap')}>
                 {breadcrumbName === '' ? <em>Unnamed</em> : breadcrumbName}
                 {'tag' in breadcrumb && breadcrumb.tag && <LemonTag size="small">{breadcrumb.tag}</LemonTag>}
             </span>
@@ -144,7 +152,7 @@ function Breadcrumb({ breadcrumb, here, isOnboarding }: BreadcrumbProps): JSX.El
         </Component>
     )
 
-    if (breadcrumb.isPopoverProject) {
+    if (breadcrumb.isPopoverProject && !useSceneTabs) {
         return (
             <ProjectDropdownMenu
                 buttonProps={{
@@ -155,7 +163,60 @@ function Breadcrumb({ breadcrumb, here, isOnboarding }: BreadcrumbProps): JSX.El
         )
     }
 
-    return <ErrorBoundary>{breadcrumbContent}</ErrorBoundary>
+    return (
+        <ErrorBoundary>
+            {/* if renaming exists, show a button to rename */}
+            {/* if renaming exists, show a button to rename */}
+            {'onRename' in breadcrumb && breadcrumb.onRename ? (
+                <>
+                    {isEditing ? (
+                        <EditableField
+                            name="item-name-small"
+                            value={renameState && renameState[0] === joinedKey ? renameState[1] : breadcrumbName}
+                            onChange={(newName) => tentativelyRename(joinedKey, newName)}
+                            onSave={(newName) => {
+                                void breadcrumb.onRename?.(newName)
+                            }}
+                            mode="edit"
+                            onModeToggle={(newMode) => {
+                                if (newMode === 'edit') {
+                                    tentativelyRename(joinedKey, breadcrumbName)
+                                } else {
+                                    finishRenaming()
+                                }
+                                setPopoverShown(false)
+                                setIsEditing(false)
+                            }}
+                            autoFocus
+                            placeholder="Unnamed"
+                            compactButtons="xsmall"
+                            editingIndication="underlined"
+                        />
+                    ) : (
+                        <>
+                            {breadcrumbContent}
+                            <ButtonPrimitive
+                                iconOnly
+                                onClick={() => {
+                                    if (scenePanelIsPresent) {
+                                        setScenePanelOpen(!scenePanelOpen)
+                                    } else {
+                                        setIsEditing(!isEditing)
+                                    }
+                                }}
+                                className="ml-1"
+                                tooltip={scenePanelIsPresent ? 'Editing has moved to the info panel' : 'Rename'}
+                            >
+                                <IconPencil className="text-primary" />
+                            </ButtonPrimitive>
+                        </>
+                    )}
+                </>
+            ) : (
+                breadcrumbContent
+            )}
+        </ErrorBoundary>
+    )
 }
 
 function joinBreadcrumbKey(key: IBreadcrumb['key']): string {

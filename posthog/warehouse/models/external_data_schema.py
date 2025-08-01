@@ -4,41 +4,24 @@ from datetime import datetime, timedelta
 from typing import Any, Literal, Optional
 
 import numpy
-import psycopg2
 from django.conf import settings
 from django.db import models
 from django_deprecate_fields import deprecate_field
 from dlt.common.normalizers.naming.snake_case import NamingConvention
-from psycopg2 import sql
 
 from posthog.models.team import Team
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMetaFields, UUIDModel, sane_repr
-from posthog.temporal.data_imports.pipelines.mssql import (
-    MSSQLSourceConfig,
-    get_schemas as get_mssql_schemas,
-)
-from posthog.temporal.data_imports.pipelines.mysql import (
-    MySQLSourceConfig,
-    get_schemas as get_mysql_schemas,
-)
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import PartitionFormat, PartitionMode
-from posthog.temporal.data_imports.pipelines.postgres import (
-    PostgreSQLSourceConfig,
-    get_schemas as get_postgres_schemas,
-)
 from posthog.warehouse.data_load.service import (
     external_data_workflow_exists,
     pause_external_data_schedule,
     sync_external_data_job_workflow,
     unpause_external_data_schedule,
 )
-from posthog.warehouse.models.ssh_tunnel import SSHTunnel
 from posthog.warehouse.s3 import get_s3_client
 from posthog.warehouse.types import IncrementalFieldType
 from posthog.sync import database_sync_to_async
-
-from .external_data_source import ExternalDataSource
 
 
 class ExternalDataSchema(CreatedMetaFields, UpdatedMetaFields, UUIDModel, DeletedMetaFields):
@@ -340,11 +323,11 @@ def update_should_sync(schema_id: str, team_id: int, should_sync: bool) -> Exter
     return schema
 
 
-def get_all_schemas_for_source_id(source_id: uuid.UUID, team_id: int):
+def get_all_schemas_for_source_id(source_id: str, team_id: int):
     return list(ExternalDataSchema.objects.exclude(deleted=True).filter(team_id=team_id, source_id=source_id).all())
 
 
-def sync_old_schemas_with_new_schemas(new_schemas: list[str], source_id: uuid.UUID, team_id: int) -> list[str]:
+def sync_old_schemas_with_new_schemas(new_schemas: list[str], source_id: str, team_id: int) -> list[str]:
     old_schemas = get_all_schemas_for_source_id(source_id=source_id, team_id=team_id)
     old_schemas_names = [schema.name for schema in old_schemas]
 
@@ -400,135 +383,3 @@ def sync_frequency_interval_to_sync_frequency(sync_frequency_interval: timedelta
         return "30day"
 
     raise ValueError(f"Frequency interval {sync_frequency_interval} is not supported")
-
-
-def filter_snowflake_incremental_fields(columns: list[tuple[str, str]]) -> list[tuple[str, IncrementalFieldType]]:
-    results: list[tuple[str, IncrementalFieldType]] = []
-    for column_name, type in columns:
-        type = type.lower()
-        if type.startswith("timestamp"):
-            results.append((column_name, IncrementalFieldType.Timestamp))
-        elif type == "date":
-            results.append((column_name, IncrementalFieldType.Date))
-        elif type == "datetime":
-            results.append((column_name, IncrementalFieldType.DateTime))
-        elif type == "numeric":
-            results.append((column_name, IncrementalFieldType.Numeric))
-
-    return results
-
-
-def filter_postgres_incremental_fields(columns: list[tuple[str, str]]) -> list[tuple[str, IncrementalFieldType]]:
-    results: list[tuple[str, IncrementalFieldType]] = []
-    for column_name, type in columns:
-        type = type.lower()
-        if type.startswith("timestamp"):
-            results.append((column_name, IncrementalFieldType.Timestamp))
-        elif type == "date":
-            results.append((column_name, IncrementalFieldType.Date))
-        elif type == "integer" or type == "smallint" or type == "bigint":
-            results.append((column_name, IncrementalFieldType.Integer))
-
-    return results
-
-
-def get_postgres_row_count(
-    host: str, port: str, database: str, user: str, password: str, schema: str, ssh_tunnel: SSHTunnel
-) -> dict[str, int]:
-    def get_row_count(postgres_host: str, postgres_port: int):
-        connection = psycopg2.connect(
-            host=postgres_host,
-            port=postgres_port,
-            dbname=database,
-            user=user,
-            password=password,
-            sslmode="prefer",
-            connect_timeout=5,
-            sslrootcert="/tmp/no.txt",
-            sslcert="/tmp/no.txt",
-            sslkey="/tmp/no.txt",
-        )
-
-        try:
-            with connection.cursor() as cursor:
-                cursor.execute(
-                    """
-                    SELECT tablename as table_name FROM pg_tables WHERE schemaname = %(schema)s
-                    UNION ALL
-                    SELECT matviewname as table_name FROM pg_matviews WHERE schemaname = %(schema)s
-                    """,
-                    {"schema": schema},
-                )
-                tables = cursor.fetchall()
-
-                if not tables:
-                    return {}
-
-                counts = [
-                    sql.SQL("SELECT {table_name} AS table_name, COUNT(*) AS row_count FROM {schema}.{table}").format(
-                        table_name=sql.Literal(table[0]), schema=sql.Identifier(schema), table=sql.Identifier(table[0])
-                    )
-                    for table in tables
-                ]
-
-                union_counts = sql.SQL(" UNION ALL ").join(counts)
-                cursor.execute(union_counts)
-                row_count_result = cursor.fetchall()
-                row_counts = {row[0]: row[1] for row in row_count_result}
-            return row_counts
-        finally:
-            connection.close()
-
-    if ssh_tunnel.enabled:
-        with ssh_tunnel.get_tunnel(host, int(port)) as tunnel:
-            if tunnel is None:
-                raise Exception("Can't open tunnel to SSH server")
-
-            return get_row_count(tunnel.local_bind_host, tunnel.local_bind_port)
-
-    return get_row_count(host, int(port))
-
-
-def filter_mysql_incremental_fields(columns: list[tuple[str, str]]) -> list[tuple[str, IncrementalFieldType]]:
-    results: list[tuple[str, IncrementalFieldType]] = []
-    for column_name, type in columns:
-        type = type.lower()
-        if type.startswith("timestamp"):
-            results.append((column_name, IncrementalFieldType.Timestamp))
-        elif type == "date":
-            results.append((column_name, IncrementalFieldType.Date))
-        elif type == "datetime":
-            results.append((column_name, IncrementalFieldType.DateTime))
-        elif type == "tinyint" or type == "smallint" or type == "mediumint" or type == "int" or type == "bigint":
-            results.append((column_name, IncrementalFieldType.Integer))
-
-    return results
-
-
-def filter_mssql_incremental_fields(columns: list[tuple[str, str]]) -> list[tuple[str, IncrementalFieldType]]:
-    results: list[tuple[str, IncrementalFieldType]] = []
-    for column_name, type in columns:
-        type = type.lower()
-        if type == "date":
-            results.append((column_name, IncrementalFieldType.Date))
-        elif type == "datetime" or type == "datetime2" or type == "smalldatetime":
-            results.append((column_name, IncrementalFieldType.DateTime))
-        elif type == "tinyint" or type == "smallint" or type == "int" or type == "bigint":
-            results.append((column_name, IncrementalFieldType.Integer))
-
-    return results
-
-
-def get_sql_schemas_for_source_type(
-    source_type: ExternalDataSource.Type, job_inputs: dict[str, Any]
-) -> dict[str, list[tuple[str, str]]]:
-    if source_type == ExternalDataSource.Type.POSTGRES:
-        schemas = get_postgres_schemas(PostgreSQLSourceConfig.from_dict(job_inputs))
-    elif source_type == ExternalDataSource.Type.MYSQL:
-        schemas = get_mysql_schemas(MySQLSourceConfig.from_dict(job_inputs))
-    elif source_type == ExternalDataSource.Type.MSSQL:
-        schemas = get_mssql_schemas(MSSQLSourceConfig.from_dict(job_inputs))
-    else:
-        raise Exception("Unsupported source_type")
-
-    return schemas

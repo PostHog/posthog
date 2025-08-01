@@ -95,7 +95,11 @@ export function PathRegexModal({ filter, isOpen, onSave, onClose }: PathRegexMod
                             <LemonButton
                                 type="primary"
                                 onClick={() => {
-                                    onSave({ alias: alias.trim(), regex: regex.trim() })
+                                    onSave({
+                                        alias: alias.trim(),
+                                        regex: regex.trim(),
+                                        order: filter?.order,
+                                    })
                                 }}
                                 disabledReason={disabledReason}
                             >

@@ -93,12 +93,12 @@ export function ActionsPie({ inSharedMode, showPersonsModal = true, context }: C
             onDataPointClick(
                 {
                     breakdown: dataset.breakdownValues?.[index],
-                    compare: dataset.compareLabels?.[index],
+                    compare: dataset.compareLabels?.[index] || undefined,
                 },
                 indexedResults[0]
             )
         }
-    } else if (!showPersonsModal || formula) {
+    } else if (showPersonsModal && !formula) {
         onClick = (payload: GraphPointPayload) => {
             const { points, index } = payload
             const dataset = points.referencePoint.dataset
