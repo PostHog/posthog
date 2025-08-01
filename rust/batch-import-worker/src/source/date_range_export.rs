@@ -63,6 +63,7 @@ pub struct DateRangeExportSourceBuilder {
     end_qp: String,
     timeout: Duration,
     retries: usize,
+    retry_delay: Duration,
     auth_config: AuthConfig,
     date_format: String,
     headers: HashMap<String, String>,
@@ -86,6 +87,7 @@ impl DateRangeExportSourceBuilder {
             end_qp: "end".to_string(),
             timeout: Duration::from_secs(30),
             retries: 3,
+            retry_delay: Duration::from_secs(30),
             auth_config: AuthConfig::None,
             date_format: "%Y-%m-%dT%H:%M:%SZ".to_string(),
             headers: HashMap::new(),
@@ -105,6 +107,11 @@ impl DateRangeExportSourceBuilder {
 
     pub fn with_retries(mut self, retries: usize) -> Self {
         self.retries = retries;
+        self
+    }
+
+    pub fn with_retry_delay(mut self, retry_delay: Duration) -> Self {
+        self.retry_delay = retry_delay;
         self
     }
 
@@ -149,6 +156,7 @@ impl DateRangeExportSourceBuilder {
             date_format: self.date_format,
             client,
             retries: self.retries,
+            retry_delay: self.retry_delay,
             extractor: self.extractor,
             temp_dir: Arc::new(Mutex::new(None)),
             prepared_keys: Arc::new(Mutex::new(HashMap::new())),
@@ -161,6 +169,7 @@ pub struct DateRangeExportSource {
     pub intervals: Vec<(DateTime<Utc>, DateTime<Utc>)>,
     pub client: Client,
     pub retries: usize,
+    pub retry_delay: Duration,
     pub extractor: Arc<dyn PartExtractor>,
     pub start_qp: String,
     pub end_qp: String,
@@ -270,12 +279,26 @@ impl DateRangeExportSource {
                 .await
             {
                 Ok(result) => return Ok(result),
-                Err(e) if e.to_string().contains("Rate limit exceeded") && retries > 0 => {
-                    info!("Rate limit hit (429), sleeping for 30 seconds before retry. Retries remaining: {}", retries);
-                    tokio::time::sleep(Duration::from_secs(30)).await;
-                    retries -= 1;
+                Err(e) => {
+                    // Check if this is a rate limit error by looking for a 429 status in the error chain
+                    let is_rate_limit_error = e.chain().any(|err| {
+                        if let Some(reqwest_err) = err.downcast_ref::<ReqwestError>() {
+                            reqwest_err
+                                .status()
+                                .map_or(false, |status| status.as_u16() == 429)
+                        } else {
+                            false
+                        }
+                    });
+
+                    if is_rate_limit_error && retries > 0 {
+                        info!("Rate limit hit (429), sleeping for {:?} before retry. Retries remaining: {}", self.retry_delay, retries);
+                        tokio::time::sleep(self.retry_delay).await;
+                        retries -= 1;
+                    } else {
+                        return Err(e);
+                    }
                 }
-                Err(e) => return Err(e),
             }
         }
     }
@@ -339,11 +362,6 @@ impl DateRangeExportSource {
         }
 
         let response = response.error_for_status().or_else(|status_error| {
-            if let Some(status) = status_error.status() {
-                if status.as_u16() == 429 {
-                    return Err(Error::msg("Rate limit exceeded"));
-                }
-            }
             let friendly_msg = extract_status_error(&status_error);
             Err(status_error).user_error(friendly_msg)
         })?;
@@ -1015,53 +1033,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_429_retry_eventually_succeeds() {
-        let server = MockServer::start();
-
-        let success_mock = server.mock(|when, then| {
-            when.method(httpmock::Method::GET)
-                .path("/export")
-                .query_param("start", "2023-01-01T00:00:00Z")
-                .query_param("end", "2023-01-01T01:00:00Z");
-            then.status(200)
-                .header("content-type", "application/json")
-                .body(TEST_DATA);
-        });
-
-        let source = DateRangeExportSource::builder(
-            server.url("/export"),
-            Utc.with_ymd_and_hms(2023, 1, 1, 0, 0, 0).unwrap(),
-            Utc.with_ymd_and_hms(2023, 1, 1, 1, 0, 0).unwrap(),
-            3600,
-            Arc::new(MockExtractor),
-        )
-        .with_retries(3)
-        .with_auth(AuthConfig::None)
-        .with_date_format("%Y-%m-%dT%H:%M:%SZ".to_string())
-        .with_headers(HashMap::new())
-        .build()
-        .unwrap();
-
-        source.prepare_for_job().await.unwrap();
-        let keys = source.keys().await.unwrap();
-        let key = &keys[0];
-
-        source.prepare_key(key).await.unwrap();
-
-        let size = source.size(key).await.unwrap();
-        assert!(size.is_some());
-        assert_eq!(size.unwrap(), TEST_DATA.len() as u64);
-
-        success_mock.assert();
-
-        source.cleanup_after_job().await.unwrap();
-    }
-
-    #[tokio::test]
     async fn test_429_exhausts_retries() {
         let server = MockServer::start();
 
-        let _mock = server.mock(|when, then| {
+        let mock = server.mock(|when, then| {
             when.method(httpmock::Method::GET).path("/export");
             then.status(429); // Always return 429
         });
@@ -1073,10 +1048,8 @@ mod tests {
             3600,
             Arc::new(MockExtractor),
         )
-        .with_retries(1)
-        .with_auth(AuthConfig::None)
-        .with_date_format("%Y-%m-%dT%H:%M:%SZ".to_string())
-        .with_headers(HashMap::new())
+        .with_retries(2)
+        .with_retry_delay(Duration::from_millis(1))
         .build()
         .unwrap();
 
@@ -1086,10 +1059,19 @@ mod tests {
 
         let result = source.prepare_key(key).await;
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("Rate limit exceeded"));
+
+        // Check that we get a reqwest error with 429 status
+        if let Some(reqwest_error) = result.unwrap_err().downcast_ref::<ReqwestError>() {
+            assert_eq!(reqwest_error.status().unwrap().as_u16(), 429);
+        } else {
+            panic!("Expected reqwest error with 429 status");
+        }
+
+        assert_eq!(
+            mock.hits(),
+            3,
+            "Should have made 3 calls (initial + 2 retries)"
+        );
 
         source.cleanup_after_job().await.unwrap();
     }
