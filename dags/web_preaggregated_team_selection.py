@@ -3,64 +3,14 @@ import os
 import dagster
 from clickhouse_driver import Client
 
-from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.cluster import ClickhouseCluster
 from posthog.models.web_preaggregated.team_selection import (
     WEB_PRE_AGGREGATED_TEAM_SELECTION_DICTIONARY_NAME,
     WEB_PRE_AGGREGATED_TEAM_SELECTION_DATA_SQL,
     DEFAULT_ENABLED_TEAM_IDS,
-    get_top_teams_by_median_pageviews_sql,
-    DEFAULT_TOP_TEAMS_BY_PAGEVIEWS_LIMIT,
 )
 from dags.common import JobOwners, settings_with_log_comment
-
-
-def get_teams_from_env() -> set[int]:
-    env_teams = os.getenv("WEB_ANALYTICS_ENABLED_TEAM_IDS")
-    if not env_teams:
-        return set()
-
-    try:
-        return {int(tid.strip()) for tid in env_teams.split(",") if tid.strip()}
-    except ValueError:
-        return set()
-
-
-def get_teams_from_top_pageviews(context: dagster.OpExecutionContext) -> set[int]:
-    try:
-        sql = get_top_teams_by_median_pageviews_sql(DEFAULT_TOP_TEAMS_BY_PAGEVIEWS_LIMIT)
-        result = sync_execute(sql)
-        return {row[0] for row in result}
-    except ValueError as e:
-        context.log.error(f"Invalid configuration for pageviews query: {e}")  # noqa: TRY400
-        return set()
-    except Exception as e:
-        context.log.warning(f"Failed to fetch top teams by pageviews: {e}")
-        return set()
-
-
-def get_teams_from_feature_enrollment(
-    context: dagster.OpExecutionContext, flag_key: str = "web-analytics-enabled"
-) -> set[int]:
-    """Get teams where users have enrolled in a feature preview"""
-    try:
-        from posthog.models.person.person import Person
-
-        # Query PostgreSQL for teams with enrolled users
-        enrollment_key = f"$feature_enrollment/{flag_key}"
-        team_ids = (
-            Person.objects.filter(**{f"properties__{enrollment_key}": True})
-            .values_list("team_id", flat=True)
-            .distinct()
-        )
-
-        team_ids_set = set(team_ids)
-        context.log.info(f"Found {len(team_ids_set)} teams with users enrolled in '{flag_key}'")
-        return team_ids_set
-
-    except Exception as e:
-        context.log.warning(f"Failed to get teams with feature enrollment for '{flag_key}': {e}")
-        return set()
+from dags.web_preaggregated_team_selection_strategies import strategy_registry
 
 
 def validate_team_ids(context: dagster.OpExecutionContext, team_ids: set[int]) -> set[int]:
@@ -91,37 +41,27 @@ def validate_team_ids(context: dagster.OpExecutionContext, team_ids: set[int]) -
 def get_team_ids_from_sources(context: dagster.OpExecutionContext) -> list[int]:
     all_team_ids = set(DEFAULT_ENABLED_TEAM_IDS)  # Always include defaults
 
-    # Get enabled strategies from env var (comma-separated list)
-    enabled_strategies = os.getenv("WEB_ANALYTICS_TEAM_STRATEGIES", "env,pageviews").split(",")
-    enabled_strategies = [s.strip().lower() for s in enabled_strategies]
+    enabled_strategy_names = os.getenv(
+        "WEB_ANALYTICS_TEAM_SELECTION_STRATEGIES", "environment_variable,high_pageviews"
+    ).split(",")
+    enabled_strategy_names = [s.strip().lower() for s in enabled_strategy_names]
 
-    # Validate strategy names
-    valid_strategies = {"env", "most_pageviews", "feature_enrollment"}
-    invalid_strategies = set(enabled_strategies) - valid_strategies
+    available_strategies = strategy_registry.get_available_strategies()
+    invalid_strategies = set(enabled_strategy_names) - set(available_strategies)
     if invalid_strategies:
         context.log.warning(f"Unknown strategies will be ignored: {invalid_strategies}")
 
-    enabled_strategies = [s for s in enabled_strategies if s in valid_strategies]
-    context.log.info(f"Enabled strategies: {enabled_strategies}")
+    valid_strategy_names = [s for s in enabled_strategy_names if s in available_strategies]
+    context.log.info(f"Enabled strategies: {valid_strategy_names}")
 
-    # Add teams from environment variable
-    if "env" in enabled_strategies:
-        env_teams = get_teams_from_env()
-        all_team_ids.update(env_teams)
-        context.log.info(f"Added {len(env_teams)} teams from environment variable")
-
-    # Add teams with most pageviews
-    if "most_pageviews" in enabled_strategies:
-        pageview_teams = get_teams_from_top_pageviews(context)
-        all_team_ids.update(pageview_teams)
-        context.log.info(f"Added {len(pageview_teams)} teams from top pageviews")
-
-    # Add teams with feature flag enrollment
-    if "feature_enrollment" in enabled_strategies:
-        flag_key = os.getenv("WEB_ANALYTICS_FEATURE_FLAG_KEY", "web-analytics-api")
-        enrollment_teams = get_teams_from_feature_enrollment(context, flag_key)
-        all_team_ids.update(enrollment_teams)
-        context.log.info(f"Added {len(enrollment_teams)} teams from feature enrollment")
+    for strategy_name in valid_strategy_names:
+        strategy = strategy_registry.get_strategy(strategy_name)
+        if strategy:
+            try:
+                strategy_teams = strategy.get_teams(context)
+                all_team_ids.update(strategy_teams)
+            except Exception as e:
+                context.log.warning(f"Strategy '{strategy_name}' failed: {e}")
 
     # Validate team IDs exist
     validated_team_ids = validate_team_ids(context, all_team_ids)
