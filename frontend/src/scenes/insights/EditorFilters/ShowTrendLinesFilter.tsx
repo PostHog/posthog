@@ -37,7 +37,7 @@ export function ShowTrendLinesFilter(): JSX.Element {
         <LemonCheckbox
             className="p-1 px-2"
             onChange={toggleShowTrendLines}
-            checked={!!showTrendLines}
+            checked={!disabledReason && !!showTrendLines}
             disabledReason={disabledReason}
             label={<span className="font-normal">Show trend lines</span>}
             size="small"

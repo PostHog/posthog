@@ -15,7 +15,7 @@ import { LineGraph } from '../../insights/views/LineGraph/LineGraph'
 import { openPersonsModal } from '../persons-modal/PersonsModal'
 import { trendsDataLogic } from '../trendsDataLogic'
 import { teamLogic } from 'scenes/teamLogic'
-import { ciRanges, trendLine, movingAverage } from 'lib/statistics'
+import { ciRanges, movingAverage } from 'lib/statistics'
 
 export function ActionsLineGraph({
     inSharedMode = false,
@@ -133,27 +133,6 @@ export function ActionsLineGraph({
             datasets.push(lowerCIBound, upperCIBound)
         }
 
-        if (showTrendLines) {
-            const trendData = trendLine(originalDataset.data)
-            const trendDataset = {
-                ...originalDataset,
-                label: `${originalDataset.label} (Trend line)`,
-                action: {
-                    ...originalDataset.action,
-                    name: `${originalDataset.label} (Trend line)`,
-                },
-                data: trendData,
-                borderColor: color,
-                backgroundColor: 'transparent',
-                pointRadius: 0,
-                borderWidth: 2,
-                borderDash: [5, 5],
-                hideTooltip: true,
-                yAxisID,
-            }
-            datasets.push(trendDataset)
-        }
-
         if (showMovingAverage) {
             const movingAverageData = movingAverage(originalDataset.data, movingAverageIntervals)
             const movingAverageDataset = {
@@ -195,6 +174,7 @@ export function ActionsLineGraph({
             supportsPercentStackView={supportsPercentStackView}
             yAxisScaleType={yAxisScaleType}
             showMultipleYAxes={showMultipleYAxes}
+            showTrendLines={showTrendLines}
             tooltip={
                 isLifecycle
                     ? {
