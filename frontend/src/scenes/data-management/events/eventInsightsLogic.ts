@@ -7,9 +7,8 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
-import { QueryBasedInsightModel } from '~/types'
 
-import { cleanFilters, SavedInsightFilters } from 'scenes/saved-insights/savedInsightsLogic'
+import { cleanFilters, InsightsResult, SavedInsightFilters } from 'scenes/saved-insights/savedInsightsLogic'
 
 import type { eventInsightsLogicType } from './eventInsightsLogicType'
 
@@ -28,7 +27,7 @@ export const eventInsightsLogic = kea<eventInsightsLogicType>([
     }),
     loaders(({ values }) => ({
         insights: {
-            __default: { results: [] as QueryBasedInsightModel[], count: 0 },
+            __default: { results: [], count: 0, filters: null, offset: 0 } as InsightsResult,
             loadInsights: async () => {
                 const { filters } = values
                 const { order, page, events, search } = filters
@@ -38,10 +37,8 @@ export const eventInsightsLogic = kea<eventInsightsLogicType>([
                         results: [],
                         count: 0,
                         filters,
-                        page: 1,
-                        previous: null,
-                        next: null,
-                    }
+                        offset: 0,
+                    } as InsightsResult
                 }
 
                 const params: Record<string, any> = {
@@ -64,12 +61,8 @@ export const eventInsightsLogic = kea<eventInsightsLogicType>([
                 return {
                     ...response,
                     filters,
-                    count: response.count,
-                    page,
-                    previous: response.previous,
-                    next: response.next,
                     results: response.results.map((rawInsight: any) => getQueryBasedInsightModel(rawInsight)),
-                }
+                } as InsightsResult
             },
         },
     })),
