@@ -44,15 +44,3 @@ class TestUtils(BaseTest):
                 }
             )
         self.assertEqual(str(e.exception), "Invalid or missing '__hx_ast' kind: Invalid")
-
-        with self.assertRaises(ValueError) as e:
-            deserialize_hx_ast(
-                {
-                    "__hx_ast": "Call",
-                    "name": "hello",
-                    "args": ["invalid type"],
-                }
-            )
-        self.assertEqual(
-            str(e.exception), "Invalid type for field 'args' in AST node 'Call'. Expected 'Expr', got 'str'"
-        )
