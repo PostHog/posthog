@@ -115,8 +115,7 @@ async function executeMigration(filename, content) {
 
 async function runMigrations() {
     try {
-        // Create keyspace first (defaults to true for local dev and tests)
-        // Set CREATE_KEYSPACE_FOR_CASSANDRA=false to skip in production
+        // skip keyspace creation for cloud deployments
         const shouldCreateKeyspace = process.env.CREATE_KEYSPACE_FOR_CASSANDRA !== 'false'
 
         if (shouldCreateKeyspace) {

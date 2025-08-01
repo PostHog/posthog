@@ -1,5 +1,5 @@
 import { LogLevel, PluginLogLevel, PluginsServerConfig, stringToPluginServerMode, ValueMatcher } from '../types'
-import { isDevEnv, isProdEnv, isTestEnv, stringToBoolean } from '../utils/env-utils'
+import { isCloud, isDevEnv, isProdEnv, isTestEnv, stringToBoolean } from '../utils/env-utils'
 import { KAFKAJS_LOG_LEVEL_MAPPING } from './constants'
 import {
     KAFKA_APP_METRICS_2,
@@ -43,7 +43,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         CASSANDRA_KEYSPACE: isTestEnv() ? 'test_posthog' : 'posthog',
         CASSANDRA_USER: null,
         CASSANDRA_PASSWORD: null,
-        CREATE_KEYSPACE_FOR_CASSANDRA: true, // in prod and dev keyspace is already created we only need it for local dev and testing
+        CREATE_KEYSPACE_FOR_CASSANDRA: isCloud() ? false : true, // in the cloud the keyspace is already created we only need it for local dev and testing
         WRITE_BEHAVIOURAL_COUNTERS_TO_CASSANDRA: false,
         EVENT_OVERFLOW_BUCKET_CAPACITY: 1000,
         EVENT_OVERFLOW_BUCKET_REPLENISH_RATE: 1.0,
