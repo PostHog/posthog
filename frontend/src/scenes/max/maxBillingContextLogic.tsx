@@ -309,15 +309,13 @@ export const maxBillingContextLogic = kea<maxBillingContextLogicType>([
                         return prev === next
                     }
                     return (
-                        // destinations
-                        // featureFlags
                         prev[0] === next[0] && // billing
                         prev[1] === next[1] && // billingUsageResponse
                         prev[2] === next[2] && // billingSpendResponse
                         prev[3] === next[3] && // isAdminOrOwner
                         prev[4]?.autocapture_opt_out === next[4]?.autocapture_opt_out && // currentTeam
-                        prev[5] === next[5] &&
-                        prev[6]?.length === next[6]?.length
+                        prev[5] === next[5] && // featureFlags
+                        prev[6]?.length === next[6]?.length // destinations
                     )
                 },
             },
