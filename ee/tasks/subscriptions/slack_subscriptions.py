@@ -10,6 +10,11 @@ logger = structlog.get_logger(__name__)
 UTM_TAGS_BASE = "utm_source=posthog&utm_campaign=subscription_report"
 
 
+def get_slack_integration_for_team(team) -> Integration | None:
+    """Get Slack integration for a team. Returns None if not found."""
+    return Integration.objects.filter(team=team, kind="slack").first()
+
+
 def _block_for_asset(asset: ExportedAsset) -> dict:
     image_url = asset.get_public_content_url()
     alt_text = None
@@ -28,18 +33,30 @@ def send_slack_subscription_report(
     total_asset_count: int,
     is_new_subscription: bool = False,
 ) -> None:
-    utm_tags = f"{UTM_TAGS_BASE}&utm_medium=slack"
-
-    resource_info = subscription.resource_info
-    if not resource_info:
-        raise NotImplementedError("This type of subscription resource is not supported")
-
-    integration = Integration.objects.filter(team=subscription.team, kind="slack").first()
+    """Send Slack subscription report."""
+    integration = get_slack_integration_for_team(subscription.team)
 
     if not integration:
         # TODO: Write error to subscription...
         logger.error("No Slack integration found for team...")
         return
+
+    send_slack_message_with_integration(integration, subscription, assets, total_asset_count, is_new_subscription)
+
+
+def send_slack_message_with_integration(
+    integration: Integration,
+    subscription: Subscription,
+    assets: list[ExportedAsset],
+    total_asset_count: int,
+    is_new_subscription: bool = False,
+) -> None:
+    """Send Slack message using provided integration. Pure function - no database operations."""
+    utm_tags = f"{UTM_TAGS_BASE}&utm_medium=slack"
+
+    resource_info = subscription.resource_info
+    if not resource_info:
+        raise NotImplementedError("This type of subscription resource is not supported")
 
     slack_integration = SlackIntegration(integration)
 

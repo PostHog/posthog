@@ -9,7 +9,11 @@ from celery import shared_task
 from prometheus_client import Counter
 
 from ee.tasks.subscriptions.email_subscriptions import send_email_subscription_report
-from ee.tasks.subscriptions.slack_subscriptions import send_slack_subscription_report
+from ee.tasks.subscriptions.slack_subscriptions import (
+    send_slack_subscription_report,
+    send_slack_message_with_integration,
+    get_slack_integration_for_team,
+)
 from ee.tasks.subscriptions.subscription_utils import generate_assets
 from posthog import settings
 from posthog.exceptions_capture import capture_exception
@@ -100,7 +104,17 @@ async def deliver_subscription_report_async(
         SUBSCRIPTION_QUEUED.labels(destination="slack").inc()
 
         try:
-            await database_sync_to_async(send_slack_subscription_report)(
+            # Only wrap the database query part
+            integration = await database_sync_to_async(get_slack_integration_for_team)(subscription.team)
+
+            if not integration:
+                logger.error("No Slack integration found for team...")
+                SUBSCRIPTION_FAILURE.labels(destination="slack").inc()
+                return
+
+            # This part is pure HTTP calls - no database_sync_to_async needed
+            send_slack_message_with_integration(
+                integration,
                 subscription,
                 assets,
                 total_asset_count=len(insights),
