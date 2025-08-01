@@ -35,6 +35,7 @@ def get_experiment_stats_method(experiment) -> str:
             return "bayesian"
         return stats_method
 
+
 def split_baseline_and_test_variants(
     variants: list[V],
 ) -> tuple[V, list[V]]:
