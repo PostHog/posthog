@@ -59,6 +59,7 @@ import type {
     RecordingOrder,
     RecordingsQuery,
     RevenueAnalyticsConfig,
+    SharingConfigurationSettings,
 } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 
@@ -4227,6 +4228,7 @@ export interface SharingConfigurationType {
     enabled: boolean
     access_token: string
     created_at: string
+    settings?: SharingConfigurationSettings
 }
 
 export enum ExporterFormat {

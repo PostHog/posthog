@@ -88,13 +88,13 @@ export function PropertyValue({
         if (preloadValues) {
             load('')
         }
-    }, [])
+    }, [preloadValues, load])
 
     useEffect(() => {
         if (!isDateTimeProperty) {
             load('')
         }
-    }, [propertyKey, isDateTimeProperty])
+    }, [propertyKey, isDateTimeProperty, load])
 
     const displayOptions = options[propertyKey]?.values || []
 
