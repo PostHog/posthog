@@ -106,8 +106,6 @@ const deprecatedColors = {
     // --color-data-color-1: var(--data-color-1);
     // --color-data-color-10: var(--data-color-10);
 
-    'bg-bridge': 'var(--color-bg-bridge)',
-
     // Non-color vars
     'modal-shadow-elevation': 'var(--modal-shadow-elevation)',
     'opacity-disabled': 'var(--opacity-disabled)',

@@ -148,8 +148,6 @@ $xxl: 1600px;
 // root variables are defined as a mixin here because
 // the toolbar needs them attached to :host not :root
 // @mixin root-variables {
-//     --color-bg-bridge: #ebece8;
-
 //     // Non-color vars
 //     --radius: 0.375rem; // Increased from Tailwind's default of 0.25rem
 //     --radius-sm: 0.25rem; // Increased from Tailwind's default of 0.125rem
@@ -305,7 +303,6 @@ $xxl: 1600px;
 //     --border-bold-3000: var(--border-bold-3000-light);
 
 //     // --glass-bg-3000: var(--glass-bg-3000-light);
-//     --glass-bg-3000: var(--color-bg-surface-tertiary); // var(--glass-bg-3000-light);
 //     --glass-border-3000: var(--glass-border-3000-light);
 //     --color-bg-light: #fff;
 //     --color-bg-table: #f9faf7;
