@@ -67,6 +67,10 @@ class PerformanceViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
         where_clause = " AND ".join(conditions)
 
+        # Query for limit + 1 to accurately determine if more results exist
+        query_limit = data["limit"] + 1
+        params["query_limit"] = query_limit
+
         # Using direct ClickHouse query for simple filtering - similar to app_metrics2.py pattern
         # This avoids the overhead of a full HogQL QueryRunner for straightforward SELECT operations
         query = f"""
@@ -84,11 +88,15 @@ class PerformanceViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         FROM performance_events
         WHERE {where_clause}
         ORDER BY timestamp DESC
-        LIMIT %(limit)s
+        LIMIT %(query_limit)s
         OFFSET %(offset)s
         """
 
         results = sync_execute(query, params)
+
+        # Determine if more results exist and limit returned data
+        has_more = len(results) > data["limit"]
+        results = results[:data["limit"]]
 
         events = []
         for row in results:
@@ -108,7 +116,7 @@ class PerformanceViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         return Response({
             "results": events,
             "count": len(events),
-            "next": len(events) == data["limit"]
+            "next": has_more
         })
 
     def _parse_date_range(self, data: dict[str, Any]) -> tuple[datetime, datetime]:
