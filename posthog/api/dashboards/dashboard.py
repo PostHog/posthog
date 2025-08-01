@@ -16,7 +16,6 @@ from posthog.api.dashboards.dashboard_template_json_schema_parser import (
 )
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.insight_variable import InsightVariable
-from posthog.api.insight_variable import InsightVariableMappingMixin
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
@@ -144,7 +143,7 @@ class DashboardBasicSerializer(
         return "v2"
 
 
-class DashboardSerializer(DashboardBasicSerializer, InsightVariableMappingMixin):
+class DashboardSerializer(DashboardBasicSerializer):
     tiles = serializers.SerializerMethodField()
     filters = serializers.SerializerMethodField()
     variables = serializers.SerializerMethodField()
@@ -488,16 +487,9 @@ class DashboardSerializer(DashboardBasicSerializer, InsightVariableMappingMixin)
 
         return dashboard.filters
 
-    def get_variables(self, dashboard: Dashboard) -> dict:
+    def get_variables(self, dashboard: Dashboard) -> dict | None:
         request = self.context.get("request")
-
-        if request:
-            variables_override = variables_override_requested_by_client(request)
-
-            if variables_override is not None:
-                return self.map_stale_to_latest(variables_override, list(self.context["insight_variables"]))
-
-        return self.map_stale_to_latest(dashboard.variables, list(self.context["insight_variables"]))
+        return variables_override_requested_by_client(request, dashboard, list(self.context["insight_variables"]))
 
     def validate(self, data):
         if data.get("use_dashboard", None) and data.get("use_template", None):
