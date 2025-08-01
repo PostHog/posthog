@@ -2,7 +2,7 @@ import { Properties } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 import pLimit from 'p-limit'
 
-import { GroupTypeIndex, TeamId } from '../../../types'
+import { GroupTypeIndex, Hub, TeamId } from '../../../types'
 import { DB } from '../../../utils/db/db'
 import { MessageSizeTooLarge } from '../../../utils/db/error'
 import { logger } from '../../../utils/logger'
@@ -24,6 +24,8 @@ import {
 import { ClickhouseGroupRepository } from './repositories/clickhouse-group-repository'
 import { GroupRepository } from './repositories/group-repository.interface'
 import { GroupRepositoryTransaction } from './repositories/group-repository-transaction.interface'
+
+export type GroupHub = Pick<Hub, 'db' | 'groupRepository' | 'clickhouseGroupRepository'>
 
 class GroupCache {
     private cache: Map<string, GroupUpdate | null>
@@ -117,20 +119,15 @@ const DEFAULT_OPTIONS: BatchWritingGroupStoreOptions = {
 export class BatchWritingGroupStore implements GroupStore {
     private options: BatchWritingGroupStoreOptions
 
-    constructor(
-        private db: DB,
-        private groupRepository: GroupRepository,
-        private clickhouseGroupRepository: ClickhouseGroupRepository,
-        options?: Partial<BatchWritingGroupStoreOptions>
-    ) {
+    constructor(private groupHub: GroupHub, options?: Partial<BatchWritingGroupStoreOptions>) {
         this.options = { ...DEFAULT_OPTIONS, ...options }
     }
 
     forBatch(): GroupStoreForBatch {
         return new BatchWritingGroupStoreForBatch(
-            this.db,
-            this.groupRepository,
-            this.clickhouseGroupRepository,
+            this.groupHub.db,
+            this.groupHub.groupRepository,
+            this.groupHub.clickhouseGroupRepository,
             this.options
         )
     }

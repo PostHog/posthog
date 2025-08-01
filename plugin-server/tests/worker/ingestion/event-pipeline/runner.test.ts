@@ -26,8 +26,6 @@ import * as metrics from '../../../../src/worker/ingestion/event-pipeline/metric
 import { prepareEventStep } from '../../../../src/worker/ingestion/event-pipeline/prepareEventStep'
 import { processPersonsStep } from '../../../../src/worker/ingestion/event-pipeline/processPersonsStep'
 import { EventPipelineRunner } from '../../../../src/worker/ingestion/event-pipeline/runner'
-import { ClickhouseGroupRepository } from '../../../../src/worker/ingestion/groups/repositories/clickhouse-group-repository'
-import { PostgresGroupRepository } from '../../../../src/worker/ingestion/groups/repositories/postgres-group-repository'
 import { PostgresPersonRepository } from '../../../../src/worker/ingestion/persons/repositories/postgres-person-repository'
 
 jest.mock('../../../../src/worker/ingestion/event-pipeline/processPersonsStep')
@@ -169,11 +167,10 @@ describe('EventPipelineRunner', () => {
             new PostgresPersonRepository(hub.db.postgres),
             hub.kafkaProducer
         )
-        const groupRepository = new PostgresGroupRepository(hub.db.postgres)
         const groupStoreForBatch = new BatchWritingGroupStoreForBatch(
             hub.db,
-            groupRepository,
-            new ClickhouseGroupRepository(hub.kafkaProducer)
+            hub.groupRepository,
+            hub.clickhouseGroupRepository
         )
         runner = new TestEventPipelineRunner(
             hub,
@@ -362,11 +359,10 @@ describe('EventPipelineRunner', () => {
                     new PostgresPersonRepository(hub.db.postgres),
                     hub.kafkaProducer
                 )
-                const groupRepository = new PostgresGroupRepository(hub.db.postgres)
                 const groupStoreForBatch = new BatchWritingGroupStoreForBatch(
                     hub.db,
-                    groupRepository,
-                    new ClickhouseGroupRepository(hub.kafkaProducer)
+                    hub.groupRepository,
+                    hub.clickhouseGroupRepository
                 )
                 runner = new TestEventPipelineRunner(
                     hub,
@@ -416,11 +412,10 @@ describe('EventPipelineRunner', () => {
                     new PostgresPersonRepository(hub.db.postgres),
                     hub.kafkaProducer
                 )
-                const groupRepository = new PostgresGroupRepository(hub.db.postgres)
                 const groupStoreForBatch = new BatchWritingGroupStoreForBatch(
                     hub.db,
-                    groupRepository,
-                    new ClickhouseGroupRepository(hub.kafkaProducer)
+                    hub.groupRepository,
+                    hub.clickhouseGroupRepository
                 )
 
                 runner = new TestEventPipelineRunner(

@@ -29,8 +29,6 @@ import { retryIfRetriable } from '../utils/retries'
 import { EventPipelineResult, EventPipelineRunner } from '../worker/ingestion/event-pipeline/runner'
 import { BatchWritingGroupStore } from '../worker/ingestion/groups/batch-writing-group-store'
 import { GroupStoreForBatch } from '../worker/ingestion/groups/group-store-for-batch.interface'
-import { ClickhouseGroupRepository } from '../worker/ingestion/groups/repositories/clickhouse-group-repository'
-import { PostgresGroupRepository } from '../worker/ingestion/groups/repositories/postgres-group-repository'
 import { BatchWritingPersonsStore } from '../worker/ingestion/persons/batch-writing-person-store'
 import { FlushResult, PersonsStoreForBatch } from '../worker/ingestion/persons/persons-store-for-batch'
 import { PostgresPersonRepository } from '../worker/ingestion/persons/repositories/postgres-person-repository'
@@ -166,16 +164,11 @@ export class IngestionConsumer {
             }
         )
 
-        this.groupStore = new BatchWritingGroupStore(
-            this.hub.db,
-            new PostgresGroupRepository(this.hub.db.postgres),
-            new ClickhouseGroupRepository(this.hub.kafkaProducer),
-            {
-                maxConcurrentUpdates: this.hub.GROUP_BATCH_WRITING_MAX_CONCURRENT_UPDATES,
-                maxOptimisticUpdateRetries: this.hub.GROUP_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES,
-                optimisticUpdateRetryInterval: this.hub.GROUP_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS,
-            }
-        )
+        this.groupStore = new BatchWritingGroupStore(this.hub, {
+            maxConcurrentUpdates: this.hub.GROUP_BATCH_WRITING_MAX_CONCURRENT_UPDATES,
+            maxOptimisticUpdateRetries: this.hub.GROUP_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES,
+            optimisticUpdateRetryInterval: this.hub.GROUP_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS,
+        })
 
         this.deduplicationRedis = createDeduplicationRedis(this.hub)
         this.kafkaConsumer = new KafkaConsumer({
