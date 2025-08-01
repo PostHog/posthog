@@ -82,6 +82,7 @@ export const THINKING_MESSAGES = [
     'Galumphing', // awkward progress
     'Puttering', // low-energy thinking
     'Whiffling', // light, directionless searching
+    'Thinking', // just thinking, like in the old days
 ]
 
 export const getRandomThinkingMessage = (): string => {
