@@ -7,7 +7,7 @@ const path = require('path')
 // Configuration
 const config = {
     contactPoints: [process.env.CASSANDRA_HOST || 'localhost'],
-    localDataCenter: 'datacenter1',
+    localDataCenter: process.env.CASSANDRA_LOCAL_DATACENTER || 'datacenter1',
     keyspace: process.env.CASSANDRA_KEYSPACE || 'posthog',
     credentials:
         process.env.CASSANDRA_USER && process.env.CASSANDRA_PASSWORD
@@ -20,7 +20,7 @@ const client = new cassandra.Client(config)
 async function createKeyspace() {
     const systemClient = new cassandra.Client({
         contactPoints: config.contactPoints,
-        localDataCenter: 'datacenter1',
+        localDataCenter: config.localDataCenter,
         credentials: config.credentials,
     })
 
