@@ -99,10 +99,12 @@ export function SessionTimelineItemContainer<T extends SessionTimelineItem>({
     return (
         <div className={itemContainer({ selected })} data-item-id={item.id}>
             <div className={itemPreview()}>
-                <span className="text-xs text-tertiary w-[55px] shrink-0">
+                <span className="text-xs text-tertiary w-[50px] shrink-0">
                     {dayjs(item.timestamp).format('HH:mm:ss')}
                 </span>
-                <renderer.icon className="shrink-0" />
+                <div className="shrink-0 w-[24px] text-center">
+                    <renderer.icon />
+                </div>
                 <div className="flex-grow">
                     <renderer.renderPreview item={item} selected={selected} {...props} />
                 </div>
