@@ -107,7 +107,7 @@ def _export_to_png(exported_asset: ExportedAsset) -> None:
 
         screenshot_width: ScreenWidth
         wait_for_css_selector: CSSSelector
-
+        screenshot_height: int = 600
         if exported_asset.insight is not None:
             url_to_render = absolute_uri(f"/exporter?token={access_token}&legend")
             wait_for_css_selector = ".ExportedInsight"
@@ -123,6 +123,7 @@ def _export_to_png(exported_asset: ExportedAsset) -> None:
             )
             wait_for_css_selector = exported_asset.export_context.get("css_selector", ".SessionRecordingPlayer")
             screenshot_width = exported_asset.export_context.get("width", 1400)
+            screenshot_height = exported_asset.export_context.get("height", 600)
 
             logger.info(
                 "exporting_replay",
@@ -137,7 +138,7 @@ def _export_to_png(exported_asset: ExportedAsset) -> None:
 
         logger.info("exporting_asset", asset_id=exported_asset.id, render_url=url_to_render)
 
-        _screenshot_asset(image_path, url_to_render, screenshot_width, wait_for_css_selector)
+        _screenshot_asset(image_path, url_to_render, screenshot_width, wait_for_css_selector, screenshot_height)
 
         with open(image_path, "rb") as image_file:
             image_data = image_file.read()
@@ -167,12 +168,13 @@ def _screenshot_asset(
     url_to_render: str,
     screenshot_width: ScreenWidth,
     wait_for_css_selector: CSSSelector,
+    screenshot_height: int = 600,
 ) -> None:
     driver: Optional[webdriver.Chrome] = None
     try:
         driver = get_driver()
         # Set initial window size with a more reasonable height to prevent initial rendering issues
-        driver.set_window_size(screenshot_width, 600)
+        driver.set_window_size(screenshot_width, screenshot_height)
         driver.get(url_to_render)
         WebDriverWait(driver, 20).until(lambda x: x.find_element(By.CSS_SELECTOR, wait_for_css_selector))
         # Also wait until nothing is loading

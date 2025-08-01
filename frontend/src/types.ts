@@ -4256,6 +4256,7 @@ export interface ReplayExportContext {
     timestamp?: number
     css_selector?: string
     width?: number
+    height?: number
     filename?: string
 }
 
