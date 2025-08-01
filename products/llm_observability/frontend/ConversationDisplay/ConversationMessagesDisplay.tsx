@@ -10,7 +10,7 @@ import { isObject } from 'lib/utils'
 import React from 'react'
 
 import { LLMInputOutput } from '../LLMInputOutput'
-import { llmObservabilityTraceLogic } from '../llmObservabilityTraceLogic'
+import { llmObservabilityTraceLogic, DisplayOption } from '../llmObservabilityTraceLogic'
 import { CompatMessage, VercelSDKImageMessage } from '../types'
 import { normalizeMessages } from '../utils'
 
@@ -29,8 +29,70 @@ export function ConversationMessagesDisplay({
     raisedError?: boolean
     bordered?: boolean
 }): JSX.Element {
+    const { inputMessageShowStates, outputMessageShowStates, displayOption } = useValues(
+        llmObservabilityTraceLogic
+    ) as any
+    const {
+        setInputMessageShowStates,
+        setOutputMessageShowStates,
+        toggleInputMessage,
+        toggleOutputMessage,
+        showAllInputMessages,
+        hideAllInputMessages,
+        showAllOutputMessages,
+        hideAllOutputMessages,
+    } = useActions(llmObservabilityTraceLogic) as any
+
     const inputNormalized = normalizeMessages(input, 'user', tools)
     const outputNormalized = normalizeMessages(output, 'assistant')
+
+    React.useEffect(() => {
+        const initialInputStates = inputNormalized.map((message, i) => {
+            if (displayOption === DisplayOption.ExpandAll) {
+                return true
+            }
+            // For 'collapse_except_output_and_last_input', show only the last input message (and not system/tool messages)
+            return (
+                i === inputNormalized.length - 1 &&
+                message.role !== 'system' &&
+                message.role !== 'tool' &&
+                message.role !== 'tools'
+            )
+        })
+
+        setInputMessageShowStates(initialInputStates)
+    }, [input, tools, displayOption, setInputMessageShowStates, inputNormalized.length, inputNormalized])
+
+    React.useEffect(() => {
+        const initialOutputStates = outputNormalized.map(() => {
+            return true
+        })
+        setOutputMessageShowStates(initialOutputStates)
+    }, [output, displayOption, setOutputMessageShowStates, outputNormalized])
+
+    const inputButtons =
+        input.length > 0 ? (
+            <div className="flex items-center gap-1">
+                <LemonButton size="xsmall" onClick={showAllInputMessages} icon={<IconEye />}>
+                    Expand all
+                </LemonButton>
+                <LemonButton size="xsmall" onClick={hideAllInputMessages} icon={<IconEyeHidden />}>
+                    Collapse all
+                </LemonButton>
+            </div>
+        ) : undefined
+
+    const outputButtons =
+        outputNormalized.length > 0 && !raisedError ? (
+            <div className="flex items-center gap-1">
+                <LemonButton size="xsmall" onClick={showAllOutputMessages} icon={<IconEye />}>
+                    Expand all
+                </LemonButton>
+                <LemonButton size="xsmall" onClick={hideAllOutputMessages} icon={<IconEyeHidden />}>
+                    Collapse all
+                </LemonButton>
+            </div>
+        ) : undefined
 
     const outputDisplay = raisedError ? (
         <div className="flex items-center gap-1.5 rounded border text-default p-2 font-medium bg-[var(--bg-fill-error-tertiary)] border-danger overflow-x-auto">
@@ -55,32 +117,45 @@ export function ConversationMessagesDisplay({
             )}
         </div>
     ) : outputNormalized.length > 0 ? (
-        outputNormalized.map((message, i) => <LLMMessageDisplay key={i} message={message} isOutput />)
+        outputNormalized.map((message, i) => (
+            <LLMMessageDisplay
+                key={i}
+                message={message}
+                show={outputMessageShowStates[i] || false}
+                isOutput
+                onToggle={() => toggleOutputMessage(i)}
+            />
+        ))
     ) : (
         <div className="rounded border text-default p-2 italic bg-[var(--bg-fill-error-tertiary)]">No output</div>
     )
 
+    const inputDisplay =
+        inputNormalized.length > 0 ? (
+            inputNormalized.map((message, i) => (
+                <React.Fragment key={i}>
+                    <LLMMessageDisplay
+                        message={message}
+                        show={inputMessageShowStates[i] || false}
+                        onToggle={() => toggleInputMessage(i)}
+                    />
+                    {i < inputNormalized.length - 1 && (
+                        <div className="border-l ml-2 h-2" /> /* Spacer connecting messages visually */
+                    )}
+                </React.Fragment>
+            ))
+        ) : (
+            <div className="rounded border text-default p-2 italic bg-[var(--bg-fill-error-tertiary)]">No input</div>
+        )
+
     return (
         <LLMInputOutput
-            inputDisplay={
-                inputNormalized.length > 0 ? (
-                    inputNormalized.map((message, i) => (
-                        <React.Fragment key={i}>
-                            <LLMMessageDisplay message={message} />
-                            {i < inputNormalized.length - 1 && (
-                                <div className="border-l ml-2 h-2" /> /* Spacer connecting messages visually */
-                            )}
-                        </React.Fragment>
-                    ))
-                ) : (
-                    <div className="rounded border text-default p-2 italic bg-[var(--bg-fill-error-tertiary)]">
-                        No input
-                    </div>
-                )
-            }
+            inputDisplay={inputDisplay}
             outputDisplay={outputDisplay}
             outputHeading={raisedError ? `Error (${httpStatus})` : 'Output'}
             bordered={bordered}
+            inputButtons={inputButtons}
+            outputButtons={outputButtons}
         />
     )
 }
@@ -100,11 +175,20 @@ export const ImageMessageDisplay = ({
 }
 
 export const LLMMessageDisplay = React.memo(
-    ({ message, isOutput }: { message: CompatMessage; isOutput?: boolean }): JSX.Element => {
+    ({
+        message,
+        isOutput,
+        show,
+        onToggle,
+    }: {
+        message: CompatMessage
+        isOutput?: boolean
+        show: boolean
+        onToggle?: () => void
+    }): JSX.Element => {
         const { role, content, ...additionalKwargs } = message
         const { isRenderingMarkdown } = useValues(llmObservabilityTraceLogic)
         const { toggleMarkdownRendering } = useActions(llmObservabilityTraceLogic)
-        const [show, setShow] = React.useState(role !== 'system' && role !== 'tool' && role !== 'tools')
 
         // Compute whether the content looks like Markdown.
         // (Heuristic: looks for code blocks, blockquotes, headings, italic, bold, underline, strikethrough)
@@ -215,7 +299,7 @@ export const LLMMessageDisplay = React.memo(
                                 noPadding
                                 icon={show ? <IconEyeHidden /> : <IconEye />}
                                 tooltip="Toggle message content"
-                                onClick={() => setShow((prev) => !prev)}
+                                onClick={onToggle}
                             />
                             {isMarkdownCandidate && (
                                 <LemonButton

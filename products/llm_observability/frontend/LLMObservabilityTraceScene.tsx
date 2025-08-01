@@ -1,4 +1,4 @@
-import { IconAIText, IconChat, IconMessage, IconReceipt, IconSearch } from '@posthog/icons'
+import { IconAIText, IconChat, IconGear, IconMessage, IconReceipt, IconSearch } from '@posthog/icons'
 import {
     LemonButton,
     LemonDivider,
@@ -32,6 +32,7 @@ import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 import { FeedbackTag } from './components/FeedbackTag'
 import { MetricTag } from './components/MetricTag'
 import { ConversationMessagesDisplay } from './ConversationDisplay/ConversationMessagesDisplay'
+import { DisplayOptionsModal } from './ConversationDisplay/DisplayOptionsModal'
 import { MetadataHeader } from './ConversationDisplay/MetadataHeader'
 import { ParametersHeader } from './ConversationDisplay/ParametersHeader'
 import { LLMInputOutput } from './LLMInputOutput'
@@ -433,6 +434,7 @@ function findNodeForEvent(tree: EnrichedTraceTreeNode[], eventId: string): Enric
 const EventContent = React.memo(
     ({ event, tree }: { event: LLMTrace | LLMTraceEvent | null; tree: EnrichedTraceTreeNode[] }): JSX.Element => {
         const { setupPlaygroundFromEvent } = useActions(llmObservabilityPlaygroundLogic)
+        const { showDisplayOptionsModal } = useActions(llmObservabilityTraceLogic)
         const { featureFlags } = useValues(featureFlagLogic)
         const [viewMode, setViewMode] = useState<'conversation' | 'raw'>('conversation')
 
@@ -515,7 +517,9 @@ const EventContent = React.memo(
                                     )}
                                 </div>
                             )}
-                            {(showPlaygroundButton || hasSessionID(event)) && (
+                            {(showPlaygroundButton ||
+                                hasSessionID(event) ||
+                                (event && isLLMTraceEvent(event) && event.event === '$ai_generation')) && (
                                 <div className="flex flex-row items-center gap-2">
                                     {showPlaygroundButton && (
                                         <LemonButton
@@ -526,6 +530,17 @@ const EventContent = React.memo(
                                             tooltip="Try this prompt in the playground"
                                         >
                                             Try in Playground
+                                        </LemonButton>
+                                    )}
+                                    {event && isLLMTraceEvent(event) && event.event === '$ai_generation' && (
+                                        <LemonButton
+                                            type="secondary"
+                                            size="xsmall"
+                                            icon={<IconGear />}
+                                            onClick={showDisplayOptionsModal}
+                                            tooltip="Configure how messages are displayed"
+                                        >
+                                            Display Options
                                         </LemonButton>
                                     )}
                                     {hasSessionID(event) && (
@@ -597,6 +612,7 @@ const EventContent = React.memo(
                                 },
                             ]}
                         />
+                        <DisplayOptionsModal />
                     </>
                 )}
             </div>
