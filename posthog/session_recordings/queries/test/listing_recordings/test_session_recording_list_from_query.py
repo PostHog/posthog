@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Literal
 from unittest.mock import ANY
 from uuid import uuid4
@@ -16,6 +16,7 @@ from posthog.models import GroupTypeMapping, Person
 from posthog.models.action import Action
 from posthog.models.group.util import create_group
 from posthog.models.team import Team
+from posthog.models.utils import uuid7
 from posthog.session_recordings.queries.session_recording_list_from_query import (
     SessionRecordingListFromQuery,
     SessionRecordingQueryResult,
@@ -1861,12 +1862,29 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             ["two days before base time"],
         )
 
+    @parameterized.expand(
+        [
+            (
+                "that searching from 20 days ago excludes sessions past TTL",
+                20,
+            ),
+            (
+                "that searching from 21 days ago still excludes sessions past TTL",
+                21,
+            ),
+            (
+                "that even searching from 22 days ago (exactly at TTL boundary) excludes sessions past TTL",
+                22,
+            ),
+        ]
+    )
     @snapshot_clickhouse_queries
-    def test_date_from_filter_cannot_search_before_ttl(self):
+    def test_date_from_filter_respects_ttl(self, _name: str, days_ago: int):
         with freeze_time(self.an_hour_ago):
             user = "test_date_from_filter_cannot_search_before_ttl-user"
             Person.objects.create(team=self.team, distinct_ids=[user], properties={"email": "bla"})
 
+            # Create a session past TTL (22 days old)
             produce_replay_summary(
                 distinct_id=user,
                 session_id="storage is past ttl",
@@ -1875,6 +1893,8 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
                 last_timestamp=(self.an_hour_ago - relativedelta(days=3)),
                 team_id=self.team.id,
             )
+
+            # Create a session within TTL (19 days old)
             produce_replay_summary(
                 distinct_id=user,
                 session_id="storage is not past ttl",
@@ -1884,17 +1904,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             )
 
             self._assert_query_matches_session_ids(
-                {"date_from": (self.an_hour_ago - relativedelta(days=20)).strftime("%Y-%m-%d")},
-                ["storage is not past ttl"],
-            )
-
-            self._assert_query_matches_session_ids(
-                {"date_from": (self.an_hour_ago - relativedelta(days=21)).strftime("%Y-%m-%d")},
-                ["storage is not past ttl"],
-            )
-
-            self._assert_query_matches_session_ids(
-                {"date_from": (self.an_hour_ago - relativedelta(days=22)).strftime("%Y-%m-%d")},
+                {"date_from": (self.an_hour_ago - relativedelta(days=days_ago)).strftime("%Y-%m-%d")},
                 ["storage is not past ttl"],
             )
 
@@ -1921,7 +1931,6 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             {"date_to": (self.an_hour_ago - relativedelta(days=4)).strftime("%Y-%m-%d")}, []
         )
 
-        # we have to change this test because the behavior of the API did change 🙈
         self._assert_query_matches_session_ids(
             {"date_to": (self.an_hour_ago - relativedelta(days=3)).strftime("%Y-%m-%dT%H:%M:%S")},
             ["three days before base time"],
@@ -1947,9 +1956,9 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             }
         )
 
-        assert len(session_recordings) == 1
-        assert session_recordings[0]["session_id"] == session_id
-        assert session_recordings[0]["duration"] == 6 * 60 * 60
+        assert [{"session_id": session_id, "duration": 6 * 60 * 60}] == [
+            {"session_id": sr["session_id"], "duration": sr["duration"]} for sr in session_recordings
+        ]
 
     @snapshot_clickhouse_queries
     def test_person_id_filter(self):
@@ -3853,6 +3862,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             session_id="1",
             first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
+            ensure_analytics_event_in_session=False,
         )
         create_event(
             team=self.team,
@@ -3870,6 +3880,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             session_id="2",
             first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
+            ensure_analytics_event_in_session=False,
         )
         create_event(
             team=self.team,
@@ -3887,6 +3898,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             session_id="3",
             first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
+            ensure_analytics_event_in_session=False,
         )
         create_event(
             team=self.team,
@@ -3904,6 +3916,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             session_id="4",
             first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
+            ensure_analytics_event_in_session=False,
         )
         create_event(
             team=self.team,
@@ -3927,7 +3940,9 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             session_id="1",
             first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
+            ensure_analytics_event_in_session=False,
         )
+
         create_event(
             team=self.team,
             distinct_id="user",
@@ -3945,6 +3960,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             session_id="3",
             first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
+            ensure_analytics_event_in_session=False,
         )
         create_event(
             team=self.team,
@@ -3963,6 +3979,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             session_id="4",
             first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
+            ensure_analytics_event_in_session=False,
         )
         create_event(
             team=self.team,
@@ -3996,6 +4013,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             session_id="1",
             first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
+            ensure_analytics_event_in_session=False,
         )
         create_event(
             team=self.team,
@@ -4013,6 +4031,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             session_id="3",
             first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
+            ensure_analytics_event_in_session=False,
         )
         create_event(
             team=self.team,
@@ -4030,6 +4049,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             session_id="4",
             first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
+            ensure_analytics_event_in_session=False,
         )
         create_event(
             team=self.team,
@@ -4061,54 +4081,63 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
     def test_can_filter_for_does_not_contain_event_properties(self) -> None:
         Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
 
+        paul_google_session = str(uuid7())
         produce_replay_summary(
             distinct_id="user",
-            session_id="1",
+            session_id=paul_google_session,
             first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
+            ensure_analytics_event_in_session=False,
         )
         create_event(
             team=self.team,
             distinct_id="user",
-            timestamp=self.an_hour_ago,
+            timestamp=self.an_hour_ago + timedelta(minutes=1),
             properties={
-                "$session_id": "1",
-                "$window_id": "1",
-                "email": "paul@google.com",
+                "$session_id": paul_google_session,
+                "$window_id": str(uuid7()),
+                "something": "paul@google.com",
+                "has": "paul@google.com",
             },
         )
 
+        paul_paul_session = str(uuid7())
         produce_replay_summary(
             distinct_id="user",
-            session_id="3",
-            first_timestamp=self.an_hour_ago,
+            session_id=paul_paul_session,
+            first_timestamp=self.an_hour_ago + timedelta(minutes=2),
             team_id=self.team.id,
+            ensure_analytics_event_in_session=False,
         )
         create_event(
             team=self.team,
             distinct_id="user",
-            timestamp=self.an_hour_ago,
+            timestamp=self.an_hour_ago + timedelta(minutes=3),
             properties={
-                "$session_id": "3",
-                "$window_id": "1",
-                "email": "paul@paul.com",
+                "$session_id": paul_paul_session,
+                "$window_id": str(uuid7()),
+                "something": "paul@paul.com",
+                "has": "paul@paul.com",
             },
         )
 
+        no_email_session = str(uuid7())
         produce_replay_summary(
             distinct_id="user",
-            session_id="4",
-            first_timestamp=self.an_hour_ago,
+            session_id=no_email_session,
+            first_timestamp=self.an_hour_ago + timedelta(minutes=4),
             team_id=self.team.id,
+            ensure_analytics_event_in_session=False,
         )
         create_event(
             team=self.team,
             distinct_id="user",
-            timestamp=self.an_hour_ago,
+            timestamp=self.an_hour_ago + timedelta(minutes=5),
             properties={
-                "$session_id": "4",
-                "$window_id": "1",
-                # no email
+                "$session_id": no_email_session,
+                "$window_id": str(uuid7()),
+                "has": "no something",
+                # no something
             },
         )
 
@@ -4116,14 +4145,14 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             {
                 "properties": [
                     {
-                        "key": "email",
+                        "key": "something",
                         "value": "paul.com",
                         "operator": "not_icontains",
                         "type": "event",
                     },
                 ]
             },
-            ["1", "4"],
+            [paul_google_session, no_email_session],
         )
 
     @parameterized.expand(

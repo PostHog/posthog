@@ -105,7 +105,10 @@ def print_cohort_hogql_query(cohort: Cohort, hogql_context: HogQLContext, *, tea
     hogql_context.enable_select_queries = True
     hogql_context.limit_top_select = False
     create_default_modifiers_for_team(team, hogql_context.modifiers)
-    return print_ast(query, context=hogql_context, dialect="clickhouse")
+
+    # Apply HogQL global settings to ensure consistency with regular queries
+    settings = HogQLGlobalSettings()
+    return print_ast(query, context=hogql_context, dialect="clickhouse", settings=settings)
 
 
 def format_static_cohort_query(cohort: Cohort, index: int, prepend: str) -> tuple[str, dict[str, Any]]:

@@ -1,21 +1,21 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
-import express from 'express'
 import { DateTime } from 'luxon'
+import express from 'ultimate-express'
 
 import { ModifiedRequest } from '~/router'
 
 import { Hub, PluginServerService } from '../types'
 import { logger } from '../utils/logger'
 import { delay, UUID, UUIDT } from '../utils/utils'
-import { CdpSourceWebhooksConsumer } from './consumers/cdp-source-webhooks.consumer'
+import { CdpSourceWebhooksConsumer, SourceWebhookError } from './consumers/cdp-source-webhooks.consumer'
 import { HogTransformerService } from './hog-transformations/hog-transformer.service'
 import { createCdpRedisPool } from './redis'
-import { HogExecutorExecuteOptions, HogExecutorService } from './services/hog-executor.service'
+import { HogExecutorExecuteAsyncOptions, HogExecutorService, MAX_ASYNC_STEPS } from './services/hog-executor.service'
 import { HogFlowExecutorService } from './services/hogflows/hogflow-executor.service'
 import { HogFlowManagerService } from './services/hogflows/hogflow-manager.service'
 import { HogFunctionManagerService } from './services/managers/hog-function-manager.service'
 import { HogFunctionTemplateManagerService } from './services/managers/hog-function-template-manager.service'
-import { EmailService } from './services/messaging/email.service'
+import { EmailTrackingService } from './services/messaging/email-tracking.service'
 import { HogFunctionMonitoringService } from './services/monitoring/hog-function-monitoring.service'
 import { HogWatcherService, HogWatcherState } from './services/monitoring/hog-watcher.service'
 import { NativeDestinationExecutorService } from './services/native-destination-executor.service'
@@ -37,7 +37,7 @@ export class CdpApi {
     private hogTransformer: HogTransformerService
     private hogFunctionMonitoringService: HogFunctionMonitoringService
     private cdpSourceWebhooksConsumer: CdpSourceWebhooksConsumer
-    private emailService: EmailService
+    private emailTrackingService: EmailTrackingService
 
     constructor(private hub: Hub) {
         this.hogFunctionManager = new HogFunctionManagerService(hub)
@@ -51,7 +51,12 @@ export class CdpApi {
         this.hogTransformer = new HogTransformerService(hub)
         this.hogFunctionMonitoringService = new HogFunctionMonitoringService(hub)
         this.cdpSourceWebhooksConsumer = new CdpSourceWebhooksConsumer(hub)
-        this.emailService = new EmailService(hub)
+        this.emailTrackingService = new EmailTrackingService(
+            hub,
+            this.hogFunctionManager,
+            this.hogFlowManager,
+            this.hogFunctionMonitoringService
+        )
     }
 
     public get service(): PluginServerService {
@@ -228,7 +233,8 @@ export class CdpApi {
                 for (const invocation of invocations) {
                     invocation.id = invocationID
 
-                    const options: HogExecutorExecuteOptions = {
+                    const options: HogExecutorExecuteAsyncOptions = {
+                        maxAsyncFunctions: MAX_ASYNC_STEPS,
                         asyncFunctionsNames: mock_async_functions ? ['fetch', 'sendEmail'] : undefined,
                         functions: mock_async_functions
                             ? {
@@ -458,6 +464,9 @@ export class CdpApi {
                     status: 'ok',
                 })
             } catch (error) {
+                if (error instanceof SourceWebhookError) {
+                    return res.status(error.status).json({ error: error.message })
+                }
                 return res.status(500).json({ error: 'Internal error' })
             }
         }
@@ -482,7 +491,7 @@ export class CdpApi {
         () =>
         async (req: ModifiedRequest, res: express.Response): Promise<any> => {
             try {
-                const { status, message } = await this.emailService.handleWebhook(req)
+                const { status, message } = await this.emailTrackingService.handleWebhook(req)
                 return res.status(status).json({ message })
             } catch (error) {
                 return res.status(500).json({ error: 'Internal error' })

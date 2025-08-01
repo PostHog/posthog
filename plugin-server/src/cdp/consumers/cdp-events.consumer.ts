@@ -15,6 +15,7 @@ import {
     CyclotronJobInvocation,
     CyclotronJobInvocationHogFunction,
     HogFunctionInvocationGlobals,
+    HogFunctionType,
     HogFunctionTypeType,
     MinimalAppMetric,
 } from '../types'
@@ -69,6 +70,11 @@ export class CdpEventsConsumer extends CdpConsumerBase {
         }
     }
 
+    protected filterHogFunction(hogFunction: HogFunctionType): boolean {
+        // By default we filter for those with no filters or filters specifically for events
+        return (hogFunction.filters?.source ?? 'events') === 'events'
+    }
+
     /**
      * Finds all matching hog functions for the given globals.
      * Filters them for their disabled state as well as masking configs
@@ -82,7 +88,7 @@ export class CdpEventsConsumer extends CdpConsumerBase {
 
             const teamsToLoad = [...new Set(invocationGlobals.map((x) => x.project.id))]
             const [hogFunctionsByTeam, teamsById] = await Promise.all([
-                this.hogFunctionManager.getHogFunctionsForTeams(teamsToLoad, this.hogTypes),
+                this.hogFunctionManager.getHogFunctionsForTeams(teamsToLoad, this.hogTypes, this.filterHogFunction),
                 this.hub.teamManager.getTeams(teamsToLoad),
             ])
 
@@ -133,7 +139,8 @@ export class CdpEventsConsumer extends CdpConsumerBase {
                 }
 
                 const state = states[item.hogFunction.id].state
-                if (state >= HogWatcherState.disabledForPeriod) {
+
+                if ([HogWatcherState.disabledForPeriod, HogWatcherState.disabledIndefinitely].includes(state)) {
                     this.hogFunctionMonitoringService.queueAppMetric(
                         {
                             team_id: item.teamId,
@@ -152,6 +159,9 @@ export class CdpEventsConsumer extends CdpConsumerBase {
 
                 if (state === HogWatcherState.degraded) {
                     item.queuePriority = 2
+                    if (this.hub.CDP_OVERFLOW_QUEUE_ENABLED) {
+                        item.queue = 'hog_overflow'
+                    }
                 }
 
                 validInvocations.push(item)
@@ -268,7 +278,7 @@ export class CdpEventsConsumer extends CdpConsumerBase {
             // Iterate over adding them to the list and updating their priority
             possibleInvocations.forEach((item) => {
                 const state = states[item.hogFlow.id].state
-                if (state >= HogWatcherState.disabledForPeriod) {
+                if ([HogWatcherState.disabledForPeriod, HogWatcherState.disabledIndefinitely].includes(state)) {
                     this.hogFunctionMonitoringService.queueAppMetric(
                         {
                             team_id: item.teamId,

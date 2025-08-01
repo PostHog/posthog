@@ -43,7 +43,7 @@ describe('HogFunctionHandler', () => {
         const template = await insertHogFunctionTemplate(hub.postgres, {
             id: 'template-test-hogflow-executor',
             name: 'Test Template',
-            hog: exampleHog,
+            code: exampleHog,
             inputs_schema: [
                 {
                     key: 'name',
@@ -134,7 +134,7 @@ describe('HogFunctionHandler', () => {
                     "Content-Type": "application/json",
                   },
                   "method": "POST",
-                  "timeoutMs": 10000,
+                  "timeoutMs": 3000,
                 },
               ],
             ]

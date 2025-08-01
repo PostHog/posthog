@@ -38,6 +38,10 @@ import { maxLogic } from './maxLogic'
 import type { maxThreadLogicType } from './maxThreadLogicType'
 import { isAssistantMessage, isAssistantToolCallMessage, isHumanMessage, isReasoningMessage } from './utils'
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
+import { maxBillingContextLogic } from './maxBillingContextLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { getRandomThinkingMessage } from './utils/thinkingMessages'
 
 export type MessageStatus = 'loading' | 'completed' | 'error'
 
@@ -71,12 +75,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
 
         // New messages have been added since we last updated the thread
         if (!values.streamingActive && props.conversation.messages.length > values.threadMessageCount) {
-            actions.setThread(
-                props.conversation.messages.map((message) => ({
-                    ...message,
-                    status: 'completed',
-                }))
-            )
+            actions.setThread(updateMessagesWithCompletedStatus(props.conversation.messages))
         }
 
         // Check if the meta fields like the `status` field have changed
@@ -94,6 +93,10 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             ['question', 'threadKeys', 'autoRun', 'conversationId as selectedConversationId', 'activeStreamingThreads'],
             maxContextLogic,
             ['compiledContext'],
+            maxBillingContextLogic,
+            ['billingContext'],
+            featureFlagLogic,
+            ['featureFlags'],
         ],
         actions: [
             maxLogic,
@@ -144,7 +147,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         ],
 
         threadRaw: [
-            (props.conversation?.messages ?? []) as ThreadMessage[],
+            updateMessagesWithCompletedStatus(props.conversation?.messages ?? []),
             {
                 addMessage: (state, { message }) => [...state, message],
                 replaceMessage: (state, { message, index }) => [
@@ -253,6 +256,10 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 const traceId = uuid()
                 actions.setTraceId(traceId)
                 apiData.trace_id = traceId
+
+                if (values.billingContext && values.featureFlags[FEATURE_FLAGS.MAX_BILLING_CONTEXT]) {
+                    apiData.billing_context = values.billingContext
+                }
 
                 const response = await api.conversations.stream(apiData, {
                     signal: cache.generationController.signal,
@@ -510,7 +517,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     const finalMessageSoFar = threadGrouped.at(-1)?.at(-1)
                     const thinkingMessage: ReasoningMessage & ThreadMessage = {
                         type: AssistantMessageType.Reasoning,
-                        content: 'Thinking',
+                        content: getRandomThinkingMessage(),
                         status: 'completed',
                         id: 'loader',
                     }
@@ -631,4 +638,14 @@ function removeConversationMessages({ messages, ...conversation }: ConversationD
  */
 function filterOutReasoningMessages(thread: ThreadMessage[]): ThreadMessage[] {
     return thread.filter((message) => !isReasoningMessage(message))
+}
+
+/**
+ * Update the status of the messages to completed, so the UI displays additional actions.
+ */
+function updateMessagesWithCompletedStatus(thread: RootAssistantMessage[]): ThreadMessage[] {
+    return thread.map((message) => ({
+        ...message,
+        status: 'completed',
+    }))
 }
