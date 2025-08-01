@@ -19,6 +19,9 @@ from posthog.models import (
     Annotation,
     EarlyAccessFeature,
     Notebook,
+    EventDefinition,
+    PropertyDefinition,
+    GroupTypeMapping,
 )
 from posthog.models.organization import OrganizationMembership
 from django.db import transaction, IntegrityError
@@ -169,6 +172,10 @@ def environments_rollback_migration(organization_id: int, environment_mappings: 
 
                 team.name = new_name
                 team.save()
+
+                EventDefinition.objects.filter(team_id=team.id).update(project_id=team.project_id)
+                PropertyDefinition.objects.filter(team_id=team.id).update(project_id=team.project_id)
+                GroupTypeMapping.objects.filter(team_id=team.id).update(project_id=team.project_id)
 
         _capture_environments_rollback_event("organization environments rollback completed", context, posthog_client)
 

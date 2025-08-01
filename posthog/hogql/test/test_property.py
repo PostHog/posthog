@@ -540,13 +540,15 @@ class TestProperty(BaseTest):
     def test_selector_to_expr(self):
         self.assertEqual(
             self._selector_to_expr("div"),
-            clear_locations(elements_chain_match('(^|;)div([-_a-zA-Z0-9\\.:"= ]*?)?($|;|:([^;^\\s]*(;|$|\\s)))')),
+            clear_locations(
+                elements_chain_match('(^|;)div([-_a-zA-Z0-9\\.:"= \\[\\]\\(\\),]*?)?($|;|:([^;^\\s]*(;|$|\\s)))')
+            ),
         )
         self.assertEqual(
             self._selector_to_expr("div > div"),
             clear_locations(
                 elements_chain_match(
-                    '(^|;)div([-_a-zA-Z0-9\\.:"= ]*?)?($|;|:([^;^\\s]*(;|$|\\s)))div([-_a-zA-Z0-9\\.:"= ]*?)?($|;|:([^;^\\s]*(;|$|\\s))).*'
+                    '(^|;)div([-_a-zA-Z0-9\\.:"= \\[\\]\\(\\),]*?)?($|;|:([^;^\\s]*(;|$|\\s)))div([-_a-zA-Z0-9\\.:"= \\[\\]\\(\\),]*?)?($|;|:([^;^\\s]*(;|$|\\s))).*'
                 )
             ),
         )
@@ -557,7 +559,7 @@ class TestProperty(BaseTest):
                     "{regex} and arrayCount(x -> x IN ['a'], elements_chain_elements) > 0",
                     {
                         "regex": elements_chain_match(
-                            '(^|;)a.*?href="boo".*?([-_a-zA-Z0-9\\.:"= ]*?)?($|;|:([^;^\\s]*(;|$|\\s)))'
+                            '(^|;)a.*?href="boo".*?([-_a-zA-Z0-9\\.:"= \\[\\]\\(\\),]*?)?($|;|:([^;^\\s]*(;|$|\\s)))'
                         )
                     },
                 )
@@ -566,7 +568,9 @@ class TestProperty(BaseTest):
         self.assertEqual(
             self._selector_to_expr(".class"),
             clear_locations(
-                elements_chain_match('(^|;).*?\\.class([-_a-zA-Z0-9\\.:"= ]*?)?($|;|:([^;^\\s]*(;|$|\\s)))')
+                elements_chain_match(
+                    '(^|;).*?\\.class([-_a-zA-Z0-9\\.:"= \\[\\]\\(\\),]*?)?($|;|:([^;^\\s]*(;|$|\\s)))'
+                )
             ),
         )
         self.assertEqual(
@@ -576,7 +580,7 @@ class TestProperty(BaseTest):
                     """{regex} and indexOf(elements_chain_ids, 'withid') > 0 and arrayCount(x -> x IN ['a'], elements_chain_elements) > 0""",
                     {
                         "regex": elements_chain_match(
-                            '(^|;)a.*?attr_id="withid".*?([-_a-zA-Z0-9\\.:"= ]*?)?($|;|:([^;^\\s]*(;|$|\\s)))'
+                            '(^|;)a.*?attr_id="withid".*?([-_a-zA-Z0-9\\.:"= \\[\\]\\(\\),]*?)?($|;|:([^;^\\s]*(;|$|\\s)))'
                         )
                     },
                 )
@@ -590,7 +594,7 @@ class TestProperty(BaseTest):
                     """{regex} and indexOf(elements_chain_ids, 'with-dashed-id') > 0 and arrayCount(x -> x IN ['a'], elements_chain_elements) > 0""",
                     {
                         "regex": elements_chain_match(
-                            '(^|;)a.*?attr_id="with\\-dashed\\-id".*?([-_a-zA-Z0-9\\.:"= ]*?)?($|;|:([^;^\\s]*(;|$|\\s)))'
+                            '(^|;)a.*?attr_id="with\\-dashed\\-id".*?([-_a-zA-Z0-9\\.:"= \\[\\]\\(\\),]*?)?($|;|:([^;^\\s]*(;|$|\\s)))'
                         )
                     },
                 )
@@ -610,6 +614,38 @@ class TestProperty(BaseTest):
             clear_locations(
                 parse_expr(
                     "indexOf(elements_chain_ids, 'with\\\\slashed\\\\id') > 0",
+                )
+            ),
+        )
+
+    def test_selector_to_expr_tailwind_classes(self):
+        """Test that selectors work with Tailwind classes that include brackets, parentheses, and commas"""
+        # Test Tailwind class with brackets (responsive design)
+        self.assertEqual(
+            self._selector_to_expr(".sm:[max-width:640px]"),
+            clear_locations(
+                elements_chain_match(
+                    '(^|;).*?\\.sm:\\[max\\-width:640px\\]([-_a-zA-Z0-9\\.:"= \\[\\]\\(\\),]*?)?($|;|:([^;^\\s]*(;|$|\\s)))'
+                )
+            ),
+        )
+
+        # Test Tailwind class with parentheses and commas (calc functions)
+        self.assertEqual(
+            self._selector_to_expr(".w-[calc(100%-2rem)]"),
+            clear_locations(
+                elements_chain_match(
+                    '(^|;).*?\\.w\\-\\[calc\\(100%\\-2rem\\)\\]([-_a-zA-Z0-9\\.:"= \\[\\]\\(\\),]*?)?($|;|:([^;^\\s]*(;|$|\\s)))'
+                )
+            ),
+        )
+
+        # Test Tailwind class with complex values including commas
+        self.assertEqual(
+            self._selector_to_expr(".shadow-[0_4px_6px_rgba(0,0,0,0.1)]"),
+            clear_locations(
+                elements_chain_match(
+                    '(^|;).*?\\.shadow\\-\\[0_4px_6px_rgba\\(0,0,0,0\\.1\\)\\]([-_a-zA-Z0-9\\.:"= \\[\\]\\(\\),]*?)?($|;|:([^;^\\s]*(;|$|\\s)))'
                 )
             ),
         )
@@ -811,10 +847,17 @@ class TestProperty(BaseTest):
             {"type": "person", "key": "$virt_initial_channel_type", "value": "Organic Search"}, scope="person"
         ) == self._parse_expr("$virt_initial_channel_type = 'Organic Search'")
 
+        assert self._property_to_expr(
+            {"type": "person", "key": "$virt_revenue_last_30_days", "value": 100, "operator": "exact"}, scope="person"
+        ) == self._parse_expr("$virt_revenue_last_30_days = 100")
+
     def test_virtual_person_properties_on_event_scope(self):
         assert self._property_to_expr(
             {"type": "person", "key": "$virt_initial_channel_type", "value": "Organic Search"}, scope="event"
         ) == self._parse_expr("person.$virt_initial_channel_type = 'Organic Search'")
+        assert self._property_to_expr(
+            {"type": "person", "key": "$virt_revenue", "value": 100, "operator": "exact"}, scope="event"
+        ) == self._parse_expr("person.$virt_revenue = 100")
 
     def test_map_virtual_properties(self):
         assert map_virtual_properties(
@@ -823,6 +866,10 @@ class TestProperty(BaseTest):
         assert map_virtual_properties(ast.Field(chain=["properties", "$virt_initial_channel_type"])) == ast.Field(
             chain=["$virt_initial_channel_type"]
         )
+        assert map_virtual_properties(ast.Field(chain=["person", "properties", "$virt_revenue"])) == ast.Field(
+            chain=["person", "$virt_revenue"]
+        )
+
         assert map_virtual_properties(ast.Field(chain=["person", "properties", "other property"])) == ast.Field(
             chain=["person", "properties", "other property"]
         )

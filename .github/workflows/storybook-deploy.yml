@@ -24,7 +24,7 @@ jobs:
             - name: Set up Node.js
               uses: actions/setup-node@1d0ff469b7ec7b3cb9d8673fde0c81c44821de2a # v4
               with:
-                  node-version: 18.12.1
+                  node-version: 22.17.1
                   cache: pnpm
                   cache-dependency-path: posthog/pnpm-lock.yaml
 
@@ -60,15 +60,3 @@ jobs:
                   commit_user_name: PostHog Bot
                   commit_user_email: hey@posthog.com
                   commit_author: PostHog Bot <hey@posthog.com>
-
-    posthog-analytics:
-        name: PostHog CI analytics
-        if: always()
-        needs: [storybook-deployment] # last job in this workflow
-        runs-on: ubuntu-latest
-        steps:
-            - name: Checkout
-              uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
-            - uses: ./.github/actions/ci-analytics
-              with:
-                  posthog-api-key: ${{ secrets.CI_ANALYTICS_TOKEN }}

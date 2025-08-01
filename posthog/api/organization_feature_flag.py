@@ -173,6 +173,7 @@ class OrganizationFeatureFlagView(
                 "rollout_percentage": flag_to_copy.rollout_percentage,
                 "ensure_experience_continuity": flag_to_copy.ensure_experience_continuity,
                 "deleted": False,
+                "evaluation_runtime": flag_to_copy.evaluation_runtime,
             }
             context = {
                 "request": request,
