@@ -55,11 +55,17 @@ def deserialize_hx_tag(hog_tag: dict) -> HogQLXTag:
 
 
 def deserialize_hx_ast(hog_ast: dict) -> AST:
-    tag_kind = hog_ast.get("__hx_tag", None)
+    """
+    Deserialize a HX AST and tag dicts into real Python AST classes.
+      - Dicts with `__hx_ast` -> AST node
+      - Dicts with `__hx_tag` -> HogQLXTag
+      - Lists that may contain tags, primitive values, or more lists
+    """
+    tag_kind = hog_ast.get("__hx_tag")
     if tag_kind is not None:
         return deserialize_hx_tag(hog_ast)
 
-    kind = hog_ast.get("__hx_ast", None)
+    kind = hog_ast.get("__hx_ast")
     if kind is None or kind not in AST_CLASSES:
         raise ValueError(f"Invalid or missing '__hx_ast' kind: {kind}")
 
@@ -67,41 +73,35 @@ def deserialize_hx_ast(hog_ast: dict) -> AST:
     cls_fields = {f.name: f.type for f in fields(cls)}
     init_args: dict[str, Any] = {}
 
+    def _deserialize(value: Any, field_type: type) -> Any:
+        if isinstance(value, dict) and "__hx_tag" in value:
+            return deserialize_hx_tag(value)
+
+        if isinstance(value, dict) and "__hx_ast" in value:
+            return deserialize_hx_ast(value)
+
+        if isinstance(value, list):
+            elem_type = unwrap_list(field_type)
+            return [_deserialize(v, elem_type) for v in value]
+
+        if is_ast_subclass(field_type):
+            if (field_type in (Expr, Constant)) and is_simple_value(value):
+                return Constant(value=value)
+            raise ValueError(
+                f"Invalid type for field expecting '{field_type.__name__}', " f"got '{type(value).__name__}'"
+            )
+
+        if is_simple_value(value):
+            return value
+
+        raise ValueError(f"Unexpected value of type '{type(value).__name__}' for field " f"expecting '{field_type}'")
+
     for key, value in hog_ast.items():
         if key == "__hx_ast":
             continue
-        if key in cls_fields:
-            if isinstance(value, dict) and "__hx_ast" in value:
-                init_args[key] = deserialize_hx_ast(value)
-            elif isinstance(value, list):
-                init_args[key] = []
-                for item in value:
-                    if isinstance(item, dict) and "__hx_ast" in item:
-                        init_args[key].append(deserialize_hx_ast(item))
-                    elif is_simple_value(item):
-                        field_type = unwrap_list(cls_fields[key])
-                        if is_ast_subclass(field_type):
-                            raise ValueError(
-                                f"Invalid type for field '{key}' in AST node '{kind}'. Expected '{field_type.__name__}', got '{type(item).__name__}'"
-                            )
-                        init_args[key].append(item)
-                    else:
-                        raise ValueError(f"Unexpected value for field '{key}' in AST node '{kind}'")
-            else:
-                field_type = unwrap_optional(cls_fields[key])
-                # We need an AST node, but we get just a string/number, see if a Constant is expected
-                if is_ast_subclass(field_type):
-                    if (field_type in (Expr, Constant)) and is_simple_value(value):
-                        init_args[key] = Constant(value=value)
-                    else:
-                        raise ValueError(
-                            f"Invalid type for field '{key}' in AST node '{kind}'. Expected {field_type}, got {type(value)}"
-                        )
-                elif is_simple_value(value):
-                    init_args[key] = value
-                else:
-                    raise ValueError(f"Unexpected value for field '{key}' in AST node '{kind}'")
-        else:
+        if key not in cls_fields:
             raise ValueError(f"Unexpected field '{key}' for AST node '{kind}'")
+
+        init_args[key] = _deserialize(value, cls_fields[key])
 
     return cls(**init_args)  # type: ignore
