@@ -45,44 +45,6 @@ from .toolkit import (
 
 
 class QueryPlannerNode(AssistantNode):
-    # def _get_dynamic_entity_tools(self):
-    #     """Create dynamic Pydantic models with correct entity types for this team."""
-    #     # Create Literal type with actual entity names
-    #     DynamicEntityLiteral = Literal["person", "session", *self._team_group_types]  # type: ignore
-    #     # Create dynamic retrieve_entity_properties model
-    #     retrieve_entity_properties_dynamic = create_model(
-    #         "retrieve_entity_properties",
-    #         entity=(
-    #             DynamicEntityLiteral,
-    #             Field(..., description="The type of the entity that you want to retrieve properties for."),
-    #         ),
-    #         __doc__="""
-    #         Use this tool to retrieve property names for a property group (entity). You will receive a list of properties containing their name, value type, and description, or a message that properties have not been found.
-
-    #         - **Infer the property groups from the user's request.**
-    #         - **Try other entities** if the tool doesn't return any properties.
-    #         - **Prioritize properties that are directly related to the context or objective of the user's query.**
-    #         - **Avoid using ambiguous properties** unless their relevance is explicitly confirmed.
-    #         """,
-    #     )
-    #     # Create dynamic retrieve_entity_property_values model
-    #     retrieve_entity_property_values_dynamic = create_model(
-    #         "retrieve_entity_property_values",
-    #         entity=(
-    #             DynamicEntityLiteral,
-    #             Field(..., description="The type of the entity that you want to retrieve properties for."),
-    #         ),
-    #         property_name=(
-    #             str,
-    #             Field(..., description="The name of the property that you want to retrieve values for."),
-    #         ),
-    #         __doc__="""
-    #         Use this tool to retrieve property values for a property name. Adjust filters to these values. You will receive a list of property values or a message that property values have not been found. Some properties can have many values, so the output will be truncated. Use your judgment to find a proper value.
-    #         """,
-    #     )
-
-    #     return retrieve_entity_properties_dynamic, retrieve_entity_property_values_dynamic
-
     def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
         conversation = self._construct_messages(state)
 
@@ -142,17 +104,7 @@ class QueryPlannerNode(AssistantNode):
                 "summary": "auto",  # Without this, there's no reasoning summaries! Only works with reasoning models
             },
         ).bind_tools(
-            [
-                # retrieve_event_properties,
-                # retrieve_action_properties,
-                # retrieve_event_property_values,
-                # retrieve_action_property_values,
-                # ask_user_for_help,
-                # final_answer,
-                *toolkit.get_tools(),
-                # dynamic_retrieve_entity_properties,
-                # dynamic_retrieve_entity_property_values,
-            ],
+            *toolkit.get_tools(),
             tool_choice="required",
             parallel_tool_calls=False,
         )
