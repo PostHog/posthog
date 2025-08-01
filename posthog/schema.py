@@ -2346,6 +2346,17 @@ class Storage(StrEnum):
     OBJECT_STORAGE = "object_storage"
 
 
+class SharingConfigurationSettings(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    detailed: Optional[bool] = None
+    legend: Optional[bool] = None
+    noHeader: Optional[bool] = None
+    showInspector: Optional[bool] = None
+    whitelabel: Optional[bool] = None
+
+
 class SourceFieldFileUploadJsonFormatConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
