@@ -58,7 +58,7 @@ import {
 import { InlineHogQLEditor } from './InlineHogQLEditor'
 import type { taxonomicFilterLogicType } from './taxonomicFilterLogicType'
 import { NotebookType } from 'scenes/notebooks/types'
-import { OPTIMIZED_PROPERTIES_BY_GROUP } from 'scenes/web-analytics/WebPropertyFilters'
+import { PREAGGREGATED_TABLE_SUPPORTED_PROPERTIES_BY_GROUP } from 'scenes/web-analytics/WebPropertyFilters'
 
 export const eventTaxonomicGroupProps: Pick<TaxonomicFilterGroup, 'getPopoverHeader' | 'getIcon'> = {
     getPopoverHeader: (eventDefinition: EventDefinition): string => {
@@ -208,9 +208,9 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             () => [(_, props) => props.allowNonCapturedEvents],
             (allowNonCapturedEvents: boolean | undefined) => allowNonCapturedEvents ?? false,
         ],
-        enableOptimizedHints: [
-            () => [(_, props) => props.enableOptimizedHints],
-            (enableOptimizedHints) => !!enableOptimizedHints,
+        enablePreaggregatedTableHints: [
+            () => [(_, props) => props.enablePreaggregatedTableHints],
+            (enablePreaggregatedTableHints) => !!enablePreaggregatedTableHints,
         ],
         taxonomicGroups: [
             (s) =>
@@ -226,7 +226,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                     s.eventMetadataPropertyDefinitions,
                     s.eventOrdering,
                     s.maxContextOptions,
-                    s.enableOptimizedHints,
+                    s.enablePreaggregatedTableHints,
                 ] as any, // workaround as Kea's SelectorTuple has a limit of 11 items: https://github.com/keajs/kea/blob/v3.1.5/src/types.ts#L162-L174
             (
                 currentTeam: TeamType,
@@ -240,7 +240,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 eventMetadataPropertyDefinitions: PropertyDefinition[],
                 eventOrdering: string | null,
                 maxContextOptions: MaxContextTaxonomicFilterOption[],
-                enableOptimizedHints: boolean
+                enablePreaggregatedTableHints: boolean
             ): TaxonomicFilterGroup[] => {
                 const { id: teamId } = currentTeam
                 const { excludedProperties, propertyAllowList } = propertyFilters
@@ -673,8 +673,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                                       (property: string) => ({
                                           name: property,
                                           value: property,
-                                          supported_by_preaggregated_tables: enableOptimizedHints
-                                              ? OPTIMIZED_PROPERTIES_BY_GROUP[
+                                          supported_by_preaggregated_tables: enablePreaggregatedTableHints
+                                              ? PREAGGREGATED_TABLE_SUPPORTED_PROPERTIES_BY_GROUP[
                                                     TaxonomicFilterGroupType.SessionProperties
                                                 ].includes(property)
                                               : false,
@@ -684,7 +684,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                             : {
                                   endpoint: combineUrl(
                                       `api/environments/${teamId}/sessions/property_definitions`,
-                                      enableOptimizedHints ? { enable_optimized_hints: 'true' } : {}
+                                      enablePreaggregatedTableHints ? { enable_preaggregated_table_hints: 'true' } : {}
                                   ).url,
                               }),
                         getName: (option: any) => option.name,

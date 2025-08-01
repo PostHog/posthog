@@ -69,7 +69,7 @@ export function TaxonomicPropertyFilter({
     hideBehavioralCohorts,
     addFilterDocLink,
     editable = true,
-    enableOptimizedHints = false,
+    enablePreaggregatedTableHints = false,
 }: PropertyFilterInternalProps): JSX.Element {
     const pageKey = useMemo(() => pageKeyInput || `filter-${uniqueMemoizedIndex++}`, [pageKeyInput])
     const groupTypes = taxonomicGroupTypes || DEFAULT_TAXONOMIC_GROUP_TYPES
@@ -145,7 +145,7 @@ export function TaxonomicPropertyFilter({
             excludedProperties={excludedProperties}
             optionsFromProp={taxonomicFilterOptionsFromProp}
             hideBehavioralCohorts={hideBehavioralCohorts}
-            enableOptimizedHints={enableOptimizedHints}
+            enablePreaggregatedTableHints={enablePreaggregatedTableHints}
         />
     )
 

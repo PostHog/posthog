@@ -10,7 +10,7 @@ import { useState } from 'react'
 
 import { webAnalyticsLogic } from './webAnalyticsLogic'
 
-export const OPTIMIZED_PROPERTIES_BY_GROUP = {
+export const PREAGGREGATED_TABLE_SUPPORTED_PROPERTIES_BY_GROUP = {
     [TaxonomicFilterGroupType.EventProperties]: [
         '$host',
         '$device_type',
@@ -65,7 +65,7 @@ export const WebPropertyFilters = (): JSX.Element => {
                         propertyFilters={rawWebAnalyticsFilters}
                         pageKey="web-analytics"
                         eventNames={['$pageview']}
-                        enableOptimizedHints={preAggregatedEnabled}
+                        enablePreaggregatedTableHints={preAggregatedEnabled}
                     />
                 </div>
             }
