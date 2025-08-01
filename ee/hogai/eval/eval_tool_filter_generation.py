@@ -20,6 +20,7 @@ from posthog.schema import (
     RecordingOrder,
     EventPropertyFilter,
     PersonPropertyFilter,
+    RecordingOrderDirection,
 )
 from products.replay.backend.prompts import USER_FILTER_OPTIONS_PROMPT
 
@@ -37,6 +38,7 @@ DUMMY_CURRENT_FILTERS = MaxRecordingUniversalFilters(
     ),
     filter_test_accounts=True,
     order=RecordingOrder.START_TIME,
+    order_direction=RecordingOrderDirection.DESC,
 )
 
 
@@ -513,6 +515,12 @@ async def eval_tool_search_session_recordings(call_search_session_recordings, py
                     ),
                     filter_test_accounts=True,
                     order=RecordingOrder.START_TIME,
+                ),
+            ),
+            EvalCase(
+                input="Show recordings in an ascending order by duration",
+                expected=MaxRecordingUniversalFilters(
+                    **{**DUMMY_CURRENT_FILTERS, "order": "duration", "order_direction": "ASC"}
                 ),
             ),
         ],

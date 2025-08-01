@@ -126,7 +126,9 @@ class SearchSessionRecordingsTool(MaxTool):
                 content = getattr(last_message, "tool_input", None)
                 help_content = str(content)
 
-            current_filters = MaxRecordingUniversalFilters.model_validate(self.context.get("current_filters", {}))
+            current_filters = MaxRecordingUniversalFilters.model_validate(
+                self.context.get("current_filters", {}),
+            )
 
             return help_content, current_filters
 
