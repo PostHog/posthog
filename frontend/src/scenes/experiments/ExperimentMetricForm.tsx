@@ -231,8 +231,8 @@ export function ExperimentMetricForm({
                         <div className="flex flex-col gap-2">
                             <div>This shows recent activity for your selected metric over the past 2 weeks.</div>
                             <div>
-                                It's a quick health check to confirm your tracking is working correctly and that you can
-                                expect meaningful results once your experiment starts running.
+                                It's a quick health check to ensure your tracking is working properly, so that you'll
+                                receive accurate results when your experiment starts.
                             </div>
                             <div>
                                 If you see zero activity, double-check that this metric is being tracked properly in
