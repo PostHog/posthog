@@ -262,6 +262,27 @@ impl DateRangeExportSource {
         }
 
         info!("Downloading and preparing key: {}", key);
+
+        let mut retries = self.retries;
+        loop {
+            match self.download_and_prepare_part_data_inner(key, start, end).await {
+                Ok(result) => return Ok(result),
+                Err(e) if e.to_string().contains("Rate limit exceeded") && retries > 0 => {
+                    info!("Rate limit hit (429), sleeping for 30 seconds before retry. Retries remaining: {}", retries);
+                    tokio::time::sleep(Duration::from_secs(30)).await;
+                    retries -= 1;
+                }
+                Err(e) => return Err(e),
+            }
+        }
+    }
+
+    async fn download_and_prepare_part_data_inner(
+        &self,
+        key: &str,
+        start: DateTime<Utc>,
+        end: DateTime<Utc>,
+    ) -> Result<ExtractedPartData, Error> {
         let mut request = self.client.get(&self.base_url).query(&[
             (&self.start_qp, start.format(&self.date_format).to_string()),
             (&self.end_qp, end.format(&self.date_format).to_string()),
@@ -297,7 +318,8 @@ impl DateRangeExportSource {
         // We want to return something to the .process() thread so that we end up making a commit
         // for this key/part of the overall job
         if response.status() == 404 {
-            info!("No data available for key: {} (404 response)", key);
+            info!("No data available for key: {} (404 response), sleeping for 2 seconds", key);
+            tokio::time::sleep(Duration::from_secs(2)).await;
             let temp_dir = self.get_temp_dir_path().await?;
 
             let empty_data_file_path = temp_dir.join(format!("{}.data", key.replace(':', "_")));
@@ -311,6 +333,11 @@ impl DateRangeExportSource {
         }
 
         let response = response.error_for_status().or_else(|status_error| {
+            if let Some(status) = status_error.status() {
+                if status.as_u16() == 429 {
+                    return Err(Error::msg("Rate limit exceeded"));
+                }
+            }
             let friendly_msg = extract_status_error(&status_error);
             Err(status_error).user_error(friendly_msg)
         })?;
@@ -977,6 +1004,83 @@ mod tests {
         let _chunk = source.get_chunk(key, 0, file_size).await.unwrap();
 
         assert!(source.size(key).await.unwrap().is_none());
+
+        source.cleanup_after_job().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_429_retry_eventually_succeeds() {
+        let server = MockServer::start();
+        
+        let success_mock = server.mock(|when, then| {
+            when.method(httpmock::Method::GET)
+                .path("/export")
+                .query_param("start", "2023-01-01T00:00:00Z")
+                .query_param("end", "2023-01-01T01:00:00Z");
+            then.status(200)
+                .header("content-type", "application/json")
+                .body(TEST_DATA);
+        });
+
+        let source = DateRangeExportSource::builder(
+            server.url("/export"),
+            Utc.with_ymd_and_hms(2023, 1, 1, 0, 0, 0).unwrap(),
+            Utc.with_ymd_and_hms(2023, 1, 1, 1, 0, 0).unwrap(),
+            3600,
+            Arc::new(MockExtractor),
+        )
+        .with_retries(3)
+        .with_auth(AuthConfig::None)
+        .with_date_format("%Y-%m-%dT%H:%M:%SZ".to_string())
+        .with_headers(HashMap::new())
+        .build()
+        .unwrap();
+
+        source.prepare_for_job().await.unwrap();
+        let keys = source.keys().await.unwrap();
+        let key = &keys[0];
+
+        source.prepare_key(key).await.unwrap();
+
+        let size = source.size(key).await.unwrap();
+        assert!(size.is_some());
+        assert_eq!(size.unwrap(), TEST_DATA.len() as u64);
+
+        success_mock.assert();
+
+        source.cleanup_after_job().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_429_exhausts_retries() {
+        let server = MockServer::start();
+        
+        let _mock = server.mock(|when, then| {
+            when.method(httpmock::Method::GET).path("/export");
+            then.status(429); // Always return 429
+        });
+
+        let source = DateRangeExportSource::builder(
+            server.url("/export"),
+            Utc.with_ymd_and_hms(2023, 1, 1, 0, 0, 0).unwrap(),
+            Utc.with_ymd_and_hms(2023, 1, 1, 1, 0, 0).unwrap(),
+            3600,
+            Arc::new(MockExtractor),
+        )
+        .with_retries(1)
+        .with_auth(AuthConfig::None)
+        .with_date_format("%Y-%m-%dT%H:%M:%SZ".to_string())
+        .with_headers(HashMap::new())
+        .build()
+        .unwrap();
+
+        source.prepare_for_job().await.unwrap();
+        let keys = source.keys().await.unwrap();
+        let key = &keys[0];
+
+        let result = source.prepare_key(key).await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Rate limit exceeded"));
 
         source.cleanup_after_job().await.unwrap();
     }
