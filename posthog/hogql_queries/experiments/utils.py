@@ -94,7 +94,7 @@ def metric_variant_to_statistic(
         )
 
 
-def get_frequentist_experiment_result_new_format(
+def get_frequentist_experiment_result(
     metric: ExperimentMeanMetric | ExperimentFunnelMetric,
     control_variant: ExperimentStatsBase,
     test_variants: list[ExperimentStatsBase],
@@ -149,7 +149,7 @@ def get_frequentist_experiment_result_new_format(
     )
 
 
-def get_bayesian_experiment_result_new_format(
+def get_bayesian_experiment_result(
     metric: ExperimentMeanMetric | ExperimentFunnelMetric,
     control_variant: ExperimentStatsBase,
     test_variants: list[ExperimentStatsBase],
