@@ -1321,7 +1321,12 @@ class _Printer(Visitor[str]):
                         and (len(node.args) == 0 or (has_tz_override and len(node.args) == 1))
                     ) or (
                         relevant_clickhouse_name
-                        in ("parseDateTime64BestEffortOrNull", "parseDateTime64BestEffort", "toDateTime64")
+                        in (
+                            "parseDateTime64BestEffortOrNull",
+                            "parseDateTime64BestEffortUSOrNull",
+                            "parseDateTime64BestEffort",
+                            "toDateTime64",
+                        )
                         and (len(node.args) == 1 or (has_tz_override and len(node.args) == 2))
                     ):
                         # These two CH functions require a precision argument before timezone

@@ -19,7 +19,6 @@ from posthog.hogql_queries.experiments import (
     MULTIPLE_VARIANT_KEY,
 )
 from posthog.hogql_queries.experiments.base_query_utils import (
-    is_continuous,
     get_experiment_date_range,
     get_experiment_exposure_query,
     get_metric_events_query,
@@ -30,30 +29,10 @@ from posthog.hogql_queries.experiments.exposure_query_logic import (
     get_entity_key,
     get_multiple_variant_handling_from_experiment,
 )
-from posthog.hogql_queries.experiments.funnels_statistics_v2 import (
-    are_results_significant_v2 as are_results_significant_v2_funnel,
-)
-from posthog.hogql_queries.experiments.funnels_statistics_v2 import (
-    calculate_credible_intervals_v2 as calculate_credible_intervals_v2_funnel,
-)
-from posthog.hogql_queries.experiments.funnels_statistics_v2 import (
-    calculate_probabilities_v2 as calculate_probabilities_v2_funnel,
-)
-from posthog.hogql_queries.experiments.trends_statistics_v2_continuous import (
-    are_results_significant_v2_continuous,
-    calculate_credible_intervals_v2_continuous,
-    calculate_probabilities_v2_continuous,
-)
-from posthog.hogql_queries.experiments.trends_statistics_v2_count import (
-    are_results_significant_v2_count,
-    calculate_credible_intervals_v2_count,
-    calculate_probabilities_v2_count,
-)
 from posthog.hogql_queries.experiments.utils import (
     get_bayesian_experiment_result_new_format,
+    get_experiment_stats_method,
     get_frequentist_experiment_result_new_format,
-    get_legacy_funnels_variant_results,
-    get_legacy_trends_variant_results,
     get_new_variant_results,
     split_baseline_and_test_variants,
 )
@@ -62,11 +41,9 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.experiment import Experiment
 from posthog.schema import (
     CachedExperimentQueryResponse,
-    ExperimentFunnelMetric,
     ExperimentMeanMetric,
     ExperimentQuery,
     ExperimentQueryResponse,
-    ExperimentSignificanceCode,
     ExperimentStatsBase,
     ExperimentVariantFunnelsBaseStats,
     ExperimentVariantTrendsBaseStats,
@@ -115,14 +92,7 @@ class ExperimentQueryRunner(QueryRunner):
             and self.query.metric.source.kind == "ExperimentDataWarehouseNode"
         )
 
-        # Determine which statistical method to use
-        if self.experiment.stats_config is None:
-            # Default to "bayesian" if not specified
-            self.stats_method = "bayesian"
-        else:
-            self.stats_method = self.experiment.stats_config.get("method", "bayesian")
-            if self.stats_method not in ["bayesian", "frequentist"]:
-                self.stats_method = "bayesian"
+        self.stats_method = get_experiment_stats_method(self.experiment)
 
         # Determine how to handle entities exposed to multiple variants
         self.multiple_variant_handling = get_multiple_variant_handling_from_experiment(self.experiment)
@@ -294,11 +264,20 @@ class ExperimentQueryRunner(QueryRunner):
         try:
             sorted_results = self._evaluate_experiment_query()
 
-            # Check if we should use the new Bayesian method
-            use_new_bayesian_method = self.experiment.stats_config and self.experiment.stats_config.get(
-                "use_new_bayesian_method", False
-            )
-            if self.stats_method == "bayesian" and use_new_bayesian_method:
+            if self.stats_method == "frequentist":
+                frequentist_variants = get_new_variant_results(sorted_results)
+
+                self._validate_event_variants(frequentist_variants)
+
+                control_variant, test_variants = split_baseline_and_test_variants(frequentist_variants)
+
+                return get_frequentist_experiment_result_new_format(
+                    metric=self.metric,
+                    control_variant=control_variant,
+                    test_variants=test_variants,
+                )
+            else:
+                # We default to bayesian
                 bayesian_variants = get_new_variant_results(sorted_results)
 
                 control_variant, test_variants = split_baseline_and_test_variants(bayesian_variants)
@@ -309,103 +288,6 @@ class ExperimentQueryRunner(QueryRunner):
                     test_variants=test_variants,
                 )
 
-            elif self.stats_method == "frequentist":
-                frequentist_variants = get_new_variant_results(sorted_results)
-
-                control_variant, test_variants = split_baseline_and_test_variants(frequentist_variants)
-
-                return get_frequentist_experiment_result_new_format(
-                    metric=self.metric,
-                    control_variant=control_variant,
-                    test_variants=test_variants,
-                )
-
-            # Legacy stats methods
-            else:
-                variants: list[ExperimentVariantTrendsBaseStats] | list[ExperimentVariantFunnelsBaseStats]
-                match self.metric:
-                    case ExperimentMeanMetric():
-                        trends_variants = get_legacy_trends_variant_results(sorted_results)
-                        self._validate_event_variants(trends_variants)
-                        trends_control_variant, trends_test_variants = split_baseline_and_test_variants(trends_variants)
-                        match is_continuous(self.metric.source.math):
-                            case True:
-                                probabilities = calculate_probabilities_v2_continuous(
-                                    control_variant=trends_control_variant,
-                                    test_variants=trends_test_variants,
-                                )
-                                significance_code, p_value = are_results_significant_v2_continuous(
-                                    control_variant=trends_control_variant,
-                                    test_variants=trends_test_variants,
-                                    probabilities=probabilities,
-                                )
-                                credible_intervals = calculate_credible_intervals_v2_continuous(
-                                    [trends_control_variant, *trends_test_variants]
-                                )
-                            # Otherwise, we default to count
-                            case False:
-                                probabilities = calculate_probabilities_v2_count(
-                                    control_variant=trends_control_variant,
-                                    test_variants=trends_test_variants,
-                                )
-                                significance_code, p_value = are_results_significant_v2_count(
-                                    control_variant=trends_control_variant,
-                                    test_variants=trends_test_variants,
-                                    probabilities=probabilities,
-                                )
-                                credible_intervals = calculate_credible_intervals_v2_count(
-                                    [trends_control_variant, *trends_test_variants]
-                                )
-
-                        probability = {
-                            variant.key: probability
-                            for variant, probability in zip(
-                                [trends_control_variant, *trends_test_variants],
-                                probabilities,
-                            )
-                        }
-                        variants = trends_variants
-
-                    case ExperimentFunnelMetric():
-                        funnel_variants = get_legacy_funnels_variant_results(sorted_results)
-                        self._validate_event_variants(funnel_variants)
-                        funnel_control_variant, funnel_test_variants = split_baseline_and_test_variants(funnel_variants)
-                        probabilities = calculate_probabilities_v2_funnel(
-                            control=funnel_control_variant,
-                            variants=funnel_test_variants,
-                        )
-                        significance_code, p_value = are_results_significant_v2_funnel(
-                            control=funnel_control_variant,
-                            variants=funnel_test_variants,
-                            probabilities=probabilities,
-                        )
-                        credible_intervals = calculate_credible_intervals_v2_funnel(
-                            [funnel_control_variant, *funnel_test_variants]
-                        )
-                        probability = {
-                            variant.key: probability
-                            for variant, probability in zip(
-                                [funnel_control_variant, *funnel_test_variants],
-                                probabilities,
-                            )
-                        }
-                        variants = funnel_variants
-
-                    case _:
-                        raise ValidationError(f"Unsupported metric type: {self.metric.metric_type}")
-
-            return ExperimentQueryResponse(
-                kind="ExperimentQuery",
-                insight=[],
-                metric=self.metric,
-                variants=variants,
-                probability=probability,
-                significant=significance_code == ExperimentSignificanceCode.SIGNIFICANT,
-                significance_code=significance_code,
-                stats_version=2,
-                p_value=p_value,
-                credible_intervals=credible_intervals,
-            )
         except Exception as e:
             capture_exception(
                 e,
