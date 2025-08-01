@@ -88,8 +88,8 @@ class TestTaxonomyAgentNode(BaseTest):
             mock_template.__or__.return_value.__or__ = Mock(return_value=mock_chain)
 
             state = TaxonomyAgentState()
-            state.change = "test change"
-            state.current_filters = {"test": "filter"}
+            state.instructions = "test change"
+            state.output = {"test": "filter"}
 
             config = RunnableConfig()
             result = self.node.run(state, config)

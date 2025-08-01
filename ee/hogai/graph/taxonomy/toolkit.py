@@ -275,7 +275,7 @@ class TaxonomyAgentToolkit:
         """
 
         if entity not in ("person", "session", *[group.group_type for group in self._groups]):
-            return f"Entity {entity} does not exist in the taxonomy."
+            return TaxonomyErrorMessages.entity_not_found(entity, self._entity_names)
 
         if entity == "person":
             qs = PropertyDefinition.objects.filter(team=self._team, type=PropertyDefinition.Type.PERSON).values_list(
