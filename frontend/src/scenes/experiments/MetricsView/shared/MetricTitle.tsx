@@ -7,14 +7,9 @@ import { InsightType } from '~/types'
 import { getDefaultMetricTitle } from './utils'
 
 export const MetricTitle = ({ metric, metricType }: { metric: any; metricType?: InsightType }): JSX.Element => {
-    const getTextClassName = (text: string): string => {
-        // If text contains spaces, allow word breaks; otherwise truncate
-        return text.includes(' ') ? 'break-words' : 'truncate'
-    }
-
     const shouldShowTooltip = (text: string): boolean => {
-        // Only show tooltip when we're truncating (single long words without spaces)
-        return !text.includes(' ') && text.length > 15
+        // Show tooltip for longer text that might be clamped
+        return text.length > 50
     }
 
     const wrapWithTooltip = (text: string, element: JSX.Element): JSX.Element => {
@@ -26,13 +21,13 @@ export const MetricTitle = ({ metric, metricType }: { metric: any; metricType?: 
 
     if (metric.kind === NodeKind.ExperimentMetric) {
         const title = metric.name || getDefaultMetricTitle(metric)
-        const element = <span className={`max-h-[48px] overflow-hidden ${getTextClassName(title)}`}>{title}</span>
+        const element = <span className="line-clamp-3">{title}</span>
         return wrapWithTooltip(title, element)
     }
 
     if (metricType === InsightType.TRENDS && metric.count_query?.series?.[0]?.name) {
         const name = metric.count_query.series[0].name
-        const element = <span className={getTextClassName(name)}>{name}</span>
+        const element = <span className="line-clamp-3">{name}</span>
         return wrapWithTooltip(name, element)
     }
 
@@ -46,16 +41,16 @@ export const MetricTitle = ({ metric, metricType }: { metric: any; metricType?: 
                 <div className="inline-flex flex-wrap items-center gap-1 min-w-0">
                     <div className="inline-flex items-center gap-1 min-w-0">
                         <IconFunnels className="text-secondary flex-shrink-0" fontSize="14" />
-                        {wrapWithTooltip(firstStep, <span className={getTextClassName(firstStep)}>{firstStep}</span>)}
+                        {wrapWithTooltip(firstStep, <span className="line-clamp-3">{firstStep}</span>)}
                     </div>
                     <div className="inline-flex items-center gap-1 min-w-0 @max-[200px]:ml-5">
                         <IconArrowRight className="text-secondary flex-shrink-0" fontSize="14" />
-                        {wrapWithTooltip(lastStep, <span className={getTextClassName(lastStep)}>{lastStep}</span>)}
+                        {wrapWithTooltip(lastStep, <span className="line-clamp-3">{lastStep}</span>)}
                     </div>
                 </div>
             )
         }
     }
 
-    return <span className="text-secondary break-words">Untitled metric</span>
+    return <span className="text-secondary line-clamp-3">Untitled metric</span>
 }
