@@ -198,4 +198,4 @@ class TestBytecodePlaceholders(BaseTest):
         expr = parse_expr("{1+2}")
         finder = find_placeholders(expr)
         self.assertTrue(len(finder.placeholder_expressions) > 0)
-        self.assertEqual(finder.placeholder_fields, set())
+        self.assertEqual(finder.placeholder_fields, [])
