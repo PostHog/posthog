@@ -6,8 +6,7 @@
         "dev": "next dev",
         "build": "next build",
         "start": "next start",
-        "lint": "next lint",
-        "capture": "node scripts/capture-sessions.js"
+        "lint": "next lint"
     },
     "dependencies": {
         "next": "14.0.0",
