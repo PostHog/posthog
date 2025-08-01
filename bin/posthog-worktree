@@ -81,6 +81,14 @@ checkout_worktree() {
         exit 1
     fi
     
+    # Check if worktree already exists for this branch
+    local existing_path=$(git worktree list | grep -E "\[${BRANCH_NAME}\]$" | awk '{print $1}')
+    if [[ -n "$existing_path" ]]; then
+        success "Worktree already exists for branch: ${BRANCH_NAME}"
+        success "Location: ${existing_path}"
+        return 0
+    fi
+    
     local worktree_path="${WORKTREE_BASE}/${BRANCH_NAME}"
     
     # Check if branch exists
