@@ -10,8 +10,8 @@ from posthog.test.base import BaseTest
 
 class TestParser(BaseTest):
     def test_find_placeholders(self):
-        expr = parse_expr("{foo} and {bar}")
-        self.assertEqual(sorted(find_placeholders(expr).field_strings), sorted(["foo", "bar"]))
+        expr = parse_expr("{foo} and {bar.bah}")
+        self.assertEqual(sorted(find_placeholders(expr).placeholder_fields), sorted([["foo"], ["bar", "bah"]]))
 
     def test_replace_placeholders_simple(self):
         expr = clear_locations(parse_expr("{foo}"))
@@ -110,7 +110,7 @@ class TestBytecodePlaceholders(BaseTest):
         # Finder should report an *expression* placeholder, not a field string.
         finder = find_placeholders(query)
         self.assertTrue(finder.has_expr_placeholders)
-        self.assertEqual(len(finder.field_strings), 0)
+        self.assertEqual(len(finder.placeholder_fields), 0)
 
     def test_string_literal_placeholder(self):
         """
@@ -204,4 +204,4 @@ class TestBytecodePlaceholders(BaseTest):
         expr = parse_expr("{1+2}")
         finder = find_placeholders(expr)
         self.assertTrue(finder.has_expr_placeholders)
-        self.assertEqual(finder.field_strings, set())
+        self.assertEqual(finder.placeholder_fields, set())

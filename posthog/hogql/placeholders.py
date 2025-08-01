@@ -11,18 +11,17 @@ class FindPlaceholders(TraversingVisitor):
         super().__init__()
         self.has_expr_placeholders = False
         self.has_filters = False
-        self.field_strings: set[str] = set()
+        self.placeholder_fields: set[list[str]] = set()
 
     def visit_cte(self, node: ast.CTE):
         super().visit(node.expr)
 
     def visit_placeholder(self, node: ast.Placeholder):
-        field = node.field
-        if field:
-            if field == "filters" or field.startswith("filters."):
+        if chain := node.chain:
+            if chain[0] == "filters":
                 self.has_filters = True
             else:
-                self.field_strings.add(field)
+                self.placeholder_fields.add(chain)
         else:
             self.has_expr_placeholders = True
 
