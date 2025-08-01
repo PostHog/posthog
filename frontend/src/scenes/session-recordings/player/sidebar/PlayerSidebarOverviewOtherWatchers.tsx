@@ -1,11 +1,13 @@
 import { IconPeople, IconChevronDown } from '@posthog/icons'
 import { useValues } from 'kea'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { ProfileBubbles } from 'lib/lemon-ui/ProfilePicture'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { Link } from 'lib/lemon-ui/Link'
 import { useState } from 'react'
+import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
+import { membersLogic } from 'scenes/organization/membersLogic'
 
 import { SessionRecordingType } from '~/types'
 
@@ -28,13 +30,13 @@ function OtherWatchersDisplay({
     startExpanded?: boolean
 }): JSX.Element | null {
     const { user: currentUser } = useValues(userLogic)
+    const { members } = useValues(membersLogic)
     const [isExpanded, setIsExpanded] = useState(startExpanded)
 
     if (!metadata?.viewers) {
         return null
     }
 
-    // Filter out the current user from the viewers list
     const otherViewers = metadata.viewers.filter((viewer) => viewer !== currentUser?.email)
     const count = otherViewers.length
 
@@ -51,7 +53,18 @@ function OtherWatchersDisplay({
     return (
         <div className="flex flex-col gap-2 px-2 py-1">
             <div className="flex flex-row deprecated-space-x-2 items-center justify-center">
-                <ProfileBubbles people={otherViewers.map((v) => ({ email: v }))} />
+                <div className="flex flex-row -space-x-1">
+                    {otherViewers.slice(0, 3).map((viewer, index) => (
+                        <div key={viewer} className="relative" style={{ zIndex: 3 - index }}>
+                            <ProfilePicture user={{ email: viewer }} size="sm" />
+                        </div>
+                    ))}
+                    {otherViewers.length > 3 && (
+                        <div className="flex items-center justify-center w-6 h-6 bg-primary-alt rounded-full text-xs font-medium text-primary border-2 border-bg-light">
+                            +{otherViewers.length - 3}
+                        </div>
+                    )}
+                </div>
                 <span>
                     {count} other {varyingText} watched this recording.
                 </span>
@@ -65,11 +78,19 @@ function OtherWatchersDisplay({
 
             {isExpanded && (
                 <div className="flex flex-col gap-1 mt-2 border-t pt-2">
-                    {otherViewers.map((viewer) => (
-                        <div key={viewer} className="flex items-center gap-2">
-                            <ProfilePicture user={{ email: viewer }} showName={true} size="sm" />
-                        </div>
-                    ))}
+                    {otherViewers.map((viewer) => {
+                        // Find the actual user data from members
+                        const member = members?.find((m) => m.user.email === viewer)
+                        const user = member?.user || { email: viewer }
+
+                        return (
+                            <div key={viewer} className="flex items-center gap-2">
+                                <Link to={urls.settings('organization', 'members')} subtle>
+                                    <ProfilePicture user={user} size="sm" showName={true} />
+                                </Link>
+                            </div>
+                        )
+                    })}
                 </div>
             )}
         </div>
