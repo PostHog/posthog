@@ -70,6 +70,18 @@ export const THINKING_MESSAGES = [
     'Scuttling', // fast, scurrying motion
     'Framing', // contextualizing view
     'Sharpening', // refining details
+    'Flibbertigibbeting', // flustered but active chaos
+    'Kerfuffling', // low-stakes commotion
+    'Dithering', // indecisive processing
+    'Discombobulating', // intentionally confused
+    'Rambling', // aimless but possibly insightful
+    'Befuddling', // trying to untangle confusion
+    'Waffling', // bouncing between options
+    'Muckling', // clinging onto something
+    'Hobnobbing', // talking to the data gods
+    'Galumphing', // awkward progress
+    'Puttering', // low-energy thinking
+    'Whiffling', // light, directionless searching
 ]
 
 export const getRandomThinkingMessage = (): string => {
