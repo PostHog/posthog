@@ -354,7 +354,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                 insight=resource.insight, team=None, user=None, defaults={"last_viewed_at": now()}
             )
             # Add hideExtraDetails to context so that PII related information is not returned to the client
-            insight_context = {**context, "hide_details": state.get("hideExtraDetails", False)}
+            insight_context = {**context, "hide_extra_details": state.get("hideExtraDetails", False)}
             insight_data = InsightSerializer(resource.insight, many=False, context=insight_context).data
             exported_data.update({"insight": insight_data})
             exported_data.update({"themes": get_themes_for_team(resource.team)})
