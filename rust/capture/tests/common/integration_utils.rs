@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use std::fs::read;
 use std::io::Write;
 use std::path::Path;
@@ -1083,6 +1084,17 @@ fn setup_capture_router(unit: &TestCase) -> (Router, MemorySink) {
     )
     .expect(&err_msg);
 
+    // Create survey limiter (required by router now)
+    let survey_limiter = RedisLimiter::new(
+        Duration::from_secs(60 * 60 * 24 * 7),
+        redis.clone(),
+        QUOTA_LIMITER_CACHE_KEY.to_string(),
+        None,
+        QuotaResource::Surveys,
+        ServiceName::Capture,
+    )
+    .expect("failed to create survey limiter");
+
     // simple defaults - payload validation isn't the focus of these tests
     let enable_historical_rerouting = false;
     let historical_rerouting_threshold_days = 1_i64;
@@ -1097,7 +1109,7 @@ fn setup_capture_router(unit: &TestCase) -> (Router, MemorySink) {
             sink.clone(),
             redis,
             billing_limiter,
-            None, // survey_limiter - not needed for tests
+            survey_limiter,
             TokenDropper::default(),
             false,
             unit.mode.clone(),

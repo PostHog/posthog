@@ -151,21 +151,16 @@ where
     )
     .expect("failed to create billing limiter");
 
-    // Survey quota limiting - only needed for Events capture mode since surveys are events
-    let survey_limiter = match config.capture_mode {
-        CaptureMode::Events => Some(
-            RedisLimiter::new(
-                Duration::from_secs(5),
-                redis_client.clone(),
-                QUOTA_LIMITER_CACHE_KEY.to_string(),
-                config.redis_key_prefix.clone(),
-                QuotaResource::Surveys,
-                ServiceName::Capture,
-            )
-            .expect("failed to create survey limiter"),
-        ),
-        CaptureMode::Recordings => None,
-    };
+    // Survey quota limiting - create for all capture modes (won't be used for recordings but required by router)
+    let survey_limiter = RedisLimiter::new(
+        Duration::from_secs(5),
+        redis_client.clone(),
+        QUOTA_LIMITER_CACHE_KEY.to_string(),
+        config.redis_key_prefix.clone(),
+        QuotaResource::Surveys,
+        ServiceName::Capture,
+    )
+    .expect("failed to create survey limiter");
 
     let token_dropper = config
         .drop_events_by_token_distinct_id

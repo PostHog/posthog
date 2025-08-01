@@ -92,28 +92,28 @@ async fn setup_router_with_limits(
     )
     .unwrap();
 
-    // Set up survey limiter if requested
-    let survey_limiter = if is_survey_limited {
-        // Create a separate redis client for survey limiter
-        let survey_key = format!("{}{}", QUOTA_LIMITER_CACHE_KEY, "surveys");
-        let survey_redis = Arc::new(
-            MockRedisClient::new().zrangebyscore_ret(&survey_key, vec![token.to_string()]),
-        );
-
-        Some(
-            RedisLimiter::new(
-                Duration::from_secs(60),
-                survey_redis,
-                QUOTA_LIMITER_CACHE_KEY.to_string(),
-                None,
-                QuotaResource::Surveys,
-                ServiceName::Capture,
-            )
-            .unwrap(),
+    // Set up survey limiter - always required now
+    let survey_key = format!("{}{}", QUOTA_LIMITER_CACHE_KEY, "surveys");
+    let survey_redis = Arc::new(
+        MockRedisClient::new().zrangebyscore_ret(
+            &survey_key, 
+            if is_survey_limited { 
+                vec![token.to_string()] 
+            } else { 
+                vec![] 
+            }
         )
-    } else {
-        None
-    };
+    );
+
+    let survey_limiter = RedisLimiter::new(
+        Duration::from_secs(60),
+        survey_redis,
+        QUOTA_LIMITER_CACHE_KEY.to_string(),
+        None,
+        QuotaResource::Surveys,
+        ServiceName::Capture,
+    )
+    .unwrap();
 
     let app = router(
         timesource,
@@ -908,17 +908,15 @@ async fn test_survey_quota_cross_batch_first_submission_allowed() {
     )
     .unwrap();
 
-    let survey_limiter = Some(
-        RedisLimiter::new(
-            Duration::from_secs(60),
-            redis.clone(),
-            QUOTA_LIMITER_CACHE_KEY.to_string(),
-            None,
-            QuotaResource::Surveys,
-            ServiceName::Capture,
-        )
-        .unwrap(),
-    );
+    let survey_limiter = RedisLimiter::new(
+        Duration::from_secs(60),
+        redis.clone(),
+        QUOTA_LIMITER_CACHE_KEY.to_string(),
+        None,
+        QuotaResource::Surveys,
+        ServiceName::Capture,
+    )
+    .unwrap();
 
     let app = router(
         timesource,
@@ -998,17 +996,15 @@ async fn test_survey_quota_cross_batch_duplicate_submission_dropped() {
     )
     .unwrap();
 
-    let survey_limiter = Some(
-        RedisLimiter::new(
-            Duration::from_secs(60),
-            redis.clone(),
-            QUOTA_LIMITER_CACHE_KEY.to_string(),
-            None,
-            QuotaResource::Surveys,
-            ServiceName::Capture,
-        )
-        .unwrap(),
-    );
+    let survey_limiter = RedisLimiter::new(
+        Duration::from_secs(60),
+        redis.clone(),
+        QUOTA_LIMITER_CACHE_KEY.to_string(),
+        None,
+        QuotaResource::Surveys,
+        ServiceName::Capture,
+    )
+    .unwrap();
 
     let app = router(
         timesource,
@@ -1090,17 +1086,15 @@ async fn test_survey_quota_cross_batch_redis_error_fail_open() {
     )
     .unwrap();
 
-    let survey_limiter = Some(
-        RedisLimiter::new(
-            Duration::from_secs(60),
-            redis.clone(),
-            QUOTA_LIMITER_CACHE_KEY.to_string(),
-            None,
-            QuotaResource::Surveys,
-            ServiceName::Capture,
-        )
-        .unwrap(),
-    );
+    let survey_limiter = RedisLimiter::new(
+        Duration::from_secs(60),
+        redis.clone(),
+        QUOTA_LIMITER_CACHE_KEY.to_string(),
+        None,
+        QuotaResource::Surveys,
+        ServiceName::Capture,
+    )
+    .unwrap();
 
     let app = router(
         timesource,
