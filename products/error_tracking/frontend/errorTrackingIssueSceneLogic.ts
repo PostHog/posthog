@@ -81,9 +81,9 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         summary: {},
         lastSeen: {
             setLastSeen: (prevLastSeen, { lastSeen }) => {
-                lastSeen = dayjs(lastSeen)
-                if (!prevLastSeen || prevLastSeen.isBefore(lastSeen)) {
-                    return lastSeen
+                const lastSeenDayjs = dayjs(lastSeen)
+                if (!prevLastSeen || prevLastSeen.isBefore(lastSeenDayjs)) {
+                    return lastSeenDayjs
                 }
                 return prevLastSeen
             },
@@ -260,7 +260,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
             setFilterGroup: actions.loadSummary,
             setFilterTestAccounts: actions.loadSummary,
             setSearchQuery: actions.loadSummary,
-            loadSummarySuccess: ({ summary }) => {
+            loadSummarySuccess: ({ summary }: { summary: ErrorTrackingIssueSummary | null }) => {
                 if (summary && summary.last_seen) {
                     actions.setLastSeen(summary.last_seen)
                     actions.setInitialEventTimestamp(summary.last_seen)
@@ -310,5 +310,7 @@ function getNarrowDateRange(timestamp: Dayjs | string): DateRange {
 }
 
 export type ErrorTrackingIssueSummary = {
+    last_seen?: string
+    first_seen?: string
     aggregations: ErrorTrackingIssueAggregations
 }
