@@ -99,58 +99,48 @@ const PersonsTable: DataTableNode = {
     showReload: true,
 }
 
-const MarketingAnalyticsTablePinnedColumnsAtTheBeginning: DataTableNode = {
+const PinnedColumnsAtTheBeginning: DataTableNode = {
     kind: NodeKind.DataTableNode,
     source: {
         kind: NodeKind.MarketingAnalyticsTableQuery,
         select: [
-            'campaign',
-            'source',
-            'cost',
-            'impressions',
-            'clicks',
-            'extra table 1',
-            'extra table 2',
-            'extra table 3',
-            'extra table 4',
-            'extra table 5',
-            'extra table 6',
-            'extra table 7',
-            'extra table 8',
-            'extra table 9',
-            'extra table 10',
+            'column 1',
+            'column 2',
+            'column 3',
+            'column 4',
+            'column 5',
+            'column 6',
+            'column 7',
+            'column 8',
+            'column 9',
+            'column 10',
         ],
         properties: [],
         limit: 100,
     },
-    pinnedColumns: ['campaign', 'source', 'cost'],
+    pinnedColumns: ['column 1', 'column2', 'column3'],
 }
 
-const MarketingAnalyticsTablePinnedColumnsInTheMiddle: DataTableNode = {
+const PinnedColumnsInTheMiddle: DataTableNode = {
     kind: NodeKind.DataTableNode,
     source: {
         kind: NodeKind.MarketingAnalyticsTableQuery,
         select: [
-            'campaign',
-            'source',
-            'cost',
-            'impressions',
-            'clicks',
-            'extra table 1',
-            'extra table 2',
-            'extra table 3',
-            'extra table 4',
-            'extra table 5',
-            'extra table 6',
-            'extra table 7',
-            'extra table 8',
-            'extra table 9',
-            'extra table 10',
+            'column 1',
+            'column 2',
+            'column 3',
+            'column 4',
+            'column 5',
+            'column 6',
+            'column 7',
+            'column 8',
+            'column 9',
+            'column 10',
         ],
         properties: [],
         limit: 100,
     },
-    pinnedColumns: ['source', 'extra table 1'],
+    pinnedColumns: ['column 2', 'column 5', 'column 6'],
 }
 
 export const examples = {
@@ -162,6 +152,6 @@ export const examples = {
     ShowAllTheThings,
     Persons,
     PersonsTable,
-    MarketingAnalyticsTablePinnedColumnsAtTheBeginning,
-    MarketingAnalyticsTablePinnedColumnsInTheMiddle,
+    PinnedColumnsAtTheBeginning,
+    PinnedColumnsInTheMiddle,
 }
