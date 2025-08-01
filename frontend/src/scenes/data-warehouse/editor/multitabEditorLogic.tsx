@@ -996,11 +996,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             const newSource = {
                 ...values.sourceQuery.source,
                 query,
-                variables: Object.fromEntries(
-                    Object.entries(values.sourceQuery.source.variables ?? {}).filter(([_, variable]) =>
-                        query.includes(`{variables.${variable.code_name}}`)
-                    )
-                ),
+                variables: values.sourceQuery.source.variables ?? {},
             }
 
             actions.setSourceQuery({
