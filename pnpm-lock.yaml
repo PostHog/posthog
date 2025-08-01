@@ -559,9 +559,6 @@ importers:
       '@posthog/products-groups':
         specifier: workspace:*
         version: link:../products/groups
-      '@posthog/products-issue-tracker':
-        specifier: workspace:*
-        version: link:../products/issue_tracker
       '@posthog/products-links':
         specifier: workspace:*
         version: link:../products/links
@@ -595,6 +592,9 @@ importers:
       '@posthog/products-surveys':
         specifier: workspace:*
         version: link:../products/surveys
+      '@posthog/products-tasks':
+        specifier: workspace:*
+        version: link:../products/tasks
       '@posthog/products-user-interviews':
         specifier: workspace:*
         version: link:../products/user_interviews
@@ -1880,39 +1880,6 @@ importers:
         specifier: '*'
         version: 18.2.0
 
-  products/issue_tracker:
-    dependencies:
-      '@posthog/icons':
-        specifier: 0.26.0
-        version: 0.26.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
-      '@storybook/react':
-        specifier: '*'
-        version: 7.6.4(encoding@0.1.13)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)(typescript@5.2.2)
-      '@types/react':
-        specifier: '*'
-        version: 17.0.52
-      clsx:
-        specifier: '*'
-        version: 1.2.1
-      kea:
-        specifier: '*'
-        version: 3.1.5(react@18.2.0)
-      kea-forms:
-        specifier: '*'
-        version: 3.2.0(kea@3.1.5(react@18.2.0))
-      kea-loaders:
-        specifier: '*'
-        version: 3.1.1(kea@3.1.5(react@18.2.0))
-      kea-router:
-        specifier: '*'
-        version: 3.2.1(kea@3.1.5(react@18.2.0))
-      react:
-        specifier: '*'
-        version: 18.2.0
-      react-beautiful-dnd:
-        specifier: '*'
-        version: 13.1.1(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
-
   products/links:
     dependencies:
       '@posthog/icons':
@@ -2287,6 +2254,39 @@ importers:
       react:
         specifier: '*'
         version: 18.2.0
+
+  products/tasks:
+    dependencies:
+      '@posthog/icons':
+        specifier: 0.26.0
+        version: 0.26.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+      '@storybook/react':
+        specifier: '*'
+        version: 7.6.4(encoding@0.1.13)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)(typescript@5.2.2)
+      '@types/react':
+        specifier: '*'
+        version: 17.0.52
+      clsx:
+        specifier: '*'
+        version: 1.2.1
+      kea:
+        specifier: '*'
+        version: 3.1.5(react@18.2.0)
+      kea-forms:
+        specifier: '*'
+        version: 3.2.0(kea@3.1.5(react@18.2.0))
+      kea-loaders:
+        specifier: '*'
+        version: 3.1.1(kea@3.1.5(react@18.2.0))
+      kea-router:
+        specifier: '*'
+        version: 3.4.0(kea@3.1.5(react@18.2.0))
+      react:
+        specifier: '*'
+        version: 18.2.0
+      react-beautiful-dnd:
+        specifier: '*'
+        version: 13.1.1(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
 
   products/user_interviews:
     dependencies:
@@ -12353,11 +12353,6 @@ packages:
 
   kea-localstorage@3.1.0:
     resolution: {integrity: sha512-OFByJwu88Ro9C9A1bqY5n8v1JYl6ArXX1zC75qpN8HorrReoM9Kf0gZdVspyExsRuX5en9ga64vsk54+jW4Kvw==}
-    peerDependencies:
-      kea: '>= 3'
-
-  kea-router@3.2.1:
-    resolution: {integrity: sha512-uW9Pgo4J/Oz9dqikaKem2rf03KR0RiGElD6lrBU1JKW/BM11YG468JLh5UI0NSwWniFjWh9M7ah1nV0TXu9FjQ==}
     peerDependencies:
       kea: '>= 3'
 
@@ -28078,7 +28073,7 @@ snapshots:
 
   dom-helpers@5.2.1:
     dependencies:
-      '@babel/runtime': 7.24.0
+      '@babel/runtime': 7.27.6
       csstype: 3.1.1
 
   dom-serializer@0.2.2:
@@ -30904,11 +30899,6 @@ snapshots:
   kea-localstorage@3.1.0(kea@3.1.5(react@18.2.0)):
     dependencies:
       kea: 3.1.5(react@18.2.0)
-
-  kea-router@3.2.1(kea@3.1.5(react@18.2.0)):
-    dependencies:
-      kea: 3.1.5(react@18.2.0)
-      url-pattern: 1.0.3
 
   kea-router@3.4.0(kea@3.1.5(react@18.2.0)):
     dependencies:
@@ -33887,7 +33877,7 @@ snapshots:
 
   react-base16-styling@0.9.1:
     dependencies:
-      '@babel/runtime': 7.24.0
+      '@babel/runtime': 7.27.6
       '@types/base16': 1.0.5
       '@types/lodash': 4.17.16
       base16: 1.0.0
@@ -34127,7 +34117,7 @@ snapshots:
 
   react-textarea-autosize@8.5.9(@types/react@17.0.52)(react@18.2.0):
     dependencies:
-      '@babel/runtime': 7.24.0
+      '@babel/runtime': 7.27.6
       react: 18.2.0
       use-composed-ref: 1.3.0(react@18.2.0)
       use-latest: 1.2.1(@types/react@17.0.52)(react@18.2.0)
@@ -34271,7 +34261,7 @@ snapshots:
 
   redux@4.2.0:
     dependencies:
-      '@babel/runtime': 7.24.0
+      '@babel/runtime': 7.27.6
 
   refractor@3.6.0:
     dependencies:

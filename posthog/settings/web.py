@@ -30,7 +30,7 @@ AXES_META_PRECEDENCE_ORDER = ["HTTP_X_FORWARDED_FOR", "REMOTE_ADDR"]
 # NOTE: Add these definitions here and on `tach.toml`
 PRODUCTS_APPS = [
     "products.early_access_features",
-    "products.issue_tracker",
+    "products.tasks",
     "products.links",
     "products.revenue_analytics",
     "products.user_interviews",

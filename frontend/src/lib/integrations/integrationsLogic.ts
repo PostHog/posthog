@@ -32,6 +32,7 @@ export const integrationsLogic = kea<integrationsLogicType>([
         closeNewIntegrationModal: true,
         openSetupModal: (integration?: IntegrationType, channelType?: ChannelType) => ({ integration, channelType }),
         closeSetupModal: true,
+        loadGitHubRepositories: (integrationId: number) => ({ integrationId }),
     }),
     reducers({
         newIntegrationModalKind: [
@@ -62,7 +63,6 @@ export const integrationsLogic = kea<integrationsLogicType>([
                 closeSetupModal: () => null,
             },
         ],
-        loadGitHubRepositories: (integrationId: number) => ({ integrationId }),
     }),
     loaders(({ values }) => ({
         integrations: [
