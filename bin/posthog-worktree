@@ -268,6 +268,8 @@ case "$COMMAND" in
         echo "  remove <branch>                 - Remove worktree"
         echo "  list                            - List all worktrees"
         echo ""
+        echo "  Note: Use 'phw switch <branch>' to switch to existing worktree"
+        echo ""
         echo "Examples:"
         echo "  $0 create haacked/new-feature        # Create new branch from master (default)"
         echo "  $0 create haacked/fix-bug main       # Create new branch from main"
