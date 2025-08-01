@@ -244,6 +244,7 @@
          "posthog_notebook"."content",
          "posthog_notebook"."text_content",
          "posthog_notebook"."deleted",
+         "posthog_notebook"."visibility",
          "posthog_notebook"."version",
          "posthog_notebook"."created_at",
          "posthog_notebook"."created_by_id",
@@ -386,7 +387,8 @@
   INNER JOIN "posthog_team" ON ("posthog_notebook"."team_id" = "posthog_team"."id")
   LEFT OUTER JOIN "posthog_user" ON ("posthog_notebook"."created_by_id" = "posthog_user"."id")
   LEFT OUTER JOIN "posthog_user" T5 ON ("posthog_notebook"."last_modified_by_id" = T5."id")
-  WHERE ("posthog_team"."project_id" = 99999
+  WHERE ("posthog_notebook"."visibility" = 'default'
+         AND "posthog_team"."project_id" = 99999
          AND "posthog_notebook"."short_id" = '00000000')
   LIMIT 21
   '''
@@ -400,6 +402,7 @@
          "posthog_notebook"."content",
          "posthog_notebook"."text_content",
          "posthog_notebook"."deleted",
+         "posthog_notebook"."visibility",
          "posthog_notebook"."version",
          "posthog_notebook"."created_at",
          "posthog_notebook"."created_by_id",
@@ -419,6 +422,7 @@
          "posthog_notebook"."content",
          "posthog_notebook"."text_content",
          "posthog_notebook"."deleted",
+         "posthog_notebook"."visibility",
          "posthog_notebook"."version",
          "posthog_notebook"."created_at",
          "posthog_notebook"."created_by_id",
@@ -560,6 +564,36 @@
 # ---
 # name: TestNotebooks.test_updates_notebook.19
   '''
+  SELECT "posthog_resourcenotebook"."id",
+         "posthog_resourcenotebook"."notebook_id",
+         "posthog_resourcenotebook"."group_id"
+  FROM "posthog_resourcenotebook"
+  WHERE "posthog_resourcenotebook"."notebook_id" = '00000000000000000000000000000000'::uuid
+  '''
+# ---
+# name: TestNotebooks.test_updates_notebook.2
+  '''
+  SELECT "posthog_project"."id",
+         "posthog_project"."organization_id",
+         "posthog_project"."name",
+         "posthog_project"."created_at",
+         "posthog_project"."product_description"
+  FROM "posthog_project"
+  WHERE "posthog_project"."id" = 99999
+  LIMIT 21
+  '''
+# ---
+# name: TestNotebooks.test_updates_notebook.20
+  '''
+  SELECT "posthog_resourcenotebook"."id",
+         "posthog_resourcenotebook"."notebook_id",
+         "posthog_resourcenotebook"."group_id"
+  FROM "posthog_resourcenotebook"
+  WHERE "posthog_resourcenotebook"."notebook_id" = '00000000000000000000000000000000'::uuid
+  '''
+# ---
+# name: TestNotebooks.test_updates_notebook.21
+  '''
   SELECT "posthog_user"."id",
          "posthog_user"."password",
          "posthog_user"."last_login",
@@ -592,19 +626,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestNotebooks.test_updates_notebook.2
-  '''
-  SELECT "posthog_project"."id",
-         "posthog_project"."organization_id",
-         "posthog_project"."name",
-         "posthog_project"."created_at",
-         "posthog_project"."product_description"
-  FROM "posthog_project"
-  WHERE "posthog_project"."id" = 99999
-  LIMIT 21
-  '''
-# ---
-# name: TestNotebooks.test_updates_notebook.20
+# name: TestNotebooks.test_updates_notebook.22
   '''
   SELECT "posthog_user"."id",
          "posthog_user"."password",
@@ -637,7 +659,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestNotebooks.test_updates_notebook.21
+# name: TestNotebooks.test_updates_notebook.23
   '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
@@ -716,7 +738,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestNotebooks.test_updates_notebook.22
+# name: TestNotebooks.test_updates_notebook.24
   '''
   SELECT "posthog_project"."id",
          "posthog_project"."organization_id",
@@ -728,7 +750,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestNotebooks.test_updates_notebook.23
+# name: TestNotebooks.test_updates_notebook.25
   '''
   SELECT "posthog_organizationmembership"."id",
          "posthog_organizationmembership"."organization_id",
@@ -768,7 +790,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestNotebooks.test_updates_notebook.24
+# name: TestNotebooks.test_updates_notebook.26
   '''
   SELECT "ee_accesscontrol"."id",
          "ee_accesscontrol"."team_id",
@@ -814,7 +836,7 @@
              AND "ee_accesscontrol"."team_id" = 99999))
   '''
 # ---
-# name: TestNotebooks.test_updates_notebook.25
+# name: TestNotebooks.test_updates_notebook.27
   '''
   SELECT "posthog_organizationmembership"."id",
          "posthog_organizationmembership"."organization_id",
@@ -852,7 +874,7 @@
   WHERE "posthog_organizationmembership"."user_id" = 99999
   '''
 # ---
-# name: TestNotebooks.test_updates_notebook.26
+# name: TestNotebooks.test_updates_notebook.28
   '''
   SELECT COUNT(*) AS "__count"
   FROM "posthog_activitylog"
@@ -860,7 +882,7 @@
          AND "posthog_activitylog"."team_id" = 99999)
   '''
 # ---
-# name: TestNotebooks.test_updates_notebook.27
+# name: TestNotebooks.test_updates_notebook.29
   '''
   SELECT "posthog_activitylog"."id",
          "posthog_activitylog"."team_id",
