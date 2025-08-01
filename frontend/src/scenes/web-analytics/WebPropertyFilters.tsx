@@ -12,7 +12,7 @@ import { IconWithCount } from 'lib/lemon-ui/icons'
 
 import { webAnalyticsLogic } from './webAnalyticsLogic'
 
-export const OPITIMIZED_PROPERTIES_BY_GROUP = {
+export const OPTIMIZED_PROPERTIES_BY_GROUP = {
     [TaxonomicFilterGroupType.EventProperties]: [
         '$host',
         '$device_type',
