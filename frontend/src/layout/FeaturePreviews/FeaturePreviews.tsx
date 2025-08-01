@@ -16,7 +16,7 @@ export function FeaturePreviews(): JSX.Element {
     const { earlyAccessFeatures, rawEarlyAccessFeaturesLoading } = useValues(featurePreviewsLogic)
     const { loadEarlyAccessFeatures } = useActions(featurePreviewsLogic)
 
-    useLayoutEffect(() => loadEarlyAccessFeatures(), [loadEarlyAccessFeatures])
+    useLayoutEffect(() => loadEarlyAccessFeatures(), [])
 
     const conceptFeatures = earlyAccessFeatures.filter((f) => f.stage === 'concept')
     const disabledConceptFeatureCount = conceptFeatures.filter((f) => !f.enabled).length
