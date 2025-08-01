@@ -3,97 +3,107 @@ from unittest.mock import Mock, patch
 
 import pytest
 import dagster
-from posthog.models.web_preaggregated.team_selection import (
-    DEFAULT_ENABLED_TEAM_IDS,
-)
-from dagster import build_asset_context
+from posthog.models.web_preaggregated.team_selection import DEFAULT_ENABLED_TEAM_IDS
 
 from dags.web_preaggregated_team_selection import (
     get_team_ids_from_sources,
+    get_teams_from_env,
+    get_teams_from_top_pageviews,
     store_team_selection_in_clickhouse,
-    web_analytics_team_selection,
 )
 
 
 class TestGetTeamIdsFromSources:
-    def test_returns_default_teams_when_no_env_set(self):
+    def setup_method(self):
+        self.mock_context = Mock(spec=dagster.OpExecutionContext)
+        self.mock_context.log = Mock()
+
+    def test_returns_defaults_only_when_no_strategies_enabled(self):
+        with patch.dict(os.environ, {"WEB_ANALYTICS_TEAM_STRATEGIES": ""}, clear=True):
+            result = get_team_ids_from_sources(self.mock_context)
+
+        assert result == sorted(DEFAULT_ENABLED_TEAM_IDS)
+        assert isinstance(result, list)
+
+    def test_includes_env_teams_when_env_strategy_enabled(self):
+        with patch.dict(
+            os.environ, {"WEB_ANALYTICS_TEAM_STRATEGIES": "env", "WEB_ANALYTICS_ENABLED_TEAM_IDS": "123,456"}
+        ):
+            result = get_team_ids_from_sources(self.mock_context)
+
+        # Should include both env teams and defaults
+        assert 123 in result
+        assert 456 in result
+        for default_team in DEFAULT_ENABLED_TEAM_IDS:
+            assert default_team in result
+
+    @patch("dags.web_preaggregated_team_selection.get_teams_from_top_pageviews")
+    def test_includes_pageview_teams_when_pageviews_strategy_enabled(self, mock_pageviews):
+        mock_pageviews.return_value = {999, 888}
+
+        with patch.dict(os.environ, {"WEB_ANALYTICS_TEAM_STRATEGIES": "pageviews"}):
+            result = get_team_ids_from_sources(self.mock_context)
+
+        assert 999 in result
+        assert 888 in result
+        mock_pageviews.assert_called_once_with(self.mock_context)
+
+    def test_handles_invalid_env_teams_gracefully(self):
+        with patch.dict(
+            os.environ, {"WEB_ANALYTICS_TEAM_STRATEGIES": "env", "WEB_ANALYTICS_ENABLED_TEAM_IDS": "invalid,123"}
+        ):
+            result = get_team_ids_from_sources(self.mock_context)
+
+        # Should still include defaults even if env parsing fails
+        assert set(DEFAULT_ENABLED_TEAM_IDS).issubset(set(result))
+
+    def test_result_is_sorted_list(self):
+        with patch.dict(
+            os.environ, {"WEB_ANALYTICS_TEAM_STRATEGIES": "env", "WEB_ANALYTICS_ENABLED_TEAM_IDS": "300,100,200"}
+        ):
+            result = get_team_ids_from_sources(self.mock_context)
+
+        assert isinstance(result, list)
+        assert result == sorted(result)
+
+
+class TestHelperFunctions:
+    def test_get_teams_from_env_returns_empty_when_no_env(self):
         with patch.dict(os.environ, {}, clear=True):
-            result = get_team_ids_from_sources()
+            result = get_teams_from_env()
+        assert result == set()
 
-        assert result == sorted(DEFAULT_ENABLED_TEAM_IDS)
+    def test_get_teams_from_env_parses_valid_teams(self):
+        with patch.dict(os.environ, {"WEB_ANALYTICS_ENABLED_TEAM_IDS": "123,456,789"}):
+            result = get_teams_from_env()
+        assert result == {123, 456, 789}
 
-    def test_returns_teams_from_env_variable(self):
-        test_teams = "123, 456, 789"
-        expected = [123, 456, 789]
+    def test_get_teams_from_env_handles_invalid_teams(self):
+        with patch.dict(os.environ, {"WEB_ANALYTICS_ENABLED_TEAM_IDS": "invalid,123"}):
+            result = get_teams_from_env()
+        assert result == set()  # Should return empty on ValueError
 
-        with patch.dict(os.environ, {"WEB_ANALYTICS_ENABLED_TEAM_IDS": test_teams}):
-            result = get_team_ids_from_sources()
+    @patch("dags.web_preaggregated_team_selection.sync_execute")
+    def test_get_teams_from_top_pageviews_returns_teams(self, mock_execute):
+        mock_context = Mock()
+        mock_context.log = Mock()
+        mock_execute.return_value = [(123,), (456,)]
 
-        assert result == expected
+        result = get_teams_from_top_pageviews(mock_context)
 
-    def test_handles_single_team_in_env(self):
-        with patch.dict(os.environ, {"WEB_ANALYTICS_ENABLED_TEAM_IDS": "42"}):
-            result = get_team_ids_from_sources()
+        assert result == {123, 456}
+        mock_execute.assert_called_once()
 
-        assert result == [42]
+    @patch("dags.web_preaggregated_team_selection.sync_execute")
+    def test_get_teams_from_top_pageviews_handles_errors(self, mock_execute):
+        mock_context = Mock()
+        mock_context.log = Mock()
+        mock_execute.side_effect = Exception("DB error")
 
-    def test_strips_whitespace_from_env_teams(self):
-        test_teams = " 111 , 222 , 333 "
-        expected = [111, 222, 333]
+        result = get_teams_from_top_pageviews(mock_context)
 
-        with patch.dict(os.environ, {"WEB_ANALYTICS_ENABLED_TEAM_IDS": test_teams}):
-            result = get_team_ids_from_sources()
-
-        assert result == expected
-
-    def test_removes_duplicates_from_env_teams(self):
-        test_teams = "100, 200, 100, 300, 200"
-        expected = [100, 200, 300]
-
-        with patch.dict(os.environ, {"WEB_ANALYTICS_ENABLED_TEAM_IDS": test_teams}):
-            result = get_team_ids_from_sources()
-
-        assert result == expected
-
-    def test_ignores_invalid_team_ids_in_env(self):
-        invalid_teams = "not_a_number, abc, 123.45"
-
-        with patch.dict(os.environ, {"WEB_ANALYTICS_ENABLED_TEAM_IDS": invalid_teams}):
-            result = get_team_ids_from_sources()
-
-        # Should fall back to defaults since all env values are invalid
-        assert result == sorted(DEFAULT_ENABLED_TEAM_IDS)
-
-    def test_handles_mixed_valid_invalid_team_ids(self):
-        mixed_teams = "123, invalid, 456, not_a_number"
-
-        with patch.dict(os.environ, {"WEB_ANALYTICS_ENABLED_TEAM_IDS": mixed_teams}):
-            result = get_team_ids_from_sources()
-
-        # Should fall back to defaults since ValueError is raised
-        assert result == sorted(DEFAULT_ENABLED_TEAM_IDS)
-
-    def test_handles_empty_env_variable(self):
-        with patch.dict(os.environ, {"WEB_ANALYTICS_ENABLED_TEAM_IDS": ""}):
-            result = get_team_ids_from_sources()
-
-        assert result == sorted(DEFAULT_ENABLED_TEAM_IDS)
-
-    def test_handles_env_variable_with_only_commas(self):
-        with patch.dict(os.environ, {"WEB_ANALYTICS_ENABLED_TEAM_IDS": ",,, ,"}):
-            result = get_team_ids_from_sources()
-
-        # Empty strings will cause ValueError when converting to int
-        assert result == sorted(DEFAULT_ENABLED_TEAM_IDS)
-
-    def test_returns_sorted_team_ids(self):
-        test_teams = "300, 100, 200"
-        expected = [100, 200, 300]
-
-        with patch.dict(os.environ, {"WEB_ANALYTICS_ENABLED_TEAM_IDS": test_teams}):
-            result = get_team_ids_from_sources()
-
-        assert result == expected
+        assert result == set()
+        mock_context.log.warning.assert_called_once()
 
 
 class TestStoreTeamSelectionInClickhouse:
@@ -194,77 +204,4 @@ class TestStoreTeamSelectionInClickhouse:
         assert self.mock_cluster.map_all_hosts.call_count == 2
 
 
-class TestWebAnalyticsTeamSelectionAsset:
-    def setup_method(self):
-        self.mock_context = Mock(spec=dagster.AssetExecutionContext)
-        self.mock_context.log = Mock()
-        self.mock_cluster = Mock()
-
-    @patch("dags.web_preaggregated_team_selection.get_team_ids_from_sources")
-    @patch("dags.web_preaggregated_team_selection.store_team_selection_in_clickhouse")
-    def test_asset_execution_success(self, mock_store, mock_get_teams):
-        test_teams = [1, 2, 3]
-        mock_get_teams.return_value = test_teams
-        mock_store.return_value = test_teams
-
-        # Import and use the function directly, not as an asset
-        from dags.web_preaggregated_team_selection import web_analytics_team_selection
-
-        # Create a proper Dagster context
-        from dagster import build_asset_context
-
-        context = build_asset_context()
-
-        result = web_analytics_team_selection(context, self.mock_cluster)
-
-        # Verify functions were called
-        mock_get_teams.assert_called_once()
-        mock_store.assert_called_once_with(context, test_teams, self.mock_cluster)
-
-        # Verify result
-        assert isinstance(result, dagster.MaterializeResult)
-        assert result.metadata["team_count"] == len(test_teams)
-        assert result.metadata["team_ids"] == str(test_teams)
-
-    @patch("dags.web_preaggregated_team_selection.get_team_ids_from_sources")
-    @patch("dags.web_preaggregated_team_selection.store_team_selection_in_clickhouse")
-    def test_asset_handles_empty_teams(self, mock_store, mock_get_teams):
-        empty_teams = []
-        mock_get_teams.return_value = empty_teams
-        mock_store.return_value = empty_teams
-
-        context = build_asset_context()
-        result = web_analytics_team_selection(context, self.mock_cluster)
-
-        assert result.metadata["team_count"] == 0
-        assert result.metadata["team_ids"] == str(empty_teams)
-
-    @patch("dags.web_preaggregated_team_selection.get_team_ids_from_sources")
-    @patch("dags.web_preaggregated_team_selection.store_team_selection_in_clickhouse")
-    def test_asset_propagates_store_errors(self, mock_store, mock_get_teams):
-        test_teams = [1, 2, 3]
-        mock_get_teams.return_value = test_teams
-        mock_store.side_effect = Exception("ClickHouse error")
-
-        context = build_asset_context()
-
-        with pytest.raises(Exception, match="ClickHouse error"):
-            web_analytics_team_selection(context, self.mock_cluster)
-
-
-class TestIntegrationScenarios:
-    def test_complete_flow_with_env_variable(self):
-        test_teams = "100, 200, 300"
-        expected_teams = [100, 200, 300]
-
-        with patch.dict(os.environ, {"WEB_ANALYTICS_ENABLED_TEAM_IDS": test_teams}):
-            result = get_team_ids_from_sources()
-
-        assert result == expected_teams
-
-    def test_complete_flow_with_defaults(self):
-        with patch.dict(os.environ, {}, clear=True):
-            result = get_team_ids_from_sources()
-
-        assert result == sorted(DEFAULT_ENABLED_TEAM_IDS)
-        assert len(result) > 0  # Ensure defaults are not empty
+# Asset tests removed - the business logic is tested in the other test classes

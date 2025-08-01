@@ -3,35 +3,63 @@ import os
 import dagster
 from clickhouse_driver import Client
 
+from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.cluster import ClickhouseCluster
 from posthog.models.web_preaggregated.team_selection import (
     WEB_PRE_AGGREGATED_TEAM_SELECTION_DICTIONARY_NAME,
     WEB_PRE_AGGREGATED_TEAM_SELECTION_DATA_SQL,
     DEFAULT_ENABLED_TEAM_IDS,
+    get_top_teams_by_median_pageviews_sql,
+    DEFAULT_TOP_TEAMS_BY_PAGEVIEWS_LIMIT,
 )
 from dags.common import JobOwners, settings_with_log_comment
 
 
-def get_team_ids_from_sources() -> list[int]:
-    team_ids = set()
-
+def get_teams_from_env() -> set[int]:
     env_teams = os.getenv("WEB_ANALYTICS_ENABLED_TEAM_IDS")
-    if env_teams:
-        try:
-            env_team_list = [int(tid.strip()) for tid in env_teams.split(",")]
-            team_ids.update(env_team_list)
-        except ValueError:
-            # Invalid team IDs in env var will be ignored
-            pass
+    if not env_teams:
+        return set()
 
-    # TODO: Source 2: Get teams from feature preview
-    # TODO: Source 3: Get teams from settings
+    try:
+        return {int(tid.strip()) for tid in env_teams.split(",") if tid.strip()}
+    except ValueError:
+        return set()
 
-    # Fallback to default teams if no other sources provided data
-    if not team_ids:
-        team_ids.update(DEFAULT_ENABLED_TEAM_IDS)
 
-    return sorted(team_ids)
+def get_teams_from_top_pageviews(context: dagster.OpExecutionContext) -> set[int]:
+    try:
+        sql = get_top_teams_by_median_pageviews_sql(DEFAULT_TOP_TEAMS_BY_PAGEVIEWS_LIMIT)
+        result = sync_execute(sql)
+        return {row[0] for row in result}
+    except Exception as e:
+        context.log.warning(f"Failed to fetch top teams by pageviews: {e}")
+        return set()
+
+
+def get_team_ids_from_sources(context: dagster.OpExecutionContext) -> list[int]:
+    all_team_ids = set(DEFAULT_ENABLED_TEAM_IDS)  # Always include defaults
+
+    # Get enabled strategies from env var (comma-separated list)
+    enabled_strategies = os.getenv("WEB_ANALYTICS_TEAM_STRATEGIES", "env,pageviews").split(",")
+    enabled_strategies = [s.strip().lower() for s in enabled_strategies]
+
+    context.log.info(f"Enabled strategies: {enabled_strategies}")
+
+    # Add teams from environment variable
+    if "env" in enabled_strategies:
+        env_teams = get_teams_from_env()
+        all_team_ids.update(env_teams)
+        context.log.info(f"Added {len(env_teams)} teams from environment variable")
+
+    # Add teams with most pageviews
+    if "most_pageviews" in enabled_strategies:
+        pageview_teams = get_teams_from_top_pageviews(context)
+        all_team_ids.update(pageview_teams)
+        context.log.info(f"Added {len(pageview_teams)} teams from top pageviews")
+
+    team_list = sorted(all_team_ids)
+    context.log.info(f"Total unique team IDs: {len(team_list)}")
+    return team_list
 
 
 def store_team_selection_in_clickhouse(
@@ -99,7 +127,7 @@ def web_analytics_team_selection(
     The selection is then stored in a ClickHouse dictionary for fast lookups.
     """
     context.log.info("Getting team IDs from sources")
-    team_ids = get_team_ids_from_sources()
+    team_ids = get_team_ids_from_sources(context)
 
     context.log.info(f"Materializing team selection for {len(team_ids)} teams")
     stored_team_ids = store_team_selection_in_clickhouse(context, team_ids, cluster)
