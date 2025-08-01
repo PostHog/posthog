@@ -118,7 +118,9 @@ def _export_to_png(exported_asset: ExportedAsset) -> None:
             screenshot_width = 1920
         elif exported_asset.export_context and exported_asset.export_context.get("replay_id"):
             # Handle replay export using /exporter route (same as insights/dashboards)
-            url_to_render = absolute_uri(f"/exporter?token={access_token}")
+            url_to_render = absolute_uri(
+                f"/exporter?token={access_token}&t={exported_asset.export_context.get('timestamp') or 0}&fullscreen=true"
+            )
             wait_for_css_selector = exported_asset.export_context.get("css_selector", ".SessionRecordingPlayer")
             screenshot_width = exported_asset.export_context.get("width", 1400)
 

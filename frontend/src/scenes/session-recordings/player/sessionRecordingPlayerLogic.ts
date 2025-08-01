@@ -995,6 +995,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 if (!cache.hasInitialized) {
                     cache.hasInitialized = true
                     const searchParams = router.values.searchParams
+                    if (searchParams.fullscreen) {
+                        actions.setIsFullScreen(true)
+                    }
                     if (searchParams.timestamp) {
                         const desiredStartTime = Number(searchParams.timestamp)
                         actions.seekToTimestamp(desiredStartTime, true)
