@@ -57,8 +57,8 @@ def deserialize_hx_tag(hog_tag: dict) -> HogQLXTag:
 def deserialize_hx_ast(hog_ast: dict) -> AST:
     """
     Deserialize a HX AST and tag dicts into real Python AST classes.
-      - Dicts with ``__hx_ast`` tag -> AST node
-      - Dicts with ``__hx_tag`` tag -> HogQLXTag
+      - Dicts with `__hx_ast` -> AST node
+      - Dicts with `__hx_tag` -> HogQLXTag
       - Lists that may contain tags, primitive values, or more lists
     """
     tag_kind = hog_ast.get("__hx_tag")
@@ -74,6 +74,9 @@ def deserialize_hx_ast(hog_ast: dict) -> AST:
     init_args: dict[str, Any] = {}
 
     def _deserialize(value: Any, field_type: type) -> Any:
+        if isinstance(value, dict) and "__hx_tag" in value:
+            return deserialize_hx_tag(value)
+
         if isinstance(value, dict) and "__hx_ast" in value:
             return deserialize_hx_ast(value)
 
