@@ -19,6 +19,7 @@ import {
     ExperimentMetricTypeProps,
     ExperimentTrendsQuery,
     NodeKind,
+    TrendsQuery,
 } from '~/queries/schema/schema-general'
 import { isFunnelsQuery, isNodeWithSource, isTrendsQuery, isValidQueryForExperiment } from '~/queries/utils'
 import {
@@ -681,8 +682,8 @@ export const isLegacySharedMetric = ({ query }: SharedMetric): boolean => isLega
 /**
  * Builds a TrendsQuery for counting events in the last 14 days for experiment metric preview
  */
-export function getEventCountQuery(metric: ExperimentMetric, filterTestAccounts: boolean): any {
-    let series: Record<string, any>[] = []
+export function getEventCountQuery(metric: ExperimentMetric, filterTestAccounts: boolean): TrendsQuery | null {
+    let series: AnyEntityNode[] = []
 
     if (metric.metric_type === ExperimentMetricType.MEAN) {
         const source = metric.source
@@ -690,8 +691,8 @@ export function getEventCountQuery(metric: ExperimentMetric, filterTestAccounts:
             series = [
                 {
                     kind: NodeKind.EventsNode,
-                    name: source.event,
-                    event: source.event,
+                    name: source.event || undefined,
+                    event: source.event || undefined,
                     math: ExperimentMetricMathType.TotalCount,
                     ...(source.properties && source.properties.length > 0 && { properties: source.properties }),
                 },
@@ -709,11 +710,12 @@ export function getEventCountQuery(metric: ExperimentMetric, filterTestAccounts:
         } else if (source.kind === NodeKind.ExperimentDataWarehouseNode) {
             series = [
                 {
-                    kind: NodeKind.ExperimentDataWarehouseNode,
+                    kind: NodeKind.DataWarehouseNode,
+                    id: source.table_name,
+                    id_field: source.data_warehouse_join_key,
                     table_name: source.table_name,
                     timestamp_field: source.timestamp_field,
-                    events_join_key: source.events_join_key,
-                    data_warehouse_join_key: source.data_warehouse_join_key,
+                    distinct_id_field: source.events_join_key,
                     name: source.name,
                     math: ExperimentMetricMathType.TotalCount,
                     ...(source.properties && source.properties.length > 0 && { properties: source.properties }),
@@ -727,7 +729,7 @@ export function getEventCountQuery(metric: ExperimentMetric, filterTestAccounts:
                 series = [
                     {
                         kind: NodeKind.EventsNode,
-                        name: lastStep.event,
+                        name: lastStep.event || undefined,
                         event: lastStep.event,
                         math: ExperimentMetricMathType.TotalCount,
                         ...(lastStep.properties &&
@@ -758,7 +760,7 @@ export function getEventCountQuery(metric: ExperimentMetric, filterTestAccounts:
         series,
         trendsFilter: {
             formulaNodes: [],
-            display: 'BoldNumber',
+            display: ChartDisplayType.BoldNumber,
         },
         dateRange: {
             date_from: '-14d',
@@ -766,10 +768,6 @@ export function getEventCountQuery(metric: ExperimentMetric, filterTestAccounts:
             explicitDate: false,
         },
         interval: 'day',
-        breakdownFilter: null,
         filterTestAccounts,
-        tags: {
-            scene: 'Insight',
-        },
     }
 }
