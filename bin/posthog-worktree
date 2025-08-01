@@ -149,8 +149,8 @@ checkout_pr_worktree() {
     local pr_title=$(echo "$pr_info" | jq -r '.title' | cut -c1-50)
     
     # Create branch name for worktree
-    local branch_name="pr-${pr_number}-${pr_author}"
-    local worktree_path="${WORKTREE_BASE}/${branch_name}"
+    local worktree_dirname="pr-${pr_number}-${pr_author}"
+    local worktree_path="${WORKTREE_BASE}/${worktree_dirname}"
     
     success "Checking out PR #${pr_number}: ${pr_title}..."
     print_color blue "Author: ${pr_author}, Branch: ${pr_branch}"
