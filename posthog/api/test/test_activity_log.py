@@ -2,12 +2,13 @@ from datetime import timedelta
 from typing import Any, Optional
 
 from django.test.utils import override_settings
+from django.test import TransactionTestCase
 from freezegun import freeze_time
 from freezegun.api import FrozenDateTimeFactory, StepTickTimeFactory
 from rest_framework import status
 from django.db import transaction
 
-from posthog.models import User
+from posthog.models import User, Organization, Team
 from posthog.test.base import APIBaseTest, QueryMatchingTest
 from posthog.models.activity_logging.activity_log import ActivityLog, log_activity, Detail
 
@@ -192,8 +193,24 @@ class TestActivityLog(APIBaseTest, QueryMatchingTest):
         assert len(res.json()["results"]) == 6
         assert [r["scope"] for r in res.json()["results"]] == ["FeatureFlag"] * 6
 
+
+class TestActivityLogTransactions(TransactionTestCase):
+    def setUp(self):
+        from posthog.models import User
+
+        self.organization = Organization.objects.create(name="Test Organization")
+        self.team = Team.objects.create(
+            organization=self.organization,
+            name="Test Team",
+        )
+        self.user = User.objects.create_and_join(
+            organization=self.organization,
+            email="test@posthog.com",
+            password="password123",
+        )
+
     @override_settings(ACTIVITY_LOG_TRANSACTION_MANAGEMENT=True)
-    def test_activity_logging_defers_during_atomic_transactions(self) -> None:
+    def test_activity_logging_transaction_behavior(self) -> None:
         ActivityLog.objects.filter(team_id=self.team.id).delete()
 
         # Test 1: Activity logging outside transaction works immediately
@@ -222,8 +239,8 @@ class TestActivityLog(APIBaseTest, QueryMatchingTest):
                 user=self.user,
                 item_id=456,
                 scope="TestScope",
-                activity="updated",
-                detail=Detail(name="Test Item Updated"),
+                activity="created",
+                detail=Detail(name="Test Item Created in Transaction"),
                 was_impersonated=False,
             )
 
@@ -232,7 +249,7 @@ class TestActivityLog(APIBaseTest, QueryMatchingTest):
 
         assert ActivityLog.objects.filter(team_id=self.team.id).count() == 1
         activity_log = ActivityLog.objects.get(team_id=self.team.id)
-        assert activity_log.activity == "updated"
+        assert activity_log.activity == "created"
         assert activity_log.scope == "TestScope"
         assert activity_log.item_id == "456"
 
@@ -247,8 +264,8 @@ class TestActivityLog(APIBaseTest, QueryMatchingTest):
                     user=self.user,
                     item_id=789,
                     scope="TestScope",
-                    activity="deleted",
-                    detail=Detail(name="Test Item Deleted"),
+                    activity="created",
+                    detail=Detail(name="Test Item Created but Rolled Back"),
                     was_impersonated=False,
                 )
 
