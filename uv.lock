@@ -3433,6 +3433,22 @@ wheels = [
 ]
 
 [[package]]
+name = "opentelemetry-instrumentation-httpx"
+version = "0.54b1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "opentelemetry-api" },
+    { name = "opentelemetry-instrumentation" },
+    { name = "opentelemetry-semantic-conventions" },
+    { name = "opentelemetry-util-http" },
+    { name = "wrapt" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/9f/64/65b2e599c5043a5dbd14c251d48dec4947e2ec8713f601df197ea9b51246/opentelemetry_instrumentation_httpx-0.54b1.tar.gz", hash = "sha256:37e1cd0190f98508d960ec1667c9f148f8c8ad9a6cab127b57c9ad92c37493c3", size = 17734, upload-time = "2025-05-16T19:03:47.762Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/f1/63/f92e93b613b51344a979dc6674641f2c0d24b031f6a08557304398962e41/opentelemetry_instrumentation_httpx-0.54b1-py3-none-any.whl", hash = "sha256:99b8e43ebf1d945ca298d84d32298ba26d1c3431738cea9f69a26c442661745f", size = 14129, upload-time = "2025-05-16T19:02:45.418Z" },
+]
+
+[[package]]
 name = "opentelemetry-instrumentation-kafka-python"
 version = "0.54b1"
 source = { registry = "https://pypi.org/simple" }
@@ -3473,6 +3489,21 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/c2/01/fad85231c3518bf6349a7ef483ef06a27100da8d1b7531dec9d8d09b94d8/opentelemetry_instrumentation_redis-0.54b1.tar.gz", hash = "sha256:89024c4752147d528e8c51fff0034193e628da339848cda78afe0cf4eb0c7ccb", size = 13908, upload-time = "2025-05-16T19:03:58.876Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/c0/c1/78f18965f16e34a8fecc5b10c52aca1243e75a512a0a0320556a69583f36/opentelemetry_instrumentation_redis-0.54b1-py3-none-any.whl", hash = "sha256:e98992bd38e93081158f9947a1a8eea51d96e8bfe5054894a5b8d1d82117c0c8", size = 14924, upload-time = "2025-05-16T19:03:01.07Z" },
+]
+
+[[package]]
+name = "opentelemetry-instrumentation-requests"
+version = "0.54b1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "opentelemetry-api" },
+    { name = "opentelemetry-instrumentation" },
+    { name = "opentelemetry-semantic-conventions" },
+    { name = "opentelemetry-util-http" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/e7/45/116da84930d3dc2f5cdd876283ca96e9b96547bccee7eaa0bd01ce6bf046/opentelemetry_instrumentation_requests-0.54b1.tar.gz", hash = "sha256:3eca5d697c5564af04c6a1dd23b6a3ffbaf11e64887c6051655cee03998f4654", size = 15148, upload-time = "2025-05-16T19:04:00.488Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/2b/b1/6e33d2c3d3cc9e3ae20a9a77625ec81a509a0e5d7fa87e09e7f879468990/opentelemetry_instrumentation_requests-0.54b1-py3-none-any.whl", hash = "sha256:a0c4cd5d946224f336d6bd73cdabdecc6f80d5c39208f84eb96eb15f16cd41a0", size = 12968, upload-time = "2025-05-16T19:03:03.131Z" },
 ]
 
 [[package]]
@@ -3890,9 +3921,11 @@ dependencies = [
     { name = "opentelemetry-instrumentation-aiokafka" },
     { name = "opentelemetry-instrumentation-asgi" },
     { name = "opentelemetry-instrumentation-django" },
+    { name = "opentelemetry-instrumentation-httpx" },
     { name = "opentelemetry-instrumentation-kafka-python" },
     { name = "opentelemetry-instrumentation-psycopg" },
     { name = "opentelemetry-instrumentation-redis" },
+    { name = "opentelemetry-instrumentation-requests" },
     { name = "opentelemetry-sdk" },
     { name = "orjson" },
     { name = "pandas" },
@@ -4107,9 +4140,11 @@ requires-dist = [
     { name = "opentelemetry-instrumentation-aiokafka", specifier = "==0.54b1" },
     { name = "opentelemetry-instrumentation-asgi", specifier = "==0.54b1" },
     { name = "opentelemetry-instrumentation-django", specifier = "==0.54b1" },
+    { name = "opentelemetry-instrumentation-httpx", specifier = "==0.54b1" },
     { name = "opentelemetry-instrumentation-kafka-python", specifier = "==0.54b1" },
     { name = "opentelemetry-instrumentation-psycopg", specifier = "==0.54b1" },
     { name = "opentelemetry-instrumentation-redis", specifier = "==0.54b1" },
+    { name = "opentelemetry-instrumentation-requests", specifier = "==0.54b1" },
     { name = "opentelemetry-sdk", specifier = "==1.33.1" },
     { name = "orjson", specifier = "==3.10.15" },
     { name = "pandas", specifier = "==2.2.0" },

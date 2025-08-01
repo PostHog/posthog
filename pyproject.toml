@@ -153,6 +153,9 @@ dependencies = [
     "opentelemetry-instrumentation-aiokafka==0.54b1",
     "opentelemetry-instrumentation-kafka-python==0.54b1",
     "opentelemetry-exporter-otlp-proto-grpc==1.33.1",
+    "opentelemetry-instrumentation-httpx==0.54b1",
+    "opentelemetry-instrumentation-requests==0.54b1",
+
     "asgiref==3.8.1",
 ]
 
