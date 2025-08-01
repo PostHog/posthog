@@ -849,7 +849,8 @@
                 "navigate",
                 "search_error_tracking_issues",
                 "experiment_results_summary",
-                "create_survey"
+                "create_survey",
+                "session_recording_settings_help"
             ],
             "type": "string"
         },
@@ -23441,6 +23442,9 @@
                 "minDecimalPlaces": {
                     "type": "number"
                 },
+                "movingAverageIntervals": {
+                    "type": "number"
+                },
                 "resultCustomizationBy": {
                     "$ref": "#/definitions/ResultCustomizationBy",
                     "default": "value",
@@ -23480,12 +23484,18 @@
                     "default": false,
                     "type": "boolean"
                 },
+                "showMovingAverage": {
+                    "type": "boolean"
+                },
                 "showMultipleYAxes": {
                     "default": false,
                     "type": "boolean"
                 },
                 "showPercentStackView": {
                     "default": false,
+                    "type": "boolean"
+                },
+                "showTrendLines": {
                     "type": "boolean"
                 },
                 "showValuesOnSeries": {
