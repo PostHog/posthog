@@ -47,18 +47,18 @@ export function ActionsPie({ inSharedMode, showPersonsModal = true, context }: C
 
     useEffect(() => {
         if (indexedResults) {
-            const days = indexedResults.length > 0 ? indexedResults[0].days : []
-
-            const colorList = indexedResults.map(getTrendsColor)
+            const visibleResults = indexedResults.filter((item) => !getTrendsHidden(item))
+            const days = visibleResults.length > 0 ? visibleResults[0].days : []
+            const colorList = visibleResults.map(getTrendsColor)
 
             setData([
                 {
                     id: 0,
-                    labels: indexedResults.map((item) => item.label),
-                    data: indexedResults.map((item) => item.aggregated_value),
-                    actions: indexedResults.map((item) => item.action),
-                    breakdownValues: indexedResults.map((item) => item.breakdown_value),
-                    breakdownLabels: indexedResults.map((item) => {
+                    labels: visibleResults.map((item) => item.label),
+                    data: visibleResults.map((item) => item.aggregated_value),
+                    actions: visibleResults.map((item) => item.action),
+                    breakdownValues: visibleResults.map((item) => item.breakdown_value),
+                    breakdownLabels: visibleResults.map((item) => {
                         return formatBreakdownLabel(
                             item.breakdown_value,
                             breakdownFilter,
@@ -66,15 +66,15 @@ export function ActionsPie({ inSharedMode, showPersonsModal = true, context }: C
                             formatPropertyValueForDisplay
                         )
                     }),
-                    compareLabels: indexedResults.map((item) => item.compare_label),
-                    personsValues: indexedResults.map((item) => item.persons),
+                    compareLabels: visibleResults.map((item) => item.compare_label),
+                    personsValues: visibleResults.map((item) => item.persons),
                     days,
                     backgroundColor: colorList,
                     borderColor: colorList, // For colors to display in the tooltip
                 },
             ])
             setTotal(
-                indexedResults.reduce((prev, item) => prev + (!getTrendsHidden(item) ? item.aggregated_value : 0), 0)
+                visibleResults.reduce((prev, item) => prev + (!getTrendsHidden(item) ? item.aggregated_value : 0), 0)
             )
         }
     }, [

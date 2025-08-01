@@ -34,21 +34,22 @@ export function ActionsHorizontalBar({ showPersonsModal = true, context }: Chart
         breakdownFilter,
         hiddenLegendIndexes,
         getTrendsColor,
+        getTrendsHidden,
         theme,
     } = useValues(trendsDataLogic(insightProps))
 
     function updateData(): void {
-        const _data = [...indexedResults]
-        const colorList = indexedResults.map(getTrendsColor)
+        const visibleResults = indexedResults.filter((item) => !getTrendsHidden(item))
+        const colorList = visibleResults.map(getTrendsColor)
 
         setData([
             {
-                labels: _data.map((item) => item.label),
-                data: _data.map((item) => item.aggregated_value),
-                actions: _data.map((item) => item.action),
-                personsValues: _data.map((item) => item.persons),
-                breakdownValues: _data.map((item) => item.breakdown_value),
-                breakdownLabels: _data.map((item) => {
+                labels: visibleResults.map((item) => item.label),
+                data: visibleResults.map((item) => item.aggregated_value),
+                actions: visibleResults.map((item) => item.action),
+                personsValues: visibleResults.map((item) => item.persons),
+                breakdownValues: visibleResults.map((item) => item.breakdown_value),
+                breakdownLabels: visibleResults.map((item) => {
                     return formatBreakdownLabel(
                         item.breakdown_value,
                         breakdownFilter,
@@ -58,7 +59,7 @@ export function ActionsHorizontalBar({ showPersonsModal = true, context }: Chart
                         item.label
                     )
                 }),
-                compareLabels: _data.map((item) => item.compare_label),
+                compareLabels: visibleResults.map((item) => item.compare_label),
                 backgroundColor: colorList,
                 hoverBackgroundColor: colorList,
                 hoverBorderColor: colorList,
@@ -67,7 +68,7 @@ export function ActionsHorizontalBar({ showPersonsModal = true, context }: Chart
                 borderWidth: 1,
             },
         ])
-        setTotal(_data.reduce((prev, item) => prev + item.aggregated_value, 0))
+        setTotal(visibleResults.reduce((prev, item) => prev + item.aggregated_value, 0))
     }
 
     useEffect(() => {
