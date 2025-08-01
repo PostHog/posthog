@@ -21,7 +21,7 @@ class TaskProcessingInputs:
 @dataclass
 class CreatePRInputs:
     """Input parameters for creating a pull request."""
-    
+
     task_processing_inputs: TaskProcessingInputs
     branch_name: str
 
@@ -29,7 +29,7 @@ class CreatePRInputs:
 @dataclass
 class CommitChangesInputs:
     """Input parameters for committing changes."""
-    
+
     task_processing_inputs: TaskProcessingInputs
     branch_name: str
     file_changes: list[dict[str, str]]

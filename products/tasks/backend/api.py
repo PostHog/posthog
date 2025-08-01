@@ -10,6 +10,7 @@ from .serializers import TaskSerializer
 from .temporal.client import execute_task_processing_workflow
 import logging
 
+
 class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     serializer_class = TaskSerializer
     permission_classes = [IsAuthenticated, APIScopePermission]
@@ -122,79 +123,78 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         task = self.get_object()
         try:
             # Get the most recent progress record for this task
-            progress = TaskProgress.objects.filter(
-                task=task,
-                team=self.team
-            ).order_by('-created_at').first()
+            progress = TaskProgress.objects.filter(task=task, team=self.team).order_by("-created_at").first()
 
             if not progress:
-                return Response({
-                    "has_progress": False,
-                    "message": "No execution progress found for this task"
-                })
+                return Response({"has_progress": False, "message": "No execution progress found for this task"})
 
-            return Response({
-                "has_progress": True,
-                "id": progress.id,
-                "status": progress.status,
-                "current_step": progress.current_step,
-                "completed_steps": progress.completed_steps,
-                "total_steps": progress.total_steps,
-                "progress_percentage": progress.progress_percentage,
-                "output_log": progress.output_log,
-                "error_message": progress.error_message,
-                "created_at": progress.created_at,
-                "updated_at": progress.updated_at,
-                "completed_at": progress.completed_at,
-                "workflow_id": progress.workflow_id,
-                "workflow_run_id": progress.workflow_run_id
-            })
+            return Response(
+                {
+                    "has_progress": True,
+                    "id": progress.id,
+                    "status": progress.status,
+                    "current_step": progress.current_step,
+                    "completed_steps": progress.completed_steps,
+                    "total_steps": progress.total_steps,
+                    "progress_percentage": progress.progress_percentage,
+                    "output_log": progress.output_log,
+                    "error_message": progress.error_message,
+                    "created_at": progress.created_at,
+                    "updated_at": progress.updated_at,
+                    "completed_at": progress.completed_at,
+                    "workflow_id": progress.workflow_id,
+                    "workflow_run_id": progress.workflow_run_id,
+                }
+            )
 
-        except Exception as e:
+        except Exception:
             logging.exception("Error fetching task progress")
-            return Response({
-                "error": "An internal error occurred while fetching progress."
-            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return Response(
+                {"error": "An internal error occurred while fetching progress."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
 
     @action(detail=True, methods=["get"])
     def progress_stream(self, request, pk=None, **kwargs):
         """Get real-time progress updates (polling endpoint)."""
         task = self.get_object()
-        since = request.query_params.get('since')  # Timestamp to get updates since
+        since = request.query_params.get("since")  # Timestamp to get updates since
 
         try:
-            queryset = TaskProgress.objects.filter(
-                task=task,
-                team=self.team
-            ).order_by('-created_at')
+            queryset = TaskProgress.objects.filter(task=task, team=self.team).order_by("-created_at")
 
             if since:
                 from django.utils.dateparse import parse_datetime
+
                 since_dt = parse_datetime(since)
                 if since_dt:
                     queryset = queryset.filter(updated_at__gt=since_dt)
 
             progress_records = queryset[:5]  # Limit to 5 most recent
 
-            return Response({
-                "progress_updates": [
-                    {
-                        "id": p.id,
-                        "status": p.status,
-                        "current_step": p.current_step,
-                        "completed_steps": p.completed_steps,
-                        "total_steps": p.total_steps,
-                        "progress_percentage": p.progress_percentage,
-                        "output_log": p.output_log,
-                        "error_message": p.error_message,
-                        "updated_at": p.updated_at,
-                        "workflow_id": p.workflow_id
-                    } for p in progress_records
-                ],
-                "server_time": timezone.now().isoformat()
-            })
+            return Response(
+                {
+                    "progress_updates": [
+                        {
+                            "id": p.id,
+                            "status": p.status,
+                            "current_step": p.current_step,
+                            "completed_steps": p.completed_steps,
+                            "total_steps": p.total_steps,
+                            "progress_percentage": p.progress_percentage,
+                            "output_log": p.output_log,
+                            "error_message": p.error_message,
+                            "updated_at": p.updated_at,
+                            "workflow_id": p.workflow_id,
+                        }
+                        for p in progress_records
+                    ],
+                    "server_time": timezone.now().isoformat(),
+                }
+            )
 
-        except Exception as e:
-            return Response({
-                "error": "An internal error occurred while fetching progress stream."
-            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        except Exception:
+            return Response(
+                {"error": "An internal error occurred while fetching progress stream."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )

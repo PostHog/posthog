@@ -31,15 +31,14 @@ class Task(models.Model):
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
-        limit_choices_to={'kind': 'github'},
-        help_text="GitHub integration for this task"
+        limit_choices_to={"kind": "github"},
+        help_text="GitHub integration for this task",
     )
-    
+
     repository_config = models.JSONField(
-        default=dict,
-        help_text="Repository configuration with organization and repository fields"
+        default=dict, help_text="Repository configuration with organization and repository fields"
     )
-    
+
     # GitHub integration fields (issue-specific) - kept for backward compatibility
     github_branch = models.CharField(max_length=255, blank=True, null=True, help_text="Branch created for this task")
     github_pr_url = models.URLField(blank=True, null=True, help_text="Pull request URL when created")
@@ -63,42 +62,42 @@ class Task(models.Model):
         """
         config = self.repository_config
         if config.get("organization") and config.get("repository"):
-            return [{
-                "org": config.get("organization"),
-                "repo": config.get("repository"),
-                "integration_id": self.github_integration_id,
-                "full_name": f"{config.get('organization')}/{config.get('repository')}"
-            }]
+            return [
+                {
+                    "org": config.get("organization"),
+                    "repo": config.get("repository"),
+                    "integration_id": self.github_integration_id,
+                    "full_name": f"{config.get('organization')}/{config.get('repository')}",
+                }
+            ]
         return []
-    
+
     def can_access_repository(self, org: str, repo: str) -> bool:
         """Check if task can work with a specific repository"""
         repo_list = self.repository_list
         return any(r["org"] == org and r["repo"] == repo for r in repo_list)
-    
+
     @property
     def primary_repository(self) -> dict | None:
         """Get the primary repository for this task"""
         repositories = self.repository_list
         if not repositories:
             return None
-        
+
         # Since we only support single repository, return the first (and only) one
         return repositories[0]
-    
+
     @property
     def legacy_github_integration(self):
         """Get the team's main GitHub integration if available (legacy compatibility)"""
         if self.github_integration:
             return self.github_integration
-        
+
         # Fallback to team's first GitHub integration
         from posthog.models.integration import Integration
+
         try:
-            return Integration.objects.filter(
-                team_id=self.team_id,
-                kind="github"
-            ).first()
+            return Integration.objects.filter(team_id=self.team_id, kind="github").first()
         except Exception:
             return None
 
@@ -152,7 +151,9 @@ class TaskProgress(models.Model):
         self.updated_at = timezone.now()
         self.save(update_fields=["output_log", "updated_at"])
 
-    def update_progress(self, step: str = None, completed_steps: int = None, total_steps: int = None):
+    def update_progress(
+        self, step: str | None = None, completed_steps: int | None = None, total_steps: int | None = None
+    ):
         """Update progress information."""
         if step:
             self.current_step = step

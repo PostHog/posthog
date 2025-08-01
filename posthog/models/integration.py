@@ -1010,13 +1010,13 @@ class GitHubIntegration:
 
         if not github_app_client_id:
             raise ValidationError("GITHUB_APP_CLIENT_ID is not configured")
-        
+
         if not github_app_private_key:
             raise ValidationError("GITHUB_APP_PRIVATE_KEY is not configured")
 
         # Handle common newline encoding issues in environment variables
         # Replace literal \n with actual newlines
-        github_app_private_key = github_app_private_key.replace('\\n', '\n')
+        github_app_private_key = github_app_private_key.replace("\\n", "\n")
 
         # Check if the private key has the proper PEM format
         if not github_app_private_key.strip().startswith("-----BEGIN"):
@@ -1036,9 +1036,11 @@ class GitHubIntegration:
                 github_app_private_key,
                 algorithm="RS256",
             )
-        except Exception as e:
+        except Exception:
             logger.error("Failed to encode JWT token", exc_info=True)
-            raise ValidationError("Failed to create GitHub App JWT token. Please check your GITHUB_APP_PRIVATE_KEY format.")
+            raise ValidationError(
+                "Failed to create GitHub App JWT token. Please check your GITHUB_APP_PRIVATE_KEY format."
+            )
 
         return requests.request(
             method,
@@ -1241,13 +1243,7 @@ class GitHubIntegration:
             }
 
     def update_file(
-        self,
-        repository: str,
-        file_path: str,
-        content: str,
-        commit_message: str,
-        branch: str,
-        sha: Optional[str] = None
+        self, repository: str, file_path: str, content: str, commit_message: str, branch: str, sha: Optional[str] = None
     ) -> dict[str, Any]:
         """Create or update a file in the repository."""
         org = self.organization()
@@ -1268,6 +1264,7 @@ class GitHubIntegration:
                 sha = get_response.json()["sha"]
 
         import base64
+
         encoded_content = base64.b64encode(content.encode("utf-8")).decode("utf-8")
 
         data = {
@@ -1305,12 +1302,7 @@ class GitHubIntegration:
             }
 
     def create_pull_request(
-        self,
-        repository: str,
-        title: str,
-        body: str,
-        head_branch: str,
-        base_branch: Optional[str] = None
+        self, repository: str, title: str, body: str, head_branch: str, base_branch: Optional[str] = None
     ) -> dict[str, Any]:
         """Create a pull request."""
         org = self.organization()
