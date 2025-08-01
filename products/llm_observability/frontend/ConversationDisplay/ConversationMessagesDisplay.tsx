@@ -43,11 +43,10 @@ export function ConversationMessagesDisplay({
         hideAllOutputMessages,
     } = useActions(llmObservabilityTraceLogic) as any
 
-    const inputNormalized = normalizeMessages(input, 'user', tools)
-    const outputNormalized = normalizeMessages(output, 'assistant')
-
     React.useEffect(() => {
-        const initialInputStates = inputNormalized.map((message, i) => {
+        const normalizedInput = normalizeMessages(input, 'user', tools)
+
+        const initialInputStates = normalizedInput.map((message, i) => {
             if (displayOption === DisplayOption.ExpandAll) {
                 return true
             }
@@ -61,14 +60,18 @@ export function ConversationMessagesDisplay({
         })
 
         setInputMessageShowStates(initialInputStates)
-    }, [input, tools, displayOption, setInputMessageShowStates, inputNormalized.length, inputNormalized])
+    }, [input, tools, displayOption, setInputMessageShowStates, inputNormalized.length])
 
     React.useEffect(() => {
-        const initialOutputStates = outputNormalized.map(() => {
+        const normalizedOutput = normalizeMessages(output, 'assistant')
+        const initialOutputStates = normalizedOutput.map(() => {
             return true
         })
         setOutputMessageShowStates(initialOutputStates)
-    }, [output, displayOption, setOutputMessageShowStates, outputNormalized])
+    }, [output, displayOption, setOutputMessageShowStates])
+
+    const inputNormalized = normalizeMessages(input, 'user', tools)
+    const outputNormalized = normalizeMessages(output, 'assistant')
 
     const inputButtons =
         input.length > 0 ? (
