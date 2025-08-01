@@ -1,6 +1,6 @@
 import { LemonInput, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
+import { INTERVAL_TO_DEFAULT_MOVING_AVERAGE_PERIOD, trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { isTrendsQuery } from '~/queries/utils'
@@ -28,24 +28,30 @@ export function MovingAverageIntervalsInput(): JSX.Element {
         }
     }, 500)
 
+    const interval = isTrendsQuery(querySource) ? querySource.interval || 'day' : 'day'
+
     return (
-        <div className="flex items-center justify-between w-full px-2 pb-2 pl-4">
-            <Tooltip title="The number of data points to use for calculating the moving average. A larger number will create a smoother line but with more lag.">
+        <Tooltip title="The number of data points to use for calculating the moving average. A larger number will create a smoother line but with more lag. You can't use a number greater than the amount of intervals in your date range.">
+            <div className="flex items-center justify-between w-full px-2 pb-2 pl-4 gap-1">
                 <span>Intervals</span>
-            </Tooltip>
-            <LemonInput
-                type="number"
-                className="w-20"
-                value={localValue}
-                onChange={(value) => {
-                    const numValue = value ?? 7
-                    setLocalValue(numValue)
-                    debouncedUpdate(numValue)
-                }}
-                min={1}
-                step={1}
-                disabledReason={!showMovingAverage ? 'Moving averages are only available for line graphs' : undefined}
-            />
-        </div>
+
+                <LemonInput
+                    type="number"
+                    className="w-30"
+                    value={localValue}
+                    onChange={(value) => {
+                        const numValue = value ?? INTERVAL_TO_DEFAULT_MOVING_AVERAGE_PERIOD[interval]
+                        setLocalValue(numValue)
+                        debouncedUpdate(numValue)
+                    }}
+                    min={2}
+                    suffix={<span>{`${interval}s`}</span>}
+                    step={1}
+                    disabledReason={
+                        !showMovingAverage ? 'Moving averages are only available for line graphs' : undefined
+                    }
+                />
+            </div>
+        </Tooltip>
     )
 }
