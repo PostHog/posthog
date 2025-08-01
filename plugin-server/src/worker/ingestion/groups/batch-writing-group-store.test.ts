@@ -85,7 +85,7 @@ describe('BatchWritingGroupStore', () => {
 
         // Store the transaction mock for assertions
         ;(groupRepository as any).lastTransactionMock = null
-        groupRepository.inTransaction = jest.fn().mockImplementation(async (description, transaction) => {
+        groupRepository.inTransaction = jest.fn().mockImplementation(async (_description, transaction) => {
             const mockTransaction = {
                 fetchGroup: jest.fn().mockImplementation(() => {
                     return Promise.resolve(group)
@@ -101,11 +101,6 @@ describe('BatchWritingGroupStore', () => {
             ;(groupRepository as any).lastTransactionMock = mockTransaction
             return await transaction(mockTransaction)
         })
-
-        // Helper function to safely access transaction mock
-        ;(groupRepository as any).getTransactionMock = () => {
-            return (groupRepository as any).lastTransactionMock
-        }
 
         // Reset the counter before each test
         groupCacheOperationsCounter.reset()
@@ -165,7 +160,7 @@ describe('BatchWritingGroupStore', () => {
         expect(groupRepository.updateGroupOptimistically).toHaveBeenCalledTimes(0)
         expect(groupRepository.updateGroup).toHaveBeenCalledTimes(0)
         expect(groupRepository.inTransaction).toHaveBeenCalledTimes(1)
-        expect((groupRepository as any).getTransactionMock()?.insertGroup).toHaveBeenCalledTimes(1)
+        expect((groupRepository as any).lastTransactionMock.insertGroup).toHaveBeenCalledTimes(1)
     })
 
     it('should accumulate changes in cache after db write, even if new group', async () => {
@@ -263,7 +258,7 @@ describe('BatchWritingGroupStore', () => {
 
         expect(groupRepository.updateGroupOptimistically).toHaveBeenCalledTimes(5)
         expect(groupRepository.inTransaction).toHaveBeenCalledTimes(1)
-        expect((groupRepository as any).getTransactionMock()?.updateGroup).toHaveBeenCalledTimes(1)
+        expect((groupRepository as any).lastTransactionMock.updateGroup).toHaveBeenCalledTimes(1)
         expect(clickhouseGroupRepository.upsertGroup).toHaveBeenCalledTimes(1)
     })
 
@@ -371,7 +366,7 @@ describe('BatchWritingGroupStore', () => {
         expect(groupRepository.updateGroupOptimistically).toHaveBeenCalledTimes(1)
         expect(groupRepository.fetchGroup).toHaveBeenCalledTimes(2) // Once for initial fetch, once for retry
         expect(groupRepository.inTransaction).toHaveBeenCalledTimes(1) // Once for initial insert, once for retry (new group)
-        expect((groupRepository as any).getTransactionMock()?.insertGroup).toHaveBeenCalledTimes(1)
+        expect((groupRepository as any).lastTransactionMock.insertGroup).toHaveBeenCalledTimes(1)
 
         expect(cacheDeleteSpy).toHaveBeenCalledWith(teamId, 'test')
 
