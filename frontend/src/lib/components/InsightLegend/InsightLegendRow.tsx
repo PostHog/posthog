@@ -32,7 +32,7 @@ export function InsightLegendRow({ item }: InsightLegendRowProps): JSX.Element {
         getTrendsHidden,
         resultCustomizationBy,
     } = useValues(trendsDataLogic(insightProps))
-    const { toggleHiddenLegendIndex } = useActions(trendsDataLogic(insightProps))
+    const { toggleResultHidden } = useActions(trendsDataLogic(insightProps))
 
     let highlighted = false
     if (highlightedSeries) {
@@ -75,7 +75,7 @@ export function InsightLegendRow({ item }: InsightLegendRowProps): JSX.Element {
                     className="text-xs mr-4"
                     color={mainColor}
                     checked={!isHidden}
-                    onChange={() => toggleHiddenLegendIndex(item)}
+                    onChange={() => toggleResultHidden(item)}
                     fullWidth
                     label={
                         <InsightLabel

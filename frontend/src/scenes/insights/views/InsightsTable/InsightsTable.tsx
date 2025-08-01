@@ -86,7 +86,7 @@ export function InsightsTable({
         getTrendsHidden,
         insightData,
     } = useValues(trendsDataLogic(insightProps))
-    const { toggleHiddenLegendIndex, toggleAllHiddenLegendIndexes } = useActions(trendsDataLogic(insightProps))
+    const { toggleResultHidden, toggleAllResultsHidden } = useActions(trendsDataLogic(insightProps))
     const { aggregation, allowAggregation } = useValues(insightsTableDataLogic(insightProps))
     const { setAggregationType } = useActions(insightsTableDataLogic(insightProps))
     const { hasInsightColors } = useValues(resultCustomizationsModalLogic(insightProps))
@@ -118,7 +118,7 @@ export function InsightsTable({
                         indexedResults={indexedResults}
                         canCheckUncheckSeries={canCheckUncheckSeries}
                         getTrendsHidden={getTrendsHidden}
-                        toggleAllHiddenLegendIndexes={toggleAllHiddenLegendIndexes}
+                        toggleAllResultsHidden={toggleAllResultsHidden}
                     />
                 )}
                 <span>Series</span>
@@ -141,7 +141,7 @@ export function InsightsTable({
                     item={item}
                     canCheckUncheckSeries={canCheckUncheckSeries}
                     isHidden={getTrendsHidden(item)}
-                    toggleHiddenLegendIndex={toggleHiddenLegendIndex}
+                    toggleResultHidden={toggleResultHidden}
                     label={<div className="ml-2 font-normal">{label}</div>}
                 />
             ) : (

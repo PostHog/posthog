@@ -112,8 +112,8 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
     actions({
         loadMoreBreakdownValues: true,
         setBreakdownValuesLoading: (loading: boolean) => ({ loading }),
-        toggleHiddenLegendIndex: (dataset: IndexedTrendResult) => ({ dataset }),
-        toggleAllHiddenLegendIndexes: (datasets: IndexedTrendResult[], hidden: boolean) => ({ datasets, hidden }),
+        toggleResultHidden: (dataset: IndexedTrendResult) => ({ dataset }),
+        toggleAllResultsHidden: (datasets: IndexedTrendResult[], hidden: boolean) => ({ datasets, hidden }),
     }),
 
     reducers({
@@ -424,7 +424,7 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
     })),
 
     listeners(({ actions, values }) => ({
-        toggleHiddenLegendIndex: ({ dataset }) => {
+        toggleResultHidden: ({ dataset }) => {
             const resultCustomizationKey = getTrendResultCustomizationKey(values.resultCustomizationBy, dataset)
             const resultCustomization = getTrendResultCustomization(
                 values.resultCustomizationBy,
@@ -442,7 +442,7 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                 },
             } as Partial<TrendsFilter>)
         },
-        toggleAllHiddenLegendIndexes: ({ datasets, hidden }) => {
+        toggleAllResultsHidden: ({ datasets, hidden }) => {
             const resultCustomizations = datasets.reduce((acc, dataset) => {
                 const resultCustomizationKey = getTrendResultCustomizationKey(values.resultCustomizationBy, dataset)
                 acc[resultCustomizationKey] = {
