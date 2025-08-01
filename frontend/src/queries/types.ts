@@ -38,10 +38,10 @@ export interface QueryContext<Q extends QuerySchema = QuerySchema> {
     extraDataTableQueryFeatures?: QueryFeature[]
     /** Allow customization of file name when exporting */
     fileNameForExport?: string
-    /** Whether to format numbers in human friendly format. */
-    formatNumbers?: boolean
     /** Custom column features to pass down to the DataTable */
     columnFeatures?: ColumnFeature[]
+    /** Cell renderer function that can be used for any column */
+    cellRenderer?: (value: unknown) => JSX.Element | null
 }
 
 export type QueryContextColumnTitleComponent = ComponentType<{

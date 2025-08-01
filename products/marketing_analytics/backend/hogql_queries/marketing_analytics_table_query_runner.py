@@ -6,12 +6,15 @@ from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
+from posthog.hogql_queries.utils.query_compare_to_date_range import QueryCompareToDateRange
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPreviousPeriodDateRange
 from posthog.models.team.team import DEFAULT_CURRENCY
 from posthog.schema import (
     ConversionGoalFilter1,
     ConversionGoalFilter2,
     ConversionGoalFilter3,
+    DateRange,
     MarketingAnalyticsBaseColumns,
     MarketingAnalyticsHelperForColumnNames,
     MarketingAnalyticsTableQuery,
@@ -59,23 +62,23 @@ class MarketingAnalyticsTableQueryRunner(QueryRunner):
             now=datetime.now(),
         )
 
-    @cached_property
-    def _factory(self):
+    # @cached_property
+    def _factory(self, date_range: QueryDateRange):
         """Cached factory instance for reuse"""
 
         # Create query context for all adapters
         context = QueryContext(
-            date_range=self.query_date_range,
+            date_range=date_range,
             team=self.team,
             base_currency=self.team.base_currency or DEFAULT_CURRENCY,
         )
         return MarketingSourceFactory(context=context)
 
-    def _get_marketing_source_adapters(self):
+    def _get_marketing_source_adapters(self, date_range: QueryDateRange):
         """Get marketing source adapters using the new adapter architecture"""
         try:
-            adapters = self._factory.create_adapters()
-            valid_adapters = self._factory.get_valid_adapters(adapters)
+            adapters = self._factory(date_range=date_range).create_adapters()
+            valid_adapters = self._factory(date_range=date_range).get_valid_adapters(adapters)
 
             logger.info(f"Found {len(valid_adapters)} valid marketing source adapters")
 
@@ -85,23 +88,25 @@ class MarketingAnalyticsTableQueryRunner(QueryRunner):
             logger.exception("Error getting marketing source adapters", error=str(e))
             return []
 
-    def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
+    def to_query(self, date_range: QueryDateRange) -> ast.SelectQuery | ast.SelectSetQuery:
         """Generate the HogQL query using the new adapter architecture"""
         with self.timings.measure("marketing_analytics_table_query"):
             # Get marketing source adapters
-            adapters = self._get_marketing_source_adapters()
+            adapters = self._get_marketing_source_adapters(date_range=date_range)
 
             # Build the union query using the factory
-            union_query_string = self._factory.build_union_query(adapters)
+            union_query_string = self._factory(date_range=date_range).build_union_query(adapters)
 
             # Get conversion goals and create processors
             conversion_goals = self._get_team_conversion_goals()
             processors = self._create_conversion_goal_processors(conversion_goals) if conversion_goals else []
 
             # Build the complete query with CTEs using AST
-            return self._build_complete_query_ast(union_query_string, processors)
+            return self._build_complete_query_ast(union_query_string, processors, date_range)
 
-    def _build_complete_query_ast(self, union_query_string: str, processors: list) -> ast.SelectQuery:
+    def _build_complete_query_ast(
+        self, union_query_string: str, processors: list, date_range: QueryDateRange
+    ) -> ast.SelectQuery:
         """Build the complete query with CTEs using AST expressions"""
 
         # Build the main SELECT query
@@ -121,6 +126,7 @@ class MarketingAnalyticsTableQueryRunner(QueryRunner):
                 # Build additional conditions (date range and global filters)
                 date_field = processor.get_date_field()
                 additional_conditions = self._get_where_conditions(
+                    date_range=date_range,
                     include_date_range=True,
                     date_field=date_field,
                     use_date_not_datetime=True,  # Conversion goals use toDate instead of toDateTime
@@ -141,7 +147,11 @@ class MarketingAnalyticsTableQueryRunner(QueryRunner):
         """Execute the query and return results with pagination support"""
         from posthog.hogql.query import execute_hogql_query
 
-        query = self.to_query()
+        query: ast.SelectQuery
+        if self.query.compareFilter is not None and self.query.compareFilter.compare:
+            query = self.calculate_with_compare()
+        else:
+            query = self.calculate_without_compare()
 
         response = execute_hogql_query(
             query_type="marketing_analytics_table_query",
@@ -178,6 +188,131 @@ class MarketingAnalyticsTableQueryRunner(QueryRunner):
             limit=requested_limit,
             offset=self.query.offset or 0,
         )
+
+    def _get_filtered_select_columns(self, query: ast.SelectQuery) -> list[ast.Expr]:
+        """Extract and filter select columns based on self.query.select"""
+        if self.query.select:
+            # Create a mapping of column names to their AST expressions
+            column_mapping = {}
+            for col in query.select:
+                if isinstance(col, ast.Alias):
+                    column_mapping[col.alias] = col
+                else:
+                    column_mapping[str(col)] = col
+
+            # Filter to only include requested columns
+            filtered_select = []
+            for requested_col in self.query.select:
+                if requested_col in column_mapping:
+                    filtered_select.append(column_mapping[requested_col])
+            return filtered_select
+        else:
+            # If no specific columns requested, use all columns
+            return query.select if query.select else []
+
+    def _get_column_names_for_order_by(self, select_columns: list[ast.Expr]) -> list[str]:
+        """Extract column names from AST expressions for order by"""
+        return [col.alias if isinstance(col, ast.Alias) else str(col) for col in select_columns]
+
+    def _build_compare_join(
+        self, current_period_query: ast.SelectQuery, previous_period_query: ast.SelectQuery
+    ) -> ast.JoinExpr:
+        """Build the join expression for comparing current and previous periods"""
+        return ast.JoinExpr(
+            table=current_period_query,
+            alias="current_period",
+            next_join=ast.JoinExpr(
+                table=previous_period_query,
+                alias="previous_period",
+                join_type="LEFT JOIN",
+                constraint=ast.JoinConstraint(
+                    expr=ast.And(
+                        exprs=[
+                            ast.CompareOperation(
+                                left=ast.Field(chain=["current_period", "Campaign"]),
+                                op=ast.CompareOperationOp.Eq,
+                                right=ast.Field(chain=["previous_period", "Campaign"]),
+                            ),
+                            ast.CompareOperation(
+                                left=ast.Field(chain=["current_period", "Source"]),
+                                op=ast.CompareOperationOp.Eq,
+                                right=ast.Field(chain=["previous_period", "Source"]),
+                            ),
+                        ]
+                    ),
+                    constraint_type="ON",
+                ),
+            ),
+        )
+
+    def _build_paginated_query(
+        self, select_columns: list[ast.Expr], select_from: ast.Expr, ctes=None
+    ) -> ast.SelectQuery:
+        """Build a paginated SelectQuery with common logic"""
+        # Extract column names for order by
+        select_column_names = self._get_column_names_for_order_by(select_columns)
+        order_by_exprs = self._build_order_by_exprs(select_column_names)
+
+        # Build LIMIT and OFFSET
+        limit = self.query.limit or DEFAULT_LIMIT
+        offset = self.query.offset or 0
+        actual_limit = limit + PAGINATION_EXTRA  # Request one extra for pagination
+
+        return ast.SelectQuery(
+            select=select_columns,
+            select_from=select_from,
+            ctes=ctes,
+            order_by=order_by_exprs,
+            limit=ast.Constant(value=actual_limit),
+            offset=ast.Constant(value=offset),
+        )
+
+    def calculate_without_compare(self) -> ast.SelectQuery:
+        """Execute the query and return results with pagination support"""
+        query = self.to_query(date_range=self.query_date_range)
+        filtered_select = self._get_filtered_select_columns(query)
+        return self._build_paginated_query(filtered_select, query.select_from, query.ctes)
+
+    def _create_previous_period_date_range(self) -> QueryDateRange:
+        """Create the date range for the previous period comparison"""
+        return QueryDateRange(
+            date_range=DateRange(
+                date_from=self.query_compare_to_date_range.date_from().isoformat(),
+                date_to=self.query_compare_to_date_range.date_to().isoformat(),
+            ),
+            team=self.team,
+            interval=None,
+            now=datetime.now(),
+        )
+
+    def calculate_with_compare(self) -> ast.SelectQuery:
+        """Execute the query and return results with pagination support"""
+        previous_date_range = self._create_previous_period_date_range()
+        previous_period_query = self.to_query(date_range=previous_date_range)
+        current_period_query = self.to_query(date_range=self.query_date_range)
+
+        # Create the join manually with proper AST structure
+        join_expr = self._build_compare_join(current_period_query, previous_period_query)
+
+        # Get column names for the compare query
+        select_columns = self._get_filtered_select_columns(current_period_query)
+
+        # Create tuple columns for comparison
+        tuple_columns = [
+            ast.Alias(
+                alias=col.alias if isinstance(col, ast.Alias) else str(col),
+                expr=ast.Call(
+                    name="tuple",
+                    args=[
+                        ast.Field(chain=["current_period", col.alias if isinstance(col, ast.Alias) else str(col)]),
+                        ast.Field(chain=["previous_period", col.alias if isinstance(col, ast.Alias) else str(col)]),
+                    ],
+                ),
+            )
+            for col in select_columns
+        ]
+
+        return self._build_paginated_query(tuple_columns, join_expr)
 
     def _build_campaign_cost_select(self, union_query_string: str) -> ast.SelectQuery:
         """Build the campaign_costs CTE SELECT query"""
@@ -231,19 +366,6 @@ class MarketingAnalyticsTableQueryRunner(QueryRunner):
         else:
             conversion_joins = []
 
-        # Combine base and conversion goal columns
-        all_columns: list[ast.Alias] = []
-        try:
-            if self.query.select is None or len(self.query.select) == 0:
-                all_columns = list(conversion_columns_mapping.values())
-            else:
-                for column in self.query.select:
-                    if column in conversion_columns_mapping:
-                        all_columns.append(conversion_columns_mapping[column])
-        except ValueError as e:
-            logger.exception("Error building select query", error=str(e))
-            all_columns = list(conversion_columns_mapping.values())
-
         # Create the FROM clause with base table
         from_clause = ast.JoinExpr(table=ast.Field(chain=[CAMPAIGN_COST_CTE_NAME]))
 
@@ -251,20 +373,9 @@ class MarketingAnalyticsTableQueryRunner(QueryRunner):
         if conversion_joins:
             from_clause = self._append_joins(from_clause, conversion_joins)
 
-        # Build ORDER BY
-        order_by_exprs = self._build_order_by_exprs(all_columns)
-
-        # Build LIMIT and OFFSET
-        limit = self.query.limit or DEFAULT_LIMIT
-        offset = self.query.offset or 0
-        actual_limit = limit + PAGINATION_EXTRA  # Request one extra for pagination
-
         return ast.SelectQuery(
-            select=cast(list[ast.Expr], all_columns),
+            select=cast(list[ast.Expr], list(conversion_columns_mapping.values())),
             select_from=from_clause,
-            order_by=order_by_exprs,
-            limit=ast.Constant(value=actual_limit),
-            offset=ast.Constant(value=offset),
         )
 
     def _append_joins(self, initial_join: ast.JoinExpr, joins: list[ast.JoinExpr]) -> ast.JoinExpr:
@@ -276,23 +387,43 @@ class MarketingAnalyticsTableQueryRunner(QueryRunner):
             base_join.next_join = current_join
         return initial_join
 
-    def _build_order_by_exprs(self, select_columns: list[ast.Alias]) -> list[ast.OrderExpr]:
+    @cached_property
+    def query_compare_to_date_range(self):
+        """Get the compare date range if compare filter is enabled"""
+        if self.query.compareFilter is not None:
+            if isinstance(self.query.compareFilter.compare_to, str):
+                return QueryCompareToDateRange(
+                    date_range=self.query.dateRange,
+                    team=self.team,
+                    interval=None,
+                    now=datetime.now(),
+                    compare_to=self.query.compareFilter.compare_to,
+                )
+            elif self.query.compareFilter.compare:
+                return QueryPreviousPeriodDateRange(
+                    date_range=self.query.dateRange,
+                    team=self.team,
+                    interval=None,
+                    now=datetime.now(),
+                )
+        return None
+
+    def _build_order_by_exprs(self, select_columns: list[str]) -> list[ast.OrderExpr]:
         """Build ORDER BY expressions from query orderBy with proper null handling"""
 
         order_by_exprs: list[ast.OrderExpr] = []
-        select_columns_aliases = [column.alias for column in select_columns]
 
         if hasattr(self.query, "orderBy") and self.query.orderBy and len(self.query.orderBy) > 0:
             for order_expr_str in self.query.orderBy:
                 column_name, order_by = order_expr_str
-                if column_name in select_columns_aliases:
+                if column_name in select_columns:
                     order_by_exprs.append(
                         ast.OrderExpr(
                             expr=ast.Field(chain=[column_name]), order=cast(Literal["ASC", "DESC"], str(order_by))
                         )
                     )
         else:
-            if MarketingAnalyticsBaseColumns.TOTAL_COST.value in select_columns_aliases:
+            if MarketingAnalyticsBaseColumns.TOTAL_COST.value in select_columns:
                 # Build default order by: Total Cost DESC
                 default_field = ast.Field(chain=[MarketingAnalyticsBaseColumns.TOTAL_COST.value])
                 order_by_exprs.append(ast.OrderExpr(expr=default_field, order="DESC"))
@@ -357,6 +488,7 @@ class MarketingAnalyticsTableQueryRunner(QueryRunner):
 
     def _get_where_conditions(
         self,
+        date_range: QueryDateRange,
         base_conditions=None,
         include_date_range=True,
         date_field="timestamp",
@@ -372,8 +504,8 @@ class MarketingAnalyticsTableQueryRunner(QueryRunner):
                 # For conversion goals that use toDate instead of toDateTime
                 # Build: date_field >= toDate('date_from')
                 date_field_expr = ast.Field(chain=date_field_chain)
-                from_date = ast.Call(name="toDate", args=[ast.Constant(value=self.query_date_range.date_from_str)])
-                to_date = ast.Call(name="toDate", args=[ast.Constant(value=self.query_date_range.date_to_str)])
+                from_date = ast.Call(name="toDate", args=[ast.Constant(value=date_range.date_from_str)])
+                to_date = ast.Call(name="toDate", args=[ast.Constant(value=date_range.date_to_str)])
 
                 gte_condition = ast.CompareOperation(
                     left=date_field_expr, op=ast.CompareOperationOp.GtEq, right=from_date
@@ -391,10 +523,8 @@ class MarketingAnalyticsTableQueryRunner(QueryRunner):
                 else:
                     date_cast = ast.Field(chain=date_field_chain)
 
-                from_datetime = ast.Call(
-                    name="toDateTime", args=[ast.Constant(value=self.query_date_range.date_from_str)]
-                )
-                to_datetime = ast.Call(name="toDateTime", args=[ast.Constant(value=self.query_date_range.date_to_str)])
+                from_datetime = ast.Call(name="toDateTime", args=[ast.Constant(value=date_range.date_from_str)])
+                to_datetime = ast.Call(name="toDateTime", args=[ast.Constant(value=date_range.date_to_str)])
 
                 gte_condition = ast.CompareOperation(
                     left=date_cast, op=ast.CompareOperationOp.GtEq, right=from_datetime
