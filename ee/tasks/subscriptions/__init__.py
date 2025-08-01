@@ -85,6 +85,7 @@ def _deliver_subscription_report(
                     invite_message=invite_message or "" if is_new_subscription_target else None,
                     total_asset_count=len(insights),
                 )
+                SUBSCRIPTION_SUCCESS.labels(destination="email").inc()
             except Exception as e:
                 SUBSCRIPTION_FAILURE.labels(destination="email").inc()
                 logger.error(
@@ -95,8 +96,6 @@ def _deliver_subscription_report(
                     exc_info=True,
                 )
                 capture_exception(e)
-
-        SUBSCRIPTION_SUCCESS.labels(destination="email").inc()
 
     elif subscription.target_type == "slack":
         SUBSCRIPTION_QUEUED.labels(destination="slack").inc()
@@ -174,6 +173,7 @@ async def _deliver_subscription_report_async(
                     assets,
                     invite_message=invite_message or "" if is_new_subscription_target else None,
                     total_asset_count=len(insights),
+                    send_async=False,
                 )
             except Exception as e:
                 SUBSCRIPTION_FAILURE.labels(destination="email").inc()
