@@ -962,7 +962,7 @@ def create_symbol_set(
             symbol_set.save()
 
         except ErrorTrackingSymbolSet.DoesNotExist:
-            ErrorTrackingSymbolSet.objects.create(
+            symbol_set = ErrorTrackingSymbolSet.objects.create(
                 team=team,
                 ref=chunk_id,
                 release=release,
