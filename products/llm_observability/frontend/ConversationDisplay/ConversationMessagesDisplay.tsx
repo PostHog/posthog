@@ -52,7 +52,7 @@ export function ConversationMessagesDisplay({
             }
             // For 'collapse_except_output_and_last_input', show only the last input message (and not system/tool messages)
             return (
-                i === inputNormalized.length - 1 &&
+                i === normalizedInput.length - 1 &&
                 message.role !== 'system' &&
                 message.role !== 'tool' &&
                 message.role !== 'tools'
@@ -60,7 +60,7 @@ export function ConversationMessagesDisplay({
         })
 
         setInputMessageShowStates(initialInputStates)
-    }, [input, tools, displayOption, setInputMessageShowStates, inputNormalized.length])
+    }, [input, tools, displayOption, setInputMessageShowStates])
 
     React.useEffect(() => {
         const normalizedOutput = normalizeMessages(output, 'assistant')
