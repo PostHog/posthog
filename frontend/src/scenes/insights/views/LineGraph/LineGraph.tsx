@@ -46,7 +46,6 @@ import { groupsModel } from '~/models/groupsModel'
 import { GoalLine, TrendsFilter } from '~/queries/schema/schema-general'
 import { isInsightVizNode } from '~/queries/utils'
 import { GraphDataset, GraphPoint, GraphPointPayload, GraphType } from '~/types'
-import { filterNestedDataset } from './filterNestedDataset'
 
 let tooltipRoot: Root
 
@@ -558,10 +557,8 @@ export function LineGraph_({
     // Build chart
     useEffect(() => {
         // Hide intentionally hidden keys
-        if (hiddenLegendIndexes && hiddenLegendIndexes.length > 0) {
-            if (isHorizontal) {
-                datasets = filterNestedDataset(hiddenLegendIndexes, datasets)
-            } else {
+        if ((hiddenLegendIndexes && hiddenLegendIndexes.length > 0) || true) {
+            if (!isHorizontal) {
                 datasets = datasets.filter((data) => !hiddenLegendIndexes?.includes(data.id))
             }
         }

@@ -25,7 +25,6 @@ import { createTooltipData } from 'scenes/insights/views/LineGraph/tooltip-data'
 import { groupsModel } from '~/models/groupsModel'
 import { BreakdownFilter } from '~/queries/schema/schema-general'
 import { GraphType } from '~/types'
-import { filterNestedDataset } from './filterNestedDataset'
 
 let timer: NodeJS.Timeout | null = null
 
@@ -95,12 +94,6 @@ export function PieChart({
 
     // Build chart
     useEffect(() => {
-        // Hide intentionally hidden keys
-        if (hiddenLegendIndexes && hiddenLegendIndexes.length > 0) {
-            // If series are nested (for ActionsHorizontalBar and Pie), filter out the series by index
-            datasets = filterNestedDataset(hiddenLegendIndexes, datasets)
-        }
-
         const processedDatasets = datasets.map((dataset) => dataset as ChartDataset<'pie'>)
         const onlyOneValue = processedDatasets?.[0]?.data?.length === 1
         const newChart = new Chart(canvasRef.current?.getContext('2d') as ChartItem, {
