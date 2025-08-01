@@ -13,7 +13,7 @@ import { propertyFilterTypeToPropertyDefinitionType } from 'lib/components/Prope
 import { dayjs } from 'lib/dayjs'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { formatDate, isOperatorDate, isOperatorFlag, isOperatorMulti, toString } from 'lib/utils'
-import { useCallback, useEffect } from 'react'
+import { useEffect } from 'react'
 
 import {
     PROPERTY_FILTER_TYPES_WITH_ALL_TIME_SUGGESTIONS,
@@ -71,19 +71,16 @@ export function PropertyValue({
     const isAssigneeProperty =
         propertyKey && describeProperty(propertyKey, propertyDefinitionType) === PropertyType.Assignee
 
-    const load = useCallback(
-        (newInput: string | undefined): void => {
-            loadPropertyValues({
-                endpoint,
-                type: propertyDefinitionType,
-                newInput,
-                propertyKey,
-                eventNames,
-                properties: [],
-            })
-        },
-        [loadPropertyValues, endpoint, propertyDefinitionType, propertyKey, eventNames]
-    )
+    const load = (newInput: string | undefined): void => {
+        loadPropertyValues({
+            endpoint,
+            type: propertyDefinitionType,
+            newInput,
+            propertyKey,
+            eventNames,
+            properties: [],
+        })
+    }
 
     const setValue = (newValue: PropertyValueProps['value']): void => onSet(newValue)
 
