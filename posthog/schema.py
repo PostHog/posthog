@@ -13467,7 +13467,7 @@ class HogQLMetadata(BaseModel):
     )
     tags: Optional[QueryLogTags] = None
     variables: Optional[dict[str, HogQLVariable]] = Field(
-        default=None, description="Variables to be subsituted into the query"
+        default=None, description="Variables to be substituted into the query"
     )
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
