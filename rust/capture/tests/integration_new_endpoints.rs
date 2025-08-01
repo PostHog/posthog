@@ -10,8 +10,9 @@ use axum::http::StatusCode;
 use capture::config::CaptureMode;
 
 //
-// The /i/v0/e/ and /batch/ endpoints are all processed by event_next
-// and support the same request payload shapes and encodings.
+// New capture endpoints /i/v0/e/ and /batch/ behave the same under the hood.
+// These are tested together identically here. Once unified with legacy handling,
+// These tests can be further consolidated.
 //
 
 #[tokio::test]
@@ -123,7 +124,7 @@ fn post_cases() -> Vec<TestCase> {
             // type of pre-processing and formatting to apply to payload
             Box::new(plain_json_payload),
         ),
-        // plain base64'd JSON payload in POST body
+        // plain base64'd JSON payload in POST body - NOT SUPPORTED in new capture atm
         TestCase::new(
             "new_post-base64-single-event-payload".to_string(),
             DEFAULT_TEST_TIME,
@@ -134,10 +135,10 @@ fn post_cases() -> Vec<TestCase> {
             Some("base64"),
             None,
             "application/json",
-            StatusCode::OK,
+            StatusCode::BAD_REQUEST,
             Box::new(base64_payload),
         ),
-        // base64'd JSON payload w/o SDK encoding hint
+        // base64'd JSON payload w/o SDK encoding hint - NOT SUPPORTED by new capture atm
         TestCase::new(
             "new_post-base64-no-hint-single-event-payload".to_string(),
             DEFAULT_TEST_TIME,
@@ -148,7 +149,7 @@ fn post_cases() -> Vec<TestCase> {
             None, // no compression hint; handling must auto-detect
             None,
             "text/plain",
-            StatusCode::OK,
+            StatusCode::BAD_REQUEST,
             Box::new(base64_payload),
         ),
         // GZIP'd JSON single event payload
@@ -190,7 +191,7 @@ fn post_cases() -> Vec<TestCase> {
             None,
             None,
             "application/x-www-form-urlencoded",
-            StatusCode::BAD_REQUEST,
+            StatusCode::OK,
             Box::new(form_data_base64_payload),
         ),
         // single event JSON payload submitted as POST form
@@ -204,10 +205,11 @@ fn post_cases() -> Vec<TestCase> {
             None,
             None,
             "application/x-www-form-urlencoded",
-            StatusCode::OK,
+            StatusCode::BAD_REQUEST,
             Box::new(form_urlencoded_payload),
         ),
         // single event JSON payload submitted as LZ64'd value in POST form
+        // NOT SUPPORTED by new capture atm
         TestCase::new(
             "new_post-form-lz64-urlencoded-event-payload".to_string(),
             DEFAULT_TEST_TIME,
@@ -218,7 +220,7 @@ fn post_cases() -> Vec<TestCase> {
             Some("lz64"),
             None,
             "application/x-www-form-urlencoded",
-            StatusCode::OK,
+            StatusCode::BAD_REQUEST,
             Box::new(form_lz64_urlencoded_payload),
         ),
         // batch payload test variants
@@ -237,7 +239,7 @@ fn post_cases() -> Vec<TestCase> {
             StatusCode::OK,
             Box::new(plain_json_payload),
         ),
-        // plain base64'd JSON payload in POST body
+        // plain base64'd JSON payload in POST body - NOT SUPPORTED by new capture atm
         TestCase::new(
             "new_post-base64-batch-payload".to_string(),
             DEFAULT_TEST_TIME,
@@ -248,10 +250,10 @@ fn post_cases() -> Vec<TestCase> {
             Some("base64"),
             None,
             "application/json",
-            StatusCode::OK,
+            StatusCode::BAD_REQUEST,
             Box::new(base64_payload),
         ),
-        // base64'd JSON payload w/o SDK encoding hint
+        // base64'd JSON payload w/o SDK encoding hint - NOT SUPPORTED by new capture atm
         TestCase::new(
             "new_post-base64-no-hint-batch-payload".to_string(),
             DEFAULT_TEST_TIME,
@@ -262,7 +264,7 @@ fn post_cases() -> Vec<TestCase> {
             None, // no compression hint; handling must auto-detect
             None,
             "text/plain",
-            StatusCode::OK,
+            StatusCode::BAD_REQUEST,
             Box::new(base64_payload),
         ),
         // GZIP'd JSON single event payload
@@ -304,10 +306,10 @@ fn post_cases() -> Vec<TestCase> {
             None,
             None,
             "application/x-www-form-urlencoded",
-            StatusCode::BAD_REQUEST,
+            StatusCode::OK,
             Box::new(form_data_base64_payload),
         ),
-        // single event JSON payload submitted as POST form
+        // single event JSON payload submitted as POST form - NOT SUPPORTED in new capture atm
         TestCase::new(
             "new_post-form-urlencoded-batch-payload".to_string(),
             DEFAULT_TEST_TIME,
@@ -318,10 +320,11 @@ fn post_cases() -> Vec<TestCase> {
             None,
             None,
             "application/x-www-form-urlencoded",
-            StatusCode::OK,
+            StatusCode::BAD_REQUEST,
             Box::new(form_urlencoded_payload),
         ),
         // single event JSON payload submitted as LZ64'd value in POST form
+        // NOT SUPPORTED by new capture atm
         TestCase::new(
             "new_post-form-lz64-urlencoded-batch-payload".to_string(),
             DEFAULT_TEST_TIME,
@@ -332,7 +335,7 @@ fn post_cases() -> Vec<TestCase> {
             Some("lz64"),
             None,
             "application/x-www-form-urlencoded",
-            StatusCode::OK,
+            StatusCode::BAD_REQUEST,
             Box::new(form_lz64_urlencoded_payload),
         ),
     ];
@@ -340,6 +343,7 @@ fn post_cases() -> Vec<TestCase> {
     units
 }
 
+// NOT SUPPORTED by new capture atm
 fn get_cases() -> Vec<TestCase> {
     let units = vec![
         // plain base64'd JSON payload in urlencoded "data" GET param
@@ -353,7 +357,7 @@ fn get_cases() -> Vec<TestCase> {
             Some("base64"),
             None,
             "text/plain",
-            StatusCode::OK,
+            StatusCode::BAD_REQUEST,
             Box::new(base64_payload),
         ),
         // single event JSON payload submitted in urlencoded "data" GET param
@@ -367,7 +371,7 @@ fn get_cases() -> Vec<TestCase> {
             None,
             None,
             "text/plain",
-            StatusCode::OK,
+            StatusCode::BAD_REQUEST,
             Box::new(plain_json_payload),
         ),
         // single event JSON payload submitted as LZ64'd value in urlencoded "data" GET param
@@ -381,7 +385,7 @@ fn get_cases() -> Vec<TestCase> {
             Some("lz64"),
             None,
             "text/plain",
-            StatusCode::OK,
+            StatusCode::BAD_REQUEST,
             Box::new(lz64_payload),
         ),
     ];

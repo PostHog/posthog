@@ -35,7 +35,7 @@ use crate::{
 // let roll = thread_rng().with_borrow_mut(|rng| rng.gen_range(0.0..100.0));
 // if roll < verbose_sample_percent { ... }
 
-/// handle_next owns the /e, /capture, /track, and /engage capture endpoints
+/// handle_legacy owns the /e, /capture, /track, and /engage capture endpoints
 #[instrument(
     skip_all,
     fields(
@@ -54,7 +54,7 @@ use crate::{
         batch_size
     )
 )]
-async fn handle_next(
+async fn handle_legacy(
     state: &State<router::State>,
     InsecureClientIp(ip): &InsecureClientIp,
     query_params: &mut EventQuery,
@@ -107,7 +107,7 @@ async fn handle_next(
         );
     }
 
-    debug!("entering handle_next");
+    debug!("entering handle_legacy");
 
     // unpack the payload - it may be in a GET query param or POST body
     let raw_payload: Bytes = if query_params.data.as_ref().is_some_and(|d| !d.is_empty()) {
@@ -248,7 +248,7 @@ async fn handle_next(
 
     debug!(context=?context,
         event_count=?events.len(),
-        "handle_next: successfully hydrated events");
+        "handle_legacy: successfully hydrated events");
     Ok((context, events))
 }
 
@@ -284,7 +284,7 @@ async fn handle_common(
     Span::current().record("method", method.as_str());
     Span::current().record("path", path.as_str().trim_end_matches('/'));
 
-    // TODO(eli): add event_next compression and lib_version extraction into this flow if we don't unify entirely
+    // TODO(eli): add event_legacy compression and lib_version extraction into this flow if we don't unify entirely
     let resolved_cmp = format!("{}", meta.compression.unwrap_or_default());
     Span::current().record("version", meta.lib_version.clone());
     Span::current().record("compression", resolved_cmp);
@@ -316,7 +316,7 @@ async fn handle_common(
 
             // by setting compression "unsupported" here, we route handle_common
             // outputs into the old RawRequest hydration behavior, prior to adding
-            // handle_next shims. handle_common doesn't extract compression hints
+            // handle_legacy shims. handle_common doesn't extract compression hints
             // as reliably as it should, and is probably losing some data due to
             // this. We'll circle back once the legacy shims ship
             RawRequest::from_bytes(
@@ -404,7 +404,7 @@ async fn handle_common(
     fields(params_lib_version, params_compression)
 )]
 #[debug_handler]
-pub async fn event_next(
+pub async fn event_legacy(
     state: State<router::State>,
     ip: InsecureClientIp,
     meta: Query<EventQuery>,
@@ -429,7 +429,7 @@ pub async fn event_next(
         );
     }
 
-    match handle_next(&state, &ip, &mut params, &headers, &method, &path, body).await {
+    match handle_legacy(&state, &ip, &mut params, &headers, &method, &path, body).await {
         Err(CaptureError::BillingLimit) => {
             // Short term: return OK here to avoid clients retrying over and over
             // Long term: v1 endpoints will return richer errors, sync w/SDK behavior
@@ -450,7 +450,7 @@ pub async fn event_next(
 
         Err(err) => {
             report_internal_error_metrics(err.to_metric_tag(), "parsing");
-            error!("event_next: request payload processing error: {:?}", err);
+            error!("event_legacy: request payload processing error: {:?}", err);
             Err(err)
         }
 
@@ -466,7 +466,7 @@ pub async fn event_next(
             {
                 report_dropped_events(err.to_metric_tag(), events.len() as u64);
                 report_internal_error_metrics(err.to_metric_tag(), "processing");
-                error!("event_next: rejected invalid payload: {}", err);
+                error!("event_legacy: rejected invalid payload: {}", err);
                 return Err(err);
             }
 

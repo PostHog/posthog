@@ -10,14 +10,13 @@ import { authorizedUrlListLogic, AuthorizedUrlListType } from 'lib/components/Au
 import { FEATURE_FLAGS, RETENTION_FIRST_TIME } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { Link, PostHogComDocsURL } from 'lib/lemon-ui/Link/Link'
+import { Link } from 'lib/lemon-ui/Link/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import {
     getDefaultInterval,
     isNotNil,
     isValidRelativeOrAbsoluteDate,
     objectsEqual,
-    UnexpectedNeverError,
     updateDatesWithInterval,
 } from 'lib/utils'
 import { isDefinitionStale } from 'lib/utils/definitions'
@@ -33,18 +32,12 @@ import {
     ActionConversionGoal,
     ActionsNode,
     AnyEntityNode,
-    BreakdownFilter,
     CompareFilter,
-    ConversionGoalFilter,
     CustomEventConversionGoal,
     DataTableNode,
     EventsNode,
     InsightVizNode,
-    MarketingAnalyticsHelperForColumnNames,
-    MarketingAnalyticsTableQuery,
     NodeKind,
-    QueryLogTags,
-    QuerySchema,
     TrendsFilter,
     TrendsQuery,
     WebAnalyticsConversionGoal,
@@ -69,7 +62,6 @@ import {
     InsightLogicProps,
     InsightType,
     IntervalType,
-    ProductKey,
     PropertyFilterBaseValue,
     PropertyFilterType,
     PropertyMathType,
@@ -82,355 +74,36 @@ import {
 } from '~/types'
 
 import { getDashboardItemId, getNewInsightUrlFactory } from './insightsUtils'
-import { marketingAnalyticsLogic } from './tabs/marketing-analytics/frontend/logic/marketingAnalyticsLogic'
 import type { webAnalyticsLogicType } from './webAnalyticsLogicType'
 import posthog from 'posthog-js'
-import { marketingAnalyticsTableLogic } from './tabs/marketing-analytics/frontend/logic/marketingAnalyticsTableLogic'
+import { marketingAnalyticsTilesLogic } from './tabs/marketing-analytics/frontend/logic/marketingAnalyticsTilesLogic'
 import {
-    getOrderBy,
-    orderArrayByPreference,
-    getSortedColumnsByArray,
-    isDraftConversionGoalColumn,
-} from './tabs/marketing-analytics/frontend/logic/utils'
-
-export interface WebTileLayout {
-    /** The class has to be spelled out without interpolation, as otherwise Tailwind can't pick it up. */
-    colSpanClassName?: `md:col-span-${number}` | 'md:col-span-full'
-    /** The class has to be spelled out without interpolation, as otherwise Tailwind can't pick it up. */
-    rowSpanClassName?: `md:row-span-${number}`
-    /** The class has to be spelled out without interpolation, as otherwise Tailwind can't pick it up. */
-    orderWhenLargeClassName?: `xxl:order-${number}`
-    className?: string
-}
-
-export enum TileId {
-    OVERVIEW = 'OVERVIEW',
-    GRAPHS = 'GRAPHS',
-    PATHS = 'PATHS',
-    SOURCES = 'SOURCES',
-    DEVICES = 'DEVICES',
-    GEOGRAPHY = 'GEOGRAPHY',
-    ACTIVE_HOURS = 'ACTIVE_HOURS',
-    RETENTION = 'RETENTION',
-    REPLAY = 'REPLAY',
-    ERROR_TRACKING = 'ERROR_TRACKING',
-    GOALS = 'GOALS',
-    WEB_VITALS = 'WEB_VITALS',
-    WEB_VITALS_PATH_BREAKDOWN = 'WEB_VITALS_PATH_BREAKDOWN',
-    FRUSTRATING_PAGES = 'FRUSTRATING_PAGES',
-
-    // Page Report Tiles to avoid conflicts with web analytics
-    PAGE_REPORTS_COMBINED_METRICS_CHART_SECTION = 'PR_COMBINED_METRICS_CHART_SECTION',
-    PAGE_REPORTS_PATHS_SECTION = 'PR_PATHS_SECTION',
-    PAGE_REPORTS_DEVICE_INFORMATION_SECTION = 'PR_DEVICE_INFORMATION_SECTION',
-    PAGE_REPORTS_TRAFFIC_SECTION = 'PR_TRAFFIC_SECTION',
-    PAGE_REPORTS_GEOGRAPHY_SECTION = 'PR_GEOGRAPHY_SECTION',
-    PAGE_REPORTS_TOP_EVENTS_SECTION = 'PR_TOP_EVENTS_SECTION',
-    PAGE_REPORTS_COMBINED_METRICS_CHART = 'PR_COMBINED_METRICS_CHART',
-    PAGE_REPORTS_ENTRY_PATHS = 'PR_ENTRY_PATHS',
-    PAGE_REPORTS_EXIT_PATHS = 'PR_EXIT_PATHS',
-    PAGE_REPORTS_OUTBOUND_CLICKS = 'PR_OUTBOUND_CLICKS',
-    PAGE_REPORTS_CHANNELS = 'PR_CHANNELS',
-    PAGE_REPORTS_REFERRERS = 'PR_REFERRERS',
-    PAGE_REPORTS_DEVICE_TYPES = 'PR_DEVICE_TYPES',
-    PAGE_REPORTS_BROWSERS = 'PR_BROWSERS',
-    PAGE_REPORTS_OPERATING_SYSTEMS = 'PR_OPERATING_SYSTEMS',
-    PAGE_REPORTS_COUNTRIES = 'PR_COUNTRIES',
-    PAGE_REPORTS_REGIONS = 'PR_REGIONS',
-    PAGE_REPORTS_CITIES = 'PR_CITIES',
-    PAGE_REPORTS_TIMEZONES = 'PR_TIMEZONES',
-    PAGE_REPORTS_LANGUAGES = 'PR_LANGUAGES',
-    PAGE_REPORTS_TOP_EVENTS = 'PR_TOP_EVENTS',
-    MARKETING = 'MARKETING',
-    MARKETING_CAMPAIGN_BREAKDOWN = 'MARKETING_CAMPAIGN_BREAKDOWN',
-}
-
-export enum ProductTab {
-    ANALYTICS = 'analytics',
-    WEB_VITALS = 'web-vitals',
-    PAGE_REPORTS = 'page-reports',
-    SESSION_ATTRIBUTION_EXPLORER = 'session-attribution-explorer',
-    MARKETING = 'marketing',
-}
-
-export type DeviceType = 'Desktop' | 'Mobile'
-
-export type WebVitalsPercentile = PropertyMathType.P75 | PropertyMathType.P90 | PropertyMathType.P99
-
-const loadPriorityMap: Record<TileId, number> = {
-    [TileId.OVERVIEW]: 1,
-    [TileId.GRAPHS]: 2,
-    [TileId.PATHS]: 3,
-    [TileId.SOURCES]: 4,
-    [TileId.DEVICES]: 5,
-    [TileId.GEOGRAPHY]: 6,
-    [TileId.ACTIVE_HOURS]: 7,
-    [TileId.RETENTION]: 8,
-    [TileId.REPLAY]: 9,
-    [TileId.ERROR_TRACKING]: 10,
-    [TileId.GOALS]: 11,
-    [TileId.WEB_VITALS]: 12,
-    [TileId.WEB_VITALS_PATH_BREAKDOWN]: 13,
-    [TileId.FRUSTRATING_PAGES]: 14,
-
-    // Page Report Sections
-    [TileId.PAGE_REPORTS_COMBINED_METRICS_CHART_SECTION]: 1,
-    [TileId.PAGE_REPORTS_PATHS_SECTION]: 2,
-    [TileId.PAGE_REPORTS_DEVICE_INFORMATION_SECTION]: 3,
-    [TileId.PAGE_REPORTS_TRAFFIC_SECTION]: 4,
-    [TileId.PAGE_REPORTS_GEOGRAPHY_SECTION]: 5,
-    [TileId.PAGE_REPORTS_TOP_EVENTS_SECTION]: 6,
-
-    // Page Report Tiles
-    [TileId.PAGE_REPORTS_COMBINED_METRICS_CHART]: 1,
-    [TileId.PAGE_REPORTS_ENTRY_PATHS]: 2,
-    [TileId.PAGE_REPORTS_EXIT_PATHS]: 3,
-    [TileId.PAGE_REPORTS_OUTBOUND_CLICKS]: 4,
-    [TileId.PAGE_REPORTS_CHANNELS]: 5,
-    [TileId.PAGE_REPORTS_REFERRERS]: 6,
-    [TileId.PAGE_REPORTS_DEVICE_TYPES]: 7,
-    [TileId.PAGE_REPORTS_BROWSERS]: 8,
-    [TileId.PAGE_REPORTS_OPERATING_SYSTEMS]: 9,
-    [TileId.PAGE_REPORTS_COUNTRIES]: 10,
-    [TileId.PAGE_REPORTS_REGIONS]: 11,
-    [TileId.PAGE_REPORTS_CITIES]: 12,
-    [TileId.PAGE_REPORTS_TIMEZONES]: 13,
-    [TileId.PAGE_REPORTS_LANGUAGES]: 14,
-    [TileId.PAGE_REPORTS_TOP_EVENTS]: 15,
-
-    // Marketing Tiles
-    [TileId.MARKETING]: 1,
-    [TileId.MARKETING_CAMPAIGN_BREAKDOWN]: 2,
-}
-
-// To enable a tile here, you must update the QueryRunner to support it
-// or make sure it can load in a decent time (which event-only tiles usually do).
-// We filter them here to enable a faster experience for the user as the
-// tiles that don't support pre-aggregated tables take a longer time to load
-// and will effectively block other queries to load because of the concurrencyController
-export const TILES_ALLOWED_ON_PRE_AGGREGATED = [
-    TileId.OVERVIEW,
-    TileId.PATHS,
-    TileId.SOURCES,
-    TileId.DEVICES,
-
-    // Not 100% supported yet but they are fast enough that we can show them
-    TileId.GRAPHS,
-    TileId.GEOGRAPHY,
-]
-
-export interface BaseTile {
-    tileId: TileId
-    layout: WebTileLayout
-    docs?: Docs
-}
-
-export interface Docs {
-    url?: PostHogComDocsURL
-    title: string
-    description: string | JSX.Element
-}
-
-export interface QueryTile extends BaseTile {
-    kind: 'query'
-    title?: string
-    query: QuerySchema
-    showIntervalSelect?: boolean
-    control?: JSX.Element
-    insightProps: InsightLogicProps
-    canOpenModal?: boolean
-    canOpenInsight?: boolean
-}
-
-export interface TabsTileTab {
-    id: string
-    title: string | JSX.Element
-    linkText: string | JSX.Element
-    query: QuerySchema
-    showIntervalSelect?: boolean
-    control?: JSX.Element
-    insightProps: InsightLogicProps
-    canOpenModal?: boolean
-    canOpenInsight?: boolean
-    docs?: Docs
-}
-
-export interface TabsTile extends BaseTile {
-    kind: 'tabs'
-    activeTabId: string
-    setTabId: (id: string) => void
-    tabs: TabsTileTab[]
-}
-
-export interface ReplayTile extends BaseTile {
-    kind: 'replay'
-}
-
-export interface ErrorTrackingTile extends BaseTile {
-    kind: 'error_tracking'
-    query: QuerySchema
-}
-
-export interface SectionTile extends BaseTile {
-    kind: 'section'
-    title?: string
-    tiles: WebAnalyticsTile[]
-}
-
-export type WebAnalyticsTile = QueryTile | TabsTile | ReplayTile | ErrorTrackingTile | SectionTile
-
-export enum GraphsTab {
-    UNIQUE_USERS = 'UNIQUE_USERS',
-    PAGE_VIEWS = 'PAGE_VIEWS',
-    NUM_SESSION = 'NUM_SESSION',
-    UNIQUE_CONVERSIONS = 'UNIQUE_CONVERSIONS',
-    TOTAL_CONVERSIONS = 'TOTAL_CONVERSIONS',
-    CONVERSION_RATE = 'CONVERSION_RATE',
-    REVENUE_EVENTS = 'REVENUE_EVENTS',
-    CONVERSION_REVENUE = 'CONVERSION_REVENUE',
-}
-
-export enum SourceTab {
-    CHANNEL = 'CHANNEL',
-    REFERRING_DOMAIN = 'REFERRING_DOMAIN',
-    UTM_SOURCE = 'UTM_SOURCE',
-    UTM_MEDIUM = 'UTM_MEDIUM',
-    UTM_CAMPAIGN = 'UTM_CAMPAIGN',
-    UTM_CONTENT = 'UTM_CONTENT',
-    UTM_TERM = 'UTM_TERM',
-    UTM_SOURCE_MEDIUM_CAMPAIGN = 'UTM_SOURCE_MEDIUM_CAMPAIGN',
-}
-
-export enum DeviceTab {
-    BROWSER = 'BROWSER',
-    OS = 'OS',
-    DEVICE_TYPE = 'DEVICE_TYPE',
-    VIEWPORT = 'VIEWPORT',
-}
-
-export enum PathTab {
-    PATH = 'PATH',
-    INITIAL_PATH = 'INITIAL_PATH',
-    END_PATH = 'END_PATH',
-    EXIT_CLICK = 'EXIT_CLICK',
-    SCREEN_NAME = 'SCREEN_NAME',
-}
-
-export enum GeographyTab {
-    MAP = 'MAP',
-    COUNTRIES = 'COUNTRIES',
-    REGIONS = 'REGIONS',
-    CITIES = 'CITIES',
-    TIMEZONES = 'TIMEZONES',
-    HEATMAP = 'HEATMAP',
-    LANGUAGES = 'LANGUAGES',
-}
-
-export enum ActiveHoursTab {
-    UNIQUE = 'UNIQUE',
-    TOTAL_EVENTS = 'TOTAL_EVENTS',
-}
-
-export enum ConversionGoalWarning {
-    CustomEventWithNoSessionId = 'CustomEventWithNoSessionId',
-}
-
-export interface WebAnalyticsStatusCheck {
-    isSendingWebVitals: boolean
-    isSendingPageViews: boolean
-    isSendingPageLeaves: boolean
-    isSendingPageLeavesScroll: boolean
-    hasAuthorizedUrls: boolean
-}
-
-export type TileVisualizationOption = 'table' | 'graph'
-
-export const webStatsBreakdownToPropertyName = (
-    breakdownBy: WebStatsBreakdown
-):
-    | { key: string; type: PropertyFilterType.Person | PropertyFilterType.Event | PropertyFilterType.Session }
-    | undefined => {
-    switch (breakdownBy) {
-        case WebStatsBreakdown.Page:
-            return { key: '$pathname', type: PropertyFilterType.Event }
-        case WebStatsBreakdown.InitialPage:
-            return { key: '$entry_pathname', type: PropertyFilterType.Session }
-        case WebStatsBreakdown.ExitPage:
-            return { key: '$end_pathname', type: PropertyFilterType.Session }
-        case WebStatsBreakdown.ExitClick:
-            return { key: '$last_external_click_url', type: PropertyFilterType.Session }
-        case WebStatsBreakdown.ScreenName:
-            return { key: '$screen_name', type: PropertyFilterType.Event }
-        case WebStatsBreakdown.InitialChannelType:
-            return { key: '$channel_type', type: PropertyFilterType.Session }
-        case WebStatsBreakdown.InitialReferringDomain:
-            return { key: '$entry_referring_domain', type: PropertyFilterType.Session }
-        case WebStatsBreakdown.InitialUTMSource:
-            return { key: '$entry_utm_source', type: PropertyFilterType.Session }
-        case WebStatsBreakdown.InitialUTMCampaign:
-            return { key: '$entry_utm_campaign', type: PropertyFilterType.Session }
-        case WebStatsBreakdown.InitialUTMMedium:
-            return { key: '$entry_utm_medium', type: PropertyFilterType.Session }
-        case WebStatsBreakdown.InitialUTMContent:
-            return { key: '$entry_utm_content', type: PropertyFilterType.Session }
-        case WebStatsBreakdown.InitialUTMTerm:
-            return { key: '$entry_utm_term', type: PropertyFilterType.Session }
-        case WebStatsBreakdown.Browser:
-            return { key: '$browser', type: PropertyFilterType.Event }
-        case WebStatsBreakdown.OS:
-            return { key: '$os', type: PropertyFilterType.Event }
-        case WebStatsBreakdown.Viewport:
-            return { key: '$viewport', type: PropertyFilterType.Event }
-        case WebStatsBreakdown.DeviceType:
-            return { key: '$device_type', type: PropertyFilterType.Event }
-        case WebStatsBreakdown.Country:
-            return { key: '$geoip_country_code', type: PropertyFilterType.Event }
-        case WebStatsBreakdown.Region:
-            return { key: '$geoip_subdivision_1_code', type: PropertyFilterType.Event }
-        case WebStatsBreakdown.City:
-            return { key: '$geoip_city_name', type: PropertyFilterType.Event }
-        case WebStatsBreakdown.Timezone:
-            return { key: '$timezone', type: PropertyFilterType.Event }
-        case WebStatsBreakdown.Language:
-            return { key: '$browser_language', type: PropertyFilterType.Event }
-        case WebStatsBreakdown.FrustrationMetrics:
-            return { key: '$pathname', type: PropertyFilterType.Event }
-        case WebStatsBreakdown.InitialUTMSourceMediumCampaign:
-            return undefined
-        default:
-            throw new UnexpectedNeverError(breakdownBy)
-    }
-}
-
-export const getWebAnalyticsBreakdownFilter = (breakdown: WebStatsBreakdown): BreakdownFilter | undefined => {
-    const property = webStatsBreakdownToPropertyName(breakdown)
-
-    if (!property) {
-        return undefined
-    }
-
-    return {
-        breakdown_type: property.type,
-        breakdown: property.key,
-    }
-}
-
-const GEOIP_TEMPLATE_IDS = ['template-geoip', 'plugin-posthog-plugin-geoip']
-
-export const WEB_ANALYTICS_DATA_COLLECTION_NODE_ID = 'web-analytics'
-
-const INITIAL_WEB_ANALYTICS_FILTER = [] as WebAnalyticsPropertyFilters
-const INITIAL_DATE_FROM = '-7d' as string | null
-const INITIAL_DATE_TO = null as string | null
-const INITIAL_INTERVAL = getDefaultInterval(INITIAL_DATE_FROM, INITIAL_DATE_TO)
-
-export const WEB_ANALYTICS_DEFAULT_QUERY_TAGS: QueryLogTags = {
-    productKey: ProductKey.WEB_ANALYTICS,
-}
-
-export const MARKETING_ANALYTICS_DEFAULT_QUERY_TAGS: QueryLogTags = {
-    productKey: ProductKey.MARKETING_ANALYTICS,
-}
+    ActiveHoursTab,
+    ConversionGoalWarning,
+    DeviceTab,
+    DeviceType,
+    GeographyTab,
+    GEOIP_TEMPLATE_IDS,
+    getWebAnalyticsBreakdownFilter,
+    GraphsTab,
+    INITIAL_DATE_FROM,
+    INITIAL_DATE_TO,
+    INITIAL_INTERVAL,
+    INITIAL_WEB_ANALYTICS_FILTER,
+    loadPriorityMap,
+    PathTab,
+    ProductTab,
+    SourceTab,
+    TabsTileTab,
+    TileId,
+    TILES_ALLOWED_ON_PRE_AGGREGATED,
+    TileVisualizationOption,
+    WEB_ANALYTICS_DATA_COLLECTION_NODE_ID,
+    WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
+    WebAnalyticsStatusCheck,
+    WebAnalyticsTile,
+    WebVitalsPercentile,
+} from './common'
 
 const teamId = window.POSTHOG_APP_CONTEXT?.current_team?.id
 const persistConfig = { persist: true, prefix: `${teamId}__` }
@@ -448,17 +121,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             ['isDev'],
             authorizedUrlListLogic({ type: AuthorizedUrlListType.WEB_ANALYTICS, actionId: null, experimentId: null }),
             ['authorizedUrls'],
-            marketingAnalyticsLogic,
-            [
-                'loading',
-                'createMarketingDataWarehouseNodes',
-                'draftConversionGoal',
-                'compareFilter as marketingCompareFilter',
-                'dateFilter as marketingDateFilter',
-                'chartDisplayType',
-            ],
-            marketingAnalyticsTableLogic,
-            ['query', 'defaultColumns'],
+            marketingAnalyticsTilesLogic,
+            ['tiles as marketingTiles'],
         ],
     })),
     actions({
@@ -978,20 +642,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 conversionGoal,
             }),
         ],
-        marketingContext: [
-            (s) => [
-                s.createMarketingDataWarehouseNodes,
-                s.marketingCompareFilter,
-                s.marketingDateFilter,
-                s.chartDisplayType,
-            ],
-            (createMarketingDataWarehouseNodes, marketingCompareFilter, marketingDateFilter, chartDisplayType) => ({
-                createMarketingDataWarehouseNodes,
-                marketingCompareFilter,
-                marketingDateFilter,
-                chartDisplayType,
-            }),
-        ],
         tiles: [
             (s) => [
                 s.productTab,
@@ -1003,8 +653,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 () => values.currentTeam,
                 () => values.tileVisualizations,
                 () => values.preAggregatedEnabled,
-                () => values.campaignCostsBreakdown,
-                s.marketingContext,
+                s.marketingTiles,
             ],
             (
                 productTab,
@@ -1025,15 +674,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 currentTeam,
                 tileVisualizations,
                 preAggregatedEnabled,
-                campaignCostsBreakdown,
-                marketingContext
+                marketingTiles
             ): WebAnalyticsTile[] => {
-                const {
-                    createMarketingDataWarehouseNodes,
-                    marketingCompareFilter,
-                    marketingDateFilter,
-                    chartDisplayType,
-                } = marketingContext
                 const dateRange = { date_from: dateFrom, date_to: dateTo }
                 const sampling = { enabled: false, forceSamplingRate: { numerator: 1, denominator: 10 } }
 
@@ -1329,81 +971,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 }
 
                 if (productTab === ProductTab.MARKETING) {
-                    return [
-                        {
-                            kind: 'query',
-                            tileId: TileId.MARKETING,
-                            layout: {
-                                colSpanClassName: 'md:col-span-2',
-                                orderWhenLargeClassName: 'xxl:order-1',
-                            },
-                            title: 'Marketing costs',
-                            query: {
-                                kind: NodeKind.InsightVizNode,
-                                embedded: true,
-                                hidePersonsModal: true,
-                                source: {
-                                    kind: NodeKind.TrendsQuery,
-                                    compareFilter: marketingCompareFilter,
-                                    series:
-                                        createMarketingDataWarehouseNodes.length > 0
-                                            ? createMarketingDataWarehouseNodes
-                                            : [
-                                                  // Fallback when no sources are configured
-                                                  {
-                                                      kind: NodeKind.EventsNode,
-                                                      event: 'no_sources_configured',
-                                                      custom_name: 'No marketing sources configured',
-                                                      math: BaseMathType.TotalCount,
-                                                  },
-                                              ],
-                                    interval: marketingDateFilter.interval,
-                                    dateRange: {
-                                        date_from: marketingDateFilter.dateFrom,
-                                        date_to: marketingDateFilter.dateTo,
-                                    },
-                                    trendsFilter: {
-                                        display: chartDisplayType,
-                                        aggregationAxisFormat: 'numeric',
-                                        aggregationAxisPrefix: '$',
-                                    },
-                                },
-                            },
-                            showIntervalSelect: true,
-                            insightProps: createInsightProps(TileId.MARKETING, `${chartDisplayType}`),
-                            canOpenInsight: true,
-                            canOpenModal: false,
-                            docs: {
-                                title: 'Marketing costs',
-                                description:
-                                    createMarketingDataWarehouseNodes.length > 0
-                                        ? 'Track costs from your configured marketing data sources.'
-                                        : 'Configure marketing data sources in the settings to track costs from your ad platforms.',
-                            },
-                        },
-                        campaignCostsBreakdown
-                            ? {
-                                  kind: 'query',
-                                  tileId: TileId.MARKETING_CAMPAIGN_BREAKDOWN,
-                                  layout: {
-                                      colSpanClassName: 'md:col-span-2',
-                                      orderWhenLargeClassName: 'xxl:order-2',
-                                  },
-                                  title: 'Campaign costs breakdown',
-                                  query: campaignCostsBreakdown,
-                                  insightProps: createInsightProps(TileId.MARKETING_CAMPAIGN_BREAKDOWN),
-                                  canOpenModal: true,
-                                  canOpenInsight: false,
-                                  docs: {
-                                      title: 'Campaign costs breakdown',
-                                      description:
-                                          'Breakdown of marketing costs by individual campaign names across all ad platforms.',
-                                  },
-                              }
-                            : null,
-                    ]
-                        .filter(isNotNil)
-                        .map((tile) => tile as WebAnalyticsTile)
+                    return marketingTiles as unknown as WebAnalyticsTile[]
                 }
 
                 const allTiles: (WebAnalyticsTile | null)[] = [
@@ -2497,71 +2065,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     const preferredUrl = urls.find((url) => url.protocol === 'https:') ?? urls[0]
                     return preferredUrl.origin
                 })
-            },
-        ],
-        campaignCostsBreakdown: [
-            (s) => [
-                s.loading,
-                s.query,
-                s.marketingDateFilter,
-                s.webAnalyticsFilters,
-                s.shouldFilterTestAccounts,
-                s.draftConversionGoal,
-                s.defaultColumns,
-                s.marketingCompareFilter,
-            ],
-            (
-                loading: boolean,
-                query: DataTableNode,
-                marketingDateFilter: { dateFrom: string; dateTo: string; interval: IntervalType },
-                webAnalyticsFilters: WebAnalyticsPropertyFilters,
-                filterTestAccounts: boolean,
-                draftConversionGoal: ConversionGoalFilter | null,
-                defaultColumns: string[],
-                marketingCompareFilter: CompareFilter | undefined
-            ): DataTableNode | null => {
-                if (loading) {
-                    return null
-                }
-
-                const marketingQuery = query?.source as MarketingAnalyticsTableQuery | undefined
-                const columnsWithDraftConversionGoal = [
-                    ...(marketingQuery?.select?.length ? marketingQuery.select : defaultColumns).filter(
-                        (column) => !isDraftConversionGoalColumn(column, draftConversionGoal)
-                    ),
-                    ...(draftConversionGoal
-                        ? [
-                              draftConversionGoal.conversion_goal_name,
-                              `${MarketingAnalyticsHelperForColumnNames.CostPer} ${draftConversionGoal.conversion_goal_name}`,
-                          ]
-                        : []),
-                ]
-                const sortedColumns = getSortedColumnsByArray(columnsWithDraftConversionGoal, defaultColumns)
-                const orderedColumns = orderArrayByPreference(sortedColumns, query?.pinnedColumns || [])
-                const orderBy = getOrderBy(marketingQuery, sortedColumns)
-                return {
-                    ...query,
-                    kind: NodeKind.DataTableNode,
-                    source: {
-                        ...marketingQuery,
-                        kind: NodeKind.MarketingAnalyticsTableQuery,
-                        dateRange: {
-                            date_from: marketingDateFilter.dateFrom,
-                            date_to: marketingDateFilter.dateTo,
-                        },
-                        properties: webAnalyticsFilters || [],
-                        filterTestAccounts: filterTestAccounts,
-                        draftConversionGoal: draftConversionGoal,
-                        limit: 200,
-                        orderBy,
-                        tags: MARKETING_ANALYTICS_DEFAULT_QUERY_TAGS,
-                        select: orderedColumns,
-                        compareFilter: marketingCompareFilter,
-                    },
-                    full: true,
-                    embedded: false,
-                    showOpenEditorButton: false,
-                }
             },
         ],
     })),
