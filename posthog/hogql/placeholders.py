@@ -10,8 +10,8 @@ class FindPlaceholders(TraversingVisitor):
     def __init__(self):
         super().__init__()
         self.has_filters = False  # Legacy fallback: treat filters as before
-        self.placeholder_fields: set[list[str]] = set()  # Did we find simple fields
-        self.placeholder_expressions: set[ast.Expr] = set()  # Did we find complex expressions
+        self.placeholder_fields: list[list[str]] = []  # Did we find simple fields
+        self.placeholder_expressions: list[ast.Expr] = []  # Did we find complex expressions
 
     def visit_cte(self, node: ast.CTE):
         super().visit(node.expr)
@@ -21,9 +21,9 @@ class FindPlaceholders(TraversingVisitor):
             if chain[0] == "filters":
                 self.has_filters = True
             else:
-                self.placeholder_fields.add(chain)
+                self.placeholder_fields.append(chain)
         else:
-            self.placeholder_expressions.add(node.field)
+            self.placeholder_expressions.append(node.field)
 
 
 def find_placeholders(node: ast.Expr) -> FindPlaceholders:
