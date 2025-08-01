@@ -32,10 +32,6 @@ function TooExpensiveHelpMessage(): JSX.Element {
                     </li>
                     <li>Set a minimum recording duration.</li>
                     <li>Set a sampling rate for recordings.</li>
-                    <li>
-                        Make sure you capture at least one event per session to reduce the costs while maintaining all
-                        filtering options.
-                    </li>
                 </ul>
             </p>
             <Link to="https://posthog.com/docs/session-replay/cutting-costs" target="_blank">
