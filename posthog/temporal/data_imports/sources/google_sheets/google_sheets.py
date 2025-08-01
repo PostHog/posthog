@@ -4,7 +4,7 @@ from typing import Any, Optional
 from django.conf import settings
 from dlt.common.normalizers.naming.snake_case import NamingConvention
 from google.oauth2 import service_account
-from cachetools import TTLCache, cached
+from cachetools import TTLCache, cached, Cache
 import gspread
 from posthog.temporal.data_imports.pipelines.pipeline.utils import table_from_py_list
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
@@ -25,7 +25,7 @@ def google_sheets_client() -> gspread.Client:
     return gspread.authorize(credentials)
 
 
-cache = TTLCache(maxsize=500, ttl=120)  # 120 seconds
+cache: Cache[Any, Any] = TTLCache(maxsize=500, ttl=120)  # 120 seconds
 max_attempts = 10
 jitter_in_seconds = 10
 sleep_per_attempt_in_seconds = 30
@@ -33,7 +33,7 @@ sleep_per_attempt_in_seconds = 30
 
 @cached(cache)
 def _get_worksheet(spreadsheet_url: str, worksheet_id: int) -> gspread.Worksheet:
-    """Attempt to get a worksheet with exponential backoff. Google Sheets has a 300
+    """Attempt to get a worksheet with linear backoff. Google Sheets has a 300
     request quota per minute. We add a +- 10s jitter to the sleep per attempt so
     that multiple jobs blocked by quota limits dont all retry at the same time"""
 

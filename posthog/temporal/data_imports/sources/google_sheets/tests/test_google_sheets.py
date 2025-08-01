@@ -34,3 +34,24 @@ def test_get_worksheet_backoff():
             _get_worksheet("url", 1)
 
         assert mock_get_worksheet_by_id.call_count == 10
+
+
+def test_get_worksheet_caching():
+    with (
+        mock.patch(
+            "posthog.temporal.data_imports.sources.google_sheets.google_sheets.google_sheets_client"
+        ) as mock_google_sheets_client,
+    ):
+        _get_worksheet("url", 1)
+        _get_worksheet("url", 1)
+        _get_worksheet("url", 1)
+
+        # It should only have 1 call, the others should be returning the cached value
+        assert mock_google_sheets_client.call_count == 1
+
+        _get_worksheet("url", 2)
+        _get_worksheet("url", 2)
+        _get_worksheet("url", 2)
+
+        # It should now have 2 calls, we've changed one of the arguments, but the second/third calls should be cached
+        assert mock_google_sheets_client.call_count == 2
