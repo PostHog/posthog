@@ -103,7 +103,7 @@ export function ActionsHorizontalBar({ showPersonsModal = true, context }: Chart
                               context.onDataPointClick(
                                   {
                                       breakdown: dataset.breakdownValues?.[index],
-                                      compare: dataset.compareLabels?.[index],
+                                      compare: dataset.compareLabels?.[index] || undefined,
                                   },
                                   indexedResults[0]
                               )

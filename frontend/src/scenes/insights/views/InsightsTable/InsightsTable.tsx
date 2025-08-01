@@ -82,12 +82,11 @@ export function InsightsTable({
         breakdownFilter,
         trendsFilter,
         isSingleSeries,
-        hiddenLegendIndexes,
         getTrendsColor,
         getTrendsHidden,
         insightData,
     } = useValues(trendsDataLogic(insightProps))
-    const { toggleHiddenLegendIndex, updateHiddenLegendIndexes } = useActions(trendsDataLogic(insightProps))
+    const { toggleHiddenLegendIndex, toggleAllHiddenLegendIndexes } = useActions(trendsDataLogic(insightProps))
     const { aggregation, allowAggregation } = useValues(insightsTableDataLogic(insightProps))
     const { setAggregationType } = useActions(insightsTableDataLogic(insightProps))
     const { hasInsightColors } = useValues(resultCustomizationsModalLogic(insightProps))
@@ -118,8 +117,8 @@ export function InsightsTable({
                     <SeriesCheckColumnTitle
                         indexedResults={indexedResults}
                         canCheckUncheckSeries={canCheckUncheckSeries}
-                        hiddenLegendIndexes={hiddenLegendIndexes}
-                        updateHiddenLegendIndexes={updateHiddenLegendIndexes}
+                        getTrendsHidden={getTrendsHidden}
+                        toggleAllHiddenLegendIndexes={toggleAllHiddenLegendIndexes}
                     />
                 )}
                 <span>Series</span>
@@ -314,7 +313,7 @@ export function InsightsTable({
             dataSource={
                 isLegend || isMainInsightView
                     ? indexedResults
-                    : indexedResults.filter((r) => !hiddenLegendIndexes?.includes(r.id))
+                    : indexedResults.filter((dataset) => !getTrendsHidden(dataset))
             }
             embedded={embedded}
             columns={columns}

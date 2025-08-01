@@ -105,6 +105,7 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
         loadMoreBreakdownValues: true,
         setBreakdownValuesLoading: (loading: boolean) => ({ loading }),
         toggleHiddenLegendIndex: (dataset: IndexedTrendResult) => ({ dataset }),
+        toggleAllHiddenLegendIndexes: (datasets: IndexedTrendResult[], hidden: boolean) => ({ datasets, hidden }),
     }),
 
     reducers({
@@ -365,6 +366,20 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                         hidden: resultCustomization?.hidden ? false : true,
                     },
                 },
+            } as Partial<TrendsFilter>)
+        },
+        toggleAllHiddenLegendIndexes: ({ datasets, hidden }) => {
+            const resultCustomizations = datasets.reduce((acc, dataset) => {
+                const resultCustomizationKey = getTrendResultCustomizationKey(values.resultCustomizationBy, dataset)
+                acc[resultCustomizationKey] = {
+                    assignmentBy: values.resultCustomizationBy,
+                    hidden: hidden,
+                }
+                return acc
+            }, {} as Record<string, any>)
+
+            actions.updateInsightFilter({
+                resultCustomizations,
             } as Partial<TrendsFilter>)
         },
     })),
