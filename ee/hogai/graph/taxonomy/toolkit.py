@@ -459,7 +459,7 @@ class TaxonomyAgentToolkit:
 
         return DynamicTool
 
-    def get_tool_input_model(self, action: AgentAction) -> ToolInputType:
+    def get_tool_input_model(self, action: AgentAction) -> BaseModel:
         tool_input_class = self._create_dynamic_tool()
 
         return tool_input_class.model_validate({"name": action.tool, "arguments": action.tool_input})
