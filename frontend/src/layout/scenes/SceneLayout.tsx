@@ -11,6 +11,7 @@ import { SceneConfig } from 'scenes/sceneTypes'
 import { SceneHeader } from './SceneHeader'
 import './SceneLayout.css'
 import { sceneLayoutLogic } from './sceneLayoutLogic'
+import { SceneTabs } from '~/layout/scenes/SceneTabs'
 
 type SceneLayoutProps = {
     children: React.ReactNode
@@ -88,7 +89,7 @@ export function ScenePanelLabel({ children, title, ...props }: PropsWithChildren
 
 export function SceneLayout({ children, className, layoutConfig }: SceneLayoutProps): JSX.Element {
     const { registerScenePanelElement, setScenePanelOpen } = useActions(sceneLayoutLogic)
-    const { scenePanelIsPresent, scenePanelOpen } = useValues(sceneLayoutLogic)
+    const { scenePanelIsPresent, scenePanelOpen, useSceneTabs } = useValues(sceneLayoutLogic)
     const sceneLayoutContainer = useRef<HTMLDivElement>(null)
     const [outerRight, setOuterRight] = useState<number>(0)
 
@@ -126,6 +127,7 @@ export function SceneLayout({ children, className, layoutConfig }: SceneLayoutPr
                 {layoutConfig?.layout !== 'app-raw-no-header' && (
                     <SceneHeader className="row-span-1 col-span-1 min-w-0" />
                 )}
+                {useSceneTabs ? <SceneTabs /> : null}
 
                 {scenePanelIsPresent && (
                     <>

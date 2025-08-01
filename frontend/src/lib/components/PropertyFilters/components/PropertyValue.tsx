@@ -35,7 +35,6 @@ export interface PropertyValueProps {
     eventNames?: string[]
     addRelativeDateTimeOptions?: boolean
     inputClassName?: string
-    additionalPropertiesFilter?: { key: string; values: string | string[] }[]
     groupTypeIndex?: GroupTypeIndex
     size?: 'xsmall' | 'small' | 'medium'
     editable?: boolean
@@ -55,7 +54,6 @@ export function PropertyValue({
     eventNames = [],
     addRelativeDateTimeOptions = false,
     inputClassName = undefined,
-    additionalPropertiesFilter = [],
     groupTypeIndex = undefined,
     editable = true,
     preloadValues = false,
@@ -80,7 +78,7 @@ export function PropertyValue({
             newInput,
             propertyKey,
             eventNames,
-            properties: additionalPropertiesFilter,
+            properties: [],
         })
     }
 
@@ -90,13 +88,13 @@ export function PropertyValue({
         if (preloadValues) {
             load('')
         }
-    }, [])
+    }, [preloadValues, load])
 
     useEffect(() => {
         if (!isDateTimeProperty) {
             load('')
         }
-    }, [propertyKey, isDateTimeProperty])
+    }, [propertyKey, isDateTimeProperty, load])
 
     const displayOptions = options[propertyKey]?.values || []
 

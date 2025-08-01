@@ -1933,6 +1933,18 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "type": "String",
             "virtual": True,
         },
+        "$virt_revenue": {
+            "description": "The total revenue for this person.",
+            "label": "Total revenue",
+            "type": "Numeric",
+            "virtual": True,
+        },
+        "$virt_revenue_last_30_days": {
+            "description": "The total revenue for this person in the last 30 days.",
+            "label": "Total revenue in the last 30 days",
+            "type": "Numeric",
+            "virtual": True,
+        },
     },
     "session_properties": {
         "$session_duration": {
@@ -2129,13 +2141,13 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "initial_coupon": {
             "label": "Initial coupon",
-            "description": "The name of the coupon on the initial revenue event for the customer.",
+            "description": "The name of the coupon on the initial revenue event for the customer. Not supported for event sources.",
             "type": "String",
             "virtual": True,
         },
         "initial_coupon_id": {
             "label": "Initial coupon ID",
-            "description": "The ID of the coupon on the initial revenue event for the customer.",
+            "description": "The ID of the coupon on the initial revenue event for the customer. Not supported for event sources.",
             "type": "String",
             "virtual": True,
         },
