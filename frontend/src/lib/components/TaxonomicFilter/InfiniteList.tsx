@@ -77,7 +77,7 @@ const unusedIndicator = (eventNames: string[]): JSX.Element => {
     )
 }
 
-const optimizedIndicator = (): JSX.Element => {
+const preaggregatedTableSupportedIndicator = (): JSX.Element => {
     return (
         <Tooltip title="This property is optimized for faster queries with the New Query Engine">
             <IconBolt className="text-warning ml-1" />
@@ -109,7 +109,7 @@ const renderItemContents = ({
         (item as PropertyDefinition).is_seen_on_filtered_events !== null &&
         !(item as PropertyDefinition).is_seen_on_filtered_events
 
-    const isOptimizedProperty =
+    const isPreAggregatedTableSupportedProperty =
         enablePreaggregatedTableHints &&
         (listGroupType === TaxonomicFilterGroupType.EventProperties ||
             listGroupType === TaxonomicFilterGroupType.SessionProperties) &&
@@ -143,7 +143,7 @@ const renderItemContents = ({
             </div>
             {isStale && staleIndicator(parsedLastSeen)}
             {isUnusedEventProperty && unusedIndicator(eventNames)}
-            {isOptimizedProperty && optimizedIndicator()}
+            {isPreAggregatedTableSupportedProperty && preaggregatedTableSupportedIndicator()}
         </>
     ) : (
         <div className="taxonomic-list-row-contents">
