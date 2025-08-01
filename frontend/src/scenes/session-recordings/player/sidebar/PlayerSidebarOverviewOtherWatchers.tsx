@@ -4,7 +4,7 @@ import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Link } from 'lib/lemon-ui/Link'
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 import { membersLogic } from 'scenes/organization/membersLogic'
@@ -33,14 +33,13 @@ function OtherWatchersDisplay({
     const { members } = useValues(membersLogic)
     const [isExpanded, setIsExpanded] = useState(startExpanded)
 
-    if (!metadata?.viewers) {
-        return null
-    }
-
-    const otherViewers = metadata.viewers.filter((viewer) => viewer !== currentUser?.email)
+    const otherViewers = useMemo(
+        () => metadata?.viewers?.filter((viewer) => viewer !== currentUser?.email) || [],
+        [metadata?.viewers, currentUser?.email]
+    )
     const count = otherViewers.length
 
-    if (count === 0) {
+    if (!metadata?.viewers || count === 0) {
         return null
     }
 
