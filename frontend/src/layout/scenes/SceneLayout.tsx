@@ -124,10 +124,10 @@ export function SceneLayout({ children, className, layoutConfig }: SceneLayoutPr
                     block: layoutConfig?.layout === 'app-raw-no-header',
                 })}
             >
+                {useSceneTabs ? <SceneTabs /> : null}
                 {layoutConfig?.layout !== 'app-raw-no-header' && (
                     <SceneHeader className="row-span-1 col-span-1 min-w-0" />
                 )}
-                {useSceneTabs ? <SceneTabs /> : null}
 
                 {scenePanelIsPresent && (
                     <>
