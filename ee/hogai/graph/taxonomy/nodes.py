@@ -20,7 +20,6 @@ from .prompts import (
     PROPERTY_TYPES_PROMPT,
     TAXONOMY_TOOL_USAGE_PROMPT,
     HUMAN_IN_THE_LOOP_PROMPT,
-    USER_PROMPT,
     REACT_PYDANTIC_VALIDATION_EXCEPTION_PROMPT,
     ITERATION_LIMIT_PROMPT,
 )
@@ -88,7 +87,7 @@ class TaxonomyAgentNode(Generic[TaxonomyStateType, TaxonomyPartialStateType], Ta
         and continuation with intermediate steps.
         """
         system_messages = [("system", prompt) for prompt in self.get_system_prompts()]
-        system_messages.append(("human", USER_PROMPT))
+        system_messages.append(("human", state.instructions))
 
         progress_messages = list(getattr(state, "tool_progress_messages", []))
         all_messages = [*system_messages, *progress_messages]
@@ -102,22 +101,12 @@ class TaxonomyAgentNode(Generic[TaxonomyStateType, TaxonomyPartialStateType], Ta
 
         chain = full_conversation | merge_message_runs() | self._get_model(state)
 
-        change = state.change or ""
-        # TODO: CURRENT FILTERS SHOULD NOT BE HERE
-        current_filters = str(state.current_filters or {})
-
-        # Handle empty change - provide a helpful default task
-        if not change.strip():
-            change = "Show me all session recordings with default filters"
-
         events_in_context = []
         if ui_context := self._get_ui_context(state):
             events_in_context = ui_context.events if ui_context.events else []
 
         output_message = chain.invoke(
             {
-                "change": change,
-                "current_filters": current_filters,
                 "events": format_events_prompt(events_in_context, self._team),
                 "groups": self._team_group_types,
             },

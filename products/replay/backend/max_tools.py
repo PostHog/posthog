@@ -7,7 +7,7 @@ from ee.hogai.graph.taxonomy.tools import create_final_answer_model
 from ee.hogai.graph.taxonomy.types import TaxonomyAgentState, PartialTaxonomyAgentState
 from ee.hogai.tool import MaxTool
 from posthog.schema import MaxRecordingUniversalFilters
-
+from .prompts import USER_FILTER_OPTIONS_PROMPT
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
@@ -101,11 +101,13 @@ class SearchSessionRecordingsTool(MaxTool):
     async def _arun_impl(self, change: str) -> tuple[str, MaxRecordingUniversalFilters]:
         # Create the graph
         graph = SessionReplayFilterOptionsGraph(team=self._team, user=self._user)
-
+        instructions = USER_FILTER_OPTIONS_PROMPT.format(
+            change=change, current_filters=self.context.get("current_filters", {})
+        )
         # Set the context
         graph_context = {
-            "change": change,
-            "generated_filter_options": None,
+            "instructions": instructions,
+            "output": None,
             "messages": [],
             "tool_progress_messages": [],
             **self.context,

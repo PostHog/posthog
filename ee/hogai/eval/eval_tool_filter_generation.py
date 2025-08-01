@@ -8,9 +8,7 @@ from deepdiff import DeepDiff
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
 from products.replay.backend.max_tools import SessionReplayFilterOptionsGraph
 from ee.models.assistant import Conversation
-
 from .conftest import MaxEval
-
 from posthog.schema import (
     DurationType,
     FilterLogicalOperator,
@@ -20,24 +18,34 @@ from posthog.schema import (
     PropertyOperator,
     RecordingDurationFilter,
     RecordingOrder,
+    EventPropertyFilter,
+    PersonPropertyFilter,
 )
+
+TEST_FILTER_OPTIONS_PROMPT = """
+Goal: {change}
+
+Current filters: {current_filters}
+
+DO NOT CHANGE THE CURRENT FILTERS. ONLY ADD NEW FILTERS or update the existing filters.
+""".strip()
 
 
 logger = logging.getLogger(__name__)
 
-DUMMY_CURRENT_FILTERS = {
-    "date_from": "-7d",
-    "date_to": None,
-    "duration": [
+DUMMY_CURRENT_FILTERS = MaxRecordingUniversalFilters(
+    date_from="-7d",
+    date_to=None,
+    duration=[
         RecordingDurationFilter(key=DurationType.DURATION, operator=PropertyOperator.GT, type="recording", value=60.0)
     ],
-    "filter_group": MaxOuterUniversalFiltersGroup(
+    filter_group=MaxOuterUniversalFiltersGroup(
         type=FilterLogicalOperator.AND_,
         values=[MaxInnerUniversalFiltersGroup(type=FilterLogicalOperator.AND_, values=[])],
     ),
-    "filter_test_accounts": True,
-    "order": RecordingOrder.START_TIME,
-}
+    filter_test_accounts=True,
+    order=RecordingOrder.START_TIME,
+)
 
 
 @pytest.fixture
@@ -49,10 +57,12 @@ def call_search_session_recordings(demo_org_team_user):
     async def callable(change: str) -> dict:
         conversation = await Conversation.objects.acreate(team=demo_org_team_user[1], user=demo_org_team_user[2])
 
+        # Convert filters to JSON string and use test-specific prompt
+        filters_json = DUMMY_CURRENT_FILTERS.model_dump_json()
+
         graph_input = {
-            "change": change,
-            "generated_filter_options": None,
-            "current_filters": DUMMY_CURRENT_FILTERS,
+            "instructions": TEST_FILTER_OPTIONS_PROMPT.format(change=change, current_filters=filters_json),
+            "output": None,
         }
 
         result = await graph.ainvoke(graph_input, config={"configurable": {"thread_id": conversation.id}})
@@ -146,292 +156,371 @@ async def eval_tool_search_session_recordings(call_search_session_recordings):
             EvalCase(
                 input="show me recordings of users that were using a mobile device (use events)",
                 expected=MaxRecordingUniversalFilters(
-                    **{
-                        "date_from": "-7d",
-                        "date_to": None,
-                        "duration": [{"key": "duration", "type": "recording", "value": 60, "operator": "gt"}],
-                        "filter_group": {
-                            "type": "AND",
-                            "values": [
-                                {
-                                    "type": "AND",
-                                    "values": [
-                                        {
-                                            "key": "$device_type",
-                                            "type": "event",
-                                            "value": ["Mobile"],
-                                            "operator": "exact",
-                                        }
-                                    ],
-                                }
-                            ],
-                        },
-                        "filter_test_accounts": True,
-                        "order": "start_time",
-                    }
+                    date_from="-7d",
+                    date_to=None,
+                    duration=[
+                        RecordingDurationFilter(
+                            key=DurationType.DURATION, operator=PropertyOperator.GT, type="recording", value=60.0
+                        )
+                    ],
+                    filter_group=MaxOuterUniversalFiltersGroup(
+                        type=FilterLogicalOperator.AND_,
+                        values=[
+                            MaxInnerUniversalFiltersGroup(
+                                type=FilterLogicalOperator.AND_,
+                                values=[
+                                    EventPropertyFilter(
+                                        key="$device_type",
+                                        type="event",
+                                        value=["Mobile"],
+                                        operator=PropertyOperator.EXACT,
+                                    )
+                                ],
+                            )
+                        ],
+                    ),
+                    filter_test_accounts=True,
+                    order=RecordingOrder.START_TIME,
                 ),
             ),
             EvalCase(
                 input="Show me recordings from chrome browsers",
                 expected=MaxRecordingUniversalFilters(
-                    **{
-                        "date_from": "-7d",
-                        "date_to": None,
-                        "duration": [{"key": "duration", "type": "recording", "value": 60, "operator": "gt"}],
-                        "filter_group": {
-                            "type": "AND",
-                            "values": [
-                                {
-                                    "type": "AND",
-                                    "values": [
-                                        {
-                                            "key": "$browser",
-                                            "type": "event",
-                                            "value": ["Chrome"],
-                                            "operator": "exact",
-                                        }
-                                    ],
-                                }
-                            ],
-                        },
-                        "filter_test_accounts": True,
-                        "order": "start_time",
-                    }
+                    date_from="-7d",
+                    date_to=None,
+                    duration=[
+                        RecordingDurationFilter(
+                            key=DurationType.DURATION, operator=PropertyOperator.GT, type="recording", value=60.0
+                        )
+                    ],
+                    filter_group=MaxOuterUniversalFiltersGroup(
+                        type=FilterLogicalOperator.AND_,
+                        values=[
+                            MaxInnerUniversalFiltersGroup(
+                                type=FilterLogicalOperator.AND_,
+                                values=[
+                                    EventPropertyFilter(
+                                        key="$browser",
+                                        type="event",
+                                        value=["Chrome"],
+                                        operator=PropertyOperator.EXACT,
+                                    )
+                                ],
+                            )
+                        ],
+                    ),
+                    filter_test_accounts=True,
+                    order=RecordingOrder.START_TIME,
                 ),
             ),
             EvalCase(
                 input="show me recordings of users who signed up on mobile",
                 expected=MaxRecordingUniversalFilters(
-                    **{
-                        "date_from": "-7d",
-                        "date_to": None,
-                        "duration": [{"key": "duration", "type": "recording", "value": 60, "operator": "gt"}],
-                        "filter_group": {
-                            "type": "AND",
-                            "values": [
-                                {
-                                    "type": "AND",
-                                    "values": [
-                                        {
-                                            "key": "$device_type",
-                                            "type": "event",
-                                            "value": ["Mobile"],
-                                            "operator": "exact",
-                                        }
-                                    ],
-                                }
-                            ],
-                        },
-                        "filter_test_accounts": True,
-                        "order": "start_time",
-                    }
+                    date_from="-7d",
+                    date_to=None,
+                    duration=[
+                        RecordingDurationFilter(
+                            key=DurationType.DURATION, operator=PropertyOperator.GT, type="recording", value=60.0
+                        )
+                    ],
+                    filter_group=MaxOuterUniversalFiltersGroup(
+                        type=FilterLogicalOperator.AND_,
+                        values=[
+                            MaxInnerUniversalFiltersGroup(
+                                type=FilterLogicalOperator.AND_,
+                                values=[
+                                    EventPropertyFilter(
+                                        key="$device_type",
+                                        type="event",
+                                        value=["Mobile"],
+                                        operator=PropertyOperator.EXACT,
+                                    )
+                                ],
+                            )
+                        ],
+                    ),
+                    filter_test_accounts=True,
+                    order=RecordingOrder.START_TIME,
                 ),
             ),
             # Test date range filtering
             EvalCase(
                 input="Show recordings from the last 2 hours",
-                expected=MaxRecordingUniversalFilters(**{**DUMMY_CURRENT_FILTERS, "date_from": "-2h"}),
+                expected=MaxRecordingUniversalFilters(
+                    date_from="-2h",
+                    date_to=None,
+                    duration=[
+                        RecordingDurationFilter(
+                            key=DurationType.DURATION, operator=PropertyOperator.GT, type="recording", value=60.0
+                        )
+                    ],
+                    filter_group=MaxOuterUniversalFiltersGroup(
+                        type=FilterLogicalOperator.AND_,
+                        values=[MaxInnerUniversalFiltersGroup(type=FilterLogicalOperator.AND_, values=[])],
+                    ),
+                    filter_test_accounts=True,
+                    order=RecordingOrder.START_TIME,
+                ),
             ),
             # Test location filtering
             EvalCase(
                 input="Show recordings for users located in the US",
                 expected=MaxRecordingUniversalFilters(
-                    **{
-                        **DUMMY_CURRENT_FILTERS,
-                        "filter_group": {
-                            "type": "AND",
-                            "values": [
-                                {
-                                    "type": "AND",
-                                    "values": [
-                                        {
-                                            "key": "$geoip_country_code",
-                                            "type": "person",
-                                            "value": ["US"],
-                                            "operator": "exact",
-                                        }
-                                    ],
-                                }
-                            ],
-                        },
-                    }
+                    date_from="-7d",
+                    date_to=None,
+                    duration=[
+                        RecordingDurationFilter(
+                            key=DurationType.DURATION, operator=PropertyOperator.GT, type="recording", value=60.0
+                        )
+                    ],
+                    filter_group=MaxOuterUniversalFiltersGroup(
+                        type=FilterLogicalOperator.AND_,
+                        values=[
+                            MaxInnerUniversalFiltersGroup(
+                                type=FilterLogicalOperator.AND_,
+                                values=[
+                                    PersonPropertyFilter(
+                                        key="$geoip_country_code",
+                                        type="person",
+                                        value=["US"],
+                                        operator=PropertyOperator.EXACT,
+                                    )
+                                ],
+                            )
+                        ],
+                    ),
+                    filter_test_accounts=True,
+                    order=RecordingOrder.START_TIME,
                 ),
             ),
             # Test browser-specific filtering
             EvalCase(
                 input="Show recordings from users that were using a browser in English",
                 expected=MaxRecordingUniversalFilters(
-                    **{
-                        **DUMMY_CURRENT_FILTERS,
-                        "filter_group": {
-                            "type": "AND",
-                            "values": [
-                                {
-                                    "type": "AND",
-                                    "values": [
-                                        {
-                                            "key": "$browser_language",
-                                            "type": "person",
-                                            "value": ["EN-en"],
-                                            "operator": "exact",
-                                        }
-                                    ],
-                                }
-                            ],
-                        },
-                    }
+                    date_from="-7d",
+                    date_to=None,
+                    duration=[
+                        RecordingDurationFilter(
+                            key=DurationType.DURATION, operator=PropertyOperator.GT, type="recording", value=60.0
+                        )
+                    ],
+                    filter_group=MaxOuterUniversalFiltersGroup(
+                        type=FilterLogicalOperator.AND_,
+                        values=[
+                            MaxInnerUniversalFiltersGroup(
+                                type=FilterLogicalOperator.AND_,
+                                values=[
+                                    PersonPropertyFilter(
+                                        key="$browser_language",
+                                        type="person",
+                                        value=["EN-en"],
+                                        operator=PropertyOperator.EXACT,
+                                    )
+                                ],
+                            )
+                        ],
+                    ),
+                    filter_test_accounts=True,
+                    order=RecordingOrder.START_TIME,
                 ),
             ),
             # Test user behavior filtering
             EvalCase(
                 input="Show recordings where users visited the posthog.com/checkout_page",
                 expected=MaxRecordingUniversalFilters(
-                    **{
-                        **DUMMY_CURRENT_FILTERS,
-                        "filter_group": {
-                            "type": "AND",
-                            "values": [
-                                {
-                                    "type": "AND",
-                                    "values": [
-                                        {
-                                            "key": "$current_url",
-                                            "type": "event",
-                                            "value": ["posthog.com/checkout_page"],
-                                            "operator": "icontains",
-                                        }
-                                    ],
-                                }
-                            ],
-                        },
-                    }
+                    date_from="-7d",
+                    date_to=None,
+                    duration=[
+                        RecordingDurationFilter(
+                            key=DurationType.DURATION, operator=PropertyOperator.GT, type="recording", value=60.0
+                        )
+                    ],
+                    filter_group=MaxOuterUniversalFiltersGroup(
+                        type=FilterLogicalOperator.AND_,
+                        values=[
+                            MaxInnerUniversalFiltersGroup(
+                                type=FilterLogicalOperator.AND_,
+                                values=[
+                                    EventPropertyFilter(
+                                        key="$current_url",
+                                        type="event",
+                                        value=["posthog.com/checkout_page"],
+                                        operator=PropertyOperator.ICONTAINS,
+                                    )
+                                ],
+                            )
+                        ],
+                    ),
+                    filter_test_accounts=True,
+                    order=RecordingOrder.START_TIME,
                 ),
             ),
             # Test session duration filtering
             EvalCase(
                 input="Show recordings longer than 5 minutes",
                 expected=MaxRecordingUniversalFilters(
-                    **{
-                        **DUMMY_CURRENT_FILTERS,
-                        "duration": [{"key": "duration", "type": "recording", "value": 300, "operator": "gt"}],
-                    }
+                    date_from="-7d",
+                    date_to=None,
+                    duration=[
+                        RecordingDurationFilter(
+                            key=DurationType.DURATION, operator=PropertyOperator.GT, type="recording", value=300.0
+                        )
+                    ],
+                    filter_group=MaxOuterUniversalFiltersGroup(
+                        type=FilterLogicalOperator.AND_,
+                        values=[MaxInnerUniversalFiltersGroup(type=FilterLogicalOperator.AND_, values=[])],
+                    ),
+                    filter_test_accounts=True,
+                    order=RecordingOrder.START_TIME,
                 ),
             ),
             # Test user action
             EvalCase(
                 input="Show recordings from users that performed a billing action",
                 expected=MaxRecordingUniversalFilters(
-                    **{
-                        **DUMMY_CURRENT_FILTERS,
-                        "filter_group": {
-                            "type": "AND",
-                            "values": [
-                                {
-                                    "type": "AND",
-                                    "values": [
-                                        {
-                                            "key": "paid_bill",
-                                            "type": "event",
-                                            "value": "null",
-                                            "operator": "is_set",
-                                        }
-                                    ],
-                                }
-                            ],
-                        },
-                    }
+                    date_from="-7d",
+                    date_to=None,
+                    duration=[
+                        RecordingDurationFilter(
+                            key=DurationType.DURATION, operator=PropertyOperator.GT, type="recording", value=60.0
+                        )
+                    ],
+                    filter_group=MaxOuterUniversalFiltersGroup(
+                        type=FilterLogicalOperator.AND_,
+                        values=[
+                            MaxInnerUniversalFiltersGroup(
+                                type=FilterLogicalOperator.AND_,
+                                values=[
+                                    EventPropertyFilter(
+                                        key="paid_bill",
+                                        type="event",
+                                        value=None,
+                                        operator=PropertyOperator.IS_SET,
+                                    )
+                                ],
+                            )
+                        ],
+                    ),
+                    filter_test_accounts=True,
+                    order=RecordingOrder.START_TIME,
                 ),
             ),
             # Test page-specific filtering
             EvalCase(
                 input="Show recordings from users who visited the pricing page",
                 expected=MaxRecordingUniversalFilters(
-                    **{
-                        **DUMMY_CURRENT_FILTERS,
-                        "filter_group": {
-                            "type": "AND",
-                            "values": [
-                                {
-                                    "type": "AND",
-                                    "values": [
-                                        {
-                                            "key": "$pathname",
-                                            "type": "event",
-                                            "value": ["/pricing/"],
-                                            "operator": "icontains",
-                                        }
-                                    ],
-                                }
-                            ],
-                        },
-                    }
+                    date_from="-7d",
+                    date_to=None,
+                    duration=[
+                        RecordingDurationFilter(
+                            key=DurationType.DURATION, operator=PropertyOperator.GT, type="recording", value=60.0
+                        )
+                    ],
+                    filter_group=MaxOuterUniversalFiltersGroup(
+                        type=FilterLogicalOperator.AND_,
+                        values=[
+                            MaxInnerUniversalFiltersGroup(
+                                type=FilterLogicalOperator.AND_,
+                                values=[
+                                    EventPropertyFilter(
+                                        key="$pathname",
+                                        type="event",
+                                        value=["/pricing/"],
+                                        operator=PropertyOperator.ICONTAINS,
+                                    )
+                                ],
+                            )
+                        ],
+                    ),
+                    filter_test_accounts=True,
+                    order=RecordingOrder.START_TIME,
                 ),
             ),
             # Test conversion funnel filtering
             EvalCase(
                 input="Show recordings from users who completed the signup flow",
                 expected=MaxRecordingUniversalFilters(
-                    **{
-                        **DUMMY_CURRENT_FILTERS,
-                        "filter_group": {
-                            "type": "AND",
-                            "values": [
-                                {
-                                    "type": "AND",
-                                    "values": [
-                                        {
-                                            "key": "signup_completed",
-                                            "type": "event",
-                                            "value": None,
-                                            "operator": "is_set",
-                                        }
-                                    ],
-                                }
-                            ],
-                        },
-                    }
+                    date_from="-7d",
+                    date_to=None,
+                    duration=[
+                        RecordingDurationFilter(
+                            key=DurationType.DURATION, operator=PropertyOperator.GT, type="recording", value=60.0
+                        )
+                    ],
+                    filter_group=MaxOuterUniversalFiltersGroup(
+                        type=FilterLogicalOperator.AND_,
+                        values=[
+                            MaxInnerUniversalFiltersGroup(
+                                type=FilterLogicalOperator.AND_,
+                                values=[
+                                    EventPropertyFilter(
+                                        key="signup_completed",
+                                        type="event",
+                                        value=None,
+                                        operator=PropertyOperator.IS_SET,
+                                    )
+                                ],
+                            )
+                        ],
+                    ),
+                    filter_test_accounts=True,
+                    order=RecordingOrder.START_TIME,
                 ),
             ),
             # Test device and browser combination
             EvalCase(
                 input="Show recordings from mobile Safari users",
                 expected=MaxRecordingUniversalFilters(
-                    **{
-                        **DUMMY_CURRENT_FILTERS,
-                        "filter_group": {
-                            "type": "AND",
-                            "values": [
-                                {
-                                    "type": "AND",
-                                    "values": [
-                                        {
-                                            "key": "$device_type",
-                                            "type": "event",
-                                            "value": ["Mobile"],
-                                            "operator": "exact",
-                                        },
-                                        {
-                                            "key": "$browser",
-                                            "type": "event",
-                                            "value": ["Safari"],
-                                            "operator": "exact",
-                                        },
-                                    ],
-                                }
-                            ],
-                        },
-                    }
+                    date_from="-7d",
+                    date_to=None,
+                    duration=[
+                        RecordingDurationFilter(
+                            key=DurationType.DURATION, operator=PropertyOperator.GT, type="recording", value=60.0
+                        )
+                    ],
+                    filter_group=MaxOuterUniversalFiltersGroup(
+                        type=FilterLogicalOperator.AND_,
+                        values=[
+                            MaxInnerUniversalFiltersGroup(
+                                type=FilterLogicalOperator.AND_,
+                                values=[
+                                    EventPropertyFilter(
+                                        key="$device_type",
+                                        type="event",
+                                        value=["Mobile"],
+                                        operator=PropertyOperator.EXACT,
+                                    ),
+                                    EventPropertyFilter(
+                                        key="$browser",
+                                        type="event",
+                                        value=["Safari"],
+                                        operator=PropertyOperator.EXACT,
+                                    ),
+                                ],
+                            )
+                        ],
+                    ),
+                    filter_test_accounts=True,
+                    order=RecordingOrder.START_TIME,
                 ),
             ),
             # Test time-based filtering
             EvalCase(
                 input="Show recordings from yesterday",
                 expected=MaxRecordingUniversalFilters(
-                    **{
-                        **DUMMY_CURRENT_FILTERS,
-                        "date_from": "-1d",
-                        "date_to": "-1d",
-                    }
+                    date_from="-1d",
+                    date_to="-1d",
+                    duration=[
+                        RecordingDurationFilter(
+                            key=DurationType.DURATION, operator=PropertyOperator.GT, type="recording", value=60.0
+                        )
+                    ],
+                    filter_group=MaxOuterUniversalFiltersGroup(
+                        type=FilterLogicalOperator.AND_,
+                        values=[MaxInnerUniversalFiltersGroup(type=FilterLogicalOperator.AND_, values=[])],
+                    ),
+                    filter_test_accounts=True,
+                    order=RecordingOrder.START_TIME,
                 ),
             ),
         ],

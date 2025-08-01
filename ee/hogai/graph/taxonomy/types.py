@@ -36,9 +36,9 @@ class PartialTaxonomyAgentState(BaseState, Generic[OutputType]):
     The change requested for the filters.
     """
 
-    current_filters: Optional[dict] = Field(default=None)
+    instructions: Optional[str] = Field(default=None)
     """
-    The current filters applied to the product.
+    The instructions for the taxonomy agent.
     """
 
     tool_progress_messages: list[LangchainBaseMessage] = Field(default=[])
