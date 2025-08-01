@@ -410,6 +410,7 @@ posthog/user_permissions.py:0: error: Incompatible return value type (got "int",
 posthog/user_permissions.py:0: error: Incompatible return value type (got "int", expected "RestrictionLevel")  [return-value]
 posthog/utils.py:0: error: No overload variant of "asdict" matches argument type "type[DataclassInstance]"  [call-overload]
 posthog/warehouse/api/external_data_schema.py:0: error: Incompatible return value type (got "str | None", expected "SyncType | None")  [return-value]
+posthog/warehouse/api/test/test_saved_query_draft.py:0: error: Item "None" of "DataWarehouseSavedQuery | None" has no attribute "id"  [union-attr]
 posthog/warehouse/api/test/test_table.py:0: error: Item "None" of "DataWarehouseCredential | None" has no attribute "access_key"  [union-attr]
 posthog/warehouse/api/test/test_table.py:0: error: Item "None" of "DataWarehouseCredential | None" has no attribute "access_key"  [union-attr]
 posthog/warehouse/api/test/test_table.py:0: error: Item "None" of "DataWarehouseCredential | None" has no attribute "access_secret"  [union-attr]
