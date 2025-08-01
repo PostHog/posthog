@@ -20,7 +20,7 @@ describe('queries', () => {
                     },
                     columns: ['error', 'users', 'occurrences'],
                     limit: 4,
-                    volumeResolution: 0,
+                    volumeResolution: 20,
                 })
                 expect(actual).toMatchSnapshot()
             })
