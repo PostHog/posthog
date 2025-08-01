@@ -47,6 +47,7 @@ import {
     getSessionID,
     hasSessionID,
     isLLMTraceEvent,
+    normalizeMessages,
     removeMilliseconds,
 } from './utils'
 import ViewRecordingButton from 'lib/components/ViewRecordingButton/ViewRecordingButton'
@@ -557,8 +558,18 @@ const EventContent = React.memo(
                                             {isLLMTraceEvent(event) ? (
                                                 event.event === '$ai_generation' ? (
                                                     <ConversationMessagesDisplay
-                                                        tools={event.properties.$ai_tools}
-                                                        input={event.properties.$ai_input}
+                                                        inputNormalized={normalizeMessages(
+                                                            event.properties.$ai_input,
+                                                            'user',
+                                                            event.properties.$ai_tools
+                                                        )}
+                                                        outputNormalized={normalizeMessages(
+                                                            event.properties.$ai_is_error
+                                                                ? event.properties.$ai_error
+                                                                : event.properties.$ai_output_choices ??
+                                                                      event.properties.$ai_output,
+                                                            'assistant'
+                                                        )}
                                                         output={
                                                             event.properties.$ai_is_error
                                                                 ? event.properties.$ai_error

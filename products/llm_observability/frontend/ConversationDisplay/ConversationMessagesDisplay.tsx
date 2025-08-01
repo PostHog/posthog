@@ -12,19 +12,18 @@ import React from 'react'
 import { LLMInputOutput } from '../LLMInputOutput'
 import { llmObservabilityTraceLogic, DisplayOption } from '../llmObservabilityTraceLogic'
 import { CompatMessage, VercelSDKImageMessage } from '../types'
-import { normalizeMessages } from '../utils'
 
 export function ConversationMessagesDisplay({
-    input,
+    inputNormalized,
+    outputNormalized,
     output,
-    tools,
     httpStatus,
     raisedError,
     bordered = false,
 }: {
-    input: any
+    inputNormalized: CompatMessage[]
+    outputNormalized: CompatMessage[]
     output: any
-    tools?: any
     httpStatus?: number
     raisedError?: boolean
     bordered?: boolean
@@ -44,15 +43,13 @@ export function ConversationMessagesDisplay({
     } = useActions(llmObservabilityTraceLogic) as any
 
     React.useEffect(() => {
-        const normalizedInput = normalizeMessages(input, 'user', tools)
-
-        const initialInputStates = normalizedInput.map((message, i) => {
+        const initialInputStates = inputNormalized.map((message, i) => {
             if (displayOption === DisplayOption.ExpandAll) {
                 return true
             }
             // For 'collapse_except_output_and_last_input', show only the last input message (and not system/tool messages)
             return (
-                i === normalizedInput.length - 1 &&
+                i === inputNormalized.length - 1 &&
                 message.role !== 'system' &&
                 message.role !== 'tool' &&
                 message.role !== 'tools'
@@ -60,21 +57,17 @@ export function ConversationMessagesDisplay({
         })
 
         setInputMessageShowStates(initialInputStates)
-    }, [input, tools, displayOption, setInputMessageShowStates])
+    }, [inputNormalized, displayOption, setInputMessageShowStates])
 
     React.useEffect(() => {
-        const normalizedOutput = normalizeMessages(output, 'assistant')
-        const initialOutputStates = normalizedOutput.map(() => {
+        const initialOutputStates = outputNormalized.map(() => {
             return true
         })
         setOutputMessageShowStates(initialOutputStates)
-    }, [output, displayOption, setOutputMessageShowStates])
-
-    const inputNormalized = normalizeMessages(input, 'user', tools)
-    const outputNormalized = normalizeMessages(output, 'assistant')
+    }, [outputNormalized, displayOption, setOutputMessageShowStates])
 
     const inputButtons =
-        input.length > 0 ? (
+        inputNormalized.length > 0 ? (
             <div className="flex items-center gap-1">
                 <LemonButton size="xsmall" onClick={showAllInputMessages} icon={<IconEye />}>
                     Expand all
