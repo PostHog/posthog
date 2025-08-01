@@ -11,7 +11,6 @@ export const THINKING_MESSAGES = [
     'Percolating', // slow thinking
     'Poking', // testing ideas
     'Pondering', // thoughtful pause
-    'Querying', // sending a query
     'Scanning', // fast overview
     'Scrambling', // chaotic progress
     'Sifting', // sorting signal from noise
@@ -41,7 +40,6 @@ export const THINKING_MESSAGES = [
     'Snuffling', // hedgehog behavior
     'Hashing', // working something out
     'Clustering', // grouping related things
-    'Shedding', // dropping what's not needed
     'Teasing', // nudging out meaning
     'Cranking', // pushing through work
     'Merging', // putting ideas together
