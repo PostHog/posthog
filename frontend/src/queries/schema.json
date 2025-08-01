@@ -20413,6 +20413,10 @@
                     "description": "Sampling rate",
                     "type": ["number", "null"]
                 },
+                "showTrendLines": {
+                    "description": "Whether to show trend lines in the graph",
+                    "type": "boolean"
+                },
                 "tags": {
                     "$ref": "#/definitions/QueryLogTags",
                     "description": "Tags that will be added to the Query log comment"
@@ -23495,9 +23499,6 @@
                     "default": false,
                     "type": "boolean"
                 },
-                "showTrendLines": {
-                    "type": "boolean"
-                },
                 "showValuesOnSeries": {
                     "default": false,
                     "type": "boolean"
@@ -23689,6 +23690,10 @@
                         "$ref": "#/definitions/AnyEntityNode"
                     },
                     "type": "array"
+                },
+                "showTrendLines": {
+                    "description": "Whether to show trend lines in the line graph",
+                    "type": "boolean"
                 },
                 "tags": {
                     "$ref": "#/definitions/QueryLogTags",

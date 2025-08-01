@@ -19,6 +19,7 @@ import { ScalePicker } from 'scenes/insights/EditorFilters/ScalePicker'
 import { ShowAlertThresholdLinesFilter } from 'scenes/insights/EditorFilters/ShowAlertThresholdLinesFilter'
 import { ShowLegendFilter } from 'scenes/insights/EditorFilters/ShowLegendFilter'
 import { ShowMultipleYAxesFilter } from 'scenes/insights/EditorFilters/ShowMultipleYAxesFilter'
+import { ShowTrendLinesFilter } from 'scenes/insights/EditorFilters/ShowTrendLinesFilter'
 import { ValueOnSeriesFilter } from 'scenes/insights/EditorFilters/ValueOnSeriesFilter'
 import { InsightDateFilter } from 'scenes/insights/filters/InsightDateFilter'
 import { RetentionChartPicker } from 'scenes/insights/filters/RetentionChartPicker'
@@ -86,16 +87,12 @@ export function InsightDisplayConfig(): JSX.Element {
     const isLineGraph = display === ChartDisplayType.ActionsLineGraph || (!display && isTrendsQuery(querySource))
     const isLinearScale = !yAxisScaleType || yAxisScaleType === 'linear'
 
-    const {
-        showValuesOnSeries,
-        mightContainFractionalNumbers,
-        showConfidenceIntervals,
-        showTrendLines,
-        showMovingAverage,
-    } = useValues(trendsDataLogic(insightProps))
+    const { showValuesOnSeries, mightContainFractionalNumbers, showConfidenceIntervals, showMovingAverage } = useValues(
+        trendsDataLogic(insightProps)
+    )
 
     const advancedOptions: LemonMenuItems = [
-        ...(supportsValueOnSeries || supportsPercentStackView || hasLegend || supportsResultCustomizationBy
+        ...(isTrends || isRetention
             ? [
                   {
                       title: 'Display',
@@ -107,6 +104,7 @@ export function InsightDisplayConfig(): JSX.Element {
                               ? [{ label: () => <ShowAlertThresholdLinesFilter /> }]
                               : []),
                           ...(showMultipleYAxesConfig ? [{ label: () => <ShowMultipleYAxesFilter /> }] : []),
+                          ...(isTrends || isRetention ? [{ label: () => <ShowTrendLinesFilter /> }] : []),
                       ],
                   },
               ]
@@ -179,33 +177,6 @@ export function InsightDisplayConfig(): JSX.Element {
                                     },
                                 ]
                               : []),
-                          {
-                              label: () => (
-                                  <LemonSwitch
-                                      label="Show trend lines"
-                                      className="pb-2"
-                                      fullWidth
-                                      disabledReason={
-                                          !isLineGraph
-                                              ? 'Trend lines are only available for line graphs'
-                                              : !isLinearScale
-                                              ? 'Trend lines are only supported for linear scale.'
-                                              : undefined
-                                      }
-                                      checked={showTrendLines}
-                                      onChange={(checked) => {
-                                          if (isTrendsQuery(querySource)) {
-                                              const newQuery = { ...querySource }
-                                              newQuery.trendsFilter = {
-                                                  ...trendsFilter,
-                                                  showTrendLines: checked,
-                                              }
-                                              updateQuerySource(newQuery)
-                                          }
-                                      }}
-                                  />
-                              ),
-                          },
                           {
                               label: () => (
                                   <LemonSwitch

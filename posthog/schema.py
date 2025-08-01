@@ -4772,7 +4772,6 @@ class TrendsFilter(BaseModel):
     showMovingAverage: Optional[bool] = None
     showMultipleYAxes: Optional[bool] = False
     showPercentStackView: Optional[bool] = False
-    showTrendLines: Optional[bool] = None
     showValuesOnSeries: Optional[bool] = False
     smoothingIntervals: Optional[int] = 1
     yAxisScaleType: Optional[YAxisScaleType] = YAxisScaleType.LINEAR
@@ -11511,6 +11510,7 @@ class TrendsQuery(BaseModel):
     series: list[Union[EventsNode, ActionsNode, DataWarehouseNode]] = Field(
         ..., description="Events and actions to include"
     )
+    showTrendLines: Optional[bool] = Field(default=None, description="Whether to show trend lines in the line graph")
     tags: Optional[QueryLogTags] = Field(default=None, description="Tags that will be added to the Query log comment")
     trendsFilter: Optional[TrendsFilter] = Field(default=None, description="Properties specific to the trends insight")
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
@@ -12395,6 +12395,7 @@ class RetentionQuery(BaseModel):
     response: Optional[RetentionQueryResponse] = None
     retentionFilter: RetentionFilter = Field(..., description="Properties specific to the retention insight")
     samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
+    showTrendLines: Optional[bool] = Field(default=None, description="Whether to show trend lines in the graph")
     tags: Optional[QueryLogTags] = Field(default=None, description="Tags that will be added to the Query log comment")
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
