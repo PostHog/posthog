@@ -15,7 +15,7 @@ import type { eventInsightsLogicType } from './eventInsightsLogicType'
 export const INSIGHTS_PER_PAGE = 10
 
 export const eventInsightsLogic = kea<eventInsightsLogicType>([
-    path(['scenes', 'saved-insights', 'addSavedInsightsModalLogic']),
+    path(['scenes', 'data-management', 'events', 'eventInsightsLogic']),
     connect(() => ({
         values: [teamLogic, ['currentTeamId']],
         logic: [eventUsageLogic],
