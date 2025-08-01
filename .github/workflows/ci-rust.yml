@@ -94,18 +94,11 @@ jobs:
             - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
               if: needs.changes.outputs.rust == 'true'
 
-            - name: Setup main repo dependencies for flags
-              if: needs.changes.outputs.rust == 'true' && matrix.package == 'feature-flags'
+            - name: Setup main repo dependencies
+              if: needs.changes.outputs.rust == 'true'
               run: |
                   docker compose -f ../docker-compose.dev.yml down
                   docker compose -f ../docker-compose.dev.yml up -d
-                  echo "127.0.0.1 kafka clickhouse" | sudo tee -a /etc/hosts
-
-            - name: Setup dependencies
-              if: needs.changes.outputs.rust == 'true' && matrix.package == 'others'
-              run: |
-                  docker compose up kafka redis db echo_server objectstorage -d --wait
-                  docker compose up setup_test_db
                   echo "127.0.0.1 kafka clickhouse" | sudo tee -a /etc/hosts
 
             # please keep the tag version here in sync with rust-version in rust/*/Cargo.toml
@@ -135,7 +128,7 @@ jobs:
               uses: astral-sh/setup-uv@0c5e2b8115b80b4c7c5ddf6ffdd634974642d182 # v5.4.1
               with:
                   enable-cache: true
-                  pyproject-file: 'pyproject.toml'
+                  version: 0.7.8
 
             - name: Install SAML (python3-saml) dependencies
               if: needs.changes.outputs.rust == 'true' && matrix.package == 'feature-flags'

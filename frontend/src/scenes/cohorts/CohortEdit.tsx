@@ -20,6 +20,7 @@ import { cohortEditLogic, CohortLogicProps } from 'scenes/cohorts/cohortEditLogi
 import { CohortCriteriaGroups } from 'scenes/cohorts/CohortFilters/CohortCriteriaGroups'
 import { COHORT_TYPE_OPTIONS } from 'scenes/cohorts/CohortFilters/constants'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
+import { NotebookNodeType } from 'scenes/notebooks/types'
 import { urls } from 'scenes/urls'
 import { ScenePanel, ScenePanelActions, ScenePanelDivider, ScenePanelMetaInfo } from '~/layout/scenes/SceneLayout'
 
@@ -28,7 +29,6 @@ import { SceneFile } from 'lib/components/Scenes/SceneFile'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { AndOrFilterSelect } from '~/queries/nodes/InsightViz/PropertyGroupFilters/AndOrFilterSelect'
 import { Query } from '~/queries/Query/Query'
-import { NotebookNodeType } from '~/types'
 
 import { IconCopy, IconTrash } from '@posthog/icons'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
