@@ -351,12 +351,6 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
             },
         ],
 
-        hiddenLegendIndexes: [
-            (s) => [s.trendsFilter, s.stickinessFilter],
-            (trendsFilter, stickinessFilter): number[] => {
-                return trendsFilter?.hiddenLegendIndexes || stickinessFilter?.hiddenLegendIndexes || []
-            },
-        ],
         resultCustomizations: [(s) => [s.trendsFilter], (trendsFilter) => trendsFilter?.resultCustomizations],
         resultCustomizationBy: [
             (s) => [s.resultCustomizationByRaw],
