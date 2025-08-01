@@ -64,19 +64,10 @@ phw() {
             unset VIRTUAL_ENV PYTHONPATH CONDA_DEFAULT_ENV 2>/dev/null || true
             cd "$worktree_path"
             
-            # If direnv is not set up, activate Flox manually
+            # If direnv is not set up, activate Flox via .envrc
             if ! command -v direnv &>/dev/null; then
-                # Check if we need to switch to a different Flox environment
-                local expected_flox_env="$worktree_path/.flox/run"
-                if [ -n "$FLOX_ENV" ] && [[ "$FLOX_ENV" != "$expected_flox_env"* ]]; then
-                    echo "Switching Flox environments (replacing current shell)..."
-                    exec flox activate
-                elif [ -z "$FLOX_ENV" ]; then
-                    echo "Activating Flox environment..."
-                    exec flox activate
-                else
-                    echo "Flox environment already active for this worktree"
-                fi
+                echo "Activating Flox environment via .envrc..."
+                source .envrc
             fi
             # If direnv is set up, it will auto-activate via .envrc
         fi
@@ -90,19 +81,10 @@ phw() {
             unset VIRTUAL_ENV PYTHONPATH CONDA_DEFAULT_ENV 2>/dev/null || true
             cd "$pr_dir"
             
-            # If direnv is not set up, activate Flox manually
+            # If direnv is not set up, activate Flox via .envrc
             if ! command -v direnv &>/dev/null; then
-                # Check if we need to switch to a different Flox environment
-                local expected_flox_env="$pr_dir/.flox/run"
-                if [ -n "$FLOX_ENV" ] && [[ "$FLOX_ENV" != "$expected_flox_env"* ]]; then
-                    echo "Switching Flox environments (replacing current shell)..."
-                    exec flox activate
-                elif [ -z "$FLOX_ENV" ]; then
-                    echo "Activating Flox environment..."
-                    exec flox activate
-                else
-                    echo "Flox environment already active for this worktree"
-                fi
+                echo "Activating Flox environment via .envrc..."
+                source .envrc
             fi
         fi
     fi
