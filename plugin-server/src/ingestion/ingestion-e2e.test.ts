@@ -325,6 +325,8 @@ describe('Event Pipeline E2E tests', () => {
                 expect(events[1].properties.$group_set).toEqual({ prop: 'value' })
             })
 
+            // Should have fetched the group 4 times:
+            // 1 for each event and 2 in test check
             expect(hub.groupRepository.fetchGroup).toHaveBeenCalledTimes(4)
         }
     )
