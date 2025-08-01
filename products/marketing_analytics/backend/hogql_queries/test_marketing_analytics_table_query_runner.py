@@ -110,7 +110,7 @@ class TestMarketingAnalyticsTableQueryRunner(ClickhouseTestMixin, BaseTest):
         mock_factory.get_valid_adapters.return_value = [mock_adapter1, mock_adapter2]
 
         runner = self._create_query_runner()
-        adapters = runner._get_marketing_source_adapters()
+        adapters = runner._get_marketing_source_adapters(runner.query_date_range)
 
         assert len(adapters) == 2
         assert adapters[0] == mock_adapter1
@@ -125,7 +125,7 @@ class TestMarketingAnalyticsTableQueryRunner(ClickhouseTestMixin, BaseTest):
         mock_factory.create_adapters.side_effect = Exception("Factory error")
 
         runner = self._create_query_runner()
-        adapters = runner._get_marketing_source_adapters()
+        adapters = runner._get_marketing_source_adapters(runner.query_date_range)
 
         assert adapters == []
 
@@ -153,7 +153,7 @@ class TestMarketingAnalyticsTableQueryRunner(ClickhouseTestMixin, BaseTest):
             mock_get_adapters.return_value = []
 
             runner = self._create_query_runner()
-            query = runner.to_query()
+            query = runner.to_query(runner.query_date_range)
 
             assert isinstance(query, ast.SelectQuery)
             assert query.select is not None
