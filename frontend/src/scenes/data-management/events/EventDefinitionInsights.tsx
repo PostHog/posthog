@@ -12,12 +12,9 @@ import { createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
 
 export function EventDefinitionInsights({ definition }: { definition: EventDefinition }): JSX.Element {
-    const { page, insights, count, filters, insightsLoading, sorting } = useValues(eventInsightsLogic)
+    const { page, insights, filters, insightsLoading, sorting } = useValues(eventInsightsLogic)
     const { setPage, setFilters } = useActions(eventInsightsLogic)
     const summarizeInsight = useSummarizeInsight()
-
-    const startCount = (page - 1) * INSIGHTS_PER_PAGE + 1
-    const endCount = Math.min(page * INSIGHTS_PER_PAGE, count)
 
     useEffect(() => {
         setFilters({ events: [definition.name] })
@@ -54,21 +51,13 @@ export function EventDefinitionInsights({ definition }: { definition: EventDefin
     return (
         <div className="saved-insights">
             <h3>Insights using event</h3>
-            <div className="flex justify-between mb-4 gap-2 flex-wrap mt-2 items-center">
-                <span className="text-secondary">
-                    {count
-                        ? `${startCount}${endCount - startCount > 1 ? '-' + endCount : ''} of ${count} insight${
-                              count === 1 ? '' : 's'
-                          }`
-                        : null}
-                </span>
-                <LemonInput
-                    type="search"
-                    placeholder="Search..."
-                    onChange={(value) => setFilters({ search: value })}
-                    value={filters.search || ''}
-                />
-            </div>
+            <LemonInput
+                type="search"
+                className="mb-2"
+                placeholder="Search..."
+                onChange={(value) => setFilters({ search: value })}
+                value={filters.search || ''}
+            />
             <LemonTable
                 id={`event-definition-insights-table-${definition.id}`}
                 loading={insightsLoading}
