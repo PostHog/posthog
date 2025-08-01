@@ -7,12 +7,14 @@ from collections import defaultdict, namedtuple
 from contextlib import contextmanager
 from time import time, time_ns
 from typing import TYPE_CHECKING, Any, Optional, TypeVar, Union
+from collections.abc import Iterable
 from collections.abc import Callable, Iterator
 
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, connections, models, transaction
 from django.db.backends.utils import CursorWrapper
 from django.db.backends.ddl_references import Statement
+from django.db.models import Q, UniqueConstraint
 from django.db.models.constraints import BaseConstraint
 from django.utils.text import slugify
 
@@ -476,3 +478,28 @@ def convert_legacy_metric(metric):
 
 def convert_legacy_metrics(metrics):
     return [convert_legacy_metric(m) for m in (metrics or [])]
+
+
+def build_unique_relationship_check(related_objects: Iterable[str]):
+    """Checks that exactly one object field is populated"""
+    built_check_list: list[Union[Q, Q]] = []
+    for field in related_objects:
+        built_check_list.append(
+            Q(
+                *[(f"{other_field}__isnull", other_field != field) for other_field in related_objects],
+                _connector="AND",
+            )
+        )
+    return Q(*built_check_list, _connector="OR")
+
+
+def build_partial_uniqueness_constraint(field: str, related_field: str, constraint_name: str):
+    """
+    Enforces uniqueness on {field}_{related_field}.
+    All permutations of null columns must be explicit as Postgres ignores uniqueness across null columns.
+    """
+    return UniqueConstraint(
+        fields=[field, related_field],
+        name=constraint_name,
+        condition=Q((f"{related_field}__isnull", False)),
+    )

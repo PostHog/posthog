@@ -2,6 +2,7 @@ import json
 from unittest import mock
 from uuid import UUID
 
+from django.db import IntegrityError
 from freezegun.api import freeze_time
 from orjson import orjson
 from flaky import flaky
@@ -11,8 +12,9 @@ from posthog.helpers.dashboard_templates import create_group_type_mapping_detail
 from posthog.hogql.parser import parse_select
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
-from posthog.models import GroupTypeMapping, Person
+from posthog.models import GroupTypeMapping, Person, Notebook
 from posthog.models.group.util import create_group
+from posthog.models.notebook import ResourceNotebook
 from posthog.models.organization import Organization
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.team.team import Team
@@ -23,6 +25,8 @@ from posthog.test.base import (
     snapshot_clickhouse_queries,
 )
 from unittest.mock import patch
+
+PATH = "ee.clickhouse.views.groups"
 
 
 class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
@@ -129,48 +133,150 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
             },
         )
 
-    @freeze_time("2021-05-02")
-    def test_retrieve_group(self):
-        create_group(
+    def test_retrieve_group_wrong_group_type_index(self):
+        group = create_group(
             team_id=self.team.pk,
             group_type_index=0,
             group_key="key",
             properties={"industry": "finance", "name": "Mr. Krabs"},
         )
-        create_group(
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/groups/find?group_type_index=1&group_key={group.group_key}"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND, "Should return 404 Not Found")
+
+    def test_retrieve_group_wrong_group_key(self):
+        group = create_group(
             team_id=self.team.pk,
-            group_type_index=1,
-            group_key="foo//bar",
-            properties={},
+            group_type_index=0,
+            group_key="key",
+            properties={"industry": "finance", "name": "Mr. Krabs"},
         )
 
-        fail_response = self.client.get(f"/api/projects/{self.team.id}/groups/find?group_type_index=1&group_key=key")
-        self.assertEqual(fail_response.status_code, 404)
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/groups/find?group_type_index={group.group_type_index}&group_key=wrong_key"
+        )
 
-        ok_response_data = self.client.get(f"/api/projects/{self.team.id}/groups/find?group_type_index=0&group_key=key")
-        self.assertEqual(ok_response_data.status_code, 200)
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND, "Should return 404 Not Found")
+
+    @freeze_time("2021-05-02")
+    @patch(f"{PATH}.posthoganalytics.feature_enabled", return_value=False)
+    def test_retrieve_group_crm_disabled(self, _):
+        index = 0
+        key = "key"
+        group = create_group(
+            team_id=self.team.pk,
+            group_type_index=index,
+            group_key=key,
+            properties={"industry": "finance", "name": "Mr. Krabs"},
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/groups/find?group_type_index={index}&group_key={key}")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, "Should return 200 OK")
         self.assertEqual(
-            ok_response_data.json(),
+            response.json(),
             {
                 "created_at": "2021-05-02T00:00:00Z",
-                "group_key": "key",
+                "group_key": key,
                 "group_properties": {"industry": "finance", "name": "Mr. Krabs"},
-                "group_type_index": 0,
+                "group_type_index": index,
+                "notebook": None,
             },
         )
-        ok_response_data = self.client.get(
-            f"/api/projects/{self.team.id}/groups/find?group_type_index=1&group_key=foo//bar"
+        self.assertFalse(ResourceNotebook.objects.filter(group=group).exists())
+        self.assertEqual(0, Notebook.objects.filter(team=self.team).count())
+
+    @freeze_time("2021-05-02")
+    @patch(f"{PATH}.posthoganalytics.feature_enabled", return_value=True)
+    def test_retrieve_group_crm_enabled(self, _):
+        index = 0
+        key = "key"
+        group = create_group(
+            team_id=self.team.pk,
+            group_type_index=index,
+            group_key=key,
+            properties={"industry": "finance", "name": "Mr. Krabs"},
         )
-        self.assertEqual(ok_response_data.status_code, 200)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/groups/find?group_type_index={index}&group_key={key}")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, "Should return 200 OK")
+        relationships = ResourceNotebook.objects.filter(group=group)
+        self.assertIsNotNone(relationships)
         self.assertEqual(
-            ok_response_data.json(),
+            response.json(),
             {
                 "created_at": "2021-05-02T00:00:00Z",
-                "group_key": "foo//bar",
-                "group_properties": {},
-                "group_type_index": 1,
+                "group_key": key,
+                "group_properties": {"industry": "finance", "name": "Mr. Krabs"},
+                "group_type_index": index,
+                "notebook": relationships.first().notebook.short_id,
             },
         )
+        self.assertEqual(1, Notebook.objects.filter(team=self.team).count())
+
+    @freeze_time("2021-05-02")
+    def test_retrieve_group_with_notebook(self):
+        index = 0
+        key = "key"
+        group = create_group(
+            team_id=self.team.pk,
+            group_type_index=index,
+            group_key=key,
+            properties={"industry": "finance", "name": "Mr. Krabs"},
+        )
+        notebook = Notebook.objects.create(team=self.team, title="Mr. Krabs Notes")
+        ResourceNotebook.objects.create(group=group, notebook=notebook)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/groups/find?group_type_index={index}&group_key={key}")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, "Should return 200 OK")
+        self.assertEqual(
+            response.json(),
+            {
+                "created_at": "2021-05-02T00:00:00Z",
+                "group_key": key,
+                "group_properties": {"industry": "finance", "name": "Mr. Krabs"},
+                "group_type_index": index,
+                "notebook": notebook.short_id,
+            },
+        )
+
+    @freeze_time("2021-05-02")
+    @patch(f"{PATH}.ResourceNotebook.objects.create", side_effect=IntegrityError)
+    @patch(f"{PATH}.posthoganalytics.feature_enabled", return_value=True)
+    def test_retrieve_group_notebook_transaction_rollback(self, _, mock_relationship_create):
+        index = 0
+        key = "key"
+        group = create_group(
+            team_id=self.team.pk,
+            group_type_index=index,
+            group_key=key,
+            properties={"industry": "finance", "name": "Mr. Krabs"},
+        )
+
+        initial_notebook_count = Notebook.objects.filter(team=self.team).count()
+        self.assertEqual(initial_notebook_count, 0)
+
+        with self.assertLogs(level="ERROR") as logs:
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/groups/find?group_type_index={index}&group_key={key}"
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, "Should return 200 OK")
+        final_notebook_count = Notebook.objects.filter(team=self.team).count()
+        self.assertEqual(final_notebook_count, initial_notebook_count, "Notebook creation should be rolled back")
+        self.assertFalse(ResourceNotebook.objects.filter(group=group).exists())
+        mock_relationship_create.assert_called_once()
+        self.assertEqual(len(logs.records), 1)
+        log = logs.records[0]
+        self.assertEqual(log.msg["group_key"], key)
+        self.assertEqual(log.msg["group_type_index"], index)
+        self.assertEqual(log.msg["team_id"], self.team.pk)
+        self.assertEqual(log.msg["event"], "Group notebook creation failed")
 
     @freeze_time("2021-05-02")
     @mock.patch("ee.clickhouse.views.groups.capture_internal")
