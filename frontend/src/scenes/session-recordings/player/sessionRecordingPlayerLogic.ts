@@ -96,6 +96,7 @@ export enum SessionRecordingPlayerMode {
     Sharing = 'sharing',
     Notebook = 'notebook',
     Preview = 'preview',
+    Screenshot = 'screenshot',
 }
 
 export interface SessionRecordingPlayerLogicProps extends SessionRecordingDataLogicProps {

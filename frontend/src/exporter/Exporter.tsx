@@ -87,7 +87,7 @@ export function Exporter(props: ExportedData): JSX.Element {
                 <SessionRecordingPlayer
                     playerKey="exporter"
                     sessionRecordingId={recording.id}
-                    mode={SessionRecordingPlayerMode.Sharing}
+                    mode={exportedData.mode ? exportedData.mode : SessionRecordingPlayerMode.Sharing}
                     autoPlay={true}
                     noInspector={!showInspector}
                     noBorder={exportedData.noBorder ? exportedData.noBorder : false}

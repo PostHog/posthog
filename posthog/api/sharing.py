@@ -387,6 +387,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                         "replay_id": replay_id,
                         "accessToken": sharing_config.access_token,
                         "noBorder": True,
+                        "mode": "screenshot",
                     }
                 )
 

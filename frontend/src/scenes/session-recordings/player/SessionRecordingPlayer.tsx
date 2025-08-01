@@ -246,18 +246,22 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
                             ) : (
                                 <div className="flex w-full h-full">
                                     <div className="flex flex-col flex-1 w-full">
-                                        {!noMeta || isFullScreen ? <PlayerMeta /> : null}
-
+                                        {mode !== SessionRecordingPlayerMode.Screenshot &&
+                                            (!noMeta || isFullScreen) && <PlayerMeta />}
                                         <div
                                             className="SessionRecordingPlayer__body"
                                             draggable={draggable}
                                             {...elementProps}
                                         >
                                             <PlayerFrame />
-                                            <PlayerFrameOverlay />
-                                            <PlayerFrameCommentOverlay />
+                                            {mode !== SessionRecordingPlayerMode.Screenshot ? (
+                                                <PlayerFrameOverlay />
+                                            ) : null}
+                                            {mode !== SessionRecordingPlayerMode.Screenshot ? (
+                                                <PlayerFrameCommentOverlay />
+                                            ) : null}
                                         </div>
-                                        <PlayerController />
+                                        {mode !== SessionRecordingPlayerMode.Screenshot ? <PlayerController /> : null}
                                     </div>
                                 </div>
                             )}
