@@ -121,7 +121,7 @@ async function runMigrations() {
         if (shouldCreateKeyspace) {
             await createKeyspace()
         } else {
-            console.log('Skipping keyspace creation (CREATE_KEYSPACE_FOR_CASSANDRA is set to false)')
+console.log('Skipping keyspace creation (CLOUD_DEPLOYMENT is set)')
         }
 
         // Connect to the keyspace
