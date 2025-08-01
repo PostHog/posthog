@@ -29,7 +29,8 @@ RUN apt-get update && \
     "libffi-dev" \
     "zlib1g-dev" \
     "pkg-config" \
-    "netcat-openbsd"
+    "netcat-openbsd" \
+    "postgresql-client"
 
 RUN rm -rf /var/lib/apt/lists/* && \
 pip install uv~=0.7.0 --no-cache-dir && \

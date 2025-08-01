@@ -31,12 +31,12 @@ def migrate_and_export_database_dump(context: dagster.AssetExecutionContext, doc
             "auto_remove": True,
         },
         env={
-            "EVALS_SCRIPT": "python bin/evals/export_modeled_db.py",
+            "EVAL_SCRIPT": "python bin/evals/export_modeled_db.py",
         },
         extras={
             "s3_path": s3_path,
             "file_key": f"db_{uuid7()}.tar",
-            "database_url": "postgres://posthog:posthog@db:5432/posthog",
+            "database_url": "postgres://posthog:posthog@localhost:5432/posthog",
         },
     ).get_materialize_result()
 

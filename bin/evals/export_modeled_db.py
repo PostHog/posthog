@@ -27,7 +27,7 @@ def main():
         # Build pg_dump command
         pg_dump_cmd = [
             "pg_dump",
-            "--format=tar",
+            "--format=custom",
             "--compress=9",
             "--verbose",
             "--file",
