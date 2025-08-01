@@ -1,7 +1,6 @@
 import { LemonInput, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { useEffect } from 'react'
 import { urls } from 'scenes/urls'
 
 import { EventDefinition, QueryBasedInsightModel } from '~/types'
@@ -12,13 +11,10 @@ import { createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
 
 export function EventDefinitionInsights({ definition }: { definition: EventDefinition }): JSX.Element {
-    const { page, insights, filters, insightsLoading, sorting } = useValues(eventInsightsLogic)
-    const { setPage, setFilters } = useActions(eventInsightsLogic)
+    const event = definition.name
+    const { page, insights, filters, insightsLoading, sorting } = useValues(eventInsightsLogic({ event }))
+    const { setPage, setFilters } = useActions(eventInsightsLogic({ event }))
     const summarizeInsight = useSummarizeInsight()
-
-    useEffect(() => {
-        setFilters({ events: [definition.name] })
-    }, [definition, setFilters])
 
     const columns: LemonTableColumns<QueryBasedInsightModel> = [
         {

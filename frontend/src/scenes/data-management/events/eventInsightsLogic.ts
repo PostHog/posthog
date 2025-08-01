@@ -1,4 +1,4 @@
-import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { Sorting } from 'lib/lemon-ui/LemonTable'
@@ -12,10 +12,16 @@ import { cleanFilters, InsightsResult, SavedInsightFilters } from 'scenes/saved-
 
 import type { eventInsightsLogicType } from './eventInsightsLogicType'
 
+export interface EventInsightsLogicProps {
+    event: string
+}
+
 export const INSIGHTS_PER_PAGE = 10
 
 export const eventInsightsLogic = kea<eventInsightsLogicType>([
     path(['scenes', 'data-management', 'events', 'eventInsightsLogic']),
+    props({} as EventInsightsLogicProps),
+    key(({ event }) => event),
     connect(() => ({
         values: [teamLogic, ['currentTeamId']],
         logic: [eventUsageLogic],
@@ -25,25 +31,15 @@ export const eventInsightsLogic = kea<eventInsightsLogicType>([
         loadInsights: true,
         setPage: (page: number) => ({ page }),
     }),
-    loaders(({ values }) => ({
+    loaders(({ values, props }) => ({
         insights: {
             __default: { results: [], count: 0, filters: null, offset: 0 } as InsightsResult,
             loadInsights: async () => {
                 const { filters } = values
-                const { order, page, events, search } = filters
-
-                if (!events || events.length === 0) {
-                    return {
-                        results: [],
-                        count: 0,
-                        filters,
-                        offset: 0,
-                    } as InsightsResult
-                }
+                const { order, page, search } = filters
 
                 const params: Record<string, any> = {
                     order,
-                    events,
                     limit: INSIGHTS_PER_PAGE,
                     offset: Math.max(0, (page - 1) * INSIGHTS_PER_PAGE),
                     saved: true,
@@ -53,6 +49,8 @@ export const eventInsightsLogic = kea<eventInsightsLogicType>([
                 if (search) {
                     params.search = search
                 }
+
+                params.events = [props.event]
 
                 const response = await api.get(`api/environments/${values.currentTeamId}/insights/?${toParams(params)}`)
 
@@ -105,9 +103,14 @@ export const eventInsightsLogic = kea<eventInsightsLogicType>([
             const oldFilters = selectors.filters(previousState)
             const newFilters = values.filters
             await breakpoint(300)
-            if (!objectsEqual(oldFilters, newFilters) && newFilters.events && newFilters.events.length > 0) {
+            if (!objectsEqual(oldFilters, newFilters)) {
                 actions.loadInsights()
             }
+        },
+    })),
+    events(({ actions }) => ({
+        afterMount: () => {
+            actions.loadInsights()
         },
     })),
 ])
