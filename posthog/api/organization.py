@@ -16,6 +16,9 @@ from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.cloud_utils import is_cloud
 from posthog.constants import INTERNAL_BOT_EMAIL_SUFFIX, AvailableFeature
 from posthog.event_usage import report_organization_deleted, groups
+from posthog.models.activity_logging.activity_log import Detail, log_activity, changes_between
+from posthog.models.signals import model_activity_signal
+from django.dispatch import receiver
 from posthog.models import (
     User,
     Team,
@@ -390,3 +393,44 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         )
 
         return Response({"success": True, "message": "Migration started"}, status=202)
+
+
+@receiver(model_activity_signal, sender=Organization)
+def handle_organization_change(sender, scope, before_update, after_update, activity, was_impersonated=False, **kwargs):
+    from posthog.utils import get_current_user_from_thread
+
+    user = get_current_user_from_thread()
+
+    log_activity(
+        organization_id=after_update.id,
+        team_id=None,
+        user=user,
+        was_impersonated=was_impersonated,
+        item_id=after_update.id,
+        scope=scope,
+        activity=activity,
+        detail=Detail(
+            changes=changes_between(scope, previous=before_update, current=after_update), name=after_update.name
+        ),
+    )
+
+
+@receiver(model_activity_signal, sender=OrganizationMembership)
+def handle_organization_membership_change(
+    sender, scope, before_update, after_update, activity, was_impersonated=False, **kwargs
+):
+    from posthog.utils import get_current_user_from_thread
+
+    user = get_current_user_from_thread()
+    name = f"{after_update.user.email} ({after_update.get_level_display()})"
+
+    log_activity(
+        organization_id=after_update.organization.id,
+        team_id=None,
+        user=user,
+        was_impersonated=was_impersonated,
+        item_id=after_update.id,
+        scope=scope,
+        activity=activity,
+        detail=Detail(changes=changes_between(scope, previous=before_update, current=after_update), name=name),
+    )
