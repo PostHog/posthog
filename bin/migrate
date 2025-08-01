@@ -12,12 +12,11 @@ if [ -d "$SCRIPT_DIR/../rust/bin" ]; then
         exit 1
     fi
 fi
-
 # Run Cassandra migrations if the migrate-cassandra script exists
-if [ -f "$SCRIPT_DIR/../plugin-server/bin/migrate-cassandra" ]; then
-    bash $SCRIPT_DIR/../plugin-server/bin/migrate-cassandra
+if [ -f "$SCRIPT_DIR/../plugin-server/cassandra/migrate-cassandra" ]; then
+    bash $SCRIPT_DIR/../plugin-server/cassandra/migrate-cassandra
     if [ $? -ne 0 ]; then
-        echo "Error in plugin-server/bin/migrate-cassandra, exiting."
+        echo "Error in plugin-server/cassandra/migrate-cassandra, exiting."
         exit 1
     fi
 fi
