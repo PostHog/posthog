@@ -28,6 +28,7 @@ def migrate_and_export_database_dump(context: dagster.AssetExecutionContext, doc
         image="posthog-ai-evals:test",
         container_kwargs={
             "privileged": True,
+            "auto_remove": True,
         },
         env={
             "EVALS_SCRIPT": "python bin/evals/export_modeled_db.py",
