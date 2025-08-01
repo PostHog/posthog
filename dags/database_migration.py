@@ -9,6 +9,7 @@ from posthog.models.utils import uuid7
 @dagster.asset(
     group_name="database_migration",
     description="Runs database migrations in posthog-ai-evals:test container and produces a compressed tar database dump",
+    check_specs=[dagster.AssetCheckSpec(name="no_empty_dump", asset="migrate_and_export_database_dump")],
     tags={"owner": JobOwners.TEAM_MAX_AI.value, "type": "database_migration"},
 )
 def migrate_and_export_database_dump(context: dagster.AssetExecutionContext, docker_pipes_client: PipesDockerClient):
@@ -16,11 +17,12 @@ def migrate_and_export_database_dump(context: dagster.AssetExecutionContext, doc
     Spawns a posthog-ai-evals:test container in privileged mode, runs database migrations,
     and returns the path to the exported database dump tar file.
     """
-    prefix = "psql"
     if settings.DEBUG:
-        s3_path = f"{settings.OBJECT_STORAGE_ENDPOINT}/{settings.OBJECT_STORAGE_MAX_AI_EVALS_FOLDER}/{prefix}"
+        bucket_name = settings.OBJECT_STORAGE_BUCKET
+        endpoint_url = "http://objectstorage.posthog.orb.local"
     else:
-        s3_path = f"https://{settings.OBJECT_STORAGE_MAX_AI_EVALS_FOLDER}.s3.amazonaws.com/{prefix}"
+        bucket_name = settings.OBJECT_STORAGE_BUCKET
+        endpoint_url = "https://s3.amazonaws.com"
         raise NotImplementedError("Not implemented for production")
 
     return docker_pipes_client.run(
@@ -32,11 +34,14 @@ def migrate_and_export_database_dump(context: dagster.AssetExecutionContext, doc
         },
         env={
             "EVAL_SCRIPT": "python bin/evals/export_modeled_db.py",
+            "OBJECT_STORAGE_ACCESS_KEY_ID": settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            "OBJECT_STORAGE_SECRET_ACCESS_KEY": settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
         },
         extras={
-            "s3_path": s3_path,
-            "file_key": f"db_{uuid7()}.tar",
-            "database_url": "postgres://posthog:posthog@localhost:5432/posthog",
+            "bucket_name": bucket_name,
+            "endpoint_url": endpoint_url,
+            "file_key": f"{settings.OBJECT_STORAGE_MAX_AI_EVALS_FOLDER}/postgres/db_{uuid7()}.tar",
+            "database_url": "postgres://posthog:posthog@db:5432/posthog",
         },
     ).get_materialize_result()
 
