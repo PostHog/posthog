@@ -1,11 +1,21 @@
+"""
+Implements the Vercel Marketplace API server for managing marketplace resources.
+
+See:
+https://vercel.com/docs/integrations/create-integration/marketplace-api
+"""
+
 from typing import Any
 from rest_framework import serializers, viewsets, exceptions
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework import mixins
 from posthog.auth import VercelAuthentication
-from posthog.api.vercel_installation import VercelInstallationPermission
+from posthog.api.vercel_installation import VercelInstallationPermission, get_vercel_plans
+from posthog.models.organization import Organization
 from posthog.models.vercel_resouce import VercelResource
+from posthog.models.vercel_installation import VercelInstallation
+from posthog.models.team.team import Team
 
 
 class VercelResourceSerializer(serializers.ModelSerializer):
@@ -14,20 +24,8 @@ class VercelResourceSerializer(serializers.ModelSerializer):
         fields = "__all__"
 
 
-class VercelExperimentationSettingsSerializer(serializers.Serializer):
-    edgeConfigSyncingEnabled = serializers.BooleanField(help_text="Set to true when the user enabled the syncing.")
-    edgeConfigId = serializers.CharField(
-        help_text="An Edge Config selected by the user for partners to push data into."
-    )
-    edgeConfigTokenId = serializers.CharField(help_text="The ID of the token used to access the Edge Config.")
-
-
-class VercelProtocolSettingsSerializer(serializers.Serializer):
-    experimentation = VercelExperimentationSettingsSerializer(required=False)
-
-
 class VercelBillingPlanDetailSerializer(serializers.Serializer):
-    label = serializers.CharField(min_length=1)  # type: ignore
+    label = serializers.CharField(min_length=1)
     value = serializers.CharField(min_length=1)
 
 
@@ -114,62 +112,159 @@ class VercelSecretSerializer(serializers.Serializer):
     environmentOverrides = VercelSecretEnvironmentOverridesSerializer(required=False)
 
 
+class VercelExperimentationSettingsSerializer(serializers.Serializer):
+    edgeConfigId = serializers.CharField(
+        help_text="An Edge Config selected by the user for partners to push data into."
+    )
+
+
+class VercelProtocolSettingsSerializer(serializers.Serializer):
+    experimentation = VercelExperimentationSettingsSerializer(required=False)
+
+
 class ResourcePayloadSerializer(serializers.Serializer):
-    id = serializers.CharField(help_text="The partner-specific ID of the resource")
     productId = serializers.CharField(help_text="The partner-specific ID/slug of the product. Example: 'redis'")
-    protocolSettings = VercelProtocolSettingsSerializer(required=False)
-    billingPlan = VercelBillingPlanSerializer(required=False)
     name = serializers.CharField(help_text="User-inputted name for the resource.")
     metadata = serializers.DictField(
         child=serializers.JSONField(), help_text="User-inputted metadata based on the registered metadata schema."
     )
-    status = serializers.ChoiceField(
-        choices=["ready", "pending", "suspended", "resumed", "uninstalled", "error"], help_text="Resource status"
+    billingPlanId = serializers.CharField(help_text="Partner-provided billing plan. Example: 'pro200'")
+    externalId = serializers.CharField(
+        required=False,
+        help_text="A partner-provided identifier used to indicate the source of the resource provisioning. In the Deploy Button flow, the externalId will equal the external-id query parameter.",
     )
-    notification = VercelNotificationSerializer(required=False)
-    secrets = serializers.ListField(
-        child=VercelSecretSerializer(), min_length=1, help_text="Array of secrets for the resource"
+    protocolSettings = serializers.DictField(
+        required=False,
+        child=serializers.DictField(
+            child=serializers.CharField(
+                required=False, help_text="An Edge Config selected by the user for partners to push data into."
+            ),
+            required=False,
+        ),
     )
+
+
+# class VercelResourceResponseSerializer(serializers.Serializer):
+#     """Response serializer for provisioned resources according to Vercel OpenAPI spec"""
+
+#     id = serializers.CharField(help_text="The partner-specific ID of the resource")
+#     productId = serializers.CharField(help_text="The partner-specific ID/slug of the product")
+#     protocolSettings = VercelProtocolSettingsSerializer(required=False)
+#     billingPlan = VercelBillingPlanSerializer(required=False)
+#     name = serializers.CharField(help_text="User-inputted name for the resource")
+#     metadata = serializers.DictField(child=serializers.JSONField())
+#     status = serializers.ChoiceField(choices=["ready", "pending", "suspended", "resumed", "uninstalled", "error"])
+#     notification = VercelNotificationSerializer(required=False)
+#     secrets = serializers.ListField(child=VercelSecretSerializer(), min_length=1)
 
 
 class VercelResourceViewSet(
-    mixins.RetrieveModelMixin, mixins.UpdateModelMixin, mixins.DestroyModelMixin, viewsets.GenericViewSet
+    mixins.RetrieveModelMixin,
+    mixins.CreateModelMixin,
+    mixins.UpdateModelMixin,
+    mixins.DestroyModelMixin,
+    viewsets.GenericViewSet,
 ):
     serializer_class = VercelResourceSerializer
-    lookup_field = "resource_id"
+    lookup_field = "id"
+    queryset = VercelResource.objects.all()
     authentication_classes = [VercelAuthentication]
     permission_classes = [VercelInstallationPermission]
 
-    def get_queryset(self):
-        installation_id = self.kwargs.get("installation_id")
-        return VercelResource.objects.filter(installation__installation_id=installation_id)
-
-    def _validate_resource_payload(self, request: Request) -> None:
-        """Validate the resource payload"""
-        serializer = ResourcePayloadSerializer(data=request.data)
-        if not serializer.is_valid():
-            raise exceptions.ValidationError(detail=serializer.errors)
-
-    def update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+    def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """
-        Used to provision a resource.
+        Used to provision a resource via POST.
         https://vercel.com/docs/integrations/create-integration/marketplace-api#provision-resource
         """
-        self._validate_resource_payload(request)
-        # TODO: Implement resource provisioning logic
-        raise serializers.MethodNotAllowed("POST")
+        serializer = ResourcePayloadSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        validated_data = serializer.validated_data
+
+        installation_id = self.kwargs.get("parent_lookup_installation_id")
+
+        try:
+            installation = VercelInstallation.objects.get(id=installation_id)
+        except VercelInstallation.DoesNotExist:
+            raise exceptions.NotFound("Installation not found")
+
+        organization: Organization = installation.organization
+
+        team = Team.objects.create_with_data(
+            initiating_user=None,
+            organization=organization,
+            name=validated_data["name"],
+        )
+        resource: VercelResource = VercelResource.objects.create(
+            team=team,
+            installation=installation,
+            resource_id=str(team.pk),  # TODO: Drop this field.
+            config=validated_data,  # TODO: Drop this field.
+        )
+
+        secrets = [
+            {
+                "name": "POSTHOG_PROJECT_API_KEY",
+                "value": team.api_token,
+            },
+            {
+                "name": "POSTHOG_HOST",
+                "value": "https://app.posthog.com",
+            },
+        ]
+
+        response_data = {
+            "id": str(resource.pk),
+            "productId": validated_data["productId"],
+            "name": validated_data["name"],
+            "metadata": validated_data["metadata"],
+            "status": "ready",
+            "secrets": secrets,
+        }
+
+        return Response(response_data, status=200)
 
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """
         https://vercel.com/docs/integrations/create-integration/marketplace-api#get-resource
         """
-        return super().retrieve(request, *args, **kwargs)
+        resource = self.get_object()
+        team = resource.team
+
+        # Get installation_id from kwargs
+        installation_id = self.kwargs.get("parent_lookup_installation_id")
+
+        installation = VercelInstallation.objects.get(installation_id=installation_id)
+
+        billing_plans = get_vercel_plans()
+        current_plan_id = installation.billing_plan_id
+
+        current_plan = next((plan for plan in billing_plans if plan["id"] == current_plan_id), None)
+
+        response_data = {
+            "id": str(resource.pk),
+            "productId": resource.config.get("productId", ""),
+            "name": resource.config.get("name", team.name),
+            "metadata": resource.config.get("metadata", {}),
+            "status": "ready",
+            "secrets": [
+                {
+                    "name": "POSTHOG_PROJECT_API_KEY",
+                    "value": team.api_token,
+                },
+                {
+                    "name": "POSTHOG_HOST",
+                    "value": "https://app.posthog.com",
+                },
+            ],
+            "billingPlan": current_plan,
+        }
+
+        return Response(response_data, status=200)
 
     def partial_update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """
         https://vercel.com/docs/integrations/create-integration/marketplace-api#update-resource
         """
-        self._validate_resource_payload(request)
         # TODO: Implement resource update logic
         raise serializers.MethodNotAllowed("PATCH")
 

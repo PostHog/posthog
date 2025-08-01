@@ -1,15 +1,16 @@
 from django.db import models
 
-from posthog.models.utils import RootTeamMixin, UpdatedMetaFields, UUIDModel
+from posthog.models.organization import Organization
+from posthog.models.utils import UpdatedMetaFields, UUIDModel
 
 
-class VercelInstallation(UpdatedMetaFields, UUIDModel, RootTeamMixin):
+class VercelInstallation(UpdatedMetaFields, UUIDModel):
     """
     Each Vercel Team has at most one Vercel Installation.
     Only one Vercel Team is connected per PostHog Organization.
     """
 
-    organization = models.OneToOneField("Organization", on_delete=models.CASCADE)
+    organization = models.OneToOneField(Organization, on_delete=models.CASCADE)
     installation_id = models.CharField(max_length=255, unique=True)
     billing_plan_id = models.CharField(max_length=255, null=True, blank=True)
     upsert_data = models.JSONField(default=dict)

@@ -1,19 +1,61 @@
 """
 Implements the Vercel Marketplace API server for managing marketplace installations.
 
+Biggest problem here is that we don't yet conform to Vercel's response schema.
+
 See:
 https://vercel.com/docs/integrations/create-integration/marketplace-api
 """
 
 from typing import Any
+from django.db import IntegrityError
 from rest_framework import serializers, viewsets, exceptions
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework import mixins
 from rest_framework.permissions import BasePermission
 from posthog.auth import VercelAuthentication
+from posthog.event_usage import report_user_signed_up
+from posthog.models.user import User
 from posthog.models.vercel_installation import VercelInstallation
 from rest_framework import decorators
+
+
+def get_vercel_plans() -> list[dict[str, Any]]:
+    """Get PostHog plans formatted for Vercel Marketplace"""
+    return [
+        {
+            "id": "free",
+            "type": "subscription",
+            "name": "Free",
+            "description": "Free tier with basic features",
+            "scope": "installation",
+            "paymentMethodRequired": False,
+            "details": [
+                {"label": "Events per month", "value": "1M"},
+                {"label": "Data retention", "value": "30 days"},
+                {"label": "Support", "value": "Community"},
+            ],
+        },
+        {
+            "id": "pro",
+            "type": "subscription",
+            "name": "Pro",
+            "description": "Professional tier with advanced features",
+            "scope": "installation",
+            "paymentMethodRequired": True,
+            "preauthorizationAmount": 10.00,
+            "initialCharge": "25.00",
+            "cost": "$25.00/month",
+            "details": [
+                {"label": "Events per month", "value": "10M"},
+                {"label": "Data retention", "value": "1 year"},
+                {"label": "Support", "value": "Email + Chat"},
+                {"label": "Advanced features", "value": "Cohorts, Funnels, Experiments"},
+            ],
+            "highlightedDetails": [{"label": "Most popular", "value": "✓"}, {"label": "Best value", "value": "✓"}],
+        },
+    ]
 
 
 class VercelInstallationPermission(BasePermission):
@@ -53,7 +95,9 @@ class VercelInstallationPermission(BasePermission):
     def _validate_installation_id_match(self, request: Request, view) -> None:
         """Validate that JWT installation_id matches URL parameter"""
         jwt_payload = self._get_jwt_payload(request)
-        installation_id = view.kwargs.get("installation_id")
+
+        # Bit hacky, but using the current routing, it can be either installation_id or parent_lookup_installation_id
+        installation_id = view.kwargs.get("installation_id") or view.kwargs.get("parent_lookup_installation_id")
 
         if jwt_payload.get("installation_id") != installation_id:
             raise exceptions.PermissionDenied("Installation ID mismatch")
@@ -120,37 +164,92 @@ class VercelInstallationViewSet(
         "plans": ["User", "System"],
     }
 
-    def _validate_upsert_payload(self, request: Request) -> None:
-        """Validate the upsert installation payload"""
-        serializer = UpsertInstallationPayloadSerializer(data=request.data)
-        if not serializer.is_valid():
-            raise exceptions.ValidationError(detail=serializer.errors)
-
     def update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """
         Implements: https://vercel.com/docs/integrations/create-integration/marketplace-api#upsert-installation
         """
-        self._validate_upsert_payload(request)
-        # Upsert requesting user
-        # Create organization
-        # Create team
-        # Create VercelInstallation (No resources yet.)
+        serializer: UpsertInstallationPayloadSerializer = UpsertInstallationPayloadSerializer(data=request.data)
+        if not serializer.is_valid():
+            raise exceptions.ValidationError(detail=serializer.errors)
 
-        # If the provider is using installation-level billing plans, a default plan must be assigned in provider systems (default "free")
-        return super().update(request, *args, **kwargs)
+        installation_id = self.kwargs["installation_id"]
+
+        # Create Organization, Team, and User
+        # This user will still be able to reset their password to sign directly into PostHog,
+        # however the expectation is that they'll log in via Vercel SSO.
+        try:
+            # Note we'll also create a "Default Project here."
+            # TODO: Not sure if this is the best move because users might be confused
+            # by the default project and their "Resource" project.
+            # Maybe we leave create_team empty and defer it to later?
+            organization, _, user = User.objects.bootstrap(
+                # create_team=lambda organization, user: Team.objects.create_with_data(
+                #     initiating_user=user,
+                #     organization=organization,
+                # ),
+                is_staff=False,
+                is_email_verified=True,
+                role_at_organization="admin",
+                email=serializer.validated_data["account"]["contact"]["email"],
+                first_name=serializer.validated_data["account"]["contact"].get("name", ""),
+                organization_name=serializer.validated_data["account"].get(
+                    "name", f"Vercel Installation {installation_id}"
+                ),
+                password=None,  # SSO instead of password
+            )
+        except IntegrityError:
+            raise exceptions.ValidationError(
+                {"email": "There is already an account with this email address."},
+                code="unique",
+            )
+
+        report_user_signed_up(
+            user,
+            is_instance_first_user=False,
+            is_organization_first_user=True,  # Always true because we're always creating a new organization
+            backend_processor="VercelInstallationViewSet",
+            user_analytics_metadata=user.get_analytics_metadata(),
+            org_analytics_metadata=user.organization.get_analytics_metadata() if user.organization else None,
+            social_provider="vercel",  # Does this make sense?
+        )
+
+        VercelInstallation.objects.create(
+            installation_id=installation_id,
+            organization=organization,
+            upsert_data=serializer.validated_data,
+            billing_plan_id="free",  # TODO: Make this dynamic
+        )
+
+        # If the provider is using installation-level billing plans,
+        # a default plan must be assigned in provider systems (default "free")
+        return Response(status=204)
 
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """
         Implements: https://vercel.com/docs/integrations/create-integration/marketplace-api#get-installation
         """
-        # Return active billing plan for the installation
-        return super().retrieve(request, *args, **kwargs)
+
+        # Get installation_id from kwargs
+        installation_id = self.kwargs.get("installation_id")
+
+        installation = VercelInstallation.objects.get(installation_id=installation_id)
+
+        billing_plans = get_vercel_plans()
+        current_plan_id = installation.billing_plan_id
+
+        current_plan = next((plan for plan in billing_plans if plan["id"] == current_plan_id), None)
+        response_data = {
+            "billingplan": current_plan,
+        }
+        return Response(response_data, status=200)
 
     def partial_update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """
         Implements: https://vercel.com/docs/integrations/create-integration/marketplace-api#update-installation
         """
-        self._validate_upsert_payload(request)
+        serializer: UpsertInstallationPayloadSerializer = UpsertInstallationPayloadSerializer(data=request.data)
+        if not serializer.is_valid():
+            raise exceptions.ValidationError(detail=serializer.errors)
 
         # Fail if not found, otherwise update the installation
 
@@ -167,43 +266,33 @@ class VercelInstallationViewSet(
         return super().destroy(request, *args, **kwargs)
 
     @decorators.action(detail=True, methods=["get"])
-    def plans(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+    def plans(self, _request: Request, *_args: Any, **_kwargs: Any) -> Response:
         """
         Implements: https://vercel.com/docs/integrations/create-integration/marketplace-api#get-installation-plans
         """
-        # TODO: Make this actually reflective of PostHog's pricing
-        plans = [
-            {
-                "id": "free",
-                "type": "subscription",
-                "name": "Free",
-                "description": "Free tier with basic features",
-                "scope": "installation",
-                "paymentMethodRequired": False,
-                "details": [
-                    {"label": "Events per month", "value": "1M"},
-                    {"label": "Data retention", "value": "30 days"},
-                    {"label": "Support", "value": "Community"},
-                ],
-            },
-            {
-                "id": "pro",
-                "type": "subscription",
-                "name": "Pro",
-                "description": "Professional tier with advanced features",
-                "scope": "installation",
-                "paymentMethodRequired": True,
-                "preauthorizationAmount": 10.00,
-                "initialCharge": "25.00",
-                "cost": "$25.00/month",
-                "details": [
-                    {"label": "Events per month", "value": "10M"},
-                    {"label": "Data retention", "value": "1 year"},
-                    {"label": "Support", "value": "Email + Chat"},
-                    {"label": "Advanced features", "value": "Cohorts, Funnels, Experiments"},
-                ],
-                "highlightedDetails": [{"label": "Most popular", "value": "✓"}, {"label": "Best value", "value": "✓"}],
-            },
-        ]
+        return Response({"plans": get_vercel_plans()})
 
-        return Response({"plans": plans})
+
+class VercelProductViewSet(viewsets.GenericViewSet):
+    """
+    ViewSet for Vercel product endpoints (/v1/products/{productSlug}/...)
+    """
+
+    authentication_classes = [VercelAuthentication]
+    permission_classes = [VercelInstallationPermission]
+    lookup_field = "product_slug"
+
+    supported_auth_types = {
+        "plans": ["User", "System"],
+    }
+
+    @decorators.action(detail=True, methods=["get"])
+    def plans(self, _request: Request, *_args: Any, **_kwargs: Any) -> Response:
+        """
+        Get plans for a specific product. Currently only supports 'posthog' as productSlug.
+        """
+        product_slug = self.kwargs.get("product_slug")
+        if product_slug != "posthog":
+            raise exceptions.NotFound("Product not found")
+
+        return Response({"plans": get_vercel_plans()})

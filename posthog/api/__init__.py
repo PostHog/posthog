@@ -810,3 +810,6 @@ vercel_router.register(
     "vercel_resources",
     ["installation_id"],
 )
+
+# Vercel product endpoints
+router.register(r"vercel/v1/products", vercel_installation.VercelProductViewSet, "vercel_products")

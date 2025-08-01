@@ -6,7 +6,7 @@ import posthog.models.utils
 
 
 class Migration(migrations.Migration):
-    dependencies = [("posthog", "0812_sessionrecordingviewed_bulk_viewed")]
+    dependencies = [("posthog", "0815_sharingconfiguration_settings")]
 
     operations = [
         migrations.CreateModel(
