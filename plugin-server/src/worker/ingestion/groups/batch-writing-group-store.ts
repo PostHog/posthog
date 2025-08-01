@@ -11,8 +11,8 @@ import { RaceConditionError } from '../../../utils/utils'
 import { FlushResult } from '../persons/persons-store-for-batch'
 import { captureIngestionWarning } from '../utils'
 import { logMissingRow, logVersionMismatch } from './group-logging'
-import { GroupStore } from './group-store'
-import { CacheMetrics, GroupStoreForBatch } from './group-store-for-batch'
+import { GroupStore } from './group-store.interface'
+import { CacheMetrics, GroupStoreForBatch } from './group-store-for-batch.interface'
 import { calculateUpdate, fromGroup, GroupUpdate } from './group-update'
 import {
     groupCacheOperationsCounter,

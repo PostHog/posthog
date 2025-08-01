@@ -1,7 +1,7 @@
 import { Properties } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 
-import { GroupTypeIndex, ProjectId, TeamId } from '../../../../src/types'
+import { GroupTypeIndex, ProjectId, TeamId } from '../../../types'
 import { BatchWritingStore } from '../stores/batch-writing-store'
 
 export interface CacheMetrics {
