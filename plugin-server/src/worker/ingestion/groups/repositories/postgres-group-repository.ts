@@ -80,7 +80,7 @@ export class PostgresGroupRepository
                 JSON.stringify(propertiesLastOperation),
                 1,
             ],
-            'upsertGroup'
+            'insertGroup'
         )
 
         if (result.rows.length === 0) {
