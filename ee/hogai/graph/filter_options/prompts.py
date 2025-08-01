@@ -98,5 +98,5 @@ Goal: {{{change}}}
 
 Current filters: {{{current_filters}}}
 
-DO NOT CHANGE THE CURRENT FILTERS. ONLY ADD NEW FILTERS or update the existing filters.
+DO NOT CHANGE the fields that are not relevant to the change.
 """.strip()

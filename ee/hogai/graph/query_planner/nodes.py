@@ -265,7 +265,7 @@ class QueryPlannerToolsNode(AssistantNode, ABC):
         else:
             # First check if we've reached the terminal stage.
             # The plan has been found. Move to the generation.
-            if input.name == "final_answer":
+            if input.name == "final_answer":  # type: ignore
                 return PartialAssistantState(
                     plan=input.arguments.plan,  # type: ignore
                     root_tool_insight_type=input.arguments.query_kind,  # type: ignore
@@ -274,15 +274,15 @@ class QueryPlannerToolsNode(AssistantNode, ABC):
                 )
 
             # The agent has requested help, so we return a message to the root node.
-            if input.name == "ask_user_for_help":
-                return self._get_reset_state(state, REACT_HELP_REQUEST_PROMPT.format(request=input.arguments))
+            if input.name == "ask_user_for_help":  # type: ignore
+                return self._get_reset_state(state, REACT_HELP_REQUEST_PROMPT.format(request=input.arguments))  # type: ignore
 
         # If we're still here, the final prompt hasn't helped.
         if len(intermediate_steps) >= self.MAX_ITERATIONS:
             return self._get_reset_state(state, ITERATION_LIMIT_PROMPT)
 
         if input and not output:
-            _, output = toolkit.handle_tools(input.name, input)
+            _, output = toolkit.handle_tools(input.name, input)  # type: ignore
 
         return PartialAssistantState(
             intermediate_steps=[*intermediate_steps[:-1], (action, output)],

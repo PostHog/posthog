@@ -131,6 +131,6 @@ def create_final_answer_model(response_model: type[OutputType]) -> type[BaseMode
         If you don't have all the information you need, use the `ask_user_for_help` tool to ask the user for clarification.
         """
 
-        data: response_model = Field(description="Complete filter object as defined in the prompts")
+        data: response_model = Field(description="Complete filter object as defined in the prompts")  # type: ignore[valid-type]
 
     return final_answer

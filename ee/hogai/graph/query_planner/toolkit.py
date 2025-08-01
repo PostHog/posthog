@@ -71,4 +71,4 @@ class QueryPlannerTaxonomyAgentToolkit(TaxonomyAgentToolkit):
             else:
                 result = self.handle_incorrect_response(tool_input)
 
-            return tool_name, result
+        return tool_name, result

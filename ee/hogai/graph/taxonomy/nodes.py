@@ -87,7 +87,7 @@ class TaxonomyAgentNode(Generic[TaxonomyStateType, TaxonomyPartialStateType], Ta
         and continuation with intermediate steps.
         """
         system_messages = [("system", prompt) for prompt in self.get_system_prompts()]
-        system_messages.append(("human", state.instructions))
+        system_messages.append(("human", state.instructions or ""))
 
         progress_messages = list(getattr(state, "tool_progress_messages", []))
         all_messages = [*system_messages, *progress_messages]

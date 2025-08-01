@@ -76,13 +76,6 @@ When you need clarification or determines that additional information is require
 - Property values don't match user's request
 """.strip()
 
-USER_PROMPT = """
-Goal: {{{change}}}
-
-Current filters: {{{current_filters}}}
-
-DO NOT CHANGE THE CURRENT FILTERS. ONLY ADD NEW FILTERS or update the existing filters.
-""".strip()
 
 REACT_PYDANTIC_VALIDATION_EXCEPTION_PROMPT = """
 The action input you previously provided didn't pass the validation and raised a Pydantic validation exception.

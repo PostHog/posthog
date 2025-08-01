@@ -423,7 +423,7 @@ class TaxonomyAgentToolkit:
         # Here we handle the tool execution for base taxonomy tools.
         if tool_name == "retrieve_entity_property_values":
             result = self.retrieve_entity_property_values(
-                tool_input.arguments.entity,
+                tool_input.arguments.entity,  # type: ignore
                 tool_input.arguments.property_name,  # type: ignore
             )
         elif tool_name == "retrieve_entity_properties":
@@ -459,7 +459,7 @@ class TaxonomyAgentToolkit:
 
         return DynamicTool
 
-    def get_tool_input_model(self, action: AgentAction) -> BaseModel:
+    def get_tool_input_model(self, action: AgentAction) -> ToolInputType:
         tool_input_class = self._create_dynamic_tool()
 
         return tool_input_class.model_validate({"name": action.tool, "arguments": action.tool_input})
