@@ -849,7 +849,8 @@
                 "navigate",
                 "search_error_tracking_issues",
                 "experiment_results_summary",
-                "create_survey"
+                "create_survey",
+                "session_recording_settings_help"
             ],
             "type": "string"
         },
