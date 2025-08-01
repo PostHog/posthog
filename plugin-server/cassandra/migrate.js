@@ -121,7 +121,7 @@ async function runMigrations() {
         if (shouldCreateKeyspace) {
             await createKeyspace()
         } else {
-console.log('Skipping keyspace creation (CLOUD_DEPLOYMENT is set)')
+            console.log('Skipping keyspace creation (CLOUD_DEPLOYMENT is set)')
         }
 
         // Connect to the keyspace
