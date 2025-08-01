@@ -340,11 +340,15 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
 
             const currentScene = sceneLogic.findMounted()?.values
 
+            const alertChanged = alert_id !== values.alertId
+
             if (
                 currentScene?.activeScene === Scene.Insight &&
                 currentScene.activeSceneLogic &&
                 (currentScene.activeSceneLogic as BuiltLogic<insightSceneLogicType>).values.insightId === insightId &&
-                (currentScene.activeSceneLogic as BuiltLogic<insightSceneLogicType>).values.insightMode === insightMode
+                (currentScene.activeSceneLogic as BuiltLogic<insightSceneLogicType>).values.insightMode ===
+                    insightMode &&
+                !alertChanged
             ) {
                 // If nothing about the scene has changed, don't do anything
                 return
@@ -363,7 +367,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                 insightId !== values.insightId ||
                 insightMode !== values.insightMode ||
                 itemId !== values.itemId ||
-                alert_id !== values.alertId ||
+                alertChanged ||
                 !objectsEqual(variablesOverride, values.variablesOverride) ||
                 !objectsEqual(filtersOverride, values.filtersOverride) ||
                 dashboard !== values.dashboardId ||

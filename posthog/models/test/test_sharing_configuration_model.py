@@ -73,6 +73,7 @@ class TestSharingConfigurationSettings(BaseTest):
             "noHeader": True,
             "showInspector": False,
             "legend": None,
+            "hideExtraDetails": None,
             "detailed": None,
         }
         assert dump == expected

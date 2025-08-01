@@ -12,4 +12,6 @@ COPY migrations /sqlx/migrations/
 
 COPY --from=builder /app/target/release/bin/sqlx /usr/local/bin
 
-CMD sqlx database create && sqlx migrate run
+RUN chmod +x ./bin/migrate
+
+CMD ["./bin/migrate"]

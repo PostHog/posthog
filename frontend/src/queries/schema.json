@@ -22117,6 +22117,9 @@
                 "detailed": {
                     "type": "boolean"
                 },
+                "hideExtraDetails": {
+                    "type": "boolean"
+                },
                 "legend": {
                     "type": "boolean"
                 },
