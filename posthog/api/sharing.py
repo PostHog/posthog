@@ -391,8 +391,8 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                     }
                 )
 
-            except Exception as e:
-                raise NotFound(f"Could not load replay {replay_id}: {str(e)}")
+            except Exception:
+                raise NotFound()
         elif isinstance(resource, SharingConfiguration) and resource.recording and not resource.recording.deleted:
             asset_title = "Session Recording"
             recording_data = SessionRecordingSerializer(resource.recording, context=context).data
