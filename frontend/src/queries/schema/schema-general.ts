@@ -88,6 +88,7 @@ export enum NodeKind {
     RevenueExampleEventsQuery = 'RevenueExampleEventsQuery',
     RevenueExampleDataWarehouseTablesQuery = 'RevenueExampleDataWarehouseTablesQuery',
     ErrorTrackingQuery = 'ErrorTrackingQuery',
+    ErrorTrackingIssueCorrelationQuery = 'ErrorTrackingIssueCorrelationQuery',
     LogsQuery = 'LogsQuery',
     SessionBatchEventsQuery = 'SessionBatchEventsQuery',
 
@@ -182,6 +183,7 @@ export type AnyDataNode =
     | RevenueExampleEventsQuery
     | RevenueExampleDataWarehouseTablesQuery
     | ErrorTrackingQuery
+    | ErrorTrackingIssueCorrelationQuery
     | LogsQuery
     | ExperimentFunnelsQuery
     | ExperimentTrendsQuery
@@ -2055,6 +2057,20 @@ export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse>
     limit?: integer
     offset?: integer
 }
+
+export interface ErrorTrackingIssueCorrelationQuery extends DataNode<ErrorTrackingIssueCorrelationQueryResponse> {
+    kind: NodeKind.ErrorTrackingIssueCorrelationQuery
+    events: string[]
+}
+
+export interface ErrorTrackingIssueCorrelationQueryResponse extends AnalyticsQueryResponseBase<ErrorTrackingIssue[]> {
+    hasMore?: boolean
+    limit?: integer
+    offset?: integer
+    columns?: string[]
+}
+export type CachedErrorTrackingIssueCorrelationQueryResponse =
+    CachedQueryResponse<ErrorTrackingIssueCorrelationQueryResponse>
 
 export interface ErrorTrackingSceneToolOutput
     extends Pick<ErrorTrackingQuery, 'orderBy' | 'orderDirection' | 'status' | 'searchQuery'> {
