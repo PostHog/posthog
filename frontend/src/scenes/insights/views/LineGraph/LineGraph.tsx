@@ -226,7 +226,6 @@ function createPinstripePattern(color: string, isDarkMode: boolean): CanvasPatte
 
 export interface LineGraphProps {
     datasets: GraphDataset[]
-    hiddenLegendIndexes?: number[] | undefined
     labels: string[]
     type: GraphType
     isInProgress?: boolean
@@ -270,7 +269,6 @@ const LOG_ZERO = 1e-10
 
 export function LineGraph_({
     datasets: _datasets,
-    hiddenLegendIndexes,
     labels,
     type,
     isInProgress = false,
@@ -307,7 +305,7 @@ export function LineGraph_({
     const { timezone, isTrends, breakdownFilter, query, interval, insightData } = useValues(
         insightVizDataLogic(insightProps)
     )
-    const { theme, getTrendsColor } = useValues(trendsDataLogic(insightProps))
+    const { theme, getTrendsColor, getTrendsHidden } = useValues(trendsDataLogic(insightProps))
 
     const hideTooltipOnScroll = isInsightVizNode(query) ? query.hideTooltipOnScroll : undefined
 
@@ -556,11 +554,9 @@ export function LineGraph_({
 
     // Build chart
     useEffect(() => {
-        // Hide intentionally hidden keys
-        if ((hiddenLegendIndexes && hiddenLegendIndexes.length > 0) || true) {
-            if (!isHorizontal) {
-                datasets = datasets.filter((data) => !hiddenLegendIndexes?.includes(data.id))
-            }
+        // horizontal bar charts handle hidden items one level above
+        if (!isHorizontal) {
+            datasets = datasets.filter((data) => !getTrendsHidden(data))
         }
 
         datasets = datasets.map(processDataset)
@@ -1005,7 +1001,6 @@ export function LineGraph_({
         return () => chart.destroy()
     }, [
         datasets,
-        hiddenLegendIndexes,
         isDarkModeOn,
         trendsFilter,
         formula,

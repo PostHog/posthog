@@ -54,7 +54,6 @@ export interface PieChartProps extends LineGraphProps {
 
 export function PieChart({
     datasets: _datasets,
-    hiddenLegendIndexes,
     labels,
     type,
     onClick,
@@ -261,7 +260,7 @@ export function PieChart({
             } as ChartOptions<'pie'>,
         })
         return () => newChart.destroy()
-    }, [datasets, hiddenLegendIndexes])
+    }, [datasets])
 
     return (
         <div className="absolute w-full h-full" data-attr={dataAttr}>

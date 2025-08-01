@@ -32,7 +32,6 @@ export function ActionsHorizontalBar({ showPersonsModal = true, context }: Chart
         hasDataWarehouseSeries,
         querySource,
         breakdownFilter,
-        hiddenLegendIndexes,
         getTrendsColor,
         getTrendsHidden,
         theme,
@@ -88,7 +87,6 @@ export function ActionsHorizontalBar({ showPersonsModal = true, context }: Chart
             labelGroupType={labelGroupType}
             datasets={data}
             labels={data[0].labels}
-            hiddenLegendIndexes={hiddenLegendIndexes}
             showPersonsModal={showPersonsModal}
             trendsFilter={trendsFilter}
             formula={formula}

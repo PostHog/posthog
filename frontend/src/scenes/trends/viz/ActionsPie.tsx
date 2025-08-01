@@ -38,7 +38,6 @@ export function ActionsPie({ inSharedMode, showPersonsModal = true, context }: C
         breakdownFilter,
         getTrendsColor,
         getTrendsHidden,
-        hiddenLegendIndexes,
     } = useValues(trendsDataLogic(insightProps))
 
     const onDataPointClick = context?.onDataPointClick
@@ -123,7 +122,6 @@ export function ActionsPie({ inSharedMode, showPersonsModal = true, context }: C
                     <div className="ActionsPie__chart">
                         <PieChart
                             data-attr="trend-pie-graph"
-                            hiddenLegendIndexes={hiddenLegendIndexes}
                             type={GraphType.Pie}
                             datasets={data}
                             labels={data[0].labels}
