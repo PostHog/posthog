@@ -188,7 +188,7 @@ pub fn router<
     };
     batch_router = batch_router.layer(DefaultBodyLimit::max(BATCH_BODY_SIZE)); // Have to use this, rather than RequestBodyLimitLayer, because we use `Bytes` in the handler (this limit applies specifically to Bytes body types)
 
-    let event_router = Router::new()
+    let mut event_router = Router::new()
         // legacy endpoints registered here
         .route(
             "/e",

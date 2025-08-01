@@ -136,19 +136,8 @@ async fn handle_next(
         .map_or("unknown", |v| v.to_str().unwrap_or("unknown"));
     Span::current().record("request_id", request_id);
 
-    // TODO(eli): temporary peek at these
-    if query_params.lib_version.is_some() {
-        Span::current().record(
-            "params_lib_version",
-            format!("{:?}", query_params.lib_version.as_ref()),
-        );
-    }
-    if query_params.compression.is_some() {
-        Span::current().record(
-            "params_compression",
-            format!("{}", query_params.compression.unwrap()),
-        );
-    }
+    let is_mirror_deploy = state.is_mirror_deploy;
+    Span::current().record("is_mirror_deploy", is_mirror_deploy);
 
     debug!("entering handle_next");
 
@@ -267,7 +256,7 @@ async fn handle_next(
         client_ip: ip.to_string(),
         request_id: request_id.to_string(),
         path: path.as_str().to_string(),
-        is_mirror_deploy: false,
+        is_mirror_deploy,
         historical_migration,
         user_agent: Some(user_agent.to_string()),
     };
