@@ -15,7 +15,7 @@ import { marketingAnalyticsLogic } from './marketingAnalyticsLogic'
 import type { marketingAnalyticsTilesLogicType } from './marketingAnalyticsTilesLogicType'
 import { marketingAnalyticsTableLogic } from './marketingAnalyticsTableLogic'
 import { getDashboardItemId } from 'scenes/web-analytics/insightsUtils'
-import { loadPriorityMap, MARKETING_ANALYTICS_DEFAULT_QUERY_TAGS, TileId } from 'scenes/web-analytics/utils'
+import { loadPriorityMap, MARKETING_ANALYTICS_DEFAULT_QUERY_TAGS, TileId } from 'scenes/web-analytics/common'
 
 export const MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID = 'marketing-analytics'
 

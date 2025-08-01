@@ -30,7 +30,7 @@ import {
     TileVisualizationOption,
     WEB_ANALYTICS_DATA_COLLECTION_NODE_ID,
     WebAnalyticsTile,
-} from 'scenes/web-analytics/utils'
+} from 'scenes/web-analytics/common'
 import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 import { WebAnalyticsModal } from 'scenes/web-analytics/WebAnalyticsModal'
 

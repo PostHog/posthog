@@ -2,7 +2,7 @@ import { useValues } from 'kea'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
-import { ConversionGoalWarning, ProductTab } from './utils'
+import { ConversionGoalWarning, ProductTab } from './common'
 import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 
 export const WebAnalyticsHealthCheck = (): JSX.Element | null => {

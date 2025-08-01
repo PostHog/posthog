@@ -103,7 +103,7 @@ import {
     WebAnalyticsStatusCheck,
     WebAnalyticsTile,
     WebVitalsPercentile,
-} from './utils'
+} from './common'
 
 const teamId = window.POSTHOG_APP_CONTEXT?.current_team?.id
 const persistConfig = { persist: true, prefix: `${teamId}__` }

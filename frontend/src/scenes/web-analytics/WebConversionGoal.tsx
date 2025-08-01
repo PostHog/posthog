@@ -7,7 +7,7 @@ import { useState } from 'react'
 import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 
 import { actionsModel } from '~/models/actionsModel'
-import { ProductTab } from './utils'
+import { ProductTab } from './common'
 
 export const WebConversionGoal = (): JSX.Element | null => {
     const { isWindowLessThan } = useWindowSize()

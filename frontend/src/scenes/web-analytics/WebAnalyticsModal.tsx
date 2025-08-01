@@ -12,7 +12,7 @@ import { ProductKey } from '~/types'
 import { webAnalyticsLogic } from './webAnalyticsLogic'
 import { webAnalyticsModalLogic } from './webAnalyticsModalLogic'
 import { WebPropertyFilters } from './WebPropertyFilters'
-import { ProductTab } from './utils'
+import { ProductTab } from './common'
 
 export const WebAnalyticsModal = (): JSX.Element | null => {
     const {

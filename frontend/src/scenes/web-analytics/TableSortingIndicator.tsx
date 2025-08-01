@@ -4,7 +4,7 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { IconSort } from 'lib/lemon-ui/icons'
 import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
-import { ProductTab } from './utils'
+import { ProductTab } from './common'
 
 import { WebAnalyticsOrderByFields } from '~/queries/schema/schema-general'
 

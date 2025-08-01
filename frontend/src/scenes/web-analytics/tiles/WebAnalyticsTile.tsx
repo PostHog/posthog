@@ -24,7 +24,7 @@ import { NewActionButton } from 'scenes/actions/NewActionButton'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
-import { GeographyTab, ProductTab, TileId, webStatsBreakdownToPropertyName } from 'scenes/web-analytics/utils'
+import { GeographyTab, ProductTab, TileId, webStatsBreakdownToPropertyName } from 'scenes/web-analytics/common'
 import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 
 import { actionsModel } from '~/models/actionsModel'

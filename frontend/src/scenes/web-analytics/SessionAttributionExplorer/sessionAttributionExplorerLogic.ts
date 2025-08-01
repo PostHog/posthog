@@ -15,7 +15,7 @@ import { isSessionPropertyFilters } from '~/queries/schema-guards'
 import { SessionPropertyFilter } from '~/types'
 
 import type { sessionAttributionExplorerLogicType } from './sessionAttributionExplorerLogicType'
-import { WEB_ANALYTICS_DEFAULT_QUERY_TAGS } from 'scenes/web-analytics/utils'
+import { WEB_ANALYTICS_DEFAULT_QUERY_TAGS } from 'scenes/web-analytics/common'
 
 export const initialProperties = [] as SessionPropertyFilter[]
 export const initialGroupBy = [

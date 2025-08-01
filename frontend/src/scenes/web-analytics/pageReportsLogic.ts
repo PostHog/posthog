@@ -33,7 +33,7 @@ import {
     WebAnalyticsTile,
     WebTileLayout,
     WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
-} from './utils'
+} from './common'
 import { webAnalyticsLogic } from './webAnalyticsLogic'
 
 export interface PageURLSearchResult {

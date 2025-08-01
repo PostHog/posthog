@@ -4,7 +4,7 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import posthog from 'posthog-js'
 
 import { webAnalyticsLogic } from './webAnalyticsLogic'
-import { ProductTab } from './utils'
+import { ProductTab } from './common'
 
 export const WebAnalyticsPageReportsCTA = (): JSX.Element | null => {
     const { webAnalyticsFilters, productTab, domainFilter, authorizedDomains } = useValues(webAnalyticsLogic)
