@@ -4,14 +4,11 @@ import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Link } from 'lib/lemon-ui/Link'
-import { useState, useMemo } from 'react'
+import { useState } from 'react'
 import { urls } from 'scenes/urls'
-import { userLogic } from 'scenes/userLogic'
-import { membersLogic } from 'scenes/organization/membersLogic'
-
-import { SessionRecordingType } from '~/types'
 
 import { sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
+import { playerSidebarLogic } from './playerSidebarLogic'
 
 function OtherWatchersLoading(): JSX.Element {
     return (
@@ -22,28 +19,15 @@ function OtherWatchersLoading(): JSX.Element {
     )
 }
 
-function OtherWatchersDisplay({
-    metadata,
-    startExpanded = false,
-}: {
-    metadata?: SessionRecordingType
-    startExpanded?: boolean
-}): JSX.Element | null {
-    const { user: currentUser } = useValues(userLogic)
-    const { members } = useValues(membersLogic)
+function OtherWatchersDisplay({ startExpanded = false }: { startExpanded?: boolean }): JSX.Element | null {
+    const { viewers, viewerMembers, viewerCount } = useValues(playerSidebarLogic)
     const [isExpanded, setIsExpanded] = useState(startExpanded)
 
-    const otherViewers = useMemo(
-        () => metadata?.viewers?.filter((viewer) => viewer !== currentUser?.email) || [],
-        [metadata?.viewers, currentUser?.email]
-    )
-    const count = otherViewers.length
-
-    if (!metadata?.viewers || count === 0) {
+    if (viewerCount === 0) {
         return null
     }
 
-    const varyingText = count > 1 ? 'users have' : 'user has'
+    const varyingText = viewerCount > 1 ? 'users have' : 'user has'
 
     const toggleExpanded = (): void => {
         setIsExpanded(!isExpanded)
@@ -53,19 +37,19 @@ function OtherWatchersDisplay({
         <div className="flex flex-col gap-2 px-2 py-1">
             <div className="flex flex-row deprecated-space-x-2 items-center justify-center">
                 <div className="flex flex-row -space-x-1">
-                    {otherViewers.slice(0, 3).map((viewer, index) => (
+                    {viewers.slice(0, 3).map((viewer, index) => (
                         <div key={viewer} className="relative" style={{ zIndex: 3 - index }}>
                             <ProfilePicture user={{ email: viewer }} size="sm" />
                         </div>
                     ))}
-                    {otherViewers.length > 3 && (
+                    {viewers.length > 3 && (
                         <div className="flex items-center justify-center w-6 h-6 bg-primary-alt rounded-full text-xs font-medium text-primary border-2 border-bg-light">
-                            +{otherViewers.length - 3}
+                            +{viewers.length - 3}
                         </div>
                     )}
                 </div>
                 <span>
-                    {count} other {varyingText} watched this recording.
+                    {viewerCount} other {varyingText} watched this recording.
                 </span>
                 <LemonButton
                     size="small"
@@ -77,19 +61,13 @@ function OtherWatchersDisplay({
 
             {isExpanded && (
                 <div className="flex flex-col gap-1 mt-2 border-t pt-2">
-                    {otherViewers.map((viewer) => {
-                        // Find the actual user data from members
-                        const member = members?.find((m) => m.user.email === viewer)
-                        const user = member?.user || { email: viewer }
-
-                        return (
-                            <div key={viewer} className="flex items-center gap-2">
-                                <Link to={urls.settings('organization', 'members')} subtle>
-                                    <ProfilePicture user={user} size="sm" showName={true} />
-                                </Link>
-                            </div>
-                        )
-                    })}
+                    {viewerMembers.map((user) => (
+                        <div key={user.email} className="flex items-center gap-2">
+                            <Link to={urls.settings('organization', 'members')} subtle>
+                                <ProfilePicture user={user} size="sm" showName={true} />
+                            </Link>
+                        </div>
+                    ))}
                 </div>
             )}
         </div>
@@ -110,14 +88,15 @@ export function PlayerSidebarOverviewOtherWatchers({
 }: {
     startExpanded?: boolean
 }): JSX.Element {
-    const { sessionPlayerMetaDataLoading, sessionPlayerMetaData } = useValues(sessionRecordingPlayerLogic)
+    const { sessionPlayerMetaDataLoading } = useValues(sessionRecordingPlayerLogic)
+    const { hasOtherViewers } = useValues(playerSidebarLogic)
 
     return (
         <div className="rounded border bg-surface-primary">
             {sessionPlayerMetaDataLoading ? (
                 <OtherWatchersLoading />
-            ) : sessionPlayerMetaData?.viewers?.length ? (
-                <OtherWatchersDisplay metadata={sessionPlayerMetaData} startExpanded={startExpanded} />
+            ) : hasOtherViewers ? (
+                <OtherWatchersDisplay startExpanded={startExpanded} />
             ) : (
                 <NoOtherWatchers />
             )}
