@@ -58,7 +58,7 @@ import {
 import { InlineHogQLEditor } from './InlineHogQLEditor'
 import type { taxonomicFilterLogicType } from './taxonomicFilterLogicType'
 import { NotebookType } from 'scenes/notebooks/types'
-import { OPITIMIZED_PROPERTIES_BY_GROUP } from 'scenes/web-analytics/WebPropertyFilters'
+import { OPTIMIZED_PROPERTIES_BY_GROUP } from 'scenes/web-analytics/WebPropertyFilters'
 
 export const eventTaxonomicGroupProps: Pick<TaxonomicFilterGroup, 'getPopoverHeader' | 'getIcon'> = {
     getPopoverHeader: (eventDefinition: EventDefinition): string => {
@@ -674,7 +674,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                                           name: property,
                                           value: property,
                                           is_optimized: enableOptimizedHints
-                                              ? OPITIMIZED_PROPERTIES_BY_GROUP[
+                                              ? OPTIMIZED_PROPERTIES_BY_GROUP[
                                                     TaxonomicFilterGroupType.SessionProperties
                                                 ].includes(property)
                                               : false,

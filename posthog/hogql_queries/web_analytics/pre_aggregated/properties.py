@@ -96,11 +96,11 @@ def get_all_optimized_properties() -> set[str]:
     This function combines all the property sets that are considered optimized
     for web analytics queries.
     """
-    return set(
-        list(BASE_SUPPORTED_PROPERTIES.keys())
-        + list(PATH_PROPERTIES.keys())
-        + list(VIRTUAL_PROPERTIES.keys())
-        + list(STATS_TABLE_SPECIFIC_PROPERTIES.keys())
-        + list(EVENT_PROPERTY_TO_FIELD.keys())
-        + list(SESSION_PROPERTY_TO_FIELD.keys())
+    return set().union(
+        BASE_SUPPORTED_PROPERTIES.keys(),
+        PATH_PROPERTIES.keys(),
+        VIRTUAL_PROPERTIES.keys(),
+        STATS_TABLE_SPECIFIC_PROPERTIES.keys(),
+        EVENT_PROPERTY_TO_FIELD.keys(),
+        SESSION_PROPERTY_TO_FIELD.keys(),
     )
