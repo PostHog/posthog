@@ -68,6 +68,50 @@ export function IssueModal({ issue, isOpen, onClose }: IssueModalProps): JSX.Ele
                     <p className="text-sm text-muted leading-relaxed">{issue.description}</p>
                 </div>
 
+                {/* Repository Configuration */}
+                {issue.repository_scope && (
+                    <div>
+                        <h3 className="text-sm font-medium text-default mb-2">Repository Configuration</h3>
+                        <div className="bg-bg-light p-3 rounded border">
+                            <div className="space-y-2">
+                                <div className="flex items-center gap-2">
+                                    <span className="text-xs font-medium text-muted">Scope:</span>
+                                    <span className="text-sm capitalize">{issue.repository_scope.replace('_', ' ')}</span>
+                                </div>
+                                
+                                {issue.repository_scope === 'single' && issue.primary_repository && (
+                                    <div className="flex items-center gap-2">
+                                        <span className="text-xs font-medium text-muted">Repository:</span>
+                                        <span className="text-sm font-mono text-primary">
+                                            {issue.primary_repository.organization}/{issue.primary_repository.repository}
+                                        </span>
+                                    </div>
+                                )}
+                                
+                                {issue.repository_scope === 'multiple' && issue.repository_list && (
+                                    <div>
+                                        <span className="text-xs font-medium text-muted">Repositories ({issue.repository_list.length}):</span>
+                                        <div className="mt-1 space-y-1">
+                                            {issue.repository_list.map((repo, index) => (
+                                                <div key={index} className="text-sm font-mono text-primary">
+                                                    {repo.organization}/{repo.repository}
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
+                                
+                                {issue.repository_scope === 'smart_select' && (
+                                    <div className="flex items-center gap-2">
+                                        <span className="text-xs font-medium text-muted">Mode:</span>
+                                        <span className="text-sm">AI will select repositories based on issue context</span>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+                )}
+
                 {/* Progress Display - only show for in_progress, testing, or done issues */}
                 {[IssueStatus.IN_PROGRESS, IssueStatus.TESTING, IssueStatus.DONE].includes(issue.status) && (
                     <IssueProgressDisplay issue={issue} />

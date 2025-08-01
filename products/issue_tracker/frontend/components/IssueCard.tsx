@@ -11,11 +11,7 @@ interface IssueCardProps {
 }
 
 export function IssueCard({ issue, onScope, onClick, draggable = false }: IssueCardProps): JSX.Element {
-    const handleCardClick = (e: React.MouseEvent): void => {
-        // Don't trigger click when dragging
-        if (draggable && e.defaultPrevented) {
-            return
-        }
+    const handleCardClick = (): void => {
         if (onClick) {
             onClick(issue.id)
         }
@@ -55,6 +51,24 @@ export function IssueCard({ issue, onScope, onClick, draggable = false }: IssueC
                             <span>PR</span>
                         </a>
                     )}
+                </div>
+            )}
+
+            {/* Repository Information */}
+            {issue.repository_scope && (
+                <div className="mb-2">
+                    <div className="flex items-center gap-2 text-xs text-muted">
+                        <span className="font-medium">Repos:</span>
+                        {issue.repository_scope === 'single' && issue.primary_repository && (
+                            <span className="text-primary">{issue.primary_repository.organization}/{issue.primary_repository.repository}</span>
+                        )}
+                        {issue.repository_scope === 'multiple' && issue.repository_list && (
+                            <span className="text-primary">{issue.repository_list.length} repositories</span>
+                        )}
+                        {issue.repository_scope === 'smart_select' && (
+                            <span className="text-primary">Smart Select</span>
+                        )}
+                    </div>
                 </div>
             )}
 

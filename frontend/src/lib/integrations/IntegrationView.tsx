@@ -4,7 +4,7 @@ import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/User
 import { IntegrationScopesWarning } from 'lib/integrations/IntegrationScopesWarning'
 import { useActions, useValues } from 'kea'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
-import { IconBranch } from 'lib/lemon-ui/icons'
+import { IconBranch, IconOpenInNew } from 'lib/lemon-ui/icons'
 import { useEffect } from 'react'
 
 import { CyclotronJobInputSchemaType, IntegrationType } from '~/types'

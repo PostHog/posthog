@@ -24,6 +24,11 @@ export interface Issue {
     github_pr_url?: string
     created_at: string
     updated_at: string
+    repository_scope?: 'single' | 'multiple' | 'smart_select'
+    github_integration?: number
+    repository_config?: any
+    repository_list?: Array<{organization: string, repository: string}>
+    primary_repository?: {organization: string, repository: string}
 }
 
 export interface KanbanColumn {

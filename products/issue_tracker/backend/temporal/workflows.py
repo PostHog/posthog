@@ -6,7 +6,7 @@ from temporalio.common import RetryPolicy
 
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.logger import get_logger
-from .inputs import IssueProcessingInputs
+from .inputs import IssueProcessingInputs, CreatePRInputs, CommitChangesInputs
 from .activities import (
     process_issue_moved_to_todo_activity,
     update_issue_status_activity,
@@ -73,8 +73,8 @@ class IssueProcessingIntegratedWorkflow(PostHogWorkflow):
                     logger.error(error_msg)
                     return error_msg
 
-                branch_name = branch_result["branch_name"]
-                repository = branch_result["repository"]
+                branch_name: str = branch_result["branch_name"]
+                repository: str = branch_result["repository"]
                 logger.info(f"Branch created successfully: {branch_name} in repository {repository}")
 
                 # Step 2: Move issue to in_progress status
@@ -136,10 +136,11 @@ This file was created automatically when the issue was moved to TODO status.
 
                 commit_result = await workflow.execute_activity(
                     commit_changes_using_integration_activity,
-                    inputs,
-                    repository,
-                    branch_name,
-                    sample_file_changes,
+                    CommitChangesInputs(
+                        issue_processing_inputs=inputs,
+                        branch_name=branch_name,
+                        file_changes=sample_file_changes
+                    ),
                     start_to_close_timeout=timedelta(minutes=10),
                     retry_policy=RetryPolicy(
                         initial_interval=timedelta(seconds=30),
@@ -158,9 +159,10 @@ This file was created automatically when the issue was moved to TODO status.
                 logger.info(f"Step 6: Creating pull request using GitHub integration for issue {inputs.issue_id}")
                 pr_result = await workflow.execute_activity(
                     create_pr_using_integration_activity,
-                    inputs,
-                    repository,
-                    branch_name,
+                    CreatePRInputs(
+                        issue_processing_inputs=inputs,
+                        branch_name=branch_name
+                    ),
                     start_to_close_timeout=timedelta(minutes=5),
                     retry_policy=RetryPolicy(
                         initial_interval=timedelta(seconds=30),

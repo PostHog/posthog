@@ -23,11 +23,27 @@ export const issueTrackerLogic = kea<issueTrackerLogicType>([
         }),
         openIssueModal: (issueId: string) => ({ issueId }),
         closeIssueModal: true,
+        openCreateModal: true,
+        closeCreateModal: true,
         startPolling: true,
         stopPolling: true,
         pollForUpdates: true,
     }),
     loaders(({ values }) => ({
+        createIssue: {
+            __default: null,
+            createIssue: async (issueData: any) => {
+                try {
+                    const response = await api.issues.create(issueData)
+                    // Reload issues to include the new one
+                    actions.loadIssues()
+                    return response
+                } catch (error) {
+                    console.error('Failed to create issue:', error)
+                    throw error
+                }
+            },
+        },
         issues: {
             __default: [] as Issue[],
             loadIssues: async () => {
@@ -156,6 +172,13 @@ export const issueTrackerLogic = kea<issueTrackerLogicType>([
             {
                 openIssueModal: (_, { issueId }) => issueId,
                 closeIssueModal: () => null,
+            },
+        ],
+        isCreateModalOpen: [
+            false,
+            {
+                openCreateModal: () => true,
+                closeCreateModal: () => false,
             },
         ],
         pollingInterval: [

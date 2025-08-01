@@ -16,3 +16,20 @@ class IssueProcessingInputs:
     def __post_init__(self):
         # Validate issue_id is a valid UUID
         uuid.UUID(self.issue_id)
+
+
+@dataclass
+class CreatePRInputs:
+    """Input parameters for creating a pull request."""
+    
+    issue_processing_inputs: IssueProcessingInputs
+    branch_name: str
+
+
+@dataclass
+class CommitChangesInputs:
+    """Input parameters for committing changes."""
+    
+    issue_processing_inputs: IssueProcessingInputs
+    branch_name: str
+    file_changes: list[dict[str, str]]

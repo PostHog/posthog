@@ -25,7 +25,22 @@ class Issue(models.Model):
     origin_product = models.CharField(max_length=20, choices=OriginProduct.choices)
     position = models.IntegerField(default=0)
 
-    # GitHub integration fields (issue-specific)
+    # Repository configuration
+    github_integration = models.ForeignKey(
+        "posthog.Integration",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        limit_choices_to={'kind': 'github'},
+        help_text="GitHub integration for this issue"
+    )
+    
+    repository_config = models.JSONField(
+        default=dict,
+        help_text="Repository configuration with organization and repository fields"
+    )
+    
+    # GitHub integration fields (issue-specific) - kept for backward compatibility
     github_branch = models.CharField(max_length=255, blank=True, null=True, help_text="Branch created for this issue")
     github_pr_url = models.URLField(blank=True, null=True, help_text="Pull request URL when created")
 
@@ -41,8 +56,43 @@ class Issue(models.Model):
         return f"{self.title} ({self.get_status_display()})"
 
     @property
-    def github_integration(self):
-        """Get the team's main GitHub integration if available"""
+    def repository_list(self) -> list[dict]:
+        """
+        Returns list of repositories this issue can work with
+        Format: [{"org": "PostHog", "repo": "repo-name", "integration_id": 123, "full_name": "PostHog/repo-name"}]
+        """
+        config = self.repository_config
+        if config.get("organization") and config.get("repository"):
+            return [{
+                "org": config.get("organization"),
+                "repo": config.get("repository"),
+                "integration_id": self.github_integration_id,
+                "full_name": f"{config.get('organization')}/{config.get('repository')}"
+            }]
+        return []
+    
+    def can_access_repository(self, org: str, repo: str) -> bool:
+        """Check if issue can work with a specific repository"""
+        repo_list = self.repository_list
+        return any(r["org"] == org and r["repo"] == repo for r in repo_list)
+    
+    @property
+    def primary_repository(self) -> dict | None:
+        """Get the primary repository for this issue"""
+        repositories = self.repository_list
+        if not repositories:
+            return None
+        
+        # Since we only support single repository, return the first (and only) one
+        return repositories[0]
+    
+    @property
+    def legacy_github_integration(self):
+        """Get the team's main GitHub integration if available (legacy compatibility)"""
+        if self.github_integration:
+            return self.github_integration
+        
+        # Fallback to team's first GitHub integration
         from posthog.models.integration import Integration
         try:
             return Integration.objects.filter(
