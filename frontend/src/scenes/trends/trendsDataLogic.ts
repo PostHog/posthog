@@ -95,10 +95,7 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                 'theme',
             ],
         ],
-        actions: [
-            insightVizDataLogic(props),
-            ['setInsightData', 'updateInsightFilter', 'updateBreakdownFilter', 'updateHiddenLegendIndexes'],
-        ],
+        actions: [insightVizDataLogic(props), ['setInsightData', 'updateInsightFilter', 'updateBreakdownFilter']],
     })),
 
     actions({
