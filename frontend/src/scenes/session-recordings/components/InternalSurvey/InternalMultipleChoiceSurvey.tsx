@@ -23,8 +23,7 @@ function TooExpensiveHelpMessage(): JSX.Element {
     return (
         <>
             <p>
-		There 
-                are few ways to reduce costs by recording fewer sessions:
+                There are few ways to reduce costs by recording fewer sessions:
                 <ul className="list-disc pl-4 text-secondary">
                     <li>Disable automatic recording and programmatically start and stop recordings</li>
                     <li>
@@ -32,8 +31,11 @@ function TooExpensiveHelpMessage(): JSX.Element {
                     </li>
                     <li>Set a minimum recording duration.</li>
                     <li>Set a sampling rate for recordings.</li>
-                   <li>Start recording only after certain events (for example after an error).</li>
-                   <li>Start recording only after visiting certain pages (for example to avoid starting for every visit to the home page).</li>
+                    <li>Start recording only after certain events (for example after an error).</li>
+                    <li>
+                        Start recording only after visiting certain pages (for example to avoid starting for every visit
+                        to the home page).
+                    </li>
                 </ul>
             </p>
             <Link to="https://posthog.com/docs/session-replay/cutting-costs" target="_blank">
@@ -99,55 +101,47 @@ function CannotConfigureHelpMessage(): JSX.Element {
                 There are several ways to control which sessions you record:
                 <ul className="list-disc pl-4 text-secondary">
                     <li>
-                        Programmatically start and stop recordings -{' '}
                         <Link
                             to="https://posthog.com/docs/session-replay/how-to-control-which-sessions-you-record#programmatically-start-and-stop-recordings"
                             target="_blank"
                         >
-                            Learn more
+                            Programmatically start and stop recordings
                         </Link>
                     </li>
                     <li>
-                        With URL trigger conditions -{' '}
                         <Link
                             to="https://posthog.com/docs/session-replay/how-to-control-which-sessions-you-record#with-url-trigger-conditions"
                             target="_blank"
                         >
-                            Learn more
+                            With URL trigger conditions
                         </Link>
                     </li>
                     <li>
-                        With Event trigger conditions -{' '}
                         <Link
                             to="https://posthog.com/docs/session-replay/how-to-control-which-sessions-you-record#with-event-trigger-conditions"
                             target="_blank"
                         >
-                            Learn more
+                            With Event trigger conditions
                         </Link>
                     </li>
                     <li>
-                        With feature flags -{' '}
                         <Link
                             to="https://posthog.com/docs/session-replay/how-to-control-which-sessions-you-record#with-feature-flags"
                             target="_blank"
                         >
-                            Learn more
+                            With feature flags
                         </Link>
                     </li>
                     <li>
-                        Sampling -{' '}
                         <Link
                             to="https://posthog.com/docs/session-replay/how-to-control-which-sessions-you-record#sampling"
                             target="_blank"
                         >
-                            Learn more
+                            Sampling
                         </Link>
                     </li>
                 </ul>
             </p>
-            <Link to="https://posthog.com/docs/session-replay/how-to-control-which-sessions-you-record" target="_blank">
-                Learn more
-            </Link>
         </>
     )
 }
@@ -210,6 +204,7 @@ export function InternalMultipleChoiceSurvey({ surveyId }: InternalSurveyProps):
                                                                 onChange={setOpenChoice}
                                                                 value={openChoice ?? ''}
                                                                 className="my-2"
+                                                                data-attr="replay-churn-open-choice-text"
                                                             />
                                                         </div>
                                                     )
@@ -220,6 +215,9 @@ export function InternalMultipleChoiceSurvey({ surveyId }: InternalSurveyProps):
                                                             onChange={(checked) => handleChoiceChange(choice, checked)}
                                                             label={choice}
                                                             className="font-normal"
+                                                            data-attr={`replay-churn-choice-${choice
+                                                                .toLowerCase()
+                                                                .replace(' ', '-')}`}
                                                         />
                                                     </li>
                                                 )
