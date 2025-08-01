@@ -34,6 +34,10 @@ done
 
 if [ $attempt -eq $max_attempts ]; then
     echo "ERROR: Cassandra failed to become ready after $max_attempts attempts"
+    if [ "$DEBUG" = "1" ]; then
+        echo "DEBUG mode enabled, skipping Cassandra migrations"
+        exit 0
+    fi
     exit 1
 fi
 
