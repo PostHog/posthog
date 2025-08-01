@@ -59,14 +59,14 @@ phw() {
         local worktree_base="${POSTHOG_WORKTREE_BASE:-$HOME/.worktrees/posthog}"
         local worktree_path="$worktree_base/$branch"
         if [[ -d "$worktree_path" ]]; then
-            echo "Switching to worktree directory..."
+            echo "Switching to worktree directory…"
             # Clean environment variables before entering worktree to prevent Flox warnings
             unset VIRTUAL_ENV PYTHONPATH CONDA_DEFAULT_ENV 2>/dev/null || true
             cd "$worktree_path"
             
             # If direnv is not set up, activate Flox via .envrc
             if ! command -v direnv &>/dev/null; then
-                echo "Activating Flox environment via .envrc..."
+                echo "Activating Flox environment via .envrc…"
                 source .envrc
             fi
             # If direnv is set up, it will auto-activate via .envrc
@@ -76,14 +76,14 @@ phw() {
         local worktree_base="${POSTHOG_WORKTREE_BASE:-$HOME/.worktrees/posthog}"
         local pr_dir=$(ls -d "$worktree_base/pr-${branch}-"* 2>/dev/null | head -n1)
         if [[ -d "$pr_dir" ]]; then
-            echo "Switching to PR worktree directory..."
+            echo "Switching to PR worktree directory…"
             # Clean environment variables before entering worktree to prevent Flox warnings
             unset VIRTUAL_ENV PYTHONPATH CONDA_DEFAULT_ENV 2>/dev/null || true
             cd "$pr_dir"
             
             # If direnv is not set up, activate Flox via .envrc
             if ! command -v direnv &>/dev/null; then
-                echo "Activating Flox environment via .envrc..."
+                echo "Activating Flox environment via .envrc…"
                 source .envrc
             fi
         fi

@@ -136,7 +136,7 @@ checkout_pr_worktree() {
         fatal "jq is required for parsing JSON. Install with: brew install jq"
     fi
     
-    print_color blue "Fetching PR #${pr_number} information..."
+    print_color blue "Fetching PR #${pr_number} information…"
     
     # Get PR info
     local pr_info=$(gh pr view "${pr_number}" --json headRefName,author,title 2>/dev/null || echo "")
@@ -152,7 +152,7 @@ checkout_pr_worktree() {
     local worktree_dirname="pr-${pr_number}-${pr_author}"
     local worktree_path="${WORKTREE_BASE}/${worktree_dirname}"
     
-    success "Checking out PR #${pr_number}: ${pr_title}..."
+    success "Checking out PR #${pr_number}: ${pr_title}…"
     print_color blue "Author: ${pr_author}, Branch: ${pr_branch}"
     
     # Create worktree
@@ -185,17 +185,17 @@ setup_worktree_environment() {
     
     # Initialize Flox in the new worktree
     cd "${worktree_path}"
-    print_color blue "Initializing Flox environment (this will share packages from cache)..."
+    print_color blue "Initializing Flox environment (this will share packages from cache)…"
     
     # Check if direnv is installed and set up
     if command_exists direnv; then
-        print_color blue "Detected direnv - allowing automatic activation..."
+        print_color blue "Detected direnv - allowing automatic activation…"
         # Clean up stale environment variables before direnv activation
         env -u VIRTUAL_ENV -u PYTHONPATH -u CONDA_DEFAULT_ENV direnv allow .
         # direnv will automatically activate flox and run uv sync
     else
         # Manual activation if direnv not present
-        print_color blue "Installing Python dependencies via uv sync (this may take a minute)..."
+        print_color blue "Installing Python dependencies via uv sync (this may take a minute)…"
         # Clean up any stale environment variables that might conflict
         unset VIRTUAL_ENV PYTHONPATH CONDA_DEFAULT_ENV
         flox activate --trust -- uv sync
