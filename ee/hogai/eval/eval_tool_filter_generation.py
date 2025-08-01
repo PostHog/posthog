@@ -520,7 +520,20 @@ async def eval_tool_search_session_recordings(call_search_session_recordings, py
             EvalCase(
                 input="Show recordings in an ascending order by duration",
                 expected=MaxRecordingUniversalFilters(
-                    **{**DUMMY_CURRENT_FILTERS, "order": "duration", "order_direction": "ASC"}
+                    date_from="-7d",
+                    date_to=None,
+                    duration=[
+                        RecordingDurationFilter(
+                            key=DurationType.DURATION, operator=PropertyOperator.GT, type="recording", value=60.0
+                        )
+                    ],
+                    filter_group=MaxOuterUniversalFiltersGroup(
+                        type=FilterLogicalOperator.AND_,
+                        values=[MaxInnerUniversalFiltersGroup(type=FilterLogicalOperator.AND_, values=[])],
+                    ),
+                    filter_test_accounts=True,
+                    order=RecordingOrder.DURATION,
+                    order_direction=RecordingOrderDirection.ASC,
                 ),
             ),
         ],
