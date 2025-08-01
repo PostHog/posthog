@@ -74,18 +74,18 @@ export function EventDefinitionInsights({ definition }: { definition: EventDefin
                 loading={insightsLoading}
                 columns={columns}
                 data-attr="event-definition-insights-table"
-                dataSource={insights.results ? insights.results : []}
+                dataSource={insights.results}
                 pagination={{
                     controlled: true,
                     currentPage: page ?? 1,
-                    entryCount: insights?.count ?? 0,
+                    entryCount: insights.count,
                     pageSize: INSIGHTS_PER_PAGE,
-                    onForward: insights?.next
+                    onForward: insights.next
                         ? () => {
                               setPage(page + 1)
                           }
                         : undefined,
-                    onBackward: insights?.previous
+                    onBackward: insights.previous
                         ? () => {
                               setPage(page - 1)
                           }
