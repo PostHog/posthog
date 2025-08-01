@@ -9,6 +9,7 @@ import { closeHub, createHub } from '../../../src/utils/db/hub'
 import { UUIDT } from '../../../src/utils/utils'
 import { EventPipelineRunner } from '../../../src/worker/ingestion/event-pipeline/runner'
 import { BatchWritingGroupStoreForBatch } from '../../../src/worker/ingestion/groups/batch-writing-group-store'
+import { ClickhouseGroupRepository } from '../../../src/worker/ingestion/groups/repositories/clickhouse-group-repository'
 import { PostgresGroupRepository } from '../../../src/worker/ingestion/groups/repositories/postgres-group-repository'
 import { PostgresPersonRepository } from '../../../src/worker/ingestion/persons/repositories/postgres-person-repository'
 import { createOrganization, createTeam, getTeam, resetTestDatabase } from '../../helpers/sql'
@@ -67,7 +68,11 @@ describe('workerTasks.runEventPipeline()', () => {
         }
         const personsStoreForBatch = new BatchWritingPersonsStoreForBatch(personRepository, hub.kafkaProducer)
         const groupRepository = new PostgresGroupRepository(hub.db.postgres)
-        const groupStoreForBatch = new BatchWritingGroupStoreForBatch(hub.db, groupRepository)
+        const groupStoreForBatch = new BatchWritingGroupStoreForBatch(
+            hub.db,
+            groupRepository,
+            new ClickhouseGroupRepository(hub.kafkaProducer)
+        )
         await expect(
             new EventPipelineRunner(hub, event, null, [], personsStoreForBatch, groupStoreForBatch).runEventPipeline(
                 event,
