@@ -28,7 +28,7 @@
         "setup:dev:clickhouse": "cd .. && DEBUG=1 python manage.py migrate_clickhouse",
         "setup:test": "cd .. && TEST=1 python manage.py setup_test_environment && cd plugin-server && pnpm run setup:test:cyclotron && pnpm run setup:test:cassandra",
         "setup:test:cyclotron": "CYCLOTRON_DATABASE_NAME=test_cyclotron ../rust/bin/migrate-cyclotron",
-        "setup:test:cassandra": "CASSANDRA_KEYSPACE=test_posthog ./cassandra/migrate-cassandra",
+        "setup:test:cassandra": "CASSANDRA_KEYSPACE=test_posthog ./src/cassandra/migrate-cassandra",
         "services:start": "cd .. && docker compose -f docker-compose.dev.yml up",
         "services:stop": "cd .. && docker compose -f docker-compose.dev.yml down",
         "services:clean": "cd .. && docker compose -f docker-compose.dev.yml rm -v",
@@ -36,7 +36,7 @@
         "build:cyclotron": "pnpm --filter=@posthog/cyclotron package",
         "update-ai-costs": "ts-node src/ingestion/ai-costs/scripts/update-ai-costs.ts",
         "sync-segment-icons": "DATABASE_URL=something ts-node src/cdp/segment/sync-segment-icons.ts",
-        "cassandra:migrate": "./cassandra/migrate-cassandra",
+        "cassandra:migrate": "./src/cassandra/migrate-cassandra",
         "cassandra:rollback": "cd cassandra && cassandra-migrate down",
         "cassandra:create": "cd cassandra && cassandra-migrate create"
     },
