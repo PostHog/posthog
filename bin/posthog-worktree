@@ -159,8 +159,8 @@ checkout_pr_worktree() {
     mkdir -p "${WORKTREE_BASE}"
     
     # Fetch the PR and create worktree
-    git fetch origin "pull/${pr_number}/head:pr-${pr_number}"
-    git worktree add "${worktree_path}" "pr-${pr_number}"
+    git fetch origin "pull/${pr_number}/head:pr-${pr_number}" || fatal "Failed to fetch PR #${pr_number}"
+    git worktree add "${worktree_path}" "pr-${pr_number}" || fatal "Failed to create worktree for PR #${pr_number}"
     
     # Continue with standard setup
     setup_worktree_environment "${worktree_path}"
