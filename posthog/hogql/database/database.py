@@ -45,6 +45,7 @@ from posthog.hogql.database.schema.channel_type import (
     create_initial_channel_type,
     create_initial_domain_type,
 )
+from posthog.hogql.database.schema.revenue_analytics import RawPersonsRevenueAnalyticsTable
 from posthog.hogql.database.schema.cohort_people import CohortPeople, RawCohortPeople
 from posthog.hogql.database.schema.error_tracking_issue_fingerprint_overrides import (
     ErrorTrackingIssueFingerprintOverridesTable,
@@ -121,8 +122,6 @@ from posthog.schema import (
     SessionTableVersion,
 )
 from posthog.warehouse.models.external_data_job import ExternalDataJob
-from posthog.warehouse.models.external_data_schema import ExternalDataSchema
-from posthog.warehouse.models.external_data_source import ExternalDataSource
 from posthog.warehouse.models.table import DataWarehouseTable, DataWarehouseTableColumns
 
 if TYPE_CHECKING:
@@ -161,6 +160,9 @@ class Database(BaseModel):
     web_bounces_hourly: WebBouncesHourlyTable = WebBouncesHourlyTable()
     web_stats_combined: WebStatsCombinedTable = WebStatsCombinedTable()
     web_bounces_combined: WebBouncesCombinedTable = WebBouncesCombinedTable()
+
+    # Revenue analytics tables
+    raw_persons_revenue_analytics: RawPersonsRevenueAnalyticsTable = RawPersonsRevenueAnalyticsTable()
 
     raw_session_replay_events: RawSessionReplayEventsTable = RawSessionReplayEventsTable()
     raw_person_distinct_ids: RawPersonDistinctIdsTable = RawPersonDistinctIdsTable()
@@ -368,6 +370,40 @@ def _use_error_tracking_issue_id_from_error_tracking_issue_overrides(database: D
     )
 
 
+def _use_virtual_fields(database: Database, modifiers: HogQLQueryModifiers, timings: HogQLTimings) -> None:
+    poe = cast(VirtualTable, database.events.fields["poe"])
+
+    with timings.measure("initial_referring_domain_type"):
+        field_name = "$virt_initial_referring_domain_type"
+        database.persons.fields[field_name] = create_initial_domain_type(name=field_name, timings=timings)
+        poe.fields[field_name] = create_initial_domain_type(
+            name=field_name,
+            timings=timings,
+            properties_path=["poe", "properties"],
+        )
+    with timings.measure("initial_channel_type"):
+        field_name = "$virt_initial_channel_type"
+        database.persons.fields[field_name] = create_initial_channel_type(
+            name=field_name, custom_rules=modifiers.customChannelTypeRules, timings=timings
+        )
+        poe.fields[field_name] = create_initial_channel_type(
+            name=field_name,
+            custom_rules=modifiers.customChannelTypeRules,
+            timings=timings,
+            properties_path=["poe", "properties"],
+        )
+
+    # TODO: POE is not well supported yet, that part is a stub
+    with timings.measure("revenue"):
+        field_name = "$virt_revenue"
+        database.persons.fields[field_name] = ast.FieldTraverser(chain=["revenue_analytics", "revenue"])
+        poe.fields[field_name] = ast.FieldTraverser(chain=["properties", field_name])
+    with timings.measure("revenue_last_30_days"):
+        field_name = "$virt_revenue_last_30_days"
+        database.persons.fields[field_name] = ast.FieldTraverser(chain=["revenue_analytics", "revenue_last_30_days"])
+        poe.fields[field_name] = ast.FieldTraverser(chain=["properties", field_name])
+
+
 TableStore = dict[str, Table | TableGroup]
 
 
@@ -461,25 +497,8 @@ def create_hogql_database(
             )
             cast(LazyJoin, raw_replay_events.fields["events"]).join_table = events
 
-    with timings.measure("initial_domain_type"):
-        database.persons.fields["$virt_initial_referring_domain_type"] = create_initial_domain_type(
-            name="$virt_initial_referring_domain_type", timings=timings
-        )
-        poe.fields["$virt_initial_referring_domain_type"] = create_initial_domain_type(
-            name="$virt_initial_referring_domain_type",
-            timings=timings,
-            properties_path=["poe", "properties"],
-        )
-    with timings.measure("initial_channel_type"):
-        database.persons.fields["$virt_initial_channel_type"] = create_initial_channel_type(
-            name="$virt_initial_channel_type", custom_rules=modifiers.customChannelTypeRules, timings=timings
-        )
-        poe.fields["$virt_initial_channel_type"] = create_initial_channel_type(
-            name="$virt_initial_channel_type",
-            custom_rules=modifiers.customChannelTypeRules,
-            timings=timings,
-            properties_path=["poe", "properties"],
-        )
+    with timings.measure("virtual_fields"):
+        _use_virtual_fields(database, modifiers, timings)
 
     with timings.measure("group_type_mapping"):
         for mapping in GroupTypeMapping.objects.filter(project_id=team.project_id):
@@ -501,33 +520,24 @@ def create_hogql_database(
     # For every Stripe source, let's generate its own revenue view
     # Prefetch related schemas and tables to avoid N+1
     with timings.measure("revenue_analytics_views"):
-        with timings.measure("select"):
-            stripe_sources = list(
-                ExternalDataSource.objects.filter(team_id=team.pk, source_type=ExternalDataSource.Type.STRIPE)
-                .exclude(deleted=True)
-                .prefetch_related(Prefetch("schemas", queryset=ExternalDataSchema.objects.prefetch_related("table")))
-            )
+        revenue_views = []
+        try:
+            revenue_views = RevenueAnalyticsBaseView.for_team(team, timings)
+        except Exception as e:
+            capture_exception(e)
 
-        with timings.measure("for_schema_source"):
-            for stripe_source in stripe_sources:
-                revenue_views = RevenueAnalyticsBaseView.for_schema_source(stripe_source, modifiers)
-
-                # View will have a name similar to stripe.prefix.table_name
-                # We want to create a nested table group where stripe is the parent,
-                # prefix is the child of stripe, and table_name is the child of prefix
-                # allowing you to access the table as stripe[prefix][table_name] in a dict fashion
-                # but still allowing the bare stripe.prefix.table_name string access
-                for view in revenue_views:
-                    views[view.name] = view
-                    create_nested_table_group(view.name.split("."), views, view)
-
-        # Similar to the above, these will be in the format revenue_analytics.<event_name>.events_revenue_view
-        # so let's make sure we have the proper nested queries
-        with timings.measure("for_events"):
-            revenue_views = RevenueAnalyticsBaseView.for_events(team, modifiers)
-            for view in revenue_views:
+        # Each view will have a name similar to stripe.prefix.table_name
+        # We want to create a nested table group where stripe is the parent,
+        # prefix is the child of stripe, and table_name is the child of prefix
+        # allowing you to access the table as stripe[prefix][table_name] in a dict fashion
+        # but still allowing the bare stripe.prefix.table_name string access
+        for view in revenue_views:
+            try:
                 views[view.name] = view
                 create_nested_table_group(view.name.split("."), views, view)
+            except Exception as e:
+                capture_exception(e)
+                continue
 
     with timings.measure("data_warehouse_tables"):
         with timings.measure("select"):
