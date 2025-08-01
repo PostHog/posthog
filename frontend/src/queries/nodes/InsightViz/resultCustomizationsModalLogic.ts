@@ -6,7 +6,7 @@ import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
-import { getFunnelDatasetKey, getTrendResultCustomizationKey } from 'scenes/insights/utils'
+import { getFunnelDatasetKey, getTrendResultCustomization, getTrendResultCustomizationKey } from 'scenes/insights/utils'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { IndexedTrendResult } from 'scenes/trends/types'
 
@@ -112,10 +112,16 @@ export const resultCustomizationsModalLogic = kea<resultCustomizationsModalLogic
                     values.resultCustomizationBy,
                     values.dataset as IndexedTrendResult
                 )
+                const resultCustomization = getTrendResultCustomization(
+                    values.resultCustomizationBy,
+                    values.dataset,
+                    values.resultCustomizations
+                )
                 actions.updateInsightFilter({
                     resultCustomizations: {
                         ...values.trendsResultCustomizations,
                         [resultCustomizationKey]: {
+                            ...resultCustomization,
                             assignmentBy: values.resultCustomizationBy,
                             color: values.localColorToken,
                         },

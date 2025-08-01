@@ -435,6 +435,7 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                 resultCustomizations: {
                     ...values.resultCustomizations,
                     [resultCustomizationKey]: {
+                        ...resultCustomization,
                         assignmentBy: values.resultCustomizationBy,
                         hidden: resultCustomization?.hidden ? false : true,
                     },
