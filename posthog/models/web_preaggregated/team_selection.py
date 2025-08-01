@@ -13,6 +13,9 @@ DEFAULT_TOP_TEAMS_BY_PAGEVIEWS_LIMIT = 30
 
 
 def get_top_teams_by_median_pageviews_sql(limit: int = DEFAULT_TOP_TEAMS_BY_PAGEVIEWS_LIMIT) -> str:
+    if not isinstance(limit, int) or limit < 1 or limit > 100:
+        raise ValueError(f"Invalid limit: {limit}. Must be an integer between 1 and 100.")
+
     return f"""
 SELECT
     team_id,

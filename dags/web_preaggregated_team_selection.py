@@ -31,6 +31,9 @@ def get_teams_from_top_pageviews(context: dagster.OpExecutionContext) -> set[int
         sql = get_top_teams_by_median_pageviews_sql(DEFAULT_TOP_TEAMS_BY_PAGEVIEWS_LIMIT)
         result = sync_execute(sql)
         return {row[0] for row in result}
+    except ValueError as e:
+        context.log.error(f"Invalid configuration for pageviews query: {e}")  # noqa: TRY400
+        return set()
     except Exception as e:
         context.log.warning(f"Failed to fetch top teams by pageviews: {e}")
         return set()
@@ -60,6 +63,31 @@ def get_teams_from_feature_enrollment(
         return set()
 
 
+def validate_team_ids(context: dagster.OpExecutionContext, team_ids: set[int]) -> set[int]:
+    """Validate that team IDs exist in the database"""
+    if not team_ids:
+        return team_ids
+
+    try:
+        from posthog.models.team.team import Team
+
+        # Check which teams exist
+        existing_teams = set(Team.objects.filter(id__in=team_ids).values_list("id", flat=True))
+        invalid_teams = team_ids - existing_teams
+
+        if invalid_teams:
+            context.log.warning(
+                f"Found {len(invalid_teams)} invalid team IDs that will be excluded: {sorted(invalid_teams)}"
+            )
+
+        context.log.info(f"Validated {len(existing_teams)} out of {len(team_ids)} team IDs")
+        return existing_teams
+
+    except Exception as e:
+        context.log.warning(f"Failed to validate team IDs: {e}. Proceeding with unvalidated teams.")
+        return team_ids
+
+
 def get_team_ids_from_sources(context: dagster.OpExecutionContext) -> list[int]:
     all_team_ids = set(DEFAULT_ENABLED_TEAM_IDS)  # Always include defaults
 
@@ -67,6 +95,13 @@ def get_team_ids_from_sources(context: dagster.OpExecutionContext) -> list[int]:
     enabled_strategies = os.getenv("WEB_ANALYTICS_TEAM_STRATEGIES", "env,pageviews").split(",")
     enabled_strategies = [s.strip().lower() for s in enabled_strategies]
 
+    # Validate strategy names
+    valid_strategies = {"env", "most_pageviews", "feature_enrollment"}
+    invalid_strategies = set(enabled_strategies) - valid_strategies
+    if invalid_strategies:
+        context.log.warning(f"Unknown strategies will be ignored: {invalid_strategies}")
+
+    enabled_strategies = [s for s in enabled_strategies if s in valid_strategies]
     context.log.info(f"Enabled strategies: {enabled_strategies}")
 
     # Add teams from environment variable
@@ -88,8 +123,11 @@ def get_team_ids_from_sources(context: dagster.OpExecutionContext) -> list[int]:
         all_team_ids.update(enrollment_teams)
         context.log.info(f"Added {len(enrollment_teams)} teams from feature enrollment")
 
-    team_list = sorted(all_team_ids)
-    context.log.info(f"Total unique team IDs: {len(team_list)}")
+    # Validate team IDs exist
+    validated_team_ids = validate_team_ids(context, all_team_ids)
+
+    team_list = sorted(validated_team_ids)
+    context.log.info(f"Total validated team IDs: {len(team_list)}")
     return team_list
 
 

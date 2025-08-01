@@ -10,6 +10,7 @@ from dags.web_preaggregated_team_selection import (
     get_teams_from_env,
     get_teams_from_top_pageviews,
     get_teams_from_feature_enrollment,
+    validate_team_ids,
     store_team_selection_in_clickhouse,
 )
 
@@ -85,11 +86,11 @@ class TestGetTeamIdsFromSources:
     def test_uses_default_flag_key_when_not_specified(self, mock_enrollment):
         mock_enrollment.return_value = {555}
 
-        with patch.dict(os.environ, {"WEB_ANALYTICS_TEAM_STRATEGIES": "feature_enrollment"}):
+        with patch.dict(os.environ, {"WEB_ANALYTICS_TEAM_STRATEGIES": "feature_enrollment"}, clear=True):
             result = get_team_ids_from_sources(self.mock_context)
 
         assert 555 in result
-        mock_enrollment.assert_called_once_with(self.mock_context, "web-analytics-enabled")
+        mock_enrollment.assert_called_once_with(self.mock_context, "web-analytics-api")
 
     @patch("dags.web_preaggregated_team_selection.get_teams_from_top_pageviews")
     @patch("dags.web_preaggregated_team_selection.get_teams_from_feature_enrollment")
@@ -103,6 +104,7 @@ class TestGetTeamIdsFromSources:
                 "WEB_ANALYTICS_TEAM_STRATEGIES": "most_pageviews,feature_enrollment",
                 "WEB_ANALYTICS_ENABLED_TEAM_IDS": "555",
             },
+            clear=True,
         ):
             result = get_team_ids_from_sources(self.mock_context)
 
@@ -113,6 +115,50 @@ class TestGetTeamIdsFromSources:
         assert 444 in result  # from pageviews
         for default_team in DEFAULT_ENABLED_TEAM_IDS:
             assert default_team in result
+
+    def test_ignores_invalid_strategies(self):
+        with patch.dict(
+            os.environ,
+            {"WEB_ANALYTICS_TEAM_STRATEGIES": "env,invalid_strategy,most_pageviews,another_invalid"},
+            clear=True,
+        ):
+            result = get_team_ids_from_sources(self.mock_context)
+
+        # Should warn about invalid strategies
+        self.mock_context.log.warning.assert_called()
+        # Should still include defaults
+        for default_team in DEFAULT_ENABLED_TEAM_IDS:
+            assert default_team in result
+
+
+class TestValidation:
+    def setup_method(self):
+        self.mock_context = Mock()
+        self.mock_context.log = Mock()
+
+    @patch("posthog.models.team.team.Team.objects")
+    def test_validate_team_ids_filters_invalid_teams(self, mock_team_objects):
+        mock_team_objects.filter.return_value.values_list.return_value = [1, 2, 3]
+
+        result = validate_team_ids(self.mock_context, {1, 2, 3, 999, 888})
+
+        assert result == {1, 2, 3}
+        self.mock_context.log.warning.assert_called_once()
+        self.mock_context.log.info.assert_called_once()
+
+    @patch("posthog.models.team.team.Team.objects")
+    def test_validate_team_ids_handles_db_errors(self, mock_team_objects):
+        mock_team_objects.filter.side_effect = Exception("DB error")
+
+        original_teams = {1, 2, 3}
+        result = validate_team_ids(self.mock_context, original_teams)
+
+        assert result == original_teams  # Should return original on error
+        self.mock_context.log.warning.assert_called_once()
+
+    def test_validate_team_ids_handles_empty_input(self):
+        result = validate_team_ids(self.mock_context, set())
+        assert result == set()
 
 
 class TestHelperFunctions:
@@ -295,6 +341,3 @@ class TestStoreTeamSelectionInClickhouse:
 
         # Verify map_all_hosts was called twice (once for insert, once for reload)
         assert self.mock_cluster.map_all_hosts.call_count == 2
-
-
-# Asset tests removed - the business logic is tested in the other test classes
