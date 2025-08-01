@@ -1,6 +1,7 @@
 import json
 from typing import Any, Optional, cast
 
+import pydantic_core
 import structlog
 from django.db.models import Prefetch
 from django.utils.timezone import now
@@ -472,8 +473,23 @@ class DashboardSerializer(DashboardBasicSerializer):
                 if isinstance(tile.layouts, str):
                     tile.layouts = json.loads(tile.layouts)
 
-                tile_data = DashboardTileSerializer(tile, many=False, context=self.context).data
-                serialized_tiles.append(tile_data)
+                try:
+                    tile_data = DashboardTileSerializer(tile, many=False, context=self.context).data
+                    serialized_tiles.append(tile_data)
+                # A single broken query object has the potential to crash the entire dashboard
+                # Here we catch it and handle it gracefully
+                except pydantic_core.ValidationError as e:
+                    if not tile.insight:
+                        raise
+                    query = tile.insight.query
+                    tile.insight.query = None
+                    # If this throws with no query, it will still crash the dashboard. We could attempt to handle this
+                    # general case gracefully, but it gets increasingly complicated to handle the tile in a graceful
+                    # way if we don't have insight information attached.
+                    tile_data = DashboardTileSerializer(tile, context=self.context).data
+                    tile_data["insight"]["query"] = query
+                    tile_data["error"] = {"type": type(e).__name__, "message": str(e)}
+                    serialized_tiles.append(tile_data)
 
         return serialized_tiles
 

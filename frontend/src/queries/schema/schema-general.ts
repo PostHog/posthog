@@ -892,10 +892,13 @@ export interface TableSettings {
 
 export interface SharingConfigurationSettings {
     whitelabel?: boolean
+    // Insights
     noHeader?: boolean
-    showInspector?: boolean
     legend?: boolean
     detailed?: boolean
+    hideExtraDetails?: boolean
+    // Recordings
+    showInspector?: boolean
 }
 
 export interface DataVisualizationNode extends Node<never> {
@@ -2347,6 +2350,7 @@ export type CachedExperimentFunnelsQueryResponse = CachedQueryResponse<Experimen
 
 export interface ExperimentFunnelsQuery extends DataNode<ExperimentFunnelsQueryResponse> {
     kind: NodeKind.ExperimentFunnelsQuery
+    uuid?: string
     name?: string
     experiment_id?: integer
     funnels_query: FunnelsQuery
@@ -2354,6 +2358,7 @@ export interface ExperimentFunnelsQuery extends DataNode<ExperimentFunnelsQueryR
 
 export interface ExperimentTrendsQuery extends DataNode<ExperimentTrendsQueryResponse> {
     kind: NodeKind.ExperimentTrendsQuery
+    uuid?: string
     name?: string
     experiment_id?: integer
     count_query: TrendsQuery
