@@ -16,8 +16,9 @@ This guide explains how to create isolated PostHog development environments usin
 
 1. **Flox installed**: https://flox.dev/docs/install-flox/
 2. **Git worktrees support** (Git 2.5+)
-3. **GitHub CLI** (optional, for PR checkout): `brew install gh`
-4. **direnv** (recommended): `brew install direnv`
+3. **GitHub CLI** (for PR checkout): `brew install gh`
+4. **jq** (for PR JSON parsing): `brew install jq`
+5. **direnv** (recommended): `brew install direnv`
 
 ## Configuration
 
@@ -72,7 +73,7 @@ In all these examples, replace `~/dev/posthog/posthog` with your local path to t
 
 ```bash
 # Install dependencies
-brew install direnv gh
+brew install direnv gh jq
 
 # Add direnv hook to your shell (~/.zshrc or ~/.bashrc)
 eval "$(direnv hook zsh)"  # or bash
@@ -110,7 +111,16 @@ phw create haacked/new-feature master
 
 ```bash
 phw checkout haacked/new-feature
-# Switched to haacked/new-feature branch worktree, Flox activated!
+# Creates worktree for existing branch, Flox activated!
+bin/start
+# Access at http://localhost:8000
+```
+
+#### Switch to EXISTING worktree
+
+```bash
+phw switch haacked/new-feature
+# Switches to already created worktree, Flox activated!
 bin/start
 # Access at http://localhost:8000
 ```
@@ -216,7 +226,8 @@ phw remove pr-5678-teammate
 ### Commands
 ```bash
 phw create <branch> [base-branch]   # Create new branch & worktree (defaults to master)
-phw checkout <branch>               # Use existing branch in worktree
+phw checkout <branch>               # Create worktree for existing branch
+phw switch <branch>                 # Switch to existing worktree
 phw pr <number>                     # Checkout PR in worktree
 phw remove <branch>                 # Remove worktree
 phw list                            # List all worktrees
@@ -385,14 +396,14 @@ For a complete one-time setup, run:
 
 ```bash
 # For zsh users
-brew install direnv gh && \
+brew install direnv gh jq && \
 echo 'eval "$(direnv hook zsh)"' >> ~/.zshrc && \
 echo 'source ~/dev/posthog/posthog/bin/phw' >> ~/.zshrc && \
 source ~/.zshrc && \
 echo "✅ Setup complete! You can now use 'phw' commands."
 
 # For bash users
-brew install direnv gh && \
+brew install direnv gh jq && \
 echo 'eval "$(direnv hook bash)"' >> ~/.bashrc && \
 echo 'source ~/dev/posthog/posthog/bin/phw' >> ~/.bashrc && \
 source ~/.bashrc && \
