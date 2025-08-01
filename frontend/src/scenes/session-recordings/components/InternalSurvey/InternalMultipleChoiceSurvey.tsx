@@ -23,7 +23,7 @@ function TooExpensiveHelpMessage(): JSX.Element {
     return (
         <>
             <p>
-                We aim to be significantly cheaper than our competitors. In addition to our pay-as-you-go pricing, below
+		There 
                 are few ways to reduce costs by recording fewer sessions:
                 <ul className="list-disc pl-4 text-secondary">
                     <li>Disable automatic recording and programmatically start and stop recordings</li>
