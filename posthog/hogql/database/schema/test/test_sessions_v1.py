@@ -321,7 +321,7 @@ class TestGetLazySessionProperties(ClickhouseTestMixin, APIBaseTest):
                 "name": "$start_timestamp",
                 "property_type": PropertyType.Datetime,
                 "tags": [],
-                "is_optimized": False,
+                "supported_by_preaggregated_tables": False,
             },
         )
 
@@ -337,7 +337,7 @@ class TestGetLazySessionProperties(ClickhouseTestMixin, APIBaseTest):
                     "name": "$entry_utm_source",
                     "property_type": PropertyType.String,
                     "tags": [],
-                    "is_optimized": True,
+                    "supported_by_preaggregated_tables": True,
                 },
                 {
                     "id": "$entry_gad_source",
@@ -346,7 +346,7 @@ class TestGetLazySessionProperties(ClickhouseTestMixin, APIBaseTest):
                     "name": "$entry_gad_source",
                     "property_type": PropertyType.String,
                     "tags": [],
-                    "is_optimized": False,
+                    "supported_by_preaggregated_tables": False,
                 },
             ],
         )

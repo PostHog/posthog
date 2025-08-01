@@ -13,7 +13,11 @@ from posthog.models import (
     PropertyDefinition,
     Team,
 )
-from posthog.taxonomy.property_definition_api import PropertyDefinitionQuerySerializer, PropertyDefinitionViewSet
+from posthog.taxonomy.property_definition_api import (
+    PropertyDefinitionQuerySerializer,
+    PropertyDefinitionViewSet,
+    PropertyDefinitionSerializer,
+)
 from posthog.test.base import APIBaseTest, BaseTest
 
 
@@ -420,8 +424,7 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         assert activity_log.detail["name"] == "test_property"
         assert activity_log.activity == "deleted"
 
-    def test_optimized_properties_sorting_and_is_optimized_field_with_hints_enabled(self):
-        """Test that optimized properties are sorted first and have is_optimized=True when enable_optimized_hints=true"""
+    def test_optimized_properties_sorting_and_supported_by_preaggregated_tables_field_with_hints_enabled(self):
         # Create some optimized properties (session properties)
         PropertyDefinition.objects.create(team=self.team, name="$entry_pathname", type=PropertyDefinition.Type.SESSION)
         PropertyDefinition.objects.create(team=self.team, name="$end_pathname", type=PropertyDefinition.Type.SESSION)
@@ -447,13 +450,15 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         results = response.json()["results"]
         self.assertGreater(len(results), 0)
 
-        # Check that all optimized session properties have is_optimized=True
+        # Check that all optimized session properties have supported_by_preaggregated_tables=True
         optimized_session_props = ["$entry_pathname", "$end_pathname", "$entry_utm_source", "$channel_type"]
         found_optimized = []
 
         for result in results:
             if result["name"] in optimized_session_props:
-                self.assertTrue(result["is_optimized"], f"Property {result['name']} should be optimized")
+                self.assertTrue(
+                    result["supported_by_preaggregated_tables"], f"Property {result['name']} should be optimized"
+                )
                 found_optimized.append(result["name"])
 
         self.assertEqual(len(found_optimized), 4, "All optimized session properties should be found")
@@ -466,7 +471,7 @@ class TestPropertyDefinitionAPI(APIBaseTest):
 
         results = response.json()["results"]
 
-        # Check that optimized event properties come first and have is_optimized=True
+        # Check that optimized event properties come first and have supported_by_preaggregated_tables=True
         optimized_event_props = ["$host", "$device_type", "$browser"]  # $browser is from setUp
         non_optimized_props = ["custom_prop", "another_custom"]
 
@@ -475,10 +480,14 @@ class TestPropertyDefinitionAPI(APIBaseTest):
 
         for i, result in enumerate(results):
             if result["name"] in optimized_event_props:
-                self.assertTrue(result["is_optimized"], f"Property {result['name']} should be optimized")
+                self.assertTrue(
+                    result["supported_by_preaggregated_tables"], f"Property {result['name']} should be optimized"
+                )
                 optimized_indices.append(i)
             elif result["name"] in non_optimized_props:
-                self.assertFalse(result["is_optimized"], f"Property {result['name']} should not be optimized")
+                self.assertFalse(
+                    result["supported_by_preaggregated_tables"], f"Property {result['name']} should not be optimized"
+                )
                 non_optimized_indices.append(i)
 
         # Verify optimized properties come before non-optimized ones
@@ -491,10 +500,7 @@ class TestPropertyDefinitionAPI(APIBaseTest):
                 "Optimized properties should be sorted before non-optimized properties",
             )
 
-    def test_serializer_is_optimized_method(self):
-        """Test the serializer's get_is_optimized method directly"""
-        from posthog.taxonomy.property_definition_api import PropertyDefinitionSerializer
-
+    def test_serializer_supported_by_preaggregated_tables_method(self):
         serializer = PropertyDefinitionSerializer()
 
         # Test optimized properties
@@ -520,7 +526,7 @@ class TestPropertyDefinitionAPI(APIBaseTest):
                 },
             )
 
-            is_optimized = serializer.get_is_optimized(prop)
+            is_optimized = serializer.get_supported_by_preaggregated_tables(prop)
             self.assertTrue(is_optimized, f"Property {prop_name} should be detected as optimized")
 
             prop.delete()
@@ -533,7 +539,7 @@ class TestPropertyDefinitionAPI(APIBaseTest):
                 team=self.team, name=prop_name, defaults={"type": PropertyDefinition.Type.EVENT}
             )
 
-            is_optimized = serializer.get_is_optimized(prop)
+            is_optimized = serializer.get_supported_by_preaggregated_tables(prop)
             self.assertFalse(is_optimized, f"Property {prop_name} should not be detected as optimized")
 
             prop.delete()
@@ -577,13 +583,15 @@ class TestPropertyDefinitionAPI(APIBaseTest):
                 "With enable_optimized_hints=true, optimized properties should be sorted first",
             )
 
-        # Verify that both properties have correct is_optimized values
+        # Verify that both properties have correct supported_by_preaggregated_tables values
         for results in [results_default, results_optimized]:
             for result in results:
                 if result["name"] == "$host":
-                    self.assertTrue(result["is_optimized"], "Optimized property should have is_optimized=True")
+                    assert result["supported_by_preaggregated_tables"]
                 elif result["name"] == "custom_prop":
-                    self.assertFalse(result["is_optimized"], "Non-optimized property should have is_optimized=False")
+                    assert not result[
+                        "supported_by_preaggregated_tables"
+                    ], "Non-optimized property should have supported_by_preaggregated_tables=False"
 
     def test_event_name_filter_json_contains_int(self):
         event_name_json = json.dumps([1])

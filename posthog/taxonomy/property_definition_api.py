@@ -446,7 +446,7 @@ ALWAYS_EXCLUDED_EVENT_PROPERTIES = set(
 
 
 class PropertyDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
-    is_optimized = serializers.SerializerMethodField()
+    supported_by_preaggregated_tables = serializers.SerializerMethodField()
 
     class Meta:
         model = PropertyDefinition
@@ -456,12 +456,12 @@ class PropertyDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelS
             "is_numerical",
             "property_type",
             "tags",
+            "supported_by_preaggregated_tables",
             # This is a calculated property, set when property has been seen with the provided `event_names` query param events. NULL if no `event_names` provided
             "is_seen_on_filtered_events",
-            "is_optimized",
         )
 
-    def get_is_optimized(self, obj):
+    def get_supported_by_preaggregated_tables(self, obj):
         return obj.name in OPTIMIZED_PROPERTIES
 
     def validate(self, data):
