@@ -71,9 +71,9 @@ class TestUtils(BaseTest):
                 right=ast.ArithmeticOperation(
                     left=ast.Call(name="now", args=[]),
                     right=ast.Call(name="toIntervalDay", args=[ast.Constant(value=1)]),
-                    op="-",
+                    op=ast.ArithmeticOperationOp.Sub,
                 ),
-                op=">",
+                op=ast.CompareOperationOp.Gt,
             ),
             group_by=[ast.Field(chain=["event"])],
         )
