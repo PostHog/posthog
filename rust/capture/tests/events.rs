@@ -1292,11 +1292,12 @@ async fn it_returns_200() -> Result<()> {
     let histo_topic = EphemeralTopic::new().await;
     let server = ServerHandle::for_topics(&main_topic, &histo_topic).await;
 
-    let event = json!({
+    let event_payload = json!({
         "token": token,
         "event": "testing",
         "distinct_id": distinct_id
-    });
+    })
+    .to_string();
 
     let client = reqwest::Client::builder()
         .timeout(StdDuration::from_millis(3000))
@@ -1304,16 +1305,21 @@ async fn it_returns_200() -> Result<()> {
         .unwrap();
     let timestamp = Utc::now().timestamp_millis();
     let url = format!(
-        "http://{:?}/i/v0/e/?_={}&ver=1.240.6&compression=gzip-js",
+        "http://{:?}/i/v0/e/?_={}&ver=1.240.6",
         server.addr, timestamp
     );
     let res = client
         .post(url)
-        .body(event.to_string())
+        .body(event_payload)
         .send()
         .await
         .expect("failed to send request");
-    assert_eq!(StatusCode::OK, res.status());
+    assert_eq!(
+        StatusCode::OK,
+        res.status(),
+        "error response: {}",
+        res.text().await.unwrap()
+    );
 
     Ok(())
 }
@@ -1328,11 +1334,12 @@ async fn it_returns_204_when_beacon_is_1() -> Result<()> {
     let histo_topic = EphemeralTopic::new().await;
     let server = ServerHandle::for_topics(&main_topic, &histo_topic).await;
 
-    let event = json!({
+    let event_payload = json!({
         "token": token,
         "event": "testing",
         "distinct_id": distinct_id
-    });
+    })
+    .to_string();
 
     let client = reqwest::Client::builder()
         .timeout(StdDuration::from_millis(3000))
@@ -1340,16 +1347,21 @@ async fn it_returns_204_when_beacon_is_1() -> Result<()> {
         .unwrap();
     let timestamp = Utc::now().timestamp_millis();
     let url = format!(
-        "http://{:?}/i/v0/e/?_={}&ver=1.240.6&compression=gzip-js&beacon=1",
+        "http://{:?}/i/v0/e/?_={}&ver=1.240.6&beacon=1",
         server.addr, timestamp
     );
     let res = client
         .post(url)
-        .body(event.to_string())
+        .body(event_payload)
         .send()
         .await
         .expect("failed to send request");
-    assert_eq!(StatusCode::NO_CONTENT, res.status());
+    assert_eq!(
+        StatusCode::NO_CONTENT,
+        res.status(),
+        "error response: {}",
+        res.text().await.unwrap()
+    );
 
     Ok(())
 }
