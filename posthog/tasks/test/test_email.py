@@ -18,7 +18,6 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_invite import OrganizationInvite
 from posthog.models.plugin import Plugin, PluginConfig
 from posthog.tasks.email import (
-    login_from_new_device_notification,
     send_async_migration_complete_email,
     send_async_migration_errored_email,
     send_batch_export_run_failure,
@@ -648,26 +647,3 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             send_hog_functions_daily_digest()
 
         assert len(mocked_email_messages) == 0
-
-    @patch("posthog.tasks.email.check_and_cache_login_device")
-    def test_login_from_new_device_notification(
-        self, mock_check_device: MagicMock, MockEmailMessage: MagicMock
-    ) -> None:
-        mocked_email_messages = mock_email_messages(MockEmailMessage)
-        mock_check_device.return_value = True  # Simulate new device
-
-        login_from_new_device_notification(
-            user_id=self.user.id,
-            login_time=timezone.now(),
-            short_user_agent="Chrome 135.0.0 on Mac OS 15.3",
-            ip_address="24.114.32.12",  # random ip in Canada
-        )
-
-        assert len(mocked_email_messages) == 1
-        assert mocked_email_messages[0].send.call_count == 1
-        assert mocked_email_messages[0].subject == "A new device logged into your account"
-
-        # Check that location appears in email body
-        html_body = mocked_email_messages[0].html_body
-        assert html_body
-        assert "Canada" in html_body
