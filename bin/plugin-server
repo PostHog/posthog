@@ -73,8 +73,18 @@ else
   echo "🔁 Starting plugin server in a resiliency loop..."
   while true; do
     $cmd
-    echo "💥 Plugin server crashed!"
-    echo "⌛️ Waiting 2 seconds before restarting..."
-    sleep 2
+    status=$?
+    # Check if child was terminated by SIGKILL (kill -9 node)
+    if [ $status -gt 128 ]; then
+      sig=$((status - 128))
+      if [ $sig -eq 9 ]; then
+        echo "☠️ Plugin server killed by SIGKILL, breaking loop"
+        break
+      fi
+    else
+      echo "💥 Plugin server crashed!"
+      echo "⌛️ Waiting 2 seconds before restarting..."
+      sleep 2
+    fi
   done
 fi
