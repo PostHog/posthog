@@ -14,7 +14,7 @@ from ee.models.property_definition import EnterprisePropertyDefinition
 class EnterprisePropertyDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
     updated_by = UserBasicSerializer(read_only=True)
     verified_by = UserBasicSerializer(read_only=True)
-    is_optimized = serializers.SerializerMethodField()
+    supported_by_preaggregated_tables = serializers.SerializerMethodField()
 
     class Meta:
         model = EnterprisePropertyDefinition
@@ -32,7 +32,7 @@ class EnterprisePropertyDefinitionSerializer(TaggedItemSerializerMixin, serializ
             "verified_at",
             "verified_by",
             "hidden",
-            "is_optimized",
+            "supported_by_preaggregated_tables",
         )
         read_only_fields = [
             "id",
@@ -41,10 +41,10 @@ class EnterprisePropertyDefinitionSerializer(TaggedItemSerializerMixin, serializ
             "is_seen_on_filtered_events",
             "verified_at",
             "verified_by",
-            "is_optimized",
+            "supported_by_preaggregated_tables",
         ]
 
-    def get_is_optimized(self, obj):
+    def get_supported_by_preaggregated_tables(self, obj):
         # Import locally to avoid potential circular imports between ee.api and hogql_queries
         from posthog.hogql_queries.web_analytics.pre_aggregated.properties import get_all_optimized_properties
 

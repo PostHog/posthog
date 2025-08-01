@@ -626,7 +626,7 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         self.assertIn("hidden_property1", property_names)
         self.assertIn("hidden_property2", property_names)
 
-    def test_enterprise_serializer_is_optimized_field(self):
+    def test_enterprise_serializer_supported_by_preaggregated_tables_field(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
             plan="enterprise", valid_until=timezone.datetime(2500, 1, 19, 3, 14, 7)
         )
@@ -662,7 +662,7 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
 
         results = response.json()["results"]
-        session_prop_results = {r["name"]: r["is_optimized"] for r in results}
+        session_prop_results = {r["name"]: r["supported_by_preaggregated_tables"] for r in results}
         optimized_session_names = [name for name, ptype in optimized_props if ptype == PropertyDefinition.Type.SESSION]
         for prop_name in optimized_session_names:
             assert prop_name in session_prop_results
@@ -673,7 +673,7 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
 
         results = response.json()["results"]
-        event_prop_results = {r["name"]: r["is_optimized"] for r in results}
+        event_prop_results = {r["name"]: r["supported_by_preaggregated_tables"] for r in results}
 
         optimized_event_names = [name for name, ptype in optimized_props if ptype == PropertyDefinition.Type.EVENT]
         for prop_name in optimized_event_names:
@@ -687,7 +687,7 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
             if prop_name in event_prop_results:
                 assert not event_prop_results[prop_name]
 
-    def test_enterprise_serializer_get_is_optimized_method(self):
+    def test_enterprise_serializer_get_supported_by_preaggregated_tables_method(self):
         serializer = EnterprisePropertyDefinitionSerializer()
 
         optimized_props = [
@@ -710,7 +710,7 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
                 else PropertyDefinition.Type.SESSION,
             )
 
-            is_optimized = serializer.get_is_optimized(prop)
+            is_optimized = serializer.get_supported_by_preaggregated_tables(prop)
             assert is_optimized
 
             prop.delete()  # Clean up
@@ -721,7 +721,7 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
                 team=self.team, name=prop_name, type=PropertyDefinition.Type.EVENT
             )
 
-            is_optimized = serializer.get_is_optimized(prop)
+            is_optimized = serializer.get_supported_by_preaggregated_tables(prop)
             assert not is_optimized
 
             prop.delete()  # Clean up

@@ -750,7 +750,7 @@ class TestGetLazySessionProperties(ClickhouseTestMixin, APIBaseTest):
                 "name": "$autocapture_count",
                 "property_type": PropertyType.Numeric,
                 "tags": [],
-                "is_optimized": False,
+                "supported_by_preaggregated_tables": False,
             },
         )
 
@@ -766,7 +766,7 @@ class TestGetLazySessionProperties(ClickhouseTestMixin, APIBaseTest):
                     "name": "$entry_gad_source",
                     "property_type": PropertyType.String,
                     "tags": [],
-                    "is_optimized": False,
+                    "supported_by_preaggregated_tables": False,
                 },
                 {
                     "id": "$entry_utm_source",
@@ -775,7 +775,7 @@ class TestGetLazySessionProperties(ClickhouseTestMixin, APIBaseTest):
                     "name": "$entry_utm_source",
                     "property_type": PropertyType.String,
                     "tags": [],
-                    "is_optimized": False,
+                    "supported_by_preaggregated_tables": False,
                 },
             ],
         )
@@ -794,7 +794,7 @@ class TestGetLazySessionProperties(ClickhouseTestMixin, APIBaseTest):
 
     def test_optimized_hints_enabled(self):
         results = get_lazy_session_table_properties_v2("source", enable_optimized_hints=True)
-        # When optimized hints are enabled, optimized properties should come first and have is_optimized=True
+        # When optimized hints are enabled, optimized properties should come first and have supported_by_preaggregated_tables=True
         self.assertEqual(
             results,
             [
@@ -805,7 +805,7 @@ class TestGetLazySessionProperties(ClickhouseTestMixin, APIBaseTest):
                     "name": "$entry_utm_source",
                     "property_type": PropertyType.String,
                     "tags": [],
-                    "is_optimized": True,
+                    "supported_by_preaggregated_tables": True,
                 },
                 {
                     "id": "$entry_gad_source",
@@ -814,7 +814,7 @@ class TestGetLazySessionProperties(ClickhouseTestMixin, APIBaseTest):
                     "name": "$entry_gad_source",
                     "property_type": PropertyType.String,
                     "tags": [],
-                    "is_optimized": False,
+                    "supported_by_preaggregated_tables": False,
                 },
             ],
         )

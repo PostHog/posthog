@@ -678,7 +678,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                                       (property: string) => ({
                                           name: property,
                                           value: property,
-                                          is_optimized: enableOptimizedHints
+                                          supported_by_preaggregated_tables: enableOptimizedHints
                                               ? OPTIMIZED_PROPERTIES_BY_GROUP[
                                                     TaxonomicFilterGroupType.SessionProperties
                                                 ].includes(property)

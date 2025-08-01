@@ -460,7 +460,7 @@ def get_lazy_session_table_properties_v1(search: Optional[str]):
             "property_type": get_property_type(field_name, field_definition),
             "is_seen_on_filtered_events": None,
             "tags": [],
-            "is_optimized": field_name in optimized_properties,
+            "supported_by_preaggregated_tables": field_name in optimized_properties,
         }
         for field_name, field_definition in LAZY_SESSIONS_FIELDS.items()
         if is_match(field_name)

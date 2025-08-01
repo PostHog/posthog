@@ -115,7 +115,7 @@ const renderItemContents = ({
         enableOptimizedHints &&
         (listGroupType === TaxonomicFilterGroupType.EventProperties ||
             listGroupType === TaxonomicFilterGroupType.SessionProperties) &&
-        (item as PropertyDefinition).is_optimized
+        (item as PropertyDefinition).supported_by_preaggregated_tables
 
     const icon = itemGroup.getIcon ? (
         <div className="taxonomic-list-row-contents-icon">{itemGroup.getIcon(item)}</div>

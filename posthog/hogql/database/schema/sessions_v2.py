@@ -560,14 +560,14 @@ def get_lazy_session_table_properties_v2(search: Optional[str], enable_optimized
             "property_type": get_property_type(field_name, field_definition),
             "is_seen_on_filtered_events": None,
             "tags": [],
-            "is_optimized": enable_optimized_hints and field_name in optimized_properties,
+            "supported_by_preaggregated_tables": enable_optimized_hints and field_name in optimized_properties,
         }
         for field_name, field_definition in LAZY_SESSIONS_FIELDS.items()
         if is_match(field_name)
     ]
 
     if enable_optimized_hints:
-        results.sort(key=lambda x: (not x["is_optimized"], x["name"]))
+        results.sort(key=lambda x: (not x["supported_by_preaggregated_tables"], x["name"]))
     else:
         results.sort(key=lambda x: x["name"])
 
