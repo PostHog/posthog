@@ -10,6 +10,8 @@ import { urls } from 'scenes/urls'
 import { sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
 import { playerSidebarLogic } from './playerSidebarLogic'
 
+const MAX_VISIBLE_AVATARS = 3
+
 function OtherWatchersLoading(): JSX.Element {
     return (
         <div className="flex flex-row deprecated-space-x-2 items-center justify-center px-2 py-1">
@@ -37,14 +39,14 @@ function OtherWatchersDisplay({ startExpanded = false }: { startExpanded?: boole
         <div className="flex flex-col gap-2 px-2 py-1">
             <div className="flex flex-row deprecated-space-x-2 items-center justify-center">
                 <div className="flex flex-row -space-x-1">
-                    {viewers.slice(0, 3).map((viewer, index) => (
-                        <div key={viewer} className="relative" style={{ zIndex: 3 - index }}>
+                    {viewers.slice(0, MAX_VISIBLE_AVATARS).map((viewer, index) => (
+                        <div key={viewer} className="relative" style={{ zIndex: MAX_VISIBLE_AVATARS - index }}>
                             <ProfilePicture user={{ email: viewer }} size="sm" />
                         </div>
                     ))}
-                    {viewers.length > 3 && (
+                    {viewers.length > MAX_VISIBLE_AVATARS && (
                         <div className="flex items-center justify-center w-6 h-6 bg-primary-alt rounded-full text-xs font-medium text-primary border-2 border-bg-light">
-                            +{viewers.length - 3}
+                            +{viewers.length - MAX_VISIBLE_AVATARS}
                         </div>
                     )}
                 </div>
