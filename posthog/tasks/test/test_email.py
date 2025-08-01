@@ -18,6 +18,7 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_invite import OrganizationInvite
 from posthog.models.plugin import Plugin, PluginConfig
 from posthog.tasks.email import (
+    login_from_new_device_notification,
     send_async_migration_complete_email,
     send_async_migration_errored_email,
     send_batch_export_run_failure,
@@ -505,6 +506,61 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         # Should now be sent to both users
         assert len(mocked_email_messages[1].to) == 2
 
+    def test_send_hog_functions_digest_email_with_test_email_override(self, MockEmailMessage: MagicMock) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+
+        # Create users for testing
+        self._create_user("test2@posthog.com")
+        self._create_user("override@posthog.com")
+
+        # Disable notifications for the main user to verify override bypasses settings
+        self.user.partial_notification_settings = {"plugin_disabled": False}
+        self.user.save()
+
+        digest_data = {
+            "team_id": self.team.id,
+            "functions": [
+                {
+                    "id": "test-hog-function-1",
+                    "name": "Test Function 1",
+                    "type": "destination",
+                    "succeeded": 95,
+                    "failed": 5,
+                    "failure_rate": 5.0,
+                    "url": "http://localhost:8000/project/1/pipeline/destinations/test-hog-function-1",
+                },
+            ],
+        }
+
+        # Test with valid email override (user is member of org) - should send only to override email
+        send_hog_functions_digest_email(digest_data, test_email_override="override@posthog.com")
+
+        assert len(mocked_email_messages) == 1
+        assert mocked_email_messages[0].send.call_count == 1
+        # Should only be sent to the override email, not to other team members
+        assert len(mocked_email_messages[0].to) == 1
+        assert mocked_email_messages[0].to[0]["raw_email"] == "override@posthog.com"
+        assert mocked_email_messages[0].html_body
+
+        # Reset mocked messages
+        mocked_email_messages.clear()
+
+        # Test with invalid email override (user not member of org) - should not send email
+        send_hog_functions_digest_email(digest_data, test_email_override="invalid@example.com")
+
+        # No email should be sent since invalid@example.com is not a member of the organization
+        assert len(mocked_email_messages) == 0
+
+        # Test without email override - should follow normal notification settings
+        send_hog_functions_digest_email(digest_data)
+
+        # Should be sent to test2 and override user (both have notifications enabled), but not to main user
+        assert len(mocked_email_messages) == 1
+        assert len(mocked_email_messages[0].to) == 2
+        sent_emails = {recipient["raw_email"] for recipient in mocked_email_messages[0].to}
+        assert "test2@posthog.com" in sent_emails
+        assert "override@posthog.com" in sent_emails
+
     def test_send_hog_functions_daily_digest_no_eligible_functions(self, MockEmailMessage: MagicMock) -> None:
         from posthog.test.fixtures import create_app_metric2
 
@@ -592,3 +648,26 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             send_hog_functions_daily_digest()
 
         assert len(mocked_email_messages) == 0
+
+    @patch("posthog.tasks.email.check_and_cache_login_device")
+    def test_login_from_new_device_notification(
+        self, mock_check_device: MagicMock, MockEmailMessage: MagicMock
+    ) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+        mock_check_device.return_value = True  # Simulate new device
+
+        login_from_new_device_notification(
+            user_id=self.user.id,
+            login_time=timezone.now(),
+            short_user_agent="Chrome 135.0.0 on Mac OS 15.3",
+            ip_address="24.114.32.12",  # random ip in Canada
+        )
+
+        assert len(mocked_email_messages) == 1
+        assert mocked_email_messages[0].send.call_count == 1
+        assert mocked_email_messages[0].subject == "A new device logged into your account"
+
+        # Check that location appears in email body
+        html_body = mocked_email_messages[0].html_body
+        assert html_body
+        assert "Canada" in html_body

@@ -497,6 +497,7 @@ export function DashboardHeader(): JSX.Element | null {
                         onSave={(value) => updateDashboard({ id: dashboard?.id, name: value, allowUndo: true })}
                         dataAttrKey={RESOURCE_TYPE}
                         canEdit={canEditDashboard}
+                        isLoading={dashboardLoading}
                     />
 
                     <SceneDescription
@@ -505,6 +506,8 @@ export function DashboardHeader(): JSX.Element | null {
                         dataAttrKey={RESOURCE_TYPE}
                         optional
                         canEdit={canEditDashboard}
+                        isLoading={dashboardLoading}
+                        markdown
                     />
 
                     <SceneTags

@@ -326,4 +326,112 @@ describe('groupsListLogic', () => {
             logic2.unmount()
         })
     })
+
+    describe('URL parameter restoration', () => {
+        const baseSelect = ['group_name', 'key', 'created_at']
+
+        it('should restore properties, columns, and sorting from URL parameters', async () => {
+            const mockProperties = [{ key: 'name', value: 'test', operator: 'exact', type: PropertyFilterType.Group }]
+            const mockSelect = ['mrr', 'arr']
+            const mockOrderBy = ['mrr DESC']
+
+            router.actions.push('/groups/0', {
+                properties_0: JSON.stringify(mockProperties),
+                select_0: JSON.stringify(mockSelect),
+                orderBy_0: JSON.stringify(mockOrderBy),
+            })
+
+            logic = groupsListLogic({ groupTypeIndex: 0 })
+            logic.mount()
+
+            const source = logic.values.query.source as GroupsQuery
+            expect(source.properties).toEqual(mockProperties)
+            expect(source.select).toEqual(mockSelect)
+            expect(source.orderBy).toEqual(mockOrderBy)
+        })
+
+        it('should only restore parameters for the matching group type', async () => {
+            const group0Properties = [
+                { key: 'name', value: 'group0', operator: 'exact', type: PropertyFilterType.Group },
+            ]
+            const group1Properties = [
+                { key: 'name', value: 'group1', operator: 'exact', type: PropertyFilterType.Group },
+            ]
+
+            router.actions.push('/groups/0', {
+                properties_0: JSON.stringify(group0Properties),
+                properties_1: JSON.stringify(group1Properties),
+                select_0: JSON.stringify(['col0']),
+                select_1: JSON.stringify(['col1']),
+            })
+
+            logic = groupsListLogic({ groupTypeIndex: 0 })
+            logic.mount()
+
+            const source = logic.values.query.source as GroupsQuery
+            expect(source.properties).toEqual(group0Properties)
+            expect(source.select).toEqual(['col0'])
+        })
+
+        it('should handle partial URL parameters gracefully', async () => {
+            const mockProperties = [{ key: 'name', value: 'test', operator: 'exact', type: PropertyFilterType.Group }]
+
+            router.actions.push('/groups/0', {
+                properties_0: JSON.stringify(mockProperties),
+                // select_0 missing
+                orderBy_0: JSON.stringify(['name']),
+            })
+
+            logic = groupsListLogic({ groupTypeIndex: 0 })
+            logic.mount()
+
+            const source = logic.values.query.source as GroupsQuery
+            expect(source.properties).toEqual(mockProperties)
+            expect(source.select).toEqual(baseSelect)
+            expect(source.orderBy).toEqual(['name'])
+        })
+
+        it('should handle empty/falsy URL parameters falling back to defaults', async () => {
+            router.actions.push('/groups/0', {
+                properties_0: JSON.stringify([]),
+                select_0: '',
+                orderBy_0: JSON.stringify(null),
+            })
+
+            logic = groupsListLogic({ groupTypeIndex: 0 })
+            logic.mount()
+
+            const source = logic.values.query.source as GroupsQuery
+            expect(source.properties).toEqual([])
+            expect(source.select).toEqual(baseSelect)
+            expect(source.orderBy).toEqual([])
+        })
+
+        it('should handle malformed JSON in URL parameters falling back to defaults', async () => {
+            router.actions.push('/groups/0', {
+                properties_0: 'invalid-json',
+                select_0: '{"incomplete": json',
+                orderBy_0: 'not-json-at-all',
+            })
+
+            logic = groupsListLogic({ groupTypeIndex: 0 })
+
+            expect(() => logic.mount()).not.toThrow()
+
+            const source = logic.values.query.source as GroupsQuery
+            expect(source.properties).toEqual([])
+            expect(source.select).toEqual(baseSelect)
+            expect(source.orderBy).toEqual([])
+        })
+
+        it('should not override query when URL parameters are missing', async () => {
+            router.actions.push('/groups/0', {})
+
+            logic = groupsListLogic({ groupTypeIndex: 0 })
+            logic.mount()
+
+            const source = logic.values.query.source as GroupsQuery
+            expect(source.properties).toEqual([])
+        })
+    })
 })

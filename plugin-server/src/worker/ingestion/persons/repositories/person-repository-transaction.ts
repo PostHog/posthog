@@ -3,7 +3,7 @@ import { DateTime } from 'luxon'
 
 import { TopicMessage } from '../../../../kafka/producer'
 import { InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt, Team } from '../../../../types'
-import { MoveDistinctIdsResult } from '../../../../utils/db/db'
+import { CreatePersonResult, MoveDistinctIdsResult } from '../../../../utils/db/db'
 
 export interface PersonRepositoryTransaction {
     createPerson(
@@ -16,7 +16,7 @@ export interface PersonRepositoryTransaction {
         isIdentified: boolean,
         uuid: string,
         distinctIds?: { distinctId: string; version?: number }[]
-    ): Promise<[InternalPerson, TopicMessage[]]>
+    ): Promise<CreatePersonResult>
 
     updatePerson(
         person: InternalPerson,

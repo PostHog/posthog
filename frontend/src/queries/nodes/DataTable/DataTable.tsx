@@ -26,7 +26,7 @@ import { dataTableLogic, DataTableLogicProps, DataTableRow } from '~/queries/nod
 import { EventRowActions } from '~/queries/nodes/DataTable/EventRowActions'
 import { InsightActorsQueryOptions } from '~/queries/nodes/DataTable/InsightActorsQueryOptions'
 import { QueryFeature } from '~/queries/nodes/DataTable/queryFeatures'
-import { renderColumn } from '~/queries/nodes/DataTable/renderColumn'
+import { getContextColumn, renderColumn } from '~/queries/nodes/DataTable/renderColumn'
 import { renderColumnMeta } from '~/queries/nodes/DataTable/renderColumnMeta'
 import { SavedQueries } from '~/queries/nodes/DataTable/SavedQueries'
 import {
@@ -203,9 +203,44 @@ export function DataTable({
 
     const eventActionsColumnShown =
         showActions && sourceFeatures.has(QueryFeature.eventActionsColumn) && columnsInResponse?.includes('*')
-    const columnsInLemonTable = sourceFeatures.has(QueryFeature.columnsInResponse)
+    const allColumns = sourceFeatures.has(QueryFeature.columnsInResponse)
         ? columnsInResponse ?? columnsInQuery
         : columnsInQuery
+    const columnsInLemonTable = allColumns.filter((colName) => {
+        const col = getContextColumn(colName, context?.columns)
+        return !col?.queryContextColumn?.hidden
+    })
+    const rowFillFractionIndex = allColumns.findIndex((colName) => {
+        const col = getContextColumn(colName, context?.columns)
+        return col?.queryContextColumn?.isRowFillFraction
+    })
+
+    const contextRowPropsFn = context?.rowProps
+    const onRow = useCallback(
+        (record) => {
+            const rowProps = contextRowPropsFn?.(record)
+            const rowFillFraction =
+                rowFillFractionIndex >= 0 && Array.isArray(record.result)
+                    ? record.result[rowFillFractionIndex]
+                    : undefined
+            if (
+                typeof rowFillFraction === 'number' &&
+                !Number.isNaN(rowFillFraction) &&
+                rowFillFraction >= 0 &&
+                rowFillFraction <= 1
+            ) {
+                return {
+                    ...rowProps,
+                    style: {
+                        ...rowProps?.style,
+                        '--data-table-fraction-fill': `${Math.round(rowFillFraction * 100)}%`,
+                    },
+                }
+            }
+            return rowProps ?? {}
+        },
+        [contextRowPropsFn, rowFillFractionIndex]
+    )
 
     const groupTypes = isActorsQuery(query.source) ? personGroupTypes : eventGroupTypes
 
@@ -754,7 +789,7 @@ export function DataTable({
                                     <LoadNext query={query.source} />
                                 ) : null
                             }
-                            onRow={context?.rowProps}
+                            onRow={onRow}
                             pinnedColumns={query.pinnedColumns}
                         />
                     )}

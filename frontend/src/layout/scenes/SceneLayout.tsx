@@ -11,6 +11,7 @@ import { SceneConfig } from 'scenes/sceneTypes'
 import { SceneHeader } from './SceneHeader'
 import './SceneLayout.css'
 import { sceneLayoutLogic } from './sceneLayoutLogic'
+import { SceneTabs } from '~/layout/scenes/SceneTabs'
 
 type SceneLayoutProps = {
     children: React.ReactNode
@@ -33,7 +34,7 @@ export function ScenePanel({ children }: { children: React.ReactNode }): JSX.Ele
         <>
             {children &&
                 scenePanelElement &&
-                createPortal(<div className="flex flex-col gap-px">{children}</div>, scenePanelElement)}
+                createPortal(<div className="flex flex-col gap-px pt-4">{children}</div>, scenePanelElement)}
         </>
     )
 }
@@ -43,16 +44,16 @@ export function ScenePanelDivider(): JSX.Element {
 }
 
 // Should be first!
-export function ScenePanelCommonActions({
+export const ScenePanelCommonActions = ({
     children,
     isFirst = true,
 }: {
-    isFirst?: boolean
     children: React.ReactNode
-}): JSX.Element {
+    isFirst?: boolean
+}): JSX.Element => {
     return (
         <>
-            <div className={cn('flex flex-col gap-2', { 'pt-2': isFirst })}>{children}</div>
+            <div className={cn('flex flex-col gap-2', { '-mt-2': isFirst })}>{children}</div>
             <ScenePanelDivider />
         </>
     )
@@ -77,20 +78,18 @@ export function ScenePanelActions({ children }: { children: React.ReactNode }): 
 
 export function ScenePanelLabel({ children, title, ...props }: PropsWithChildren<LabelProps>): JSX.Element {
     return (
-        <div>
-            <div className="gap-0">
-                <Label intent="menu" {...props} className="mx-button-padding-x">
-                    {title}
-                </Label>
-                {children}
-            </div>
+        <div className="flex flex-col gap-0">
+            <Label intent="menu" {...props} className="mx-button-padding-x">
+                {title}
+            </Label>
+            {children}
         </div>
     )
 }
 
 export function SceneLayout({ children, className, layoutConfig }: SceneLayoutProps): JSX.Element {
     const { registerScenePanelElement, setScenePanelOpen } = useActions(sceneLayoutLogic)
-    const { scenePanelIsPresent, scenePanelOpen } = useValues(sceneLayoutLogic)
+    const { scenePanelIsPresent, scenePanelOpen, useSceneTabs } = useValues(sceneLayoutLogic)
     const sceneLayoutContainer = useRef<HTMLDivElement>(null)
     const [outerRight, setOuterRight] = useState<number>(0)
 
@@ -125,6 +124,7 @@ export function SceneLayout({ children, className, layoutConfig }: SceneLayoutPr
                     block: layoutConfig?.layout === 'app-raw-no-header',
                 })}
             >
+                {useSceneTabs ? <SceneTabs /> : null}
                 {layoutConfig?.layout !== 'app-raw-no-header' && (
                     <SceneHeader className="row-span-1 col-span-1 min-w-0" />
                 )}

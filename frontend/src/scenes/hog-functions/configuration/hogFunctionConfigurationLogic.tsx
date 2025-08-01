@@ -90,7 +90,7 @@ const NEW_FUNCTION_TEMPLATE: HogFunctionTemplateType = {
 }
 
 export const TYPES_WITH_GLOBALS: HogFunctionTypeType[] = ['transformation', 'destination']
-export const TYPES_WITH_SPARKLINE: HogFunctionTypeType[] = ['destination', 'site_destination', 'transformation']
+export const TYPES_WITH_REAL_EVENTS: HogFunctionTypeType[] = ['destination', 'site_destination', 'transformation']
 export const TYPES_WITH_VOLUME_WARNING: HogFunctionTypeType[] = ['destination', 'site_destination']
 
 export function sanitizeConfiguration(data: HogFunctionConfigurationType): HogFunctionConfigurationType {
@@ -126,6 +126,15 @@ export function sanitizeConfiguration(data: HogFunctionConfigurationType): HogFu
         })
 
         return sanitizedInputs
+    }
+
+    const filters = data.filters ?? {}
+    filters.source = filters.source ?? 'events'
+
+    if (filters.source === 'person-updates') {
+        // Ensure we aren't passing in values that aren't supported
+        delete filters.actions
+        delete filters.events
     }
 
     const payload: HogFunctionConfigurationType = {
@@ -471,7 +480,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             null as null | SparklineData,
             {
                 sparklineQueryChanged: async ({ sparklineQuery }, breakpoint) => {
-                    if (!TYPES_WITH_SPARKLINE.includes(values.type)) {
+                    if (!TYPES_WITH_REAL_EVENTS.includes(values.type)) {
                         return null
                     }
                     if (values.sparkline === null) {
@@ -1029,10 +1038,17 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             },
         ],
 
+        sourceUsesEvents: [
+            (s) => [s.configuration, s.type],
+            (configuration, type) => {
+                return TYPES_WITH_REAL_EVENTS.includes(type) && (configuration.filters?.source ?? 'events') === 'events'
+            },
+        ],
+
         sparklineQuery: [
-            (s) => [s.configuration, s.matchingFilters, s.type],
-            (configuration, matchingFilters, type): TrendsQuery | null => {
-                if (!TYPES_WITH_SPARKLINE.includes(type)) {
+            (s) => [s.configuration, s.matchingFilters, s.sourceUsesEvents],
+            (configuration, matchingFilters, sourceUsesEvents): TrendsQuery | null => {
+                if (!sourceUsesEvents) {
                     return null
                 }
                 return setLatestVersionsOnQuery({
@@ -1063,9 +1079,9 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         ],
 
         baseEventsQuery: [
-            (s) => [s.configuration, s.matchingFilters, s.groupTypes, s.type],
-            (configuration, matchingFilters, groupTypes, type): EventsQuery | null => {
-                if (!TYPES_WITH_GLOBALS.includes(type)) {
+            (s) => [s.configuration, s.matchingFilters, s.groupTypes, s.sourceUsesEvents],
+            (configuration, matchingFilters, groupTypes, sourceUsesEvents): EventsQuery | null => {
+                if (!sourceUsesEvents) {
                     return null
                 }
                 const query: EventsQuery = {
@@ -1179,6 +1195,38 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             (s) => [s.lastEventQuery],
             (lastEventQuery) => {
                 return !!lastEventQuery
+            },
+        ],
+
+        showFilters: [
+            (s) => [s.type],
+            (type) => {
+                return ['destination', 'internal_destination', 'site_destination', 'transformation'].includes(type)
+            },
+        ],
+
+        showExpectedVolume: [
+            (s) => [s.type, s.sourceUsesEvents],
+            (type, sourceUsesEvents) => {
+                return sourceUsesEvents && ['destination', 'site_destination', 'transformation'].includes(type)
+            },
+        ],
+
+        canEditSource: [
+            (s) => [s.type, s.template, s.hogFunction],
+            (type, template, hogFunction) => {
+                return (
+                    ['site_destination', 'site_app', 'source_webhook', 'transformation'].includes(type) ||
+                    (type === 'destination' &&
+                        (template?.code_language || hogFunction?.template?.code_language) === 'hog')
+                )
+            },
+        ],
+
+        showTesting: [
+            (s) => [s.type],
+            (type) => {
+                return ['destination', 'internal_destination', 'transformation'].includes(type)
             },
         ],
     })),
