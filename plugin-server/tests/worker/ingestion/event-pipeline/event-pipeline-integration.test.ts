@@ -18,6 +18,7 @@ import { ActionMatcher } from '../../../../src/worker/ingestion/action-matcher'
 import { processWebhooksStep } from '../../../../src/worker/ingestion/event-pipeline/runAsyncHandlersStep'
 import { EventPipelineRunner } from '../../../../src/worker/ingestion/event-pipeline/runner'
 import { BatchWritingGroupStoreForBatch } from '../../../../src/worker/ingestion/groups/batch-writing-group-store'
+import { ClickhouseGroupRepository } from '../../../../src/worker/ingestion/groups/repositories/clickhouse-group-repository'
 import { PostgresGroupRepository } from '../../../../src/worker/ingestion/groups/repositories/postgres-group-repository'
 import { HookCommander } from '../../../../src/worker/ingestion/hooks'
 import { Clickhouse } from '../../../helpers/clickhouse'
@@ -58,7 +59,11 @@ describe('Event Pipeline integration test', () => {
     const ingestEvent = async (event: PluginEvent) => {
         const personsStoreForBatch = new BatchWritingPersonsStoreForBatch(personRepository, hub.kafkaProducer)
         const groupRepository = new PostgresGroupRepository(hub.db.postgres)
-        const groupStoreForBatch = new BatchWritingGroupStoreForBatch(hub.db, groupRepository)
+        const groupStoreForBatch = new BatchWritingGroupStoreForBatch(
+            hub.db,
+            groupRepository,
+            new ClickhouseGroupRepository(hub.kafkaProducer)
+        )
         const runner = new EventPipelineRunner(
             hub,
             event,

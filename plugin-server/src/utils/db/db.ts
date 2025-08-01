@@ -1,10 +1,10 @@
-import { CacheOptions, Properties } from '@posthog/plugin-scaffold'
+import { CacheOptions } from '@posthog/plugin-scaffold'
 import { Pool as GenericPool } from 'generic-pool'
 import Redis from 'ioredis'
 import { DateTime } from 'luxon'
 import { QueryResult } from 'pg'
 
-import { KAFKA_GROUPS, KAFKA_PLUGIN_LOG_ENTRIES } from '../../config/kafka-topics'
+import { KAFKA_PLUGIN_LOG_ENTRIES } from '../../config/kafka-topics'
 import { KafkaProducerWrapper, TopicMessage } from '../../kafka/producer'
 import {
     Action,
@@ -24,15 +24,13 @@ import {
     RawOrganization,
     RawPerson,
     Team,
-    TeamId,
-    TimestampFormat,
 } from '../../types'
 import { fetchAction, fetchAllActionsGroupedByTeam } from '../../worker/ingestion/action-manager'
 import { parseJSON } from '../json-parse'
 import { logger } from '../logger'
 import { instrumentQuery } from '../metrics'
 import { captureException } from '../posthog'
-import { castTimestampOrNow, tryTwice, UUID, UUIDT } from '../utils'
+import { tryTwice, UUID, UUIDT } from '../utils'
 import { OrganizationPluginsAccessLevel } from './../../types'
 import { RedisOperationError } from './error'
 import { pluginLogEntryCounter } from './metrics'
@@ -631,31 +629,6 @@ export class DB {
             [id, user_id, label, secure_value, created_at.toISOString()],
             'createPersonalApiKey'
         )
-    }
-
-    public async upsertGroupClickhouse(
-        teamId: TeamId,
-        groupTypeIndex: GroupTypeIndex,
-        groupKey: string,
-        properties: Properties,
-        createdAt: DateTime,
-        version: number
-    ): Promise<void> {
-        await this.kafkaProducer.queueMessages({
-            topic: KAFKA_GROUPS,
-            messages: [
-                {
-                    value: JSON.stringify({
-                        group_type_index: groupTypeIndex,
-                        group_key: groupKey,
-                        team_id: teamId,
-                        group_properties: JSON.stringify(properties),
-                        created_at: castTimestampOrNow(createdAt, TimestampFormat.ClickHouseSecondPrecision),
-                        version,
-                    }),
-                },
-            ],
-        })
     }
 
     public async getTeamsInOrganizationsWithRootPluginAccess(): Promise<Team[]> {

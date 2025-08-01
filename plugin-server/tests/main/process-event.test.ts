@@ -23,6 +23,7 @@ import { PostgresUse } from '../../src/utils/db/postgres'
 import { UUIDT } from '../../src/utils/utils'
 import { EventPipelineRunner } from '../../src/worker/ingestion/event-pipeline/runner'
 import { PostgresPersonRepository } from '../../src/worker/ingestion/persons/repositories/postgres-person-repository'
+import { ClickhouseGroupRepository } from '../../src/worker/ingestion/groups/repositories/clickhouse-group-repository'
 import { PostgresGroupRepository } from '../../src/worker/ingestion/groups/repositories/postgres-group-repository'
 import { EventsProcessor } from '../../src/worker/ingestion/process-event'
 import { resetKafka } from '../helpers/kafka'
@@ -107,7 +108,11 @@ describe('processEvent', () => {
             hub.db.kafkaProducer
         )
         const groupRepository = new PostgresGroupRepository(hub.db.postgres)
-        const groupStoreForBatch = new BatchWritingGroupStoreForBatch(hub.db, groupRepository)
+        const groupStoreForBatch = new BatchWritingGroupStoreForBatch(
+            hub.db,
+            groupRepository,
+            new ClickhouseGroupRepository(hub.kafkaProducer)
+        )
         const runner = new EventPipelineRunner(hub, pluginEvent, null, [], personsStoreForBatch, groupStoreForBatch)
         const res = await runner.runEventPipeline(pluginEvent, team)
         await flushPersonStoreToKafka(hub, personsStoreForBatch, res.ackPromises ?? [])
@@ -213,7 +218,11 @@ describe('processEvent', () => {
             hub.db.kafkaProducer
         )
         const groupRepository = new PostgresGroupRepository(hub.db.postgres)
-        const groupStoreForBatch = new BatchWritingGroupStoreForBatch(hub.db, groupRepository)
+        const groupStoreForBatch = new BatchWritingGroupStoreForBatch(
+            hub.db,
+            groupRepository,
+            new ClickhouseGroupRepository(hub.kafkaProducer)
+        )
         const runner = new EventPipelineRunner(hub, event, null, [], personsStoreForBatch, groupStoreForBatch)
         const res = await runner.runEventPipeline(event, team)
         await flushPersonStoreToKafka(hub, personsStoreForBatch, res.ackPromises ?? [])
@@ -244,7 +253,11 @@ describe('processEvent', () => {
 
     test('capture bad team', async () => {
         const groupRepository = new PostgresGroupRepository(hub.db.postgres)
-        const groupStoreForBatch = new BatchWritingGroupStoreForBatch(hub.db, groupRepository)
+        const groupStoreForBatch = new BatchWritingGroupStoreForBatch(
+            hub.db,
+            groupRepository,
+            new ClickhouseGroupRepository(hub.kafkaProducer)
+        )
         await expect(
             eventsProcessor.processEvent(
                 'asdfasdfasdf',

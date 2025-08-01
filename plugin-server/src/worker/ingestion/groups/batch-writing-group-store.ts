@@ -21,6 +21,7 @@ import {
     groupFetchPromisesCacheOperationsCounter,
     groupOptimisticUpdateConflictsPerBatchCounter,
 } from './metrics'
+import { ClickhouseGroupRepository } from './repositories/clickhouse-group-repository'
 import { GroupRepository } from './repositories/group-repository.interface'
 import { GroupRepositoryTransaction } from './repositories/group-repository-transaction.interface'
 
@@ -119,13 +120,19 @@ export class BatchWritingGroupStore implements GroupStore {
     constructor(
         private db: DB,
         private groupRepository: GroupRepository,
+        private clickhouseGroupRepository: ClickhouseGroupRepository,
         options?: Partial<BatchWritingGroupStoreOptions>
     ) {
         this.options = { ...DEFAULT_OPTIONS, ...options }
     }
 
     forBatch(): GroupStoreForBatch {
-        return new BatchWritingGroupStoreForBatch(this.db, this.groupRepository, this.options)
+        return new BatchWritingGroupStoreForBatch(
+            this.db,
+            this.groupRepository,
+            this.clickhouseGroupRepository,
+            this.options
+        )
     }
 }
 
@@ -144,6 +151,7 @@ export class BatchWritingGroupStoreForBatch implements GroupStoreForBatch {
     constructor(
         private db: DB,
         private groupRepository: GroupRepository,
+        private clickhouseGroupRepository: ClickhouseGroupRepository,
         options?: Partial<BatchWritingGroupStoreOptions>
     ) {
         this.options = { ...DEFAULT_OPTIONS, ...options }
@@ -343,7 +351,14 @@ export class BatchWritingGroupStoreForBatch implements GroupStoreForBatch {
         source: string
     ): Promise<void> {
         this.incrementDatabaseOperation('upsertClickhouse' + (source ? `-${source}` : ''))
-        await this.db.upsertGroupClickhouse(teamId, groupTypeIndex, groupKey, properties, createdAt, actualVersion)
+        await this.clickhouseGroupRepository.upsertGroup(
+            teamId,
+            groupTypeIndex,
+            groupKey,
+            properties,
+            createdAt,
+            actualVersion
+        )
     }
 
     private async executeUpsertTransaction(
