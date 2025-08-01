@@ -54,7 +54,7 @@ export function UserActivity({ hoverRef }: { hoverRef: MutableRefObject<HTMLDivE
                     `
                             : ''
                     }
-                    fill="var(--bg-fill-highlight-200)"
+                    fill="var(--color-bg-fill-highlight-200)"
                     stroke="none"
                 />
             </svg>

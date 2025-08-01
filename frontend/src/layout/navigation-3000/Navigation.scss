@@ -14,7 +14,7 @@
     width: 100%;
     height: 100vh;
     overflow: hidden;
-    background: var(--bg-primary);
+    background: var(--color-bg-primary);
 
     .storybook-test-runner & {
         height: auto;
@@ -106,7 +106,7 @@
         flex-direction: column;
         justify-content: space-between;
         overflow-y: auto;
-        background: var(--bg-surface-secondary);
+        background: var(--color-bg-surface-secondary);
 
         .LemonButton__chrome {
             --lemon-button-padding-horizontal: 0.25rem !important;
@@ -177,7 +177,7 @@
     --sidebar-slider-padding: 0.125rem;
     --sidebar-horizontal-padding: 0.5rem;
     --sidebar-row-height: 3rem;
-    --sidebar-background: var(--bg-primary);
+    --sidebar-background: var(--color-bg-primary);
 
     position: relative;
     box-sizing: content-box;
@@ -189,7 +189,7 @@
     border-right: min(1px, var(--sidebar-width)) solid transparent;
 
     [theme='dark'] & {
-        --sidebar-background: var(--bg-surface-primary);
+        --sidebar-background: var(--color-bg-surface-primary);
     }
 
     &.Sidebar3000--resizing {
@@ -251,7 +251,7 @@
     white-space: nowrap;
 
     // Extend the border into viewport overscroll
-    border-right: min(1px, var(--sidebar-width)) solid var(--border-primary);
+    border-right: min(1px, var(--sidebar-width)) solid var(--color-border-primary);
 
     .Sidebar3000--resizing & {
         will-change: width;
@@ -280,7 +280,7 @@
     padding: 0 var(--sidebar-horizontal-padding);
     font-weight: 500;
     user-select: none;
-    background: var(--bg-primary);
+    background: var(--color-bg-primary);
     border-top-width: 1px;
 }
 
@@ -311,7 +311,7 @@
     }
 
     &::before {
-        background: var(--border-primary);
+        background: var(--color-border-primary);
         transition: 100ms ease transform;
     }
 
@@ -350,7 +350,7 @@
     --accordion-arrow-size: 1rem;
     --accordion-row-height: 32px;
     --accordion-inset-expandable: 1.25rem;
-    --accordion-header-background: var(--bg-surface-primary);
+    --accordion-header-background: var(--color-bg-surface-primary);
     --accordion-inset: 0rem;
 
     display: flex;
@@ -360,7 +360,7 @@
     min-height: var(--accordion-row-height);
 
     [theme='dark'] & {
-        --accordion-header-background: var(--bg-primary);
+        --accordion-header-background: var(--color-bg-primary);
     }
 
     &[aria-expanded] {
@@ -398,7 +398,7 @@
     border-bottom-width: 1px;
 
     &:hover {
-        background: var(--border-primary);
+        background: var(--color-border-primary);
     }
 
     > .LemonIcon {
@@ -417,7 +417,7 @@
 .SidebarListItemAccordion {
     --accordion-arrow-size: 1rem;
     --accordion-inset-expandable: 1.25rem;
-    --accordion-header-background: var(--bg-surface-primary);
+    --accordion-header-background: var(--color-bg-surface-primary);
     --accordion-inset: 0rem;
 
     display: flex;
@@ -427,7 +427,7 @@
     height: 100%;
 
     [theme='dark'] & {
-        --accordion-header-background: var(--bg-primary);
+        --accordion-header-background: var(--color-bg-primary);
     }
 
     &[role='region'] {
@@ -455,7 +455,7 @@
     border-bottom-width: 1px;
 
     &:hover {
-        background: var(--border-primary);
+        background: var(--color-border-primary);
     }
 
     > .LemonIcon {
@@ -475,14 +475,14 @@
 }
 
 .SidebarListItem {
-    --sidebar-list-item-status-color: var(--text-secondary);
+    --sidebar-list-item-status-color: var(--color-text-secondary);
     --sidebar-list-item-fold-size: 0.5rem;
     --sidebar-list-item-ribbon-width: 0.1875rem;
     --sidebar-list-item-background: var(--sidebar-background);
 
     position: relative;
     line-height: 1.125rem;
-    color: var(--text-secondary);
+    color: var(--color-text-secondary);
     list-style: none;
     background: var(--sidebar-list-item-background);
     border-bottom-width: 1px;
@@ -491,7 +491,7 @@
     &:hover:not([aria-disabled='true']),
     &[aria-current='page'],
     &.SidebarListItem--is-renaming {
-        --sidebar-list-item-background: var(--border-primary);
+        --sidebar-list-item-background: var(--color-border-primary);
 
         opacity: 1;
     }
@@ -597,7 +597,7 @@
         inset: 0 0 -1px;
         pointer-events: none;
         content: '';
-        border: 1px solid var(--border-primary);
+        border: 1px solid var(--color-border-primary);
     }
 }
 
@@ -623,7 +623,7 @@
     cursor: pointer;
 
     &:hover {
-        background: var(--border-primary);
+        background: var(--color-border-primary);
     }
 
     .SidebarListItem__icon {
@@ -636,7 +636,7 @@
     justify-content: center;
 
     // Pseudo-elements don't work on inputs, so we use a wrapper div
-    background: var(--bg-surface-primary);
+    background: var(--color-bg-surface-primary);
 
     input {
         width: 100%;
@@ -653,7 +653,7 @@
         inset: 0 0 -1px;
         pointer-events: none;
         content: '';
-        border: 1px solid var(--border-primary);
+        border: 1px solid var(--color-border-primary);
 
         .SidebarListItem[aria-invalid='true'] & {
             border-color: var(--danger);

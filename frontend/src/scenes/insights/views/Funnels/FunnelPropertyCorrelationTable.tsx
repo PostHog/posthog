@@ -44,7 +44,7 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
         if (loadedPropertyCorrelationsTableOnce) {
             loadPropertyCorrelations({})
         }
-    }, [querySource])
+    }, [querySource, loadedPropertyCorrelationsTableOnce, loadPropertyCorrelations])
 
     const { openCorrelationPersonsModal } = useActions(funnelPersonsModalLogic(insightProps))
     const { correlationPropKey } = useValues(funnelCorrelationUsageLogic(insightProps))
@@ -133,7 +133,7 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
     return steps.length > 1 ? (
         <VisibilitySensor offset={150} id={`${correlationPropKey}-properties`}>
             <div className="FunnelCorrelationTable mt-4 border rounded overflow-hidden">
-                <div className="flex px-2 py-1 bg-[var(--bg-table)]">
+                <div className="flex px-2 py-1 bg-[var(--color-bg-table)]">
                     <div className="flex items-center text-xs font-bold">
                         <IconSelectProperties style={{ marginRight: 4, opacity: 0.5, fontSize: 24 }} />
                         CORRELATED PROPERTIES

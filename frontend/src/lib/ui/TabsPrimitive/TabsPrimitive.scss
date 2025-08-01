@@ -1,12 +1,12 @@
 .tabs-trigger {
-    color: var(--text-secondary);
+    color: var(--color-text-secondary);
 }
 
 .tabs-trigger:hover,
 .tabs-trigger[data-state='active'] {
-    color: var(--accent);
+    color: var(--color-accent);
 }
 
 .tabs-trigger[data-state='active'] {
-    border-bottom: 2px solid var(--accent);
+    border-bottom: 2px solid var(--color-accent);
 }

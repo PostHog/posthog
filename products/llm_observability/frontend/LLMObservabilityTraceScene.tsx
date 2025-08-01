@@ -389,7 +389,7 @@ function EventContentDisplay({
     return (
         <LLMInputOutput
             inputDisplay={
-                <div className="p-2 text-xs border rounded bg-[var(--bg-fill-secondary)]">
+                <div className="p-2 text-xs border rounded bg-[var(--color-bg-fill-secondary)]">
                     {isObject(input) ? (
                         <JSONViewer src={input} collapsed={4} />
                     ) : (
@@ -401,7 +401,9 @@ function EventContentDisplay({
                 <div
                     className={cn(
                         'p-2 text-xs border rounded',
-                        !raisedError ? 'bg-[var(--bg-fill-success-tertiary)]' : 'bg-[var(--bg-fill-error-tertiary)]'
+                        !raisedError
+                            ? 'bg-[var(--color-bg-fill-success-tertiary)]'
+                            : 'bg-[var(--color-bg-fill-error-tertiary)]'
                     )}
                 >
                     {isObject(output) ? (

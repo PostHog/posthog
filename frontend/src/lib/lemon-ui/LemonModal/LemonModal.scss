@@ -38,7 +38,7 @@
     max-width: 90%;
     max-height: 90%;
     margin: 1rem auto;
-    background-color: var(--bg-surface-primary);
+    background-color: var(--color-bg-surface-primary);
     border: 1px solid var(--border-bold);
     border-radius: var(--radius);
     box-shadow: var(--modal-shadow-elevation);
@@ -103,7 +103,7 @@
     padding-bottom: 1rem;
     margin: 1rem;
     margin-bottom: 0;
-    border-bottom: 1px solid var(--border-primary);
+    border-bottom: 1px solid var(--color-border-primary);
 
     h3 {
         margin-right: 2.5rem;
@@ -128,7 +128,7 @@
     margin: 1rem;
     margin-top: 0;
     white-space: nowrap;
-    border-top: 1px solid var(--border-primary);
+    border-top: 1px solid var(--color-border-primary);
 }
 
 .LemonModal__header + .LemonModal__footer {

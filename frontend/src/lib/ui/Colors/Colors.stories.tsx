@@ -82,7 +82,10 @@ export function BrandAccentColors(): JSX.Element {
     const [primaryLightness, setPrimaryLightness] = useState<number>(isDarkModeOn ? 57 : 48)
 
     useEffect(() => {
-        document.body.style.setProperty('--accent', `hsl(${primaryHue}deg ${primarySaturation}% ${primaryLightness}%)`)
+        document.body.style.setProperty(
+            '--color-accent',
+            `hsl(${primaryHue}deg ${primarySaturation}% ${primaryLightness}%)`
+        )
     }, [primaryHue, primarySaturation, primaryLightness])
 
     return (
@@ -110,7 +113,7 @@ export function BrandAccentColors(): JSX.Element {
 
                     <div
                         // eslint-disable-next-line react/forbid-dom-props
-                        style={{ backgroundColor: `var(--accent)` }}
+                        style={{ backgroundColor: `var(--color-accent)` }}
                         className="w-12 h-12 rounded border border-primary"
                     />
                 </div>
@@ -157,84 +160,84 @@ export function SemanticColors(): JSX.Element {
         {
             tailwindClass: 'text-primary',
             description: 'the main text color',
-            name: '--text-primary',
+            name: '--color-text-primary',
         },
         {
             tailwindClass: 'text-primary-inverse',
             description: 'the main text color on a inverted background',
-            name: '--text-primary-inverse',
+            name: '--color-text-primary-inverse',
         },
         {
             tailwindClass: 'text-secondary',
             description: 'a more subtle text color',
-            name: '--text-secondary',
+            name: '--color-text-secondary',
         },
         {
             tailwindClass: 'text-tertiary',
             description: 'most subtle text color',
-            name: '--text-tertiary',
+            name: '--color-text-tertiary',
         },
         // {
         //     tailwindClass: 'text-accent',
         //     description: 'the main accent text color',
-        //     variableName: '--accent'
+        //     variableName: '--color-accent'
         // },
         // {
         //     tailwindClass: 'text-accent-hover',
         //     description: 'the main accent text color on hover',
-        //     variableName: '--accent-hover'
+        //     variableName: '--color-accent-hover'
         // },
         // {
         //     tailwindClass: 'text-accent-active',
         //     description: 'the main accent text color on active',
-        //     variableName: '--accent-active'
+        //     variableName: '--color-accent-active'
         // },
         // {
         //     tailwindClass: 'text-accent-highlight-secondary',
         //     description: 'the main accent text color on highlight',
-        //     variableName: '--accent-highlight-secondary'
+        //     variableName: '--color-accent-highlight-secondary'
         // },
         // {
         //     tailwindClass: 'text-accent-secondary',
         //     description: 'the secondary accent text color',
-        //     variableName: '--accent-secondary'
+        //     variableName: '--color-accent-secondary'
         // },
         // {
         //     tailwindClass: 'text-accent-secondary-hover',
         //     description: 'the secondary accent text color on hover',
-        //     variableName: '--accent-secondary-hover'
+        //     variableName: '--color-accent-secondary-hover'
         // },
         // {
         //     tailwindClass: 'text-accent-secondary-active',
         //     description: 'the secondary accent text color on active',
-        //     variableName: '--accent-secondary-active'
+        //     variableName: '--color-accent-secondary-active'
         // },
         // {
         //     tailwindClass: 'text-accent-secondary-highlight',
         //     description: 'the secondary accent text color on highlight',
-        //     variableName: '--accent-secondary-highlight'
+        //     variableName: '--color-accent-secondary-highlight'
         // }
     ]
     const textOnFillColors: RenderColorConfig[] = [
         {
             tailwindClass: 'text-info-on-fill',
             description: 'the info text color on an info fill',
-            name: '--text-info-on-fill',
+            name: '--color-text-info-on-fill',
         },
         {
             tailwindClass: 'text-warning-on-fill',
             description: 'the warning text color on a warning fill',
-            name: '--text-warning-on-fill',
+            name: '--color-text-warning-on-fill',
         },
         {
             tailwindClass: 'text-error-on-fill',
             description: 'the error text color on an error fill',
-            name: '--text-error-on-fill',
+            name: '--color-text-error-on-fill',
         },
         {
             tailwindClass: 'text-success-on-fill',
             description: 'the success text color on a success fill',
-            name: '--text-success-on-fill',
+            name: '--color-text-success-on-fill',
         },
     ]
     const backgroundColors: RenderColorConfig[] = [
@@ -242,101 +245,101 @@ export function SemanticColors(): JSX.Element {
             tailwindClass: 'bg-primary',
             description:
                 'the main background color, use behind everything, or on something to fade into the background',
-            name: '--bg-primary',
+            name: '--color-bg-primary',
         },
     ]
     const surfaceColors: RenderColorConfig[] = [
         {
             tailwindClass: 'bg-surface-primary',
             description: 'the most prominent area on the screen (after tooltip)',
-            name: '--bg-surface-primary',
+            name: '--color-bg-surface-primary',
         },
         {
             tailwindClass: 'bg-surface-secondary',
             description: 'the second most prominent area on the screen',
-            name: '--bg-surface-secondary',
+            name: '--color-bg-surface-secondary',
         },
         {
             tailwindClass: 'bg-surface-tertiary',
             description: 'the least prominent area on the screen',
-            name: '--bg-surface-tertiary',
+            name: '--color-bg-surface-tertiary',
         },
         {
             tailwindClass: 'bg-surface-tooltip',
             description: 'the tooltip surface color',
-            name: '--bg-surface-tooltip',
+            name: '--color-bg-surface-tooltip',
         },
         {
             tailwindClass: 'bg-surface-popover',
             description: 'the popover surface color',
-            name: '--bg-surface-popover',
+            name: '--color-bg-surface-popover',
         },
     ]
     const fillColors: RenderColorConfig[] = [
         {
             tailwindClass: 'bg-fill-primary',
             description: 'the main fill color',
-            name: '--bg-fill-primary',
+            name: '--color-bg-fill-primary',
         },
         {
             tailwindClass: 'bg-fill-info-secondary',
             description: 'the main fill color on an info fill',
-            name: '--bg-fill-info-secondary',
+            name: '--color-bg-fill-info-secondary',
         },
         {
             tailwindClass: 'bg-fill-warning-secondary',
             description: 'the main fill color on a warning fill',
-            name: '--bg-fill-warning-secondary',
+            name: '--color-bg-fill-warning-secondary',
         },
         {
             tailwindClass: 'bg-fill-warning-tertiary',
             description: 'the warning tertiary fill color',
-            name: '--bg-fill-warning-tertiary',
+            name: '--color-bg-fill-warning-tertiary',
         },
         {
             tailwindClass: 'bg-fill-warning-highlight',
             description: 'the warning highlight fill color',
-            name: '--bg-fill-warning-highlight',
+            name: '--color-bg-fill-warning-highlight',
         },
         {
             tailwindClass: 'bg-fill-error-secondary',
             description: 'the main fill color on an error fill',
-            name: '--bg-fill-error-secondary',
+            name: '--color-bg-fill-error-secondary',
         },
         {
             tailwindClass: 'bg-fill-error-tertiary',
             description: 'the error tertiary fill color',
-            name: '--bg-fill-error-tertiary',
+            name: '--color-bg-fill-error-tertiary',
         },
         {
             tailwindClass: 'bg-fill-error-highlight',
             description: 'the error highlight fill color',
-            name: '--bg-fill-error-highlight',
+            name: '--color-bg-fill-error-highlight',
         },
         {
             tailwindClass: 'bg-fill-success-secondary',
             description: 'the main fill color on a success fill',
-            name: '--bg-fill-success-secondary',
+            name: '--color-bg-fill-success-secondary',
         },
         {
             tailwindClass: 'bg-fill-success-highlight',
             description: 'the success highlight fill color',
-            name: '--bg-fill-success-highlight',
+            name: '--color-bg-fill-success-highlight',
         },
         {
             tailwindClass: 'bg-fill-success-tertiary',
             description: 'the success tertiary fill color',
-            name: '--bg-fill-success-tertiary',
+            name: '--color-bg-fill-success-tertiary',
         },
         {
             tailwindClass: 'bg-fill-input',
             description: 'the input fill color',
-            name: '--bg-fill-input',
+            name: '--color-bg-fill-input',
         },
         {
             tailwindClass: 'bg-fill-info-tertiary',
             description: 'the info tertiary fill color',
-            name: '--bg-fill-info-tertiary',
+            name: '--color-bg-fill-info-tertiary',
         },
     ]
 
@@ -344,27 +347,27 @@ export function SemanticColors(): JSX.Element {
         {
             tailwindClass: 'border-primary',
             description: 'the primary border color',
-            name: '--border-primary',
+            name: '--color-border-primary',
         },
         {
             tailwindClass: 'border-info',
             description: 'the info border color',
-            name: '--border-info',
+            name: '--color-border-info',
         },
         {
             tailwindClass: 'border-warning',
             description: 'the warning border color',
-            name: '--border-warning',
+            name: '--color-border-warning',
         },
         {
             tailwindClass: 'border-error',
             description: 'the error border color',
-            name: '--border-error',
+            name: '--color-border-error',
         },
         {
             tailwindClass: 'border-success',
             description: 'the success border color',
-            name: '--border-success',
+            name: '--color-border-success',
         },
     ]
     return (

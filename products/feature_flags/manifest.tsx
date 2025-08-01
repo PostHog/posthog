@@ -15,7 +15,7 @@ export const manifest: ProductManifest = {
             name: 'Feature flag',
             icon: <IconToggle />,
             href: (ref: string) => urls.featureFlag(ref),
-            iconColor: ['var(--product-feature-flags-light)'],
+            iconColor: ['var(--color-product-feature-flags-light)'],
             filterKey: 'feature_flag',
         },
     },

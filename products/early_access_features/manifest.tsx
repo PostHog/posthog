@@ -37,7 +37,10 @@ export const manifest: ProductManifest = {
             name: 'Early access feature',
             icon: <IconRocket />,
             href: (ref: string) => urls.earlyAccessFeature(ref),
-            iconColor: ['var(--product-early-access-features-light)', 'var(--product-early-access-features-dark)'],
+            iconColor: [
+                'var(--color-product-early-access-features-light)',
+                'var(--color-product-early-access-features-dark)',
+            ],
             filterKey: 'early_access_feature',
         },
     },

@@ -33,7 +33,7 @@ export function ConversationMessagesDisplay({
     const outputNormalized = normalizeMessages(output, 'assistant')
 
     const outputDisplay = raisedError ? (
-        <div className="flex items-center gap-1.5 rounded border text-default p-2 font-medium bg-[var(--bg-fill-error-tertiary)] border-danger overflow-x-auto">
+        <div className="flex items-center gap-1.5 rounded border text-default p-2 font-medium bg-[var(--color-bg-fill-error-tertiary)] border-danger overflow-x-auto">
             <IconExclamation className="text-base" />
             {isObject(output) ? (
                 <JSONViewer src={output} collapsed={4} />
@@ -57,7 +57,7 @@ export function ConversationMessagesDisplay({
     ) : outputNormalized.length > 0 ? (
         outputNormalized.map((message, i) => <LLMMessageDisplay key={i} message={message} isOutput />)
     ) : (
-        <div className="rounded border text-default p-2 italic bg-[var(--bg-fill-error-tertiary)]">No output</div>
+        <div className="rounded border text-default p-2 italic bg-[var(--color-bg-fill-error-tertiary)]">No output</div>
     )
 
     return (
@@ -73,7 +73,7 @@ export function ConversationMessagesDisplay({
                         </React.Fragment>
                     ))
                 ) : (
-                    <div className="rounded border text-default p-2 italic bg-[var(--bg-fill-error-tertiary)]">
+                    <div className="rounded border text-default p-2 italic bg-[var(--color-bg-fill-error-tertiary)]">
                         No input
                     </div>
                 )
@@ -198,11 +198,11 @@ export const LLMMessageDisplay = React.memo(
                 className={clsx(
                     'rounded border text-default',
                     isOutput
-                        ? 'bg-[var(--bg-fill-success-tertiary)] not-last:mb-2'
+                        ? 'bg-[var(--color-bg-fill-success-tertiary)] not-last:mb-2'
                         : role === 'user'
-                        ? 'bg-[var(--bg-fill-tertiary)]'
+                        ? 'bg-[var(--color-bg-fill-tertiary)]'
                         : role === 'assistant'
-                        ? 'bg-[var(--bg-fill-info-tertiary)]'
+                        ? 'bg-[var(--color-bg-fill-info-tertiary)]'
                         : null
                 )}
             >

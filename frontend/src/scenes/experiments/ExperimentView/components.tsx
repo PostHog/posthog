@@ -759,7 +759,7 @@ export function MetricDisplayFunnels({ query }: { query: FunnelsQuery }): JSX.El
                         <div
                             className="shrink-0 w-6 h-6 mr-2 font-bold text-center text-primary-alt border rounded"
                             // eslint-disable-next-line react/forbid-dom-props
-                            style={{ backgroundColor: 'var(--bg-table)' }}
+                            style={{ backgroundColor: 'var(--color-bg-table)' }}
                         >
                             {idx + 1}
                         </div>

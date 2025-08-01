@@ -156,7 +156,7 @@ export function LemonTable<T extends Record<string, any>>({
                 )
             }
         },
-        [location, searchParams, hashParams, push]
+        [location, searchParams, hashParams, push, useURLForSorting, onSort, currentSortingParam]
     )
 
     const columnGroups = (
@@ -199,7 +199,7 @@ export function LemonTable<T extends Record<string, any>>({
             }
         }
         return dataSource
-    }, [dataSource, currentSorting])
+    }, [dataSource, currentSorting, columns])
 
     const paginationState = usePagination(sortedDataSource, pagination, id)
 
@@ -418,7 +418,7 @@ export function LemonTable<T extends Record<string, any>>({
                                             : rowClassName
                                     const rowRibbonColorDetermined =
                                         typeof rowRibbonColor === 'function'
-                                            ? rowRibbonColor(record, rowIndex) || 'var(--border-primary)'
+                                            ? rowRibbonColor(record, rowIndex) || 'var(--color-border-primary)'
                                             : rowRibbonColor
                                     const rowStatusDetermined =
                                         typeof rowStatus === 'function' ? rowStatus(record, rowIndex) : rowStatus

@@ -63,7 +63,7 @@ $glyph_height: 23px; // Based on .funnel-step-glyph
                 left: 0;
                 box-sizing: border-box;
                 width: calc(#{$series_container_width} / 2 + 1px);
-                border-right: 2px solid var(--border-primary);
+                border-right: 2px solid var(--color-border-primary);
                 opacity: 0.5;
 
                 &.before {
@@ -115,13 +115,13 @@ $glyph_height: 23px; // Based on .funnel-step-glyph
         flex-direction: row;
         height: 32px;
         margin: 4px 0;
-        background-color: var(--border-primary);
+        background-color: var(--color-border-primary);
         border-radius: var(--radius);
 
         .funnel-bar {
             position: relative;
             height: 100%;
-            background: var(--accent);
+            background: var(--color-accent);
             transition: width 0.2s ease, height 0.2s ease;
 
             &.first {

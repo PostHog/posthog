@@ -20,7 +20,7 @@
         > tbody {
             > tr {
                 &:first-child {
-                    border-bottom: 1px solid var(--border-primary);
+                    border-bottom: 1px solid var(--color-border-primary);
 
                     > td {
                         padding-top: var(--bar-padding-top);
@@ -43,10 +43,10 @@
     align-items: flex-end;
     height: calc(var(--bar-row-height) - var(--bar-padding-top) - var(--bar-padding-bottom));
     padding: 0 1rem;
-    border-bottom: 1px solid var(--border-primary);
+    border-bottom: 1px solid var(--color-border-primary);
 
     &:not(.StepBars--first) {
-        border-left: 1px dashed var(--border-primary);
+        border-left: 1px dashed var(--color-border-primary);
     }
 }
 
@@ -65,7 +65,7 @@
     flex-grow: 1;
 
     &.StepBars__gridline--horizontal {
-        border-top: 1px dashed var(--border-primary);
+        border-top: 1px dashed var(--color-border-primary);
     }
 }
 
@@ -165,14 +165,14 @@
 .StepBarLabels__label {
     font-size: 0.75rem;
     font-weight: 500;
-    color: var(--text-secondary);
+    color: var(--color-text-secondary);
     transform: translateY(-50%);
 }
 
 .StepLegend {
     height: 100%;
     white-space: nowrap;
-    border-left: 1px solid var(--border-primary);
+    border-left: 1px solid var(--color-border-primary);
 
     > .LemonRow {
         min-height: 1.5rem;

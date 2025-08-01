@@ -1,6 +1,6 @@
 @mixin secondary-variables {
     --button-border-color: var(--secondary-3000-button-border);
-    --lemon-button-bg-color-active: var(--bg-surface-primary);
+    --lemon-button-bg-color-active: var(--color-bg-surface-primary);
     --lemon-button-border-color-hover: var(--secondary-3000-button-border-hover);
     --lemon-button-frame-bg-color: var(--secondary-3000-frame-bg);
 }
@@ -245,7 +245,7 @@
     }
 
     &.LemonButton--secondary.LemonButton--status-alt {
-        --lemon-button-color: var(--text-secondary);
+        --lemon-button-color: var(--color-text-secondary);
 
         &.LemonButton--active,
         &:hover:not([aria-disabled='true']) {
@@ -348,12 +348,12 @@
     &.LemonButton--tertiary {
         &:not([aria-disabled='true']):hover,
         &[data-focused='true']:not([aria-disabled='true']):focus-visible {
-            background-color: var(--bg-fill-button-tertiary-hover);
+            background-color: var(--color-bg-fill-button-tertiary-hover);
         }
 
         &.LemonButton--active,
         &[aria-expanded='true'] {
-            background-color: var(--bg-fill-button-tertiary-active);
+            background-color: var(--color-bg-fill-button-tertiary-active);
 
             // When inside a LemonButtonWithSideAction, we don't want the side button to have a background color (until hovered)
             // This is because we changed the background color for tertiary to be based on a background color with opacity
@@ -378,7 +378,7 @@
 .LemonBanner--warning .LemonButton,
 .LemonBanner--success .LemonButton,
 .LemonBanner--error .LemonButton {
-    --lemon-button-bg-color: var(--bg-surface-primary);
+    --lemon-button-bg-color: var(--color-bg-surface-primary);
 }
 
 .LemonButtonWithSideAction {
@@ -404,7 +404,7 @@
                 var(--lemon-button-padding-right, var(--lemon-button-padding-horizontal))
         );
         height: calc(var(--lemon-button-height) - 1.0625rem);
-        color: var(--text-secondary);
+        color: var(--color-text-secondary);
 
         &--divider {
             padding: 0;

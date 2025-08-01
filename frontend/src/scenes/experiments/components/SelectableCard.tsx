@@ -49,7 +49,7 @@ export function SelectableCard({
         >
             <div className="font-semibold flex justify-between items-center">
                 <span>{title}</span>
-                {selected && <IconCheckCircle fontSize={18} color="var(--accent)" />}
+                {selected && <IconCheckCircle fontSize={18} color="var(--color-accent)" />}
             </div>
             <div className="text-secondary text-sm leading-relaxed mt-1">{description}</div>
         </div>

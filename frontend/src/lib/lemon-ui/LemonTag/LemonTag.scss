@@ -28,7 +28,7 @@
         line-height: 1rem;
         color: var(--primary-alt);
         vertical-align: bottom;
-        background-color: var(--accent-highlight-secondary);
+        background-color: var(--color-accent-highlight-secondary);
         border-width: 0;
         border-radius: 9999px;
     }
@@ -44,20 +44,20 @@
     }
 
     &.LemonTag--primary {
-        color: var(--accent);
+        color: var(--color-accent);
         background: none;
-        border-color: var(--accent);
+        border-color: var(--color-accent);
     }
 
     &.LemonTag--option {
-        color: var(--accent);
-        background-color: var(--bg-surface-primary);
+        color: var(--color-accent);
+        background-color: var(--color-bg-surface-primary);
     }
 
     &.LemonTag--highlight {
-        color: var(--accent);
+        color: var(--color-accent);
         background: none;
-        border-color: var(--accent);
+        border-color: var(--color-accent);
     }
 
     &.LemonTag--warning {
@@ -66,7 +66,7 @@
         border-color: var(--warning);
 
         [theme='dark'] & {
-            background-color: var(--bg-surface-primary);
+            background-color: var(--color-bg-surface-primary);
         }
     }
 
@@ -95,8 +95,8 @@
     }
 
     &.LemonTag--muted {
-        color: var(--text-secondary);
-        background-color: var(--bg-surface-primary);
+        color: var(--color-text-secondary);
+        background-color: var(--color-bg-surface-primary);
     }
 
     &.LemonTag--none {
