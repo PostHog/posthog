@@ -12,7 +12,6 @@ import temporalio.common
 import temporalio.workflow
 from django.conf import settings
 
-from asgiref.sync import sync_to_async
 
 from posthog.models.subscription import Subscription
 from posthog.temporal.common.base import PostHogWorkflow
@@ -45,7 +44,7 @@ async def fetch_due_subscriptions_activity(inputs: FetchDueSubscriptionsActivity
     logger = get_internal_logger()
     now_with_buffer = dt.datetime.utcnow() + dt.timedelta(minutes=inputs.buffer_minutes)
 
-    @sync_to_async
+    @database_sync_to_async
     def get_subscription_ids() -> list[Subscription]:
         return list(
             Subscription.objects.filter(next_delivery_date__lte=now_with_buffer, deleted=False)
