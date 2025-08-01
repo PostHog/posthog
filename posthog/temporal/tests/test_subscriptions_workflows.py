@@ -135,7 +135,7 @@ async def test_subscription_delivery_scheduling(
 
     # Each subscription has 2 recipients -> 4 emails expected (only first two subs)
     assert mock_send_email.call_count == 4
-    delivered_sub_ids = {args[0][1].id for args in mock_send_email.call_args_list[::2]}
+    delivered_sub_ids = {args[0][1].id for args in mock_send_email.call_args_list}
     assert delivered_sub_ids == {subscriptions[0].id, subscriptions[1].id}
 
 
