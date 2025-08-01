@@ -506,7 +506,7 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         ]
 
         for prop_name in optimized_props:
-            prop, created = PropertyDefinition.objects.get_or_create(
+            prop, _ = PropertyDefinition.objects.get_or_create(
                 team=self.team,
                 name=prop_name,
                 defaults={
@@ -519,22 +519,20 @@ class TestPropertyDefinitionAPI(APIBaseTest):
             is_optimized = serializer.get_is_optimized(prop)
             self.assertTrue(is_optimized, f"Property {prop_name} should be detected as optimized")
 
-            if created:
-                prop.delete()  # Only clean up if we created it
+            prop.delete()
 
         # Test non-optimized properties
         non_optimized_props = ["custom_prop", "another_prop", "$some_other_prop"]
 
         for prop_name in non_optimized_props:
-            prop, created = PropertyDefinition.objects.get_or_create(
+            prop, _ = PropertyDefinition.objects.get_or_create(
                 team=self.team, name=prop_name, defaults={"type": PropertyDefinition.Type.EVENT}
             )
 
             is_optimized = serializer.get_is_optimized(prop)
             self.assertFalse(is_optimized, f"Property {prop_name} should not be detected as optimized")
 
-            if created:
-                prop.delete()  # Only clean up if we created it
+            prop.delete()
 
     def test_optimized_hints_parameter_controls_sorting(self):
         """Test that enable_optimized_hints parameter controls whether optimized properties are sorted first"""
@@ -565,7 +563,6 @@ class TestPropertyDefinitionAPI(APIBaseTest):
                     non_optimized_index = i
             return optimized_index, non_optimized_index
 
-        default_optimized, default_non_optimized = find_property_indices(results_default)
         optimized_optimized, optimized_non_optimized = find_property_indices(results_optimized)
 
         # With enable_optimized_hints=true, optimized properties should come first

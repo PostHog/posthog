@@ -34,7 +34,6 @@ import { groupDisplayId } from 'scenes/persons/GroupActorDisplay'
 import { projectLogic } from 'scenes/projectLogic'
 import { ReplayTaxonomicFilters } from 'scenes/session-recordings/filters/ReplayTaxonomicFilters'
 import { teamLogic } from 'scenes/teamLogic'
-import { OPITIMIZED_PROPERTIES_BY_GROUP } from 'scenes/web-analytics/WebPropertyFilters'
 
 import { actionsModel } from '~/models/actionsModel'
 import { dashboardsModel } from '~/models/dashboardsModel'
@@ -680,7 +679,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                                           name: property,
                                           value: property,
                                           is_optimized: enableOptimizedHints
-                                              ? OPITIMIZED_PROPERTIES_BY_GROUP[
+                                              ? OPTIMIZED_PROPERTIES_BY_GROUP[
                                                     TaxonomicFilterGroupType.SessionProperties
                                                 ].includes(property)
                                               : false,

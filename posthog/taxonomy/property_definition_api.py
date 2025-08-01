@@ -334,8 +334,7 @@ class QueryContext:
 
         optimized_ordering = ""
         if self.enable_optimized_hints:
-            optimized_properties_list = list(OPTIMIZED_PROPERTIES)
-            self.params.update({"optimized_properties": optimized_properties_list})
+            self.params.update({"optimized_properties": OPTIMIZED_PROPERTIES})
             optimized_ordering = (
                 "CASE WHEN posthog_propertydefinition.name = ANY(%(optimized_properties)s) THEN 0 ELSE 1 END,"
             )
