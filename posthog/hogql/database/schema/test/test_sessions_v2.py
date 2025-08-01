@@ -744,11 +744,11 @@ class TestGetLazySessionProperties(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(
             results[0],
             {
-                "id": "$autocapture_count",
-                "is_numerical": True,
+                "id": "$start_timestamp",
+                "is_numerical": False,
                 "is_seen_on_filtered_events": None,
-                "name": "$autocapture_count",
-                "property_type": PropertyType.Numeric,
+                "name": "$start_timestamp",
+                "property_type": PropertyType.Datetime,
                 "tags": [],
                 "supported_by_preaggregated_tables": False,
             },
@@ -760,19 +760,19 @@ class TestGetLazySessionProperties(ClickhouseTestMixin, APIBaseTest):
             results,
             [
                 {
-                    "id": "$entry_gad_source",
+                    "id": "$entry_utm_source",
                     "is_numerical": False,
                     "is_seen_on_filtered_events": None,
-                    "name": "$entry_gad_source",
+                    "name": "$entry_utm_source",
                     "property_type": PropertyType.String,
                     "tags": [],
                     "supported_by_preaggregated_tables": False,
                 },
                 {
-                    "id": "$entry_utm_source",
+                    "id": "$entry_gad_source",
                     "is_numerical": False,
                     "is_seen_on_filtered_events": None,
-                    "name": "$entry_utm_source",
+                    "name": "$entry_gad_source",
                     "property_type": PropertyType.String,
                     "tags": [],
                     "supported_by_preaggregated_tables": False,
@@ -784,7 +784,7 @@ class TestGetLazySessionProperties(ClickhouseTestMixin, APIBaseTest):
         results = get_lazy_session_table_properties_v2("entry utm")
         self.assertEqual(
             [result["name"] for result in results],
-            ["$entry_utm_campaign", "$entry_utm_content", "$entry_utm_medium", "$entry_utm_source", "$entry_utm_term"],
+            ["$entry_utm_source", "$entry_utm_campaign", "$entry_utm_medium", "$entry_utm_term", "$entry_utm_content"],
         )
 
     def test_can_get_values_for_all(self):
