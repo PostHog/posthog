@@ -81,11 +81,14 @@ function TraceSceneWrapper(): JSX.Element {
                 <NotFound object="trace" />
             ) : (
                 <div className="relative deprecated-space-y-4 flex flex-col">
-                    <TraceMetadata
-                        trace={trace}
-                        metricEvents={metricEvents as LLMTraceEvent[]}
-                        feedbackEvents={feedbackEvents as LLMTraceEvent[]}
-                    />
+                    <div className="flex items-start justify-between">
+                        <TraceMetadata
+                            trace={trace}
+                            metricEvents={metricEvents as LLMTraceEvent[]}
+                            feedbackEvents={feedbackEvents as LLMTraceEvent[]}
+                        />
+                        <DisplayOptionsButton />
+                    </div>
                     <div className="flex flex-1 min-h-0 gap-4 flex-col md:flex-row">
                         <TraceSidebar trace={trace} eventId={eventId} tree={enrichedTree} />
                         <EventContent event={event} tree={enrichedTree} />
@@ -434,7 +437,6 @@ function findNodeForEvent(tree: EnrichedTraceTreeNode[], eventId: string): Enric
 const EventContent = React.memo(
     ({ event, tree }: { event: LLMTrace | LLMTraceEvent | null; tree: EnrichedTraceTreeNode[] }): JSX.Element => {
         const { setupPlaygroundFromEvent } = useActions(llmObservabilityPlaygroundLogic)
-        const { showDisplayOptionsModal } = useActions(llmObservabilityTraceLogic)
         const { featureFlags } = useValues(featureFlagLogic)
         const [viewMode, setViewMode] = useState<'conversation' | 'raw'>('conversation')
 
@@ -517,9 +519,7 @@ const EventContent = React.memo(
                                     )}
                                 </div>
                             )}
-                            {(showPlaygroundButton ||
-                                hasSessionID(event) ||
-                                (event && isLLMTraceEvent(event) && event.event === '$ai_generation')) && (
+                            {(showPlaygroundButton || hasSessionID(event)) && (
                                 <div className="flex flex-row items-center gap-2">
                                     {showPlaygroundButton && (
                                         <LemonButton
@@ -530,17 +530,6 @@ const EventContent = React.memo(
                                             tooltip="Try this prompt in the playground"
                                         >
                                             Try in Playground
-                                        </LemonButton>
-                                    )}
-                                    {event && isLLMTraceEvent(event) && event.event === '$ai_generation' && (
-                                        <LemonButton
-                                            type="secondary"
-                                            size="xsmall"
-                                            icon={<IconGear />}
-                                            onClick={showDisplayOptionsModal}
-                                            tooltip="Configure how messages are displayed"
-                                        >
-                                            Display Options
                                         </LemonButton>
                                     )}
                                     {hasSessionID(event) && (
@@ -634,6 +623,22 @@ function EventTypeTag({ event, size }: { event: LLMTrace | LLMTraceEvent; size?:
         >
             {eventType}
         </LemonTag>
+    )
+}
+
+function DisplayOptionsButton(): JSX.Element {
+    const { showDisplayOptionsModal } = useActions(llmObservabilityTraceLogic)
+
+    return (
+        <LemonButton
+            type="secondary"
+            size="small"
+            icon={<IconGear />}
+            onClick={showDisplayOptionsModal}
+            tooltip="Configure how generation conversation messages are displayed"
+        >
+            Display Options
+        </LemonButton>
     )
 }
 

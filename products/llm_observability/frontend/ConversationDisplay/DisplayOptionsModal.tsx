@@ -31,7 +31,9 @@ export function DisplayOptionsModal(): JSX.Element {
             }
         >
             <div className="space-y-4">
-                <p className="text-muted">Choose how conversation messages should be displayed by default:</p>
+                <p className="text-muted">
+                    Choose how generation conversation messages should be displayed by default:
+                </p>
                 <LemonRadio value={displayOption} onChange={setDisplayOption} options={displayOptions} />
             </div>
         </LemonModal>
