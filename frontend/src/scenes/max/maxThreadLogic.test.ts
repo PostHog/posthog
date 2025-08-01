@@ -5,6 +5,7 @@ import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePane
 import { useMocks } from '~/mocks/jest'
 import { AssistantMessageType } from '~/queries/schema/schema-assistant-messages'
 import { ConversationDetail, ConversationStatus } from '~/types'
+import { NotebookTarget } from 'scenes/notebooks/types'
 import { initKeaTests } from '~/test/init'
 
 import { maxContextLogic } from './maxContextLogic'
@@ -18,6 +19,28 @@ import {
     MOCK_TEMP_CONVERSATION_ID,
     mockStream,
 } from './testUtils'
+
+// Mock the global dependencies
+const mockOpenNotebook = jest.fn()
+const mockNotebookLogicFindMounted = jest.fn()
+const mockRouter = {
+    values: {
+        location: {
+            pathname: '/test',
+        },
+    },
+}
+const mockUrls = {
+    notebook: (id: string) => `/notebooks/${id}`,
+}
+
+// Mock global objects that maxThreadLogic uses
+;(global as any).openNotebook = mockOpenNotebook
+;(global as any).notebookLogic = {
+    findMounted: mockNotebookLogicFindMounted,
+}
+;(global as any).router = mockRouter
+;(global as any).urls = mockUrls
 
 describe('maxThreadLogic', () => {
     let logic: ReturnType<typeof maxThreadLogic.build>
@@ -645,6 +668,136 @@ describe('maxThreadLogic', () => {
                     },
                 ],
             })
+        })
+    })
+
+    describe('processNotebookUpdate', () => {
+        let consoleErrorSpy: jest.SpyInstance
+
+        beforeEach(() => {
+            // Reset all mocks
+            jest.clearAllMocks()
+            // Mock console.error to capture error logs
+            consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {})
+        })
+
+        afterEach(() => {
+            consoleErrorSpy.mockRestore()
+        })
+
+        it('navigates to notebook when not already on notebook page', async () => {
+            mockRouter.values.location.pathname = '/max/123'
+
+            const mockLogicInstance = {
+                actions: {
+                    setLocalContent: jest.fn(),
+                },
+            }
+
+            mockOpenNotebook.mockImplementation(async (notebookId, target, autofocus, onOpen) => {
+                // Call the onOpen callback with mock logic
+                if (onOpen) {
+                    onOpen(mockLogicInstance)
+                }
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.processNotebookUpdate({
+                    notebookId: 'test-notebook-id',
+                    notebookContent: 'test content',
+                })
+            }).toDispatchActions(['processNotebookUpdate'])
+
+            expect(mockOpenNotebook).toHaveBeenCalledWith(
+                'test-notebook-id',
+                NotebookTarget.Scene,
+                undefined,
+                expect.any(Function)
+            )
+            expect(mockLogicInstance.actions.setLocalContent).toHaveBeenCalledWith('test content', true)
+        })
+
+        it('updates existing notebook when already on notebook page', async () => {
+            const notebookId = 'test-notebook-id'
+            mockRouter.values.location.pathname = `/notebooks/${notebookId}`
+
+            const mockLogicInstance = {
+                actions: {
+                    setLocalContent: jest.fn(),
+                },
+            }
+
+            mockNotebookLogicFindMounted.mockReturnValue(mockLogicInstance)
+
+            await expectLogic(logic, () => {
+                logic.actions.processNotebookUpdate({
+                    notebookId,
+                    notebookContent: 'updated content',
+                })
+            }).toDispatchActions(['processNotebookUpdate'])
+
+            expect(mockNotebookLogicFindMounted).toHaveBeenCalledWith({ shortId: notebookId })
+            expect(mockLogicInstance.actions.setLocalContent).toHaveBeenCalledWith('updated content', true)
+            expect(mockOpenNotebook).not.toHaveBeenCalled()
+        })
+
+        it('handles gracefully when notebook logic is not mounted on notebook page', async () => {
+            const notebookId = 'test-notebook-id'
+            mockRouter.values.location.pathname = `/notebooks/${notebookId}`
+
+            // Simulate notebook not found by returning null
+            mockNotebookLogicFindMounted.mockReturnValue(null)
+
+            await expectLogic(logic, () => {
+                logic.actions.processNotebookUpdate({
+                    notebookId,
+                    notebookContent: 'updated content',
+                })
+            }).toDispatchActions(['processNotebookUpdate'])
+
+            expect(mockNotebookLogicFindMounted).toHaveBeenCalledWith({ shortId: notebookId })
+            expect(mockOpenNotebook).not.toHaveBeenCalled()
+            expect(consoleErrorSpy).not.toHaveBeenCalled()
+        })
+
+        it('logs error when openNotebook fails with 404', async () => {
+            mockRouter.values.location.pathname = '/max/123'
+
+            const notFoundError = new Error('Notebook not found')
+            ;(notFoundError as any).status = 404
+            mockOpenNotebook.mockRejectedValue(notFoundError)
+
+            await expectLogic(logic, () => {
+                logic.actions.processNotebookUpdate({
+                    notebookId: 'non-existent-notebook',
+                    notebookContent: 'test content',
+                })
+            }).toDispatchActions(['processNotebookUpdate'])
+
+            expect(mockOpenNotebook).toHaveBeenCalledWith(
+                'non-existent-notebook',
+                NotebookTarget.Scene,
+                undefined,
+                expect.any(Function)
+            )
+            expect(consoleErrorSpy).toHaveBeenCalledWith('Failed to navigate to notebook:', notFoundError)
+        })
+
+        it('logs error when openNotebook fails with permission denied', async () => {
+            mockRouter.values.location.pathname = '/max/123'
+
+            const permissionError = new Error('Permission denied')
+            ;(permissionError as any).status = 403
+            mockOpenNotebook.mockRejectedValue(permissionError)
+
+            await expectLogic(logic, () => {
+                logic.actions.processNotebookUpdate({
+                    notebookId: 'restricted-notebook',
+                    notebookContent: 'test content',
+                })
+            }).toDispatchActions(['processNotebookUpdate'])
+
+            expect(consoleErrorSpy).toHaveBeenCalledWith('Failed to navigate to notebook:', permissionError)
         })
     })
 

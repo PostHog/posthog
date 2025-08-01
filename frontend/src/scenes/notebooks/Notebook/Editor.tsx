@@ -3,6 +3,8 @@ import { FloatingMenu } from '@tiptap/extension-floating-menu'
 import ExtensionPlaceholder from '@tiptap/extension-placeholder'
 import TaskItem from '@tiptap/extension-task-item'
 import TaskList from '@tiptap/extension-task-list'
+import Underline from '@tiptap/extension-underline'
+import Link from '@tiptap/extension-link'
 import StarterKit from '@tiptap/starter-kit'
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { sampleOne, uuid } from 'lib/utils'
@@ -107,6 +109,8 @@ export function Editor(): JSX.Element {
                         resetSuggestions()
                     },
                 }),
+                Underline,
+                Link,
                 DropAndPasteHandlerExtension,
                 TaskList,
                 TaskItem.configure({ nested: true }),
