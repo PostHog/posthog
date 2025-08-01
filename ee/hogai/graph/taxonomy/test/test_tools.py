@@ -91,7 +91,7 @@ class TestCreateFinalAnswerModel(BaseTest):
 
         final_answer_model = create_final_answer_model(TestResponseModel)
 
-        self.assertIn("finalize the filter options answer", final_answer_model.__doc__)
+        self.assertIn("Use this tool to finalize the answer.", final_answer_model.__doc__)
         self.assertIn("ask_user_for_help", final_answer_model.__doc__)
 
     def test_create_final_answer_model_field_description(self):
