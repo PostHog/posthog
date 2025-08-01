@@ -308,6 +308,16 @@ impl KafkaSink {
                         "Event rejected by kafka during send".to_string(),
                     ))
                 }
+                Some(RDKafkaErrorCode::QueueFull) => {
+                    // Don't make this retryable - it causes retry death spirals
+                    report_dropped_events("kafka_queue_full", 1);
+                    error!(
+                        "Kafka producer queue full - dropping event to prevent retry storm: {}",
+                        e
+                    );
+                    // Return NonRetryableSinkError to avoid HTTP 503 and client retries
+                    Err(CaptureError::NonRetryableSinkError)
+                }
                 _ => {
                     // TODO(maybe someday): Don't drop them but write them somewhere and try again
                     report_dropped_events("kafka_write_error", 1);
