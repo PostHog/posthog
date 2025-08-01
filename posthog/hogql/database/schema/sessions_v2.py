@@ -32,7 +32,9 @@ from posthog.models.raw_sessions.sql import (
 )
 from posthog.queries.insight import insight_sync_execute
 from posthog.schema import BounceRatePageViewMode, CustomChannelRule, SessionsV2JoinMode
-from posthog.hogql_queries.web_analytics.pre_aggregated.properties import get_all_optimized_properties
+from posthog.hogql_queries.web_analytics.pre_aggregated.properties import (
+    get_all_preaggregated_table_supported_properties,
+)
 
 if TYPE_CHECKING:
     from posthog.models.team import Team
@@ -505,8 +507,8 @@ def join_events_table_to_sessions_table_v2(
     return join_expr
 
 
-def get_lazy_session_table_properties_v2(search: Optional[str], enable_optimized_hints: bool = False):
-    optimized_properties = get_all_optimized_properties()
+def get_lazy_session_table_properties_v2(search: Optional[str], enable_preaggregated_table_hints: bool = False):
+    preaggregated_table_supported_properties = get_all_preaggregated_table_supported_properties()
 
     # some fields shouldn't appear as properties
     hidden_fields = {
@@ -560,13 +562,14 @@ def get_lazy_session_table_properties_v2(search: Optional[str], enable_optimized
             "property_type": get_property_type(field_name, field_definition),
             "is_seen_on_filtered_events": None,
             "tags": [],
-            "supported_by_preaggregated_tables": enable_optimized_hints and field_name in optimized_properties,
+            "supported_by_preaggregated_tables": enable_preaggregated_table_hints
+            and field_name in preaggregated_table_supported_properties,
         }
         for field_name, field_definition in LAZY_SESSIONS_FIELDS.items()
         if is_match(field_name)
     ]
 
-    if enable_optimized_hints:
+    if enable_preaggregated_table_hints:
         results.sort(key=lambda x: (not x["supported_by_preaggregated_tables"], x["name"]))
     else:
         results.sort(key=lambda x: x["name"])

@@ -50,7 +50,7 @@ export interface PropertyFiltersProps {
     exactMatchFeatureFlagCohortOperators?: boolean
     hideBehavioralCohorts?: boolean
     addFilterDocLink?: string
-    enableOptimizedHints?: boolean
+    enablePreaggregatedTableHints?: boolean
 }
 
 export function PropertyFilters({
@@ -84,7 +84,7 @@ export function PropertyFilters({
     exactMatchFeatureFlagCohortOperators = false,
     hideBehavioralCohorts,
     addFilterDocLink,
-    enableOptimizedHints = false,
+    enablePreaggregatedTableHints = false,
 }: PropertyFiltersProps): JSX.Element {
     const logicProps = { propertyFilters, onChange, pageKey, sendAllKeyUpdates }
     const { filters, filtersWithNew } = useValues(propertyFilterLogic(logicProps))
@@ -153,7 +153,7 @@ export function PropertyFilters({
                                             size={buttonSize}
                                             addFilterDocLink={addFilterDocLink}
                                             editable={editable}
-                                            enableOptimizedHints={enableOptimizedHints}
+                                            enablePreaggregatedTableHints={enablePreaggregatedTableHints}
                                         />
                                     )}
                                     errorMessage={errorMessages && errorMessages[index]}

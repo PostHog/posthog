@@ -143,9 +143,9 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                         // TODO: remove this filter once we can support behavioral cohorts for feature flags, it's only
                         // used in the feature flag property filter UI
                         ...(props.hideBehavioralCohorts ? { hide_behavioral_cohorts: 'true' } : {}),
-                        ...(props.enableOptimizedHints
+                        ...(props.enablePreaggregatedTableHints
                             ? {
-                                  enable_optimized_hints: 'true',
+                                  enable_preaggregated_table_hints: 'true',
                               }
                             : {}),
                     }
@@ -262,9 +262,9 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
             () => [(_, props) => props.allowNonCapturedEvents],
             (allowNonCapturedEvents: boolean | undefined) => allowNonCapturedEvents ?? false,
         ],
-        enableOptimizedHints: [
-            () => [(_, props) => props.enableOptimizedHints],
-            (enableOptimizedHints: boolean | undefined) => enableOptimizedHints ?? false,
+        enablePreaggregatedTableHints: [
+            () => [(_, props) => props.enablePreaggregatedTableHints],
+            (enablePreaggregatedTableHints: boolean | undefined) => enablePreaggregatedTableHints ?? false,
         ],
         isLoading: [(s) => [s.remoteItemsLoading], (remoteItemsLoading) => remoteItemsLoading],
         group: [

@@ -89,12 +89,12 @@ SESSION_PROPERTY_TO_FIELD = {
 }
 
 
-def get_all_optimized_properties() -> set[str]:
+def get_all_preaggregated_table_supported_properties() -> set[str]:
     """
-    Returns a set of all optimized property names from the web analytics module.
+    Returns a set of all property names supported by preaggregated tables from the web analytics module
+    for faster queries.
 
-    This function combines all the property sets that are considered optimized
-    for web analytics queries.
+    This is used to determine which properties should be shown with a "optimized for new query engine" badge in the UI.
     """
     return set().union(
         BASE_SUPPORTED_PROPERTIES.keys(),

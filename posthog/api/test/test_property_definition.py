@@ -446,7 +446,7 @@ class TestPropertyDefinitionAPI(APIBaseTest):
 
         # Test session properties
         response = self.client.get(
-            f"/api/projects/{self.team.pk}/property_definitions/?type=session&enable_optimized_hints=true"
+            f"/api/projects/{self.team.pk}/property_definitions/?type=session&enable_preaggregated_table_hints=true"
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -468,7 +468,7 @@ class TestPropertyDefinitionAPI(APIBaseTest):
 
         # Test event properties
         response = self.client.get(
-            f"/api/projects/{self.team.pk}/property_definitions/?type=event&enable_optimized_hints=true"
+            f"/api/projects/{self.team.pk}/property_definitions/?type=event&enable_preaggregated_table_hints=true"
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -548,19 +548,19 @@ class TestPropertyDefinitionAPI(APIBaseTest):
             prop.delete()
 
     def test_optimized_hints_parameter_controls_sorting(self):
-        """Test that enable_optimized_hints parameter controls whether optimized properties are sorted first"""
+        """Test that enable_preaggregated_table_hints parameter controls whether optimized properties are sorted first"""
         # Create some optimized and non-optimized properties
         PropertyDefinition.objects.create(team=self.team, name="$host", type=PropertyDefinition.Type.EVENT)
         PropertyDefinition.objects.create(team=self.team, name="custom_prop", type=PropertyDefinition.Type.EVENT)
 
-        # Test without enable_optimized_hints parameter (default behavior)
+        # Test without enable_preaggregated_table_hints parameter (default behavior)
         response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?type=event")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         results_default = response.json()["results"]
 
-        # Test with enable_optimized_hints=true
+        # Test with enable_preaggregated_table_hints=true
         response = self.client.get(
-            f"/api/projects/{self.team.pk}/property_definitions/?type=event&enable_optimized_hints=true"
+            f"/api/projects/{self.team.pk}/property_definitions/?type=event&enable_preaggregated_table_hints=true"
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         results_optimized = response.json()["results"]
@@ -578,12 +578,12 @@ class TestPropertyDefinitionAPI(APIBaseTest):
 
         optimized_optimized, optimized_non_optimized = find_property_indices(results_optimized)
 
-        # With enable_optimized_hints=true, optimized properties should come first
+        # With enable_preaggregated_table_hints=true, optimized properties should come first
         if optimized_optimized is not None and optimized_non_optimized is not None:
             self.assertLess(
                 optimized_optimized,
                 optimized_non_optimized,
-                "With enable_optimized_hints=true, optimized properties should be sorted first",
+                "With enable_preaggregated_table_hints=true, optimized properties should be sorted first",
             )
 
         # Verify that both properties have correct supported_by_preaggregated_tables values

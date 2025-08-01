@@ -46,10 +46,12 @@ class EnterprisePropertyDefinitionSerializer(TaggedItemSerializerMixin, serializ
 
     def get_supported_by_preaggregated_tables(self, obj):
         # Import locally to avoid potential circular imports between ee.api and hogql_queries
-        from posthog.hogql_queries.web_analytics.pre_aggregated.properties import get_all_optimized_properties
+        from posthog.hogql_queries.web_analytics.pre_aggregated.properties import (
+            get_all_preaggregated_table_supported_properties,
+        )
 
-        optimized_properties = get_all_optimized_properties()
-        return obj.name in optimized_properties
+        preaggregated_table_supported_properties = get_all_preaggregated_table_supported_properties()
+        return obj.name in preaggregated_table_supported_properties
 
     def validate(self, data):
         validated_data = super().validate(data)

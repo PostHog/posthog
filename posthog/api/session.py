@@ -60,7 +60,7 @@ class SessionViewSet(
     @action(methods=["GET"], detail=False)
     def property_definitions(self, request: request.Request, **kwargs) -> response.Response:
         search = request.GET.get("search")
-        enable_optimized_hints = request.GET.get("enable_optimized_hints") == "true"
+        enable_preaggregated_table_hints = request.GET.get("enable_preaggregated_table_hints") == "true"
 
         # unlike e.g. event properties, there's a very limited number of session properties,
         # so we can just return them all
@@ -69,7 +69,7 @@ class SessionViewSet(
             modifiers.sessionTableVersion == SessionTableVersion.V2
             or modifiers.sessionTableVersion == SessionTableVersion.AUTO
         ):
-            results = get_lazy_session_table_properties_v2(search, enable_optimized_hints)
+            results = get_lazy_session_table_properties_v2(search, enable_preaggregated_table_hints)
         else:
             results = get_lazy_session_table_properties_v1(search)
         return response.Response(

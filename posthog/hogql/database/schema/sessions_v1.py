@@ -30,7 +30,9 @@ from posthog.models.sessions.sql import (
 )
 from posthog.queries.insight import insight_sync_execute
 from posthog.schema import BounceRatePageViewMode
-from posthog.hogql_queries.web_analytics.pre_aggregated.properties import get_all_optimized_properties
+from posthog.hogql_queries.web_analytics.pre_aggregated.properties import (
+    get_all_preaggregated_table_supported_properties,
+)
 
 if TYPE_CHECKING:
     from posthog.models.team import Team
@@ -409,7 +411,7 @@ def join_events_table_to_sessions_table(
 
 
 def get_lazy_session_table_properties_v1(search: Optional[str]):
-    optimized_properties = get_all_optimized_properties()
+    preaggregated_table_supported_properties = get_all_preaggregated_table_supported_properties()
 
     # some fields shouldn't appear as properties
     hidden_fields = {
@@ -460,7 +462,7 @@ def get_lazy_session_table_properties_v1(search: Optional[str]):
             "property_type": get_property_type(field_name, field_definition),
             "is_seen_on_filtered_events": None,
             "tags": [],
-            "supported_by_preaggregated_tables": field_name in optimized_properties,
+            "supported_by_preaggregated_tables": field_name in preaggregated_table_supported_properties,
         }
         for field_name, field_definition in LAZY_SESSIONS_FIELDS.items()
         if is_match(field_name)

@@ -24,9 +24,11 @@ from posthog.models import EventProperty, PropertyDefinition, User
 from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.models.utils import UUIDT
 from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP, PROPERTY_NAME_ALIASES
-from posthog.hogql_queries.web_analytics.pre_aggregated.properties import get_all_optimized_properties
+from posthog.hogql_queries.web_analytics.pre_aggregated.properties import (
+    get_all_preaggregated_table_supported_properties,
+)
 
-OPTIMIZED_PROPERTIES = get_all_optimized_properties()
+PREAGGREGATED_TABLE_SUPPORTED_PROPERTIES = get_all_preaggregated_table_supported_properties()
 
 # list of all event properties defined in the taxonomy, that don't start with $
 EXCLUDED_EVENT_CORE_PROPERTIES = [
@@ -99,8 +101,8 @@ class PropertyDefinitionQuerySerializer(serializers.Serializer):
         default=False,
     )
 
-    enable_optimized_hints = serializers.BooleanField(
-        help_text="Whether to enable optimized hints and sorting for properties that support faster queries",
+    enable_preaggregated_table_hints = serializers.BooleanField(
+        help_text="Whether to enable UI hints that the property is optimized for the new web analytics query engine for faster queries",
         required=False,
         default=False,
     )
@@ -154,8 +156,8 @@ class QueryContext:
 
     posthog_eventproperty_table_join_alias = "check_for_matching_event_property"
 
-    # optimized hints parameters
-    enable_optimized_hints: bool = False
+    # preaggregated table hints parameters
+    enable_preaggregated_table_hints: bool = False
 
     params: dict = dataclasses.field(default_factory=dict)
 
@@ -323,21 +325,19 @@ class QueryContext:
             )
         return self
 
-    def with_optimized_hints(self, enable_optimized_hints: bool) -> Self:
+    def with_preaggregated_table_hints(self, enable_preaggregated_table_hints: bool) -> Self:
         return dataclasses.replace(
             self,
-            enable_optimized_hints=enable_optimized_hints,
+            enable_preaggregated_table_hints=enable_preaggregated_table_hints,
         )
 
     def as_sql(self, order_by_verified: bool):
         verified_ordering = "verified DESC NULLS LAST," if order_by_verified else ""
 
-        optimized_ordering = ""
-        if self.enable_optimized_hints:
-            self.params.update({"optimized_properties": OPTIMIZED_PROPERTIES})
-            optimized_ordering = (
-                "CASE WHEN posthog_propertydefinition.name = ANY(%(optimized_properties)s) THEN 0 ELSE 1 END,"
-            )
+        preaggregated_table_ordering = ""
+        if self.enable_preaggregated_table_hints:
+            self.params.update({"preaggregated_table_supported_properties": PREAGGREGATED_TABLE_SUPPORTED_PROPERTIES})
+            preaggregated_table_ordering = "CASE WHEN posthog_propertydefinition.name = ANY(%(preaggregated_table_supported_properties)s) THEN 0 ELSE 1 END,"
 
         query = f"""
             SELECT {self.property_definition_fields}, {self.event_property_field} AS is_seen_on_filtered_events
@@ -349,7 +349,7 @@ class QueryContext:
               {self.excluded_properties_filter}
              {self.name_filter} {self.numerical_filter} {self.search_query} {self.event_property_filter} {self.is_feature_flag_filter}
              {self.event_name_filter}
-            ORDER BY {optimized_ordering} is_seen_on_filtered_events DESC, {verified_ordering} {self.property_definition_table}.name ASC
+            ORDER BY {preaggregated_table_ordering} is_seen_on_filtered_events DESC, {verified_ordering} {self.property_definition_table}.name ASC
             LIMIT {self.limit} OFFSET {self.offset}
             """
 
@@ -463,7 +463,7 @@ class PropertyDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelS
         )
 
     def get_supported_by_preaggregated_tables(self, obj):
-        return obj.name in OPTIMIZED_PROPERTIES
+        return obj.name in PREAGGREGATED_TABLE_SUPPORTED_PROPERTIES
 
     def validate(self, data):
         validated_data = super().validate(data)
@@ -659,8 +659,8 @@ class PropertyDefinitionViewSet(
             .with_hidden_filter(
                 query.validated_data.get("exclude_hidden", False), use_enterprise_taxonomy=use_enterprise_taxonomy
             )
-            .with_optimized_hints(
-                query.validated_data.get("enable_optimized_hints", False),
+            .with_preaggregated_table_hints(
+                query.validated_data.get("enable_preaggregated_table_hints", False),
             )
         )
 

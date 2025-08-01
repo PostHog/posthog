@@ -793,7 +793,7 @@ class TestGetLazySessionProperties(ClickhouseTestMixin, APIBaseTest):
             get_lazy_session_table_values_v2(key=prop["id"], team=self.team, search_term=None)
 
     def test_optimized_hints_enabled(self):
-        results = get_lazy_session_table_properties_v2("source", enable_optimized_hints=True)
+        results = get_lazy_session_table_properties_v2("source", enable_preaggregated_table_hints=True)
         # When optimized hints are enabled, optimized properties should come first and have supported_by_preaggregated_tables=True
         self.assertEqual(
             results,
