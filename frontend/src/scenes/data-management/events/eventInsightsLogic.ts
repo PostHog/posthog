@@ -54,9 +54,7 @@ export const eventInsightsLogic = kea<eventInsightsLogicType>([
                     params.search = search
                 }
 
-                const response = await api.get(
-                    `api/environments/${teamLogic.values.currentTeamId}/insights/?${toParams(params)}`
-                )
+                const response = await api.get(`api/environments/${values.currentTeamId}/insights/?${toParams(params)}`)
 
                 return {
                     ...response,
