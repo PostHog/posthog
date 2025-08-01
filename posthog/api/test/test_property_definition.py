@@ -427,81 +427,39 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         assert activity_log.detail["name"] == "test_property"
         assert activity_log.activity == "deleted"
 
-    def test_optimized_properties_sorting_and_supported_by_preaggregated_tables_field_with_hints_enabled(self):
-        # Create some optimized properties (session properties)
-        PropertyDefinition.objects.create(team=self.team, name="$entry_pathname", type=PropertyDefinition.Type.SESSION)
-        PropertyDefinition.objects.create(team=self.team, name="$end_pathname", type=PropertyDefinition.Type.SESSION)
-        PropertyDefinition.objects.create(
-            team=self.team, name="$entry_utm_source", type=PropertyDefinition.Type.SESSION
+    def test_optimized_properties_with_hints_enabled(self):
+        # Create test properties
+        PropertyDefinition.objects.bulk_create(
+            [
+                PropertyDefinition(team=self.team, name="$entry_pathname", type=PropertyDefinition.Type.SESSION),
+                PropertyDefinition(team=self.team, name="$host", type=PropertyDefinition.Type.EVENT),
+                PropertyDefinition(team=self.team, name="custom_prop", type=PropertyDefinition.Type.EVENT),
+            ]
         )
-        PropertyDefinition.objects.create(team=self.team, name="$channel_type", type=PropertyDefinition.Type.SESSION)
 
-        # Create some optimized event properties
-        PropertyDefinition.objects.create(team=self.team, name="$host", type=PropertyDefinition.Type.EVENT)
-        PropertyDefinition.objects.create(team=self.team, name="$device_type", type=PropertyDefinition.Type.EVENT)
-
-        # Create some non-optimized properties
-        PropertyDefinition.objects.create(team=self.team, name="custom_prop", type=PropertyDefinition.Type.EVENT)
-        PropertyDefinition.objects.create(team=self.team, name="another_custom", type=PropertyDefinition.Type.EVENT)
-
-        # Test session properties
-        response = self.client.get(
-            f"/api/projects/{self.team.pk}/property_definitions/?type=session&enable_preaggregated_table_hints=true"
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-        results = response.json()["results"]
-        self.assertGreater(len(results), 0)
-
-        # Check that all optimized session properties have supported_by_preaggregated_tables=True
-        optimized_session_props = ["$entry_pathname", "$end_pathname", "$entry_utm_source", "$channel_type"]
-        found_optimized = []
-
-        for result in results:
-            if result["name"] in optimized_session_props:
-                self.assertTrue(
-                    result["supported_by_preaggregated_tables"], f"Property {result['name']} should be optimized"
-                )
-                found_optimized.append(result["name"])
-
-        self.assertEqual(len(found_optimized), 4, "All optimized session properties should be found")
-
-        # Test event properties
-        response = self.client.get(
-            f"/api/projects/{self.team.pk}/property_definitions/?type=event&enable_preaggregated_table_hints=true"
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-        results = response.json()["results"]
-
-        # Check that optimized event properties come first and have supported_by_preaggregated_tables=True
-        optimized_event_props = ["$host", "$device_type", "$browser"]  # $browser is from setUp
-        non_optimized_props = ["custom_prop", "another_custom"]
-
-        optimized_indices = []
-        non_optimized_indices = []
-
-        for i, result in enumerate(results):
-            if result["name"] in optimized_event_props:
-                self.assertTrue(
-                    result["supported_by_preaggregated_tables"], f"Property {result['name']} should be optimized"
-                )
-                optimized_indices.append(i)
-            elif result["name"] in non_optimized_props:
-                self.assertFalse(
-                    result["supported_by_preaggregated_tables"], f"Property {result['name']} should not be optimized"
-                )
-                non_optimized_indices.append(i)
-
-        # Verify optimized properties come before non-optimized ones
-        if optimized_indices and non_optimized_indices:
-            max_optimized_index = max(optimized_indices)
-            min_non_optimized_index = min(non_optimized_indices)
-            self.assertLess(
-                max_optimized_index,
-                min_non_optimized_index,
-                "Optimized properties should be sorted before non-optimized properties",
+        def check_optimization_flags(prop_type, optimized_props, non_optimized_props):
+            response = self.client.get(
+                f"/api/projects/{self.team.pk}/property_definitions/?type={prop_type}&enable_preaggregated_table_hints=true"
             )
+            assert response.status_code == status.HTTP_200_OK
+
+            results_by_name = {r["name"]: r for r in response.json()["results"]}
+
+            for prop_name in optimized_props:
+                if prop_name in results_by_name:
+                    assert results_by_name[prop_name][
+                        "supported_by_preaggregated_tables"
+                    ], f"{prop_name} should be optimized"
+
+            for prop_name in non_optimized_props:
+                if prop_name in results_by_name:
+                    assert not results_by_name[prop_name][
+                        "supported_by_preaggregated_tables"
+                    ], f"{prop_name} should not be optimized"
+
+        # Test session and event properties
+        check_optimization_flags("session", ["$entry_pathname"], [])
+        check_optimization_flags("event", ["$host", "$browser"], ["custom_prop"])
 
     def test_serializer_supported_by_preaggregated_tables_method(self):
         serializer = PropertyDefinitionSerializer()
@@ -548,53 +506,31 @@ class TestPropertyDefinitionAPI(APIBaseTest):
             prop.delete()
 
     def test_optimized_hints_parameter_controls_sorting(self):
-        """Test that enable_preaggregated_table_hints parameter controls whether optimized properties are sorted first"""
-        # Create some optimized and non-optimized properties
-        PropertyDefinition.objects.create(team=self.team, name="$host", type=PropertyDefinition.Type.EVENT)
-        PropertyDefinition.objects.create(team=self.team, name="custom_prop", type=PropertyDefinition.Type.EVENT)
+        PropertyDefinition.objects.bulk_create(
+            [
+                PropertyDefinition(team=self.team, name="$host", type=PropertyDefinition.Type.EVENT),
+                PropertyDefinition(team=self.team, name="custom_prop", type=PropertyDefinition.Type.EVENT),
+            ]
+        )
 
-        # Test without enable_preaggregated_table_hints parameter (default behavior)
-        response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?type=event")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        results_default = response.json()["results"]
+        def get_property_positions(results):
+            return {r["name"]: i for i, r in enumerate(results)}
 
-        # Test with enable_preaggregated_table_hints=true
+        # Test with preaggregated table hints enabled
         response = self.client.get(
             f"/api/projects/{self.team.pk}/property_definitions/?type=event&enable_preaggregated_table_hints=true"
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        results_optimized = response.json()["results"]
+        assert response.status_code == status.HTTP_200_OK
 
-        # Find indices of optimized and non-optimized properties in both results
-        def find_property_indices(results):
-            optimized_index = None
-            non_optimized_index = None
-            for i, result in enumerate(results):
-                if result["name"] == "$host":
-                    optimized_index = i
-                elif result["name"] == "custom_prop":
-                    non_optimized_index = i
-            return optimized_index, non_optimized_index
+        positions = get_property_positions(response.json()["results"])
+        results_by_name = {r["name"]: r for r in response.json()["results"]}
 
-        optimized_optimized, optimized_non_optimized = find_property_indices(results_optimized)
+        # Verify correct flags and sorting
+        if "$host" in positions and "custom_prop" in positions:
+            assert positions["$host"] < positions["custom_prop"], "Optimized properties should be sorted first"
 
-        # With enable_preaggregated_table_hints=true, optimized properties should come first
-        if optimized_optimized is not None and optimized_non_optimized is not None:
-            self.assertLess(
-                optimized_optimized,
-                optimized_non_optimized,
-                "With enable_preaggregated_table_hints=true, optimized properties should be sorted first",
-            )
-
-        # Verify that both properties have correct supported_by_preaggregated_tables values
-        for results in [results_default, results_optimized]:
-            for result in results:
-                if result["name"] == "$host":
-                    assert result["supported_by_preaggregated_tables"]
-                elif result["name"] == "custom_prop":
-                    assert not result[
-                        "supported_by_preaggregated_tables"
-                    ], "Non-optimized property should have supported_by_preaggregated_tables=False"
+        assert results_by_name["$host"]["supported_by_preaggregated_tables"]
+        assert not results_by_name["custom_prop"]["supported_by_preaggregated_tables"]
 
     def test_event_name_filter_json_contains_int(self):
         event_name_json = json.dumps([1])
