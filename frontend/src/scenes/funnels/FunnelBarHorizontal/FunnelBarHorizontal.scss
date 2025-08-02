@@ -123,7 +123,9 @@ $glyph_height: 23px; // Based on .funnel-step-glyph
             position: relative;
             height: 100%;
             background: var(--accent);
-            transition: width 0.2s ease, height 0.2s ease;
+            transition:
+                width 0.2s ease,
+                height 0.2s ease;
 
             &.first {
                 border-radius: var(--radius) 0 0 4px;

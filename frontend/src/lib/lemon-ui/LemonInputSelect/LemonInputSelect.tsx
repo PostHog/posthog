@@ -569,8 +569,8 @@ export function LemonInputSelect<T = string>({
                                                 values.length === allOptionsMap.size
                                                     ? true
                                                     : values.length
-                                                    ? 'indeterminate'
-                                                    : false
+                                                      ? 'indeterminate'
+                                                      : false
                                             }
                                             className="pointer-events-none"
                                         />
@@ -673,10 +673,10 @@ export function LemonInputSelect<T = string>({
                                                     >
                                                         <span className="whitespace-nowrap ph-no-capture truncate">
                                                             {!option.__isInput
-                                                                ? option.labelComponent ?? option.label // Regular option
+                                                                ? (option.labelComponent ?? option.label) // Regular option
                                                                 : mode === 'multiple'
-                                                                ? `Add "${option.key}"` // Input-based option
-                                                                : option.key}
+                                                                  ? `Add "${option.key}"` // Input-based option
+                                                                  : option.key}
                                                         </span>
                                                     </LemonButton>
                                                 )
@@ -733,10 +733,10 @@ export function LemonInputSelect<T = string>({
                                     >
                                         <span className="whitespace-nowrap ph-no-capture truncate">
                                             {!option.__isInput
-                                                ? option.labelComponent ?? option.label // Regular option
+                                                ? (option.labelComponent ?? option.label) // Regular option
                                                 : mode === 'multiple'
-                                                ? `Add "${option.key}"` // Input-based option
-                                                : option.key}
+                                                  ? `Add "${option.key}"` // Input-based option
+                                                  : option.key}
                                         </span>
                                     </LemonButton>
                                 )
@@ -774,14 +774,14 @@ export function LemonInputSelect<T = string>({
                     displayMode === 'count'
                         ? undefined
                         : values.length === 0
-                        ? placeholder
-                        : mode === 'single'
-                        ? allOptionsMap.get(getStringKey(values[0]))?.label ?? getDisplayLabel(values[0])
-                        : allowCustomValues
-                        ? 'Add value'
-                        : disablePrompting
-                        ? undefined
-                        : 'Pick value'
+                          ? placeholder
+                          : mode === 'single'
+                            ? (allOptionsMap.get(getStringKey(values[0]))?.label ?? getDisplayLabel(values[0]))
+                            : allowCustomValues
+                              ? 'Add value'
+                              : disablePrompting
+                                ? undefined
+                                : 'Pick value'
                 }
                 autoWidth={autoWidth}
                 fullWidth={fullWidth}

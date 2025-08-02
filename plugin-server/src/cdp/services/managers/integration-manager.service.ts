@@ -9,7 +9,11 @@ import { logger } from '../../../utils/logger'
 export class IntegrationManagerService {
     private lazyLoader: LazyLoader<IntegrationType>
 
-    constructor(private pubSub: PubSub, private postgres: PostgresRouter, private encryptedFields: EncryptedFields) {
+    constructor(
+        private pubSub: PubSub,
+        private postgres: PostgresRouter,
+        private encryptedFields: EncryptedFields
+    ) {
         this.lazyLoader = new LazyLoader({
             name: 'integration_manager',
             loader: async (ids) => await this.fetchIntegrations(ids),

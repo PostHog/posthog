@@ -12,5 +12,5 @@
         $fract: $fract * 10;
     }
 
-    @return $int + '\\.'+ $fract; /* stylelint-disable-line scss/operator-no-unspaced */
+    @return $int + '\\.' + $fract; /* stylelint-disable-line scss/operator-no-unspaced */
 }

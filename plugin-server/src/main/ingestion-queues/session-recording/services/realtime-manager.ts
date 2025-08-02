@@ -25,7 +25,10 @@ export class RealtimeManager extends EventEmitter {
     private pubsubRedis: Redis | undefined
     private ttlSeconds: number
 
-    constructor(private redisPool: RedisPool, private serverConfig: PluginsServerConfig) {
+    constructor(
+        private redisPool: RedisPool,
+        private serverConfig: PluginsServerConfig
+    ) {
         super()
 
         // We TTL for double than the buffer age seconds to allow for
