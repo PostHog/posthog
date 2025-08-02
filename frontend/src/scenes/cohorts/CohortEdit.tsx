@@ -41,13 +41,17 @@ import { Query } from '~/queries/Query/Query'
 import { AndOrFilterSelect } from '~/queries/nodes/InsightViz/PropertyGroupFilters/AndOrFilterSelect'
 
 import { createCohortDataNodeLogicKey } from './cohortUtils'
-
+import { addPersonToCohortModalLogic } from './addPersonToCohortModalLogic'
+import { AddPersonToCohortModal } from './AddPersonToCohortModal'
 const RESOURCE_TYPE = 'cohort'
 
 export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
     const logicProps = { id }
+
     const logic = cohortEditLogic(logicProps)
     const { deleteCohort, setOuterGroupsType, setQuery, duplicateCohort, setCohortValue } = useActions(logic)
+    const modalLogic = addPersonToCohortModalLogic(logicProps)
+    const { showAddPersonToCohortModal } = useActions(modalLogic)
     const { cohort, cohortLoading, cohortMissing, query, duplicatedCohortLoading } = useValues(logic)
     const isNewCohort = cohort.id === 'new' || cohort.id === undefined
     const { featureFlags } = useValues(featureFlagLogic)
@@ -70,6 +74,7 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
     }
     return (
         <div className="cohort">
+            <AddPersonToCohortModal id={id} />
             <PageHeader
                 buttons={
                     <div className="flex items-center gap-2">
@@ -379,7 +384,7 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                                                         className={cn(
                                                             'flex flex-col items-center justify-center flex-1 cohort-csv-dragger text-text-3000 deprecated-space-y-1',
                                                             newSceneLayout &&
-                                                                'text-primary mt-0 bg-transparent border border-dashed border-primary hover:border-secondary p-8',
+                                                            'text-primary mt-0 bg-transparent border border-dashed border-primary hover:border-secondary p-8',
                                                             newSceneLayout && cohort.csv?.name && 'border-success'
                                                         )}
                                                     >
@@ -420,6 +425,9 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                                             />
                                         </>
                                     )}
+                                    <LemonButton className="mt-3" type="primary" onClick={showAddPersonToCohortModal}>
+                                        Add User Manually
+                                    </LemonButton>
                                 </LemonField>
                             </SceneSection>
                         </>
