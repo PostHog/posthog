@@ -31,6 +31,7 @@ from posthog.models.signals import model_activity_signal
 from posthog.models.team.team import Team
 from posthog.models.activity_logging.activity_log import Detail, log_activity, changes_between
 from posthog.schema import ExperimentEventExposureConfig
+from posthog.utils import get_current_user_from_thread
 
 
 class ExperimentSerializer(serializers.ModelSerializer):
@@ -692,12 +693,12 @@ class EnterpriseExperimentsViewSet(ForbidDestroyModel, TeamAndOrgViewSetMixin, v
 
 @receiver(model_activity_signal, sender=Experiment)
 def handle_experiment_change(sender, scope, before_update, after_update, activity, was_impersonated=False, **kwargs):
+    user = get_current_user_from_thread()
+
     log_activity(
         organization_id=after_update.team.organization_id,
         team_id=after_update.team_id,
-        user=after_update.created_by
-        if activity == "created"
-        else getattr(after_update, "last_modified_by", after_update.created_by),
+        user=user,
         was_impersonated=was_impersonated,
         item_id=after_update.id,
         scope=scope,
@@ -712,18 +713,17 @@ def handle_experiment_change(sender, scope, before_update, after_update, activit
 def handle_experiment_saved_metric_change(
     sender, scope, before_update, after_update, activity, was_impersonated=False, **kwargs
 ):
+    user = get_current_user_from_thread()
+
     log_activity(
         organization_id=after_update.team.organization_id,
         team_id=after_update.team_id,
-        user=after_update.created_by
-        if activity == "created"
-        else getattr(after_update, "last_modified_by", after_update.created_by),
+        user=user,
         was_impersonated=was_impersonated,
         item_id=after_update.id,
         scope="Experiment",  # log under Experiment scope so it appears in experiment activity log
         activity=activity,
         detail=Detail(
-            # need to use ExperimentSavedMetric here for field exclusions...
             changes=changes_between("ExperimentSavedMetric", previous=before_update, current=after_update),
             name=after_update.name,
             type="shared_metric",

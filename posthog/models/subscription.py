@@ -21,6 +21,7 @@ from posthog.exceptions_capture import capture_exception
 
 from posthog.jwt import PosthogJwtAudience, decode_jwt, encode_jwt
 from posthog.utils import absolute_uri
+from posthog.models.activity_logging.model_activity import ModelActivityMixin
 
 # Copied from rrule as it is not exported
 FREQNAMES = ["YEARLY", "MONTHLY", "WEEKLY", "DAILY", "HOURLY", "MINUTELY", "SECONDLY"]
@@ -45,7 +46,7 @@ class SubscriptionResourceInfo:
     url: str
 
 
-class Subscription(models.Model):
+class Subscription(ModelActivityMixin, models.Model):
     """
     Rather than re-invent the wheel, we are roughly following the iCalender format for recurring schedules
     https://dateutil.readthedocs.io/en/stable/rrule.html
