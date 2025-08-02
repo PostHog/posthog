@@ -1890,7 +1890,7 @@ export const surveyLogic = kea<surveyLogicType>([
             },
         },
     })),
-    urlToAction(({ actions, props }) => ({
+    urlToAction(({ actions, props, values }) => ({
         [urls.survey(props.id ?? 'new')]: (_, { edit }, __, { method }) => {
             // We always set the editingSurvey to true when we create a new survey
             if (props.id === 'new') {
@@ -1899,6 +1899,10 @@ export const surveyLogic = kea<surveyLogicType>([
             // If the URL was pushed (user clicked on a link), reset the scene's data.
             // This avoids resetting form fields if you click back/forward.
             if (method === 'PUSH') {
+                // When pushing to `/new` and the id matches the new survey's id, do not load the survey again
+                if (props.id === 'new' && values.survey.id === NEW_SURVEY.id) {
+                    return
+                }
                 if (props.id) {
                     actions.loadSurvey()
                 } else {
