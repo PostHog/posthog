@@ -250,7 +250,7 @@ export function CodeInstructions({
                     <>
                         <Tooltip
                             title="Bootstrapping is only available client side in our JavaScript and React Native
-                                libraries."
+                                libraries and only works for flags that don't persist across authentication steps"
                         >
                             <div className="flex items-center gap-1">
                                 <LemonCheckbox
@@ -270,8 +270,8 @@ export function CodeInstructions({
                             </div>
                         </Tooltip>
                         <Tooltip
-                            title="Local evaluation is only available in server side libraries and without flag
-                                persistence."
+                            title="Local evaluation is only available in server side libraries and only works for 
+                            flags that don't persist across authentication steps"
                         >
                             <div className="flex items-center gap-1">
                                 <LemonCheckbox
