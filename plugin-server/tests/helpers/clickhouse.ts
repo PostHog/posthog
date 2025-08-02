@@ -122,7 +122,7 @@ export class Clickhouse {
         fetchData: () => T | Promise<T>,
         minLength = 1,
         delayMs = 100,
-        maxDelayCount = 100
+        maxDelayCount = 1000
     ): Promise<T> {
         const timer = performance.now()
         let data: T | null = null

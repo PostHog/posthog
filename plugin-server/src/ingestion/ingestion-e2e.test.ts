@@ -196,10 +196,10 @@ const testWithTeamIngester = (
             isHealthy: jest.fn(),
         } as any
 
-        jest.spyOn(hub.db, 'fetchGroup')
-        jest.spyOn(hub.db, 'insertGroup')
-        jest.spyOn(hub.db, 'updateGroup')
-        jest.spyOn(hub.db, 'updateGroupOptimistically')
+        jest.spyOn(hub.groupRepository, 'fetchGroup')
+        jest.spyOn(hub.groupRepository, 'insertGroup')
+        jest.spyOn(hub.groupRepository, 'updateGroup')
+        jest.spyOn(hub.groupRepository, 'updateGroupOptimistically')
 
         await ingester.start()
         await testFn(ingester, hub, fetchedTeam)
@@ -280,7 +280,7 @@ describe('Event Pipeline E2E tests', () => {
 
             await waitForKafkaMessages(hub)
             await waitForExpect(async () => {
-                const group = await hub.db.fetchGroup(team.id, 0, groupKey)
+                const group = await hub.groupRepository.fetchGroup(team.id, 0, groupKey)
                 expect(group).toEqual(
                     expect.objectContaining({
                         team_id: team.id,
@@ -304,7 +304,7 @@ describe('Event Pipeline E2E tests', () => {
             await waitForKafkaMessages(hub)
 
             await waitForExpect(async () => {
-                const group = await hub.db.fetchGroup(team.id, 0, groupKey)
+                const group = await hub.groupRepository.fetchGroup(team.id, 0, groupKey)
                 expect(group).toEqual(
                     expect.objectContaining({
                         team_id: team.id,
@@ -327,7 +327,7 @@ describe('Event Pipeline E2E tests', () => {
 
             // Should have fetched the group 4 times:
             // 1 for each event and 2 in test check
-            expect(hub.db.fetchGroup).toHaveBeenCalledTimes(4)
+            expect(hub.groupRepository.fetchGroup).toHaveBeenCalledTimes(4)
         }
     )
 
@@ -355,18 +355,17 @@ describe('Event Pipeline E2E tests', () => {
             expect(events.length).toEqual(n)
         })
 
-        expect(hub.db.fetchGroup).toHaveBeenCalledTimes(1)
-        // Create group once
-        expect(hub.db.insertGroup).toHaveBeenCalledTimes(1)
-        // Update once
-        expect(hub.db.updateGroup).toHaveBeenCalledTimes(0)
-        expect(hub.db.updateGroupOptimistically).toHaveBeenCalledTimes(1)
+        expect(hub.groupRepository.fetchGroup).toHaveBeenCalledTimes(1)
+        expect(hub.groupRepository.insertGroup).toHaveBeenCalledTimes(1)
+        expect(hub.groupRepository.updateGroup).toHaveBeenCalledTimes(0)
+        expect(hub.groupRepository.updateGroupOptimistically).toHaveBeenCalledTimes(1)
     })
 
     testWithTeamIngester('can handle multiple $groupidentify in same batch', {}, async (ingester, hub, team) => {
         const timestamp = DateTime.now().toMillis()
         const distinctId = new UUIDT().toString()
         const groupKey = 'group_key'
+
         const events = [
             new EventBuilder(team, distinctId)
                 .withEvent('$groupidentify')
@@ -399,11 +398,13 @@ describe('Event Pipeline E2E tests', () => {
             expect(events[2].properties.$group_set).toEqual({ k2: 'v3', k4: 'v3' })
         })
 
-        // Should have fetched the group once
-        expect(hub.db.fetchGroup).toHaveBeenCalledTimes(1)
+        expect(hub.groupRepository.fetchGroup).toHaveBeenCalledTimes(1)
+        expect(hub.groupRepository.insertGroup).toHaveBeenCalledTimes(1)
+        expect(hub.groupRepository.updateGroup).toHaveBeenCalledTimes(0)
+        expect(hub.groupRepository.updateGroupOptimistically).toHaveBeenCalledTimes(1)
 
         await waitForExpect(async () => {
-            const group = await hub.db.fetchGroup(team.id, 0, groupKey)
+            const group = await hub.groupRepository.fetchGroup(team.id, 0, groupKey)
             expect(group).toEqual(
                 expect.objectContaining({
                     team_id: team.id,
@@ -470,7 +471,7 @@ describe('Event Pipeline E2E tests', () => {
 
             for (const distinctId of distinctIds) {
                 await waitForExpect(async () => {
-                    const group = await hub.db.fetchGroup(team.id, 0, distinctId)
+                    const group = await hub.groupRepository.fetchGroup(team.id, 0, distinctId)
                     expect(group).toEqual(
                         expect.objectContaining({
                             team_id: team.id,
@@ -522,7 +523,7 @@ describe('Event Pipeline E2E tests', () => {
 
             for (const distinctId of distinctIds) {
                 await waitForExpect(async () => {
-                    const group = await hub.db.fetchGroup(team.id, 0, distinctId)
+                    const group = await hub.groupRepository.fetchGroup(team.id, 0, distinctId)
                     expect(group).toEqual(
                         expect.objectContaining({
                             team_id: team.id,

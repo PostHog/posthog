@@ -23,6 +23,7 @@ import { PostgresUse } from '../../src/utils/db/postgres'
 import { UUIDT } from '../../src/utils/utils'
 import { EventPipelineRunner } from '../../src/worker/ingestion/event-pipeline/runner'
 import { PostgresPersonRepository } from '../../src/worker/ingestion/persons/repositories/postgres-person-repository'
+
 import { EventsProcessor } from '../../src/worker/ingestion/process-event'
 import { resetKafka } from '../helpers/kafka'
 import { createUserTeamAndOrganization, getFirstTeam, getTeams, resetTestDatabase } from '../helpers/sql'
@@ -105,7 +106,11 @@ describe('processEvent', () => {
             new PostgresPersonRepository(hub.db.postgres),
             hub.db.kafkaProducer
         )
-        const groupStoreForBatch = new BatchWritingGroupStoreForBatch(hub.db)
+        const groupStoreForBatch = new BatchWritingGroupStoreForBatch(
+            hub.db,
+            hub.groupRepository,
+            hub.clickhouseGroupRepository
+        )
         const runner = new EventPipelineRunner(hub, pluginEvent, null, [], personsStoreForBatch, groupStoreForBatch)
         const res = await runner.runEventPipeline(pluginEvent, team)
         await flushPersonStoreToKafka(hub, personsStoreForBatch, res.ackPromises ?? [])
@@ -210,7 +215,11 @@ describe('processEvent', () => {
             personRepository || new PostgresPersonRepository(hub.db.postgres),
             hub.db.kafkaProducer
         )
-        const groupStoreForBatch = new BatchWritingGroupStoreForBatch(hub.db)
+        const groupStoreForBatch = new BatchWritingGroupStoreForBatch(
+            hub.db,
+            hub.groupRepository,
+            hub.clickhouseGroupRepository
+        )
         const runner = new EventPipelineRunner(hub, event, null, [], personsStoreForBatch, groupStoreForBatch)
         const res = await runner.runEventPipeline(event, team)
         await flushPersonStoreToKafka(hub, personsStoreForBatch, res.ackPromises ?? [])
@@ -240,7 +249,11 @@ describe('processEvent', () => {
     }
 
     test('capture bad team', async () => {
-        const groupStoreForBatch = new BatchWritingGroupStoreForBatch(hub.db)
+        const groupStoreForBatch = new BatchWritingGroupStoreForBatch(
+            hub.db,
+            hub.groupRepository,
+            hub.clickhouseGroupRepository
+        )
         await expect(
             eventsProcessor.processEvent(
                 'asdfasdfasdf',
@@ -1204,7 +1217,7 @@ describe('processEvent', () => {
         const next: DateTime = now.plus({ minutes: 1 })
 
         await createPerson(hub, team, ['distinct_id1'])
-        await hub.db.insertGroup(team.id, 0, 'org::5', { a: 1, b: 2 }, now, {}, {})
+        await hub.groupRepository.insertGroup(team.id, 0, 'org::5', { a: 1, b: 2 }, now, {}, {})
 
         await processEvent(
             'distinct_id1',
@@ -1237,7 +1250,7 @@ describe('processEvent', () => {
             version: 2,
         })
 
-        const group = await hub.db.fetchGroup(team.id, 0, 'org::5')
+        const group = await hub.groupRepository.fetchGroup(team.id, 0, 'org::5')
         expect(group).toEqual({
             id: expect.any(Number),
             team_id: team.id,

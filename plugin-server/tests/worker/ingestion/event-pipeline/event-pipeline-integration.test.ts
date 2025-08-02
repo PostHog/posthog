@@ -56,7 +56,11 @@ describe('Event Pipeline integration test', () => {
 
     const ingestEvent = async (event: PluginEvent) => {
         const personsStoreForBatch = new BatchWritingPersonsStoreForBatch(personRepository, hub.kafkaProducer)
-        const groupStoreForBatch = new BatchWritingGroupStoreForBatch(hub.db)
+        const groupStoreForBatch = new BatchWritingGroupStoreForBatch(
+            hub.db,
+            hub.groupRepository,
+            hub.clickhouseGroupRepository
+        )
         const runner = new EventPipelineRunner(
             hub,
             event,

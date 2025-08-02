@@ -167,7 +167,11 @@ describe('EventPipelineRunner', () => {
             new PostgresPersonRepository(hub.db.postgres),
             hub.kafkaProducer
         )
-        const groupStoreForBatch = new BatchWritingGroupStoreForBatch(hub.db)
+        const groupStoreForBatch = new BatchWritingGroupStoreForBatch(
+            hub.db,
+            hub.groupRepository,
+            hub.clickhouseGroupRepository
+        )
         runner = new TestEventPipelineRunner(
             hub,
             pluginEvent,
@@ -355,7 +359,11 @@ describe('EventPipelineRunner', () => {
                     new PostgresPersonRepository(hub.db.postgres),
                     hub.kafkaProducer
                 )
-                const groupStoreForBatch = new BatchWritingGroupStoreForBatch(hub.db)
+                const groupStoreForBatch = new BatchWritingGroupStoreForBatch(
+                    hub.db,
+                    hub.groupRepository,
+                    hub.clickhouseGroupRepository
+                )
                 runner = new TestEventPipelineRunner(
                     hub,
                     heatmapEvent,
@@ -404,7 +412,11 @@ describe('EventPipelineRunner', () => {
                     new PostgresPersonRepository(hub.db.postgres),
                     hub.kafkaProducer
                 )
-                const groupStoreForBatch = new BatchWritingGroupStoreForBatch(hub.db)
+                const groupStoreForBatch = new BatchWritingGroupStoreForBatch(
+                    hub.db,
+                    hub.groupRepository,
+                    hub.clickhouseGroupRepository
+                )
 
                 runner = new TestEventPipelineRunner(
                     hub,

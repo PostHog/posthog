@@ -28,7 +28,7 @@ import { TeamManager } from '../../utils/team-manager'
 import { castTimestampOrNow } from '../../utils/utils'
 import { GroupTypeManager, MAX_GROUP_TYPES_PER_TEAM } from './group-type-manager'
 import { addGroupProperties } from './groups'
-import { GroupStoreForBatch } from './groups/group-store-for-batch'
+import { GroupStoreForBatch } from './groups/group-store-for-batch.interface'
 import { captureIngestionWarning } from './utils'
 
 // for e.g. internal events we don't want to be available for users in the UI
