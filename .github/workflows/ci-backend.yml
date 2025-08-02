@@ -40,6 +40,7 @@ jobs:
     # Generate GitHub App token - the default GITHUB_TOKEN gets rate limited if we use it across all CI jobs
     generate-token:
         runs-on: ubuntu-latest
+        continue-on-error: true
         outputs:
             token: ${{ steps.app-token.outputs.token }}
         steps:
@@ -118,7 +119,7 @@ jobs:
         name: Validate Django and CH migrations
         runs-on: ubuntu-latest
         env:
-            GITHUB_TOKEN: ${{ needs.generate-token.outputs.token }}
+            GITHUB_TOKEN: ${{ needs.generate-token.outputs.token || secrets.GITHUB_TOKEN }}
 
         steps:
             - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
@@ -262,7 +263,7 @@ jobs:
         name: Django tests – ${{ matrix.segment }} (persons-on-events ${{ matrix.person-on-events && 'on' || 'off' }}), Py ${{ matrix.python-version }}, ${{ matrix.clickhouse-server-image }} (${{matrix.group}}/${{ matrix.concurrency }})
         runs-on: ${{ needs.changes.outputs.backend == 'true' && 'depot-ubuntu-latest' || 'ubuntu-latest' }}
         env:
-            GITHUB_TOKEN: ${{ needs.generate-token.outputs.token }}
+            GITHUB_TOKEN: ${{ needs.generate-token.outputs.token || secrets.GITHUB_TOKEN }}
 
         strategy:
             fail-fast: false
@@ -775,7 +776,7 @@ jobs:
         if: needs.changes.outputs.backend == 'true'
         runs-on: ubuntu-latest
         env:
-            GITHUB_TOKEN: ${{ needs.generate-token.outputs.token }}
+            GITHUB_TOKEN: ${{ needs.generate-token.outputs.token || secrets.GITHUB_TOKEN }}
         steps:
             - name: 'Checkout repo'
               uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
