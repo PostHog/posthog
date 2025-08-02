@@ -17,7 +17,7 @@ function makePrivateLinkQueryParams(formWithTime: FormWithTime): Record<string, 
     }
 }
 
-function makePrivateLink(id: string, formWithTime: FormWithTime): string {
+export function makePrivateLink(id: string, formWithTime: FormWithTime): string {
     return combineUrl(
         urls.absolute(urls.currentProject(urls.replaySingle(id))),
         makePrivateLinkQueryParams(formWithTime)
