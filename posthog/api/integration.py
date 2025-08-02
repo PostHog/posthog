@@ -154,7 +154,8 @@ class IntegrationViewSet(
                 raise ValidationError("Kind not configured")
         elif kind == "github":
             query_params = urlencode({"state": token})
-            installation_url = f"https://github.com/apps/{'posthog-error-tracking'}/installations/new?{query_params}"
+            # TODO: change this to env variable
+            installation_url = f"https://github.com/apps/{'posthog-local-dev'}/installations/new?{query_params}"
             response = redirect(installation_url)
             response.set_cookie("ph_github_state", token, max_age=60 * 5)
 
