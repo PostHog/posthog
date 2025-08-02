@@ -23,7 +23,7 @@ const NEW_CAMPAIGN: HogFlow = {
             id: 'trigger_node',
             type: 'trigger',
             name: 'Trigger',
-            description: '',
+            description: 'User performs an action to start the campaign',
             created_at: 0,
             updated_at: 0,
             config: {
