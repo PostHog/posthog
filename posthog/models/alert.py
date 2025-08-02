@@ -9,6 +9,7 @@ import pydantic
 from posthog.models.insight import Insight
 from posthog.models.utils import UUIDModel, CreatedMetaFields
 from posthog.schema import InsightThreshold, AlertState, AlertCalculationInterval
+from posthog.models.activity_logging.model_activity import ModelActivityMixin
 
 
 ALERT_STATE_CHOICES = [
@@ -65,7 +66,7 @@ class Threshold(CreatedMetaFields, UUIDModel):
                 raise ValidationError("Lower threshold must be less than upper threshold")
 
 
-class AlertConfiguration(CreatedMetaFields, UUIDModel):
+class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDModel):
     ALERTS_ALLOWED_ON_FREE_TIER = 2
 
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
