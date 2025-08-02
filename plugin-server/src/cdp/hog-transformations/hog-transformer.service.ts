@@ -171,21 +171,13 @@ export class HogTransformerService {
                         const functionState = this.cachedStates[hogFunction.id]
 
                         // If the function is in a degraded state, skip it
-                        if (
-                            functionState &&
-                            [HogWatcherState.disabledForPeriod, HogWatcherState.disabledIndefinitely].includes(
-                                functionState
-                            )
-                        ) {
+                        if (functionState && functionState === HogWatcherState.disabled) {
                             this.hogFunctionMonitoringService.queueAppMetric(
                                 {
                                     team_id: event.team_id,
                                     app_source_id: hogFunction.id,
                                     metric_kind: 'failure',
-                                    metric_name:
-                                        functionState === HogWatcherState.disabledForPeriod
-                                            ? 'disabled_temporarily'
-                                            : 'disabled_permanently',
+                                    metric_name: 'disabled_permanently',
                                     count: 1,
                                 },
                                 'hog_function'
@@ -354,7 +346,7 @@ export class HogTransformerService {
 
     public async fetchAndCacheHogFunctionStates(functionIds: string[]): Promise<void> {
         const timer = hogWatcherLatency.startTimer({ operation: 'getStates' })
-        const states = await this.hogWatcher.getStates(functionIds)
+        const states = await this.hogWatcher.getPersistedStates(functionIds)
         timer()
 
         // Save only the state enum value to cache

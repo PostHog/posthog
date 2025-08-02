@@ -514,7 +514,7 @@ export class KafkaConsumer {
                         Math.round(processingTimeMs / 10) / 100
                     }s`
                     if (processingTimeMs > SLOW_BATCH_PROCESSING_LOG_THRESHOLD_MS) {
-                        logger.warn('🕒', `Slow batch: ${logSummary}`)
+                        logger.warn('🕒', `Slow batch: ${logSummary}, groupId: ${groupId}`)
                     }
 
                     // TRICKY: The commit logic needs to be aware of background work. If we were to just store offsets here,

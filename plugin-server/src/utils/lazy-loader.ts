@@ -133,7 +133,8 @@ export class LazyLoader<T> {
      */
     private async loadViaCache(keys: string[]): Promise<Record<string, T | null>> {
         return await runInstrumentedFunction({
-            statsKey: `lazyLoader.loadViaCache`,
+            statsKey: `lazyLoader.loadViaCache.${this.options.name}`,
+            timeout: 3000,
             func: async () => {
                 const results: Record<string, T | null> = {}
                 const keysToLoad = new Set<string>()

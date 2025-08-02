@@ -111,7 +111,7 @@ export class CdpEventsConsumer extends CdpConsumerBase {
                 )
             ).flat()
 
-            const states = await this.hogWatcher.getStates(possibleInvocations.map((x) => x.hogFunction.id))
+            const states = await this.hogWatcher.getPersistedStates(possibleInvocations.map((x) => x.hogFunction.id))
             const validInvocations: CyclotronJobInvocationHogFunction[] = []
 
             // Iterate over adding them to the list and updating their priority
@@ -140,16 +140,13 @@ export class CdpEventsConsumer extends CdpConsumerBase {
 
                 const state = states[item.hogFunction.id].state
 
-                if ([HogWatcherState.disabledForPeriod, HogWatcherState.disabledIndefinitely].includes(state)) {
+                if (state === HogWatcherState.disabled) {
                     this.hogFunctionMonitoringService.queueAppMetric(
                         {
                             team_id: item.teamId,
                             app_source_id: item.functionId,
                             metric_kind: 'failure',
-                            metric_name:
-                                state === HogWatcherState.disabledForPeriod
-                                    ? 'disabled_temporarily'
-                                    : 'disabled_permanently',
+                            metric_name: 'disabled_permanently',
                             count: 1,
                         },
                         'hog_function'
@@ -272,22 +269,19 @@ export class CdpEventsConsumer extends CdpConsumerBase {
                 )
             ).flat()
 
-            const states = await this.hogWatcher.getStates(possibleInvocations.map((x) => x.hogFlow.id))
+            const states = await this.hogWatcher.getPersistedStates(possibleInvocations.map((x) => x.hogFlow.id))
             const validInvocations: CyclotronJobInvocation[] = []
 
             // Iterate over adding them to the list and updating their priority
             possibleInvocations.forEach((item) => {
                 const state = states[item.hogFlow.id].state
-                if ([HogWatcherState.disabledForPeriod, HogWatcherState.disabledIndefinitely].includes(state)) {
+                if (state === HogWatcherState.disabled) {
                     this.hogFunctionMonitoringService.queueAppMetric(
                         {
                             team_id: item.teamId,
                             app_source_id: item.functionId,
                             metric_kind: 'failure',
-                            metric_name:
-                                state === HogWatcherState.disabledForPeriod
-                                    ? 'disabled_temporarily'
-                                    : 'disabled_permanently',
+                            metric_name: 'disabled_permanently',
                             count: 1,
                         },
                         'hog_flow'
