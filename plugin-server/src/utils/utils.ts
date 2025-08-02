@@ -259,7 +259,7 @@ export class UUID7 extends UUID {
             super(bufferOrUnixTimeMs)
             return
         }
-        const unixTimeMs = bufferOrUnixTimeMs ?? DateTime.utc().toMillis()
+        const unixTimeMs = (bufferOrUnixTimeMs as number | undefined) ?? DateTime.utc().toMillis()
         let unixTimeMsBig = BigInt(unixTimeMs)
 
         if (!rand) {
@@ -494,28 +494,26 @@ export function groupBy<T extends Record<string, any>, K extends keyof T>(
     key: K,
     flat = false
 ): Record<T[K], T[] | T> {
-    if (flat) {
-        return objects.reduce(
-            (grouping, currentItem) => {
-                if (currentItem[key] in grouping) {
-                    throw new Error(
-                        `Key "${String(key)}" has more than one matching value, which is not allowed in flat groupBy!`
-                    )
-                }
-                grouping[currentItem[key]] = currentItem
-                return grouping
-            },
-            {} as Record<T[K], T>
-        )
-    }
-
-    return objects.reduce(
-        (grouping, currentItem) => {
-            ;(grouping[currentItem[key]] = grouping[currentItem[key]] || []).push(currentItem)
-            return grouping
-        },
-        {} as Record<T[K], T[]>
-    )
+    return flat
+        ? objects.reduce(
+              (grouping, currentItem) => {
+                  if (currentItem[key] in grouping) {
+                      throw new Error(
+                          `Key "${String(key)}" has more than one matching value, which is not allowed in flat groupBy!`
+                      )
+                  }
+                  grouping[currentItem[key]] = currentItem
+                  return grouping
+              },
+              {} as Record<T[K], T>
+          )
+        : objects.reduce(
+              (grouping, currentItem) => {
+                  ;(grouping[currentItem[key]] = grouping[currentItem[key]] || []).push(currentItem)
+                  return grouping
+              },
+              {} as Record<T[K], T[]>
+          )
 }
 
 export function clamp(value: number, min: number, max: number): number {
