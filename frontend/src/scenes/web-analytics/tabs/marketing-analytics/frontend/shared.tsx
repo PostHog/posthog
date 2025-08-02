@@ -111,7 +111,7 @@ export const renderMarketingAnalyticsCell = (value: any): JSX.Element | null => 
                 <div className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap">
                     {currentFormatted} {changeIcon}
                 </div>
-                <div className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap">{previousFormatted}</div>
+                <div className="w-full text-muted">{previousFormatted}</div>
             </div>
         </Tooltip>
     )
