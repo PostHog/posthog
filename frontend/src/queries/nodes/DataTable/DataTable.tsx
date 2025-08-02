@@ -805,7 +805,7 @@ export function DataTable({
                                         result &&
                                         result[0] &&
                                         result[0]['event'] === '$exception',
-                                    DataTable__row_pinned: (query.pinnedColumns ?? []).length > 0,
+                                    DataTable__has_pinned_columns: (query.pinnedColumns ?? []).length > 0,
                                 })
                             }
                             footer={

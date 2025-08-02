@@ -3,13 +3,15 @@
         max-width: 20rem;
     }
 
-    .DataTable__row:not(.DataTable__row_pinned) {
+    // This style makes the sticky css fail, so we need to remove it when there are pinned columns
+    .DataTable__row:not(.DataTable__has_pinned_columns) {
         position: relative;
         z-index: 0;
     }
 
+    // This style makes the sticky css fail, so we need to remove it when there are pinned columns
     .DataTable__row td:first-child:not(.LemonTable__cell--pinned, .LemonTable__header--pinned) {
-        &::before {
+        &::after {
             position: absolute;
             top: 0;
             left: 0;
