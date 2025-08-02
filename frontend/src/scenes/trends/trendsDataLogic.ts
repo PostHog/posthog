@@ -11,7 +11,9 @@ import {
     BREAKDOWN_OTHER_NUMERIC_LABEL,
     BREAKDOWN_OTHER_STRING_LABEL,
     getTrendDatasetKey,
+    getTrendResultCustomization,
     getTrendResultCustomizationColorToken,
+    getTrendResultCustomizationKey,
 } from 'scenes/insights/utils'
 
 import {
@@ -20,6 +22,7 @@ import {
     InsightQueryNode,
     LifecycleQuery,
     MathType,
+    ResultCustomizationBy,
     TrendsFilter,
     TrendsQuery,
 } from '~/queries/schema/schema-general'
@@ -38,6 +41,8 @@ import {
 
 import type { trendsDataLogicType } from './trendsDataLogicType'
 import { IndexedTrendResult } from './types'
+
+export const RESULT_CUSTOMIZATION_DEFAULT = ResultCustomizationBy.Value
 
 /** All math types that can result in non-whole numbers. */
 const POSSIBLY_FRACTIONAL_MATH_TYPES: Set<MathType> = new Set(
@@ -96,21 +101,19 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                 'vizSpecificOptions',
                 'yAxisScaleType',
                 'showMultipleYAxes',
-                'resultCustomizationBy',
+                'resultCustomizationBy as resultCustomizationByRaw',
                 'getTheme',
                 'theme',
             ],
         ],
-        actions: [
-            insightVizDataLogic(props),
-            ['setInsightData', 'updateInsightFilter', 'updateBreakdownFilter', 'updateHiddenLegendIndexes'],
-        ],
+        actions: [insightVizDataLogic(props), ['setInsightData', 'updateInsightFilter', 'updateBreakdownFilter']],
     })),
 
     actions({
         loadMoreBreakdownValues: true,
         setBreakdownValuesLoading: (loading: boolean) => ({ loading }),
-        toggleHiddenLegendIndex: (index: number) => ({ index }),
+        toggleHiddenLegendIndex: (dataset: IndexedTrendResult) => ({ dataset }),
+        toggleAllHiddenLegendIndexes: (datasets: IndexedTrendResult[], hidden: boolean) => ({ datasets, hidden }),
     }),
 
     reducers({
@@ -348,13 +351,12 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
             },
         ],
 
-        hiddenLegendIndexes: [
-            (s) => [s.trendsFilter, s.stickinessFilter],
-            (trendsFilter, stickinessFilter): number[] => {
-                return trendsFilter?.hiddenLegendIndexes || stickinessFilter?.hiddenLegendIndexes || []
-            },
-        ],
         resultCustomizations: [(s) => [s.trendsFilter], (trendsFilter) => trendsFilter?.resultCustomizations],
+        resultCustomizationBy: [
+            (s) => [s.resultCustomizationByRaw],
+            (resultCustomizationByRaw) => resultCustomizationByRaw || RESULT_CUSTOMIZATION_DEFAULT,
+        ],
+
         getTrendsColorToken: [
             (s) => [s.resultCustomizationBy, s.resultCustomizations, s.getTheme, s.breakdownFilter, s.querySource],
             (resultCustomizationBy, resultCustomizations, getTheme, breakdownFilter, querySource) => {
@@ -406,20 +408,52 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                 }
             },
         ],
+        getTrendsHidden: [
+            (s) => [s.resultCustomizationBy, s.resultCustomizations],
+            (resultCustomizationBy, resultCustomizations) => {
+                return (dataset: IndexedTrendResult): boolean => {
+                    const resultCustomization = getTrendResultCustomization(
+                        resultCustomizationBy,
+                        dataset,
+                        resultCustomizations
+                    )
+                    return resultCustomization?.hidden || false
+                }
+            },
+        ],
     })),
 
     listeners(({ actions, values }) => ({
-        toggleHiddenLegendIndex: ({ index }) => {
-            if ((values.insightFilter as TrendsFilter)?.hiddenLegendIndexes?.includes(index)) {
-                actions.updateHiddenLegendIndexes(
-                    (values.insightFilter as TrendsFilter).hiddenLegendIndexes?.filter((idx) => idx !== index)
-                )
-            } else {
-                actions.updateHiddenLegendIndexes([
-                    ...((values.insightFilter as TrendsFilter)?.hiddenLegendIndexes || []),
-                    index,
-                ])
-            }
+        toggleHiddenLegendIndex: ({ dataset }) => {
+            const resultCustomizationKey = getTrendResultCustomizationKey(values.resultCustomizationBy, dataset)
+            const resultCustomization = getTrendResultCustomization(
+                values.resultCustomizationBy,
+                dataset,
+                values.resultCustomizations
+            )
+            actions.updateInsightFilter({
+                resultCustomizations: {
+                    ...values.resultCustomizations,
+                    [resultCustomizationKey]: {
+                        assignmentBy: values.resultCustomizationBy,
+                        hidden: resultCustomization?.hidden ? false : true,
+                    },
+                },
+            } as Partial<TrendsFilter>)
+        },
+        toggleAllHiddenLegendIndexes: ({ datasets, hidden }) => {
+            const resultCustomizations = datasets.reduce((acc, dataset) => {
+                const resultCustomizationKey = getTrendResultCustomizationKey(values.resultCustomizationBy, dataset)
+                acc[resultCustomizationKey] = {
+                    assignmentBy: values.resultCustomizationBy,
+                    hidden: hidden,
+                }
+                return acc
+            }, {} as Record<string, any>)
+
+            actions.updateInsightFilter({
+                resultCustomizations,
+            } as Partial<TrendsFilter>)
         },
     })),
 ])

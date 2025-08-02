@@ -82,15 +82,15 @@ export function InsightsTable({
         breakdownFilter,
         trendsFilter,
         isSingleSeries,
-        hiddenLegendIndexes,
         getTrendsColor,
+        getTrendsHidden,
         insightData,
     } = useValues(trendsDataLogic(insightProps))
-    const { weekStartDay, timezone } = useValues(teamLogic)
-    const { toggleHiddenLegendIndex, updateHiddenLegendIndexes } = useActions(trendsDataLogic(insightProps))
+    const { toggleHiddenLegendIndex, toggleAllHiddenLegendIndexes } = useActions(trendsDataLogic(insightProps))
     const { aggregation, allowAggregation } = useValues(insightsTableDataLogic(insightProps))
     const { setAggregationType } = useActions(insightsTableDataLogic(insightProps))
     const { hasInsightColors } = useValues(resultCustomizationsModalLogic(insightProps))
+    const { weekStartDay, timezone } = useValues(teamLogic)
 
     const handleSeriesEditClick = (item: IndexedTrendResult): void => {
         const entityFilter = entityFilterLogic.findMounted({
@@ -117,8 +117,8 @@ export function InsightsTable({
                     <SeriesCheckColumnTitle
                         indexedResults={indexedResults}
                         canCheckUncheckSeries={canCheckUncheckSeries}
-                        hiddenLegendIndexes={hiddenLegendIndexes}
-                        updateHiddenLegendIndexes={updateHiddenLegendIndexes}
+                        getTrendsHidden={getTrendsHidden}
+                        toggleAllHiddenLegendIndexes={toggleAllHiddenLegendIndexes}
                     />
                 )}
                 <span>Series</span>
@@ -140,7 +140,7 @@ export function InsightsTable({
                 <SeriesCheckColumnItem
                     item={item}
                     canCheckUncheckSeries={canCheckUncheckSeries}
-                    hiddenLegendIndexes={hiddenLegendIndexes}
+                    isHidden={getTrendsHidden(item)}
                     toggleHiddenLegendIndex={toggleHiddenLegendIndex}
                     label={<div className="ml-2 font-normal">{label}</div>}
                 />
@@ -313,7 +313,7 @@ export function InsightsTable({
             dataSource={
                 isLegend || isMainInsightView
                     ? indexedResults
-                    : indexedResults.filter((r) => !hiddenLegendIndexes?.includes(r.id))
+                    : indexedResults.filter((dataset) => !getTrendsHidden(dataset))
             }
             embedded={embedded}
             columns={columns}

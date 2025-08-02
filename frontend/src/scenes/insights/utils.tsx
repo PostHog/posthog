@@ -47,7 +47,6 @@ import {
     PropertyOperator,
 } from '~/types'
 
-import { RESULT_CUSTOMIZATION_DEFAULT } from './EditorFilters/ResultCustomizationByPicker'
 import { insightLogic } from './insightLogic'
 import { cleanInsightQuery } from '~/scenes/insights/utils/queryUtils'
 import { removeUndefinedAndNull } from '~/lib/utils'
@@ -490,7 +489,7 @@ export function getTrendDatasetKey(dataset: IndexedTrendResult): string {
             : dataset.seriesIndex > 0
             ? `formula${dataset.seriesIndex + 1}`
             : 'formula',
-        breakdown_value: dataset.breakdown_value,
+        breakdown_value: Array.isArray(dataset.breakdown_value) ? dataset.breakdown_value : [dataset.breakdown_value],
         compare_label: dataset.compare_label,
     }
 
@@ -525,7 +524,7 @@ export function getTrendResultCustomizationKey(
     resultCustomizationBy: ResultCustomizationBy | null | undefined,
     dataset: IndexedTrendResult
 ): string {
-    const assignmentByValue = resultCustomizationBy == null || resultCustomizationBy === RESULT_CUSTOMIZATION_DEFAULT
+    const assignmentByValue = resultCustomizationBy == null || resultCustomizationBy === ResultCustomizationBy.Value
     return assignmentByValue ? getTrendDatasetKey(dataset) : getTrendDatasetPosition(dataset).toString()
 }
 

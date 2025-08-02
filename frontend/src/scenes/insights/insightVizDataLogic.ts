@@ -110,7 +110,6 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         updateBreakdownFilter: (breakdownFilter: BreakdownFilter) => ({ breakdownFilter }),
         updateCompareFilter: (compareFilter: CompareFilter) => ({ compareFilter }),
         updateDisplay: (display: ChartDisplayType | undefined) => ({ display }),
-        updateHiddenLegendIndexes: (hiddenLegendIndexes: number[] | undefined) => ({ hiddenLegendIndexes }),
         setTimedOutQueryId: (id: string | null) => ({ id }),
         setIsIntervalManuallySet: (isIntervalManuallySet: boolean) => ({ isIntervalManuallySet }),
         toggleFormulaMode: true,
@@ -566,9 +565,6 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         // insight filter properties
         updateDisplay: ({ display }) => {
             actions.updateInsightFilter({ display })
-        },
-        updateHiddenLegendIndexes: ({ hiddenLegendIndexes }) => {
-            actions.updateInsightFilter({ hiddenLegendIndexes })
         },
 
         // data loading side effects i.e. diplaying loading screens for queries with longer duration
