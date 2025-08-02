@@ -28,7 +28,7 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
             databaseTableListLogic,
             ['loadDatabase'],
             externalDataSourcesLogic,
-            ['loadSources', 'loadSourcesSuccess', 'loadSourcesFailure'],
+            ['loadSources', 'loadSourcesSuccess', 'loadSourcesFailure', 'updateSource'],
         ],
     })),
     actions({
@@ -41,16 +41,6 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
     }),
     loaders(({ actions, values }) => ({
-        updateSource: [
-            null,
-            {
-                updateSource: async (source: ExternalDataSource) => {
-                    await api.externalDataSources.update(source.id, source)
-                    actions.loadSources(null)
-                    return null
-                },
-            },
-        ],
         schemas: [
             null,
             {

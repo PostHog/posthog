@@ -1,4 +1,3 @@
-// externalDataSourcesLogic.ts
 import { actions, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import api, { ApiMethodOptions, PaginatedResponse } from 'lib/api'
@@ -12,7 +11,7 @@ export const externalDataSourcesLogic = kea<externalDataSourcesLogicType>([
     actions({
         abortAnyRunningQuery: true,
     }),
-    loaders(({ cache, actions }) => ({
+    loaders(({ cache, actions, values }) => ({
         dataWarehouseSources: [
             null as PaginatedResponse<ExternalDataSource> | null,
             {
@@ -31,6 +30,16 @@ export const externalDataSourcesLogic = kea<externalDataSourcesLogicType>([
                     cache.abortController = null
 
                     return res
+                },
+                updateSource: async (source: ExternalDataSource) => {
+                    const updatedSource = await api.externalDataSources.update(source.id, source)
+                    return {
+                        ...values.dataWarehouseSources,
+                        results:
+                            values.dataWarehouseSources?.results.map((s) =>
+                                s.id === updatedSource.id ? updatedSource : s
+                            ) || [],
+                    } as PaginatedResponse<ExternalDataSource>
                 },
             },
         ],
