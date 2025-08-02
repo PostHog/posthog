@@ -73,6 +73,7 @@ async fn main() {
         .with_target(true)
         .with_thread_ids(true)
         .with_level(true)
+        .with_ansi(false)
         .with_filter(EnvFilter::from_default_env());
 
     let otel_layer = if let Some(ref otel_url) = config.otel_url {
