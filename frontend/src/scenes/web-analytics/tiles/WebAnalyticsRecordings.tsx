@@ -35,18 +35,18 @@ export function WebAnalyticsRecordingsTile({ tile }: { tile: ReplayTile }): JSX.
               buttonTo: urls.settings('project-replay', 'replay'),
           }
         : webAnalyticsFilters.length > 0
-        ? {
-              title: 'There are no recordings matching the current filters',
-              description: 'Try changing the filters, or view all recordings.',
-              buttonText: 'View all',
-              buttonTo: urls.replay(),
-          }
-        : {
-              title: 'There are no recordings matching this date range',
-              description: 'Make sure you have the javascript snippet setup in your website.',
-              buttonText: 'Learn more',
-              buttonTo: 'https://posthog.com/docs/user-guides/recordings',
-          }
+          ? {
+                title: 'There are no recordings matching the current filters',
+                description: 'Try changing the filters, or view all recordings.',
+                buttonText: 'View all',
+                buttonTo: urls.replay(),
+            }
+          : {
+                title: 'There are no recordings matching this date range',
+                description: 'Make sure you have the javascript snippet setup in your website.',
+                buttonText: 'Learn more',
+                buttonTo: 'https://posthog.com/docs/user-guides/recordings',
+            }
     const to = items.length > 0 ? urls.replay(ReplayTabs.Home, replayFilters) : urls.replay()
     return (
         <>

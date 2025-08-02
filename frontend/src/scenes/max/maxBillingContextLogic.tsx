@@ -143,7 +143,7 @@ export const billingToMaxContext = (
             return customLimit
         }
 
-        return usageKey ? billing[key]?.[usageKey] ?? null : null
+        return usageKey ? (billing[key]?.[usageKey] ?? null) : null
     }
 
     // Filter platform products to only include the highest tier available

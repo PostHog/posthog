@@ -87,7 +87,7 @@ export function Bar({
 
     useEffect(() => {
         decideLabelPosition()
-    }, [wrapperWidth])
+    }, [wrapperWidth]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     if (!conversionPercentage) {
         return null

@@ -150,8 +150,8 @@ export function InsightDisplayConfig(): JSX.Element {
                                           !isLineGraph
                                               ? 'Confidence intervals are only available for line graphs'
                                               : !isLinearScale
-                                              ? 'Confidence intervals are only supported for linear scale.'
-                                              : undefined
+                                                ? 'Confidence intervals are only supported for linear scale.'
+                                                : undefined
                                       }
                                       onChange={(checked) => {
                                           if (isTrendsQuery(querySource)) {

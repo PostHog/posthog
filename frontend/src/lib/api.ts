@@ -219,7 +219,12 @@ export class ApiError extends Error {
     /** Link to external resources, e.g. stripe invoices */
     link: string | null
 
-    constructor(message?: string, public status?: number, public headers?: Headers, public data?: any) {
+    constructor(
+        message?: string,
+        public status?: number,
+        public headers?: Headers,
+        public data?: any
+    ) {
         message = message || `API request failed with status: ${status ?? 'unknown'}`
         super(message)
         this.statusText = data?.statusText || null
@@ -2315,10 +2320,10 @@ const api = {
             return dashboardId
                 ? new ApiRequest().dashboardSharing(dashboardId).get()
                 : insightId
-                ? new ApiRequest().insightSharing(insightId).get()
-                : recordingId
-                ? new ApiRequest().recordingSharing(recordingId).get()
-                : null
+                  ? new ApiRequest().insightSharing(insightId).get()
+                  : recordingId
+                    ? new ApiRequest().recordingSharing(recordingId).get()
+                    : null
         },
 
         async update(
@@ -2336,10 +2341,10 @@ const api = {
             return dashboardId
                 ? new ApiRequest().dashboardSharing(dashboardId).update({ data })
                 : insightId
-                ? new ApiRequest().insightSharing(insightId).update({ data })
-                : recordingId
-                ? new ApiRequest().recordingSharing(recordingId).update({ data })
-                : null
+                  ? new ApiRequest().insightSharing(insightId).update({ data })
+                  : recordingId
+                    ? new ApiRequest().recordingSharing(recordingId).update({ data })
+                    : null
         },
     },
 

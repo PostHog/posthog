@@ -52,11 +52,11 @@ export const loggerPlugin: () => KeaPlugin = () => ({
         beforeReduxStore(options) {
             options.middleware.push((store) => (next) => (action) => {
                 const response = next(action)
-                /* eslint-disable no-console */
+                /* oxlint-disable no-console */
                 console.groupCollapsed('KEA LOGGER', action)
                 console.log(store.getState())
                 console.groupEnd()
-                /* eslint-enable no-console */
+                /* oxlint-enable no-console */
                 return response
             })
         },
@@ -128,7 +128,7 @@ export function initKea({
     }
 
     if ((window as any).__REDUX_DEVTOOLS_EXTENSION__) {
-        // eslint-disable-next-line no-console
+        // oxlint-disable-next-line no-console
         console.log('NB Redux Dev Tools are disabled on PostHog. See: https://github.com/PostHog/posthog/issues/17482')
     }
 

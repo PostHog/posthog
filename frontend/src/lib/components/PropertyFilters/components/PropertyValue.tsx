@@ -11,6 +11,7 @@ import { DurationPicker } from 'lib/components/DurationPicker/DurationPicker'
 import { PropertyFilterDatePicker } from 'lib/components/PropertyFilters/components/PropertyFilterDatePicker'
 import { propertyFilterTypeToPropertyDefinitionType } from 'lib/components/PropertyFilters/utils'
 import { dayjs } from 'lib/dayjs'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { formatDate, isOperatorDate, isOperatorFlag, isOperatorMulti, toString } from 'lib/utils'
 import { useEffect } from 'react'
@@ -86,17 +87,17 @@ export function PropertyValue({
 
     const setValue = (newValue: PropertyValueProps['value']): void => onSet(newValue)
 
-    useEffect(() => {
+    useOnMountEffect(() => {
         if (preloadValues) {
             load('')
         }
-    }, [])
+    })
 
     useEffect(() => {
         if (!isDateTimeProperty) {
             load('')
         }
-    }, [propertyKey, isDateTimeProperty])
+    }, [propertyKey, isDateTimeProperty]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     const displayOptions = options[propertyKey]?.values || []
 
@@ -215,8 +216,8 @@ export function PropertyValue({
                 PROPERTY_FILTER_TYPES_WITH_TEMPORAL_SUGGESTIONS.includes(type)
                     ? 'Suggested values (last 7 days)'
                     : PROPERTY_FILTER_TYPES_WITH_ALL_TIME_SUGGESTIONS.includes(type)
-                    ? 'Suggested values'
-                    : undefined
+                      ? 'Suggested values'
+                      : undefined
             }
             popoverClassName="max-w-200"
             options={displayOptions.map(({ name: _name }, index) => {

@@ -156,7 +156,7 @@ export function LemonTable<T extends Record<string, any>>({
                 )
             }
         },
-        [location, searchParams, hashParams, push]
+        [location, searchParams, hashParams, push] // oxlint-disable-line react-hooks/exhaustive-deps
     )
 
     const columnGroups = (
@@ -199,7 +199,7 @@ export function LemonTable<T extends Record<string, any>>({
             }
         }
         return dataSource
-    }, [dataSource, currentSorting])
+    }, [dataSource, currentSorting, columns])
 
     const paginationState = usePagination(sortedDataSource, pagination, id)
 
@@ -219,7 +219,7 @@ export function LemonTable<T extends Record<string, any>>({
         throw new Error('LemonTable `firstColumnSticky` prop cannot be used with `expandable`')
     }
 
-    const isRowExpansionToggleShown = expandable ? expandable?.showRowExpansionToggle ?? true : false
+    const isRowExpansionToggleShown = expandable ? (expandable?.showRowExpansionToggle ?? true) : false
 
     return (
         <div
@@ -410,7 +410,7 @@ export function LemonTable<T extends Record<string, any>>({
                                     const rowKeyDetermined = rowKey
                                         ? typeof rowKey === 'function'
                                             ? rowKey(record, rowIndex)
-                                            : record[rowKey] ?? rowIndex
+                                            : (record[rowKey] ?? rowIndex)
                                         : paginationState.currentStartIndex + rowIndex
                                     const rowClassNameDetermined =
                                         typeof rowClassName === 'function'

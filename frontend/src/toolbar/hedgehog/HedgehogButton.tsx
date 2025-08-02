@@ -17,7 +17,7 @@ export function HedgehogButton(): JSX.Element {
         if (heatmapEnabled) {
             hedgehogActor?.setOnFire(1)
         }
-    }, [heatmapEnabled])
+    }, [heatmapEnabled]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     useEffect(() => {
         return hedgehogActor?.setupKeyboardListeners()

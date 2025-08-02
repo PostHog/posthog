@@ -181,8 +181,8 @@ export function HogFunctionTesting({ id }: HogFunctionTestingLogicProps): JSX.El
                                             loadingRetries.length > 0
                                                 ? 'Please wait for the current tests to complete.'
                                                 : selectedForRetry.length === 0
-                                                ? 'No invocations selected'
-                                                : undefined
+                                                  ? 'No invocations selected'
+                                                  : undefined
                                         }
                                     >
                                         Test selected
@@ -200,8 +200,8 @@ export function HogFunctionTesting({ id }: HogFunctionTestingLogicProps): JSX.El
                                     {willReEnableOnSave
                                         ? ' & re-enable'
                                         : willChangeEnabledOnSave
-                                        ? ` & ${configuration.enabled ? 'enable' : 'disable'}`
-                                        : ''}
+                                          ? ` & ${configuration.enabled ? 'enable' : 'disable'}`
+                                          : ''}
                                 </LemonButton>
                             ) : null}
                         </>

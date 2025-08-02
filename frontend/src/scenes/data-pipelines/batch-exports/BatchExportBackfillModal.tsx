@@ -104,8 +104,8 @@ export function BatchExportBackfillModal({ id }: BatchExportBackfillModalLogicPr
                                         ? batchExportConfig.interval === 'hour'
                                             ? 'hour'
                                             : batchExportConfig.interval.endsWith('minutes')
-                                            ? 'minute'
-                                            : 'day'
+                                              ? 'minute'
+                                              : 'day'
                                         : 'day'
                                 }
                             />
@@ -172,8 +172,8 @@ export function BatchExportBackfillModal({ id }: BatchExportBackfillModalLogicPr
                                     ? batchExportConfig.interval === 'hour'
                                         ? 'hour'
                                         : batchExportConfig.interval.endsWith('minutes')
-                                        ? 'minute'
-                                        : 'day'
+                                          ? 'minute'
+                                          : 'day'
                                     : 'day'
                             }
                         />

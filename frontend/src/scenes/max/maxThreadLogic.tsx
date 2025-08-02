@@ -139,7 +139,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
 
     reducers(({ props }) => ({
         conversation: [
-            props.conversation ? removeConversationMessages(props.conversation) ?? null : null,
+            props.conversation ? (removeConversationMessages(props.conversation) ?? null) : null,
             {
                 setConversation: (_, { conversation }) => conversation,
             },

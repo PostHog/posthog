@@ -615,12 +615,15 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
         joinsByFieldName: [
             (s) => [s.joins],
             (joins: DataWarehouseViewLink[]): Record<string, DataWarehouseViewLink> => {
-                return joins.reduce((acc, join) => {
-                    if (join.field_name && join.source_table_name) {
-                        acc[`${join.source_table_name}.${join.field_name}`] = join
-                    }
-                    return acc
-                }, {} as Record<string, DataWarehouseViewLink>)
+                return joins.reduce(
+                    (acc, join) => {
+                        if (join.field_name && join.source_table_name) {
+                            acc[`${join.source_table_name}.${join.field_name}`] = join
+                        }
+                        return acc
+                    },
+                    {} as Record<string, DataWarehouseViewLink>
+                )
             },
         ],
         sidebarOverlayTreeItems: [

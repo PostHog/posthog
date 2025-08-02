@@ -43,7 +43,7 @@ export function TrendsFormula({ insightProps }: EditorFilterProps): JSX.Element 
                 setLocalValues([emptyNode])
             }
         }
-    }, [formulaNodes, hasFormula])
+    }, [formulaNodes, hasFormula]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     const updateFormulas = (newValues: TrendsFormulaNode[]): void => {
         // Filter out empty values when updating the query but keep them in local state

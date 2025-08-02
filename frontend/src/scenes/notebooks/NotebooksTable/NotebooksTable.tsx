@@ -7,7 +7,6 @@ import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { atColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { Link } from 'lib/lemon-ui/Link'
-import { useEffect } from 'react'
 import { ContainsTypeFilters } from 'scenes/notebooks/NotebooksTable/ContainsTypeFilter'
 import { notebooksTableLogic } from 'scenes/notebooks/NotebooksTable/notebooksTableLogic'
 import { urls } from 'scenes/urls'
@@ -16,6 +15,7 @@ import { notebooksModel } from '~/models/notebooksModel'
 import { NotebookListItemType } from '../types'
 
 import { notebookPanelLogic } from '../NotebookPanel/notebookPanelLogic'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 function titleColumn(): LemonTableColumn<NotebookListItemType, 'title'> {
     return {
@@ -44,10 +44,7 @@ export function NotebooksTable(): JSX.Element {
     const { loadNotebooks, setFilters, tableSortingChanged } = useActions(notebooksTableLogic)
     const { selectNotebook } = useActions(notebookPanelLogic)
 
-    useEffect(() => {
-        loadNotebooks()
-        // oxlint-disable-next-line exhaustive-deps
-    }, [])
+    useOnMountEffect(loadNotebooks)
 
     const columns: LemonTableColumns<NotebookListItemType> = [
         titleColumn() as LemonTableColumn<NotebookListItemType, keyof NotebookListItemType | undefined>,

@@ -149,7 +149,7 @@ const WebAnalyticsDomainSelector = (): JSX.Element => {
         <LemonSelect
             className="grow md:grow-0"
             size="small"
-            value={hasHostFilter ? 'host' : domainFilter ?? 'all'}
+            value={hasHostFilter ? 'host' : (domainFilter ?? 'all')}
             icon={<IconGlobe />}
             onChange={(value) => setDomainFilter(value)}
             disabledReason={

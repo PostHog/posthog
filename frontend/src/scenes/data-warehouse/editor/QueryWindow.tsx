@@ -153,7 +153,7 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
                                         ...sourceQuery.source,
                                         query: queryInput,
                                     },
-                                    types: response && 'types' in response ? response?.types ?? [] : [],
+                                    types: response && 'types' in response ? (response?.types ?? []) : [],
                                     shouldRematerialize: isMaterializedView,
                                     edited_history_id: inProgressViewEdits[editingView.id],
                                 })

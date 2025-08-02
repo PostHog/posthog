@@ -422,7 +422,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                             ...values.response,
                             results: [
                                 ...(values.response && 'results' in values.response
-                                    ? values.response?.results ?? []
+                                    ? (values.response?.results ?? [])
                                     : []),
                                 ...(newResponse?.results ?? []),
                             ],
@@ -557,9 +557,9 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     return error ?? 'Error loading data'
                 },
                 loadDataSuccess: (_, { response }) =>
-                    response && 'error' in response ? response?.error ?? null : null,
+                    response && 'error' in response ? (response.error ?? null) : null,
                 loadNewDataSuccess: (_, { response }) =>
-                    response && 'error' in response ? response?.error ?? null : null,
+                    response && 'error' in response ? (response.error ?? null) : null,
             },
         ],
         elapsedTime: [
@@ -660,7 +660,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                                 | MarketingAnalyticsTableQueryResponse
                         )?.hasMore
                     ) {
-                        const sortKey = isTracesQuery(query) ? null : query.orderBy?.[0] ?? 'timestamp DESC'
+                        const sortKey = isTracesQuery(query) ? null : (query.orderBy?.[0] ?? 'timestamp DESC')
                         if (isEventsQuery(query) && sortKey === 'timestamp DESC') {
                             const typedResults = (response as EventsQueryResponse)?.results
                             const sortColumnIndex = query.select
@@ -730,7 +730,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             // get limit from response
             (s) => [s.response],
             (response): number | null => {
-                return response && 'limit' in response ? response.limit ?? null : null
+                return response && 'limit' in response ? (response.limit ?? null) : null
             },
         ],
         backToSourceQuery: [

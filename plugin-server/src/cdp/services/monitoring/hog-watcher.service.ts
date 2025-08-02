@@ -59,7 +59,10 @@ export const isHogFunctionResult = (
 export class HogWatcherService {
     private costsMapping: HogFunctionTimingCosts
 
-    constructor(private hub: Hub, private redis: CdpRedis) {
+    constructor(
+        private hub: Hub,
+        private redis: CdpRedis
+    ) {
         this.costsMapping = {
             hog: {
                 lowerBound: this.hub.CDP_WATCHER_HOG_COST_TIMING_LOWER_MS,
@@ -144,21 +147,24 @@ export class HogWatcherService {
             }
         })
 
-        return Array.from(idsSet).reduce((acc, id, index) => {
-            const resIndex = index * 3
-            const tokens = res ? res[resIndex][1] : undefined
-            const disabled = res ? res[resIndex + 1][1] : false
-            const disabledTemporarily = disabled && res ? res[resIndex + 2][1] !== -1 : false
-            const stateOverride = disabled
-                ? disabledTemporarily
-                    ? HogWatcherState.disabledForPeriod
-                    : HogWatcherState.disabledIndefinitely
-                : undefined
+        return Array.from(idsSet).reduce(
+            (acc, id, index) => {
+                const resIndex = index * 3
+                const tokens = res ? res[resIndex][1] : undefined
+                const disabled = res ? res[resIndex + 1][1] : false
+                const disabledTemporarily = disabled && res ? res[resIndex + 2][1] !== -1 : false
+                const stateOverride = disabled
+                    ? disabledTemporarily
+                        ? HogWatcherState.disabledForPeriod
+                        : HogWatcherState.disabledIndefinitely
+                    : undefined
 
-            acc[id] = this.tokensToFunctionState(tokens, stateOverride)
+                acc[id] = this.tokensToFunctionState(tokens, stateOverride)
 
-            return acc
-        }, {} as Record<HogFunctionType['id'], HogWatcherFunctionState>)
+                return acc
+            },
+            {} as Record<HogFunctionType['id'], HogWatcherFunctionState>
+        )
     }
 
     public async getState(id: HogFunctionType['id']): Promise<HogWatcherFunctionState> {
@@ -173,8 +179,8 @@ export class HogWatcherService {
                 state === HogWatcherState.healthy
                     ? this.hub.CDP_WATCHER_BUCKET_SIZE
                     : state === HogWatcherState.degraded
-                    ? this.hub.CDP_WATCHER_BUCKET_SIZE * this.hub.CDP_WATCHER_THRESHOLD_DEGRADED
-                    : 0
+                      ? this.hub.CDP_WATCHER_BUCKET_SIZE * this.hub.CDP_WATCHER_THRESHOLD_DEGRADED
+                      : 0
 
             const nowSeconds = Math.round(Date.now() / 1000)
 

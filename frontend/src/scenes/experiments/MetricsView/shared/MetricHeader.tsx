@@ -61,8 +61,8 @@ export const MetricHeader = ({
                                         ? openPrimarySharedMetricModal
                                         : openPrimaryMetricModal
                                     : metric.isSharedMetric
-                                    ? openSecondarySharedMetricModal
-                                    : openSecondaryMetricModal
+                                      ? openSecondarySharedMetricModal
+                                      : openSecondaryMetricModal
 
                                 openModal(metric.isSharedMetric ? metric.sharedMetricId : metricIndex)
                             }}
