@@ -13,6 +13,13 @@ $glyph_height: 23px; // Based on .funnel-step-glyph
         padding-left: 1rem;
     }
 
+    // When there are optional steps, indent all content to make room for the layout
+    &.FunnelBarHorizontal--has-optional-steps {
+        .funnel-step {
+            padding-left: $series_container_width + 2rem; // Extra space for optional step positioning
+        }
+    }
+
     .funnel-step {
         position: relative;
         padding-left: $series_container_width + 0.5rem;
@@ -21,6 +28,20 @@ $glyph_height: 23px; // Based on .funnel-step-glyph
             &,
             .funnel-series-container {
                 padding-top: 0.75rem;
+            }
+        }
+
+        // Optional step styling - make it translucent to indicate it's not a real funnel step
+        &.funnel-step--optional {
+            // Don't apply opacity to the whole step, target specific elements instead
+            header,
+            .funnel-bar-wrapper,
+            .funnel-conversion-metadata {
+                opacity: 0.6;
+            }
+
+            .graph-series-glyph {
+                opacity: 0.7;
             }
         }
 
@@ -56,6 +77,39 @@ $glyph_height: 23px; // Based on .funnel-step-glyph
 
             .graph-series-glyph {
                 user-select: none;
+            }
+
+            // Optional step positioning
+            &.optional-step {
+                // Move the step number to the right to align with end of connector
+                .graph-series-glyph {
+                    margin-left: 3rem;
+                }
+
+                // Create the branching path using multiple pseudo-elements
+                &::before {
+                    position: absolute;
+                    top: calc(#{$glyph_height} / 2 - 2rem);
+                    left: calc(#{$series_container_width} / 2 - 1px);
+                    z-index: 1;
+                    width: 1.5rem;
+                    height: 2px;
+                    content: '';
+                    background: var(--border-primary);
+                    opacity: 0.5;
+                }
+            }
+
+            .optional-connector {
+                position: absolute;
+                top: calc(#{$glyph_height} / 2 - 2rem);
+                left: calc(#{$series_container_width} / 2 + 1.5rem - 1px);
+                z-index: 1;
+                width: 2px;
+                height: calc(1rem + #{$glyph_height});
+                content: '';
+                background: var(--border-primary);
+                opacity: 0.5;
             }
 
             .funnel-series-linebox {

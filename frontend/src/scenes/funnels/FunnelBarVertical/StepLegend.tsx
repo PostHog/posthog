@@ -25,10 +25,12 @@ type StepLegendProps = {
 
 export function StepLegend({ step, stepIndex, showTime, showPersonsModal }: StepLegendProps): JSX.Element {
     const { insightProps } = useValues(insightLogic)
-    const { aggregationTargetLabel, funnelsFilter } = useValues(funnelDataLogic(insightProps))
+    const { aggregationTargetLabel, funnelsFilter, isStepOptional } = useValues(funnelDataLogic(insightProps))
     const { canOpenPersonModal, isInExperimentContext } = useValues(funnelPersonsModalLogic(insightProps))
     const { openPersonsModalForStep } = useActions(funnelPersonsModalLogic(insightProps))
     const { hasAvailableFeature } = useValues(userLogic)
+
+    const isOptional = isStepOptional(stepIndex + 1)
 
     const convertedCountPresentation = pluralize(
         step.count ?? 0,
@@ -55,7 +57,7 @@ export function StepLegend({ step, stepIndex, showTime, showPersonsModal }: Step
     )
 
     return (
-        <div className="StepLegend">
+        <div className="StepLegend" style={{ opacity: isOptional ? 0.6 : 1 }}>
             <LemonRow
                 icon={<Lettermark name={stepIndex + 1} color={LettermarkColor.Gray} />}
                 sideIcon={
@@ -63,6 +65,7 @@ export function StepLegend({ step, stepIndex, showTime, showPersonsModal }: Step
                 }
             >
                 <EntityFilterInfo filter={getActionFilterFromFunnelStep(step)} />
+                {isOptional ? <div className="ml-1 text-xs font-normal">(optional)</div> : null}
             </LemonRow>
             <LemonRow
                 icon={<IconTrendingFlat />}
