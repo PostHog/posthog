@@ -65,7 +65,7 @@ export function ObjectTags({
     /** Displaying nothing is confusing, so in case of empty static tags we use a dash as a placeholder */
     const showPlaceholder = staticOnly && !tags?.length
     if (showPlaceholder && !style.color) {
-        style.color = 'var(--text-secondary)'
+        style.color = 'var(--color-text-secondary)'
     }
 
     const onGuardClick = (callback: () => void): void => {

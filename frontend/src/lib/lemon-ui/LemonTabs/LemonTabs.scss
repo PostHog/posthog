@@ -40,7 +40,7 @@
 
         // The bottom border
         content: '';
-        background: var(--border-primary);
+        background: var(--color-border-primary);
     }
 
     &::after {
@@ -52,7 +52,7 @@
 
         // The active tab slider
         content: '';
-        background: var(--accent);
+        background: var(--color-accent);
         transform: translateX(var(--lemon-tabs-slider-offset));
 
         .LemonTabs--transitioning & {
@@ -66,15 +66,15 @@
         }
 
         &:hover {
-            color: var(--accent);
+            color: var(--color-accent);
         }
 
         &:active {
-            color: var(--accent);
+            color: var(--color-accent);
         }
 
         &.LemonTabs__tab--active {
-            color: var(--accent);
+            color: var(--color-accent);
             text-shadow: 0 0 0.25px currentColor; // Simulate increased weight without affecting width
         }
 

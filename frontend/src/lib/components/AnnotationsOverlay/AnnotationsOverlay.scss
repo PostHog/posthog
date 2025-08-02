@@ -22,7 +22,7 @@
     transform: translate(-50%, -50%);
 
     > .LemonBadge {
-        border-color: var(--bg-surface-primary); // Matching the chart background
+        border-color: var(--color-bg-surface-primary); // Matching the chart background
         transition: transform 200ms ease; // Same as LemonBadge's transition
         // Override .LemonBadge--position-self-centered
         transform: scale(var(--annotations-badge-scale));

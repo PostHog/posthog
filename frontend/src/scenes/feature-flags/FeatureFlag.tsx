@@ -1005,7 +1005,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                                     style={{
                                                         marginLeft: '0.5rem',
                                                     }}
-                                                    iconStyle={{ color: 'var(--text-secondary)' }}
+                                                    iconStyle={{ color: 'var(--color-text-secondary)' }}
                                                 >
                                                     {variant.key}
                                                 </CopyToClipboardInline>

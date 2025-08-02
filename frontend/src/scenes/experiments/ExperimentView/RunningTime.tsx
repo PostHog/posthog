@@ -52,7 +52,7 @@ export function RunningTime(): JSX.Element {
                     <>
                         <LemonProgress
                             className="w-full border"
-                            bgColor="var(--bg-table)"
+                            bgColor="var(--color-bg-table)"
                             size="medium"
                             percent={(actualRunningTime / recommendedRunningTime) * 100}
                         />

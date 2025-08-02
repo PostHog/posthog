@@ -278,7 +278,7 @@ export function ActionFilterRow({
 
     const seriesIndicator =
         seriesIndicatorType === 'numeric' ? (
-            <SeriesGlyph style={{ borderColor: 'var(--border-primary)' }}>{index + 1}</SeriesGlyph>
+            <SeriesGlyph style={{ borderColor: 'var(--color-border-primary)' }}>{index + 1}</SeriesGlyph>
         ) : (
             <SeriesLetter seriesIndex={index} hasBreakdown={hasBreakdown} />
         )
