@@ -3,7 +3,7 @@ from langchain_core.agents import AgentAction
 from langchain_core.prompts import AIMessagePromptTemplate, HumanMessagePromptTemplate
 
 from ee.hogai.graph.query_planner.nodes import QueryPlannerNode, QueryPlannerToolsNode
-from ee.hogai.graph.query_planner.toolkit import TaxonomyAgentToolkit
+from ee.hogai.graph.query_planner.toolkit import QueryPlannerTaxonomyAgentToolkit
 from ee.hogai.utils.types import AssistantState
 from posthog.models import GroupTypeMapping
 from posthog.schema import (
@@ -17,7 +17,7 @@ from posthog.schema import (
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
 
-class DummyToolkit(TaxonomyAgentToolkit):
+class DummyToolkit(QueryPlannerTaxonomyAgentToolkit):
     pass
 
 
