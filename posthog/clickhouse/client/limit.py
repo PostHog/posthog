@@ -11,8 +11,13 @@ from prometheus_client import Counter
 
 from posthog import redis, settings
 from posthog.clickhouse.cluster import ExponentialBackoff
+from posthog.constants import AvailableFeature
 from posthog.settings import TEST
 from posthog.utils import generate_short_id
+
+# Default concurrency limits
+DEFAULT_APP_ORG_CONCURRENT_QUERIES = 20
+DEFAULT_APP_DASHBOARD_CONCURRENT_QUERIES = 4
 
 CONCURRENT_QUERY_LIMIT_EXCEEDED_COUNTER = Counter(
     "posthog_clickhouse_query_concurrency_limit_exceeded",
@@ -102,6 +107,20 @@ class RateLimit:
             max_concurrency = settings.API_QUERIES_PER_TEAM[team_id]  # type: ignore
         elif "limit" in kwargs:
             max_concurrency = kwargs.get("limit") or max_concurrency
+        elif self.limit_name == "app_per_org":
+            # For app_per_org rate limiter, check for QUERY_CONCURRENCY feature
+            org_id = kwargs.get("org_id")
+            if org_id:
+                try:
+                    from posthog.models.organization import Organization
+
+                    org = Organization.objects.get(id=org_id)
+                    feature = org.get_available_feature(AvailableFeature.ORGANIZATION_QUERY_CONCURRENCY_LIMIT)
+                    if feature and isinstance(feature.get("limit"), int):
+                        max_concurrency = feature["limit"]
+                except Exception:
+                    # Fall back to default if anything goes wrong
+                    pass
 
         # p80 is below 1.714ms, therefore max retry is 1.714s
         backoff = ExponentialBackoff(self.retry or 0.15, max_delay=1.714, exp=1.5)
@@ -225,7 +244,7 @@ def get_app_org_rate_limiter():
     global __APP_CONCURRENT_QUERY_PER_ORG
     if __APP_CONCURRENT_QUERY_PER_ORG is None:
         __APP_CONCURRENT_QUERY_PER_ORG = RateLimit(
-            max_concurrency=20,
+            max_concurrency=DEFAULT_APP_ORG_CONCURRENT_QUERIES,
             applicable=lambda *args, **kwargs: (
                 not TEST
                 and kwargs.get("org_id")
@@ -249,7 +268,7 @@ def get_app_dashboard_queries_rate_limiter():
     global __APP_CONCURRENT_DASHBOARD_QUERIES_PER_ORG
     if __APP_CONCURRENT_DASHBOARD_QUERIES_PER_ORG is None:
         __APP_CONCURRENT_DASHBOARD_QUERIES_PER_ORG = RateLimit(
-            max_concurrency=4,
+            max_concurrency=DEFAULT_APP_DASHBOARD_CONCURRENT_QUERIES,
             applicable=(
                 lambda *args, **kwargs: not TEST
                 and not kwargs.get("is_api")

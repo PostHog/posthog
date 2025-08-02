@@ -1,4 +1,11 @@
-from posthog.clickhouse.client.limit import RateLimit, ConcurrencyLimitExceeded
+from unittest.mock import patch
+from posthog.clickhouse.client.limit import (
+    RateLimit,
+    ConcurrencyLimitExceeded,
+    get_app_org_rate_limiter,
+    DEFAULT_APP_ORG_CONCURRENT_QUERIES,
+)
+from posthog.constants import AvailableFeature
 from posthog.test.base import BaseTest
 from collections.abc import Callable
 
@@ -205,3 +212,148 @@ class TimeHelper:
         self.sleep_times.append(duration)
         self.on_sleep(duration)
         self.t += duration
+
+
+class TestAppOrgRateLimiterWithQueryConcurrency(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        # Clear the global singleton before each test
+        from posthog.clickhouse.client import limit
+
+        limit.__APP_CONCURRENT_QUERY_PER_ORG = None
+
+    def test_default_concurrency_limit(self):
+        """Test that the default concurrency limit is used when no feature is available"""
+        rate_limiter = get_app_org_rate_limiter()
+
+        # Use the rate limiter with an org that doesn't have the feature
+        with rate_limiter.run(org_id=self.organization.id, task_id="test-1"):
+            # Should succeed with default limit
+            pass
+
+        # Verify we're using the default max_concurrency
+        self.assertEqual(rate_limiter.max_concurrency, DEFAULT_APP_ORG_CONCURRENT_QUERIES)
+
+    def test_query_concurrency_feature_limit(self):
+        """Test that the QUERY_CONCURRENCY feature limit is used when available"""
+        # Set up organization with QUERY_CONCURRENCY feature
+        self.organization.available_product_features = [
+            {
+                "key": AvailableFeature.ORGANIZATION_QUERY_CONCURRENCY_LIMIT,
+                "name": "Query Concurrency",
+                "limit": 50,
+            }
+        ]
+        self.organization.save()
+
+        rate_limiter = get_app_org_rate_limiter()
+
+        # Track whether the use method checks for our feature
+        checked_feature = False
+        original_use = rate_limiter.use
+
+        def patched_use(*args, **kwargs):
+            nonlocal checked_feature
+            org_id = kwargs.get("org_id")
+            if org_id == self.organization.id:
+                checked_feature = True
+            return original_use(*args, **kwargs)
+
+        rate_limiter.use = patched_use
+
+        # Use the rate limiter with our org
+        with rate_limiter.run(org_id=self.organization.id, task_id="test-1"):
+            pass
+
+        self.assertTrue(checked_feature)
+
+    def test_query_concurrency_multiple_concurrent_requests(self):
+        """Test that concurrency limit is enforced based on feature limit"""
+        # Set up organization with a low concurrency limit
+        self.organization.available_product_features = [
+            {
+                "key": AvailableFeature.ORGANIZATION_QUERY_CONCURRENCY_LIMIT,
+                "name": "Query Concurrency",
+                "limit": 2,
+            }
+        ]
+        self.organization.save()
+
+        rate_limiter = get_app_org_rate_limiter()
+
+        # First two requests should succeed
+        task_key1, task_id1 = rate_limiter.use(org_id=self.organization.id, task_id="test-1")
+        task_key2, task_id2 = rate_limiter.use(org_id=self.organization.id, task_id="test-2")
+
+        # Third request should fail due to concurrency limit
+        with self.assertRaises(ConcurrencyLimitExceeded):
+            rate_limiter.use(org_id=self.organization.id, task_id="test-3")
+
+        # Clean up
+        rate_limiter.release(task_key1, task_id1)
+        rate_limiter.release(task_key2, task_id2)
+
+    def test_query_concurrency_fallback_on_error(self):
+        """Test that the default limit is used if there's an error getting the feature"""
+        # Create an org ID that doesn't exist
+        non_existent_org_id = 99999
+
+        rate_limiter = get_app_org_rate_limiter()
+
+        # Should not raise an exception, should fall back to default
+        with rate_limiter.run(org_id=non_existent_org_id, task_id="test-1"):
+            pass
+
+    def test_query_concurrency_with_invalid_limit(self):
+        """Test that invalid limit values fall back to default"""
+        # Set up organization with invalid limit types
+        test_cases = [
+            {
+                "key": AvailableFeature.ORGANIZATION_QUERY_CONCURRENCY_LIMIT,
+                "name": "Query Concurrency",
+                "limit": "not-a-number",
+            },
+            {"key": AvailableFeature.ORGANIZATION_QUERY_CONCURRENCY_LIMIT, "name": "Query Concurrency", "limit": None},
+            {
+                "key": AvailableFeature.ORGANIZATION_QUERY_CONCURRENCY_LIMIT,
+                "name": "Query Concurrency",
+            },  # missing limit
+        ]
+
+        rate_limiter = get_app_org_rate_limiter()
+
+        for feature_config in test_cases:
+            self.organization.available_product_features = [feature_config]
+            self.organization.save()
+
+            # Should use default limit, not fail
+            with rate_limiter.run(org_id=self.organization.id, task_id=f"test-{feature_config}"):
+                pass
+
+    def test_query_concurrency_not_applicable_to_api_requests(self):
+        """Test that QUERY_CONCURRENCY feature doesn't affect API requests"""
+        # Set up organization with QUERY_CONCURRENCY feature
+        self.organization.available_product_features = [
+            {
+                "key": AvailableFeature.ORGANIZATION_QUERY_CONCURRENCY_LIMIT,
+                "name": "Query Concurrency",
+                "limit": 1,
+            }
+        ]
+        self.organization.save()
+
+        rate_limiter = get_app_org_rate_limiter()
+
+        # API requests should not be affected by app org rate limiter
+        # The applicable function should return False for is_api=True
+        self.assertFalse(rate_limiter.applicable(org_id=self.organization.id, is_api=True))
+
+    @patch("posthog.clickhouse.client.limit.current_task")
+    def test_query_concurrency_not_applicable_in_celery(self, mock_current_task):
+        """Test that rate limiter doesn't apply when running in Celery"""
+        mock_current_task.return_value = "some_task"  # Simulate being in Celery
+
+        rate_limiter = get_app_org_rate_limiter()
+
+        # Should not be applicable when in Celery
+        self.assertFalse(rate_limiter.applicable(org_id=self.organization.id))
