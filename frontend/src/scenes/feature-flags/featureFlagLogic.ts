@@ -1336,11 +1336,15 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             },
         ],
     }),
-    urlToAction(({ actions, props }) => ({
+    urlToAction(({ actions, props, values }) => ({
         [urls.featureFlag(props.id ?? 'new')]: (_, __, ___, { method }) => {
             // If the URL was pushed (user clicked on a link), reset the scene's data.
             // This avoids resetting form fields if you click back/forward.
             if (method === 'PUSH') {
+                // When pushing to `/new` and the feature flag has no id, do not load the flag again
+                if (props.id === 'new' && values.featureFlag.id == null) {
+                    return
+                }
                 if (props.id) {
                     actions.loadFeatureFlag()
                 } else {
