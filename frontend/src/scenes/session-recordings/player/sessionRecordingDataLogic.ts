@@ -605,7 +605,7 @@ AND properties.$lib != 'web'`
             }
             actions.setWasMarkedViewed(true) // this prevents us from calling the function multiple times
 
-            await breakpoint(IS_TEST_MODE ? 1 : delay ?? 3000)
+            await breakpoint(IS_TEST_MODE ? 1 : (delay ?? 3000))
             await api.recordings.update(props.sessionRecordingId, {
                 viewed: true,
                 player_metadata: values.sessionPlayerMetaData,
@@ -882,7 +882,7 @@ AND properties.$lib != 'web'`
                 sources,
                 viewportForTimestamp,
                 sessionRecordingId,
-                // eslint-disable-next-line @typescript-eslint/no-unused-vars
+                // oxlint-disable-next-line @typescript-eslint/no-unused-vars
                 _snapshotsBySourceSuccessCount
             ): RecordingSnapshot[] => {
                 if (!sources || !cache.snapshotsBySource) {
@@ -902,7 +902,7 @@ AND properties.$lib != 'web'`
             (s) => [s.snapshotSources, s.viewportForTimestamp],
             (
                 sources,
-                // eslint-disable-next-line @typescript-eslint/no-unused-vars
+                // oxlint-disable-next-line @typescript-eslint/no-unused-vars
                 _snapshotsBySourceSuccessCount
             ): RecordingSnapshot[] => {
                 if (!sources || !cache.snapshotsBySource) {

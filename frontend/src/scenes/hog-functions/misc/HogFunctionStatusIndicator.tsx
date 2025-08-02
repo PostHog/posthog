@@ -72,8 +72,8 @@ export function HogFunctionStatusIndicator({ hogFunction }: HogFunctionStatusInd
     const { tagType, display, description } = !hogFunction.enabled
         ? DISABLED_MANUALLY_DISPLAY
         : hogFunction.status?.state
-        ? displayMap[hogFunction.status.state]
-        : DEFAULT_DISPLAY
+          ? displayMap[hogFunction.status.state]
+          : DEFAULT_DISPLAY
 
     return (
         <LemonDropdown
