@@ -650,6 +650,10 @@ export class ApiRequest {
         return this.cohorts(teamId).addPathComponent(cohortId)
     }
 
+    public cohortsDetailPersons(cohortId: CohortType['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.cohorts(teamId).addPathComponent(cohortId).addPathComponent('persons')
+    }
+
     public cohortsDuplicate(cohortId: CohortType['id'], teamId?: TeamType['id']): ApiRequest {
         return this.cohortsDetail(cohortId, teamId).addPathComponent('duplicate_as_static_cohort')
     }
@@ -2113,6 +2117,9 @@ const api = {
             } = {}
         ): Promise<CountedPaginatedResponse<CohortType>> {
             return await new ApiRequest().cohorts().withQueryString(toParams(params)).get()
+        },
+        async getCohortPersons(cohortId: CohortType['id']): any {
+            return await new ApiRequest().cohortsDetailPersons(cohortId).get()
         },
     },
 
