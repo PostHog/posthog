@@ -1900,7 +1900,7 @@ export const surveyLogic = kea<surveyLogicType>([
             // This avoids resetting form fields if you click back/forward.
             if (method === 'PUSH') {
                 // When pushing to `/new` and the id matches the new survey's id, do not load the survey again
-                if (props.id === 'new' && values.survey.id === NEW_SURVEY.id && fromTemplate == null) {
+                if (props.id === 'new' && values.survey.id === NEW_SURVEY.id && !fromTemplate) {
                     return
                 }
                 if (props.id) {
