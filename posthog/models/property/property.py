@@ -185,6 +185,8 @@ VALIDATE_BEHAVIORAL_PROP_TYPES = {
     ],
 }
 
+EventType = Literal["events", "actions"]
+
 
 class Property:
     key: str
@@ -195,7 +197,7 @@ class Property:
 
     # All these property keys are used in cohorts.
     # Type of `key`
-    event_type: Optional[Literal["events", "actions"]]
+    event_type: Optional[EventType]
     # Any extra filters on the event
     event_filters: Optional[list["Property"]]
     # Query people who did event '$pageview' 20 times in the last 30 days

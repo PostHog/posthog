@@ -1,7 +1,10 @@
+from functools import cached_property
 from typing import Any, Literal, Union, cast
 
 from pydantic import BaseModel, ConfigDict
 
+from ee.hogai.summarizers.utils import Summarizer
+from posthog.models import Cohort, Team
 from posthog.schema import (
     CohortPropertyFilter,
     DataWarehousePersonPropertyFilter,
@@ -69,6 +72,15 @@ PROPERTY_FILTER_VERBOSE_NAME: dict[PropertyOperator, str] = {
     PropertyOperator.FLAG_EVALUATES_TO: "evaluates to",
 }
 
+ARRAY_PROPERTY_FILTER_VERBOSE_NAME: dict[PropertyOperator, str] = {
+    PropertyOperator.EXACT: "matches exactly at least one of the values from the list",
+    PropertyOperator.IS_NOT: "doesn't match any of the values from the list",
+    PropertyOperator.ICONTAINS: "contains at least one of the values from the list",
+    PropertyOperator.NOT_ICONTAINS: "doesn't contain any of the values from the list",
+    PropertyOperator.REGEX: "matches at least one regex pattern in the list",
+    PropertyOperator.NOT_REGEX: "doesn't match any regex patterns in the list",
+}
+
 
 class PropertyFilterTaxonomyEntry(BaseModel):
     model_config = ConfigDict(frozen=True)
@@ -98,20 +110,24 @@ def retrieve_hardcoded_taxonomy(taxonomy_group: str, key: str) -> str | None:
     return None
 
 
-class PropertyFilterDescriber(BaseModel):
-    model_config = ConfigDict(frozen=True)
+class PropertyFilterSummarizer(Summarizer):
+    _filter: PropertyFilterUnion
+    _use_relative_pronoun: bool
 
-    filter: PropertyFilterUnion
+    def __init__(self, team: Team, filter: PropertyFilterUnion, use_relative_pronoun: bool = False):
+        super().__init__(team)
+        self._filter = filter
+        self._use_relative_pronoun = use_relative_pronoun
 
-    @property
-    def description(self):
+    def _generate_summary(self) -> str:
         """
         Returns a description of the filter.
         """
-        filter = self.filter
+        filter = self._filter
         verbose_name = ""
 
-        # TODO: cohort
+        if isinstance(filter, CohortPropertyFilter):
+            return self._describe_cohort(filter)
         if isinstance(filter, HogQLPropertyFilter):
             return f"matches the SQL filter `{filter.key}`"
 
@@ -137,7 +153,7 @@ class PropertyFilterDescriber(BaseModel):
         """
         Returns the associated taxonomy with the filter.
         """
-        filter = self.filter
+        filter = self._filter
         prop: tuple[str, str, str | None] | None = None
 
         # TODO: cohort
@@ -160,8 +176,11 @@ class PropertyFilterDescriber(BaseModel):
     def _describe_filter_with_value(self, key: Any, operator: PropertyOperator | None, value: Any):
         if value is None:
             formatted_value = None
+        elif isinstance(value, list) and len(value) == 1:
+            return self._describe_filter_with_value(key, operator, value[0])
         elif isinstance(value, list):
             formatted_value = ", ".join(str(v) for v in value)
+            formatted_value = f"[{formatted_value}]"
         elif isinstance(value, float) and value.is_integer():
             # Convert float values with trailing zeros to integers
             formatted_value = str(int(value))
@@ -169,15 +188,38 @@ class PropertyFilterDescriber(BaseModel):
             formatted_value = str(value)
         val = f"`{key}`"
         if operator is not None:
-            val += f" {PROPERTY_FILTER_VERBOSE_NAME[operator]}"
+            val += f" {self._describe_operator(operator, value)}"
         if formatted_value is not None:
             return f"{val} `{formatted_value}`"
         return val
 
+    def _describe_operator(self, operator: PropertyOperator, value: Any) -> str:
+        pronoun = "that " if self._use_relative_pronoun else ""
+        if isinstance(value, list) and operator in ARRAY_PROPERTY_FILTER_VERBOSE_NAME:
+            return f"{pronoun}{ARRAY_PROPERTY_FILTER_VERBOSE_NAME[operator]}"
+        return f"{pronoun}{PROPERTY_FILTER_VERBOSE_NAME[operator]}"
 
-class PropertyFilterCollectionDescriber(BaseModel):
-    model_config = ConfigDict(frozen=True)
+    def _describe_cohort(self, filter: CohortPropertyFilter) -> str:
+        # Lazy import to avoid circular dependency
+        from ee.hogai.summarizers.cohorts import CohortSummarizer
 
+        cohort_id = filter.value
+        try:
+            cohort = Cohort.objects.get(pk=cohort_id, team__project_id=self._team.project_id)
+        except Cohort.DoesNotExist:
+            return f"people in the cohort with ID {cohort_id}"
+
+        describer = CohortSummarizer(self._team, cohort, inline_conditions=True)
+
+        # If we're using a relative pronoun, the grammar differs, so we don't need
+        # to add the verbose name.
+        if self._use_relative_pronoun:
+            return describer.summary
+        operator = "a part" if filter.operator == PropertyOperator.IN_ else "not a part"
+        return f"people who are {operator} of the the {describer.summary}"
+
+
+class PropertyFilterCollectionValidator(BaseModel):
     filters: list[
         Union[
             EventPropertyFilter,
@@ -196,14 +238,25 @@ class PropertyFilterCollectionDescriber(BaseModel):
         ]
     ]
 
-    def describe(self) -> tuple[str, set[PropertyFilterTaxonomyEntry]]:
-        descriptions: list[str] = []
+
+class PropertyFilterCollectionSummarizer(Summarizer):
+    _filters: list[PropertyFilterUnion]
+    _property_summarizers: list[PropertyFilterSummarizer]
+
+    def __init__(self, team: Team, filters: list[dict]):
+        super().__init__(team)
+        self._filters = PropertyFilterCollectionValidator(filters=filters).filters
+        self._property_summarizers = [PropertyFilterSummarizer(self._team, filter) for filter in self._filters]
+
+    def _generate_summary(self) -> str:
+        return self.join_conditions([describer.summary for describer in self._property_summarizers])
+
+    @cached_property
+    def taxonomy(self) -> set[PropertyFilterTaxonomyEntry]:
         taxonomy: set[PropertyFilterTaxonomyEntry] = set()
 
-        for filter in self.filters:
-            model = PropertyFilterDescriber(filter=filter)
-            if property_taxonomy := model.taxonomy:
+        for summarizer in self._property_summarizers:
+            if property_taxonomy := summarizer.taxonomy:
                 taxonomy.add(property_taxonomy)
-            descriptions.append(model.description)
 
-        return " AND ".join(descriptions), taxonomy
+        return taxonomy
