@@ -3,12 +3,12 @@
         max-width: 20rem;
     }
 
-    .DataTable__row {
+    .DataTable__row:not(.DataTable__row_pinned) {
         position: relative;
         z-index: 0;
     }
 
-    .DataTable__row td:first-child {
+    .DataTable__row td:first-child:not(.LemonTable__cell--pinned, .LemonTable__header--pinned) {
         &::before {
             position: absolute;
             top: 0;
