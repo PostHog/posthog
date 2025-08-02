@@ -152,7 +152,7 @@ class Command(BaseCommand):
 
                 # Update all modified insights in this batch
                 if insights_to_update and not dry_run:
-                    Insight.objects.bulk_update(insights_to_update, ["query_metadata"])
+                    Insight.objects_including_soft_deleted.bulk_update(insights_to_update, ["query_metadata"])
 
                 total_updated += batch_updated
                 total_processed += len(insights)
