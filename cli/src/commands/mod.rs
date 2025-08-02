@@ -66,6 +66,11 @@ pub enum SourcemapCommand {
         /// Whether to delete the source map files after uploading them
         #[arg(long, default_value = "false")]
         delete_after: bool,
+
+        /// Whether to skip SSL verification when uploading chunks - only use when using self-signed certificates for 
+        /// self-deployed instances
+        #[arg(long, default_value = "false")]
+        skip_ssl_verification: bool,
     },
 }
 
@@ -86,6 +91,7 @@ impl Cli {
                     project,
                     version,
                     delete_after,
+                    skip_ssl_verification,  
                 } => {
                     sourcemap::upload::upload(
                         command.host,
@@ -93,6 +99,7 @@ impl Cli {
                         project.clone(),
                         version.clone(),
                         *delete_after,
+                        *skip_ssl_verification,
                     )?;
                 }
             },
