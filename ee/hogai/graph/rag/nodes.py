@@ -7,7 +7,7 @@ from azure.core.exceptions import HttpResponseError as AzureHttpResponseError
 from langchain_core.runnables import RunnableConfig
 
 from ee.hogai.utils.embeddings import embed_search_query, get_azure_embeddings_client
-from ee.hogai.utils.types import AssistantState, PartialAssistantState
+from ee.hogai.utils.graph_states import InsightsGraphState, PartialInsightsGraphState
 from posthog.hogql_queries.ai.team_taxonomy_query_runner import TeamTaxonomyQueryRunner
 from posthog.hogql_queries.ai.vector_search_query_runner import (
     LATEST_ACTIONS_EMBEDDING_VERSION,
@@ -17,18 +17,18 @@ from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Action
 from posthog.schema import CachedVectorSearchQueryResponse, MaxActionContext, TeamTaxonomyQuery, VectorSearchQuery
 
-from ..base import AssistantNode
+from ..base import InsightsNode
 
 NEXT_RAG_NODES = ["trends", "funnel", "retention", "sql", "end"]
 NextRagNode = Literal["trends", "funnel", "retention", "sql", "end"]
 
 
-class InsightRagContextNode(AssistantNode):
+class InsightRagContextNode(InsightsNode):
     """
     Injects the RAG context of product analytics insights: actions and events.
     """
 
-    def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
+    def run(self, state: InsightsGraphState, config: RunnableConfig) -> PartialInsightsGraphState | None:
         trace_id = self._get_trace_id(config)
         distinct_id = self._get_user_distinct_id(config)
 
@@ -54,7 +54,7 @@ class InsightRagContextNode(AssistantNode):
                 return None
             else:
                 vector = None
-        return PartialAssistantState(
+        return PartialInsightsGraphState(
             rag_context=self._retrieve_actions(
                 vector, actions_in_context=actions_in_context, trace_id=trace_id, distinct_id=distinct_id
             )

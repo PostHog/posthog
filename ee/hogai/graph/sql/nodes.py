@@ -1,6 +1,6 @@
 from langchain_core.runnables import RunnableConfig
 
-from ee.hogai.utils.types import AssistantState, PartialAssistantState
+from ee.hogai.utils.graph_states import InsightsGraphState, PartialInsightsGraphState
 from posthog.hogql.context import HogQLContext
 from posthog.schema import AssistantHogQLQuery
 
@@ -20,7 +20,7 @@ class SQLGeneratorNode(HogQLGeneratorMixin, SchemaGeneratorNode[AssistantHogQLQu
 
     hogql_context: HogQLContext
 
-    async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
+    async def arun(self, state: InsightsGraphState, config: RunnableConfig) -> PartialInsightsGraphState:
         prompt = await self._construct_system_prompt()
         return await super()._run_with_prompt(state, prompt, config=config)
 

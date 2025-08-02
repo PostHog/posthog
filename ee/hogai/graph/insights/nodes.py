@@ -10,7 +10,7 @@ from langchain_openai import ChatOpenAI
 import structlog
 
 
-from ee.hogai.utils.types import AssistantState, PartialAssistantState
+from ee.hogai.utils.graph_states import AssistantGraphState, PartialAssistantGraphState
 from posthog.schema import AssistantToolCallMessage
 from ee.hogai.graph.base import AssistantNode
 from .prompts import ITERATIVE_SEARCH_SYSTEM_PROMPT, ITERATIVE_SEARCH_USER_PROMPT
@@ -65,7 +65,7 @@ class InsightSearchNode(AssistantNode):
 
         return read_insights_page
 
-    def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
+    def run(self, state: AssistantGraphState, config: RunnableConfig) -> PartialAssistantGraphState | None:
         start_time = time.time()
         search_query = state.search_insights_query
         conversation_id = config.get("configurable", {}).get("thread_id", "unknown")
@@ -94,7 +94,7 @@ class InsightSearchNode(AssistantNode):
                 },
             )
 
-            return PartialAssistantState(
+            return PartialAssistantGraphState(
                 messages=[
                     AssistantToolCallMessage(
                         content=formatted_content,
@@ -299,9 +299,9 @@ Description: {description}
 
         return content
 
-    def _create_error_response(self, content: str, tool_call_id: str | None) -> PartialAssistantState:
+    def _create_error_response(self, content: str, tool_call_id: str | None) -> PartialAssistantGraphState:
         """Create error response for the assistant."""
-        return PartialAssistantState(
+        return PartialAssistantGraphState(
             messages=[
                 AssistantToolCallMessage(
                     content=content,
@@ -313,7 +313,7 @@ Description: {description}
             root_tool_call_id=None,
         )
 
-    def router(self, state: AssistantState) -> Literal["end", "root"]:
+    def router(self, state: AssistantGraphState) -> Literal["end", "root"]:
         return "root"
 
     @property

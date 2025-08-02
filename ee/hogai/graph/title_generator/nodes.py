@@ -6,12 +6,12 @@ from ee.hogai.llm import MaxChatOpenAI
 from ee.hogai.graph.base import AssistantNode
 from ee.hogai.graph.title_generator.prompts import TITLE_GENERATION_PROMPT
 from ee.hogai.utils.helpers import find_last_message_of_type
-from ee.hogai.utils.types import AssistantState, PartialAssistantState
+from ee.hogai.utils.graph_states import AssistantGraphState, PartialAssistantGraphState
 from posthog.schema import HumanMessage
 
 
 class TitleGeneratorNode(AssistantNode):
-    def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
+    def run(self, state: AssistantGraphState, config: RunnableConfig) -> PartialAssistantGraphState | None:
         human_message = find_last_message_of_type(state.messages, HumanMessage)
         if not human_message:
             return None

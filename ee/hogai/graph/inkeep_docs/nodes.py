@@ -12,8 +12,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
 
 from ee.hogai.llm import MaxChatOpenAI
-from ee.hogai.utils.state import PartialAssistantState
-from ee.hogai.utils.types import AssistantState
+from ee.hogai.utils.graph_states import AssistantGraphState, PartialAssistantGraphState
 from posthog.schema import AssistantMessage, AssistantToolCallMessage
 
 from ..root.nodes import RootNode
@@ -23,12 +22,12 @@ from .prompts import INKEEP_DATA_CONTINUATION_PHRASE, INKEEP_DOCS_SYSTEM_PROMPT
 class InkeepDocsNode(RootNode):  # Inheriting from RootNode to use the same message construction
     """Node for searching PostHog documentation using Inkeep."""
 
-    def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
+    def run(self, state: AssistantGraphState, config: RunnableConfig) -> PartialAssistantGraphState:
         """Process the state and return documentation search results."""
         prompt = ChatPromptTemplate(self._construct_messages(state))
         chain = prompt | self._get_model()
         message: LangchainAIMessage = chain.invoke({}, config)
-        return PartialAssistantState(
+        return PartialAssistantGraphState(
             messages=[
                 AssistantToolCallMessage(
                     content="Checking PostHog documentation...", tool_call_id=state.root_tool_call_id, id=str(uuid4())
@@ -38,7 +37,7 @@ class InkeepDocsNode(RootNode):  # Inheriting from RootNode to use the same mess
             root_tool_call_id=None,
         )
 
-    def _construct_messages(self, state: AssistantState) -> list[BaseMessage]:
+    def _construct_messages(self, state: AssistantGraphState) -> list[BaseMessage]:
         messages: list[BaseMessage] = [LangchainSystemMessage(content=INKEEP_DOCS_SYSTEM_PROMPT)]
         for message in super()._construct_messages(state):
             if message.content:
@@ -64,7 +63,7 @@ class InkeepDocsNode(RootNode):  # Inheriting from RootNode to use the same mess
             team=self._team,
         )
 
-    def router(self, state: AssistantState) -> Literal["end", "root"]:
+    def router(self, state: AssistantGraphState) -> Literal["end", "root"]:
         last_message = state.messages[-1]
         if isinstance(last_message, AssistantMessage) and INKEEP_DATA_CONTINUATION_PHRASE in last_message.content:
             # The continuation phrase solution is a little weird, but seems it's the best one for agentic capabilities

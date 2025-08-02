@@ -16,11 +16,10 @@ from posthog.sync import database_sync_to_async
 from ..graph.filter_options.types import FilterOptionsState, PartialFilterOptionsState
 from ..utils.types import (
     AssistantMessageUnion,
-    AssistantState,
-    PartialAssistantState,
     PartialStateType,
     StateType,
 )
+from ..utils.graph_states import AssistantGraphState, PartialAssistantGraphState, InsightsGraphState
 
 
 class BaseAssistantNode(Generic[StateType, PartialStateType], AssistantContextMixin):
@@ -90,5 +89,7 @@ class BaseAssistantNode(Generic[StateType, PartialStateType], AssistantContextMi
         return MaxBillingContext.model_validate(billing_context)
 
 
-AssistantNode = BaseAssistantNode[AssistantState, PartialAssistantState]
+# Modern type aliases for graph-specific nodes
+AssistantNode = BaseAssistantNode[AssistantGraphState, PartialAssistantGraphState]
+InsightsNode = BaseAssistantNode[InsightsGraphState, InsightsGraphState]
 FilterOptionsBaseNode = BaseAssistantNode[FilterOptionsState, PartialFilterOptionsState]

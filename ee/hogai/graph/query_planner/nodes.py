@@ -15,7 +15,7 @@ from pydantic import Field, ValidationError, create_model
 from ee.hogai.graph.root.prompts import ROOT_INSIGHT_DESCRIPTION_PROMPT
 from ee.hogai.graph.shared_prompts import CORE_MEMORY_PROMPT, PROJECT_ORG_USER_CONTEXT_PROMPT
 from ee.hogai.utils.helpers import dereference_schema, format_events_prompt
-from ee.hogai.utils.types import AssistantState, PartialAssistantState
+from ee.hogai.utils.graph_states import InsightsGraphState, PartialInsightsGraphState
 from posthog.hogql.ai import SCHEMA_MESSAGE
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import create_hogql_database, serialize_database
@@ -28,7 +28,7 @@ from posthog.schema import (
     VisualizationMessage,
 )
 
-from ..base import AssistantNode
+from ..base import InsightsNode
 from .prompts import (
     ACTIONS_EXPLANATION_PROMPT,
     EVENT_DEFINITIONS_PROMPT,
@@ -51,7 +51,7 @@ from .toolkit import (
 )
 
 
-class QueryPlannerNode(AssistantNode):
+class QueryPlannerNode(InsightsNode):
     def _get_dynamic_entity_tools(self):
         """Create dynamic Pydantic models with correct entity types for this team."""
         # Create Literal type with actual entity names
@@ -90,7 +90,7 @@ class QueryPlannerNode(AssistantNode):
 
         return retrieve_entity_properties_dynamic, retrieve_entity_property_values_dynamic
 
-    def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
+    def run(self, state: InsightsGraphState, config: RunnableConfig) -> PartialInsightsGraphState:
         conversation = self._construct_messages(state)
 
         chain = conversation | merge_message_runs() | self._get_model(state)
@@ -129,12 +129,12 @@ class QueryPlannerNode(AssistantNode):
         result = AgentAction(tool_call["name"], tool_call["args"], tool_call["id"])
 
         intermediate_steps = state.intermediate_steps or []
-        return PartialAssistantState(
+        return PartialInsightsGraphState(
             intermediate_steps=[*intermediate_steps, (result, None)],
             query_planner_previous_response_id=output_message.response_metadata["id"],
         )
 
-    def _get_model(self, state: AssistantState):
+    def _get_model(self, state: InsightsGraphState):
         # Get dynamic entity tools with correct types for this team
         dynamic_retrieve_entity_properties, dynamic_retrieve_entity_property_values = self._get_dynamic_entity_tools()
 
@@ -179,7 +179,7 @@ class QueryPlannerNode(AssistantNode):
             .values_list("group_type", flat=True)
         )
 
-    def _construct_messages(self, state: AssistantState) -> ChatPromptTemplate:
+    def _construct_messages(self, state: InsightsGraphState) -> ChatPromptTemplate:
         """
         Construct the conversation thread for the agent. Handles both initial conversation setup
         and continuation with intermediate steps.
@@ -244,7 +244,7 @@ class QueryPlannerNode(AssistantNode):
         return conversation
 
 
-class QueryPlannerToolsNode(AssistantNode, ABC):
+class QueryPlannerToolsNode(InsightsNode, ABC):
     MAX_ITERATIONS = 16
     """
     Maximum number of iterations for the ReAct agent. After the limit is reached,
@@ -252,7 +252,7 @@ class QueryPlannerToolsNode(AssistantNode, ABC):
     to request additional information.
     """
 
-    def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
+    def run(self, state: InsightsGraphState, config: RunnableConfig) -> PartialInsightsGraphState:
         toolkit = TaxonomyAgentToolkit(self._team)
         intermediate_steps = state.intermediate_steps or []
         action, _output = intermediate_steps[-1]
@@ -272,7 +272,7 @@ class QueryPlannerToolsNode(AssistantNode, ABC):
             # First check if we've reached the terminal stage.
             # The plan has been found. Move to the generation.
             if input.name == "final_answer":
-                return PartialAssistantState(
+                return PartialInsightsGraphState(
                     plan=input.arguments.plan,  # type: ignore
                     root_tool_insight_type=input.arguments.query_kind,  # type: ignore
                     query_planner_previous_response_id=None,
@@ -290,11 +290,11 @@ class QueryPlannerToolsNode(AssistantNode, ABC):
         if input and not output:
             output = self._handle_tool(input, toolkit)
 
-        return PartialAssistantState(
+        return PartialInsightsGraphState(
             intermediate_steps=[*intermediate_steps[:-1], (action, output)],
         )
 
-    def router(self, state: AssistantState):
+    def router(self, state: InsightsGraphState):
         # The plan has been found. Move to the generation.
         if state.plan:
             return state.root_tool_insight_type
@@ -326,8 +326,8 @@ class QueryPlannerToolsNode(AssistantNode, ABC):
             output = toolkit.handle_incorrect_response(input)
         return output
 
-    def _get_reset_state(self, state: AssistantState, output: str):
-        reset_state = PartialAssistantState.get_reset_state()
+    def _get_reset_state(self, state: InsightsGraphState, output: str):
+        reset_state = PartialInsightsGraphState.get_reset_state()
         reset_state.messages = [
             AssistantToolCallMessage(
                 tool_call_id=state.root_tool_call_id,
