@@ -26,7 +26,8 @@ from django.conf import settings
 from django.db.models import QuerySet, Prefetch, prefetch_related_objects, OuterRef, Subquery
 from rest_framework import serializers, viewsets, request, status
 from posthog.api.utils import action
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import ErrorDetail, ValidationError
+from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.settings import api_settings
@@ -53,7 +54,7 @@ from posthog.event_usage import report_user_action
 from posthog.hogql.context import HogQLContext
 from posthog.models import Cohort, FeatureFlag, Person
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
-from posthog.models.cohort.util import get_dependent_cohorts, print_cohort_hogql_query
+from posthog.models.cohort.util import print_cohort_hogql_query
 from posthog.models.cohort import CohortOrEmpty
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.stickiness_filter import StickinessFilter
@@ -206,6 +207,7 @@ class CohortSerializer(serializers.ModelSerializer):
             "errors_calculating",
             "count",
             "is_static",
+            "cohort_type",
             "experiment_set",
             "_create_in_folder",
         ]
@@ -218,6 +220,7 @@ class CohortSerializer(serializers.ModelSerializer):
             "errors_calculating",
             "count",
             "experiment_set",
+            "cohort_type",
         ]
 
     def _handle_static(self, cohort: Cohort, context: dict, validated_data: dict) -> None:
@@ -246,7 +249,11 @@ class CohortSerializer(serializers.ModelSerializer):
         if validated_data.get("query") and validated_data.get("filters"):
             raise ValidationError("Cannot set both query and filters at the same time.")
 
-        cohort = Cohort.objects.create(team_id=self.context["team_id"], **validated_data)
+        try:
+            cohort = Cohort.objects.create(team_id=self.context["team_id"], **validated_data)
+        except DjangoValidationError as e:
+            # Convert Django ValidationError to DRF ValidationError
+            raise ValidationError(str(e))
 
         if cohort.is_static:
             self._handle_static(cohort, self.context, validated_data)
@@ -257,6 +264,22 @@ class CohortSerializer(serializers.ModelSerializer):
 
         report_user_action(request.user, "cohort created", cohort.get_analytics_metadata())
         return cohort
+
+    def _validate_feature_flag_constraints(self, cohort: Cohort) -> None:
+        """Validate cohort constraints if it's used in feature flags"""
+        if not cohort.pk:
+            return
+
+        # Check if cohort is used in feature flags
+        flags = FeatureFlag.objects.filter(team__project_id=self.context["project_id"], active=True, deleted=False)
+        cohort_used_in_flags = any(cohort.pk in flag.get_cohort_ids() for flag in flags)
+
+        if cohort_used_in_flags:
+            try:
+                cohort.validate_for_feature_flags()
+            except DjangoValidationError as e:
+                message = e.messages[0] if e.messages else str(e)
+                raise serializers.ValidationError({"filters": ErrorDetail(message, code="behavioral_cohort_found")})
 
     def _calculate_static_by_csv(self, file, cohort: Cohort) -> None:
         decoded_file = file.read().decode("utf-8").splitlines()
@@ -295,7 +318,6 @@ class CohortSerializer(serializers.ModelSerializer):
             # pydantic → drf error shape
             raise ValidationError(detail=self._cohort_error_message(exc))
 
-        self._validate_feature_flag_constraints(raw)  # keep your side-rules
         return raw
 
     @staticmethod
@@ -321,41 +343,6 @@ class CohortSerializer(serializers.ModelSerializer):
                     if kind in loc:
                         return f"Missing required keys for {kind} filter: {missing_field}"
         return str(exc.errors())
-
-    def _validate_feature_flag_constraints(self, request_filters: dict):
-        if self.context["request"].method != "PATCH":
-            return
-
-        parsed_filter = Filter(data=request_filters)
-        instance = cast(Cohort, self.instance)
-        cohort_id = instance.pk
-
-        flags = FeatureFlag.objects.filter(team__project_id=self.context["project_id"], active=True, deleted=False)
-        cohort_used_in_flags = len([flag for flag in flags if cohort_id in flag.get_cohort_ids()]) > 0
-
-        if not cohort_used_in_flags:
-            return
-
-        for prop in parsed_filter.property_groups.flat:
-            if prop.type == "behavioral":
-                raise serializers.ValidationError(
-                    detail="Behavioral filters cannot be added to cohorts used in feature flags.",
-                    code="behavioral_cohort_found",
-                )
-
-            if prop.type == "cohort":
-                self._validate_nested_cohort_behavioral_filters(prop, cohort_used_in_flags)
-
-    def _validate_nested_cohort_behavioral_filters(self, prop: Any, cohort_used_in_flags: bool):
-        nested_cohort = Cohort.objects.get(pk=prop.value, team__project_id=self.context["project_id"])
-        dependent_cohorts = get_dependent_cohorts(nested_cohort)
-
-        for dependent_cohort in [nested_cohort, *dependent_cohorts]:
-            if cohort_used_in_flags and any(p.type == "behavioral" for p in dependent_cohort.properties.flat):
-                raise serializers.ValidationError(
-                    detail=f"A dependent cohort ({dependent_cohort.name}) has filters based on events. These cohorts can't be used in feature flags.",
-                    code="behavioral_cohort_found",
-                )
 
     def update(self, cohort: Cohort, validated_data: dict, *args: Any, **kwargs: Any) -> Cohort:  # type: ignore
         request = self.context["request"]
@@ -399,7 +386,14 @@ class CohortSerializer(serializers.ModelSerializer):
         if will_create_loops(cohort):
             raise ValidationError("Cohorts cannot reference other cohorts in a loop.")
 
-        cohort.save()
+        # Validate cohort if it's used in feature flags
+        self._validate_feature_flag_constraints(cohort)
+
+        try:
+            cohort.save()
+        except DjangoValidationError as e:
+            # Convert Django ValidationError to DRF ValidationError
+            raise ValidationError(str(e))
 
         if not deleted_state:
             if cohort.is_static:

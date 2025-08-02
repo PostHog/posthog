@@ -2730,7 +2730,9 @@ class TestDecide(BaseTest, QueryMatchingTest):
             name="cohort1",
         )
 
-        cohort_with_nested_invalid = Cohort.objects.create(
+        # Create cohort with invalid dependencies by bypassing validation
+        # This is specifically for testing edge cases with invalid cohorts
+        cohort_with_nested_invalid = Cohort(
             team=self.team,
             groups=[
                 {
@@ -2760,6 +2762,8 @@ class TestDecide(BaseTest, QueryMatchingTest):
             ],
             name="cohort1",
         )
+        # Save without triggering our custom validation
+        super(Cohort, cohort_with_nested_invalid).save()
 
         cohort_valid = Cohort.objects.create(
             team=self.team,

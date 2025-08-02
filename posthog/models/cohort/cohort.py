@@ -86,6 +86,13 @@ class CohortManager(RootTeamManager):
         return cohort
 
 
+class CohortType(models.TextChoices):
+    STATIC = "static", "Static"
+    PERSON_PROPERTY = "person_property", "Person Property"
+    BEHAVIORAL = "behavioral", "Behavioral"
+    ANALYTICAL = "analytical", "Analytical"
+
+
 class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
     name = models.CharField(max_length=400, null=True, blank=True)
     description = models.CharField(max_length=1000, blank=True)
@@ -167,10 +174,40 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
     # deprecated in favor of filters
     groups = models.JSONField(default=list)
 
+    cohort_type = models.CharField(
+        max_length=20,
+        choices=CohortType.choices,
+        null=True,
+        blank=True,
+        help_text="The type of cohort, determines where in the app it can be used.  It is automatically set based on the filters, and can't be set via the API or UI.",
+    )
+
     objects = CohortManager()  # type: ignore
 
     def __str__(self):
         return self.name or "Untitled cohort"
+
+    def save(self, *args, **kwargs):
+        """
+        Override save to automatically update cohort type.
+        """
+        # Always validate and update cohort type
+        self._validate_cohort_classification()
+        self.update_cohort_type()
+
+        # Log the cohort type assignment for debugging
+        logger.info(
+            "cohort_type_assigned",
+            cohort_id=self.pk,
+            cohort_type=self.cohort_type,
+            team_id=self.team_id if self.team_id else None,
+        )
+
+        super().save(*args, **kwargs)
+
+        # After saving, update any cohorts that depend on this one
+        # This ensures cascade updates when a cohort's type changes
+        self._update_dependent_cohort_types()
 
     @classmethod
     def get_file_system_unfiled(cls, team: "Team") -> QuerySet["Cohort"]:
@@ -268,6 +305,280 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             ]:
                 return True
         return False
+
+    def _get_direct_cohort_type(self) -> CohortType:
+        """
+        Determine cohort type based on this cohort's direct filters only (ignoring dependencies).
+        Fails explicitly if type cannot be determined.
+        """
+        # Static cohorts have no properties/filters
+        if self.is_static:
+            return CohortType.STATIC
+
+        # No filters means static
+        if not self.properties.flat:
+            return CohortType.STATIC
+
+        has_person_props = False
+        has_behavioral_props = False
+        has_complex_behavioral = False
+        has_unknown_props = False
+
+        for prop in self.properties.flat:
+            if prop.type == "person":
+                has_person_props = True
+            elif prop.type == "behavioral":
+                has_behavioral_props = True
+                if prop.value in [
+                    BehavioralPropertyType.PERFORMED_EVENT_FIRST_TIME,
+                    BehavioralPropertyType.PERFORMED_EVENT_REGULARLY,
+                    BehavioralPropertyType.PERFORMED_EVENT_SEQUENCE,
+                    BehavioralPropertyType.STOPPED_PERFORMING_EVENT,
+                    BehavioralPropertyType.RESTARTED_PERFORMING_EVENT,
+                ]:
+                    has_complex_behavioral = True
+            elif prop.type == "cohort":
+                # Cohort dependencies don't affect direct type
+                pass
+            else:
+                # Unknown property type
+                has_unknown_props = True
+
+        # Fail if we encounter unknown property types
+        if has_unknown_props:
+            unknown_types = [
+                prop.type for prop in self.properties.flat if prop.type not in ["person", "behavioral", "cohort"]
+            ]
+            raise ValueError(f"Cannot determine cohort type: unknown property types {set(unknown_types)}")
+
+        # Determine type based on most complex filter present
+        if has_complex_behavioral:
+            return CohortType.ANALYTICAL
+        elif has_behavioral_props:
+            return CohortType.BEHAVIORAL
+        elif has_person_props:
+            return CohortType.PERSON_PROPERTY
+        else:
+            return CohortType.STATIC
+
+    def _get_dependent_cohort_ids(self) -> set[int]:
+        """
+        Get IDs of all cohorts this cohort depends on.
+        """
+        dependent_ids = set()
+        for prop in self.properties.flat:
+            if prop.type == "cohort" and prop.value is not None:
+                try:
+                    cohort_id = int(prop.value)
+                    dependent_ids.add(cohort_id)
+                except (ValueError, TypeError):
+                    pass
+        return dependent_ids
+
+    def _get_all_transitive_dependency_ids(self) -> set[int]:
+        """
+        Get all cohort IDs this cohort transitively depends on using BFS with batch fetching.
+        Returns the complete set of dependency IDs efficiently.
+        """
+        all_dependencies = set()
+        to_process = set(self._get_dependent_cohort_ids())
+        visited = set()
+
+        while to_process:
+            # Batch fetch all cohorts we need to process in this iteration
+            current_batch = to_process.copy()
+            to_process.clear()
+
+            # Check for circular dependencies
+            if self.pk in current_batch:
+                raise ValueError(f"Circular dependency detected in cohort {self.pk}")
+
+            # Batch fetch all cohorts in current batch
+            current_cohorts = {
+                c.pk: c for c in Cohort.objects.filter(pk__in=current_batch, team=self.team, deleted=False)
+            }
+
+            for cohort_id in current_batch:
+                if cohort_id in visited:
+                    continue
+
+                visited.add(cohort_id)
+                all_dependencies.add(cohort_id)
+
+                # Get dependencies from fetched cohort
+                if cohort_id in current_cohorts:
+                    cohort = current_cohorts[cohort_id]
+                    new_dependencies = cohort._get_dependent_cohort_ids()
+                    to_process.update(new_dependencies - visited)
+
+        return all_dependencies
+
+    def _calculate_cohort_type_with_dependencies(self, visited: Optional[set[int]] = None) -> CohortType:
+        """
+        Calculate cohort type considering dependencies using batch fetching.
+        Much more efficient than recursive approach - fetches all needed cohorts in one query.
+        """
+        if visited is None:
+            visited = set()
+
+        # Prevent infinite loops in case of circular dependencies
+        if self.pk and self.pk in visited:
+            raise ValueError(f"Circular dependency detected in cohort {self.pk}")
+
+        # Get all transitive dependencies in one go
+        all_dependency_ids = self._get_all_transitive_dependency_ids()
+
+        # Batch fetch all dependent cohorts
+        cohorts_map = {c.pk: c for c in Cohort.objects.filter(pk__in=all_dependency_ids, team=self.team, deleted=False)}
+
+        # Check if any dependencies are missing
+        missing_ids = all_dependency_ids - set(cohorts_map.keys())
+        if missing_ids:
+            raise ValueError(f"Referenced cohorts do not exist: {missing_ids}")
+
+        # Now calculate type in-memory
+        return self._calculate_type_from_cohort_map(cohorts_map, visited)
+
+    def _calculate_type_from_cohort_map(self, cohorts_map: dict[int, "Cohort"], visited: set[int]) -> CohortType:
+        """
+        Calculate cohort type using pre-fetched cohort map. Avoids additional DB queries.
+        """
+        if self.pk and self.pk in visited:
+            raise ValueError(f"Circular dependency detected in cohort {self.pk}")
+
+        if self.pk:
+            visited.add(self.pk)
+
+        # Start with this cohort's direct type
+        current_type = self._get_direct_cohort_type()
+
+        # Type complexity order for comparison
+        type_order = {
+            CohortType.STATIC: 0,
+            CohortType.PERSON_PROPERTY: 1,
+            CohortType.BEHAVIORAL: 2,
+            CohortType.ANALYTICAL: 3,
+        }
+
+        # Check all dependent cohorts and take the most complex type
+        dependent_ids = self._get_dependent_cohort_ids()
+        for cohort_id in dependent_ids:
+            if cohort_id in cohorts_map:
+                dependent_cohort = cohorts_map[cohort_id]
+                dependent_type = dependent_cohort._calculate_type_from_cohort_map(cohorts_map, visited.copy())
+
+                # Take the more complex type (higher order in the enum)
+                if type_order[dependent_type] > type_order[current_type]:
+                    current_type = dependent_type
+
+        return current_type
+
+    def determine_cohort_type(self) -> CohortType:
+        """
+        Public method to determine the cohort type, considering dependencies.
+        """
+        try:
+            return self._calculate_cohort_type_with_dependencies()
+        except ValueError as e:
+            # Handle circular dependencies or other validation errors
+            logger.exception("cohort_type_determination_failed", cohort_id=self.pk, error=str(e))
+            raise
+
+    def update_cohort_type(self) -> None:
+        """
+        Update the cohort_type field based on current filters and dependencies.
+        """
+        new_type = self.determine_cohort_type()
+        if self.cohort_type != new_type:
+            self.cohort_type = new_type
+
+    def validate_for_feature_flags(self) -> None:
+        """Validate that this cohort can be used in feature flags (no behavioral filters)"""
+        from posthog.models.cohort.util import get_dependent_cohorts
+
+        # Check direct behavioral filters
+        for prop in self.properties.flat:
+            if prop.type == "behavioral":
+                from django.core.exceptions import ValidationError
+
+                raise ValidationError("Behavioral filters cannot be added to cohorts used in feature flags.")
+
+        # Check dependent cohorts for behavioral filters
+        dependent_cohorts = get_dependent_cohorts(self)
+        for dependent_cohort in dependent_cohorts:
+            if any(p.type == "behavioral" for p in dependent_cohort.properties.flat):
+                from django.core.exceptions import ValidationError
+
+                raise ValidationError(
+                    f"A dependent cohort ({dependent_cohort.name}) has filters based on events. These cohorts can't be used in feature flags."
+                )
+
+    def _validate_cohort_classification(self) -> None:
+        """Validate that cohort type can be determined and dependencies exist."""
+        try:
+            # Check dependencies exist
+            dependent_ids = self._get_dependent_cohort_ids()
+            for cohort_id in dependent_ids:
+                if not self.__class__.objects.filter(pk=cohort_id, team=self.team, deleted=False).exists():
+                    from django.core.exceptions import ValidationError
+
+                    raise ValidationError(f"Referenced cohort {cohort_id} does not exist or is deleted")
+
+            # Validate cohort type can be determined (this also checks for circular deps)
+            self.determine_cohort_type()
+
+        except ValueError as e:
+            from django.core.exceptions import ValidationError
+
+            raise ValidationError(f"Invalid cohort configuration: {str(e)}")
+
+    def clean(self) -> None:
+        """
+        Validate the cohort and determine its type.
+        This method is called by full_clean() and form validation.
+        """
+        super().clean()
+        self._validate_cohort_classification()
+
+    def _update_dependent_cohort_types(self) -> None:
+        """
+        Update the types of all cohorts that depend on this one.
+        This handles the case where changing this cohort's type affects dependent cohorts.
+        """
+        if not self.pk:
+            return
+
+        # Find all cohorts that reference this cohort
+        dependent_cohorts = Cohort.objects.filter(
+            team=self.team,
+            deleted=False,
+            filters__icontains=f'"value": {self.pk}',  # Simple string search for cohort references
+        ).exclude(pk=self.pk)
+
+        for dependent_cohort in dependent_cohorts:
+            # Check if this cohort is actually referenced (more precise check)
+            if self.pk in dependent_cohort._get_dependent_cohort_ids():
+                try:
+                    old_type = dependent_cohort.cohort_type
+                    new_type = dependent_cohort.determine_cohort_type()
+                    if old_type != new_type:
+                        dependent_cohort.cohort_type = new_type
+                        # Save without triggering cascade to avoid infinite recursion
+                        dependent_cohort.save(update_fields=["cohort_type"])
+                        logger.info(
+                            "dependent_cohort_type_updated",
+                            dependent_cohort_id=dependent_cohort.pk,
+                            old_type=old_type,
+                            new_type=new_type,
+                            trigger_cohort_id=self.pk,
+                        )
+                except Exception as e:
+                    logger.exception(
+                        "dependent_cohort_type_update_failed",
+                        dependent_cohort_id=dependent_cohort.pk,
+                        trigger_cohort_id=self.pk,
+                        error=str(e),
+                    )
 
     def get_analytics_metadata(self):
         return {
