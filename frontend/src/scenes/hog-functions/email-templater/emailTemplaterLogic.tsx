@@ -7,7 +7,7 @@ import { objectsEqual } from 'lib/utils'
 import { MessageTemplate } from 'products/messaging/frontend/TemplateLibrary/messageTemplatesLogic'
 import { Editor, EditorRef as _EditorRef, EmailEditorProps } from 'react-email-editor'
 
-import { PreflightStatus, PropertyDefinition, PropertyDefinitionType } from '~/types'
+import { PreflightStatus, PropertyDefinition, PropertyDefinitionType, Realm } from '~/types'
 
 import type { emailTemplaterLogicType } from './emailTemplaterLogicType'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -105,7 +105,13 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
         mergeTags: [
             (s) => [s.personPropertyDefinitions],
             (personPropertyDefinitions: PropertyDefinition[]): UnlayerMergeTags => {
-                const tags: UnlayerMergeTags = {}
+                const tags: UnlayerMergeTags = {
+                    unsubscribe_url: {
+                        name: 'Unsubscribe URL',
+                        value: '{{unsubscribe_url}}',
+                        sample: 'https://example.com/unsubscribe/12345',
+                    },
+                }
 
                 // Add person properties as merge tags
                 personPropertyDefinitions.forEach((property: PropertyDefinition) => {
@@ -122,7 +128,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
         unlayerEditorProjectId: [
             (s) => [s.preflight],
             (preflight: PreflightStatus) => {
-                if (preflight.cloud) {
+                if (preflight.realm === Realm.Cloud || preflight.is_debug) {
                     return 275430
                 }
             },
