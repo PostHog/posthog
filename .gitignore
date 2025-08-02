@@ -113,4 +113,4 @@ target/*
 posthog/management/commands/clear_demo_data.py
 
 # Ignore Claude Code settings
-.claude/settings.local.json
+.claude/settings.local.json.migrations_done
