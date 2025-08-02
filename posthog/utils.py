@@ -521,7 +521,9 @@ async def initialize_self_capture_api_token():
         if user and getattr(user, "current_team", None):
             team = user.current_team
         else:
-            team = await Team.objects.only("api_token").aget()
+            team = await Team.objects.only("api_token").afirst()
+            if not team:
+                raise Team.DoesNotExist()
         local_api_key = team.api_token
     except (User.DoesNotExist, Team.DoesNotExist, ProgrammingError):
         local_api_key = None
