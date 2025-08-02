@@ -60,8 +60,8 @@ export const productsLogic = kea<productsLogicType>([
                 values.firstProductOnboarding === ProductKey.DATA_WAREHOUSE
                     ? OnboardingStepKey.LINK_DATA
                     : isFromWizard && !requiresFurtherSetup.includes(values.firstProductOnboarding)
-                    ? secondStepKey
-                    : OnboardingStepKey.INSTALL
+                      ? secondStepKey
+                      : OnboardingStepKey.INSTALL
 
             router.actions.push(urls.onboarding(values.firstProductOnboarding, stepKey))
             values.selectedProducts.forEach((productKey) => {

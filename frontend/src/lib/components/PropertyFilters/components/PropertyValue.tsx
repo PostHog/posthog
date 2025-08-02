@@ -216,8 +216,8 @@ export function PropertyValue({
                 PROPERTY_FILTER_TYPES_WITH_TEMPORAL_SUGGESTIONS.includes(type)
                     ? 'Suggested values (last 7 days)'
                     : PROPERTY_FILTER_TYPES_WITH_ALL_TIME_SUGGESTIONS.includes(type)
-                    ? 'Suggested values'
-                    : undefined
+                      ? 'Suggested values'
+                      : undefined
             }
             popoverClassName="max-w-200"
             options={displayOptions.map(({ name: _name }, index) => {

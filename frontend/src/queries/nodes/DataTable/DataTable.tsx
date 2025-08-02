@@ -204,7 +204,7 @@ export function DataTable({
     const eventActionsColumnShown =
         showActions && sourceFeatures.has(QueryFeature.eventActionsColumn) && columnsInResponse?.includes('*')
     const allColumns = sourceFeatures.has(QueryFeature.columnsInResponse)
-        ? columnsInResponse ?? columnsInQuery
+        ? (columnsInResponse ?? columnsInQuery)
         : columnsInQuery
     const columnsInLemonTable = allColumns.filter((colName) => {
         const col = getContextColumn(colName, context?.columns)
@@ -404,8 +404,8 @@ export function DataTable({
                                         const hogQl = isActorsQuery(query.source)
                                             ? taxonomicPersonFilterToHogQL(g, v)
                                             : isGroupsQuery(query.source)
-                                            ? taxonomicGroupFilterToHogQL(g, v)
-                                            : taxonomicEventFilterToHogQL(g, v)
+                                              ? taxonomicGroupFilterToHogQL(g, v)
+                                              : taxonomicEventFilterToHogQL(g, v)
                                         if (
                                             setQuery &&
                                             hogQl &&
@@ -443,8 +443,8 @@ export function DataTable({
                                         const hogQl = isActorsQuery(query.source)
                                             ? taxonomicPersonFilterToHogQL(g, v)
                                             : isGroupsQuery(query.source)
-                                            ? taxonomicGroupFilterToHogQL(g, v)
-                                            : taxonomicEventFilterToHogQL(g, v)
+                                              ? taxonomicGroupFilterToHogQL(g, v)
+                                              : taxonomicEventFilterToHogQL(g, v)
                                         if (
                                             setQuery &&
                                             hogQl &&
@@ -734,8 +734,8 @@ export function DataTable({
                                                 queryCancelled
                                                     ? 'The query was cancelled'
                                                     : response && 'error' in response
-                                                    ? response.error
-                                                    : responseError
+                                                      ? response.error
+                                                      : responseError
                                             }
                                         />
                                     ) : (

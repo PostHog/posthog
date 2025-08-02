@@ -129,8 +129,8 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                                     threadLoading
                                         ? 'Thinking…'
                                         : isFloating
-                                        ? placeholder || 'Ask follow-up (/ for commands)'
-                                        : 'Ask away (/ for commands)'
+                                          ? placeholder || 'Ask follow-up (/ for commands)'
+                                          : 'Ask away (/ for commands)'
                                 }
                                 onPressEnter={() => {
                                     if (question && !submissionDisabledReason && !threadLoading) {
