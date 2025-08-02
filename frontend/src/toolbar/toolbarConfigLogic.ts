@@ -54,11 +54,27 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
         },
         logout: () => {
             toolbarPosthogJS.capture('toolbar logout')
+
+            // Clear all feature flag overrides when toolbar is closed
+            const clientPostHog = values.posthog
+            if (clientPostHog) {
+                clientPostHog.featureFlags.overrideFeatureFlags(false)
+                clientPostHog.featureFlags.reloadFeatureFlags()
+            }
+
             localStorage.removeItem(LOCALSTORAGE_KEY)
         },
         tokenExpired: () => {
             toolbarPosthogJS.capture('toolbar token expired')
             console.warn('PostHog Toolbar API token expired. Clearing session.')
+
+            // Clear all feature flag overrides when token expires
+            const clientPostHog = values.posthog
+            if (clientPostHog) {
+                clientPostHog.featureFlags.overrideFeatureFlags(false)
+                clientPostHog.featureFlags.reloadFeatureFlags()
+            }
+
             if (values.props.source !== 'localstorage') {
                 lemonToast.error('PostHog Toolbar API token expired.')
             }
