@@ -27,7 +27,7 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
             databaseTableListLogic,
             ['loadDatabase'],
             externalDataSourcesLogic,
-            ['loadSources', 'loadSourcesSuccess', 'loadSourcesFailure'],
+            ['loadSources', 'abortAnyRunningQuery', 'loadSourcesSuccess', 'loadSourcesFailure'],
         ],
     })),
     actions({
