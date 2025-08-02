@@ -94,21 +94,30 @@ class _BatchExportsMetricsActivityInboundInterceptor(ActivityInboundInterceptor)
             "interval": interval,
         }
 
-        activity_attempt = activity_info.attempt
         meter = get_metric_meter(histogram_attributes)
-        hist = meter.create_histogram(
-            name="batch_exports_activity_attempt",
-            description="Histogram tracking attempts made by critical batch export activities",
-        )
-        hist.record(activity_attempt)
 
-        with ExecutionTimeRecorder(
-            "batch_exports_activity_interval_execution_latency",
-            description="Histogram tracking execution latency for critical batch export activities by interval",
-            histogram_attributes=histogram_attributes,
-            log=False,
-        ):
-            return await super().execute_activity(input)
+        try:
+            with ExecutionTimeRecorder(
+                "batch_exports_activity_interval_execution_latency",
+                description="Histogram tracking execution latency for critical batch export activities by interval",
+                histogram_attributes=histogram_attributes,
+                log=False,
+            ):
+                result = await super().execute_activity(input)
+        finally:
+            attempts_total_counter = meter.create_counter(
+                name="batch_exports_activity_attempts",
+                description="Counter tracking every attempt at running an activity",
+            )
+            attempts_total_counter.add(1)
+
+        attempts_success_counter = meter.create_counter(
+            name="batch_exports_activity_success_attempts",
+            description="Counter tracking the attempts it took to complete activities",
+        )
+        attempts_success_counter.add(activity_info.attempt)
+
+        return result
 
 
 class _BatchExportsMetricsWorkflowInterceptor(WorkflowInboundInterceptor):
