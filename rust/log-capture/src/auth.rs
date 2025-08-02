@@ -1,4 +1,5 @@
 use anyhow::Result;
+use axum::http::HeaderMap;
 use jsonwebtoken::{decode, Algorithm, DecodingKey, Validation};
 use serde_derive::{Deserialize, Serialize};
 use std::fmt;
@@ -50,6 +51,14 @@ pub fn extract_team_id_from_jwt(
         .to_str()
         .map_err(|_| AuthError::InvalidHeaderFormat)?;
 
+    extract_team_id_from_jwt_header(auth_str, jwt_secret)
+}
+
+/// Extract and validate JWT token from Authorization header string (HTTP)
+pub fn extract_team_id_from_jwt_header(
+    auth_str: &str,
+    jwt_secret: &str,
+) -> Result<String, AuthError> {
     // Check if it starts with "Bearer "
     if !auth_str.starts_with("Bearer ") {
         return Err(AuthError::InvalidHeaderFormat);
@@ -69,7 +78,23 @@ pub fn extract_team_id_from_jwt(
     Ok(token_data.claims.team_id)
 }
 
-/// Middleware-style function to extract team_id from request
+/// Extract team_id from HTTP headers (Axum)
+pub fn extract_team_id_from_http_headers(
+    headers: &HeaderMap,
+    jwt_secret: &str,
+) -> Result<String, AuthError> {
+    let auth_header = headers
+        .get("authorization")
+        .ok_or(AuthError::MissingHeader)?;
+
+    let auth_str = auth_header
+        .to_str()
+        .map_err(|_| AuthError::InvalidHeaderFormat)?;
+
+    extract_team_id_from_jwt_header(auth_str, jwt_secret)
+}
+
+/// Middleware-style function to extract team_id from gRPC request
 pub fn authenticate_request(
     request: &Request<impl std::fmt::Debug>,
     jwt_secret: &str,
