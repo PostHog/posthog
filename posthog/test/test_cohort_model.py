@@ -1,8 +1,11 @@
 import pytest
+from django.core.exceptions import ValidationError
 
 from posthog.clickhouse.client import sync_execute
 from posthog.models import Cohort, Person, Team
+from posthog.models.cohort.cohort import CohortType
 from posthog.models.cohort.sql import GET_COHORTPEOPLE_BY_COHORT_ID
+
 from posthog.test.base import BaseTest
 
 
@@ -370,3 +373,517 @@ class TestCohort(BaseTest):
 
         # Verify the cohort is not in calculating state
         self.assertFalse(cohort.is_calculating)
+
+    # Cohort Type Classification Tests
+
+    def test_direct_cohort_type_static(self):
+        """Test static cohort classification"""
+        # Explicit static cohort
+        cohort = Cohort.objects.create(team=self.team, is_static=True)
+        self.assertEqual(cohort._get_direct_cohort_type(), CohortType.STATIC)
+        self.assertEqual(cohort.cohort_type, CohortType.STATIC)
+
+        # Empty filters should be static
+        cohort2 = Cohort.objects.create(team=self.team, filters={})
+        self.assertEqual(cohort2._get_direct_cohort_type(), CohortType.STATIC)
+        self.assertEqual(cohort2.cohort_type, CohortType.STATIC)
+
+    def test_direct_cohort_type_person_property(self):
+        """Test person property cohort classification"""
+        cohort = Cohort.objects.create(
+            team=self.team,
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                {"key": "email", "type": "person", "value": "test@example.com", "operator": "exact"}
+                            ],
+                        }
+                    ],
+                }
+            },
+        )
+        self.assertEqual(cohort._get_direct_cohort_type(), CohortType.PERSON_PROPERTY)
+        self.assertEqual(cohort.cohort_type, CohortType.PERSON_PROPERTY)
+
+    def test_direct_cohort_type_behavioral_simple(self):
+        """Test simple behavioral cohort classification"""
+        cohort = Cohort.objects.create(
+            team=self.team,
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                {
+                                    "key": "signup",
+                                    "type": "behavioral",
+                                    "value": "performed_event",
+                                    "event_type": "events",
+                                    "time_interval": "day",
+                                    "time_value": 30,
+                                }
+                            ],
+                        }
+                    ],
+                }
+            },
+        )
+        self.assertEqual(cohort._get_direct_cohort_type(), CohortType.BEHAVIORAL)
+        self.assertEqual(cohort.cohort_type, CohortType.BEHAVIORAL)
+
+    def test_direct_cohort_type_behavioral_multiple(self):
+        """Test behavioral multiple events cohort classification"""
+        cohort = Cohort.objects.create(
+            team=self.team,
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                {
+                                    "key": "purchase",
+                                    "type": "behavioral",
+                                    "value": "performed_event_multiple",
+                                    "event_type": "events",
+                                    "operator": "gte",
+                                    "operator_value": 5,
+                                    "time_interval": "day",
+                                    "time_value": 30,
+                                }
+                            ],
+                        }
+                    ],
+                }
+            },
+        )
+        self.assertEqual(cohort._get_direct_cohort_type(), CohortType.BEHAVIORAL)
+        self.assertEqual(cohort.cohort_type, CohortType.BEHAVIORAL)
+
+    def test_direct_cohort_type_analytical_complex(self):
+        """Test complex behavioral (analytical) cohort classification"""
+        # Each complex behavioral type has different required fields
+        test_cases = [
+            {
+                "type": "performed_event_first_time",
+                "properties": {
+                    "key": "login",
+                    "type": "behavioral",
+                    "value": "performed_event_first_time",
+                    "event_type": "events",
+                    "time_interval": "day",
+                    "time_value": 30,
+                },
+            },
+            {
+                "type": "performed_event_regularly",
+                "properties": {
+                    "key": "login",
+                    "type": "behavioral",
+                    "value": "performed_event_regularly",
+                    "event_type": "events",
+                    "time_interval": "day",
+                    "time_value": 30,
+                    "operator_value": 3,
+                    "min_periods": 2,
+                    "total_periods": 4,
+                },
+            },
+            {
+                "type": "performed_event_sequence",
+                "properties": {
+                    "key": "login",
+                    "type": "behavioral",
+                    "value": "performed_event_sequence",
+                    "event_type": "events",
+                    "time_interval": "day",
+                    "time_value": 30,
+                    "seq_event_type": "events",
+                    "seq_event": "signup",
+                    "seq_time_value": 7,
+                    "seq_time_interval": "day",
+                },
+            },
+            {
+                "type": "stopped_performing_event",
+                "properties": {
+                    "key": "login",
+                    "type": "behavioral",
+                    "value": "stopped_performing_event",
+                    "event_type": "events",
+                    "time_interval": "day",
+                    "time_value": 30,
+                    "seq_time_value": 7,
+                    "seq_time_interval": "day",
+                },
+            },
+            {
+                "type": "restarted_performing_event",
+                "properties": {
+                    "key": "login",
+                    "type": "behavioral",
+                    "value": "restarted_performing_event",
+                    "event_type": "events",
+                    "time_interval": "day",
+                    "time_value": 30,
+                    "seq_time_value": 7,
+                    "seq_time_interval": "day",
+                },
+            },
+        ]
+
+        for test_case in test_cases:
+            with self.subTest(behavioral_type=test_case["type"]):
+                cohort = Cohort.objects.create(
+                    team=self.team,
+                    filters={
+                        "properties": {"type": "AND", "values": [{"type": "AND", "values": [test_case["properties"]]}]}
+                    },
+                )
+                self.assertEqual(cohort._get_direct_cohort_type(), CohortType.ANALYTICAL)
+                self.assertEqual(cohort.cohort_type, CohortType.ANALYTICAL)
+
+    def test_direct_cohort_type_mixed_properties(self):
+        """Test cohort with mixed property types - should take most complex"""
+        cohort = Cohort.objects.create(
+            team=self.team,
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                {"key": "email", "type": "person", "value": "test@example.com", "operator": "exact"},
+                                {
+                                    "key": "purchase",
+                                    "type": "behavioral",
+                                    "value": "performed_event_first_time",
+                                    "event_type": "events",
+                                    "time_interval": "day",
+                                    "time_value": 30,
+                                },
+                            ],
+                        }
+                    ],
+                }
+            },
+        )
+        # Should be analytical because that's the most complex type present
+        self.assertEqual(cohort._get_direct_cohort_type(), CohortType.ANALYTICAL)
+        self.assertEqual(cohort.cohort_type, CohortType.ANALYTICAL)
+
+    def test_direct_cohort_type_unknown_property_becomes_static(self):
+        """Test that unknown property types get filtered out and cohort becomes STATIC"""
+        cohort = Cohort(
+            team=self.team,
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {"type": "AND", "values": [{"key": "some_key", "type": "unknown_type", "value": "some_value"}]}
+                    ],
+                }
+            },
+        )
+
+        # Unknown properties get filtered out during parsing, leaving empty properties
+        # This should result in STATIC classification rather than an error
+        cohort_type = cohort._get_direct_cohort_type()
+        self.assertEqual(cohort_type, CohortType.STATIC)
+
+    def test_get_dependent_cohort_ids(self):
+        """Test extraction of dependent cohort IDs"""
+        # Create dependency cohorts
+        dep1 = Cohort.objects.create(team=self.team, is_static=True)
+        dep2 = Cohort.objects.create(team=self.team, is_static=True)
+
+        # Cohort with no dependencies
+        cohort_no_deps = Cohort.objects.create(team=self.team, is_static=True)
+        self.assertEqual(cohort_no_deps._get_dependent_cohort_ids(), set())
+
+        # Cohort with single dependency
+        cohort_single = Cohort.objects.create(
+            team=self.team,
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [{"type": "AND", "values": [{"key": "id", "type": "cohort", "value": dep1.pk}]}],
+                }
+            },
+        )
+        self.assertEqual(cohort_single._get_dependent_cohort_ids(), {dep1.pk})
+
+        # Cohort with multiple dependencies
+        cohort_multiple = Cohort.objects.create(
+            team=self.team,
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {"type": "AND", "values": [{"key": "id", "type": "cohort", "value": dep1.pk}]},
+                        {"type": "AND", "values": [{"key": "id", "type": "cohort", "value": dep2.pk}]},
+                    ],
+                }
+            },
+        )
+        self.assertEqual(cohort_multiple._get_dependent_cohort_ids(), {dep1.pk, dep2.pk})
+
+    def test_cohort_type_with_dependencies_elevation(self):
+        """Test that cohort type is elevated by dependencies"""
+        # Create a behavioral dependency
+        behavioral_cohort = Cohort.objects.create(
+            team=self.team,
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                {
+                                    "key": "purchase",
+                                    "type": "behavioral",
+                                    "value": "performed_event",
+                                    "event_type": "events",
+                                    "time_interval": "day",
+                                    "time_value": 30,
+                                }
+                            ],
+                        }
+                    ],
+                }
+            },
+        )
+        self.assertEqual(behavioral_cohort.cohort_type, CohortType.BEHAVIORAL)
+
+        # Create a person property cohort that depends on the behavioral cohort
+        person_cohort = Cohort.objects.create(
+            team=self.team,
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                {"key": "email", "type": "person", "value": "test@example.com", "operator": "exact"},
+                                {"key": "id", "type": "cohort", "value": behavioral_cohort.pk},
+                            ],
+                        }
+                    ],
+                }
+            },
+        )
+
+        # Should be elevated to behavioral because of dependency
+        self.assertEqual(person_cohort.cohort_type, CohortType.BEHAVIORAL)
+
+    def test_cohort_type_transitive_dependencies(self):
+        """Test cohort type calculation with transitive dependencies"""
+        # Chain: analytical -> behavioral -> person -> static
+        analytical_cohort = Cohort.objects.create(
+            team=self.team,
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                {
+                                    "key": "login",
+                                    "type": "behavioral",
+                                    "value": "performed_event_first_time",
+                                    "event_type": "events",
+                                    "time_interval": "day",
+                                    "time_value": 30,
+                                }
+                            ],
+                        }
+                    ],
+                }
+            },
+        )
+
+        behavioral_cohort = Cohort.objects.create(
+            team=self.team,
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                {
+                                    "key": "purchase",
+                                    "type": "behavioral",
+                                    "value": "performed_event",
+                                    "event_type": "events",
+                                    "time_interval": "day",
+                                    "time_value": 30,
+                                },
+                                {"key": "id", "type": "cohort", "value": analytical_cohort.pk},
+                            ],
+                        }
+                    ],
+                }
+            },
+        )
+
+        person_cohort = Cohort.objects.create(
+            team=self.team,
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                {"key": "email", "type": "person", "value": "test@example.com", "operator": "exact"},
+                                {"key": "id", "type": "cohort", "value": behavioral_cohort.pk},
+                            ],
+                        }
+                    ],
+                }
+            },
+        )
+
+        static_cohort = Cohort.objects.create(
+            team=self.team,
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [{"type": "AND", "values": [{"key": "id", "type": "cohort", "value": person_cohort.pk}]}],
+                }
+            },
+        )
+
+        # Each should be elevated by transitive dependencies
+        self.assertEqual(analytical_cohort.cohort_type, CohortType.ANALYTICAL)
+        self.assertEqual(behavioral_cohort.cohort_type, CohortType.ANALYTICAL)  # elevated
+        self.assertEqual(person_cohort.cohort_type, CohortType.ANALYTICAL)  # elevated
+        self.assertEqual(static_cohort.cohort_type, CohortType.ANALYTICAL)  # elevated
+
+    def test_circular_dependency_detection(self):
+        """Test that circular dependencies are detected and prevent save"""
+        cohort_a = Cohort.objects.create(team=self.team, is_static=True)
+        cohort_b = Cohort.objects.create(team=self.team, is_static=True)
+
+        # Make A depend on B
+        cohort_a.filters = {
+            "properties": {
+                "type": "AND",
+                "values": [{"type": "AND", "values": [{"key": "id", "type": "cohort", "value": cohort_b.pk}]}],
+            }
+        }
+        cohort_a.save()  # This should work
+
+        # Try to make B depend on A (creating a cycle)
+        cohort_b.filters = {
+            "properties": {
+                "type": "AND",
+                "values": [{"type": "AND", "values": [{"key": "id", "type": "cohort", "value": cohort_a.pk}]}],
+            }
+        }
+
+        with self.assertRaises(ValidationError) as cm:
+            cohort_b.save()
+        self.assertIn("Circular dependency detected", str(cm.exception))
+
+    def test_missing_dependency_validation(self):
+        """Test that missing dependencies are caught during validation"""
+        cohort = Cohort(
+            team=self.team,
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                {
+                                    "key": "id",
+                                    "type": "cohort",
+                                    "value": 99999,  # Non-existent cohort
+                                }
+                            ],
+                        }
+                    ],
+                }
+            },
+        )
+
+        with self.assertRaises(ValidationError) as cm:
+            cohort.save()
+        self.assertIn("does not exist", str(cm.exception))
+
+    def test_cohort_type_cascade_update(self):
+        """Test that updating a cohort cascades type updates to dependents"""
+        # Create base cohort as person property
+        base_cohort = Cohort.objects.create(
+            team=self.team,
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                {"key": "email", "type": "person", "value": "test@example.com", "operator": "exact"}
+                            ],
+                        }
+                    ],
+                }
+            },
+        )
+
+        # Create dependent cohort
+        dependent_cohort = Cohort.objects.create(
+            team=self.team,
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [{"type": "AND", "values": [{"key": "id", "type": "cohort", "value": base_cohort.pk}]}],
+                }
+            },
+        )
+
+        # Initially both should be person property
+        self.assertEqual(base_cohort.cohort_type, CohortType.PERSON_PROPERTY)
+        self.assertEqual(dependent_cohort.cohort_type, CohortType.PERSON_PROPERTY)
+
+        # Update base cohort to be behavioral
+        base_cohort.filters = {
+            "properties": {
+                "type": "AND",
+                "values": [
+                    {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "key": "purchase",
+                                "type": "behavioral",
+                                "value": "performed_event",
+                                "event_type": "events",
+                                "time_interval": "day",
+                                "time_value": 30,
+                            }
+                        ],
+                    }
+                ],
+            }
+        }
+        base_cohort.save()
+
+        # Check that dependent cohort type was updated
+        dependent_cohort.refresh_from_db()
+        self.assertEqual(base_cohort.cohort_type, CohortType.BEHAVIORAL)
+        self.assertEqual(dependent_cohort.cohort_type, CohortType.BEHAVIORAL)

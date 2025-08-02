@@ -16,6 +16,7 @@ from posthog.clickhouse.client.execute import sync_execute
 from posthog.models import FeatureFlag, Person, Action
 from posthog.models.async_deletion.async_deletion import AsyncDeletion
 from posthog.models.cohort import Cohort
+from posthog.models.cohort.cohort import CohortType
 from posthog.models.team.team import Team
 from posthog.schema import PropertyOperator, PersonsOnEventsMode
 from posthog.tasks.calculate_cohort import (
@@ -2210,6 +2211,228 @@ email@example.org,
         self.assertEqual(response.status_code, 201, response.json())
         cohort_data = response.json()
         self.assertIsNotNone(cohort_data.get("id"))
+
+    @patch("posthog.api.cohort.report_user_action")
+    def test_cohort_type_classification_via_api(self, patch_capture):
+        """Integration test: Cohort types are correctly assigned when creating cohorts via API"""
+
+        # Test static cohort
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={"name": "Static Cohort", "is_static": True},
+        )
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.json()["cohort_type"], CohortType.STATIC)
+
+        # Test person property cohort
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={
+                "name": "Person Property Cohort",
+                "filters": {
+                    "properties": {
+                        "type": "OR",
+                        "values": [
+                            {"key": "email", "type": "person", "value": "test@example.com", "operator": "exact"}
+                        ],
+                    }
+                },
+            },
+        )
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.json()["cohort_type"], CohortType.PERSON_PROPERTY)
+
+        # Test behavioral cohort
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={
+                "name": "Behavioral Cohort",
+                "filters": {
+                    "properties": {
+                        "type": "OR",
+                        "values": [
+                            {
+                                "key": "signup",
+                                "type": "behavioral",
+                                "value": "performed_event",
+                                "event_type": "events",
+                                "time_interval": "day",
+                                "time_value": 30,
+                            }
+                        ],
+                    }
+                },
+            },
+        )
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.json()["cohort_type"], CohortType.BEHAVIORAL)
+
+        # Test analytical cohort (complex behavioral)
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={
+                "name": "Analytical Cohort",
+                "filters": {
+                    "properties": {
+                        "type": "OR",
+                        "values": [
+                            {
+                                "key": "login",
+                                "type": "behavioral",
+                                "value": "performed_event_regularly",
+                                "event_type": "events",
+                                "time_interval": "day",
+                                "time_value": 30,
+                                "operator": "gte",
+                                "operator_value": 3,
+                                "min_periods": 2,
+                                "total_periods": 4,
+                            }
+                        ],
+                    }
+                },
+            },
+        )
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.json()["cohort_type"], CohortType.ANALYTICAL)
+
+    @patch("posthog.api.cohort.report_user_action")
+    def test_cohort_type_read_only_via_api(self, patch_capture):
+        """Integration test: cohort_type field is read-only and cannot be set via API"""
+
+        # Try to create cohort with explicit cohort_type
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={
+                "name": "Test Cohort",
+                "is_static": True,
+                "cohort_type": CohortType.BEHAVIORAL,  # Should be ignored
+            },
+        )
+        self.assertEqual(response.status_code, 201)
+        # Should be STATIC based on is_static=True, not BEHAVIORAL
+        self.assertEqual(response.json()["cohort_type"], CohortType.STATIC)
+
+    @patch("posthog.api.cohort.report_user_action")
+    def test_cohort_type_updates_via_api(self, patch_capture):
+        """Integration test: cohort_type updates when cohort filters change via API"""
+
+        # Create person property cohort
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={
+                "name": "Test Cohort",
+                "filters": {
+                    "properties": {
+                        "type": "OR",
+                        "values": [
+                            {"key": "email", "type": "person", "value": "test@example.com", "operator": "exact"}
+                        ],
+                    }
+                },
+            },
+        )
+        cohort_id = response.json()["id"]
+        self.assertEqual(response.json()["cohort_type"], CohortType.PERSON_PROPERTY)
+
+        # Update to behavioral cohort
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{cohort_id}",
+            data={
+                "filters": {
+                    "properties": {
+                        "type": "OR",
+                        "values": [
+                            {
+                                "key": "signup",
+                                "type": "behavioral",
+                                "value": "performed_event",
+                                "event_type": "events",
+                                "time_interval": "day",
+                                "time_value": 30,
+                            }
+                        ],
+                    }
+                }
+            },
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["cohort_type"], CohortType.BEHAVIORAL)
+
+    @patch("posthog.api.cohort.report_user_action")
+    def test_cohort_dependency_validation_via_api(self, patch_capture):
+        """Integration test: Missing dependency validation works through API"""
+
+        # Try to create cohort with non-existent dependency
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={
+                "name": "Invalid Cohort",
+                "filters": {
+                    "properties": {
+                        "type": "OR",
+                        "values": [
+                            {
+                                "key": "id",
+                                "type": "cohort",
+                                "value": 99999,  # Non-existent cohort
+                            }
+                        ],
+                    }
+                },
+            },
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("does not exist", response.json()["detail"])
+
+    @patch("posthog.api.cohort.report_user_action")
+    def test_cohort_type_with_dependencies_via_api(self, patch_capture):
+        """Integration test: Cohort type elevation with dependencies works through API"""
+
+        # Create base behavioral cohort
+        base_response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={
+                "name": "Base Behavioral",
+                "filters": {
+                    "properties": {
+                        "type": "OR",
+                        "values": [
+                            {
+                                "key": "signup",
+                                "type": "behavioral",
+                                "value": "performed_event",
+                                "event_type": "events",
+                                "time_interval": "day",
+                                "time_value": 30,
+                            }
+                        ],
+                    }
+                },
+            },
+        )
+        base_cohort_id = base_response.json()["id"]
+        self.assertEqual(base_response.json()["cohort_type"], CohortType.BEHAVIORAL)
+
+        # Create dependent cohort that should inherit behavioral type
+        dependent_response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={
+                "name": "Dependent Cohort",
+                "filters": {
+                    "properties": {
+                        "type": "OR",
+                        "values": [
+                            {"key": "email", "type": "person", "value": "test@example.com", "operator": "exact"},
+                            {"key": "id", "type": "cohort", "value": base_cohort_id},
+                        ],
+                    }
+                },
+            },
+        )
+        self.assertEqual(dependent_response.status_code, 201)
+        # Should be BEHAVIORAL due to dependency, not PERSON_PROPERTY
+        self.assertEqual(dependent_response.json()["cohort_type"], CohortType.BEHAVIORAL)
 
 
 class TestCalculateCohortCommand(APIBaseTest):
