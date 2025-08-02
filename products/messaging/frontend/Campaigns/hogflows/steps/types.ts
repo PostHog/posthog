@@ -16,7 +16,8 @@ export type HogFlowStep<T extends HogFlowAction['type']> = {
     type: T
     name: string
     description: string
-    icon?: JSX.Element
+    icon: JSX.Element
+    color: string
     renderNode: (props: HogFlowStepNodeProps) => JSX.Element
     renderConfiguration: (node: Node<Extract<HogFlowAction, { type: T }>>) => JSX.Element
     create: () => {

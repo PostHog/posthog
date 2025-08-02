@@ -15,7 +15,7 @@ export function StepView({ action, children }: { action: HogFlowAction; children
     return (
         <div
             className={clsx(
-                'flex justify-center items-center rounded border transition-all cursor-pointer bg-surface-primary',
+                'flex rounded border transition-all cursor-pointer bg-surface-primary',
                 isSelected ? 'border-secondary bg-surface-secondary' : 'hover:bg-surface-secondary'
             )}
             // eslint-disable-next-line react/forbid-dom-props
@@ -24,9 +24,17 @@ export function StepView({ action, children }: { action: HogFlowAction; children
                 height: NODE_HEIGHT,
             }}
         >
-            <div className="flex gap-1 justify-center items-center">
-                {Step?.icon}
-                <div className="text-[0.6rem]">{action.name}</div>
+            <div className="flex gap-1 p-1 items-start">
+                <div
+                    className="flex justify-center h-6 items-center aspect-square rounded"
+                    style={{ backgroundColor: `${Step?.color || '#6b7280'}20`, color: Step?.color || '#6b7280' }}
+                >
+                    {Step?.icon}
+                </div>
+                <div className="flex flex-col">
+                    <div className="text-[0.5rem] font-semibold">{action.name}</div>
+                    <div className="max-w-full text-[0.3rem]/1.5 text-muted text-ellipsis">{action.description}</div>
+                </div>
             </div>
             {children}
         </div>
