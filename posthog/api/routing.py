@@ -249,7 +249,7 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" 
         if team_from_token := self._get_team_from_request():
             team = team_from_token
         elif self._is_project_view:
-            team = Team.objects.get(
+            team = Team.objects.select_related("organization").get(
                 id=self.project_id  # KLUDGE: This is just for the period of transition to project environments
             )
         elif self.param_derived_from_user_current_team == "team_id":
@@ -258,7 +258,7 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" 
             team = user.team
         else:
             try:
-                team = Team.objects.get(id=self.team_id)
+                team = Team.objects.select_related("organization").get(id=self.team_id)
             except Team.DoesNotExist:
                 raise NotFound(
                     detail="Project not found."  # TODO: "Environment" instead of "Project" when project environments are rolled out

@@ -160,7 +160,7 @@ class TeamManager(models.Manager):
         if not token:
             return None
         try:
-            return Team.objects.get(api_token=token)
+            return Team.objects.select_related("organization").get(api_token=token)
         except Team.DoesNotExist:
             return None
 
@@ -172,7 +172,7 @@ class TeamManager(models.Manager):
             if team:
                 return team
 
-            team = Team.objects.get(api_token=token)
+            team = Team.objects.select_related("organization").get(api_token=token)
             set_team_in_cache(token, team)
             return team
 
@@ -187,7 +187,7 @@ class TeamManager(models.Manager):
             if team:
                 return team
 
-            team = Team.objects.get(secret_api_token=secret_api_token)
+            team = Team.objects.select_related("organization").get(secret_api_token=secret_api_token)
             set_team_in_cache(secret_api_token, team)
             return team
 
