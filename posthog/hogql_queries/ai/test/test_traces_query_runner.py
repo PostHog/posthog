@@ -935,3 +935,44 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
         ).calculate()
         self.assertEqual(len(response.results), 1)
         self.assertEqual(response.results[0].inputTokens, 2)
+
+    def test_removes_duplicate_events(self):
+        """ClickHouse might sometimes return unmerged (duplicate) events."""
+        trace_id = str(uuid.uuid4())
+        event_id = str(uuid.uuid4())
+
+        _create_person(distinct_ids=["person1"], team=self.team)
+        _create_ai_generation_event(
+            distinct_id="person1",
+            trace_id=trace_id,
+            team=self.team,
+            timestamp=datetime(2024, 12, 1, 0, 0),
+            event_uuid=event_id,
+        )
+        _create_ai_generation_event(
+            distinct_id="person1",
+            trace_id=trace_id,
+            team=self.team,
+            timestamp=datetime(2024, 12, 1, 0, 0),
+            event_uuid=event_id,
+        )
+        _create_ai_trace_event(
+            trace_id=trace_id,
+            input_state={},
+            output_state={},
+            trace_name="runnable",
+            team=self.team,
+            timestamp=datetime(2024, 12, 1, 0, 3),
+            distinct_id="person1",
+        )
+
+        # Should return total latency of 2
+        response = TracesQueryRunner(
+            team=self.team,
+            query=TracesQuery(
+                dateRange=DateRange(date_from="2024-12-01T00:00:00Z", date_to="2024-12-01T00:10:00Z"),
+                traceId=trace_id,
+            ),
+        ).calculate()
+        self.assertEqual(len(response.results), 1)
+        self.assertEqual(len(response.results[0].events), 1)
