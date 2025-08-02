@@ -11,10 +11,9 @@ import { DurationPicker } from 'lib/components/DurationPicker/DurationPicker'
 import { PropertyFilterDatePicker } from 'lib/components/PropertyFilters/components/PropertyFilterDatePicker'
 import { propertyFilterTypeToPropertyDefinitionType } from 'lib/components/PropertyFilters/utils'
 import { dayjs } from 'lib/dayjs'
-import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { formatDate, isOperatorDate, isOperatorFlag, isOperatorMulti, toString } from 'lib/utils'
-import { useEffect } from 'react'
+import { useCallback, useEffect } from 'react'
 
 import {
     PROPERTY_FILTER_TYPES_WITH_ALL_TIME_SUGGESTIONS,
@@ -36,7 +35,6 @@ export interface PropertyValueProps {
     eventNames?: string[]
     addRelativeDateTimeOptions?: boolean
     inputClassName?: string
-    additionalPropertiesFilter?: { key: string; values: string | string[] }[]
     groupTypeIndex?: GroupTypeIndex
     size?: 'xsmall' | 'small' | 'medium'
     editable?: boolean
@@ -56,7 +54,6 @@ export function PropertyValue({
     eventNames = [],
     addRelativeDateTimeOptions = false,
     inputClassName = undefined,
-    additionalPropertiesFilter = [],
     groupTypeIndex = undefined,
     editable = true,
     preloadValues = false,
@@ -74,30 +71,33 @@ export function PropertyValue({
     const isAssigneeProperty =
         propertyKey && describeProperty(propertyKey, propertyDefinitionType) === PropertyType.Assignee
 
-    const load = (newInput: string | undefined): void => {
-        loadPropertyValues({
-            endpoint,
-            type: propertyDefinitionType,
-            newInput,
-            propertyKey,
-            eventNames,
-            properties: additionalPropertiesFilter,
-        })
-    }
+    const load = useCallback(
+        (newInput: string | undefined): void => {
+            loadPropertyValues({
+                endpoint,
+                type: propertyDefinitionType,
+                newInput,
+                propertyKey,
+                eventNames,
+                properties: [],
+            })
+        },
+        [loadPropertyValues, endpoint, propertyDefinitionType, propertyKey, eventNames]
+    )
 
     const setValue = (newValue: PropertyValueProps['value']): void => onSet(newValue)
 
-    useOnMountEffect(() => {
+    useEffect(() => {
         if (preloadValues) {
             load('')
         }
-    })
+    }, [preloadValues, load])
 
     useEffect(() => {
         if (!isDateTimeProperty) {
             load('')
         }
-    }, [propertyKey, isDateTimeProperty]) // oxlint-disable-line react-hooks/exhaustive-deps
+    }, [propertyKey, isDateTimeProperty, load])
 
     const displayOptions = options[propertyKey]?.values || []
 

@@ -1,4 +1,10 @@
-import { customEvent, EventType, eventWithTime, fullSnapshotEvent, pluginEvent } from '@posthog/rrweb-types'
+import {
+    customEvent,
+    EventType as RRWebEventType,
+    eventWithTime,
+    fullSnapshotEvent,
+    pluginEvent,
+} from '@posthog/rrweb-types'
 import FuseClass from 'fuse.js'
 import { actions, connect, events, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
@@ -174,7 +180,7 @@ function isFullSnapshotEvent(x: unknown): x is fullSnapshotEvent {
 }
 
 function snapshotDescription(snapshot: eventWithTime): string {
-    const snapshotTypeName = EventType[snapshot.type]
+    const snapshotTypeName = RRWebEventType[snapshot.type]
     let suffix = ''
     if (_isCustomSnapshot(snapshot)) {
         suffix = ': ' + (snapshot as customEvent).data.tag
@@ -279,13 +285,12 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 'windowIdForTimestamp',
                 'sessionPlayerMetaData',
                 'segments',
+                'trackedWindow',
             ],
             sessionRecordingPlayerLogic(props),
             ['currentPlayerTime'],
             performanceEventDataLogic({ key: props.playerKey, sessionRecordingId: props.sessionRecordingId }),
             ['allPerformanceEvents'],
-            sessionRecordingDataLogic(props),
-            ['trackedWindow'],
             featureFlagLogic,
             ['featureFlags'],
         ],
@@ -715,6 +720,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 s.allContextItems,
                 s.commentItems,
                 s.notebookCommentItems,
+                s.sessionPlayerData,
             ],
             (
                 start,
@@ -725,7 +731,8 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 windowNumberForID,
                 allContextItems,
                 commentItems,
-                notebookCommentItems
+                notebookCommentItems,
+                sessionPlayerData
             ): InspectorListItem[] => {
                 // NOTE: Possible perf improvement here would be to have a selector to parse the items
                 // and then do the filtering of what items are shown, elsewhere
@@ -798,7 +805,10 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                         timestamp,
                         timeInRecording,
                         search: search,
-                        data: event,
+                        data: {
+                            ...event,
+                            distinct_id: sessionPlayerData.person?.distinct_ids?.[0] || event.distinct_id,
+                        },
                         highlightColor: isMatchingEvent
                             ? 'primary'
                             : event.event === '$exception'

@@ -507,6 +507,7 @@ export function DashboardHeader(): JSX.Element | null {
                         optional
                         canEdit={canEditDashboard}
                         isLoading={dashboardLoading}
+                        markdown
                     />
 
                     <SceneTags

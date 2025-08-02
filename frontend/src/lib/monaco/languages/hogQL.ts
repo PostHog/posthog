@@ -252,6 +252,7 @@ export const language: () => languages.IMonarchLanguage = () => ({
         '_toDate',
         'toDate',
         'toDateTime',
+        'toDateTimeUS',
         'toUUID',
         'toString',
         'toJSONString',

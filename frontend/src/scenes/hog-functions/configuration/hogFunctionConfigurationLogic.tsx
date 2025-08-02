@@ -1200,6 +1200,38 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 return !!lastEventQuery
             },
         ],
+
+        showFilters: [
+            (s) => [s.type],
+            (type) => {
+                return ['destination', 'internal_destination', 'site_destination', 'transformation'].includes(type)
+            },
+        ],
+
+        showExpectedVolume: [
+            (s) => [s.type, s.sourceUsesEvents],
+            (type, sourceUsesEvents) => {
+                return sourceUsesEvents && ['destination', 'site_destination', 'transformation'].includes(type)
+            },
+        ],
+
+        canEditSource: [
+            (s) => [s.type, s.template, s.hogFunction],
+            (type, template, hogFunction) => {
+                return (
+                    ['site_destination', 'site_app', 'source_webhook', 'transformation'].includes(type) ||
+                    (type === 'destination' &&
+                        (template?.code_language || hogFunction?.template?.code_language) === 'hog')
+                )
+            },
+        ],
+
+        showTesting: [
+            (s) => [s.type],
+            (type) => {
+                return ['destination', 'internal_destination', 'transformation'].includes(type)
+            },
+        ],
     })),
 
     listeners(({ actions, values, cache }) => ({
