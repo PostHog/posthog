@@ -67,7 +67,9 @@ MAX_SUPPORTED_QUERY_KIND_TO_MODEL: dict[str, type[SupportedQueryTypes]] = {
 SLASH_COMMAND_INIT = "/init"
 SLASH_COMMAND_REMEMBER = "/remember"
 
-RouteName = Literal["insights", "root", "end", "search_documentation", "insights_search", "billing"]
+RouteName = Literal[
+    "insights", "root", "end", "search_documentation", "memory_onboarding", "insights_search", "billing", "session_summarization"
+]
 
 
 RootMessageUnion = HumanMessage | AssistantMessage | FailureMessage | AssistantToolCallMessage
@@ -405,9 +407,10 @@ class RootNode(RootNodeUIContextMixin):
             get_contextual_tool_class,
             search_documentation,
             search_insights,
+            session_summarization,
         )
 
-        available_tools: list[type[BaseModel]] = [search_insights]
+        available_tools: list[type[BaseModel]] = [search_insights, session_summarization]
         if settings.INKEEP_API_KEY:
             available_tools.append(search_documentation)
         tool_names = self._get_contextual_tools(config).keys()
@@ -571,6 +574,12 @@ class RootNodeTools(AssistantNode):
                 search_insights_query=tool_call.args["search_query"],
                 root_tool_calls_count=tool_call_count + 1,
             )
+        elif tool_call.name == "session_summarization":
+            return PartialAssistantState(
+                root_tool_call_id=tool_call.id,
+                session_summarization_query=tool_call.args["session_summarization_query"],
+                root_tool_calls_count=tool_call_count + 1,
+            )
         elif ToolClass := get_contextual_tool_class(tool_call.name):
             tool_class = ToolClass(team=self._team, user=self._user, state=state)
             result = await tool_class.ainvoke(tool_call.model_dump(), config)
@@ -633,6 +642,8 @@ class RootNodeTools(AssistantNode):
                 return "insights"
             elif state.search_insights_query:
                 return "insights_search"
+            elif state.session_summarization_query:
+                return "session_summarization"
             else:
                 return "search_documentation"
         return "end"

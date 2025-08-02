@@ -513,6 +513,7 @@ class TestPatternExtractionChunking:
         inputs = SessionGroupSummaryOfSummariesInputs(
             single_session_summaries_inputs=[],
             user_id=1,
+            model_to_use=SESSION_SUMMARIES_SYNC_MODEL,
             extra_summary_context=None,
             redis_key_base="test",
         )
@@ -536,10 +537,23 @@ class TestPatternExtractionChunking:
         # Setup inputs with 2 sessions
         inputs = SessionGroupSummaryOfSummariesInputs(
             single_session_summaries_inputs=[
-                SingleSessionSummaryInputs(session_id="session-1", user_id=1, team_id=1, redis_key_base="test"),
-                SingleSessionSummaryInputs(session_id="session-2", user_id=1, team_id=1, redis_key_base="test"),
+                SingleSessionSummaryInputs(
+                    session_id="session-1",
+                    user_id=1,
+                    team_id=1,
+                    redis_key_base="test",
+                    model_to_use=SESSION_SUMMARIES_SYNC_MODEL,
+                ),
+                SingleSessionSummaryInputs(
+                    session_id="session-2",
+                    user_id=1,
+                    team_id=1,
+                    redis_key_base="test",
+                    model_to_use=SESSION_SUMMARIES_SYNC_MODEL,
+                ),
             ],
             user_id=1,
+            model_to_use=SESSION_SUMMARIES_SYNC_MODEL,
             extra_summary_context=ExtraSummaryContext(focus_area="test"),
             redis_key_base="test",
         )
@@ -579,10 +593,17 @@ class TestPatternExtractionChunking:
         # Setup inputs with 3 sessions
         inputs = SessionGroupSummaryOfSummariesInputs(
             single_session_summaries_inputs=[
-                SingleSessionSummaryInputs(session_id=f"session-{i}", user_id=1, team_id=1, redis_key_base="test")
+                SingleSessionSummaryInputs(
+                    session_id=f"session-{i}",
+                    user_id=1,
+                    team_id=1,
+                    redis_key_base="test",
+                    model_to_use=SESSION_SUMMARIES_SYNC_MODEL,
+                )
                 for i in range(3)
             ],
             user_id=1,
+            model_to_use=SESSION_SUMMARIES_SYNC_MODEL,
             extra_summary_context=None,
             redis_key_base="test",
         )
@@ -630,10 +651,17 @@ class TestPatternExtractionChunking:
         # Setup inputs with 4 sessions
         inputs = SessionGroupSummaryOfSummariesInputs(
             single_session_summaries_inputs=[
-                SingleSessionSummaryInputs(session_id=f"session-{i}", user_id=1, team_id=1, redis_key_base="test")
+                SingleSessionSummaryInputs(
+                    session_id=f"session-{i}",
+                    user_id=1,
+                    team_id=1,
+                    redis_key_base="test",
+                    model_to_use=SESSION_SUMMARIES_SYNC_MODEL,
+                )
                 for i in range(4)
             ],
             user_id=1,
+            model_to_use=SESSION_SUMMARIES_SYNC_MODEL,
             extra_summary_context=None,
             redis_key_base="test",
         )

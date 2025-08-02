@@ -3,7 +3,6 @@ import dataclasses
 from datetime import datetime, timedelta
 import hashlib
 import json
-from typing import cast
 import uuid
 import structlog
 import temporalio
@@ -14,8 +13,8 @@ from ee.hogai.session_summaries.constants import (
     FAILED_SESSION_SUMMARIES_MIN_RATIO,
     FAILED_PATTERNS_EXTRACTION_MIN_RATIO,
 )
+from ee.hogai.session_summaries.constants import SESSION_SUMMARIES_SYNC_MODEL
 from ee.hogai.session_summaries.session.input_data import add_context_and_filter_events, get_team
-from ee.hogai.session_summaries.llm.consume import get_llm_single_session_summary
 from ee.hogai.session_summaries.session_group.patterns import EnrichedSessionGroupSummaryPatternsList
 from ee.hogai.session_summaries.session.summarize_session import (
     ExtraSummaryContext,
@@ -42,13 +41,12 @@ from posthog.hogql_queries.ai.session_batch_events_query_runner import (
 )
 from posthog.temporal.ai.session_summary.state import (
     get_data_class_from_redis,
-    get_data_str_from_redis,
-    get_redis_state_client,
     generate_state_key,
     StateActivitiesEnum,
     store_data_in_redis,
 )
 from posthog.redis import get_async_client
+from posthog.temporal.ai.session_summary.summarize_session import get_llm_single_session_summary_activity
 from posthog.temporal.ai.session_summary.types.group import (
     SessionGroupSummaryInputs,
     SessionGroupSummaryOfSummariesInputs,
@@ -190,6 +188,7 @@ async def fetch_session_batch_events_activity(
             session_id=session_id,
             user_id=inputs.user_id,
             summary_data=summary_data,
+            model_to_use=inputs.model_to_use,
         )
         # Store the input data in Redis
         session_data_key = generate_state_key(
@@ -207,68 +206,6 @@ async def fetch_session_batch_events_activity(
         )
     # Returning nothing as the data is stored in Redis
     return fetched_session_ids
-
-
-@temporalio.activity.defn
-async def get_llm_single_session_summary_activity(
-    inputs: SingleSessionSummaryInputs,
-) -> None:
-    """Summarize a single session in one call and store/cache in Redis (to avoid hitting Temporal memory limits)"""
-    redis_client, redis_input_key, redis_output_key = get_redis_state_client(
-        key_base=inputs.redis_key_base,
-        input_label=StateActivitiesEnum.SESSION_DB_DATA,
-        output_label=StateActivitiesEnum.SESSION_SUMMARY,
-        state_id=inputs.session_id,
-    )
-    # Base key includes session ids, so when summarizing this session again, but with different inputs (or order) - we don't use cache
-    # TODO: Should be solved by storing the summary in DB (long-term for using in UI)
-    try:
-        # Check if the summary is already in Redis. If it is - it's within TTL, so no need to re-generate it with LLM
-        # TODO: Think about edge-cases like failed summaries
-        await get_data_str_from_redis(
-            redis_client=redis_client,
-            redis_key=redis_output_key,
-            label=StateActivitiesEnum.SESSION_SUMMARY,
-        )
-    except ValueError:
-        # If not yet, or TTL expired - generate the summary with LLM
-        llm_input = cast(
-            SingleSessionSummaryLlmInputs,
-            await get_data_class_from_redis(
-                redis_client=redis_client,
-                redis_key=redis_input_key,
-                label=StateActivitiesEnum.SESSION_DB_DATA,
-                target_class=SingleSessionSummaryLlmInputs,
-            ),
-        )
-        # Get summary from LLM
-        session_summary_str = await get_llm_single_session_summary(
-            session_id=llm_input.session_id,
-            user_id=llm_input.user_id,
-            # Prompt
-            summary_prompt=llm_input.summary_prompt,
-            system_prompt=llm_input.system_prompt,
-            # Mappings to enrich events
-            allowed_event_ids=list(llm_input.simplified_events_mapping.keys()),
-            simplified_events_mapping=llm_input.simplified_events_mapping,
-            event_ids_mapping=llm_input.event_ids_mapping,
-            simplified_events_columns=llm_input.simplified_events_columns,
-            url_mapping_reversed=llm_input.url_mapping_reversed,
-            window_mapping_reversed=llm_input.window_mapping_reversed,
-            # Session metadata
-            session_start_time_str=llm_input.session_start_time_str,
-            session_duration=llm_input.session_duration,
-            trace_id=temporalio.activity.info().workflow_id,
-        )
-        # Store the generated summary in Redis
-        await store_data_in_redis(
-            redis_client=redis_client,
-            redis_key=redis_output_key,
-            data=session_summary_str,
-            label=StateActivitiesEnum.SESSION_SUMMARY,
-        )
-    # Returning nothing as the data is stored in Redis
-    return None
 
 
 @temporalio.workflow.defn(name="summarize-session-group")
@@ -320,6 +257,7 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
                 user_id=inputs.user_id,
                 team_id=inputs.team_id,
                 redis_key_base=inputs.redis_key_base,
+                model_to_use=inputs.model_to_use,
                 extra_summary_context=inputs.extra_summary_context,
                 local_reads_prod=inputs.local_reads_prod,
             )
@@ -439,6 +377,7 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
                 chunk_summaries_input = SessionGroupSummaryOfSummariesInputs(
                     single_session_summaries_inputs=chunk_inputs,
                     user_id=inputs.user_id,
+                    model_to_use=inputs.model_to_use,
                     extra_summary_context=inputs.extra_summary_context,
                     redis_key_base=inputs.redis_key_base,
                 )
@@ -496,6 +435,7 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
             SessionGroupSummaryOfSummariesInputs(
                 single_session_summaries_inputs=summaries_session_inputs,
                 user_id=inputs.user_id,
+                model_to_use=inputs.model_to_use,
                 extra_summary_context=inputs.extra_summary_context,
                 redis_key_base=inputs.redis_key_base,
             )
@@ -517,6 +457,7 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
             SessionGroupSummaryOfSummariesInputs(
                 single_session_summaries_inputs=single_session_summaries_inputs,
                 user_id=inputs.user_id,
+                model_to_use=inputs.model_to_use,
                 extra_summary_context=inputs.extra_summary_context,
                 redis_key_base=inputs.redis_key_base,
             ),
@@ -558,6 +499,7 @@ def execute_summarize_session_group(
     team: Team,
     min_timestamp: datetime,
     max_timestamp: datetime,
+    model_to_use: str = SESSION_SUMMARIES_SYNC_MODEL,
     extra_summary_context: ExtraSummaryContext | None = None,
     local_reads_prod: bool = False,
 ) -> EnrichedSessionGroupSummaryPatternsList:
@@ -575,6 +517,7 @@ def execute_summarize_session_group(
         redis_key_base=redis_key_base,
         min_timestamp_str=min_timestamp.isoformat(),
         max_timestamp_str=max_timestamp.isoformat(),
+        model_to_use=model_to_use,
         extra_summary_context=extra_summary_context,
         local_reads_prod=local_reads_prod,
     )

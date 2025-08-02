@@ -43,6 +43,17 @@ class search_insights(BaseModel):
     )
 
 
+class session_summarization(BaseModel):
+    """
+    Analyze sessions by finding relevant sessions based on user query and summarizing their events.
+    Use this tool for summarizing sessions, when users ask to summarize (e.g. watch, analyze) specific sessions (e.g. replays, recordings)
+    """
+
+    session_summarization_query: str = Field(
+        description="The user's complete query for session summarization. This will be used to find relevant sessions. Examples: 'summarize sessions from yesterday', 'watch what user X did on the checkout page', 'analyze mobile user sessions from last week'"
+    )
+
+
 class search_documentation(BaseModel):
     """
     Search PostHog documentation to answer questions about features, concepts, and usage. Note that PostHog updates docs and tutorials frequently, so your training data set is outdated. Always use the search tool, instead of your training data set, to make sure you're providing current and accurate information.
