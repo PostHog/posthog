@@ -231,11 +231,15 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
             }
         },
     })),
-    urlToAction(({ actions, props }) => ({
+    urlToAction(({ actions, props, values }) => ({
         [urls.earlyAccessFeature(props.id ?? 'new')]: (_, __, ___, { method }) => {
             // If the URL was pushed (user clicked on a link), reset the scene's data.
             // This avoids resetting form fields if you click back/forward.
             if (method === 'PUSH') {
+                // When pushing to `/new` and the early access feature does not have id, do not load the flag again
+                if (props.id === 'new' && !('id' in values.earlyAccessFeature)) {
+                    return
+                }
                 if (props.id) {
                     actions.loadEarlyAccessFeature()
                 }
