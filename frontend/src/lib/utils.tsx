@@ -264,6 +264,10 @@ export const cohortOperatorMap: Record<string, string> = {
     not_in: 'user not in',
 }
 
+export const featureFlagOperatorMap: Record<string, string> = {
+    flag_evaluates_to: '= evaluates to',
+}
+
 export const stickinessOperatorMap: Record<string, string> = {
     exact: '= Exactly',
     gte: '≥ At least',
@@ -292,6 +296,7 @@ export const allOperatorsMapping: Record<string, string> = {
     ...durationOperatorMap,
     ...selectorOperatorMap,
     ...cohortOperatorMap,
+    ...featureFlagOperatorMap,
     ...cleanedPathOperatorMap,
     // slight overkill to spread all of these into the map
     // but gives freedom for them to diverge more over time
@@ -305,6 +310,7 @@ const operatorMappingChoice: Record<keyof typeof PropertyType, Record<string, st
     Duration: durationOperatorMap,
     Selector: selectorOperatorMap,
     Cohort: cohortOperatorMap,
+    Flag: featureFlagOperatorMap,
     Assignee: assigneeOperatorMap,
     StringArray: stringArrayOperatorMap,
 }

@@ -1,7 +1,7 @@
 import './FeatureFlag.scss'
 
-import { IconCopy, IconPlus, IconTrash } from '@posthog/icons'
-import { LemonInput, LemonSelect, LemonSnack, Link } from '@posthog/lemon-ui'
+import { IconCopy, IconPlus, IconTrash, IconFlag } from '@posthog/icons'
+import { LemonInput, LemonSelect, LemonSnack, Link, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
@@ -22,11 +22,9 @@ import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { capitalizeFirstLetter, dateFilterToText, dateStringToComponents, humanFriendlyNumber } from 'lib/utils'
 import { urls } from 'scenes/urls'
-
 import { groupsModel } from '~/models/groupsModel'
 import { getFilterLabel } from '~/taxonomy/helpers'
-import { AnyPropertyFilter, FeatureFlagGroupType, PropertyOperator } from '~/types'
-
+import { AnyPropertyFilter, FeatureFlagGroupType, PropertyFilterType, PropertyOperator } from '~/types'
 import { featureFlagLogic } from './featureFlagLogic'
 import {
     featureFlagReleaseConditionsLogic,
@@ -34,7 +32,7 @@ import {
 } from './featureFlagReleaseConditionsLogic'
 
 function PropertyValueComponent({ property }: { property: AnyPropertyFilter }): JSX.Element {
-    if (property.type === 'cohort') {
+    if (property.type === PropertyFilterType.Cohort) {
         return (
             <LemonButton
                 type="secondary"
@@ -57,7 +55,7 @@ function PropertyValueComponent({ property }: { property: AnyPropertyFilter }): 
         <>
             {propertyValues.map((val, idx) => (
                 <LemonSnack key={idx}>
-                    {val}
+                    {String(val)}
                     <span>
                         {isPropertyFilterWithOperator(property) &&
                         ['is_date_before', 'is_date_after'].includes(property.operator) &&
@@ -136,9 +134,16 @@ export function FeatureFlagReleaseConditions({
     const filterGroups: FeatureFlagGroupType[] = (isSuper ? filters?.super_groups : filters?.groups) || []
     // :KLUDGE: Match by select only allows Select.Option as children, so render groups option directly rather than as a child
     const matchByGroupsIntroductionOption = GroupsIntroductionOption()
+
+    // Get flag key data for all flag dependencies
+    const { getFlagKey, flagKeysLoading } = useValues(releaseConditionsLogic)
+    const flagKeyData = (flagId: string): string => getFlagKey(flagId)
+
     const hasNonInstantProperty = (properties: AnyPropertyFilter[]): boolean => {
         return !!properties.find(
-            (property) => property.type === 'cohort' || !INSTANTLY_AVAILABLE_PROPERTIES.includes(property.key || '')
+            (property) =>
+                property.type === PropertyFilterType.Cohort ||
+                !INSTANTLY_AVAILABLE_PROPERTIES.includes(property.key || '')
         )
     }
 
@@ -242,6 +247,12 @@ export function FeatureFlagReleaseConditions({
                             </Link>
                         </LemonBanner>
                     )}
+                    {group.properties?.some((property) => property.type === PropertyFilterType.Flag) && (
+                        <LemonBanner type="warning" className="mt-3 mb-3">
+                            Local evaluation is not supported for feature flags with dependencies. These flags will
+                            require a server request to evaluate.
+                        </LemonBanner>
+                    )}
 
                     {readOnly ? (
                         <>
@@ -255,14 +266,37 @@ export function FeatureFlagReleaseConditions({
                                     ) : (
                                         <LemonButton icon={<span className="text-sm">&</span>} size="small" />
                                     )}
-                                    {property?.type !== 'cohort' &&
+                                    {property?.type !== PropertyFilterType.Cohort &&
+                                        property?.type !== PropertyFilterType.Flag &&
                                         getFilterLabel(
                                             property.key,
-                                            property.type === 'person'
+                                            property.type === PropertyFilterType.Person
                                                 ? TaxonomicFilterGroupType.PersonProperties
                                                 : TaxonomicFilterGroupType.EventProperties
                                         )}
-                                    <LemonSnack>{property.type === 'cohort' ? 'Cohort' : property.key} </LemonSnack>
+                                    {property.type === PropertyFilterType.Flag &&
+                                        (() => {
+                                            const flagId = property.key || ''
+                                            return (
+                                                <Tooltip title={flagId}>
+                                                    <LemonButton
+                                                        to={urls.featureFlag(flagId)}
+                                                        size="small"
+                                                        className="p-0"
+                                                    >
+                                                        <LemonSnack>
+                                                            <IconFlag className="mr-1" />
+                                                            {flagKeysLoading ? 'Loading...' : flagKeyData(flagId)}
+                                                        </LemonSnack>
+                                                    </LemonButton>
+                                                </Tooltip>
+                                            )
+                                        })()}
+                                    {property.type !== PropertyFilterType.Flag && (
+                                        <LemonSnack>
+                                            {property.type === PropertyFilterType.Cohort ? 'Cohort' : property.key}
+                                        </LemonSnack>
+                                    )}
                                     {isPropertyFilterWithOperator(property) ? (
                                         <span>{allOperatorsToHumanName(property.operator)} </span>
                                     ) : null}
@@ -287,6 +321,11 @@ export function FeatureFlagReleaseConditions({
                                 hasRowOperator={false}
                                 sendAllKeyUpdates
                                 allowRelativeDateOptions
+                                excludedProperties={
+                                    featureFlagKey
+                                        ? { [TaxonomicFilterGroupType.FeatureFlags]: [featureFlagKey] }
+                                        : undefined
+                                }
                                 errorMessages={
                                     propertySelectErrors?.[index]?.properties?.some((message) => !!message.value)
                                         ? propertySelectErrors[index].properties?.map((message, index) => {

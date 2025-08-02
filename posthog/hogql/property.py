@@ -370,6 +370,13 @@ def property_to_expr(
             return ast.Or(exprs=[property_to_expr(p, team, scope, strict=strict) for p in property.values])
     elif isinstance(property, EmptyPropertyFilter):
         return ast.Constant(value=1)
+    elif isinstance(property, FlagPropertyFilter):
+        # Flag dependencies are evaluated at the API layer, not in HogQL.
+        # They should never reach this point, but we handle them gracefully
+        # to satisfy type checking since FlagPropertyFilter is part
+        # of the AnyPropertyFilter union used throughout the codebase.
+        # Return a neutral filter that doesn't affect the query.
+        return ast.Constant(value=1)
     elif isinstance(property, BaseModel):
         try:
             property = Property(**property.dict())
