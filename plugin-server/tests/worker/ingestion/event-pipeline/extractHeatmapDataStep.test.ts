@@ -268,6 +268,18 @@ describe('extractHeatmapDataStep()', () => {
                         {
                             x: 1020,
                             y: 363,
+                            target_fixed: 'why would i even be a string?',
+                            type: 'mousemove',
+                        },
+                    ],
+                },
+            ],
+            [
+                {
+                    '    ': [
+                        {
+                            x: 1020,
+                            y: 363,
                             target_fixed: false,
                             type: 'mousemove',
                         },
