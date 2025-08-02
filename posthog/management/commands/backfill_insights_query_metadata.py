@@ -80,7 +80,9 @@ class Command(BaseCommand):
         Uses proper row locking to prevent race conditions.
         """
         # Build base query
-        base_query = Insight.objects.filter(Q(query_metadata__isnull=True) | Q(query_metadata={}))
+        base_query = Insight.objects_including_soft_deleted.filter(
+            Q(query_metadata__isnull=True) | Q(query_metadata={})
+        )
 
         if team_id:
             base_query = base_query.filter(team_id=team_id)
@@ -150,7 +152,7 @@ class Command(BaseCommand):
 
                 # Update all modified insights in this batch
                 if insights_to_update and not dry_run:
-                    Insight.objects.bulk_update(insights_to_update, ["query_metadata"])
+                    Insight.objects_including_soft_deleted.bulk_update(insights_to_update, ["query_metadata"])
 
                 total_updated += batch_updated
                 total_processed += len(insights)
