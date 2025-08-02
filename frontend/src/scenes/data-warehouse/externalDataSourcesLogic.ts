@@ -1,3 +1,4 @@
+// externalDataSourcesLogic.ts
 import { actions, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import api, { ApiMethodOptions, PaginatedResponse } from 'lib/api'
@@ -15,18 +16,16 @@ export const externalDataSourcesLogic = kea<externalDataSourcesLogicType>([
         dataWarehouseSources: [
             null as PaginatedResponse<ExternalDataSource> | null,
             {
-                loadSources: async (options: ApiMethodOptions | null = null, breakpoint) => {
+                loadSources: async (_, breakpoint) => {
                     await breakpoint(300)
                     actions.abortAnyRunningQuery()
 
                     cache.abortController = new AbortController()
                     const methodOptions: ApiMethodOptions = {
                         signal: cache.abortController.signal,
-                        ...options,
                     }
 
                     const res = await api.externalDataSources.list(methodOptions)
-
                     breakpoint()
 
                     cache.abortController = null

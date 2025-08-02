@@ -1,3 +1,4 @@
+// dataWarehouseSettingsLogic.ts NEW
 import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
@@ -27,7 +28,7 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
             databaseTableListLogic,
             ['loadDatabase'],
             externalDataSourcesLogic,
-            ['loadSources', 'abortAnyRunningQuery', 'loadSourcesSuccess', 'loadSourcesFailure'],
+            ['loadSources', 'loadSourcesSuccess', 'loadSourcesFailure'],
         ],
     })),
     actions({
