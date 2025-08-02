@@ -202,7 +202,7 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
                                                 query: queryInput,
                                             },
                                             name: editingView.name,
-                                            types: response && 'types' in response ? response?.types ?? [] : [],
+                                            types: response && 'types' in response ? (response?.types ?? []) : [],
                                             shouldRematerialize: isMaterializedView,
                                             edited_history_id: activeTab.view?.latest_history_id,
                                         },

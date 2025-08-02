@@ -293,10 +293,10 @@ const createTopLevelFolderNode = (
             type === 'sources'
                 ? 'Sources'
                 : type === 'views'
-                ? 'Views'
-                : type === 'drafts'
-                ? 'Drafts'
-                : 'Managed Views',
+                  ? 'Views'
+                  : type === 'drafts'
+                    ? 'Drafts'
+                    : 'Managed Views',
         type: 'node',
         icon: icon,
         record: {

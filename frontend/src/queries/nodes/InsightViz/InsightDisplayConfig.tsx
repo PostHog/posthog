@@ -189,8 +189,8 @@ export function InsightDisplayConfig(): JSX.Element {
                                           !isLineGraph
                                               ? 'Trend lines are only available for line graphs'
                                               : !isLinearScale
-                                              ? 'Trend lines are only supported for linear scale.'
-                                              : undefined
+                                                ? 'Trend lines are only supported for linear scale.'
+                                                : undefined
                                       }
                                       checked={showTrendLines}
                                       onChange={(checked) => {
@@ -217,8 +217,8 @@ export function InsightDisplayConfig(): JSX.Element {
                                           !isLineGraph
                                               ? 'Moving average is only available for line graphs'
                                               : !isLinearScale
-                                              ? 'Moving average is only supported for linear scale.'
-                                              : undefined
+                                                ? 'Moving average is only supported for linear scale.'
+                                                : undefined
                                       }
                                       onChange={(checked) => {
                                           if (isTrendsQuery(querySource)) {

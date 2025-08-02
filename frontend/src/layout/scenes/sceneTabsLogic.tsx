@@ -86,11 +86,11 @@ export const sceneTabsLogic = kea<sceneTabsLogicType>([
                                 ? { ...t, active: true }
                                 : t
                             : t.active
-                            ? {
-                                  ...t,
-                                  active: false,
-                              }
-                            : t
+                              ? {
+                                    ...t,
+                                    active: false,
+                                }
+                              : t
                     )
                     return newState
                 },
@@ -144,11 +144,11 @@ export const sceneTabsLogic = kea<sceneTabsLogicType>([
                     i === activeTabIndex
                         ? { ...tab, active: true, pathname, search, hash }
                         : tab.active
-                        ? {
-                              ...tab,
-                              active: false,
-                          }
-                        : tab
+                          ? {
+                                ...tab,
+                                active: false,
+                            }
+                          : tab
                 )
                 actions.setTabs(newTabs)
             } else {
@@ -172,11 +172,11 @@ export const sceneTabsLogic = kea<sceneTabsLogicType>([
                         i === activeTabIndex
                             ? { ...tab, active: true, pathname, search, hash }
                             : tab.active
-                            ? {
-                                  ...tab,
-                                  active: false,
-                              }
-                            : tab
+                              ? {
+                                    ...tab,
+                                    active: false,
+                                }
+                              : tab
                     )
                 )
             } else {
