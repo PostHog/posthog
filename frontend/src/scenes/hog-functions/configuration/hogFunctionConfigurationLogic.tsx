@@ -854,6 +854,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                               properties: {
                                   $current_url: currentUrl,
                                   $browser: 'Chrome',
+                                  $ip: '89.160.20.129',
                                   this_is_an_example_event: true,
                               },
                           }),
