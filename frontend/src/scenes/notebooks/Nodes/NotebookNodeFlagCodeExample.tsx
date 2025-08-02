@@ -39,7 +39,7 @@ export const NotebookNodeFlagCodeExample = createPostHogWidgetNode<NotebookNodeF
     Component,
     heightEstimate: '3rem',
     startExpanded: true,
-    href: (attrs) => urls.featureFlag(attrs.id),
+    href: (attrs: NotebookNodeFlagCodeExampleAttributes): string => urls.featureFlag(attrs.id),
     resizeable: false,
     attributes: {
         id: {},

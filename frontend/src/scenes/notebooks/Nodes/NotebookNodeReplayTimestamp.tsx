@@ -10,6 +10,9 @@ import { useMemo } from 'react'
 import { openNotebook } from '~/models/notebooksModel'
 import { JSONContent } from 'lib/components/RichContentEditor/types'
 import { NotebookNodeType, NotebookTarget } from '../types'
+import { NodeViewRenderer } from '@tiptap/core'
+import { DOMOutputSpec, TagParseRule } from '@tiptap/pm/model'
+import { Attributes } from '@tiptap/core'
 
 export interface NotebookNodeReplayTimestampAttrs {
     playbackTime?: number
@@ -73,7 +76,7 @@ export const NotebookNodeReplayTimestamp = Node.create({
         return `${attrs.playbackTime ? formatTimestamp(attrs.playbackTime) : '00:00'}:\n`
     },
 
-    addAttributes() {
+    addAttributes(): Attributes {
         return {
             playbackTime: { default: null, keepOnSplit: false },
             sessionRecordingId: { default: null, keepOnSplit: true, isRequired: true },
@@ -81,15 +84,15 @@ export const NotebookNodeReplayTimestamp = Node.create({
         }
     },
 
-    parseHTML() {
+    parseHTML(): TagParseRule[] {
         return [{ tag: NotebookNodeType.ReplayTimestamp }]
     },
 
-    renderHTML({ HTMLAttributes }) {
+    renderHTML({ HTMLAttributes }: { HTMLAttributes: Record<string, any> }): DOMOutputSpec {
         return [NotebookNodeType.ReplayTimestamp, mergeAttributes(HTMLAttributes)]
     },
 
-    addNodeView() {
+    addNodeView(): NodeViewRenderer {
         return ReactNodeViewRenderer(Component)
     },
 })

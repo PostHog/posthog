@@ -5,6 +5,7 @@ import { useActions } from 'kea'
 import { notebookNodeLogic } from './notebookNodeLogic'
 import { JSONContent } from 'lib/components/RichContentEditor/types'
 import { NotebookNodeAttributeProperties, NotebookNodeProps, NotebookNodeType } from '../types'
+import { ExtendedRegExpMatchArray } from '@tiptap/core'
 
 type NotebookNodeEmbedAttributes = {
     src?: string
@@ -127,7 +128,7 @@ export const NotebookNodeEmbed = createPostHogWidgetNode<NotebookNodeEmbedAttrib
     Component,
     Settings,
     settingsIcon: 'gear',
-    serializedText: (attrs) => `(embedded iframe:${attrs.src})`,
+    serializedText: (attrs: NotebookNodeEmbedAttributes): string => `(embedded iframe:${attrs.src})`,
     heightEstimate: 400,
     minHeight: 100,
     resizeable: true,
@@ -140,7 +141,7 @@ export const NotebookNodeEmbed = createPostHogWidgetNode<NotebookNodeEmbedAttrib
     },
     pasteOptions: {
         find: IFRAME_MATCHER,
-        getAttributes: async (match) => {
+        getAttributes: (match: ExtendedRegExpMatchArray): NotebookNodeEmbedAttributes => {
             return parseIframeString(match[0]) ?? {}
         },
     },

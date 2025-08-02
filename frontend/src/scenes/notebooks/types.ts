@@ -69,6 +69,8 @@ export type NotebookPopoverVisibility = 'hidden' | 'visible' | 'peek'
 
 export type CustomNotebookNodeAttributes = Record<string, any>
 
+export type CustomNotebookNodePasteAttributes<T extends CustomNotebookNodeAttributes> = T | null | undefined
+
 export type CreatePostHogWidgetNodeOptions<T extends CustomNotebookNodeAttributes> = Omit<
     NodeWrapperProps<T>,
     'updateAttributes'
@@ -76,18 +78,24 @@ export type CreatePostHogWidgetNodeOptions<T extends CustomNotebookNodeAttribute
     Component: (props: NotebookNodeProps<T>) => JSX.Element | null
     pasteOptions?: {
         find: string | RegExp
-        getAttributes: (match: ExtendedRegExpMatchArray) => Promise<T | null | undefined> | T | null | undefined
+        getAttributes: (match: ExtendedRegExpMatchArray) => T
     }
     attributes: Record<keyof T, Partial<Attribute>>
     serializedText?: (attributes: NotebookNodeAttributes<T>) => string
 }
+
+export type SerializableNode<T extends CustomNotebookNodeAttributes> = Partial<
+    Node & {
+        serializedText: (attrs: NotebookNodeAttributes<T>) => string
+    }
+>
 
 export type NodeWrapperProps<T extends CustomNotebookNodeAttributes> = Omit<NotebookNodeLogicProps, 'notebookLogic'> &
     NotebookNodeProps<T> & {
         Component: (props: NotebookNodeProps<T>) => JSX.Element | null
 
         // View only props
-        href?: string | ((attributes: NotebookNodeAttributes<T>) => string | undefined)
+        href?: string | ((attributes: T) => string | undefined)
         expandable?: boolean
         selected?: boolean
         heightEstimate?: number | string

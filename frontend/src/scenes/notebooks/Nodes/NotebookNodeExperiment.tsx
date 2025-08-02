@@ -15,6 +15,7 @@ import { buildFlagContent } from './NotebookNodeFlag'
 import { notebookNodeLogic } from './notebookNodeLogic'
 import { INTEGER_REGEX_MATCH_GROUPS } from './utils'
 import { NotebookNodeProps, NotebookNodeType } from '../types'
+import { ExtendedRegExpMatchArray } from '@tiptap/core'
 
 const Component = ({ attributes }: NotebookNodeProps<NotebookNodeExperimentAttributes>): JSX.Element => {
     const { id } = attributes
@@ -111,14 +112,14 @@ export const NotebookNodeExperiment = createPostHogWidgetNode<NotebookNodeExperi
     titlePlaceholder: 'Experiment',
     Component,
     heightEstimate: '3rem',
-    href: (attrs) => urls.experiment(attrs.id),
+    href: (attrs: NotebookNodeExperimentAttributes): string => urls.experiment(attrs.id),
     resizeable: false,
     attributes: {
         id: {},
     },
     pasteOptions: {
         find: urls.experiment(INTEGER_REGEX_MATCH_GROUPS),
-        getAttributes: async (match) => {
+        getAttributes: (match: ExtendedRegExpMatchArray): NotebookNodeExperimentAttributes => {
             return { id: parseInt(match[1]) }
         },
     },

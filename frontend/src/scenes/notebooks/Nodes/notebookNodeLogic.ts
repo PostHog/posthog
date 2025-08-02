@@ -30,7 +30,7 @@ import {
 export type NotebookNodeLogicProps = {
     nodeType: NotebookNodeType
     notebookLogic: BuiltLogic<notebookLogicType>
-    getPos?: () => number
+    getPos?: () => number | undefined
     resizeable?: boolean | ((attributes: CustomNotebookNodeAttributes) => boolean)
     Settings?: NotebookNodeSettings
     messageListeners?: NotebookNodeMessagesListeners
