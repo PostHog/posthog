@@ -80,7 +80,9 @@ class Command(BaseCommand):
         Uses proper row locking to prevent race conditions.
         """
         # Build base query
-        base_query = Insight.objects.filter(Q(query_metadata__isnull=True) | Q(query_metadata={}))
+        base_query = Insight.objects_including_soft_deleted.filter(
+            Q(query_metadata__isnull=True) | Q(query_metadata={})
+        )
 
         if team_id:
             base_query = base_query.filter(team_id=team_id)
