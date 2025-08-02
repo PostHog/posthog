@@ -33,12 +33,17 @@ import { Query } from '~/queries/Query/Query'
 import { IconCopy, IconTrash } from '@posthog/icons'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { createCohortDataNodeLogicKey } from './cohortUtils'
+import { addPersonToCohortModalLogic } from './addPersonToCohortModalLogic'
+import { AddPersonToCohortModal } from './AddPersonToCohortModal'
 const RESOURCE_TYPE = 'cohort'
 
 export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
     const logicProps = { id }
+
     const logic = cohortEditLogic(logicProps)
     const { deleteCohort, setOuterGroupsType, setQuery, duplicateCohort } = useActions(logic)
+    const modalLogic = addPersonToCohortModalLogic(logicProps)
+    const { showAddPersonToCohortModal } = useActions(modalLogic)
     const { cohort, cohortLoading, cohortMissing, query, duplicatedCohortLoading } = useValues(logic)
     const isNewCohort = cohort.id === 'new' || cohort.id === undefined
     const { featureFlags } = useValues(featureFlagLogic)
@@ -61,6 +66,7 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
     }
     return (
         <div className="cohort">
+            <AddPersonToCohortModal id={id} />
             <PageHeader
                 buttons={
                     <div className="flex items-center gap-2">
@@ -315,6 +321,9 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                                 </>
                             )}
                         </LemonField>
+                        <LemonButton className="mt-3" type="primary" onClick={showAddPersonToCohortModal}>
+                            Add User Manually
+                        </LemonButton>
                     </div>
                 ) : (
                     <>
