@@ -11,10 +11,6 @@
         overflow: hidden;
 
         .ProseMirror {
-            &-focused {
-                outline: none;
-            }
-
             > h1,
             > h2,
             > h3,
@@ -36,22 +32,6 @@
 
                 [theme='dark'] & {
                     color: rgb(255 255 255 / 20%);
-                }
-            }
-
-            > ol {
-                list-style-type: decimal;
-
-                ol {
-                    list-style-type: lower-alpha;
-                }
-            }
-
-            > ul {
-                list-style-type: disc;
-
-                ul {
-                    list-style-type: circle;
                 }
             }
 
@@ -79,22 +59,6 @@
 
                     ul[data-type='taskList'] > li {
                         display: flex;
-                    }
-                }
-            }
-
-            > ul,
-            > ol {
-                padding-left: 2rem;
-
-                ul,
-                ol {
-                    padding-left: 2rem;
-                }
-
-                li {
-                    p {
-                        margin-bottom: 0.2rem;
                     }
                 }
             }
@@ -146,12 +110,6 @@
                 span::selection {
                     color: var(--white);
                 }
-            }
-        }
-
-        &[contenteditable='true'] {
-            a {
-                cursor: text;
             }
         }
 

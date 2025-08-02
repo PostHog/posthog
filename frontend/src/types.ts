@@ -4,6 +4,7 @@ import { LogLevel } from '@posthog/rrweb-plugin-console-record'
 import { eventWithTime } from '@posthog/rrweb-types'
 import { LogicWrapper } from 'kea'
 import { ChartDataset, ChartType, InteractionItem } from 'lib/Chart'
+import { JSONContent } from 'lib/components/RichContentEditor/types'
 import { DashboardCompatibleScenes } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { ReactNode } from 'react'
@@ -4497,6 +4498,7 @@ export enum ActivityScope {
 export type CommentType = {
     id: string
     content: string
+    rich_content: JSONContent | null
     version: number
     created_at: string
     created_by: UserBasicType | null
