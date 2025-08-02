@@ -635,7 +635,7 @@ class DashboardsViewSet(
         try:
             dashboard_template = DashboardTemplate(**request.data["template"])
             creation_context = request.data.get("creation_context")
-            create_from_template(dashboard, dashboard_template)
+            create_from_template(dashboard, dashboard_template, cast(User, request.user))
 
             report_user_action(
                 cast(User, request.user),
