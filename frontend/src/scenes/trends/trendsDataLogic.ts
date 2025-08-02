@@ -277,12 +277,13 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
         ],
 
         showTrendLines: [
-            (s) => [s.trendsFilter, s.isTrends, s.hasDataWarehouseSeries, s.yAxisScaleType],
+            (s) => [s.querySource, s.isTrends, s.hasDataWarehouseSeries, s.yAxisScaleType, s.trendsFilter],
             (
-                trendsFilter: TrendsFilter | undefined | null,
+                querySource: InsightQueryNode | null,
                 isTrends: boolean,
                 hasDataWarehouseSeries: boolean,
-                yAxisScaleType: string | undefined
+                yAxisScaleType: string | undefined,
+                trendsFilter: TrendsFilter | undefined | null
             ): boolean => {
                 const isLinearScale = !yAxisScaleType || yAxisScaleType === 'linear'
                 const display = trendsFilter?.display || ChartDisplayType.ActionsLineGraph
@@ -291,7 +292,7 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                     !hasDataWarehouseSeries &&
                     [ChartDisplayType.ActionsLineGraph, ChartDisplayType.ActionsLineGraphCumulative].includes(display)
 
-                return (trendsFilter?.showTrendLines && isLineGraph && isLinearScale) || false
+                return ((querySource as TrendsQuery)?.showTrendLines && isLineGraph && isLinearScale) || false
             },
         ],
 

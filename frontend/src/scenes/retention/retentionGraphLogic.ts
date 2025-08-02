@@ -5,7 +5,7 @@ import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { ProcessedRetentionPayload, RetentionTrendPayload } from 'scenes/retention/types'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { DateRange } from '~/queries/schema/schema-general'
+import { DateRange, RetentionQuery } from '~/queries/schema/schema-general'
 import { isLifecycleQuery, isStickinessQuery } from '~/queries/utils'
 import { InsightLogicProps, RetentionPeriod } from '~/types'
 
@@ -51,6 +51,13 @@ export const retentionGraphLogic = kea<retentionGraphLogicType>([
                         index: datasetIndex,
                     }
                 })
+            },
+        ],
+
+        showTrendLines: [
+            (s) => [s.querySource],
+            (querySource) => {
+                return (querySource as RetentionQuery)?.showTrendLines
             },
         ],
 
