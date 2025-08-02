@@ -9,6 +9,7 @@ import { capitalizeFirstLetter } from 'lib/utils'
 import EmailEditor from 'react-email-editor'
 
 import { emailTemplaterLogic, EmailTemplaterLogicProps } from './emailTemplaterLogic'
+import { CyclotronJobInputIntegration } from 'lib/components/CyclotronJob/integrations/CyclotronJobInputIntegration'
 
 function EmailTemplaterForm({ mode }: { mode: 'full' | 'preview' }): JSX.Element {
     const { unlayerEditorProjectId, logicProps, appliedTemplate, templates, templatesLoading, mergeTags } =
@@ -16,29 +17,10 @@ function EmailTemplaterForm({ mode }: { mode: 'full' | 'preview' }): JSX.Element
     const { setEmailEditorRef, onEmailEditorReady, setIsModalOpen, applyTemplate } = useActions(emailTemplaterLogic)
 
     const { featureFlags } = useValues(featureFlagLogic)
-    const isMessagingTemplatesEnabled = featureFlags[FEATURE_FLAGS.MESSAGING]
+    const isMessagingProductEnabled = featureFlags[FEATURE_FLAGS.MESSAGING]
 
     return (
         <>
-            {isMessagingTemplatesEnabled && templates.length > 0 && (
-                <LemonSelect
-                    className="mb-2"
-                    placeholder="Start from a template (optional)"
-                    loading={templatesLoading}
-                    value={appliedTemplate?.id}
-                    options={templates.map((template) => ({
-                        label: template.name,
-                        value: template.id,
-                    }))}
-                    onChange={(id) => {
-                        const template = templates.find((t) => t.id === id)
-                        if (template) {
-                            applyTemplate(template)
-                        }
-                    }}
-                    data-attr="email-template-selector"
-                />
-            )}
             <Form
                 className="flex overflow-hidden flex-col flex-1 rounded border"
                 logic={emailTemplaterLogic}
@@ -54,21 +36,58 @@ function EmailTemplaterForm({ mode }: { mode: 'full' | 'preview' }): JSX.Element
                         renderError={() => null}
                     >
                         {({ value, onChange, error }) => (
-                            <div className="flex items-center">
+                            <div className="flex items-center gap-2">
                                 <LemonLabel className={error ? 'text-danger' : ''}>
                                     {capitalizeFirstLetter(field)}
                                 </LemonLabel>
-                                <CodeEditorInline
-                                    embedded
-                                    className="flex-1"
-                                    globals={logicProps.variables}
-                                    value={value}
-                                    onChange={onChange}
-                                />
+                                {isMessagingProductEnabled && field === 'from' ? (
+                                    <CyclotronJobInputIntegration
+                                        className="grow m-2"
+                                        value={value}
+                                        onChange={onChange}
+                                        schema={{
+                                            type: 'email',
+                                            key: 'email',
+                                            label: 'Email address',
+                                            integration: 'email',
+                                            required: true,
+                                            default: '',
+                                            secret: false,
+                                            description: 'The email address to send the email from.',
+                                        }}
+                                    />
+                                ) : (
+                                    <CodeEditorInline
+                                        embedded
+                                        className="flex-1"
+                                        globals={logicProps.variables}
+                                        value={value}
+                                        onChange={onChange}
+                                    />
+                                )}
                             </div>
                         )}
                     </LemonField>
                 ))}
+                {isMessagingProductEnabled && templates.length > 0 && (
+                    <LemonSelect
+                        className="m-2"
+                        placeholder="Start from a template (optional)"
+                        loading={templatesLoading}
+                        value={appliedTemplate?.id}
+                        options={templates.map((template) => ({
+                            label: template.name,
+                            value: template.id,
+                        }))}
+                        onChange={(id) => {
+                            const template = templates.find((t) => t.id === id)
+                            if (template) {
+                                applyTemplate(template)
+                            }
+                        }}
+                        data-attr="email-template-selector"
+                    />
+                )}
 
                 {mode === 'full' ? (
                     <EmailEditor
