@@ -9,6 +9,7 @@ import { EventType } from '~/types'
 import { llmObservabilityPlaygroundLogic } from '../llmObservabilityPlaygroundLogic'
 import { ConversationMessagesDisplay } from './ConversationMessagesDisplay'
 import { MetadataHeader } from './MetadataHeader'
+import { normalizeMessages } from '../utils'
 
 export function ConversationDisplay({ eventProperties }: { eventProperties: EventType['properties'] }): JSX.Element {
     const { setupPlaygroundFromEvent } = useActions(llmObservabilityPlaygroundLogic)
@@ -52,9 +53,12 @@ export function ConversationDisplay({ eventProperties }: { eventProperties: Even
                 )}
             </header>
             <ConversationMessagesDisplay
-                input={eventProperties.$ai_input}
+                inputNormalized={normalizeMessages(eventProperties.$ai_input, 'user', eventProperties.$ai_tools)}
+                outputNormalized={normalizeMessages(
+                    eventProperties.$ai_output_choices ?? eventProperties.$ai_output ?? eventProperties.$ai_error,
+                    'assistant'
+                )}
                 output={eventProperties.$ai_output_choices ?? eventProperties.$ai_output ?? eventProperties.$ai_error}
-                tools={eventProperties.$ai_tools}
                 httpStatus={eventProperties.$ai_http_status}
                 raisedError={eventProperties.$ai_is_error}
                 bordered
