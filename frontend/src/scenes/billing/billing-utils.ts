@@ -320,6 +320,7 @@ export function syncBillingSearchParams(
 ): [string, Params, Record<string, any>, { replace: boolean }] {
     const currentSearchParams = { ...router.values.searchParams }
     const updatedSearchParams = updateParams(currentSearchParams)
+
     if (!equal(updatedSearchParams, router.values.searchParams)) {
         return [router.values.location.pathname, updatedSearchParams, router.values.hashParams, { replace: true }]
     }

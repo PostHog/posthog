@@ -64,6 +64,7 @@ export interface BillingUsageLogicProps {
     initialFilters?: BillingFilters
     dateFrom?: string
     dateTo?: string
+    syncWithUrl?: boolean // Default false for safety, set to true for main billing pages
 }
 
 export const billingUsageLogic = kea<billingUsageLogicType>([
@@ -287,8 +288,26 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
         ],
     }),
 
-    actionToUrl(({ values }) => {
+    actionToUrl(({ values, props }) => {
         const buildURL = (): [string, Params, Record<string, any>, { replace: boolean }] => {
+            // Only sync with URL if explicitly enabled (defaults to false for safety)
+            if (props.syncWithUrl !== true) {
+                return [
+                    router.values.location.pathname,
+                    router.values.searchParams,
+                    router.values.hashParams,
+                    { replace: false },
+                ]
+            }
+
+            // Only sync params when on billing pages
+            const pathname = router.values.location.pathname
+            const isBillingPage = pathname.includes('/billing')
+
+            if (!isBillingPage) {
+                return [pathname, router.values.searchParams, router.values.hashParams, { replace: false }]
+            }
+
             return syncBillingSearchParams(router, (params: Params) => {
                 updateBillingSearchParams(
                     params,
@@ -340,8 +359,21 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
         }
     }),
 
-    urlToAction(({ actions, values }) => {
+    urlToAction(({ actions, values, props }) => {
         const urlToAction = (_: any, params: Params): void => {
+            // Only parse URL if explicitly enabled (defaults to false for safety)
+            if (props.syncWithUrl !== true) {
+                return
+            }
+
+            // Only process URL params when on billing pages
+            const pathname = router.values.location.pathname
+            const isBillingPage = pathname.includes('/billing')
+
+            if (!isBillingPage) {
+                return
+            }
+
             const filtersFromUrl: Partial<BillingFilters> = {}
 
             if (params.usage_types && !equal(params.usage_types, values.filters.usage_types)) {
