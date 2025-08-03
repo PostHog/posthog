@@ -61,7 +61,7 @@ export interface BillingSpendLogicProps {
     initialFilters?: BillingFilters
     dateFrom?: string
     dateTo?: string
-    syncWithUrl?: boolean // Default false for safety, set to true for main billing pages
+    syncWithUrl?: boolean
 }
 
 export const billingSpendLogic = kea<billingSpendLogicType>([
@@ -284,22 +284,15 @@ export const billingSpendLogic = kea<billingSpendLogicType>([
 
     actionToUrl(({ values, props }) => {
         const buildURL = (): [string, Params, Record<string, any>, { replace: boolean }] => {
-            // Only sync with URL if explicitly enabled (defaults to false for safety)
+            const keepCurrentUrl: [string, Params, Record<string, any>, { replace: boolean }] = [
+                router.values.location.pathname,
+                router.values.searchParams,
+                router.values.hashParams,
+                { replace: false },
+            ]
+
             if (props.syncWithUrl !== true) {
-                return [
-                    router.values.location.pathname,
-                    router.values.searchParams,
-                    router.values.hashParams,
-                    { replace: false },
-                ]
-            }
-
-            // Only sync params when on billing pages
-            const pathname = router.values.location.pathname
-            const isBillingPage = pathname.includes('/billing')
-
-            if (!isBillingPage) {
-                return [pathname, router.values.searchParams, router.values.hashParams, { replace: false }]
+                return keepCurrentUrl
             }
 
             return syncBillingSearchParams(router, (params: Params) => {
@@ -355,16 +348,7 @@ export const billingSpendLogic = kea<billingSpendLogicType>([
 
     urlToAction(({ actions, values, props }) => {
         const urlToAction = (_: any, params: Params): void => {
-            // Only parse URL if explicitly enabled (defaults to false for safety)
             if (props.syncWithUrl !== true) {
-                return
-            }
-
-            // Only process URL params when on billing pages
-            const pathname = router.values.location.pathname
-            const isBillingPage = pathname.includes('/billing')
-
-            if (!isBillingPage) {
                 return
             }
 
