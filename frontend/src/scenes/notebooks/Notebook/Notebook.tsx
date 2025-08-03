@@ -20,6 +20,7 @@ import { NotebookHistoryWarning } from './NotebookHistory'
 import { NotebookLoadingState } from './NotebookLoadingState'
 import { notebookSettingsLogic } from './notebookSettingsLogic'
 import { EditorFocusPosition, JSONContent } from 'lib/components/RichContentEditor/types'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 export type NotebookProps = NotebookLogicProps & {
     initialAutofocus?: EditorFocusPosition
@@ -58,29 +59,25 @@ export function Notebook({
         initialAutofocus,
     })
 
-    useEffect(() => {
+    useOnMountEffect(() => {
         if (!notebook && !notebookLoading) {
             loadNotebook()
         }
-        // oxlint-disable-next-line exhaustive-deps
-    }, [])
+    })
 
     useEffect(() => {
         setEditable(editable)
-        // oxlint-disable-next-line exhaustive-deps
-    }, [editable])
+    }, [editable]) // oxlint-disable-line exhaustive-deps
 
     useEffect(() => {
         editor?.setEditable(isEditable)
-        // oxlint-disable-next-line exhaustive-deps
-    }, [isEditable])
+    }, [isEditable]) // oxlint-disable-line exhaustive-deps
 
     useEffect(() => {
         if (editor) {
             editor.focus(initialAutofocus)
         }
-        // oxlint-disable-next-line exhaustive-deps
-    }, [editor])
+    }, [editor]) // oxlint-disable-line exhaustive-deps
 
     const { ref, size } = useResizeBreakpoints({
         0: 'small',
@@ -89,8 +86,7 @@ export function Notebook({
 
     useEffect(() => {
         setContainerSize(size as 'small' | 'medium')
-        // oxlint-disable-next-line exhaustive-deps
-    }, [size])
+    }, [size]) // oxlint-disable-line exhaustive-deps
 
     return (
         <BindLogic logic={notebookLogic} props={logicProps}>

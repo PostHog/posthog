@@ -2352,6 +2352,7 @@ class SharingConfigurationSettings(BaseModel):
         extra="forbid",
     )
     detailed: Optional[bool] = None
+    hideExtraDetails: Optional[bool] = None
     legend: Optional[bool] = None
     noHeader: Optional[bool] = None
     showInspector: Optional[bool] = None
@@ -12592,6 +12593,7 @@ class ExperimentTrendsQuery(BaseModel):
     name: Optional[str] = None
     response: Optional[ExperimentTrendsQueryResponse] = None
     tags: Optional[QueryLogTags] = None
+    uuid: Optional[str] = None
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -12878,6 +12880,7 @@ class ExperimentFunnelsQuery(BaseModel):
     name: Optional[str] = None
     response: Optional[ExperimentFunnelsQueryResponse] = None
     tags: Optional[QueryLogTags] = None
+    uuid: Optional[str] = None
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 

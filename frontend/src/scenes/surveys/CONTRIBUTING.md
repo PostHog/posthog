@@ -4,8 +4,8 @@
 
 ### PostHog App Changes (Backend/Frontend)
 
--   Run the app locally following the [local development guide](https://posthog.com/handbook/engineering/developing-locally)
--   Write tests for logic changes, especially in `surveyLogic.tsx` or `surveysLogic.tsx`
+- Run the app locally following the [local development guide](https://posthog.com/handbook/engineering/developing-locally)
+- Write tests for logic changes, especially in `surveyLogic.tsx` or `surveysLogic.tsx`
 
 ### JS SDK Changes
 
@@ -18,6 +18,7 @@ Most survey logic lives in the [PostHog JS SDK](https://github.com/PostHog/posth
     ```json
     "posthog-js": "file:../posthog-js"
     ```
+
     - Restart the frontend process after running `bin/start`
 
 Because of RemoteConfig, you'll likely need to run the main PostHog app with your local posthog-js files to see the changes.
@@ -72,8 +73,8 @@ SERVE_STATIC=true
 
 Using reserved ngrok domains is recommended to:
 
--   Maintain consistent URLs between sessions
--   Avoid CORS issues by keeping the same origin
+- Maintain consistent URLs between sessions
+- Avoid CORS issues by keeping the same origin
 
 One caveat: **reserved ngrok domains are only available for paid ngrok users.**
 
@@ -121,16 +122,16 @@ The `surveys_opt_in` field on the Team model is a critical flag that determines 
 
 How it works:
 
--   The `/decide` endpoint includes `"surveys": surveys_opt_in` in its response
--   The RemoteConfig system also includes this value in its cached configuration
--   When the JS SDK initializes, it checks this value to determine if it should load survey functionality
--   If `surveys_opt_in` is `false` in the cache but `true` in the database (or vice versa), surveys may not work correctly
+- The `/decide` endpoint includes `"surveys": surveys_opt_in` in its response
+- The RemoteConfig system also includes this value in its cached configuration
+- When the JS SDK initializes, it checks this value to determine if it should load survey functionality
+- If `surveys_opt_in` is `false` in the cache but `true` in the database (or vice versa), surveys may not work correctly
 
 If cache inconsistencies occur, customers may report that their surveys aren't appearing despite being properly configured, or surveys may continue to appear after being disabled.
 
 When to use:
 
--   When the /decide API response shows surveys_opt_in as false, but surveys are configured and should be active in the app.
+- When the /decide API response shows surveys_opt_in as false, but surveys are configured and should be active in the app.
 
 ```python
 # In Django shell (python manage.py shell_plus)
@@ -162,8 +163,8 @@ https://{eu|us}.posthog.com/admin/posthog/survey/{survey_id}/change/
 
 Access the database via Metabase, you can do so by opening:
 
--   [EU](https://metabase.prod-eu.posthog.dev/browse/databases/34-posthog-postgres-prod-eu) - Posthog Survey
--   [US](https://metabase.prod-us.posthog.dev/browse/databases/34-posthog-postgres-prod-us-aurora) - Posthog Survey
+- [EU](https://metabase.prod-eu.posthog.dev/browse/databases/34-posthog-postgres-prod-eu) - Posthog Survey
+- [US](https://metabase.prod-us.posthog.dev/browse/databases/34-posthog-postgres-prod-us-aurora) - Posthog Survey
 
 You can execute SQL queries directly in Metabase.
 
