@@ -3,7 +3,7 @@ import { DateTime } from 'luxon'
 import { OffsetHighWaterMarker } from '../../../../../src/main/ingestion-queues/session-recording/services/offset-high-water-marker'
 import { ReplayEventsIngester } from '../../../../../src/main/ingestion-queues/session-recording/services/replay-events-ingester'
 import { IncomingRecordingMessage } from '../../../../../src/main/ingestion-queues/session-recording/types'
-import { TimestampFormat } from '../../../../../src/types'
+import { SessionRecordingV2MetadataSwitchoverDate, TimestampFormat } from '../../../../../src/types'
 import { parseJSON } from '../../../../../src/utils/json-parse'
 import { castTimestampOrNow } from '../../../../../src/utils/utils'
 
@@ -232,8 +232,15 @@ describe('replay events ingester', () => {
             expect(topicMessages[0].messages[0].value?.urls[0]).toEqual('before')
         })
 
-        test('drops events at or after switchover date', async () => {
-            const ingester = new ReplayEventsIngester(mockProducer, undefined, switchoverDate)
+        test.each([
+            ['drops events at or before switchover date', switchoverDate],
+            ['drops events with * switchover date', true],
+        ])('%s', async (_name, configuredValue: Date | boolean) => {
+            const ingester = new ReplayEventsIngester(
+                mockProducer,
+                undefined,
+                configuredValue as SessionRecordingV2MetadataSwitchoverDate
+            )
 
             // Test at switchover
             await ingester.consume(
