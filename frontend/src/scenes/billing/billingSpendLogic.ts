@@ -61,7 +61,7 @@ export interface BillingSpendLogicProps {
     initialFilters?: BillingFilters
     dateFrom?: string
     dateTo?: string
-    syncWithUrl?: boolean
+    syncWithUrl?: boolean // Default false - only intended on usage and spend pages
 }
 
 export const billingSpendLogic = kea<billingSpendLogicType>([

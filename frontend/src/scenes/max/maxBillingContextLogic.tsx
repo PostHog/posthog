@@ -245,36 +245,34 @@ export const billingToMaxContext = (
 
 export const maxBillingContextLogic = kea<maxBillingContextLogicType>([
     path(['scenes', 'max', 'maxBillingContextLogic']),
-    connect(() => {
-        return {
-            values: [
-                billingLogic,
-                ['billing'],
-                billingUsageLogic({
-                    initialFilters: { breakdowns: ['type', 'team'] },
-                    dateFrom: DEFAULT_BILLING_DATE_FROM, // we set them here so we are sure it will stay fixed to a 1 month period even if the usage logic changes default values
-                    dateTo: DEFAULT_BILLING_DATE_TO,
-                    dashboardItemId: 'max-billing-context', // This makes it a separate instance
-                }),
-                ['billingUsageResponse'],
-                billingSpendLogic({
-                    initialFilters: { breakdowns: ['type', 'team'] },
-                    dateFrom: DEFAULT_BILLING_DATE_FROM, // same here for spend
-                    dateTo: DEFAULT_BILLING_DATE_TO,
-                    dashboardItemId: 'max-billing-context', // This makes it a separate instance
-                }),
-                ['billingSpendResponse'],
-                organizationLogic,
-                ['isAdminOrOwner'],
-                teamLogic,
-                ['currentTeam'],
-                featureFlagLogic,
-                ['featureFlags'],
-                pipelineDestinationsLogic({ types: DESTINATION_TYPES }),
-                ['destinations'],
-            ],
-        }
-    }),
+    connect(() => ({
+        values: [
+            billingLogic,
+            ['billing'],
+            billingUsageLogic({
+                initialFilters: { breakdowns: ['type', 'team'] },
+                dateFrom: DEFAULT_BILLING_DATE_FROM, // we set them here so we are sure it will stay fixed to a 1 month period even if the usage logic changes default values
+                dateTo: DEFAULT_BILLING_DATE_TO,
+                dashboardItemId: 'max-billing-context', // This makes it a separate instance, prevents conflicts with the spend logic on the usage page
+            }),
+            ['billingUsageResponse'],
+            billingSpendLogic({
+                initialFilters: { breakdowns: ['type', 'team'] },
+                dateFrom: DEFAULT_BILLING_DATE_FROM, // same here for spend
+                dateTo: DEFAULT_BILLING_DATE_TO,
+                dashboardItemId: 'max-billing-context', // This makes it a separate instance, prevents conflicts with the spend logic on the spend page
+            }),
+            ['billingSpendResponse'],
+            organizationLogic,
+            ['isAdminOrOwner'],
+            teamLogic,
+            ['currentTeam'],
+            featureFlagLogic,
+            ['featureFlags'],
+            pipelineDestinationsLogic({ types: DESTINATION_TYPES }),
+            ['destinations'],
+        ],
+    })),
     selectors({
         billingContext: [
             (s: any) => [

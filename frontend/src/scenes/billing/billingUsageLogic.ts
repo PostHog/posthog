@@ -64,7 +64,7 @@ export interface BillingUsageLogicProps {
     initialFilters?: BillingFilters
     dateFrom?: string
     dateTo?: string
-    syncWithUrl?: boolean // Default false for safety, set to true for main billing pages
+    syncWithUrl?: boolean // Default false - only intended on usage and spend pages
 }
 
 export const billingUsageLogic = kea<billingUsageLogicType>([
