@@ -91,6 +91,7 @@
         },
         {
             "kind": "ExperimentMetric",
+            "name": "This is a very long metric name with spaces that should wrap nicely to multiple lines and show ellipsis when truncated",
             "series": [
                 {
                     "kind": "EventsNode",
@@ -98,6 +99,16 @@
                 }
             ],
             "metric_type": "funnel"
+        },
+        {
+            "kind": "ExperimentMetric",
+            "name": "this_is_a_very_long_metric_name_with_underscores_that_should_break_anywhere_to_prevent_horizontal_overflow",
+            "source": {
+                "kind": "EventsNode",
+                "math": "total",
+                "event": "button_click"
+            },
+            "metric_type": "mean"
         }
     ],
     "metrics_secondary": [

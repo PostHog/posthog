@@ -68,9 +68,9 @@ function SortableRow({ filter, index, onEdit, onRemove }: SortableRowProps): JSX
             <tr
                 ref={setNodeRef}
                 style={style}
-                className={clsx('border-b border-border hover:bg-gray-50 transition-colors duration-150 bg-white', {
+                className={clsx('border-b border-border hover:bg-bg-light transition-colors duration-150 bg-bg-light', {
                     'border-warning': isInvalidRegex,
-                    'bg-gray-100': isDragging,
+                    'bg-bg-3000': isDragging,
                     'shadow-lg': isDragging,
                 })}
             >
@@ -88,7 +88,7 @@ function SortableRow({ filter, index, onEdit, onRemove }: SortableRowProps): JSX
                     <Tooltip title={isInvalidRegex ? 'Invalid regex pattern' : null}>
                         <code
                             className={clsx('font-mono text-xs px-1 py-0.5 rounded bg-accent-light text-accent', {
-                                'text-danger border border-danger bg-red-50': isInvalidRegex,
+                                'text-danger border border-danger bg-danger-light': isInvalidRegex,
                             })}
                         >
                             {regex || '(Empty)'}
@@ -184,7 +184,7 @@ export function PathCleanFiltersTable({ filters = [], setFilters }: PathCleanFil
     }
 
     return (
-        <div className="border border-border rounded-lg overflow-hidden bg-white">
+        <div className="border border-border rounded-lg overflow-hidden bg-bg-light">
             <DndContext
                 sensors={sensors}
                 collisionDetection={closestCenter}
@@ -192,8 +192,8 @@ export function PathCleanFiltersTable({ filters = [], setFilters }: PathCleanFil
                 onDragEnd={handleDragEnd}
                 modifiers={[restrictToVerticalAxis]}
             >
-                <table className="w-full bg-white">
-                    <thead className="bg-gray-50">
+                <table className="w-full bg-bg-light">
+                    <thead className="bg-bg-3000">
                         <tr>
                             <th className="py-2 px-2 w-8" />
                             <th className="py-2 px-2 w-12 text-left text-xs font-semibold text-muted-alt uppercase tracking-wider">

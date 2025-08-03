@@ -31,6 +31,7 @@ import { createTooltipData } from 'scenes/insights/views/LineGraph/tooltip-data'
 import { groupsModel } from '~/models/groupsModel'
 import { BreakdownFilter } from '~/queries/schema/schema-general'
 import { GraphType } from '~/types'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 let timer: NodeJS.Timeout | null = null
 
@@ -91,12 +92,12 @@ export function PieChart({
     const canvasRef = useRef<HTMLCanvasElement | null>(null)
 
     // Remove tooltip element on unmount
-    useEffect(() => {
+    useOnMountEffect(() => {
         return () => {
             const tooltipEl = document.getElementById('InsightTooltipWrapper')
             tooltipEl?.remove()
         }
-    }, [])
+    })
 
     // Build chart
     useEffect(() => {
@@ -273,7 +274,7 @@ export function PieChart({
             } as ChartOptions<'pie'>,
         })
         return () => newChart.destroy()
-    }, [datasets, hiddenLegendIndexes])
+    }, [datasets, hiddenLegendIndexes]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     return (
         <div className="absolute w-full h-full" data-attr={dataAttr}>
