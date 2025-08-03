@@ -409,6 +409,42 @@
     // //////////////////////////////////////////////////////////
     --color-bg-primary: var(--color-posthog-3000-50);
 
+    // New
+    --color-background: var(--color-posthog-3000-50);
+    --color-foreground: var(--color-neutral-950);
+    --color-secondary: var(--color-posthog-3000-100);
+    --color-secondary-foreground: var(--color-neutral-950);
+    --color-tertiary: var(--color-posthog-3000-150);
+    --color-tertiary-foreground: var(--color-neutral-950);
+    --color-card: var(--color-white);
+    --color-card-foreground: var(--color-neutral-950);
+    --color-card-secondary: var(--color-posthog-3000-100);
+    --color-card-secondary-foreground: var(--color-neutral-950);
+    --color-card-tertiary: var(--color-posthog-3000-150);
+    --color-card-tertiary-foreground: var(--color-neutral-950);
+    --color-tooltip: var(--color-neutral-cool-850);
+    --color-tooltip-foreground: var(--color-neutral-100);
+    --color-popover: var(--color-white);
+    --color-popover-foreground: var(--color-neutral-950);
+    --color-info: var(--color-blue-100);
+    --color-info-foreground: var(--color-neutral-950);
+    --color-warning: var(--color-yellow-100);
+    --color-warning-foreground: var(--color-neutral-950);
+    --color-error: var(--color-red-100);
+    --color-error-foreground: var(--color-neutral-950);
+    --color-success: var(--color-green-100);
+    --color-success-foreground: var(--color-neutral-950);
+    --color-interactive: transparent;
+    --color-interactive-foreground: var(--color-neutral-950);
+    --color-interactive-active: var(--color-neutral-cool-250);
+    --color-interactive-active-foreground: var(--color-neutral-950);
+    --color-interactive-hover: var(--color-neutral-cool-250);
+    --color-interactive-hover-foreground: var(--color-neutral-950);
+    --color-input: var(--color-neutral-cool-250);
+    --color-input-foreground: var(--color-neutral-950);
+    --color-border: var(--color-neutral-cool-200);
+    --color-border-secondary: var(--color-neutral-cool-400);
+
     /* Most prominent/used background (replaces --color-bg-3000) */
     --color-bg-surface-primary: var(--color-white);
 
@@ -444,7 +480,7 @@
     --color-bg-fill-highlight-inverse-200: color-mix(in oklab, var(--color-white) 20%, transparent);
 
     // Highlights
-    --color-bg-fill-primary-highlight: color-mix(in oklab, var(--color-primary-500) 10%, transparent);
+    // --color-bg-fill-primary-highlight: color-mix(in oklab, var(--color-primary-500) 10%, transparent);
 
     // Info fills
     --color-bg-fill-info-secondary: var(--color-blue-100);
@@ -501,7 +537,8 @@
     // Borders for surfaces/fills (TODO: perhaps we need to do border-fill-primary, border-fill-warning, etc.)
     // //////////////////////////////////////////////////////////
     --color-border-primary: var(--color-posthog-3000-200);
-    --color-border-secondary: var(--color-posthog-3000-400);
+
+    // --color-border-secondary: var(--color-posthog-3000-400);
     --color-border-info: var(--color-blue-400);
     --color-border-warning: var(--color-yellow-400);
     --color-border-error: var(--color-red-400);
@@ -920,7 +957,8 @@
     --color-bg-fill-success-secondary: var(--color-green-950);
     --color-bg-fill-success-tertiary: color-mix(in oklab, var(--color-green-950) 50%, transparent);
     --color-bg-fill-success-highlight: color-mix(in oklab, var(--color-green-950) 50%, transparent);
-    --color-bg-fill-primary-highlight: color-mix(in oklab, var(--color-primary-950) 50%, transparent);
+
+    // --color-bg-fill-primary-highlight: color-mix(in oklab, var(--color-primary-950) 50%, transparent);
     --color-bg-fill-button-group-tertiary-hover: var(--color-bg-fill-highlight-25);
     --color-bg-fill-button-tertiary-hover: var(--color-bg-fill-highlight-75);
     --color-bg-fill-button-tertiary-hover-inverse: var(--color-bg-fill-highlight-inverse-75);

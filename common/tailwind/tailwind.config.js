@@ -636,7 +636,7 @@ const config = {
                 'fill-highlight-inverse-150': 'var(--color-bg-fill-highlight-inverse-150)',
                 'fill-highlight-200': 'var(--color-bg-fill-highlight-200)',
                 'fill-highlight-inverse-200': 'var(--color-bg-fill-highlight-inverse-200)',
-                'fill-primary-highlight': 'var(--color-bg-fill-primary-highlight)',
+                // 'fill-primary-highlight': 'var(--color-bg-fill-primary-highlight)',
                 'fill-info-secondary': 'var(--color-bg-fill-info-secondary)',
                 'fill-info-tertiary': 'var(--color-bg-fill-info-tertiary)',
                 'fill-info-highlight': 'var(--color-bg-fill-info-highlight)',
