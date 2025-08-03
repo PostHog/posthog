@@ -24,7 +24,7 @@ export function PropertiesTab({ ...props }: PropertiesTabProps): JSX.Element {
 
     return (
         <TabsPrimitiveContent {...props}>
-            <div className="flex justify-end items-center border-b-1 bg-surface-secondary">
+            <div className="flex justify-end items-center border-b-1 bg-secondary">
                 <ShowDropDownMenu />
             </div>
             <div>

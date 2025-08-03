@@ -80,7 +80,7 @@ export function MetricsViewLegacy({ isSecondary }: { isSecondary?: boolean }): J
                                         : 'Primary metrics represent the main goal of your experiment. They directly measure whether your hypothesis was successful and are the key factor in deciding if the test achieved its primary objective.'
                                 }
                             >
-                                <IconInfo className="text-secondary text-lg" />
+                                <IconInfo className="text-secondary-foreground text-lg" />
                             </Tooltip>
                         )}
                         {hasSomeResults && !isSecondary && (
@@ -125,7 +125,7 @@ export function MetricsViewLegacy({ isSecondary }: { isSecondary?: boolean }): J
                                         </div>
                                     }
                                 >
-                                    <span className="text-xs text-secondary cursor-help">How to read</span>
+                                    <span className="text-xs text-secondary-foreground cursor-help">How to read</span>
                                 </Tooltip>
                             </>
                         )}
@@ -152,7 +152,7 @@ export function MetricsViewLegacy({ isSecondary }: { isSecondary?: boolean }): J
                             return (
                                 <div
                                     key={metricIndex}
-                                    className={`w-full border border-primary bg-light ${
+                                    className={`w-full border border-border bg-light ${
                                         metrics.length === 1
                                             ? 'rounded'
                                             : isFirstMetric
@@ -180,7 +180,7 @@ export function MetricsViewLegacy({ isSecondary }: { isSecondary?: boolean }): J
                     </div>
                 </div>
             ) : (
-                <div className="border rounded bg-surface-primary pt-6 pb-8 text-secondary mt-2">
+                <div className="border rounded bg-card pt-6 pb-8 text-secondary-foreground mt-2">
                     <div className="flex flex-col items-center mx-auto deprecated-space-y-3">
                         <IconAreaChart fontSize="30" />
                         <div className="text-sm text-center text-balance max-w-sm">

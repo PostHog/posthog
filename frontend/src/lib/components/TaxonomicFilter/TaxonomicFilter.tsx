@@ -168,7 +168,7 @@ export const TaxonomicFilterSearchInput = forwardRef<
                     }
                     docLink={docLink}
                 >
-                    <IconKeyboard style={{ fontSize: '1.2rem' }} className="text-secondary" />
+                    <IconKeyboard style={{ fontSize: '1.2rem' }} className="text-secondary-foreground" />
                 </Tooltip>
             }
             onKeyDown={(e) => {

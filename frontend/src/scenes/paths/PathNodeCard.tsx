@@ -57,7 +57,7 @@ export function PathNodeCard({ insightProps, node }: PathNodeCardProps): JSX.Ele
                 matchWidth
             >
                 <div
-                    className="absolute rounded bg-surface-primary p-1"
+                    className="absolute rounded bg-card p-1"
                     // eslint-disable-next-line react/forbid-dom-props
                     style={{
                         width: PATH_NODE_CARD_WIDTH,
@@ -71,7 +71,7 @@ export function PathNodeCard({ insightProps, node }: PathNodeCardProps): JSX.Ele
                         border: `1px solid ${
                             isSelectedPathStartOrEnd(pathsFilter, funnelPathsFilter, node)
                                 ? 'purple'
-                                : 'var(--color-border-primary)'
+                                : 'var(--color-border)'
                         }`,
                     }}
                     data-attr="path-node-card-button"

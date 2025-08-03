@@ -53,6 +53,6 @@ export function getBackgroundAndTextColor({
 
     return {
         backgroundColor: saturatedBackgroundColor,
-        color: backgroundColorSaturation > 0.4 ? '#fff' : 'var(--text-3000)',
+        color: backgroundColorSaturation > 0.4 ? '#fff' : 'var(--color-foreground)',
     }
 }

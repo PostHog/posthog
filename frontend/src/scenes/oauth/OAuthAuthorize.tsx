@@ -11,9 +11,9 @@ import { oauthAuthorizeLogic } from './oauthAuthorizeLogic'
 export const OAuthAuthorizeError = ({ title, description }: { title: string; description: string }): JSX.Element => {
     return (
         <div className="flex flex-col items-center justify-center h-full gap-4 py-12">
-            <IconWarning className="text-muted-alt text-4xl" />
+            <IconWarning className="text-tertiary-foreground text-4xl" />
             <div className="text-xl font-semibold">{title}</div>
-            <div className="text-sm text-muted">{description}</div>
+            <div className="text-sm text-tertiary-foreground">{description}</div>
         </div>
     )
 }
@@ -55,7 +55,9 @@ export const OAuthAuthorize = (): JSX.Element => {
                     <h2 className="text-2xl font-semibold">
                         Authorize <strong>{oauthApplication.name}</strong>
                     </h2>
-                    <p className="text-muted mt-2">{oauthApplication.name} is requesting access to your data.</p>
+                    <p className="text-tertiary-foreground mt-2">
+                        {oauthApplication.name} is requesting access to your data.
+                    </p>
                 </div>
 
                 <Form logic={oauthAuthorizeLogic} formKey="oauthAuthorization">
@@ -66,7 +68,9 @@ export const OAuthAuthorize = (): JSX.Element => {
                             teams={allTeams ?? undefined}
                         />
                         <div>
-                            <div className="text-sm font-semibold uppercase text-muted mb-2">Requested Permissions</div>
+                            <div className="text-sm font-semibold uppercase text-tertiary-foreground mb-2">
+                                Requested Permissions
+                            </div>
                             <ul className="space-y-2">
                                 {scopeDescriptions.map((scopeDescription, idx) => (
                                     <li key={idx} className="flex items-center space-x-2 text-large">
@@ -75,14 +79,14 @@ export const OAuthAuthorize = (): JSX.Element => {
                                     </li>
                                 ))}
                                 <li className="flex items-center space-x-2 text-large">
-                                    <IconX color="var(--danger)" />
+                                    <IconX color="var(--color-error-foreground)" />
                                     <span className="font-medium">Replace your dashboards with hedgehog memes</span>
                                 </li>
                             </ul>
                         </div>
 
                         {redirectDomain && (
-                            <div className="text-xs text-muted">
+                            <div className="text-xs text-tertiary-foreground">
                                 <p>
                                     Once you authorize, you will be redirected to <strong>{redirectDomain}</strong>
                                 </p>

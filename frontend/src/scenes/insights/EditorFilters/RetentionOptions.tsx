@@ -34,7 +34,7 @@ export function RetentionOptions(): JSX.Element {
                 <RetentionMeanDropdown />
             </div>
             <div>
-                <p className="text-secondary mt-4">
+                <p className="text-secondary-foreground mt-4">
                     <Link
                         to="https://posthog.com/docs/product-analytics/retention?utm_campaign=learn-more-horizontal&utm_medium=in-product"
                         target="_blank"

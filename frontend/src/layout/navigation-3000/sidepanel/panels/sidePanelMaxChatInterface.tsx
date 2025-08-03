@@ -130,9 +130,9 @@ const MaxChatInterfaceContent = forwardRef<HTMLDivElement, Record<string, never>
     return (
         <div ref={ref} className="flex flex-col h-full">
             <div className="flex-1 overflow-y-auto p-3 deprecated-space-y-4 [overflow-anchor:none]">
-                <div className="bg-surface-primary dark:bg-transparent rounded p-1">
+                <div className="bg-card dark:bg-transparent rounded p-1">
                     <h4 className="mb-2">Tips for chatting with Max:</h4>
-                    <ul className="list-disc pl-4 deprecated-space-y-2 text-secondary">
+                    <ul className="list-disc pl-4 deprecated-space-y-2 text-secondary-foreground">
                         <li>Max can't handle files or images (yet.)</li>
                         <li>
                             Max can't see what page you're on, or the contents. Copy/paste error messages or queries to
@@ -144,7 +144,7 @@ const MaxChatInterfaceContent = forwardRef<HTMLDivElement, Record<string, never>
                 </div>
 
                 {displayMessages.length === 0 ? (
-                    <div className="flex items-center gap-2 text-secondary">
+                    <div className="flex items-center gap-2 text-secondary-foreground">
                         <span>Max is crawling out of his burrow and shaking off his quills...</span>
                         <Spinner className="text-lg" />
                     </div>
@@ -155,17 +155,19 @@ const MaxChatInterfaceContent = forwardRef<HTMLDivElement, Record<string, never>
                                 key={`${message.timestamp}-${idx}`}
                                 className={`flex w-full ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
                             >
-                                {message.role === 'user' && <div className="text-sm text-secondary mr-2 mt-2">You</div>}
+                                {message.role === 'user' && (
+                                    <div className="text-sm text-secondary-foreground mr-2 mt-2">You</div>
+                                )}
 
                                 <div className={`${message.role === 'assistant' ? 'flex flex-col' : ''} max-w-full`}>
                                     {message.role === 'assistant' && (
-                                        <div className="text-sm text-primary-alt mb-1">Max</div>
+                                        <div className="text-sm text-foreground-alt mb-1">Max</div>
                                     )}
                                     <div
                                         className={`p-2 rounded-lg min-w-[90%] whitespace-pre-wrap ${
                                             message.role === 'assistant'
-                                                ? 'bg-surface-primary dark:bg-surface-primary text-default'
-                                                : 'bg-surface-primary dark:bg-surface-secondary text-default'
+                                                ? 'bg-card dark:bg-card text-default'
+                                                : 'bg-card dark:bg-secondary text-default'
                                         }`}
                                     >
                                         {message.role === 'assistant'
@@ -199,7 +201,7 @@ const MaxChatInterfaceContent = forwardRef<HTMLDivElement, Record<string, never>
                                                                         {
                                                                             key: 'analysis',
                                                                             header: (
-                                                                                <span className="text-secondary">
+                                                                                <span className="text-secondary-foreground">
                                                                                     What was Max thinking?
                                                                                 </span>
                                                                             ),
@@ -334,8 +336,8 @@ const MaxChatInterfaceContent = forwardRef<HTMLDivElement, Record<string, never>
                 {(hasServerError || isRateLimited) && (
                     <div className="flex justify-start">
                         <div className="flex flex-col">
-                            <div className="text-sm text-primary-alt mb-1">Max</div>
-                            <div className="p-2 rounded-lg bg-surface-primary dark:bg-surface-primary text-default">
+                            <div className="text-sm text-foreground-alt mb-1">Max</div>
+                            <div className="p-2 rounded-lg bg-card dark:bg-card text-default">
                                 <div className="flex items-center gap-2">
                                     <span>
                                         {hasServerError
@@ -359,7 +361,7 @@ const MaxChatInterfaceContent = forwardRef<HTMLDivElement, Record<string, never>
             {showInput && (
                 <>
                     {isSearchingThinking && (
-                        <div className="flex items-center gap-2 p-2 text-secondary justify-center">
+                        <div className="flex items-center gap-2 p-2 text-secondary-foreground justify-center">
                             <span>Max is searching and thinking...</span>
                             <Spinner className="text-sm" />
                         </div>
@@ -375,7 +377,7 @@ const MaxChatInterfaceContent = forwardRef<HTMLDivElement, Record<string, never>
                             className="w-full"
                             data-attr="max-chat-input"
                         />
-                        <div className="px-0 text-xs text-secondary mt-1 mb-2">
+                        <div className="px-0 text-xs text-secondary-foreground mt-1 mb-2">
                             `enter` to send, `shift+enter` for a new line
                         </div>
                         <LemonButton

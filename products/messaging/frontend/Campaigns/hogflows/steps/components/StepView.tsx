@@ -15,8 +15,8 @@ export function StepView({ action, children }: { action: HogFlowAction; children
     return (
         <div
             className={clsx(
-                'flex justify-center items-center rounded border transition-all cursor-pointer bg-surface-primary',
-                isSelected ? 'border-secondary bg-surface-secondary' : 'hover:bg-surface-secondary'
+                'flex justify-center items-center rounded border transition-all cursor-pointer bg-card',
+                isSelected ? 'border-secondary bg-secondary' : 'hover:bg-secondary'
             )}
             // eslint-disable-next-line react/forbid-dom-props
             style={{

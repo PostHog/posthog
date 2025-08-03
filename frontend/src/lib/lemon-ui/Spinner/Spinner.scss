@@ -71,7 +71,7 @@
         position: absolute;
         inset: 0;
         content: '';
-        background: var(--color-bg-surface-primary);
+        background: var(--color-card);
         opacity: 0.5;
     }
 
@@ -80,6 +80,6 @@
     }
 
     &.SpinnerOverlay--scene-level::before {
-        background: var(--color-bg-primary);
+        background: var(--color-background);
     }
 }

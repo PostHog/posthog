@@ -72,7 +72,7 @@ export const TypesAndStatuses: Story = () => {
             <div className="p-2 rounded-lg border">
                 <TypesAndStatusesTemplate />
             </div>
-            <div className="p-2 bg-surface-primary rounded-lg border">
+            <div className="p-2 bg-card rounded-lg border">
                 <TypesAndStatusesTemplate />
             </div>
         </div>

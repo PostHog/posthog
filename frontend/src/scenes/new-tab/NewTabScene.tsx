@@ -41,7 +41,7 @@ export function NewTabScene(): JSX.Element {
                         }
                     }}
                     placeholder="How much wood would a woodchuck chuck if a woodchuck could chuck wood?"
-                    className="flex-1 px-4 py-3 rounded-lg border border-border dark:border-border-dark bg-white dark:bg-gray-900 text-primary dark:text-primary-dark text-base focus:ring-2 focus:ring-red dark:focus:ring-yellow focus:border-transparent transition-all"
+                    className="flex-1 px-4 py-3 rounded-lg border border-border dark:border-border-dark bg-white dark:bg-gray-900 text-foreground dark:text-foreground-dark text-base focus:ring-2 focus:ring-red dark:focus:ring-yellow focus:border-transparent transition-all"
                 />
                 <LemonButton
                     type="primary"
@@ -74,7 +74,7 @@ export function NewTabScene(): JSX.Element {
                                     >
                                         <span className="text-2xl font-semibold">{qt.icon ?? qt.name[0]}</span>
                                     </div>
-                                    <span className="mt-2 w-full text-xs font-medium truncate px-1 text-primary">
+                                    <span className="mt-2 w-full text-xs font-medium truncate px-1 text-foreground">
                                         {qt.name}
                                     </span>
                                 </Link>

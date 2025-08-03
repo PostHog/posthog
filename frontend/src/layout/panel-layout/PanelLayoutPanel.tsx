@@ -23,7 +23,7 @@ interface PanelLayoutPanelProps {
 }
 
 const panelLayoutPanelVariants = cva({
-    base: 'w-full flex flex-col max-h-screen min-h-screen relative border-r border-primary transition-[width] duration-100 prefers-reduced-motion:transition-none',
+    base: 'w-full flex flex-col max-h-screen min-h-screen relative border-r border-border transition-[width] duration-100 prefers-reduced-motion:transition-none',
     variants: {
         isLayoutPanelPinned: {
             true: 'relative',
@@ -105,7 +105,7 @@ export function PanelLayoutPanel({
             )}
             ref={containerRef}
         >
-            <div className="flex justify-between p-1 gap-px bg-surface-tertiary">
+            <div className="flex justify-between p-1 gap-px bg-secondary">
                 <ProjectDropdownMenu />
 
                 <div className="flex gap-px items-center justify-end shrink-0">
@@ -120,9 +120,9 @@ export function PanelLayoutPanel({
                             aria-pressed={isLayoutPanelPinned}
                         >
                             {isLayoutPanelPinned ? (
-                                <IconPinFilled className="size-3 text-primary" />
+                                <IconPinFilled className="size-3 text-foreground" />
                             ) : (
-                                <IconPin className="size-3 text-tertiary" />
+                                <IconPin className="size-3 text-tertiary-foreground" />
                             )}
                         </ButtonPrimitive>
                     )}
@@ -139,12 +139,11 @@ export function PanelLayoutPanel({
                         data-attr="tree-panel-close-panel-button"
                         size="sm"
                     >
-                        <IconX className="text-tertiary size-3" />
+                        <IconX className="text-tertiary-foreground size-3" />
                     </ButtonPrimitive>
                 </div>
             </div>
-            <div className="border-b border-primary h-px" />
-            <div className="z-main-nav flex flex-1 flex-col justify-between overflow-y-auto bg-surface-secondary group/colorful-product-icons colorful-product-icons-true">
+            <div className="z-main-nav flex flex-1 flex-col justify-between overflow-y-auto bg-secondary group/colorful-product-icons colorful-product-icons-true">
                 {searchField || filterDropdown || sortDropdown ? (
                     <>
                         <div className="flex gap-1 p-1 items-center justify-between">
@@ -157,7 +156,7 @@ export function PanelLayoutPanel({
                                 </div>
                             ) : null}
                         </div>
-                        <div className="border-b border-primary h-px" />
+                        <div className="border-b border-border h-px" />
                     </>
                 ) : null}
                 {children}

@@ -85,7 +85,7 @@ export function TwilioPhoneNumberPicker({
                     disabledReason: getPhoneNumberRefreshButtonDisabledReason(),
                 }}
                 emptyStateComponent={
-                    <p className="text-secondary italic p-1">
+                    <p className="text-secondary-foreground italic p-1">
                         No phone numbers found. Make sure your Twilio account has phone numbers configured.{' '}
                         <Link to="https://posthog.com/docs/cdp/destinations/twilio" target="_blank">
                             See the docs for more information.

@@ -69,16 +69,19 @@ const ExportsContent = (): JSX.Element => {
                                         <span className="text-xs mt-1">{dayjs(asset.created_at).fromNow()}</span>
                                     )}
                                     {asset.expires_after && (
-                                        <span className="text-xs text-secondary mt-1">
+                                        <span className="text-xs text-secondary-foreground mt-1">
                                             {' '}
                                             · expires {dayjs(asset.expires_after).fromNow()}
                                         </span>
                                     )}
                                     {isNotDownloaded && (
-                                        <span className="text-xs text-secondary mt-1"> · not downloaded yet</span>
+                                        <span className="text-xs text-secondary-foreground mt-1">
+                                            {' '}
+                                            · not downloaded yet
+                                        </span>
                                     )}
                                     {asset.export_format === ExporterFormat.CSV && (
-                                        <span className="text-xs text-secondary mt-1">
+                                        <span className="text-xs text-secondary-foreground mt-1">
                                             {' '}
                                             · {ROW_LIMIT_IN_THOUSANDS}k row limit
                                         </span>

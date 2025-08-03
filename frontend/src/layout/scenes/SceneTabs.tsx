@@ -31,7 +31,7 @@ export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
     return (
         <div
             className={cn(
-                'flex items-center w-full sticky top-0 bg-surface-tertiary z-[var(--z-top-navigation)] px-1.5 border-b border-primary',
+                'flex items-center w-full sticky top-0 bg-secondary z-[var(--z-top-navigation)] px-1.5 border-b border-border',
                 className
             )}
         >
@@ -111,8 +111,8 @@ function SceneTabComponent({ tab, className, isDragging }: SceneTabProps): JSX.E
             className={cn(
                 'h-[37px] p-0.5 flex flex-row items-center gap-1 rounded-tr rounded-tl border border-transparent bottom-[-1px] relative',
                 tab.active
-                    ? 'cursor-default text-primary bg-surface-secondary border-primary border-b-transparent'
-                    : 'cursor-pointer text-secondary bg-transparent hover:bg-surface-primary hover:text-primary-hover',
+                    ? 'cursor-default text-foreground bg-secondary border-border border-b-transparent'
+                    : 'cursor-pointer text-secondary-foreground bg-transparent hover:bg-card hover:text-foreground-hover',
                 canRemoveTab ? 'pl-2 pr-1' : 'px-3',
                 'focus:outline-none',
                 className

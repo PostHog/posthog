@@ -24,7 +24,7 @@ export function FunnelCanvasLabel(): JSX.Element | null {
         ...(funnelsFilter?.funnelVizType === FunnelVizType.Steps
             ? [
                   <>
-                      <span className="flex items-center text-secondary mr-1">
+                      <span className="flex items-center text-secondary-foreground mr-1">
                           <Tooltip
                               title={`Overall conversion rate for all ${aggregationTargetLabel.plural} on the entire funnel.`}
                           >
@@ -39,7 +39,7 @@ export function FunnelCanvasLabel(): JSX.Element | null {
         ...(funnelsFilter?.funnelVizType !== FunnelVizType.Trends
             ? [
                   <>
-                      <span className="flex items-center text-secondary">
+                      <span className="flex items-center text-secondary-foreground">
                           <Tooltip
                               title={`Average (arithmetic mean) of the total time each ${aggregationTargetLabel.singular} spent in the entire funnel.`}
                           >
@@ -48,7 +48,7 @@ export function FunnelCanvasLabel(): JSX.Element | null {
                           <span>Average time to convert</span>
                       </span>
                       {funnelsFilter?.funnelVizType === FunnelVizType.TimeToConvert && <FunnelStepsPicker />}
-                      <span className="text-secondary mr-1">:</span>
+                      <span className="text-secondary-foreground mr-1">:</span>
                       {funnelsFilter?.funnelVizType === FunnelVizType.TimeToConvert ? (
                           <span className="font-bold">{humanFriendlyDuration(conversionMetrics.averageTime)}</span>
                       ) : (
@@ -65,7 +65,7 @@ export function FunnelCanvasLabel(): JSX.Element | null {
         ...(funnelsFilter?.funnelVizType === FunnelVizType.Trends
             ? [
                   <>
-                      <span className="text-secondary">Conversion rate</span>
+                      <span className="text-secondary-foreground">Conversion rate</span>
                       <FunnelStepsPicker />
                   </>,
               ]
@@ -102,7 +102,7 @@ export function FunnelCanvasLabel(): JSX.Element | null {
         <div className="flex items-center">
             {labels.map((label, i) => (
                 <React.Fragment key={i}>
-                    {i > 0 && <span className="my-0.5 mx-2 border-l border-primary h-3.5" />}
+                    {i > 0 && <span className="my-0.5 mx-2 border-l border-border h-3.5" />}
                     {label}
                 </React.Fragment>
             ))}

@@ -8,7 +8,7 @@
     .PlayerMetaPersonProperties {
         padding: 0.5rem;
         overflow: auto;
-        background: var(--color-bg-primary);
+        background: var(--color-background);
         border-bottom: 1px solid transparent;
     }
 
@@ -23,12 +23,12 @@
             &--enter-active,
             &--enter-done {
                 height: 14rem;
-                border-bottom-color: var(--color-border-primary);
+                border-bottom-color: var(--color-border);
             }
 
             &--exit {
                 height: 14rem;
-                border-bottom-color: var(--color-border-primary);
+                border-bottom-color: var(--color-border);
             }
 
             &--exit-active {
@@ -52,7 +52,7 @@
             z-index: 1;
             width: 100%;
             max-width: 40rem;
-            border-right: 1px solid var(--color-border-primary);
+            border-right: 1px solid var(--color-border);
             transition: 200ms transform ease-out;
 
             &--enter {
@@ -75,7 +75,7 @@
     }
 
     .Link {
-        color: var(--text-3000);
+        color: var(--color-foreground);
 
         &:hover {
             color: var(--color-accent);

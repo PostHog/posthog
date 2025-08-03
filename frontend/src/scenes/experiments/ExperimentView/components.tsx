@@ -107,7 +107,7 @@ export function VariantTag({
     return (
         <span className={clsx('flex items-center min-w-0', className)}>
             <span
-                className={`ml-2 font-semibold truncate ${muted ? 'text-secondary' : ''}`}
+                className={`ml-2 font-semibold truncate ${muted ? 'text-secondary-foreground' : ''}`}
                 // eslint-disable-next-line react/forbid-dom-props
                 style={fontSize ? { fontSize: `${fontSize}px` } : undefined}
             >
@@ -275,7 +275,7 @@ export function ExperimentLoadingAnimation(): JSX.Element {
     return (
         <div className="flex flex-col flex-1 justify-center items-center">
             <LoadingBar />
-            <div className="text-xs text-secondary w-44">
+            <div className="text-xs text-secondary-foreground w-44">
                 <span className="mr-1">Fetching experiment results</span>
                 <EllipsisAnimation />
             </div>
@@ -379,7 +379,7 @@ export function PageHeaderCustom(): JSX.Element {
                                         LemonDialog.open({
                                             title: 'Archive this experiment?',
                                             content: (
-                                                <div className="text-sm text-secondary">
+                                                <div className="text-sm text-secondary-foreground">
                                                     This action will move the experiment to the archived tab. It can be
                                                     restored at any time.
                                                 </div>
@@ -453,7 +453,7 @@ export function ConclusionForm({ experimentId }: { experimentId: Experiment['id'
                                         <span>{CONCLUSION_DISPLAY_CONFIG[conclusion].title}</span>
                                     </div>
                                 </div>
-                                <div className="text-xs text-muted">
+                                <div className="text-xs text-tertiary-foreground">
                                     {CONCLUSION_DISPLAY_CONFIG[conclusion].description}
                                 </div>
                             </div>
@@ -670,7 +670,7 @@ export const ResetButton = ({ experimentId }: { experimentId: ExperimentIdType }
             title: 'Reset this experiment?',
             content: (
                 <>
-                    <div className="text-sm text-secondary max-w-md">
+                    <div className="text-sm text-secondary-foreground max-w-md">
                         <p>
                             The experiment start and end dates will be reset and the experiment will go back to draft
                             mode.
@@ -681,7 +681,9 @@ export const ResetButton = ({ experimentId }: { experimentId: ExperimentIdType }
                         </p>
                     </div>
                     {experiment.archived && (
-                        <div className="text-sm text-secondary">Resetting will also unarchive the experiment.</div>
+                        <div className="text-sm text-secondary-foreground">
+                            Resetting will also unarchive the experiment.
+                        </div>
                     )}
                 </>
             ),
@@ -757,7 +759,7 @@ export function MetricDisplayFunnels({ query }: { query: FunnelsQuery }): JSX.El
                 <div key={idx} className="mb-2">
                     <div className="flex mb-1">
                         <div
-                            className="shrink-0 w-6 h-6 mr-2 font-bold text-center text-primary-alt border rounded"
+                            className="shrink-0 w-6 h-6 mr-2 font-bold text-center text-foreground-alt border rounded"
                             // eslint-disable-next-line react/forbid-dom-props
                             style={{ backgroundColor: 'var(--color-bg-table)' }}
                         >

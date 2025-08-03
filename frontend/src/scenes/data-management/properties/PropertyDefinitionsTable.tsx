@@ -25,7 +25,9 @@ export function PropertyDefinitionsTable(): JSX.Element {
             key: 'icon',
             width: 0,
             render: function Render(_, definition: PropertyDefinition) {
-                return <span className="text-xl text-secondary">{getPropertyDefinitionIcon(definition)}</span>
+                return (
+                    <span className="text-xl text-secondary-foreground">{getPropertyDefinitionIcon(definition)}</span>
+                )
             },
         },
         {
@@ -51,7 +53,7 @@ export function PropertyDefinitionsTable(): JSX.Element {
                         {definition.property_type}
                     </LemonTag>
                 ) : (
-                    <span className="text-secondary">—</span>
+                    <span className="text-secondary-foreground">—</span>
                 )
             },
         },

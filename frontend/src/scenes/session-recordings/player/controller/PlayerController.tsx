@@ -108,7 +108,7 @@ export function PlayerController(): JSX.Element {
     })
 
     return (
-        <div className="bg-surface-primary flex flex-col select-none">
+        <div className="bg-card flex flex-col select-none">
             <Seekbar />
             <div className="w-full px-2 py-1 relative flex items-center justify-between" ref={ref}>
                 <Timestamp size={size} />

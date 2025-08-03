@@ -78,7 +78,7 @@ export const NoImage: StoryFn = () => (
     <div className="p-4">
         <h3>No Image Elements</h3>
         <AutocapturePreviewImage elements={mockElementsNoImage} />
-        <p className="text-sm text-muted-foreground mt-2">Should render null (nothing shown)</p>
+        <p className="text-sm text-tertiary-foreground-foreground mt-2">Should render null (nothing shown)</p>
     </div>
 )
 
@@ -86,7 +86,7 @@ export const AbsoluteImageUrl: StoryFn = () => (
     <div className="p-4">
         <h3>Absolute Image URL</h3>
         <AutocapturePreviewImage elements={mockElementsWithAbsoluteImage} />
-        <p className="text-sm text-muted-foreground mt-2">Should show image with tooltip</p>
+        <p className="text-sm text-tertiary-foreground-foreground mt-2">Should show image with tooltip</p>
     </div>
 )
 
@@ -94,7 +94,9 @@ export const RelativeImageWithCurrentUrl: StoryFn = () => (
     <div className="p-4">
         <h3>Relative Image with Current URL</h3>
         <AutocapturePreviewImage elements={mockElementsWithRelativeImage} properties={mockPropertiesWithCurrentUrl} />
-        <p className="text-sm text-muted-foreground mt-2">Should show image (relative URL converted to absolute)</p>
+        <p className="text-sm text-tertiary-foreground-foreground mt-2">
+            Should show image (relative URL converted to absolute)
+        </p>
     </div>
 )
 
@@ -102,7 +104,9 @@ export const RelativeImageNoCurrentUrl: StoryFn = () => (
     <div className="p-4">
         <h3>Relative Image without Current URL</h3>
         <AutocapturePreviewImage elements={mockElementsWithRelativeImage} properties={mockPropertiesNoCurrentUrl} />
-        <p className="text-sm text-muted-foreground mt-2">Should show image with relative path (may fail to load)</p>
+        <p className="text-sm text-tertiary-foreground-foreground mt-2">
+            Should show image with relative path (may fail to load)
+        </p>
     </div>
 )
 
@@ -110,7 +114,9 @@ export const RelativeImageNoProperties: StoryFn = () => (
     <div className="p-4">
         <h3>Relative Image without Properties</h3>
         <AutocapturePreviewImage elements={mockElementsWithRelativeImage} />
-        <p className="text-sm text-muted-foreground mt-2">Should show image with relative path (may fail to load)</p>
+        <p className="text-sm text-tertiary-foreground-foreground mt-2">
+            Should show image with relative path (may fail to load)
+        </p>
     </div>
 )
 
@@ -119,7 +125,7 @@ export const TabNoImage: StoryFn = () => (
     <div className="p-4">
         <h3>Tab: No Image Elements</h3>
         <AutocaptureImageTab elements={mockElementsNoImage} />
-        <p className="text-sm text-muted-foreground mt-2">Should render null (nothing shown)</p>
+        <p className="text-sm text-tertiary-foreground-foreground mt-2">Should render null (nothing shown)</p>
     </div>
 )
 
@@ -127,7 +133,9 @@ export const TabAbsoluteImageUrl: StoryFn = () => (
     <div className="p-4">
         <h3>Tab: Absolute Image URL</h3>
         <AutocaptureImageTab elements={mockElementsWithAbsoluteImage} />
-        <p className="text-sm text-muted-foreground mt-2">Should show full-width image in tab container</p>
+        <p className="text-sm text-tertiary-foreground-foreground mt-2">
+            Should show full-width image in tab container
+        </p>
     </div>
 )
 
@@ -135,7 +143,7 @@ export const TabRelativeImageWithCurrentUrl: StoryFn = () => (
     <div className="p-4">
         <h3>Tab: Relative Image with Current URL</h3>
         <AutocaptureImageTab elements={mockElementsWithRelativeImage} properties={mockPropertiesWithCurrentUrl} />
-        <p className="text-sm text-muted-foreground mt-2">
+        <p className="text-sm text-tertiary-foreground-foreground mt-2">
             Should show full-width image (relative URL converted to absolute)
         </p>
     </div>
@@ -145,7 +153,7 @@ export const TabRelativeImageNoCurrentUrl: StoryFn = () => (
     <div className="p-4">
         <h3>Tab: Relative Image without Current URL</h3>
         <AutocaptureImageTab elements={mockElementsWithRelativeImage} properties={mockPropertiesNoCurrentUrl} />
-        <p className="text-sm text-muted-foreground mt-2">
+        <p className="text-sm text-tertiary-foreground-foreground mt-2">
             Should show full-width image with relative path (may fail to load)
         </p>
     </div>
@@ -155,7 +163,7 @@ export const TabRelativeImageNoProperties: StoryFn = () => (
     <div className="p-4">
         <h3>Tab: Relative Image without Properties</h3>
         <AutocaptureImageTab elements={mockElementsWithRelativeImage} />
-        <p className="text-sm text-muted-foreground mt-2">
+        <p className="text-sm text-tertiary-foreground-foreground mt-2">
             Should show full-width image with relative path (may fail to load)
         </p>
     </div>

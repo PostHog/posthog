@@ -46,14 +46,14 @@ export const BillingProductPricingTable = ({
             title: 'Total',
             dataIndex: 'total',
             render: (_, item: BillingTableTierRow) => (
-                <span className="font-bold mb-0 text-text-3000">{item.total}</span>
+                <span className="font-bold mb-0 text-text-foreground">{item.total}</span>
             ),
         },
         {
             title: showProjectedTotalWithLimitTooltip ? (
                 <Tooltip title="The projected total for the product tiers and add-ons does not account for billing limits. To see the projected total that accounts for the billing limits, see the projected amount for the whole product above.">
                     <span>
-                        Projected Total <IconInfo className="text-muted text-sm" />
+                        Projected Total <IconInfo className="text-tertiary-foreground text-sm" />
                     </span>
                 </Tooltip>
             ) : (
@@ -112,7 +112,7 @@ export const BillingProductPricingTable = ({
                                   title: '',
                                   dataIndex: 'icon',
                                   render: () => (
-                                      <IconArrowRightDown className="transform -rotate-90 scale-x-[-1] text-base text-secondary" />
+                                      <IconArrowRightDown className="transform -rotate-90 scale-x-[-1] text-base text-secondary-foreground" />
                                   ),
                               },
                               { title: `Product name`, dataIndex: 'productName' },

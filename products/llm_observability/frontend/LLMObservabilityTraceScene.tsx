@@ -106,7 +106,7 @@ function Chip({
 }): JSX.Element {
     return (
         <Tooltip title={title}>
-            <LemonTag size="medium" className="bg-surface-primary" icon={icon}>
+            <LemonTag size="medium" className="bg-card" icon={icon}>
                 <span className="sr-only">{title}</span>
                 {children}
             </LemonTag>
@@ -195,7 +195,7 @@ function TraceSidebar({
 
     return (
         <aside
-            className="sticky bottom-[var(--scene-padding)] border-primary max-h-fit bg-surface-primary border rounded overflow-hidden flex flex-col w-full md:w-80"
+            className="sticky bottom-[var(--scene-padding)] border-border max-h-fit bg-card border rounded overflow-hidden flex flex-col w-full md:w-80"
             ref={ref}
         >
             <h3 className="font-medium text-sm px-2 my-2">Tree</h3>
@@ -236,9 +236,12 @@ function NestingGroup({
     children: React.ReactNode
 }): JSX.Element {
     return (
-        <li className={clsx('flex items-stretch min-w-0', isCollapsed && 'text-border hover:text-muted')}>
+        <li className={clsx('flex items-stretch min-w-0', isCollapsed && 'text-border hover:text-tertiary-foreground')}>
             <div
-                className={clsx('mb-1 ml-1 cursor-pointer', !isCollapsed && 'text-border hover:text-muted')}
+                className={clsx(
+                    'mb-1 ml-1 cursor-pointer',
+                    !isCollapsed && 'text-border hover:text-tertiary-foreground'
+                )}
                 onClick={onToggle}
             >
                 <div
@@ -310,7 +313,9 @@ const TreeNode = React.memo(function TraceNode({
                 </div>
                 {renderModelRow(item)}
                 {hasChildren && (
-                    <div className="flex flex-row flex-wrap text-secondary items-center gap-1.5">{children}</div>
+                    <div className="flex flex-row flex-wrap text-secondary-foreground items-center gap-1.5">
+                        {children}
+                    </div>
                 )}
             </Link>
         </li>
@@ -362,7 +367,7 @@ function TreeNodeChildren({
                 ))
             ) : (
                 <div
-                    className="text-secondary hover:text-default text-xxs cursor-pointer p-1"
+                    className="text-secondary-foreground hover:text-default text-xxs cursor-pointer p-1"
                     onClick={() => setIsCollapsed(false)}
                 >
                     Show {pluralize(tree.length, 'collapsed child', 'collapsed children')}
@@ -389,7 +394,7 @@ function EventContentDisplay({
     return (
         <LLMInputOutput
             inputDisplay={
-                <div className="p-2 text-xs border rounded bg-[var(--color-bg-fill-secondary)]">
+                <div className="p-2 text-xs border rounded bg-[var(--color-background)]">
                     {isObject(input) ? (
                         <JSONViewer src={input} collapsed={4} />
                     ) : (
@@ -465,7 +470,7 @@ const EventContent = React.memo(
         }
 
         return (
-            <div className="flex-1 bg-surface-primary max-h-fit border rounded flex flex-col border-primary p-4 overflow-y-auto">
+            <div className="flex-1 bg-card max-h-fit border rounded flex flex-col border-border p-4 overflow-y-auto">
                 {!event ? (
                     <InsightEmptyState heading="Event not found" detail="Check if the event ID is correct." />
                 ) : (

@@ -6,7 +6,7 @@
     font-size: 0.6875rem;
     font-weight: var(--font-medium);
     line-height: 1rem;
-    color: var(--text-3000);
+    color: var(--color-foreground);
     white-space: nowrap;
     border-width: 1px;
     border-radius: var(--radius-sm);
@@ -51,7 +51,7 @@
 
     &.LemonTag--option {
         color: var(--color-accent);
-        background-color: var(--color-bg-surface-primary);
+        background-color: var(--color-card);
     }
 
     &.LemonTag--highlight {
@@ -66,14 +66,14 @@
         border-color: var(--warning);
 
         [theme='dark'] & {
-            background-color: var(--color-bg-surface-primary);
+            background-color: var(--color-card);
         }
     }
 
     &.LemonTag--danger {
-        color: var(--danger);
+        color: var(--color-error-foreground);
         background: none;
-        border-color: var(--danger);
+        border-color: var(--color-error-foreground);
     }
 
     &.LemonTag--success {
@@ -95,8 +95,8 @@
     }
 
     &.LemonTag--muted {
-        color: var(--color-text-secondary);
-        background-color: var(--color-bg-surface-primary);
+        color: var(--color-secondary-foreground);
+        background-color: var(--color-card);
     }
 
     &.LemonTag--none {

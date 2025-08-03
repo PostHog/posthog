@@ -92,7 +92,7 @@ function StackframeTextDisplay({ frame }: { frame: ErrorTrackingStackFrame }): J
                 File "{frame.source}", line: {frame.line}, in: {frame.resolved_name}
             </p>
             {stackFrameRecords[frame.raw_id] && stackFrameRecords[frame.raw_id].context?.line.line && (
-                <p className="font-mono indent-[2rem] whitespace-no-wrap mb-0 text-tertiary line-clamp-1">
+                <p className="font-mono indent-[2rem] whitespace-no-wrap mb-0 text-tertiary-foreground line-clamp-1">
                     {stackFrameRecords[frame.raw_id].context?.line.line}
                 </p>
             )}

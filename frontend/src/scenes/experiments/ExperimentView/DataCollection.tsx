@@ -57,7 +57,7 @@ export function DataCollection(): JSX.Element {
                     </div>
                 }
             >
-                <IconInfo className="text-secondary text-base" />
+                <IconInfo className="text-secondary-foreground text-base" />
             </Tooltip>
         )
     }
@@ -70,7 +70,7 @@ export function DataCollection(): JSX.Element {
                     title="Estimated target for the number of participants. Actual data may reveal significance earlier or later
                     than predicted."
                 >
-                    <IconInfo className="text-secondary text-base" />
+                    <IconInfo className="text-secondary-foreground text-base" />
                 </Tooltip>
             </div>
             <div className="flex">
@@ -148,7 +148,7 @@ export function DataCollection(): JSX.Element {
                             }
                             closeDelayMs={200}
                         >
-                            <IconInfo className="text-secondary text-base" />
+                            <IconInfo className="text-secondary-foreground text-base" />
                         </Tooltip>
                     </div>
                     {!experiment.end_date && (
@@ -220,7 +220,7 @@ export function DataCollectionGoalModal({ experimentId }: { experimentId: Experi
             {isInsightLoading ? (
                 <div className="flex flex-col flex-1 justify-center items-center mb-6">
                     <LoadingBar />
-                    <div className="text-xs text-secondary w-60">
+                    <div className="text-xs text-secondary-foreground w-60">
                         <span className="mr-1">Fetching past events for the estimation</span>
                         <EllipsisAnimation />
                     </div>

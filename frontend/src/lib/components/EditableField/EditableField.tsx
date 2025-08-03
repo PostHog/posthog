@@ -216,7 +216,7 @@ export function EditableField({
                                 {markdown && (
                                     <Tooltip title="Markdown formatting support">
                                         <span className="flex items-center">
-                                            <IconMarkdown className="text-secondary text-2xl" />
+                                            <IconMarkdown className="text-secondary-foreground text-2xl" />
                                         </span>
                                     </Tooltip>
                                 )}

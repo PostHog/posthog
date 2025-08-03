@@ -38,7 +38,7 @@ function HeatmapMouseInfo({
             }}
         >
             <div
-                className="absolute border rounded bg-surface-primary shadow-md p-2 mx-2 -translate-y-1/2"
+                className="absolute border rounded bg-card shadow-md p-2 mx-2 -translate-y-1/2"
                 // eslint-disable-next-line react/forbid-dom-props
                 style={{
                     left: leftPosition ? undefined : 0,
@@ -97,24 +97,27 @@ export function HeatmapCanvas({
         }
     }, [heatmapJsData])
 
-    const setHeatmapContainer = useCallback((container: HTMLDivElement | null): void => {
-        heatmapsJsContainerRef.current = container
-        if (!container) {
-            return
-        }
+    const setHeatmapContainer = useCallback(
+        (container: HTMLDivElement | null): void => {
+            heatmapsJsContainerRef.current = container
+            if (!container) {
+                return
+            }
 
-        heatmapsJsRef.current = heatmapsJs.create({
-            ...heatmapConfig,
-            container,
-            gradient: heatmapJSColorGradient,
-        })
+            heatmapsJsRef.current = heatmapsJs.create({
+                ...heatmapConfig,
+                container,
+                gradient: heatmapJSColorGradient,
+            })
 
-        updateHeatmapData()
-    }, [])
+            updateHeatmapData()
+        },
+        [heatmapJSColorGradient, updateHeatmapData, heatmapConfig]
+    )
 
     useEffect(() => {
         updateHeatmapData()
-    }, [heatmapJsData])
+    }, [heatmapJsData, updateHeatmapData])
 
     useEffect(() => {
         if (!heatmapsJsContainerRef.current) {
@@ -126,7 +129,7 @@ export function HeatmapCanvas({
             container: heatmapsJsContainerRef.current,
             gradient: heatmapJSColorGradient,
         })
-    }, [heatmapJSColorGradient])
+    }, [heatmapJSColorGradient, heatmapConfig])
 
     if (!heatmapFilters.enabled || heatmapFilters.type === 'scrolldepth') {
         return null

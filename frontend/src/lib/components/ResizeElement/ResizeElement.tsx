@@ -156,7 +156,7 @@ export function ResizableElement({
                 onMouseDown={handleMouseDown}
                 onTouchStart={handleMouseDown}
                 className={cn(
-                    'absolute top-0 right-0 w-1 h-full cursor-ew-resize w-[var(--resizer-thickness)] touch-none overflow-hidden hover:bg-accent-highlight-primary after:content-[""] after:absolute after:top-0 after:w-[1px] after:h-full after:bg-border-primary after:-translate-x-1/2 after:left-1/2',
+                    'absolute top-0 right-0 w-1 h-full cursor-ew-resize w-[var(--resizer-thickness)] touch-none overflow-hidden hover:bg-accent-highlight-primary after:content-[""] after:absolute after:top-0 after:w-[1px] after:h-full after:bg-border-border after:-translate-x-1/2 after:left-1/2',
                     {
                         'bg-accent-highlight-primary': isResizing.current,
                         'after:left-0': borderPosition === 'left',

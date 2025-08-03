@@ -17,7 +17,7 @@
         min-height: var(--lemon-button-height);
         margin: 0.25rem;
         font-weight: 600;
-        color: var(--color-text-secondary);
+        color: var(--color-secondary-foreground);
         appearance: none !important; // Important as this gets overridden by Ant styles...
         cursor: pointer;
         user-select: none;
@@ -34,13 +34,13 @@
     &:not([aria-disabled='true']):hover,
     &--active {
         button {
-            color: var(--text-3000);
-            background: var(--color-border-primary);
+            color: var(--color-foreground);
+            background: var(--color-border);
         }
 
         .Toolbar--dragging & {
             button {
-                color: var(--color-text-secondary);
+                color: var(--color-secondary-foreground);
                 background: none;
             }
         }

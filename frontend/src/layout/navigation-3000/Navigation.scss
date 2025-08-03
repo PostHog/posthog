@@ -14,7 +14,7 @@
     width: 100%;
     height: 100vh;
     overflow: hidden;
-    background: var(--color-bg-primary);
+    background: var(--color-background);
 
     .storybook-test-runner & {
         height: auto;
@@ -106,7 +106,7 @@
         flex-direction: column;
         justify-content: space-between;
         overflow-y: auto;
-        background: var(--color-bg-surface-secondary);
+        background: var(--color-card);
 
         .LemonButton__chrome {
             --lemon-button-padding-horizontal: 0.25rem !important;
@@ -159,13 +159,13 @@
             left: 0;
             font-size: 1.25rem;
             line-height: 0.5625rem;
-            color: var(--text-3000);
+            color: var(--color-foreground);
             text-align: center;
             content: '•';
         }
 
         .LemonButton__icon {
-            color: var(--text-3000);
+            color: var(--color-foreground);
             transform: translateY(-0.25rem);
         }
     }
@@ -177,7 +177,7 @@
     --sidebar-slider-padding: 0.125rem;
     --sidebar-horizontal-padding: 0.5rem;
     --sidebar-row-height: 3rem;
-    --sidebar-background: var(--color-bg-primary);
+    --sidebar-background: var(--color-background);
 
     position: relative;
     box-sizing: content-box;
@@ -189,7 +189,7 @@
     border-right: min(1px, var(--sidebar-width)) solid transparent;
 
     [theme='dark'] & {
-        --sidebar-background: var(--color-bg-surface-primary);
+        --sidebar-background: var(--color-card);
     }
 
     &.Sidebar3000--resizing {
@@ -202,7 +202,7 @@
         margin: 0;
         overflow: hidden;
         line-height: inherit;
-        color: var(--text-3000);
+        color: var(--color-foreground);
         text-overflow: ellipsis;
     }
 
@@ -251,7 +251,7 @@
     white-space: nowrap;
 
     // Extend the border into viewport overscroll
-    border-right: min(1px, var(--sidebar-width)) solid var(--color-border-primary);
+    border-right: min(1px, var(--sidebar-width)) solid var(--color-border);
 
     .Sidebar3000--resizing & {
         will-change: width;
@@ -280,7 +280,7 @@
     padding: 0 var(--sidebar-horizontal-padding);
     font-weight: 500;
     user-select: none;
-    background: var(--color-bg-primary);
+    background: var(--color-background);
     border-top-width: 1px;
 }
 
@@ -311,12 +311,12 @@
     }
 
     &::before {
-        background: var(--color-border-primary);
+        background: var(--color-border);
         transition: 100ms ease transform;
     }
 
     &::after {
-        background: var(--text-3000);
+        background: var(--color-foreground);
         opacity: 0;
         transition: 100ms ease transform;
     }
@@ -350,7 +350,7 @@
     --accordion-arrow-size: 1rem;
     --accordion-row-height: 32px;
     --accordion-inset-expandable: 1.25rem;
-    --accordion-header-background: var(--color-bg-surface-primary);
+    --accordion-header-background: var(--color-card);
     --accordion-inset: 0rem;
 
     display: flex;
@@ -360,7 +360,7 @@
     min-height: var(--accordion-row-height);
 
     [theme='dark'] & {
-        --accordion-header-background: var(--color-bg-primary);
+        --accordion-header-background: var(--color-background);
     }
 
     &[aria-expanded] {
@@ -398,7 +398,7 @@
     border-bottom-width: 1px;
 
     &:hover {
-        background: var(--color-border-primary);
+        background: var(--color-border);
     }
 
     > .LemonIcon {
@@ -417,7 +417,7 @@
 .SidebarListItemAccordion {
     --accordion-arrow-size: 1rem;
     --accordion-inset-expandable: 1.25rem;
-    --accordion-header-background: var(--color-bg-surface-primary);
+    --accordion-header-background: var(--color-card);
     --accordion-inset: 0rem;
 
     display: flex;
@@ -427,7 +427,7 @@
     height: 100%;
 
     [theme='dark'] & {
-        --accordion-header-background: var(--color-bg-primary);
+        --accordion-header-background: var(--color-background);
     }
 
     &[role='region'] {
@@ -455,7 +455,7 @@
     border-bottom-width: 1px;
 
     &:hover {
-        background: var(--color-border-primary);
+        background: var(--color-border);
     }
 
     > .LemonIcon {
@@ -475,14 +475,14 @@
 }
 
 .SidebarListItem {
-    --sidebar-list-item-status-color: var(--color-text-secondary);
+    --sidebar-list-item-status-color: var(--color-secondary-foreground);
     --sidebar-list-item-fold-size: 0.5rem;
     --sidebar-list-item-ribbon-width: 0.1875rem;
     --sidebar-list-item-background: var(--sidebar-background);
 
     position: relative;
     line-height: 1.125rem;
-    color: var(--color-text-secondary);
+    color: var(--color-secondary-foreground);
     list-style: none;
     background: var(--sidebar-list-item-background);
     border-bottom-width: 1px;
@@ -491,7 +491,7 @@
     &:hover:not([aria-disabled='true']),
     &[aria-current='page'],
     &.SidebarListItem--is-renaming {
-        --sidebar-list-item-background: var(--color-border-primary);
+        --sidebar-list-item-background: var(--color-border);
 
         opacity: 1;
     }
@@ -571,7 +571,7 @@
     }
 
     &.SidebarListItem--marker-status-danger {
-        --sidebar-list-item-status-color: var(--danger);
+        --sidebar-list-item-status-color: var(--color-error-foreground);
     }
 
     &.SidebarListItem--marker-status-completion {
@@ -590,14 +590,14 @@
     display: flex;
     width: 100%;
     height: 100%;
-    color: var(--text-3000);
+    color: var(--color-foreground);
 
     &:focus-visible::after {
         position: absolute;
         inset: 0 0 -1px;
         pointer-events: none;
         content: '';
-        border: 1px solid var(--color-border-primary);
+        border: 1px solid var(--color-border);
     }
 }
 
@@ -623,7 +623,7 @@
     cursor: pointer;
 
     &:hover {
-        background: var(--color-border-primary);
+        background: var(--color-border);
     }
 
     .SidebarListItem__icon {
@@ -636,14 +636,14 @@
     justify-content: center;
 
     // Pseudo-elements don't work on inputs, so we use a wrapper div
-    background: var(--color-bg-surface-primary);
+    background: var(--color-card);
 
     input {
         width: 100%;
         height: 100%;
         padding: 0 calc(var(--sidebar-horizontal-padding) + 2.5rem) 0 var(--sidebar-list-item-inset);
         font-size: 0.75rem;
-        color: var(--text-3000);
+        color: var(--color-foreground);
         background: none;
         outline: none;
     }
@@ -653,10 +653,10 @@
         inset: 0 0 -1px;
         pointer-events: none;
         content: '';
-        border: 1px solid var(--color-border-primary);
+        border: 1px solid var(--color-border);
 
         .SidebarListItem[aria-invalid='true'] & {
-            border-color: var(--danger);
+            border-color: var(--color-error-foreground);
         }
     }
 }
@@ -670,7 +670,7 @@
     line-height: 1.25rem;
     color: #fff;
     white-space: normal;
-    background: var(--danger);
+    background: var(--color-error-foreground);
 
     &::before {
         position: absolute;
@@ -679,8 +679,8 @@
         display: block;
         content: '';
         border: 0.25rem solid transparent;
-        border-bottom-color: var(--danger);
-        border-left-color: var(--danger);
+        border-bottom-color: var(--color-error-foreground);
+        border-left-color: var(--color-error-foreground);
     }
 }
 

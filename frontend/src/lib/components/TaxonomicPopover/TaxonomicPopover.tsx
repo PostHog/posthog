@@ -83,7 +83,7 @@ export const TaxonomicPopover = forwardRef(function TaxonomicPopover_<
     buttonPropsFinal.children = localValue ? (
         <span>{renderValue?.(localValue) ?? localValue}</span>
     ) : placeholder || placeholderClass ? (
-        <span className={placeholderClass ?? 'text-muted'}>{placeholder}</span>
+        <span className={placeholderClass ?? 'text-tertiary-foreground'}>{placeholder}</span>
     ) : null
     buttonPropsFinal.onClick = () => setVisible(!visible)
     if (!buttonPropsFinal.type) {
@@ -94,7 +94,7 @@ export const TaxonomicPopover = forwardRef(function TaxonomicPopover_<
         if (!buttonPropsFinal.loading) {
             setLocalValue(value || ('' as ValueType))
         }
-    }, [value])
+    }, [value, buttonPropsFinal.loading])
 
     return (
         <LemonDropdown

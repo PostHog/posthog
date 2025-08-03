@@ -283,7 +283,7 @@ export default function SurveyEdit(): JSX.Element {
                     onChange={(section) => {
                         setSelectedSection(section)
                     }}
-                    className="bg-surface-primary"
+                    className="bg-card"
                     panels={[
                         {
                             key: SurveyEditSection.Presentation,
@@ -705,7 +705,7 @@ export default function SurveyEdit(): JSX.Element {
                                                   data-attr="survey-display-conditions-select"
                                               />
                                               {!hasTargetingSet ? (
-                                                  <span className="text-secondary">
+                                                  <span className="text-secondary-foreground">
                                                       Survey <b>will be released to everyone</b>
                                                   </span>
                                               ) : (

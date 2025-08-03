@@ -28,7 +28,7 @@ function SkeletonCardOne({ active }: { active: boolean }): JSX.Element {
                 {[100, 66, 33].map((height) => (
                     <div
                         key={height}
-                        className="border border-primary rounded overflow-hidden flex flex-col justify-end w-[15%] h-[80%]"
+                        className="border border-border rounded overflow-hidden flex flex-col justify-end w-[15%] h-[80%]"
                     >
                         {/* eslint-disable-next-line react/forbid-dom-props */}
                         <div style={{ height: `${height}%` }}>

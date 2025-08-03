@@ -422,14 +422,14 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                                         if (type === 'source') {
                                             return (
                                                 <Tooltip title="This is a source table, so it doesn't have a status">
-                                                    <span className="text-secondary">N/A</span>
+                                                    <span className="text-secondary-foreground">N/A</span>
                                                 </Tooltip>
                                             )
                                         }
                                         if (last_run_at === 'never' && !status) {
                                             return (
                                                 <Tooltip title="This is a view, so it's always available with the latest data">
-                                                    <span className="text-secondary">Available</span>
+                                                    <span className="text-secondary-foreground">Available</span>
                                                 </Tooltip>
                                             )
                                         }
@@ -443,14 +443,14 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                                         if (type === 'source') {
                                             return (
                                                 <Tooltip title="This is a source table, so it is never run">
-                                                    <span className="text-secondary">N/A</span>
+                                                    <span className="text-secondary-foreground">N/A</span>
                                                 </Tooltip>
                                             )
                                         }
                                         if (last_run_at === 'never' && !status) {
                                             return (
                                                 <Tooltip title="This is a view, so it is never run">
-                                                    <span className="text-secondary">N/A</span>
+                                                    <span className="text-secondary-foreground">N/A</span>
                                                 </Tooltip>
                                             )
                                         }
@@ -502,7 +502,7 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                                                         placement="right"
                                                         title="This is the currently viewed query"
                                                     >
-                                                        <IconTarget className="text-warning" />
+                                                        <IconTarget className="text-warning-foreground" />
                                                     </Tooltip>
                                                 )}
                                                 {name}
@@ -529,7 +529,7 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                                                 .filter((n): n is LineageNode => n !== undefined)
 
                                             if (upstreamNodes.length === 0) {
-                                                return <span className="text-secondary">None</span>
+                                                return <span className="text-secondary-foreground">None</span>
                                             }
 
                                             return (

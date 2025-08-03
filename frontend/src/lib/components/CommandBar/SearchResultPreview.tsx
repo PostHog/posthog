@@ -14,7 +14,7 @@ export const SearchResultPreview = (): JSX.Element | null => {
 
     if (combinedSearchLoading) {
         return (
-            <div className="border bg-surface-primary rounded p-4 md:p-6 min-h-[245px] flex flex-col gap-y-2">
+            <div className="border bg-card rounded p-4 md:p-6 min-h-[245px] flex flex-col gap-y-2">
                 <LemonSkeleton className="w-[45px] h-4" />
                 <LemonSkeleton className="w-[150px] h-4" />
                 <LemonSkeleton className="w-[300px] h-4" />
@@ -29,18 +29,18 @@ export const SearchResultPreview = (): JSX.Element | null => {
     const result = combinedSearchResults[activeResultIndex]
 
     return (
-        <div className="border bg-surface-primary rounded p-4 md:p-6">
+        <div className="border bg-card rounded p-4 md:p-6">
             <div className="deprecated-space-y-4">
                 <div>
                     <div>{tabToName[result.type as keyof typeof tabToName]}</div>
-                    <div className="text-text-3000 font-bold text-lg">
+                    <div className="text-text-foreground font-bold text-lg">
                         <ResultName result={result} />
                     </div>
                     <span className="text-[var(--trace-3000)] text-xs break-all">
                         {location.host}
-                        <span className="text-muted-3000">{urlForResult(result)}</span>
+                        <span className="text-tertiary-foreground-3000">{urlForResult(result)}</span>
                     </span>
-                    <div className="mt-2 text-secondary">
+                    <div className="mt-2 text-secondary-foreground">
                         <ResultDescription result={result} />
                     </div>
                 </div>

@@ -31,9 +31,9 @@
         height: 2rem;
         font-size: 0.75rem;
         font-weight: 600;
-        color: var(--color-text-secondary);
+        color: var(--color-secondary-foreground);
         text-align: center;
-        background-color: var(--color-bg-primary);
+        background-color: var(--color-background);
     }
 
     @keyframes DataTable__highlight {

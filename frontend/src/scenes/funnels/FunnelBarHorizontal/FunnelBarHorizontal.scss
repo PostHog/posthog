@@ -63,7 +63,7 @@ $glyph_height: 23px; // Based on .funnel-step-glyph
                 left: 0;
                 box-sizing: border-box;
                 width: calc(#{$series_container_width} / 2 + 1px);
-                border-right: 2px solid var(--color-border-primary);
+                border-right: 2px solid var(--color-border);
                 opacity: 0.5;
 
                 &.before {
@@ -115,7 +115,7 @@ $glyph_height: 23px; // Based on .funnel-step-glyph
         flex-direction: row;
         height: 32px;
         margin: 4px 0;
-        background-color: var(--color-border-primary);
+        background-color: var(--color-border);
         border-radius: var(--radius);
 
         .funnel-bar {
@@ -149,7 +149,7 @@ $glyph_height: 23px; // Based on .funnel-step-glyph
 
                 &.outside {
                     left: calc(100% + #{$label_position_offset});
-                    color: var(--text-3000);
+                    color: var(--color-foreground);
                 }
             }
         }

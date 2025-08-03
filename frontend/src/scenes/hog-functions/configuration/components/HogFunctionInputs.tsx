@@ -32,7 +32,7 @@ export function HogFunctionInputs(): JSX.Element {
     } = useActions(hogFunctionConfigurationLogic)
 
     const content = (
-        <div className={clsx('p-3 rounded border deprecated-space-y-2 bg-surface-primary')}>
+        <div className={clsx('p-3 rounded border deprecated-space-y-2 bg-card')}>
             <div className="deprecated-space-y-2">
                 {usesGroups && !hasGroupsAddon ? (
                     <LemonBanner type="warning">
@@ -63,7 +63,7 @@ export function HogFunctionInputs(): JSX.Element {
                     sampleGlobalsWithInputs={sampleGlobalsWithInputs}
                 />
                 {oldInputs && newInputs && (
-                    <div className="flex gap-2 items-center p-2 mt-4 rounded border border-dashed bg-surface-secondary">
+                    <div className="flex gap-2 items-center p-2 mt-4 rounded border border-dashed bg-secondary">
                         <div className="flex-1 text-center">
                             <span className="text-sm font-medium">Suggested by Max</span>
                         </div>

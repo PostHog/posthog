@@ -45,11 +45,11 @@ export const MetricTitle = ({ metric, metricType }: { metric: any; metricType?: 
             return (
                 <div className="inline-flex flex-wrap items-center gap-1 min-w-0">
                     <div className="inline-flex items-center gap-1 min-w-0">
-                        <IconFunnels className="text-secondary flex-shrink-0" fontSize="14" />
+                        <IconFunnels className="text-secondary-foreground flex-shrink-0" fontSize="14" />
                         {wrapWithTooltip(firstStep, <span className={getTextClassName(firstStep)}>{firstStep}</span>)}
                     </div>
                     <div className="inline-flex items-center gap-1 min-w-0 @max-[200px]:ml-5">
-                        <IconArrowRight className="text-secondary flex-shrink-0" fontSize="14" />
+                        <IconArrowRight className="text-secondary-foreground flex-shrink-0" fontSize="14" />
                         {wrapWithTooltip(lastStep, <span className={getTextClassName(lastStep)}>{lastStep}</span>)}
                     </div>
                 </div>
@@ -57,5 +57,5 @@ export const MetricTitle = ({ metric, metricType }: { metric: any; metricType?: 
         }
     }
 
-    return <span className="text-secondary break-words">Untitled metric</span>
+    return <span className="text-secondary-foreground break-words">Untitled metric</span>
 }

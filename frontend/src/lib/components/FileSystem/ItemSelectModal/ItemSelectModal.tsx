@@ -46,7 +46,7 @@ function RootFolderButton({
 }): JSX.Element {
     return (
         <ButtonPrimitive
-            className={cn('flex gap-2 px-2 py-1 border border-primary rounded hover:border-secondary', {
+            className={cn('flex gap-2 px-2 py-1 border border-border rounded hover:border-secondary', {
                 'border-accent': active,
             })}
             onClick={onClick}
@@ -190,7 +190,7 @@ export function ItemSelectModal({ className, includeProtocol, includeRoot }: Ite
                                 <ScrollableShadows
                                     direction="vertical"
                                     className={cn(
-                                        'bg-surface-primary border rounded group/colorful-product-icons colorful-product-icons-true',
+                                        'bg-card border rounded group/colorful-product-icons colorful-product-icons-true',
                                         className
                                     )}
                                 >

@@ -91,7 +91,7 @@ function LineageNode({ data, edges }: LineageNodeProps): JSX.Element {
             <div className="flex items-center gap-2 mb-2">
                 {data.isCurrentView && (
                     <Tooltip placement="top" title="This is the currently viewed query">
-                        <IconTarget className="text-warning text-sm" />
+                        <IconTarget className="text-warning-foreground text-sm" />
                     </Tooltip>
                 )}
                 <Tooltip title={data.name} placement="top">
@@ -124,7 +124,9 @@ function LineageNode({ data, edges }: LineageNodeProps): JSX.Element {
             </div>
 
             {data.last_run_at && (
-                <div className="text-xs text-muted mt-2">Last run: {humanFriendlyDetailedTime(data.last_run_at)}</div>
+                <div className="text-xs text-tertiary-foreground mt-2">
+                    Last run: {humanFriendlyDetailedTime(data.last_run_at)}
+                </div>
             )}
 
             {hasOutgoing && <Handle type="source" position={Position.Right} className="w-2 h-2 bg-primary" />}
@@ -242,9 +244,9 @@ function UpstreamGraphContent({ codeEditorKey }: UpstreamGraphProps): JSX.Elemen
                 data-attr="upstream-graph-empty-state"
                 className="flex flex-col flex-1 rounded p-4 w-full items-center justify-center"
             >
-                <IconArchive className="text-5xl mb-2 text-tertiary" />
+                <IconArchive className="text-5xl mb-2 text-tertiary-foreground" />
                 <h2 className="text-xl leading-tight">No tables or views found</h2>
-                <p className="text-sm text-center text-balance text-tertiary">
+                <p className="text-sm text-center text-balance text-tertiary-foreground">
                     This query doesn't depend on any other tables or views
                 </p>
             </div>

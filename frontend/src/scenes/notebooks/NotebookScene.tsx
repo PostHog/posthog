@@ -59,8 +59,8 @@ export function NotebookScene(): JSX.Element {
 
     if (visibility === 'visible' && selectedNotebook === notebookId) {
         return (
-            <div className="flex flex-col justify-center items-center h-full text-secondary mx-10 flex-1">
-                <h2 className="text-secondary">
+            <div className="flex flex-col justify-center items-center h-full text-secondary-foreground mx-10 flex-1">
+                <h2 className="text-secondary-foreground">
                     This Notebook is open in the side panel <IconOpenSidebar />
                 </h2>
 

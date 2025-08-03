@@ -44,11 +44,11 @@ function SurveyOption({ label, children }: { label: string; children: React.Reac
 }
 
 const QuestionIconMap = {
-    [SurveyQuestionType.Open]: <IconComment className="text-muted" />,
-    [SurveyQuestionType.Link]: <IconLink className="text-muted" />,
-    [SurveyQuestionType.Rating]: <IconAreaChart className="text-muted" />,
-    [SurveyQuestionType.SingleChoice]: <IconListView className="text-muted" />,
-    [SurveyQuestionType.MultipleChoice]: <IconGridView className="text-muted" />,
+    [SurveyQuestionType.Open]: <IconComment className="text-tertiary-foreground" />,
+    [SurveyQuestionType.Link]: <IconLink className="text-tertiary-foreground" />,
+    [SurveyQuestionType.Rating]: <IconAreaChart className="text-tertiary-foreground" />,
+    [SurveyQuestionType.SingleChoice]: <IconListView className="text-tertiary-foreground" />,
+    [SurveyQuestionType.MultipleChoice]: <IconGridView className="text-tertiary-foreground" />,
 }
 
 export function SurveyOverview(): JSX.Element {
@@ -68,7 +68,7 @@ export function SurveyOverview(): JSX.Element {
                                 <span className="flex-1 truncate">
                                     {idx + 1}. {q.question}
                                 </span>
-                                <span className="flex items-center gap-1 text-xs text-muted">
+                                <span className="flex items-center gap-1 text-xs text-tertiary-foreground">
                                     {QuestionIconMap[q.type]}
                                     {SurveyQuestionLabel[q.type]}
                                 </span>

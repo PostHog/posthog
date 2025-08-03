@@ -17,7 +17,7 @@ export function BillingEarlyAccessBanner(): JSX.Element {
                     </LemonTag>
                     <BuilderHog3 className="w-20 h-20 mt-6" />
                 </div>
-                <div className="text-primary">
+                <div className="text-foreground">
                     <p>
                         We're still tinkering with these dashboards - got questions, ideas or bugs?{' '}
                         <Link

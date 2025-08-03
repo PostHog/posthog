@@ -25,7 +25,7 @@ export function SidebarQuestionInputWithSuggestions(): JSX.Element {
         >
             <SidebarQuestionInput />
             <div className="flex flex-col items-center justify-center gap-y-2">
-                <h3 className="text-center text-xs font-medium mb-0 text-secondary">Ask Max about…</h3>
+                <h3 className="text-center text-xs font-medium mb-0 text-secondary-foreground">Ask Max about…</h3>
                 <FloatingSuggestionsDisplay
                     type="secondary"
                     showSuggestions

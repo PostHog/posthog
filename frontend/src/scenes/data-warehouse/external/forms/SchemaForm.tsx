@@ -114,7 +114,7 @@ export default function SchemaForm(): JSX.Element {
                                                     interactive={schema.should_sync}
                                                     title={syncAnchorIntervalToHumanReadable(utcTime, '6hour')}
                                                 >
-                                                    <IconInfo className="text-muted-alt" />
+                                                    <IconInfo className="text-tertiary-foreground" />
                                                 </Tooltip>
                                             }
                                         />

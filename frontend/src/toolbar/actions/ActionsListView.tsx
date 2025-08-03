@@ -27,7 +27,7 @@ export function ActionsListView({ actions }: ActionsListViewProps): JSX.Element 
                         >
                             <span className="min-w-[2rem] inline-block text-left">{index + 1}.</span>
                             <span className="flex-grow">
-                                {action.name || <span className="italic text-secondary">Untitled</span>}
+                                {action.name || <span className="italic text-secondary-foreground">Untitled</span>}
                             </span>
                         </Link>
                     </Fragment>

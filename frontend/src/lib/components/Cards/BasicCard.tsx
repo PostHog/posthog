@@ -15,12 +15,12 @@ export function BasicCard({ children, className, id, backgroundColor, ...props }
 
     return (
         <div
-            className={cn('border border-primary rounded flex flex-col p-3', className)}
+            className={cn('border border-border rounded flex flex-col p-3', className)}
             // eslint-disable-next-line react/forbid-dom-props
             style={
                 {
                     // We use this value in the animation 'animate-mark' so it can return to it's original color
-                    '--original-bg': backgroundColor || 'var(--color-bg-surface-primary)',
+                    '--original-bg': backgroundColor || 'var(--color-card)',
                     backgroundColor: 'var(--original-bg)',
                 } as React.CSSProperties
             }

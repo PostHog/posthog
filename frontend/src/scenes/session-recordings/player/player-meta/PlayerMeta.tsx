@@ -66,7 +66,7 @@ function URLOrScreen({ url }: { url: unknown }): JSX.Element | null {
                     <CopyToClipboardInline
                         description={urlToUse}
                         explicitValue={urlToUse}
-                        iconStyle={{ color: 'var(--color-text-secondary)' }}
+                        iconStyle={{ color: 'var(--color-secondary-foreground)' }}
                         selectable={true}
                     />
                 </span>
@@ -102,7 +102,7 @@ export function ResolutionView({ size }: { size?: PlayerMetaBreakpoints }): JSX.
                 </>
             }
         >
-            <span className="text-secondary text-xs flex flex-row items-center gap-x-1">
+            <span className="text-secondary-foreground text-xs flex flex-row items-center gap-x-1">
                 {size === 'normal' && <span>{resolutionDisplay}</span>}
                 <span>({scaleDisplay})</span>
             </span>
@@ -152,18 +152,18 @@ export function PlayerMeta(): JSX.Element {
 
     const windowOptions: LemonSelectOption<string | null>[] = [
         {
-            label: <IconWindow value={currentWindowIndex} className="text-secondary" />,
+            label: <IconWindow value={currentWindowIndex} className="text-secondary-foreground" />,
             value: null,
             labelInMenu: <>Follow the user</>,
         },
     ]
     windowIds.forEach((windowId, index) => {
         windowOptions.push({
-            label: <IconWindow value={index + 1} className="text-secondary" />,
+            label: <IconWindow value={index + 1} className="text-secondary-foreground" />,
             labelInMenu: (
                 <div className="flex flex-row gap-x-1 space-between items-center">
                     Follow window:&nbsp;
-                    <IconWindow value={index + 1} className="text-secondary" />
+                    <IconWindow value={index + 1} className="text-secondary-foreground" />
                 </div>
             ),
             value: windowId,

@@ -30,7 +30,7 @@ export function WebVitalsProgressBar({ value, metric }: WebVitalsProgressBarProp
                     width: `${goodWidth}%`,
                     backgroundColor: band === 'good' ? `${WEB_VITALS_COLORS.good} !important` : undefined,
                 }}
-                className="absolute h-full rounded-full bg-surface-secondary"
+                className="absolute h-full rounded-full bg-secondary"
             >
                 <IndicatorLine value={value} metric={metric} band="good" />
             </div>
@@ -46,7 +46,7 @@ export function WebVitalsProgressBar({ value, metric }: WebVitalsProgressBarProp
                             ? `${WEB_VITALS_COLORS.needs_improvements} !important`
                             : undefined,
                 }}
-                className="absolute h-full rounded-full bg-surface-secondary"
+                className="absolute h-full rounded-full bg-secondary"
             >
                 <IndicatorLine value={value} metric={metric} band="needs_improvements" />
             </div>
@@ -59,7 +59,7 @@ export function WebVitalsProgressBar({ value, metric }: WebVitalsProgressBarProp
                     width: `${poorWidth - 1}%`,
                     backgroundColor: band === 'poor' ? `${WEB_VITALS_COLORS.poor} !important` : undefined,
                 }}
-                className="absolute h-full rounded-full bg-surface-secondary"
+                className="absolute h-full rounded-full bg-secondary"
             >
                 <IndicatorLine value={value} metric={metric} band="poor" />
             </div>

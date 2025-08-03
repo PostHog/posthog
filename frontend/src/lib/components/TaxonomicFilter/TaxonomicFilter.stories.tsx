@@ -41,9 +41,9 @@ export const EventsFree: StoryFn<typeof TaxonomicFilter> = (args) => {
         // Highlight the second item, as the first one is "All events", which doesn't have a definition to show
         // - we do want to show the definition popover here too
         setIndex(1)
-    }, [])
+    }, [setIndex])
     return (
-        <div className="w-fit border rounded p-2 bg-surface-primary">
+        <div className="w-fit border rounded p-2 bg-card">
             <TaxonomicFilter {...args} />
         </div>
     )
@@ -89,7 +89,7 @@ export const Actions: StoryFn<typeof TaxonomicFilter> = (args) => {
         // Highlight the second item, as the first one is "All events", which doesn't have a definition to show
         // - we do want to show the definition popover here too
         setIndex(0)
-    }, [])
+    }, [setIndex])
     return (
         <div className="w-fit border rounded p-2">
             <TaxonomicFilter {...args} />
@@ -110,7 +110,7 @@ Actions.parameters = {
 
 export const Properties: StoryFn<typeof TaxonomicFilter> = (args) => {
     return (
-        <div className="w-fit border rounded p-2 bg-surface-primary">
+        <div className="w-fit border rounded p-2 bg-card">
             <TaxonomicFilter {...args} />
         </div>
     )
@@ -142,9 +142,9 @@ export const Columnar: StoryFn<typeof TaxonomicFilter> = (args) => {
     )
     useEffect(() => {
         setIndex(1)
-    }, [])
+    }, [setIndex])
     return (
-        <div className="w-fit border rounded p-2 bg-surface-primary">
+        <div className="w-fit border rounded p-2 bg-card">
             <TaxonomicFilter {...args} />
         </div>
     )
@@ -182,9 +182,9 @@ export const ForceColumnar: StoryFn<typeof TaxonomicFilter> = (args) => {
     )
     useEffect(() => {
         setIndex(1)
-    }, [])
+    }, [setIndex])
     return (
-        <div className="w-fit border rounded p-2 bg-surface-primary">
+        <div className="w-fit border rounded p-2 bg-card">
             <TaxonomicFilter {...args} />
         </div>
     )
@@ -221,9 +221,9 @@ export const ForceNonColumnar: StoryFn<typeof TaxonomicFilter> = (args) => {
     )
     useEffect(() => {
         setIndex(1)
-    }, [])
+    }, [setIndex])
     return (
-        <div className="w-fit border rounded p-2 bg-surface-primary">
+        <div className="w-fit border rounded p-2 bg-card">
             <TaxonomicFilter {...args} />
         </div>
     )

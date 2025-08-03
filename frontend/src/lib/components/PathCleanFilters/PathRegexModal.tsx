@@ -50,7 +50,7 @@ export function PathRegexModal({ filter, isOpen, onSave, onClose }: PathRegexMod
                                 onChange={(regex) => setRegex(regex)}
                                 onPressEnter={() => false}
                             />
-                            <p className="text-muted">
+                            <p className="text-tertiary-foreground">
                                 <span>
                                     Example:{' '}
                                     <span className="font-mono text-accent text-xs">/merchant/\d+/dashboard$</span> (no
@@ -73,7 +73,7 @@ export function PathRegexModal({ filter, isOpen, onSave, onClose }: PathRegexMod
                                 onChange={(alias) => setAlias(alias)}
                                 onPressEnter={() => false}
                             />
-                            <p className="text-muted">
+                            <p className="text-tertiary-foreground">
                                 <span>How the path will appear after path cleaning</span>
                                 <br />
                                 <span>

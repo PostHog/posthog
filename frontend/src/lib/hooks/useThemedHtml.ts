@@ -40,8 +40,8 @@ export function useThemedHtml(overflowHidden = true): void {
             const root = document.documentElement
             const style = getComputedStyle(root)
             const backgroundColor = sceneConfig?.projectBased
-                ? style.getPropertyValue('--color-bg-surface-secondary')
-                : style.getPropertyValue('--color-bg-surface-tertiary')
+                ? style.getPropertyValue('--color-card')
+                : style.getPropertyValue('--color-tertiary')
 
             document.head.querySelector('meta[name="theme-color"]')?.remove()
             document.head.insertAdjacentHTML('beforeend', `<meta name="theme-color" content="${backgroundColor}">`)

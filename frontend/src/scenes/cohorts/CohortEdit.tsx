@@ -251,7 +251,7 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                                     ) : (
                                         <div className="text-s">Not yet calculated</div>
                                     )}
-                                    <div className="text-secondary text-xs">
+                                    <div className="text-secondary-foreground text-xs">
                                         Cohorts are recalculated every 24 hours
                                     </div>
                                 </div>
@@ -285,13 +285,13 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                                         onChange={(files) => onChange(files[0])}
                                         showUploadedFiles={false}
                                         callToAction={
-                                            <div className="flex flex-col items-center justify-center flex-1 cohort-csv-dragger text-text-3000 deprecated-space-y-1">
+                                            <div className="flex flex-col items-center justify-center flex-1 cohort-csv-dragger text-text-foreground deprecated-space-y-1">
                                                 {cohort.csv ? (
                                                     <>
                                                         <IconUploadFile
                                                             style={{
                                                                 fontSize: '3rem',
-                                                                color: 'var(--color-text-secondary)',
+                                                                color: 'var(--color-secondary-foreground)',
                                                             }}
                                                         />
                                                         <div>{cohort.csv?.name ?? 'File chosen'}</div>
@@ -301,7 +301,7 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                                                         <IconUploadFile
                                                             style={{
                                                                 fontSize: '3rem',
-                                                                color: 'var(--color-text-secondary)',
+                                                                color: 'var(--color-secondary-foreground)',
                                                             }}
                                                         />
                                                         <div>Drag a file here or click to browse for a file</div>
@@ -354,7 +354,7 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                         <div>
                             <h3 className="l3 mb-4">
                                 Persons in this cohort
-                                <span className="text-secondary ml-2">
+                                <span className="text-secondary-foreground ml-2">
                                     {!cohort.is_calculating &&
                                         cohort.count !== undefined &&
                                         `(${cohort.count} matching ${pluralize(

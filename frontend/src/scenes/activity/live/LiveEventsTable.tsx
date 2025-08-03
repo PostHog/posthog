@@ -75,7 +75,7 @@ export function LiveEventsTable(): JSX.Element {
             <div className="mb-4 flex w-full justify-between items-center">
                 <div className="flex justify-center">
                     <Tooltip title="Estimate of users active in the last 30 seconds." placement="right">
-                        <div className="flex justify-center items-center bg-surface-primary px-3 py-2 rounded border border-primary text-xs font-medium text-secondary gap-x-2.5">
+                        <div className="flex justify-center items-center bg-card px-3 py-2 rounded border border-border text-xs font-medium text-secondary-foreground gap-x-2.5">
                             <span className="relative flex h-2.5 w-2.5">
                                 <span
                                     className={clsx(

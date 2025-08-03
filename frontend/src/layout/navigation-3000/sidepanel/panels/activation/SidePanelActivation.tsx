@@ -45,7 +45,7 @@ export const SidePanelActivation = (): JSX.Element | null => {
                             strokeColor="var(--success)"
                             className="w-full stroke-opacity-80 h-2"
                         />
-                        <span className="font-medium text-muted-alt">{completionPercent}%</span>
+                        <span className="font-medium text-tertiary-foreground">{completionPercent}%</span>
                     </div>
                 </div>
                 <div className="divide-y">
@@ -103,7 +103,7 @@ export const SidePanelActivationIcon = ({
             progress={completionPercent / 100}
             strokePercentage={0.15}
             size={size}
-            className={clsx(activeTasks.length > 0 ? 'text-accent' : 'text-muted-alt', className)}
+            className={clsx(activeTasks.length > 0 ? 'text-accent' : 'text-tertiary-foreground', className)}
         >
             <span className="text-xs font-semibold">{activeTasks.length}</span>
         </LemonProgressCircle>
@@ -161,7 +161,7 @@ const ActivationSectionComponent = ({
                 </div>
                 <div className="flex items-center gap-2">
                     {section.visible && (
-                        <span className="text-sm text-muted-alt font-medium">
+                        <span className="text-sm text-tertiary-foreground font-medium">
                             {itemsCompleted} of {totalItems} complete
                         </span>
                     )}
@@ -271,7 +271,7 @@ const ActivationTask = ({
                         <IconCheckCircle className="h-6 w-6 text-success" />
                     ) : lockedReason ? (
                         <Tooltip title={lockedReason}>
-                            <IconLock className="h-6 w-6 text-muted-alt" />
+                            <IconLock className="h-6 w-6 text-tertiary-foreground" />
                         </Tooltip>
                     ) : (
                         <div className="rounded-full border-2 w-5 h-5 border-muted-alt" />
@@ -282,7 +282,7 @@ const ActivationTask = ({
                     <LemonButton
                         size="xsmall"
                         type="secondary"
-                        className="h-6 font-semibold text-muted-alt activation-task-skip"
+                        className="h-6 font-semibold text-tertiary-foreground activation-task-skip"
                         onClick={handleSkip}
                     >
                         Skip

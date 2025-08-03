@@ -175,8 +175,8 @@ const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
                         <span className="font-semibold text-[1.2em] line-clamp-1">{record.name || 'Unknown Type'}</span>
                     </div>
                 </Link>
-                <div className="line-clamp-1 text-secondary">{record.description}</div>
-                <div className="flex items-center text-secondary">
+                <div className="line-clamp-1 text-secondary-foreground">{record.description}</div>
+                <div className="flex items-center text-secondary-foreground">
                     <IssueStatusSelect
                         status={record.status}
                         onChange={(status) => updateIssueStatus(record.id, status)}
@@ -188,13 +188,13 @@ const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
                     >
                         {(anyAssignee) => (
                             <div
-                                className="flex items-center hover:bg-fill-button-tertiary-hover p-[0.1rem] rounded cursor-pointer"
+                                className="flex items-center hover:bg-interactive-focus p-[0.1rem] rounded cursor-pointer"
                                 role="button"
                             >
                                 <AssigneeIconDisplay assignee={anyAssignee} size="xsmall" />
                                 <AssigneeLabelDisplay
                                     assignee={anyAssignee}
-                                    className="ml-1 text-xs text-secondary"
+                                    className="ml-1 text-xs text-secondary-foreground"
                                     size="xsmall"
                                 />
                                 <IconChevronDown />

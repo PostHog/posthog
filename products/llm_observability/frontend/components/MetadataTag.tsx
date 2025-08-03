@@ -19,5 +19,5 @@ export function MetadataTag({ children, label, textToCopy }: MetadataTagProps): 
         wrappedChildren = <Tooltip title={label}>{children}</Tooltip>
     }
 
-    return <LemonTag className="bg-surface-primary cursor-default">{wrappedChildren}</LemonTag>
+    return <LemonTag className="bg-card cursor-default">{wrappedChildren}</LemonTag>
 }

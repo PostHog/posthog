@@ -76,7 +76,7 @@ export function StacktraceGenericExceptionHeader({
                 )}
             </div>
             <div
-                className={cn('text-tertiary leading-6', {
+                className={cn('text-tertiary-foreground leading-6', {
                     'line-clamp-1': truncate,
                 })}
             >

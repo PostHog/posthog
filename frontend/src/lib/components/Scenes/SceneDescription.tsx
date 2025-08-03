@@ -87,7 +87,9 @@ export function SceneDescription({
                 {defaultValue !== '' ? (
                     defaultValue
                 ) : (
-                    <span className="text-tertiary font-normal">No description {optional ? '(optional)' : ''}</span>
+                    <span className="text-tertiary-foreground font-normal">
+                        No description {optional ? '(optional)' : ''}
+                    </span>
                 )}
             </ButtonPrimitive>
         </ScenePanelLabel>

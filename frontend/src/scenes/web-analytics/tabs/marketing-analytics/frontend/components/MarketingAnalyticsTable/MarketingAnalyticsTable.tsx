@@ -31,7 +31,7 @@ export const MarketingAnalyticsTable = ({ query, insightProps }: MarketingAnalyt
     }
 
     return (
-        <div className="bg-surface-primary">
+        <div className="bg-card">
             <div className="p-4 border-b border-border bg-bg-light">
                 <div className="flex gap-4">
                     <div className="flex-1">

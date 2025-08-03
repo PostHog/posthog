@@ -9,13 +9,13 @@
     h2 {
         margin-bottom: 0.75rem;
         font-weight: 600;
-        color: var(--danger);
+        color: var(--color-error-foreground);
     }
 
     pre {
         padding: 0.75rem 1rem;
         margin-bottom: 0.75rem;
-        background: var(--color-border-primary);
+        background: var(--color-tertiary);
         border-radius: var(--radius);
     }
 

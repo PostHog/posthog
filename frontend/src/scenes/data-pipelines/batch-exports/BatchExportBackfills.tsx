@@ -90,8 +90,8 @@ function BatchExportLatestBackfills({ id }: BatchExportBackfillsLogicProps): JSX
                             const color = colorForStatus(status)
                             const statusStyles = {
                                 success: 'border-success text-success-dark',
-                                accent: 'border-accent text-primary-dark',
-                                warning: 'border-warning text-warning-dark',
+                                accent: 'border-accent text-foreground-dark',
+                                warning: 'border-warning text-warning-foreground-dark',
                                 danger: 'border-danger text-danger-dark',
                                 default: 'border-default text-default-dark',
                             } as const

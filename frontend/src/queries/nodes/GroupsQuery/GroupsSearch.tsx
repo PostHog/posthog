@@ -30,7 +30,7 @@ export function GroupsSearch({ query, setQuery, groupTypeLabel = 'groups' }: Gro
                 onChange={onChange}
             />
             <Tooltip title="Search by name or identifier">
-                <IconInfo className="text-2xl text-secondary shrink-0" />
+                <IconInfo className="text-2xl text-secondary-foreground shrink-0" />
             </Tooltip>
         </div>
     )

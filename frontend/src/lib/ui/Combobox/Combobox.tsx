@@ -192,7 +192,7 @@ const Empty = ({ children }: EmptyProps): JSX.Element | null => {
     }
 
     return context.getVisibleGroupCount() === 0 ? (
-        <ButtonPrimitive className="text-tertiary text-center" role="alert">
+        <ButtonPrimitive className="text-tertiary-foreground text-center" role="alert">
             {children}
         </ButtonPrimitive>
     ) : null

@@ -49,7 +49,7 @@ export const SearchResult = ({ result, resultIndex, focused }: SearchResultProps
             <div
                 className={clsx(
                     'w-full px-2 hover:bg-primary border-l-4 border-b cursor-pointer',
-                    focused ? 'bg-surface-secondary border-l-accent' : 'bg-surface-primary'
+                    focused ? 'bg-secondary border-l-accent' : 'bg-card'
                 )}
                 onClick={() => {
                     if (mobileLayout) {
@@ -63,14 +63,14 @@ export const SearchResult = ({ result, resultIndex, focused }: SearchResultProps
                 ref={ref}
             >
                 <div className="px-2 py-3 w-full gap-y-0.5 flex flex-col items-start">
-                    <span className="text-tertiary text-xs">
+                    <span className="text-tertiary-foreground text-xs">
                         {result.type === 'tree_item'
                             ? `Product`
                             : result.type !== 'group'
                             ? tabToName[result.type]
                             : `${capitalizeFirstLetter(aggregationLabel(result.extra_fields.group_type_index).plural)}`}
                     </span>
-                    <span className="text-primary font-bold">
+                    <span className="text-foreground font-bold">
                         <ResultName result={result} />
                     </span>
                 </div>
@@ -80,7 +80,7 @@ export const SearchResult = ({ result, resultIndex, focused }: SearchResultProps
 }
 
 export const SearchResultSkeleton = (): JSX.Element => (
-    <div className="px-5 py-4 w-full gap-y-1.5 flex flex-col items-start bg-surface-primary border-b">
+    <div className="px-5 py-4 w-full gap-y-1.5 flex flex-col items-start bg-card border-b">
         <LemonSkeleton className="w-16 opacity-75 h-3" />
         <LemonSkeleton className="w-40 h-3.5" />
     </div>

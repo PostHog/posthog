@@ -10,7 +10,7 @@ export function SurveyNoResponsesBanner({ type }: Props): JSX.Element {
             <SurprisedHog className="size-36" />
             <div className="text-center">
                 <h3 className="text-lg font-semibold m-0">No responses for this {type}</h3>
-                <p className="text-sm text-muted m-0">
+                <p className="text-sm text-tertiary-foreground m-0">
                     Once people start responding to your {type}, their answers will appear here.
                 </p>
             </div>

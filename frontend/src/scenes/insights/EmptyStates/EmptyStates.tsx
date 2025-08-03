@@ -65,9 +65,9 @@ export function InsightEmptyState({
             data-attr="insight-empty-state"
             className="flex flex-col flex-1 rounded p-4 w-full items-center justify-center"
         >
-            <IconArchive className="text-5xl mb-2 text-tertiary" />
+            <IconArchive className="text-5xl mb-2 text-tertiary-foreground" />
             <h2 className="text-xl leading-tight">{heading}</h2>
-            <p className="text-sm text-center text-balance text-tertiary">{detail}</p>
+            <p className="text-sm text-center text-balance text-tertiary-foreground">{detail}</p>
         </div>
     )
 }
@@ -102,7 +102,7 @@ function QueryIdDisplay({ queryId }: { queryId?: string | null }): JSX.Element |
     }
 
     return (
-        <div className="text-muted text-xs">
+        <div className="text-tertiary-foreground text-xs">
             Query ID: <span className="font-mono">{queryId}</span>
         </div>
     )
@@ -368,7 +368,7 @@ export function StatelessInsightLoadingState({
 }
 
 const CodeWrapper = (props: { children: React.ReactNode }): JSX.Element => (
-    <code className="border border-1 border-primary rounded-xs text-xs px-1 py-0.5">{props.children}</code>
+    <code className="border border-1 border-border rounded-xs text-xs px-1 py-0.5">{props.children}</code>
 )
 
 const SLOW_LOADING_TIME = 15
@@ -530,12 +530,12 @@ export function InsightValidationError({
             data-attr="insight-empty-state"
             className="flex flex-col items-center justify-center gap-2 rounded p-4 h-full w-full"
         >
-            <IconWarning className="text-4xl shrink-0 text-muted" />
+            <IconWarning className="text-4xl shrink-0 text-tertiary-foreground" />
 
             <h2
                 data-attr="insight-loading-too-long"
                 className="text-xl font-bold leading-tight"
-                // TODO: Use an actual `text-warning` color once @adamleithp changes are live
+                // TODO: Use an actual `text-warning-foreground` color once @adamleithp changes are live
                 // eslint-disable-next-line react/forbid-dom-props
                 style={{ color: 'var(--warning)' }}
             >
@@ -544,7 +544,7 @@ export function InsightValidationError({
                 {/* but rather that it's something with the definition of the query itself */}
             </h2>
 
-            <p className="text-sm text-center text-balance text-muted max-w-120">{detail}</p>
+            <p className="text-sm text-center text-balance text-tertiary-foreground max-w-120">{detail}</p>
             <QueryDebuggerButton query={query} />
 
             {detail.includes('Exclusion') && (
@@ -598,7 +598,7 @@ export function InsightErrorState({
                 className="text-xl leading-tight mb-6"
                 // TODO: Use an actual `text-danger` color once @adamleithp changes are live
                 // eslint-disable-next-line react/forbid-dom-props
-                style={{ color: 'var(--danger)' }}
+                style={{ color: 'var(--color-error-foreground)' }}
                 data-attr="insight-loading-too-long"
             >
                 {title || <span>There was a problem completing this query</span>}
@@ -654,11 +654,11 @@ export function FunnelSingleStepState({ actionable = true }: FunnelSingleStepSta
 
     return (
         <div data-attr="insight-empty-state" className="flex flex-col flex-1 items-center justify-center">
-            <div className="text-5xl text-muted mb-2">
+            <div className="text-5xl text-tertiary-foreground mb-2">
                 <IconPlusSquare />
             </div>
             <h2 className="text-xl leading-tight font-medium">Add another step!</h2>
-            <p className="mb-0 text-sm text-center text-balance text-muted">
+            <p className="mb-0 text-sm text-center text-balance text-tertiary-foreground">
                 <span>You're almost there! Funnels require at least two steps before calculating.</span>
                 {actionable && (
                     <>

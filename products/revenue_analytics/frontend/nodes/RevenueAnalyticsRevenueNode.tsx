@@ -95,7 +95,7 @@ const GrossRevenueTile = ({
             title={GROSS_REVENUE_TITLE}
             tooltip={GROSS_REVENUE_TOOLTIP}
             extra={
-                <div className="flex items-center gap-1 text-muted-alt">
+                <div className="flex items-center gap-1 text-tertiary-foreground">
                     <LemonSegmentedButton
                         value={insightsDisplayMode}
                         onChange={setInsightsDisplayMode}

@@ -69,7 +69,7 @@ export function DashboardEditBar(): JSX.Element {
                 className={clsx(
                     'flex gap-2 items-end flex-wrap border md:[&>*]:grow-0 [&>*]:grow',
                     dashboardMode === DashboardMode.Edit
-                        ? '-m-1.5 p-1.5 border-primary border-dashed rounded-lg'
+                        ? '-m-1.5 p-1.5 border-border border-dashed rounded-lg'
                         : 'border-transparent'
                 )}
             >

@@ -6,7 +6,7 @@
     justify-content: center;
     width: 22px;
     height: 22px;
-    border: 2px solid var(--text-3000);
+    border: 2px solid var(--color-foreground);
     border-radius: 50%;
 }
 
@@ -20,8 +20,8 @@
 }
 
 .LemonColorGlyph--unset {
-    background-color: var(--color-bg-surface-primary);
-    border-color: var(--color-border-primary);
+    background-color: var(--color-card);
+    border-color: var(--color-border);
 }
 
 .LemonColorGlyph__strikethrough {
@@ -34,7 +34,7 @@
         to top left,
         transparent 0%,
         transparent calc(50% - 1.2px),
-        var(--danger) 50%,
+        var(--color-error-foreground) 50%,
         transparent calc(50% + 1.2px),
         transparent 100%
     );

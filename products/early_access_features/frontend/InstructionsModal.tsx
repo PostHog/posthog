@@ -18,7 +18,7 @@ export function InstructionsModal({ onClose, visible, flag }: InstructionsModalP
 
     const getCloudPanels = (): JSX.Element => (
         <LemonCollapse
-            className="mt-2 bg-surface-primary"
+            className="mt-2 bg-card"
             defaultActiveKey="1"
             panels={[
                 {

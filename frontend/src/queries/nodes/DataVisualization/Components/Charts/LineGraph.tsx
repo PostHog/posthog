@@ -536,11 +536,25 @@ export const LineGraph = (): JSX.Element => {
             plugins: [dataLabelsPlugin],
         })
         return () => newChart.destroy()
-    }, [xData, yData, seriesBreakdownData, visualizationType, goalLines, chartSettings])
+    }, [
+        xData,
+        yData,
+        seriesBreakdownData,
+        visualizationType,
+        goalLines,
+        chartSettings,
+        colors.axisLabel,
+        dashboardId,
+        isBarChart,
+        isStackedBarChart,
+        isAreaChart,
+        colors.crosshair,
+        colors.axisLine,
+    ])
 
     return (
         <div
-            className={clsx('rounded bg-surface-primary relative flex flex-1 flex-col p-2', {
+            className={clsx('rounded bg-card relative flex flex-1 flex-col p-2', {
                 border: showEditingUI,
                 'h-[60vh]': presetChartHeight,
                 'h-full': !presetChartHeight,

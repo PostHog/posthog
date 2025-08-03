@@ -63,7 +63,7 @@ export function PathCleaningRulesDebugger({
                         content: (
                             <div className="space-y-1">
                                 {/* Column Headers */}
-                                <div className="flex gap-3 items-center py-2 px-3 text-xs font-medium text-muted-alt border-b bg-accent-3000">
+                                <div className="flex gap-3 items-center py-2 px-3 text-xs font-medium text-tertiary-foreground border-b bg-accent-3000">
                                     <div
                                         className="w-8 flex-shrink-0 text-center"
                                         title="Rule number in processing order"
@@ -89,7 +89,7 @@ export function PathCleaningRulesDebugger({
                                         key={step.stepNumber}
                                         className="flex gap-3 items-center px-3 text-xs hover:bg-accent-light border-b border-border"
                                     >
-                                        <div className="w-8 flex-shrink-0 text-center text-muted-alt font-medium">
+                                        <div className="w-8 flex-shrink-0 text-center text-tertiary-foreground font-medium">
                                             {step.stepNumber}
                                         </div>
                                         <div className="flex-1 min-w-0 flex items-center gap-2">
@@ -103,7 +103,7 @@ export function PathCleaningRulesDebugger({
                                             >
                                                 {step.filter.regex || '(Empty)'}
                                             </code>
-                                            <IconChevronRight className="text-muted-alt h-3 w-3 flex-shrink-0" />
+                                            <IconChevronRight className="text-tertiary-foreground h-3 w-3 flex-shrink-0" />
                                             <span
                                                 className="font-mono text-xs min-w-0 overflow-hidden text-ellipsis whitespace-nowrap"
                                                 title={step.filter.alias || '(Empty)'}
@@ -135,13 +135,13 @@ export function PathCleaningRulesDebugger({
                                     </div>
                                 ))}
 
-                                <div className="flex gap-3 items-center py-3 px-3 bg-primary-light border border-primary rounded mt-3">
-                                    <div className="w-20 flex-shrink-0 text-xs font-medium text-primary">
+                                <div className="flex gap-3 items-center py-3 px-3 bg-primary-light border border-border rounded mt-3">
+                                    <div className="w-20 flex-shrink-0 text-xs font-medium text-foreground">
                                         Final result:
                                     </div>
                                     <div className="flex-1 min-w-0">
                                         <code
-                                            className="font-mono text-xs text-primary block overflow-hidden text-ellipsis whitespace-nowrap"
+                                            className="font-mono text-xs text-foreground block overflow-hidden text-ellipsis whitespace-nowrap"
                                             title={String(finalResult)}
                                         >
                                             {finalResult}

@@ -8,7 +8,7 @@ export const SearchTermFilter = (): JSX.Element => {
     const { setSearchTerm } = useActions(logsLogic)
 
     return (
-        <span className="rounded bg-surface-primary">
+        <span className="rounded bg-card">
             <LemonInput
                 size="small"
                 value={searchTerm}

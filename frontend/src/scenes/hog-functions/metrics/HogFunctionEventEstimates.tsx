@@ -46,7 +46,7 @@ export function HogFunctionEventEstimates(): JSX.Element | null {
     const canvasUrl = urls.canvas() + '#🦔=' + btoa(JSON.stringify(canvasContent))
 
     return (
-        <div className="relative p-3 rounded border deprecated-space-y-2 bg-surface-primary">
+        <div className="relative p-3 rounded border deprecated-space-y-2 bg-card">
             <LemonLabel>Matching events</LemonLabel>
             {sparkline && !sparklineLoading ? (
                 <>

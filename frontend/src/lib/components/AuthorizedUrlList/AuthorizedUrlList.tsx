@@ -55,7 +55,7 @@ export function AuthorizedUrlList({
             />
 
             {isAddUrlFormVisible ? (
-                <div className="border rounded p-2 bg-surface-primary">
+                <div className="border rounded p-2 bg-card">
                     <AuthorizedUrlForm
                         type={type}
                         actionId={actionId}
@@ -85,7 +85,7 @@ export function AuthorizedUrlList({
                 }
 
                 return editUrlIndex === index ? (
-                    <div className="border rounded p-2 bg-surface-primary">
+                    <div className="border rounded p-2 bg-card">
                         <AuthorizedUrlForm
                             type={type}
                             actionId={actionId}
@@ -94,7 +94,7 @@ export function AuthorizedUrlList({
                         />
                     </div>
                 ) : (
-                    <div key={index} className={clsx('border rounded flex items-center p-2 pl-4 bg-surface-primary')}>
+                    <div key={index} className={clsx('border rounded flex items-center p-2 pl-4 bg-card')}>
                         {keyedURL.type === 'suggestion' && (
                             <Tooltip title={'Seen in ' + keyedURL.count + ' events in the last 3 days'}>
                                 <LemonTag type="highlight" className="mr-4 uppercase cursor-pointer">

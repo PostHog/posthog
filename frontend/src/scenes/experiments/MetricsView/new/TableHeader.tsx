@@ -36,20 +36,20 @@ export function TableHeader({ axisRange }: TableHeaderProps): JSX.Element {
     return (
         <thead>
             <tr>
-                <th className="w-1/5 border-b-2 bg-bg-table p-3 text-left text-xs font-semibold text-text-secondary sticky top-0 z-10">
+                <th className="w-1/5 border-b-2 bg-bg-table p-3 text-left text-xs font-semibold text-text-secondary-foreground sticky top-0 z-10">
                     Metric
                 </th>
-                <th className="w-1/15 border-b-2 bg-bg-table p-3 text-left text-xs font-semibold text-text-secondary sticky top-0 z-10">
+                <th className="w-1/15 border-b-2 bg-bg-table p-3 text-left text-xs font-semibold text-text-secondary-foreground sticky top-0 z-10">
                     Variant
                 </th>
-                <th className="w-1/15 border-b-2 bg-bg-table p-3 text-left text-xs font-semibold text-text-secondary sticky top-0 z-10">
+                <th className="w-1/15 border-b-2 bg-bg-table p-3 text-left text-xs font-semibold text-text-secondary-foreground sticky top-0 z-10">
                     Value
                 </th>
-                <th className="w-1/15 border-b-2 bg-bg-table p-3 text-left text-xs font-semibold text-text-secondary sticky top-0 z-10">
+                <th className="w-1/15 border-b-2 bg-bg-table p-3 text-left text-xs font-semibold text-text-secondary-foreground sticky top-0 z-10">
                     Delta
                 </th>
-                <th className="border-b-2 bg-bg-table p-3 text-left text-xs font-semibold text-text-secondary sticky top-0 z-10" />
-                <th className="border-b-2 bg-bg-table p-0 text-center text-xs font-semibold text-text-secondary sticky top-0 z-10">
+                <th className="border-b-2 bg-bg-table p-3 text-left text-xs font-semibold text-text-secondary-foreground sticky top-0 z-10" />
+                <th className="border-b-2 bg-bg-table p-0 text-center text-xs font-semibold text-text-secondary-foreground sticky top-0 z-10">
                     {axisRange && axisRange > 0 ? (
                         <div>
                             <svg

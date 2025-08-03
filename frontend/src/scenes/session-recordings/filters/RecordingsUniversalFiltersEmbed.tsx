@@ -304,14 +304,14 @@ export const RecordingsUniversalFiltersEmbed = ({
             key: 'filters',
             label: <div className="px-2">Filters</div>,
             content: (
-                <div className={clsx('relative bg-surface-primary w-full ', className)}>
+                <div className={clsx('relative bg-card w-full ', className)}>
                     {featureFlags[FEATURE_FLAGS.REPLAY_FILTERS_IN_PLAYLIST_MAX_AI] && (
                         <>
                             <div className="px-2 py-2 text-center mt-4">
                                 <h2 className="text-xl @md/max-welcome:text-2xl font-bold mb-2 text-balance">
                                     Ask Max AI
                                 </h2>
-                                <p className="text-secondary text-sm">
+                                <p className="text-secondary-foreground text-sm">
                                     Ask Max AI to help you find recordings that match your criteria.
                                 </p>
                             </div>
@@ -331,7 +331,7 @@ export const RecordingsUniversalFiltersEmbed = ({
                                     onClick={handleMaxOpen}
                                 />
                             </div>
-                            <div className="px-2 py-2 font-medium flex items-center justify-center gap-2 text-secondary text-xs my-4">
+                            <div className="px-2 py-2 font-medium flex items-center justify-center gap-2 text-secondary-foreground text-xs my-4">
                                 <div className="h-px bg-border flex-1" />
                                 <span>Or set filters manually</span>
                                 <div className="h-px bg-border flex-1" />

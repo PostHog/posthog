@@ -7,8 +7,8 @@ export function NotebookConflictWarning(): JSX.Element {
     const { loadNotebook } = useActions(notebookLogic)
 
     return (
-        <div className="flex flex-col items-center text-secondary m-10">
-            <h2 className="text-secondary">This Notebook has been edited elsewhere</h2>
+        <div className="flex flex-col items-center text-secondary-foreground m-10">
+            <h2 className="text-secondary-foreground">This Notebook has been edited elsewhere</h2>
 
             <p>
                 It looks like someone else has been editing this content too. You will need to reload the notebook to

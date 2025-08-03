@@ -190,7 +190,7 @@ export function BillingUsage(): JSX.Element {
                         <h3 className="text-lg font-semibold mb-0">{heading}</h3>
                         {headingTooltip && (
                             <Tooltip title={headingTooltip}>
-                                <IconInfo className="text-lg text-secondary shrink-0" />
+                                <IconInfo className="text-lg text-secondary-foreground shrink-0" />
                             </Tooltip>
                         )}
                     </div>

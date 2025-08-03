@@ -105,7 +105,7 @@ export function ExpandedFloatingMax({ onCollapse, onDismiss }: ExpandedFloatingM
                 ) : threadVisible ? (
                     <>
                         <div className="flex items-center justify-between pl-2 pr-1 py-1 border-b border-border">
-                            <div className="text-xs font-medium text-muted">{conversation?.title}</div>
+                            <div className="text-xs font-medium text-tertiary-foreground">{conversation?.title}</div>
                             <div className="flex items-center gap-1">
                                 <FloatingInputActions onCollapse={handleCollapse} isThreadVisible={true} />
                             </div>

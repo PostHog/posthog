@@ -76,7 +76,7 @@ Please be specific about the file and line number where the fix should be applie
             }
         >
             <div className="space-y-4">
-                <p className="text-muted">
+                <p className="text-tertiary-foreground">
                     Paste this prompt into your favourite coding assistant to get help fixing this error:
                 </p>
                 <div className="bg-bg-light border rounded p-4 font-mono text-sm whitespace-pre-wrap max-h-96 overflow-auto">

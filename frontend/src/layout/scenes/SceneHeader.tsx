@@ -36,7 +36,7 @@ export function SceneHeader({ className }: { className?: string }): JSX.Element 
         <>
             <div
                 className={cn(
-                    'flex items-center gap-1 w-full py-1 px-4 sticky top-0 bg-surface-secondary z-[var(--z-top-navigation)] border-b border-primary h-[var(--scene-layout-header-height)]',
+                    'flex items-center gap-1 w-full py-1 px-4 sticky top-0 bg-nav z-[var(--z-top-navigation)] border-b border-border h-[var(--scene-layout-header-height)]',
                     className
                 )}
             >
@@ -78,7 +78,7 @@ export function SceneHeader({ className }: { className?: string }): JSX.Element 
                         {scenePanelIsPresent && (
                             <LemonButton
                                 onClick={() => setScenePanelOpen(!scenePanelOpen)}
-                                icon={<IconInfo className="text-primary" />}
+                                icon={<IconInfo className="text-foreground" />}
                                 tooltip={scenePanelOpen ? 'Close info panel' : 'Open info panel'}
                                 active={scenePanelOpen}
                                 size="small"
@@ -143,7 +143,7 @@ function Breadcrumb({ breadcrumb, here, isOnboarding }: BreadcrumbProps): JSX.El
             }}
             data-attr={`breadcrumb-${joinedKey}`}
             to={breadcrumb.path}
-            className={cn('text-primary text-sm inline-grid', {
+            className={cn('text-foreground text-sm inline-grid', {
                 'font-bold': here,
             })}
         >
@@ -157,7 +157,7 @@ function Breadcrumb({ breadcrumb, here, isOnboarding }: BreadcrumbProps): JSX.El
             <ProjectDropdownMenu
                 buttonProps={{
                     size: 'xxs',
-                    className: 'text-primary font-normal p-0 hover:text-primary gap-1',
+                    className: 'text-foreground font-normal p-0 hover:text-foreground gap-1',
                 }}
             />
         )
@@ -207,7 +207,7 @@ function Breadcrumb({ breadcrumb, here, isOnboarding }: BreadcrumbProps): JSX.El
                                 className="ml-1"
                                 tooltip={scenePanelIsPresent ? 'Editing has moved to the info panel' : 'Rename'}
                             >
-                                <IconPencil className="text-primary" />
+                                <IconPencil className="text-foreground" />
                             </ButtonPrimitive>
                         </>
                     )}

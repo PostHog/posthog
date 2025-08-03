@@ -28,7 +28,7 @@ export function SelectableCard({
                 'flex-1 cursor-pointer p-4 rounded border transition-colors',
                 {
                     'border-accent bg-accent-highlight-secondary': selected,
-                    'border-primary': !selected,
+                    'border-border': !selected,
                     'hover:border-accent-dark': !disabled,
                     'opacity-50 cursor-not-allowed': disabled,
                 },
@@ -51,7 +51,7 @@ export function SelectableCard({
                 <span>{title}</span>
                 {selected && <IconCheckCircle fontSize={18} color="var(--color-accent)" />}
             </div>
-            <div className="text-secondary text-sm leading-relaxed mt-1">{description}</div>
+            <div className="text-secondary-foreground text-sm leading-relaxed mt-1">{description}</div>
         </div>
     )
 

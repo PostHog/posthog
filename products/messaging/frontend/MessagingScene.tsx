@@ -94,7 +94,7 @@ export function MessagingScene(): JSX.Element {
         return (
             <div className="flex flex-col justify-center items-center h-full">
                 <h1 className="text-2xl font-bold">Coming soon!</h1>
-                <p className="text-sm text-muted-foreground">
+                <p className="text-sm text-tertiary-foreground-foreground">
                     We're working on bringing messaging to PostHog. Stay tuned for updates!
                 </p>
             </div>

@@ -188,7 +188,7 @@ export function ExperimentMetricForm({
                             {...commonActionFilterProps}
                         />
                         {isExperimentMeanMetric(metric) && metric.source.math === ExperimentMetricMathType.HogQL && (
-                            <div className="text-muted text-sm mt-2">
+                            <div className="text-tertiary-foreground text-sm mt-2">
                                 SQL expressions allow you to write custom computations and aggregations. The expression
                                 should return a numeric value and will be evaluated for each user in the experiment.{' '}
                                 <Link
@@ -261,14 +261,14 @@ export function ExperimentMetricForm({
                     {isLoading ? (
                         <div className="flex items-center gap-2">
                             <Spinner />
-                            <span className="text-muted">Loading recent activity...</span>
+                            <span className="text-tertiary-foreground">Loading recent activity...</span>
                         </div>
                     ) : (
                         <div className="flex flex-col gap-1">
                             <div className="text-2xl font-semibold">
                                 {eventCount !== null ? eventCount.toLocaleString() : '0'}
                             </div>
-                            <div className="text-sm text-muted">
+                            <div className="text-sm text-tertiary-foreground">
                                 {eventCount !== null && eventCount > 0
                                     ? `${getEventTypeLabel()} in the past 2 weeks`
                                     : 'No recent activity'}

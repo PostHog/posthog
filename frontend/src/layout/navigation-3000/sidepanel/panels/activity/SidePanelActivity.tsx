@@ -58,7 +58,7 @@ export const SidePanelActivity = (): JSX.Element => {
             markAllAsRead()
             togglePolling(false)
         }
-    }, [])
+    }, [togglePolling, loadImportantChanges, markAllAsRead])
 
     const lastScrollPositionRef = useRef(0)
     const contentRef = useRef<HTMLDivElement | null>(null)
@@ -194,7 +194,7 @@ export const SidePanelActivity = (): JSX.Element => {
                                             <ActivityLogRow logItem={logItem} key={index} />
                                         ))
                                     ) : (
-                                        <div className="p-6 text-center border border-dashed rounded text-secondary">
+                                        <div className="p-6 text-center border border-dashed rounded text-secondary-foreground">
                                             You're all caught up!
                                         </div>
                                     )}
@@ -209,7 +209,7 @@ export const SidePanelActivity = (): JSX.Element => {
                                                 <ActivityLogRow logItem={logItem} key={index} />
                                             ))}
 
-                                            <div className="flex items-center justify-center h-10 gap-2 m-4 text-secondary">
+                                            <div className="flex items-center justify-center h-10 gap-2 m-4 text-secondary-foreground">
                                                 {allActivityResponseLoading ? (
                                                     <>
                                                         <Spinner textColored /> Loading older activity

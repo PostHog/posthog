@@ -207,7 +207,7 @@ export function LogsViewer({ renderColumns = (c) => c, ...props }: LogsViewerPro
                                         {entries.length > 1 && (
                                             <>
                                                 <br />
-                                                <span className="text-xs text-muted-alt">
+                                                <span className="text-xs text-tertiary-foreground">
                                                     + {entries.length - 1} more
                                                 </span>
                                             </>

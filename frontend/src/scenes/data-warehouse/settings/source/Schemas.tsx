@@ -176,7 +176,7 @@ export const SchemaTable = ({ schemas, isLoading }: SchemaTableProps): JSX.Eleme
                                         <Tooltip
                                             title={syncAnchorIntervalToHumanReadable(utcTime, schema.sync_frequency)}
                                         >
-                                            {schema.should_sync && <IconInfo className="text-muted-alt" />}
+                                            {schema.should_sync && <IconInfo className="text-tertiary-foreground" />}
                                         </Tooltip>
                                     }
                                 />

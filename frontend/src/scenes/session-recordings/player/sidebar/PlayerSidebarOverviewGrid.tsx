@@ -10,7 +10,7 @@ export function PlayerSidebarOverviewGrid(): JSX.Element {
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
     const { overviewItems, loading } = useValues(playerMetaLogic(logicProps))
     return (
-        <div className="rounded border bg-surface-primary">
+        <div className="rounded border bg-card">
             {loading ? (
                 <div className="flex flex-col deprecated-space-y-1">
                     <LemonSkeleton.Row repeat={6} className="h-5" />

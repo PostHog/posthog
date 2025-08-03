@@ -87,7 +87,7 @@ export function SessionRecordingsPlaylist({
             render: ({ item, isActive }) => <SessionRecordingPreview recording={item} isActive={isActive} />,
             footer: (
                 <div className="p-4">
-                    <div className="h-10 flex items-center justify-center gap-2 text-secondary">
+                    <div className="h-10 flex items-center justify-center gap-2 text-secondary-foreground">
                         {sessionRecordingsResponseLoading ? (
                             <>
                                 <Spinner textColored /> Loading older recordings
@@ -190,7 +190,7 @@ const ListEmptyState = (): JSX.Element => {
     const { sessionRecordingsAPIErrored, unusableEventsInFilter } = useValues(sessionRecordingsPlaylistLogic)
 
     return (
-        <div className="p-3 text-sm text-secondary">
+        <div className="p-3 text-sm text-secondary-foreground">
             {sessionRecordingsAPIErrored ? (
                 <LemonBanner type="error">Error while trying to load recordings.</LemonBanner>
             ) : unusableEventsInFilter.length ? (
@@ -208,14 +208,14 @@ const CollectionEmptyState = (): JSX.Element => {
     const { sessionRecordingsAPIErrored, unusableEventsInFilter } = useValues(sessionRecordingsPlaylistLogic)
 
     return (
-        <div className="p-3 text-sm text-secondary">
+        <div className="p-3 text-sm text-secondary-foreground">
             {sessionRecordingsAPIErrored ? (
                 <LemonBanner type="error">Error while trying to load recordings.</LemonBanner>
             ) : unusableEventsInFilter.length ? (
                 <UnusableEventsWarning unusableEventsInFilter={unusableEventsInFilter} />
             ) : (
                 <div className="flex flex-col gap-2">
-                    <h3 className="title text-secondary mb-0">No recordings in this collection</h3>
+                    <h3 className="title text-secondary-foreground mb-0">No recordings in this collection</h3>
                     <p>
                         To add recordings to this collection, go to the{' '}
                         <Link to={urls.replay(ReplayTabs.Home)}>Recordings</Link> tab, click on a recording, then click

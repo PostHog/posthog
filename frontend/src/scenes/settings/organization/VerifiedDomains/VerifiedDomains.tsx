@@ -104,7 +104,7 @@ function VerifiedDomainsTable(): JSX.Element {
                                   <IconExclamation style={iconStyle} /> Verification expired
                               </div>
                           ) : (
-                              <div className="flex items-center text-warning">
+                              <div className="flex items-center text-warning-foreground">
                                   <IconWarning style={iconStyle} /> Pending verification
                               </div>
                           )
@@ -140,7 +140,7 @@ function VerifiedDomainsTable(): JSX.Element {
                         />
                     </div>
                 ) : (
-                    <i className="text-secondary">Verify domain to enable automatic provisioning</i>
+                    <i className="text-secondary-foreground">Verify domain to enable automatic provisioning</i>
                 )
             },
         },
@@ -174,7 +174,7 @@ function VerifiedDomainsTable(): JSX.Element {
                         disabledReason={restrictionReason}
                     />
                 ) : (
-                    <i className="text-secondary">Verify domain to enable</i>
+                    <i className="text-secondary-foreground">Verify domain to enable</i>
                 )
             },
         },
@@ -198,7 +198,7 @@ function VerifiedDomainsTable(): JSX.Element {
                                 <IconCheckCircle style={iconStyle} /> SAML enabled
                             </div>
                         ) : saml_acs_url || saml_entity_id || saml_x509_cert ? (
-                            <div className="flex items-center text-warning">
+                            <div className="flex items-center text-warning-foreground">
                                 <IconWarning style={iconStyle} /> SAML partially configured
                             </div>
                         ) : (
@@ -208,7 +208,7 @@ function VerifiedDomainsTable(): JSX.Element {
                         )}
                     </>
                 ) : (
-                    <i className="text-secondary">Verify domain to enable</i>
+                    <i className="text-secondary-foreground">Verify domain to enable</i>
                 )
             },
         },

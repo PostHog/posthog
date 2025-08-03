@@ -1,6 +1,6 @@
 .LemonWidget {
-    background: var(--color-bg-surface-primary);
-    border: 1px solid var(--color-border-primary);
+    background: var(--color-card);
+    border: 1px solid var(--color-border);
     border-radius: var(--radius);
 
     .LemonWidget__header {
@@ -10,6 +10,6 @@
         padding: 0.25rem;
         font-size: 0.875rem;
         font-weight: 500;
-        color: var(--color-text-secondary, var(--color-accent));
+        color: var(--color-secondary-foreground, var(--color-accent));
     }
 }

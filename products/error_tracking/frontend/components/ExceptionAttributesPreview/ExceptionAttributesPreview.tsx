@@ -18,7 +18,7 @@ export function ExceptionAttributesPreview({
         <>
             {match(loading)
                 .with(true, () => (
-                    <span className="text-muted space-x-2 text-xs">
+                    <span className="text-tertiary-foreground space-x-2 text-xs">
                         <Spinner />
                         <span>Loading details...</span>
                     </span>
@@ -29,20 +29,20 @@ export function ExceptionAttributesPreview({
                         attributes && (
                             <>
                                 <PropertyWrapper title="Unhandled" visible={!attributes.handled}>
-                                    <IconBug className="text-sm text-secondary" />
+                                    <IconBug className="text-sm text-secondary-foreground" />
                                 </PropertyWrapper>
                                 <PropertyWrapper title={attributes.browser} visible={!!attributes.browser}>
                                     <PropertyIcon
                                         property="$browser"
                                         value={attributes.browser}
-                                        className="text-sm text-secondary"
+                                        className="text-sm text-secondary-foreground"
                                     />
                                 </PropertyWrapper>
                                 <PropertyWrapper title={attributes.os} visible={!!attributes.os}>
                                     <PropertyIcon
                                         property="$os"
                                         value={attributes.os}
-                                        className="text-sm text-secondary"
+                                        className="text-sm text-secondary-foreground"
                                     />
                                 </PropertyWrapper>
                             </>

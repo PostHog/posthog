@@ -167,7 +167,7 @@ function CohortDay({
 }): JSX.Element {
     const backgroundColorSaturation = percentage / 100
     const saturatedBackgroundColor = gradateColor(backgroundColor, backgroundColorSaturation, 0.1)
-    const textColor = backgroundColorSaturation > 0.4 ? '#fff' : 'var(--text-3000)' // Ensure text contrast
+    const textColor = backgroundColorSaturation > 0.4 ? '#fff' : 'var(--color-foreground)' // Ensure text contrast
 
     const numberCell = (
         <div

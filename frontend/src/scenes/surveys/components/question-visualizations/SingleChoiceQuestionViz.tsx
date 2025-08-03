@@ -69,9 +69,9 @@ export function SingleChoiceQuestionViz({
                                 // eslint-disable-next-line react/forbid-dom-props
                                 style={{ backgroundColor: CHART_INSIGHTS_COLORS[i % CHART_INSIGHTS_COLORS.length] }}
                             />
-                            <span className="font-semibold text-secondary max-w-48 truncate">{`${d.label}`}</span>
+                            <span className="font-semibold text-secondary-foreground max-w-48 truncate">{`${d.label}`}</span>
                             <span className="font-bold ml-1 truncate">{` ${percentage}% `}</span>
-                            <span className="font-semibold text-secondary ml-1 truncate">{`(${d.value})`}</span>
+                            <span className="font-semibold text-secondary-foreground ml-1 truncate">{`(${d.value})`}</span>
                         </div>
                     )
                 })}

@@ -242,7 +242,7 @@ function MessageGroup({ messages, isFinal: isFinalGroup }: MessageGroupProps): J
                                     <MarkdownMessage
                                         key={substepIndex}
                                         id={message.id || messageIndex.toString()}
-                                        className="mt-1.5 leading-6 px-1 text-[0.6875rem] font-semibold bg-surface-secondary rounded w-fit"
+                                        className="mt-1.5 leading-6 px-1 text-[0.6875rem] font-semibold bg-secondary rounded w-fit"
                                         content={substep}
                                     />
                                 ))}
@@ -254,7 +254,7 @@ function MessageGroup({ messages, isFinal: isFinalGroup }: MessageGroupProps): J
                 {messages.at(-1)?.status === 'error' && (
                     <MessageTemplate type="ai" boxClassName="border-warning">
                         <div className="flex items-center gap-1.5">
-                            <IconWarning className="text-xl text-warning" />
+                            <IconWarning className="text-xl text-warning-foreground" />
                             <i>Max is generating this answer one more time because the previous attempt has failed.</i>
                         </div>
                     </MessageTemplate>
@@ -302,7 +302,7 @@ const MessageTemplate = React.forwardRef<HTMLDivElement, MessageTemplateProps>(f
         >
             <div
                 className={twMerge(
-                    'max-w-full border py-2 px-3 rounded-lg bg-surface-primary',
+                    'max-w-full border py-2 px-3 rounded-lg bg-card',
                     type === 'human' && 'font-medium',
                     boxClassName
                 )}

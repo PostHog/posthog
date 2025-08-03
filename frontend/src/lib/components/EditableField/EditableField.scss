@@ -8,13 +8,13 @@
     }
 
     i {
-        color: var(--color-text-secondary);
+        color: var(--color-secondary-foreground);
     }
 
     .EditableField__notice {
         margin-left: 0.5rem;
         font-size: 1.5rem;
-        color: var(--color-text-secondary);
+        color: var(--color-secondary-foreground);
     }
 
     .EditableField__highlight {
@@ -39,7 +39,7 @@
         width: auto;
         max-width: calc(100% + 0.5rem);
         border-radius: var(--radius);
-        outline: 1px solid var(--color-border-primary);
+        outline: 1px solid var(--color-border);
     }
 
     &.EditableField--underlined {
@@ -55,7 +55,7 @@
 
             input {
                 margin-bottom: -1px;
-                border-bottom: 1px dashed var(--color-text-secondary);
+                border-bottom: 1px dashed var(--color-secondary-foreground);
             }
         }
     }
@@ -74,7 +74,7 @@
         max-width: 100%;
         padding: 0;
         font: inherit;
-        color: var(--text-3000);
+        color: var(--color-foreground);
         background: transparent;
         border: none;
         outline: none;

@@ -236,7 +236,7 @@ export function Playlist({
                     )}
 
                     {isFiltersExpanded && filterContent && (
-                        <div className="bg-surface-primary p-2 w-full min-h-full">{filterContent}</div>
+                        <div className="bg-card p-2 w-full min-h-full">{filterContent}</div>
                     )}
                 </div>
             </div>

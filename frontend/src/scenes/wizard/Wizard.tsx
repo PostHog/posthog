@@ -24,7 +24,7 @@ export function Wizard(): JSX.Element {
                     <div className="max-w-xs">
                         <div className="mb-8">
                             <h1 className="text-3xl font-bold mb-3">AI wizard</h1>
-                            <p className="text-muted-alt">
+                            <p className="text-tertiary-foreground">
                                 Select which project the wizard should use to install PostHog.
                             </p>
                         </div>

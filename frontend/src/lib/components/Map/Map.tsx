@@ -34,7 +34,9 @@ export function Map({ className, ...rest }: MapProps): JSX.Element {
 
     if (!isCloudOrDev) {
         return (
-            <div className={`w-full h-full flex flex-col items-center justify-center text-secondary p-3 ${className}`}>
+            <div
+                className={`w-full h-full flex flex-col items-center justify-center text-secondary-foreground p-3 ${className}`}
+            >
                 <h1>Map unavailable</h1>
                 <p>The map is currently only available in cloud deployments.</p>
             </div>
@@ -75,7 +77,7 @@ export function MapComponent({ center, markers, className }: MapProps): JSX.Elem
                 marker.addTo(map.current)
             }
         }
-    }, [isDarkModeOn])
+    }, [isDarkModeOn, center, markers])
 
     useResizeObserver({
         ref: mapContainer,

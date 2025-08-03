@@ -3,7 +3,7 @@
         margin-top: 0.5rem;
         margin-right: 0.5rem;
         font-size: 0.875rem;
-        color: var(--color-text-secondary);
+        color: var(--color-secondary-foreground);
         white-space: nowrap;
     }
 
@@ -29,21 +29,21 @@
         border-radius: 0.5rem;
 
         &--assistant {
-            color: var(--color-text-primary);
+            color: var(--color-text-foreground);
             background: var(--color-bg-light);
 
             .dark & {
-                color: var(--color-text-primary);
+                color: var(--color-text-foreground);
                 background: var(--color-bg-depth);
             }
         }
 
         &--user {
-            color: var(--color-text-primary);
-            background: var(--color-bg-surface-primary);
+            color: var(--color-text-foreground);
+            background: var(--color-card);
 
             .dark & {
-                color: var(--color-text-primary);
+                color: var(--color-text-foreground);
                 background: var(--color-bg-side);
             }
         }

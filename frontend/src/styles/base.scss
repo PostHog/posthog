@@ -405,17 +405,16 @@
     );
 
     // Backgrounds
-    // Behind surfaces, large areas: app scenes, etc.
-    // //////////////////////////////////////////////////////////
-    --color-bg-primary: var(--color-posthog-3000-50);
 
     // New
-    --color-background: var(--color-posthog-3000-50);
+    --color-background: var(--color-posthog-3000-25);
     --color-foreground: var(--color-neutral-950);
+    --color-nav: var(--color-posthog-3000-100);
+    --color-nav-foreground: var(--color-neutral-100);
     --color-secondary: var(--color-posthog-3000-100);
-    --color-secondary-foreground: var(--color-neutral-950);
+    --color-secondary-foreground: var(--color-neutral-750);
     --color-tertiary: var(--color-posthog-3000-150);
-    --color-tertiary-foreground: var(--color-neutral-950);
+    --color-tertiary-foreground: var(--color-neutral-550);
     --color-card: var(--color-white);
     --color-card-foreground: var(--color-neutral-950);
     --color-card-secondary: var(--color-posthog-3000-100);
@@ -429,21 +428,35 @@
     --color-info: var(--color-blue-100);
     --color-info-foreground: var(--color-neutral-950);
     --color-warning: var(--color-yellow-100);
-    --color-warning-foreground: var(--color-neutral-950);
+    --color-warning-foreground: var(--color-yellow-700);
     --color-error: var(--color-red-100);
-    --color-error-foreground: var(--color-neutral-950);
+    --color-error-foreground: var(--color-red-600);
     --color-success: var(--color-green-100);
     --color-success-foreground: var(--color-neutral-950);
     --color-interactive: transparent;
-    --color-interactive-foreground: var(--color-neutral-950);
-    --color-interactive-active: var(--color-neutral-cool-250);
-    --color-interactive-active-foreground: var(--color-neutral-950);
-    --color-interactive-hover: var(--color-neutral-cool-250);
-    --color-interactive-hover-foreground: var(--color-neutral-950);
-    --color-input: var(--color-neutral-cool-250);
+    --color-interactive-active: var(--color-bg-fill-highlight-50);
+    --color-interactive-hover: color-mix(in oklab, var(--color-black) 7.5%, transparent);
+    --color-interactive-focus: color-mix(in oklab, var(--color-black) 7.5%, transparent);
+
+    // --color-interactive-foreground: var(--color-neutral-950);
+    // --color-interactive-active-foreground: var(--color-neutral-950);
+    // --color-interactive-hover-foreground: var(--color-neutral-950);
+    // --color-interactive-focus-foreground: var(--color-neutral-950);
+    --color-highlight: hsl(42deg 93% 86% / 80%);
+    --color-highlight-foreground: var(--color-neutral-950);
+    --color-input: var(--color-white);
     --color-input-foreground: var(--color-neutral-950);
+    --color-scrollbar: var(--color-neutral-cool-250);
+    --color-scrollbar-foreground: var(--color-neutral-cool-400);
     --color-border: var(--color-neutral-cool-200);
     --color-border-secondary: var(--color-neutral-cool-400);
+    --color-border-warning: var(--color-yellow-400);
+    --color-border-error: var(--color-red-400);
+    --color-border-success: var(--color-green-400);
+
+    // Behind surfaces, large areas: app scenes, etc.
+    // //////////////////////////////////////////////////////////
+    --color-bg-primary: var(--color-posthog-3000-50);
 
     /* Most prominent/used background (replaces --color-bg-3000) */
     --color-bg-surface-primary: var(--color-white);
@@ -480,7 +493,7 @@
     --color-bg-fill-highlight-inverse-200: color-mix(in oklab, var(--color-white) 20%, transparent);
 
     // Highlights
-    // --color-bg-fill-primary-highlight: color-mix(in oklab, var(--color-primary-500) 10%, transparent);
+    // --color-card-highlight: color-mix(in oklab, var(--color-primary-500) 10%, transparent);
 
     // Info fills
     --color-bg-fill-info-secondary: var(--color-blue-100);
@@ -512,48 +525,48 @@
 
     // Borders (Useful for single pixel backgrounds to mimic borders)
     // //////////////////////////////////////////////////////////
-    --color-bg-border-primary: var(--color-posthog-3000-200);
-    --color-bg-border-secondary: var(--color-posthog-3000-400);
+    // --color-bg-border-primary: var(--color-posthog-3000-200);
+    // --color-bg-border-secondary: var(--color-posthog-3000-400);
 
     // Content (text, icons)
     // //////////////////////////////////////////////////////////
-    --color-text-primary: var(--color-neutral-950);
-    --color-text-primary-inverse: var(--color-neutral-100);
-    --color-text-secondary: var(--color-neutral-750);
-    --color-text-tertiary: var(--color-neutral-600);
-    --color-text-success: var(--color-green-600);
-    --color-text-warning: var(--color-yellow-700);
-    --color-text-error: var(--color-red-600);
+    // --color-text-foreground: var(--color-neutral-950);
+    // --color-text-foreground-inverse: var(--color-neutral-100);
+    // --color-secondary-foreground: var(--color-neutral-750);
+    // --color-text-tertiary: var(--color-neutral-600);
+    // --color-text-success: var(--color-green-600);
+    // --color-text-warning-foreground: var(--color-yellow-700);
+    // --color-error-foreground: var(--color-red-600);
 
     // Content on fills
     // Texts which are on colourful fills, ensures contrast
     // //////////////////////////////////////////////////////////
-    --color-text-info-on-fill: var(--color-blue-800);
-    --color-text-warning-on-fill: var(--color-yellow-800);
-    --color-text-error-on-fill: var(--color-red-800);
-    --color-text-success-on-fill: var(--color-green-800);
+    // --color-text-info-on-fill: var(--color-blue-800);
+    // --color-text-warning-foreground-on-fill: var(--color-yellow-800);
+    // --color-error-foreground-on-fill: var(--color-red-800);
+    // --color-text-success-on-fill: var(--color-green-800);
 
     // Borders
     // Borders for surfaces/fills (TODO: perhaps we need to do border-fill-primary, border-fill-warning, etc.)
     // //////////////////////////////////////////////////////////
-    --color-border-primary: var(--color-posthog-3000-200);
+    // --color-border-primary: var(--color-posthog-3000-200);
 
     // --color-border-secondary: var(--color-posthog-3000-400);
-    --color-border-info: var(--color-blue-400);
-    --color-border-warning: var(--color-yellow-400);
-    --color-border-error: var(--color-red-400);
-    --color-border-success: var(--color-green-400);
+    // --color-border-info: var(--color-blue-400);
+    // --color-border-warning: var(--color-yellow-400);
+    // --color-border-error: var(--color-red-400);
+    // --color-border-success: var(--color-green-400);
 
     // Graph colors
     // //////////////////////////////////////////////////////////
-    --color-graph-axis-label: var(--color-text-secondary);
+    --color-graph-axis-label: var(--color-secondary-foreground);
 
     /* Labels around graph */
     --color-graph-axis-line: var(--color-neutral-cool-100);
 
     /* Background lines in a graph, horizontal and vertical */
 
-    --color-graph-axis: var(--color-text-secondary);
+    --color-graph-axis: var(--color-secondary-foreground);
 
     /* Line around a graph */
     --color-graph-crosshair: var(--color-neutral-cool-450);
@@ -580,10 +593,12 @@
 
     // Brand colors
     // //////////////////////////////////////////////////////////
-    --brand-blue: #1d4aff;
-    --brand-red: #f54e00;
-    --brand-yellow: #f9bd2b;
-    --brand-key: #000;
+    --color-brand-blue: #1d4aff;
+    --color-brand-red: #f54e00;
+    --color-brand-yellow: #f9bd2b;
+
+    // --color-brand-key: #000;
+    --color-brand-key: cyan;
 
     // Shadows
     // //////////////////////////////////////////////////////////
@@ -612,7 +627,7 @@
     --blue: #597dce;
     --purple: #c278cf;
     --green: var(--success);
-    --black: var(--text-3000);
+    --black: var(--color-foreground);
 
     // Data colors (e.g. insight series). Note: colors.ts relies on these values being hexadecimal
     --data-color-1: #1d4aff;
@@ -693,16 +708,16 @@
     // which attaches these variables to :root
     // which means they aren't available in the toolbar
     --toastify-color-dark: var(--color-accent-3000-dark);
-    --toastify-color-light: var(--color-bg-surface-primary);
+    --toastify-color-light: var(--color-card);
     --toastify-color-info: var(--color-blue-500);
     --toastify-color-success: var(--success);
     --toastify-color-warning: var(--warning);
-    --toastify-color-error: var(--danger);
+    --toastify-color-error: var(--color-error-foreground);
     --toastify-color-progress-info: var(--toastify-color-info);
     --toastify-color-progress-success: var(--toastify-color-success);
     --toastify-color-progress-warning: var(--toastify-color-warning);
     --toastify-color-progress-error: var(--toastify-color-error);
-    --toastify-toast-background: var(--color-bg-surface-primary);
+    --toastify-toast-background: var(--color-card);
     --toastify-toast-width: 26rem;
     --toastify-toast-min-height: 3.5rem;
     --toastify-toast-max-height: 16rem;
@@ -762,8 +777,8 @@
     --border-light: rgb(0 0 0 / 8%);
     --border-bold: rgb(0 0 0 / 24%);
     --transparent: transparent;
-    --text-3000-light: #111;
-    --color-text-secondary-3000-light: rgb(17 17 17 / 70%);
+    --text-foreground: #111;
+    --color-secondary-foreground-3000-light: rgb(17 17 17 / 70%);
     --muted-3000-light: rgb(17 17 17 / 60%);
     --trace-3000-light: rgb(17 17 17 / 25%);
     --primary-3000-light: #f54e01;
@@ -792,8 +807,8 @@
     --danger-3000-button-border-hover-light: #f54e00;
     --shadow-elevation-3000-light: 0 3px 0 var(--border-3000-light);
     --shadow-elevation-3000-dark: 0 3px 0 var(--border-3000-dark);
-    --text-3000-dark: #fff;
-    --color-text-secondary-3000-dark: rgb(255 255 255 / 70%);
+    --text-foreground-dark: #fff;
+    --color-secondary-foreground-3000-dark: rgb(255 255 255 / 70%);
     --muted-3000-dark: rgb(255 255 255 / 50%);
     --trace-3000-dark: rgb(255 255 255 / 25%);
     --primary-3000-dark: #f7a503;
@@ -824,8 +839,7 @@
     --danger-3000-button-border-hover-dark: #f54e00;
 
     // Light mode
-    --text-3000: var(--text-3000-light);
-    --color-text-secondary-3000: var(--color-text-secondary-3000-light);
+    --color-secondary-foreground-3000: var(--color-secondary-foreground-3000-light);
     --muted-3000: var(--muted-3000-light);
     --trace-3000: var(--trace-3000-light);
     --primary-3000: var(--primary-3000-light);
@@ -919,10 +933,10 @@
 
     // Backgrounds (dark mode)
     // //////////////////////////////////////////////////////////
-    --color-bg-primary: var(--color-neutral-cool-950);
-    --color-bg-surface-primary: var(--color-neutral-cool-850);
-    --color-bg-surface-secondary: var(--color-neutral-cool-900);
-    --color-bg-surface-tertiary: var(--color-neutral-cool-950);
+    --color-background: var(--color-neutral-cool-950);
+    --color-card: var(--color-neutral-cool-850);
+    --color-bg-secondary: var(--color-neutral-cool-900);
+    --color-tertiary: var(--color-neutral-cool-950);
     --color-bg-surface-tooltip: var(--color-neutral-100);
     --color-bg-surface-tooltip-inverse: var(--color-neutral-950);
     --color-bg-surface-popover: var(--color-neutral-cool-850);
@@ -931,7 +945,6 @@
     // Fills (dark mode)
     // Small colourful areas: banners, pills, buttons, etc.
     // //////////////////////////////////////////////////////////
-    --color-bg-fill-primary: var(--color-neutral-cool-900);
     --color-bg-fill-secondary: var(--color-neutral-cool-850);
     --color-bg-fill-tertiary: var(--color-neutral-cool-800);
     --color-bg-fill-highlight-25: color-mix(in oklab, var(--color-white) 2.5%, transparent);
@@ -958,7 +971,7 @@
     --color-bg-fill-success-tertiary: color-mix(in oklab, var(--color-green-950) 50%, transparent);
     --color-bg-fill-success-highlight: color-mix(in oklab, var(--color-green-950) 50%, transparent);
 
-    // --color-bg-fill-primary-highlight: color-mix(in oklab, var(--color-primary-950) 50%, transparent);
+    // --color-card-highlight: color-mix(in oklab, var(--color-primary-950) 50%, transparent);
     --color-bg-fill-button-group-tertiary-hover: var(--color-bg-fill-highlight-25);
     --color-bg-fill-button-tertiary-hover: var(--color-bg-fill-highlight-75);
     --color-bg-fill-button-tertiary-hover-inverse: var(--color-bg-fill-highlight-inverse-75);
@@ -978,8 +991,8 @@
     --color-text-secondary: var(--color-neutral-350);
     --color-text-tertiary: var(--color-neutral-400);
     --color-text-success: var(--color-green-400);
-    --color-text-warning: var(--color-yellow-400);
-    --color-text-error: var(--color-red-400);
+    --color-text-warning-foreground: var(--color-yellow-400);
+    --color-error-foreground: var(--color-red-400);
 
     // Content on fills (dark mode)
     // Texts which are on colourful fills, ensures contrast
@@ -987,10 +1000,10 @@
     --color-text-info-on-fill: var(--color-blue-50);
 
     /* On-fill text for info */
-    --color-text-warning-on-fill: var(--color-yellow-50);
+    --color-text-warning-foreground-on-fill: var(--color-yellow-50);
 
     /* On-fill text for warning */
-    --color-text-error-on-fill: var(--color-red-50);
+    --color-error-foreground-on-fill: var(--color-red-50);
 
     /* On-fill text for error */
     --color-text-success-on-fill: var(--color-green-50);
@@ -1015,14 +1028,14 @@
 
     // Graph colors (dark mode)
     // //////////////////////////////////////////////////////////
-    --color-graph-axis-label: var(--color-text-secondary);
+    --color-graph-axis-label: var(--color-secondary-foreground);
     --color-graph-axis-line: var(--color-neutral-cool-750);
-    --color-graph-axis: var(--color-text-secondary);
+    --color-graph-axis: var(--color-secondary-foreground);
     --color-graph-crosshair: var(--color-neutral-cool-650);
 
     // Deprecated colors (Dark mode)
-    --text-3000: var(--text-3000-dark);
-    --color-text-secondary-3000: var(--color-text-secondary-3000-dark);
+    --text-foreground: var(--text-foreground-dark);
+    --color-secondary-foreground-3000: var(--color-secondary-foreground-3000-dark);
     --muted-3000: var(--muted-3000-dark);
     --trace-3000: var(--trace-3000-dark);
     --primary-3000: var(--primary-3000-dark);
@@ -1074,7 +1087,7 @@
     ::before,
     ::backdrop,
     ::file-selector-button {
-        border-color: var(--color-border-primary, currentColor);
+        border-color: var(--color-border, currentColor);
     }
 
     .rendering-pixelated {
@@ -1102,10 +1115,10 @@
         font-size: 14px;
         font-weight: 400;
         line-height: 1.5715;
-        color: var(--text-3000);
+        color: var(--color-foreground);
         color-scheme: light dark;
         touch-action: manipulation; // Disable double-tap-to-zoom on mobile, making taps slightly snappier
-        background: var(--color-bg-primary);
+        background: var(--color-background);
 
         &[theme='light'] {
             color-scheme: light;
@@ -1131,15 +1144,15 @@
             }
 
             ::-webkit-scrollbar-track {
-                background: var(--color-bg-surface-primary);
+                background: var(--color-background);
             }
 
             ::-webkit-scrollbar-thumb {
-                background: var(--trace-3000);
+                background: var(--color-scrollbar);
                 border-radius: var(--radius);
 
                 &:hover {
-                    background: var(--muted-3000);
+                    background: var(--color-scrollbar-foreground);
                 }
             }
         }
@@ -1158,10 +1171,10 @@
             }
 
             &:hover {
-                scrollbar-color: var(--color-bg-fill-scroll-thumb) transparent;
+                scrollbar-color: var(--color-scrollbar) transparent;
 
                 &::-webkit-scrollbar-thumb {
-                    background: var(--color-bg-fill-scroll-thumb);
+                    background: var(--color-scrollbar-foreground);
                     border-radius: 8px;
                 }
             }
@@ -1189,7 +1202,7 @@
         h2,
         h3,
         h4 {
-            color: var(--text-3000);
+            color: var(--color-foreground);
         }
 
         h1 {
@@ -1209,7 +1222,7 @@
             font-size: 0.6875rem;
             font-weight: 600;
             line-height: 1.5rem;
-            color: var(--color-text-secondary);
+            color: var(--color-foreground);
             text-transform: uppercase;
             letter-spacing: 0.075em;
         }
@@ -1221,13 +1234,13 @@
         }
 
         dialog {
-            background-color: var(--color-bg-primary);
+            background-color: var(--color-background);
         }
 
         .LemonButton,
         .Link {
             .text-link {
-                color: var(--text-3000) !important;
+                color: var(--color-foreground) !important;
             }
 
             &:hover {
@@ -1277,7 +1290,7 @@
     .secondary {
         font-size: 0.9em;
         font-weight: var(--font-medium);
-        color: var(--primary-alt);
+        color: var(--color-foreground);
         text-transform: uppercase;
         letter-spacing: 1px;
         background: none;
@@ -1287,7 +1300,7 @@
     .card-secondary {
         font-size: 11px;
         font-weight: 600;
-        color: var(--color-text-secondary);
+        color: var(--color-foreground);
         text-transform: uppercase;
         letter-spacing: 0.5px;
     }
@@ -1323,7 +1336,7 @@
         font-family: var(--font-sans);
         font-size: 1rem;
         cursor: unset;
-        border: 1px solid var(--secondary-3000-button-border);
+        border: 1px solid var(--color-border);
         border-radius: var(--radius);
         box-shadow: var(--shadow-elevation-3000);
         opacity: 1 !important;
@@ -1338,7 +1351,7 @@
         font-size: 0.875rem;
         font-weight: 500;
         line-height: 1.25rem;
-        color: var(--text-3000);
+        color: var(--color-foreground);
 
         b,
         strong {
@@ -1355,18 +1368,18 @@
         height: 1.5rem;
         margin-right: 0.75rem;
         font-size: 1.5rem;
-        color: var(--color-text-secondary);
+        color: var(--color-foreground);
 
         .Toastify__toast--success & {
-            color: var(--toastify-color-success);
+            color: var(--color-success);
         }
 
         .Toastify__toast--warning & {
-            color: var(--toastify-color-warning);
+            color: var(--color-warning);
         }
 
         .Toastify__toast--error & {
-            color: var(--toastify-color-error);
+            color: var(--color-error);
         }
     }
 
@@ -1378,7 +1391,7 @@
 
     .error-on-blur {
         &.errored:not(:focus) {
-            border-color: var(--danger) !important;
+            border-color: var(--color-error) !important;
         }
     }
 
@@ -1386,7 +1399,7 @@
 
     .info-indicator {
         margin-left: 4px;
-        color: var(--primary-alt) !important;
+        color: var(--color-foreground) !important;
         cursor: pointer;
 
         &.left {
@@ -1408,7 +1421,7 @@
         font-weight: bold;
         line-height: 1rem;
         pointer-events: none;
-        border: 2px solid var(--text-3000);
+        border: 2px solid var(--color-foreground);
         border-radius: 50%;
 
         // variants
@@ -1416,8 +1429,8 @@
             width: 23px;
             height: 23px;
             font-size: unset;
-            color: var(--primary-alt);
-            background-color: var(--color-bg-surface-primary);
+            color: var(--color-foreground);
+            background-color: var(--color-background);
             border-color: var(--border);
         }
     }
@@ -1444,22 +1457,22 @@
 
         &.warning div {
             height: auto;
-            background: var(--danger);
+            background: var(--color-error);
         }
 
         &.tricolor {
             cursor: pointer;
 
             div:nth-child(1) {
-                background: var(--brand-blue);
+                background: var(--color-brand-blue);
             }
 
             div:nth-child(2) {
-                background: var(--brand-red);
+                background: var(--color-brand-red);
             }
 
             div:nth-child(3) {
-                background: var(--brand-yellow);
+                background: var(--color-brand-yellow);
             }
 
             span {
@@ -1517,11 +1530,11 @@
     input::placeholder,
     textarea::placeholder {
         // Overrides Tailwind's default
-        color: var(--color-text-tertiary);
+        color: var(--color-tertiary-foreground);
     }
 
     a {
-        color: var(--link);
+        color: var(--color-accent);
         text-decoration: none;
     }
 
@@ -1652,9 +1665,9 @@
         min-width: 8rem;
         max-width: 200px;
         overflow: hidden;
-        color: var(--color-text-primary);
-        background-color: var(--color-bg-surface-primary);
-        border: 1px solid var(--color-border-primary);
+        color: var(--color-card-foreground);
+        background-color: var(--color-card);
+        border: 1px solid var(--color-border);
         border-radius: var(--radius-md);
         box-shadow: var(--shadow-elevation-3000);
     }
@@ -1676,7 +1689,7 @@
     /* stylelint-disable-next-line keyframes-name-pattern */
     @keyframes highlight {
         0% {
-            background-color: var(--mark);
+            background-color: var(--color-highlight);
         }
 
         100% {
@@ -1776,7 +1789,7 @@
         display: inline-block;
         color: transparent; /* hide glyphs under the cover */
         cursor: pointer;
-        background: var(--color-bg-primary); /* the “black bar” */
+        background: var(--color-background); /* the “black bar” */
         border-radius: var(--radius);
     }
 

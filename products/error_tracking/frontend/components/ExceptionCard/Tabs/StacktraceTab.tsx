@@ -42,7 +42,7 @@ export function StacktraceTab({
     const [showFixModal, setShowFixModal] = useState(false)
     return (
         <TabsPrimitiveContent {...props}>
-            <div className="flex justify-between items-center border-b-1 bg-surface-secondary px-2 py-1">
+            <div className="flex justify-between items-center border-b-1 bg-secondary px-2 py-1">
                 <div className="flex items-center gap-1">
                     <ExceptionAttributesPreview attributes={exceptionAttributes} loading={loading} />
                 </div>

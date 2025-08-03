@@ -114,9 +114,9 @@ export function getGraphColors(): Record<string, string | null> {
         crosshair: getColorVar('color-graph-crosshair'),
 
         // TODO: these are not used anywhere, but setting them to the correct values
-        tooltipBackground: getColorVar('bg-surface-tooltip'),
-        tooltipTitle: getColorVar('text-primary'),
-        tooltipBody: getColorVar('bg-surface-tooltip'),
+        tooltipBackground: getColorVar('bg-tooltip'),
+        tooltipTitle: getColorVar('text-foreground'),
+        tooltipBody: getColorVar('bg-tooltip'),
     }
 }
 

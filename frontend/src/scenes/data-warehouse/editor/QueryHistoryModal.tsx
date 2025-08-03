@@ -37,7 +37,7 @@ function QueryHistoryLogRow({ logItem }: { logItem: HumanizedActivityLogItem }):
                     {logItem.extendedDescription && (
                         <div className="ActivityLogRow__description__extended">{logItem.extendedDescription}</div>
                     )}
-                    <div className="text-secondary">
+                    <div className="text-secondary-foreground">
                         <TZLabel time={logItem.created_at} />
                     </div>
                 </div>
@@ -65,7 +65,7 @@ function QueryHistoryLogDiff({ logItem }: { logItem: HumanizedActivityLogItem })
                         return <QueryDiffViewer key={i} before={change.before} after={change.after} />
                     })
                 ) : (
-                    <div className="text-secondary">This item has no changes to compare</div>
+                    <div className="text-secondary-foreground">This item has no changes to compare</div>
                 )}
             </div>
         </div>
@@ -110,7 +110,7 @@ function QueryHistoryLog({ id }: { id?: number | string }): JSX.Element {
     if (!activityLoading && humanizedActivity.length === 0) {
         return (
             <div className="deprecated-space-y-2">
-                <div className="text-secondary">No history found</div>
+                <div className="text-secondary-foreground">No history found</div>
             </div>
         )
     }

@@ -11,8 +11,8 @@ export const StatusIcon = ({
     <Tooltip title={message}>
         <div className="flex justify-center">
             {status === 'success' && <IconCheck className="text-success text-lg" />}
-            {status === 'warning' && <IconWarning className="text-warning text-lg" />}
-            {status === 'error' && <IconX className="text-muted text-lg" />}
+            {status === 'warning' && <IconWarning className="text-warning-foreground text-lg" />}
+            {status === 'error' && <IconX className="text-tertiary-foreground text-lg" />}
         </div>
     </Tooltip>
 )

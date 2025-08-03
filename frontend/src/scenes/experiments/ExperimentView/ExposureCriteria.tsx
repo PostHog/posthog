@@ -141,7 +141,7 @@ export function ExposureCriteriaModal(): JSX.Element {
                         placeholder="Select handling method"
                         fullWidth
                     />
-                    <div className="text-xs text-muted mt-1">
+                    <div className="text-xs text-tertiary-foreground mt-1">
                         {experiment.exposure_criteria?.multiple_variant_handling === 'first_seen' &&
                             'Users exposed to multiple variants will be analyzed using their first seen variant.'}
                         {(!experiment.exposure_criteria?.multiple_variant_handling ||

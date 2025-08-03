@@ -28,7 +28,7 @@
     }
 
     &--subtle {
-        color: var(--text-3000);
+        color: var(--color-foreground);
 
         &:not(:disabled):hover {
             color: var(--color-accent-hover);

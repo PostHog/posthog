@@ -41,7 +41,7 @@ export function ErrorDisplayContent(): JSX.Element {
     return (
         <div className="flex flex-col deprecated-space-y-2 pb-2">
             <h1 className="mb-0">{type || level}</h1>
-            {!hasStacktrace && !!value && <div className="text-secondary italic">{value}</div>}
+            {!hasStacktrace && !!value && <div className="text-secondary-foreground italic">{value}</div>}
             <div className="flex flex-row gap-2 flex-wrap">
                 <TitledSnack
                     type="success"
@@ -49,7 +49,7 @@ export function ErrorDisplayContent(): JSX.Element {
                     value={
                         sentryUrl ? (
                             <Link
-                                className="text-3000 hover:underline decoration-primary-alt cursor-pointer"
+                                className="text-foreground hover:underline decoration-primary-alt cursor-pointer"
                                 to={sentryUrl}
                                 target="_blank"
                             >

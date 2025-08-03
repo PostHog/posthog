@@ -24,7 +24,7 @@ export function InstanceConfigTab(): JSX.Element {
 
     useEffect(() => {
         loadInstanceSettings()
-    }, [])
+    }, [loadInstanceSettings])
 
     useKeyboardHotkeys({
         e: {
@@ -130,7 +130,7 @@ export function InstanceConfigTab(): JSX.Element {
                 ) : (
                     <>
                         {Object.keys(instanceConfigEditingState).length > 0 && (
-                            <span className="text-warning-dark flex items-center gap-2">
+                            <span className="text-warning-foreground-dark flex items-center gap-2">
                                 <IconWarning className="text-xl" />
                                 <span>
                                     You have <b>{Object.keys(instanceConfigEditingState).length}</b> unapplied{' '}

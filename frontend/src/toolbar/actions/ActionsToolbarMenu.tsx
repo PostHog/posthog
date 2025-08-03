@@ -26,7 +26,7 @@ const ActionsListToolbarMenu = (): JSX.Element => {
 
     useEffect(() => {
         getActions()
-    }, [])
+    }, [getActions])
 
     return (
         <ToolbarMenu>
@@ -53,7 +53,7 @@ const ActionsListToolbarMenu = (): JSX.Element => {
             </ToolbarMenu.Body>
             <ToolbarMenu.Footer>
                 <div className="flex items-center justify-between flex-1">
-                    <Link to={`${apiURL}${urls.actions()}`} target="_blank" className="text-primary">
+                    <Link to={`${apiURL}${urls.actions()}`} target="_blank" className="text-foreground">
                         View &amp; edit all actions <IconOpenInNew />
                     </Link>
                     <LemonButton type="primary" size="small" onClick={() => newAction()} icon={<IconPlus />}>

@@ -88,7 +88,7 @@ export function SceneName({
                 {localValue !== '' ? (
                     localValue
                 ) : (
-                    <span className="text-tertiary font-normal">No name {optional ? '(optional)' : ''}</span>
+                    <span className="text-tertiary-foreground font-normal">No name {optional ? '(optional)' : ''}</span>
                 )}
             </ButtonPrimitive>
         </ScenePanelLabel>

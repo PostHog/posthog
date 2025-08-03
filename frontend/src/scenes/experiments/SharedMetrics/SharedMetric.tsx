@@ -49,7 +49,7 @@ export function SharedMetric(): JSX.Element {
                         className={`flex-1 cursor-pointer p-4 rounded border ${
                             sharedMetric.query.kind === NodeKind.ExperimentTrendsQuery
                                 ? 'border-accent bg-accent-highlight-secondary'
-                                : 'border-primary'
+                                : 'border-border'
                         }`}
                         onClick={() => {
                             setSharedMetric({
@@ -63,7 +63,7 @@ export function SharedMetric(): JSX.Element {
                                 <IconCheckCircle fontSize={18} color="var(--color-accent)" />
                             )}
                         </div>
-                        <div className="text-secondary text-sm leading-relaxed">
+                        <div className="text-secondary-foreground text-sm leading-relaxed">
                             Track a single event, action or a property value.
                         </div>
                     </div>
@@ -71,7 +71,7 @@ export function SharedMetric(): JSX.Element {
                         className={`flex-1 cursor-pointer p-4 rounded border ${
                             sharedMetric.query.kind === NodeKind.ExperimentFunnelsQuery
                                 ? 'border-accent bg-accent-highlight-secondary'
-                                : 'border-primary'
+                                : 'border-border'
                         }`}
                         onClick={() => {
                             setSharedMetric({
@@ -85,7 +85,7 @@ export function SharedMetric(): JSX.Element {
                                 <IconCheckCircle fontSize={18} color="var(--color-accent)" />
                             )}
                         </div>
-                        <div className="text-secondary text-sm leading-relaxed">
+                        <div className="text-secondary-foreground text-sm leading-relaxed">
                             Analyze conversion rates between sequential steps.
                         </div>
                     </div>
@@ -156,7 +156,11 @@ export function SharedMetric(): JSX.Element {
                         onClick={() => {
                             LemonDialog.open({
                                 title: 'Delete this metric?',
-                                content: <div className="text-sm text-secondary">This action cannot be undone.</div>,
+                                content: (
+                                    <div className="text-sm text-secondary-foreground">
+                                        This action cannot be undone.
+                                    </div>
+                                ),
                                 primaryButton: {
                                     children: 'Delete',
                                     type: 'primary',

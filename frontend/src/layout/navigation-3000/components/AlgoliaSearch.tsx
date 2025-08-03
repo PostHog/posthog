@@ -113,10 +113,10 @@ const SearchTag = ({ type, label, active, onClick }: SearchTagProps): JSX.Elemen
 
     useEffect(() => {
         refine(type)
-    }, [])
+    }, [refine, type])
 
     return (
-        <button className="p-0 cursor-pointer bg-surface-primary" onClick={handleClick}>
+        <button className="p-0 cursor-pointer bg-card" onClick={handleClick}>
             <LemonTag size="medium" type={active ? 'primary' : 'option'}>
                 <span>{label}</span>
                 {type !== 'all' && <span>({itemCount ?? 0})</span>}
@@ -230,7 +230,7 @@ const Search = (): JSX.Element => {
             })
             refine(activeTag)
         }
-    }, [activeTag])
+    }, [activeTag, items, refine])
 
     useEffect(() => {
         const handleClick = (e: any): void => {
@@ -250,7 +250,7 @@ const Search = (): JSX.Element => {
         <div className="relative" ref={ref} onKeyDown={handleKeyDown}>
             <SearchInput value={searchValue} setValue={setSearchValue} />
             {searchOpen && (
-                <div className="absolute w-full bg-surface-primary z-50 border rounded-lg shadow-xl mt-0.5">
+                <div className="absolute w-full bg-card z-50 border rounded-lg shadow-xl mt-0.5">
                     <Tags activeTag={activeTag} setActiveTag={setActiveTag} />
                     <Hits activeOption={activeOption} />
                 </div>

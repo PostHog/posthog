@@ -223,7 +223,7 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
                 />
 
                 <UserActivityIndicator at={definition.updated_at} by={definition.updated_by} />
-                <div className="flex flex-wrap gap-2 items-center text-secondary">
+                <div className="flex flex-wrap gap-2 items-center text-secondary-foreground">
                     <div>{isProperty ? 'Property' : 'Event'} name:</div>
                     <LemonTag className="font-mono">{definition.name}</LemonTag>
                 </div>

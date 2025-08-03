@@ -75,7 +75,7 @@ export function AddSavedInsightsToDashboard(): JSX.Element {
             key: 'id',
             width: 32,
             render: function renderType(_, insight) {
-                return <InsightIcon insight={insight} className="text-secondary text-2xl" />
+                return <InsightIcon insight={insight} className="text-secondary-foreground text-2xl" />
             },
         },
         {
@@ -91,7 +91,7 @@ export function AddSavedInsightsToDashboard(): JSX.Element {
                                     {name || <i>{summarizeInsight(insight.query)}</i>}
                                 </Link>
                             </div>
-                            <div className="text-xs text-tertiary">{insight.description}</div>
+                            <div className="text-xs text-tertiary-foreground">{insight.description}</div>
                         </div>
                     </>
                 )
@@ -135,7 +135,7 @@ export function AddSavedInsightsToDashboard(): JSX.Element {
             <SavedInsightsFilters filters={filters} setFilters={setModalFilters} />
             <LemonDivider className="my-4" />
             <div className="flex justify-between mb-4 gap-2 flex-wrap mt-2 items-center">
-                <span className="text-secondary">
+                <span className="text-secondary-foreground">
                     {count
                         ? `${startCount}${endCount - startCount > 1 ? '-' + endCount : ''} of ${count} insight${
                               count === 1 ? '' : 's'

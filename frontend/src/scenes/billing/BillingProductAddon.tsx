@@ -62,7 +62,7 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
 
     return (
         <div
-            className="bg-surface-secondary rounded p-6 flex flex-col"
+            className="bg-secondary rounded p-6 flex flex-col"
             ref={productRef}
             data-attr={`billing-product-addon-${addon.type}`}
         >
@@ -153,7 +153,7 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
                                                             : 0))
                                             )}
                                         </div>
-                                        <span className="text-xs text-muted">
+                                        <span className="text-xs text-tertiary-foreground">
                                             {capitalizeFirstLetter(billing?.billing_period?.interval || '')}
                                             -to-date
                                         </span>

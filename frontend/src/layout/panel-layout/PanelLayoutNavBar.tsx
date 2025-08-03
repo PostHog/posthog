@@ -44,7 +44,7 @@ import { sidePanelStateLogic } from '../navigation-3000/sidepanel/sidePanelState
 import { OrganizationDropdownMenu } from './OrganizationDropdownMenu'
 
 const navBarStyles = cva({
-    base: 'flex flex-col max-h-screen relative min-h-screen bg-surface-tertiary z-[var(--z-layout-navbar)] border-r border-primary relative',
+    base: 'flex flex-col max-h-screen min-h-screen bg-nav z-[var(--z-layout-navbar)] border-r border-border relative',
     variants: {
         isLayoutNavCollapsed: {
             true: 'w-[var(--project-navbar-width-collapsed)]',
@@ -276,7 +276,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                         </div>
                                     }
                                 >
-                                    <IconSearch className="text-secondary size-4" />
+                                    <IconSearch className="text-secondary-foreground size-4" />
                                 </ButtonPrimitive>
                             </div>
                         )}
@@ -318,7 +318,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                                     data-attr={`menu-item-${item.identifier.toString().toLowerCase()}`}
                                                 >
                                                     <span
-                                                        className={`flex text-tertiary group-hover:text-primary ${
+                                                        className={`flex text-tertiary-foreground group-hover:text-foreground ${
                                                             isLayoutNavCollapsed ? '[&_svg]:size-5' : ''
                                                         }`}
                                                     >
@@ -329,7 +329,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                                         <>
                                                             <span className="truncate">{item.id}</span>
                                                             <span className="ml-auto pr-1">
-                                                                <IconChevronRight className="size-3 text-tertiary" />
+                                                                <IconChevronRight className="size-3 text-tertiary-foreground" />
                                                             </span>
                                                         </>
                                                     )}
@@ -354,7 +354,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                                         tooltipDocLink={item.tooltipDocLink}
                                                     >
                                                         <span
-                                                            className={`flex text-tertiary group-hover:text-primary ${
+                                                            className={`flex text-tertiary-foreground group-hover:text-foreground ${
                                                                 isLayoutNavCollapsed ? '[&_svg]:size-5' : ''
                                                             }`}
                                                         >
@@ -371,7 +371,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                     ))}
                                 </div>
 
-                                <div className="border-b border-primary h-px my-1" />
+                                <div className="border-b border-border h-px my-1" />
 
                                 <div
                                     className={cn(
@@ -384,7 +384,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                             </ListBox>
                         </ScrollableShadows>
 
-                        <div className="border-b border-primary h-px " />
+                        <div className="border-b border-border h-px " />
 
                         <div className="p-1 flex flex-col gap-px items-center">
                             <DebugNotice isCollapsed={isLayoutNavCollapsed} />
@@ -423,7 +423,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                 data-attr="menu-item-toolbar"
                             >
                                 <span
-                                    className={`flex text-tertiary group-hover:text-primary ${
+                                    className={`flex text-tertiary-foreground group-hover:text-foreground ${
                                         isLayoutNavCollapsed ? '[&_svg]:size-5' : ''
                                     }`}
                                 >
@@ -447,7 +447,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                 data-attr="menu-item-settings"
                             >
                                 <span
-                                    className={`flex text-tertiary group-hover:text-primary ${
+                                    className={`flex text-tertiary-foreground group-hover:text-foreground ${
                                         isLayoutNavCollapsed ? '[&_svg]:size-5' : ''
                                     }`}
                                 >
@@ -480,7 +480,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                             ) : (
                                                 <span>{user?.email}</span>
                                             )}
-                                            <IconChevronRight className="size-3 text-secondary ml-auto" />
+                                            <IconChevronRight className="size-3 text-secondary-foreground ml-auto" />
                                         </>
                                     )}
                                 </ButtonPrimitive>

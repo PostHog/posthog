@@ -19,7 +19,7 @@ export function HogFlowEditorPanel({ className, position, children }: HogFlowEdi
         >
             <div
                 className={clsx(
-                    'flex z-10 flex-col max-h-full m-2 rounded-md border shadow-lg bg-surface-primary overflow-hidden',
+                    'flex z-10 flex-col max-h-full m-2 rounded-md border shadow-lg bg-card overflow-hidden',
                     className
                 )}
             >

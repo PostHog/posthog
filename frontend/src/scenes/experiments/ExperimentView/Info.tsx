@@ -140,7 +140,7 @@ export function Info(): JSX.Element {
                                                 ? dayjs().diff(dayjs(lastRefresh), 'hours') > 12
                                                     ? 'text-danger'
                                                     : dayjs().diff(dayjs(lastRefresh), 'hours') > 6
-                                                    ? 'text-warning'
+                                                    ? 'text-warning-foreground'
                                                     : ''
                                                 : ''
                                         }`}
@@ -187,7 +187,7 @@ export function Info(): JSX.Element {
                         {experiment.description ? (
                             <p className="py-2 m-0">{experiment.description}</p>
                         ) : (
-                            <p className="py-2 m-0 text-muted">Add your hypothesis for this test</p>
+                            <p className="py-2 m-0 text-tertiary-foreground">Add your hypothesis for this test</p>
                         )}
 
                         <LemonModal

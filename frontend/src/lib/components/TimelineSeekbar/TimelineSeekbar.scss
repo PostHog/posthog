@@ -25,7 +25,7 @@
     font-size: 0.75rem;
     font-weight: 500;
     line-height: 1.25rem;
-    color: var(--color-bg-surface-primary);
+    color: var(--color-card);
     background: var(--color-accent);
     border-radius: var(--radius);
 
@@ -65,7 +65,7 @@
     left: calc(var(--timeline-seekbar-section-progress-current) - var(--timeline-seekbar-thickness));
     width: var(--timeline-seekbar-section-progress-next);
     cursor: pointer;
-    border-left: var(--timeline-seekbar-thickness) solid var(--color-bg-surface-primary);
+    border-left: var(--timeline-seekbar-thickness) solid var(--color-card);
 
     &:last-child {
         width: calc(var(--timeline-seekbar-section-progress-next) + 1.25rem);

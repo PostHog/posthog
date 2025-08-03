@@ -263,7 +263,7 @@ export function EditSubscription({
                                 <LemonField name="target_value" label="Webhook URL">
                                     <LemonInput placeholder="https://example.com/webhooks/1234" />
                                 </LemonField>
-                                <div className="text-xs text-secondary mt-2">
+                                <div className="text-xs text-secondary-foreground mt-2">
                                     Webhooks will be called with a HTTP POST request. The webhook endpoint should
                                     respond with a healthy HTTP code (2xx).
                                 </div>
@@ -273,7 +273,7 @@ export function EditSubscription({
                         <div>
                             <div className="flex items-baseline justify-between w-full">
                                 <LemonLabel className="mb-2">Recurrence</LemonLabel>
-                                <div className="text-xs text-secondary text-right">{currentTimezone}</div>
+                                <div className="text-xs text-secondary-foreground text-right">{currentTimezone}</div>
                             </div>
                             <div className="flex gap-2 items-center rounded border p-2 flex-wrap">
                                 <span>Send every</span>

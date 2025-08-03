@@ -13,7 +13,7 @@ export const UniqueUsersPanel = ({ uniqueUsers }: { uniqueUsers: number }): JSX.
         <div>
             <div className="card-secondary">Unique users</div>
             <div className="font-semibold">~{humanFriendlyNumber(uniqueUsers, 0)} persons</div>
-            <div className="text-xs text-muted">Last {TIMEFRAME_HISTORICAL_DATA_DAYS} days</div>
+            <div className="text-xs text-tertiary-foreground">Last {TIMEFRAME_HISTORICAL_DATA_DAYS} days</div>
         </div>
     )
 }
@@ -67,7 +67,7 @@ export const StandardDeviationPanel = ({ standardDeviation }: { standardDeviatio
                         </>
                     }
                 >
-                    <IconInfo className="text-secondary ml-1" />
+                    <IconInfo className="text-secondary-foreground ml-1" />
                 </Tooltip>
             </div>
             <div className="font-semibold">~{humanFriendlyNumber(standardDeviation, 0)}</div>

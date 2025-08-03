@@ -217,7 +217,7 @@ export function FunnelAttributionSelect({
                         </div>
                     }
                 >
-                    <IconInfo className="text-xl text-secondary shrink-0 ml-1" />
+                    <IconInfo className="text-xl text-secondary-foreground shrink-0 ml-1" />
                 </Tooltip>
             </div>
             <LemonSelect

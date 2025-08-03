@@ -8,7 +8,7 @@
     flex-direction: column;
     height: 100vh;
     overflow: scroll;
-    background-color: var(--color-bg-surface-secondary);
+    background-color: var(--color-card);
     -ms-overflow-style: none;
 
     &::-webkit-scrollbar {
@@ -64,7 +64,7 @@
         width: 100%;
         margin: 1rem 0;
         font-weight: 500;
-        color: var(--color-text-secondary);
+        color: var(--color-secondary-foreground);
     }
 
     .BridgePage__left {
@@ -89,7 +89,7 @@
             font-size: 0.8em;
             font-weight: 600;
             color: #fff;
-            background-color: var(--text-3000);
+            background-color: var(--color-foreground);
             border-radius: 0.75rem;
             opacity: 0;
             transition-timing-function: cubic-bezier(0.455, 0.03, 0.31, 1.585);
@@ -101,7 +101,7 @@
                 margin-top: -10px;
                 content: ' ';
                 border: 10px solid transparent;
-                border-left-color: var(--text-3000);
+                border-left-color: var(--color-foreground);
             }
 
             &.BridgePage__left__message--enter {

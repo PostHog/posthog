@@ -67,7 +67,7 @@ export function FolderSelect({
         } else {
             expandProjectFolder(value || '')
         }
-    }, [value])
+    }, [value, expandProjectFolder, includeProtocol])
 
     useEffect(() => {
         const timeout = setTimeout(() => {
@@ -157,7 +157,7 @@ export function FolderSelect({
                     }
                 }}
             />
-            <ScrollableShadows direction="vertical" className={cn('bg-surface-primary border rounded', className)}>
+            <ScrollableShadows direction="vertical" className={cn('bg-card border rounded', className)}>
                 <LemonTree
                     ref={treeRef}
                     selectMode="folder-only"

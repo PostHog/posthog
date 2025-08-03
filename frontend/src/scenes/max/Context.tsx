@@ -143,7 +143,7 @@ export function ContextSummary({
 
     return (
         <Tooltip title={tooltipContent} placement="bottom">
-            <div className="flex items-center gap-1 text-xs text-muted hover:text-default w-fit select-none mb-1.5">
+            <div className="flex items-center gap-1 text-xs text-tertiary-foreground hover:text-default w-fit select-none mb-1.5">
                 <IconPageChart className="text-sm" />
                 <span className="italic">With {contextSummaryText}</span>
             </div>

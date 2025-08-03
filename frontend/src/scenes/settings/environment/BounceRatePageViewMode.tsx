@@ -15,7 +15,7 @@ const bounceRatePageViewModeOptions: LemonRadioOption<BounceRatePageViewMode>[] 
         label: (
             <>
                 <div>Counts pageviews</div>
-                <div className="text-secondary">
+                <div className="text-secondary-foreground">
                     This is the default. Counts <code>$pageview</code> events in a session as part of the bounce rate
                     calculation.
                 </div>
@@ -27,7 +27,7 @@ const bounceRatePageViewModeOptions: LemonRadioOption<BounceRatePageViewMode>[] 
         label: (
             <>
                 <div>Counts unique urls visited</div>
-                <div className="text-secondary">
+                <div className="text-secondary-foreground">
                     Counts the number of unique url visited as part of the bounce rate calculation
                 </div>
             </>
@@ -38,7 +38,7 @@ const bounceRatePageViewModeOptions: LemonRadioOption<BounceRatePageViewMode>[] 
         label: (
             <>
                 <div>Use uniqUpTo</div>
-                <div className="text-secondary">
+                <div className="text-secondary-foreground">
                     Uses the <code>uniqUpTo</code> function to count if the total unique pageviews + screen events +
                     autocaptures is &gte; 2
                 </div>

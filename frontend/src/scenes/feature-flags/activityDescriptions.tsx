@@ -335,7 +335,7 @@ const getActorName = (logItem: ActivityLogItem): JSX.Element => {
     if (logItem.detail.trigger?.job_type === 'scheduled_change') {
         return (
             <>
-                <strong>{userName}</strong> <span className="text-muted">(via scheduled change)</span>
+                <strong>{userName}</strong> <span className="text-tertiary-foreground">(via scheduled change)</span>
             </>
         )
     }

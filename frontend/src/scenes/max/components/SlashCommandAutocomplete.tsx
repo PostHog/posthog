@@ -37,7 +37,7 @@ const slashCommandToMenuItem = (
     label: (
         <div>
             <div className="font-mono mt-0.5">{command.name}</div>
-            <div className="text-muted text-xs">{command.description}</div>
+            <div className="text-tertiary-foreground text-xs">{command.description}</div>
         </div>
     ),
     icon: command.icon,
@@ -126,7 +126,7 @@ export function SlashCommandAutocomplete({
 
 function NavigationHint(): JSX.Element {
     return (
-        <div className="border-t px-1 pt-1.5 pb-0.5 mt-1 text-xxs text-muted-alt font-medium select-none">
+        <div className="border-t px-1 pt-1.5 pb-0.5 mt-1 text-xxs text-tertiary-foreground font-medium select-none">
             {MAX_SLASH_COMMANDS.length > 1 && '↑↓ to navigate • '}⏎ to activate • → to select • Esc to close
         </div>
     )

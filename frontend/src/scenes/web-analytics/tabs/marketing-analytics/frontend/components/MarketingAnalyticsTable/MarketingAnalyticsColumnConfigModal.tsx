@@ -234,38 +234,40 @@ export function MarketingAnalyticsColumnConfigModal({ query: rawQuery }: { query
             <div className="space-y-6">
                 {/* Active Filters Section - Always Visible */}
                 <div className="p-4 bg-bg-light border rounded">
-                    <h5 className="font-medium mb-3 text-sm uppercase tracking-wide text-muted">Active filters</h5>
+                    <h5 className="font-medium mb-3 text-sm uppercase tracking-wide text-tertiary-foreground">
+                        Active filters
+                    </h5>
                     <div className="space-y-2">
                         {marketingQuery?.orderBy ? (
                             <div className="flex items-center gap-1 text-sm">
-                                <IconArrowUp className="text-xs text-primary" />
-                                <span className="text-muted">
-                                    Sorted by: <span className="font-medium text-primary">{currentSortColumn}</span> (
-                                    {currentSortDirection})
+                                <IconArrowUp className="text-xs text-foreground" />
+                                <span className="text-tertiary-foreground">
+                                    Sorted by: <span className="font-medium text-foreground">{currentSortColumn}</span>{' '}
+                                    ({currentSortDirection})
                                 </span>
                             </div>
                         ) : (
-                            <div className="text-sm text-muted italic">No sorting applied</div>
+                            <div className="text-sm text-tertiary-foreground italic">No sorting applied</div>
                         )}
                         {hiddenColumns.length > 0 ? (
                             <div className="flex items-center gap-1 text-sm">
-                                <IconHide className="text-xs text-muted" />
-                                <span className="text-muted">
+                                <IconHide className="text-xs text-tertiary-foreground" />
+                                <span className="text-tertiary-foreground">
                                     Hidden: <span className="font-medium">{hiddenColumns.join(', ')}</span>
                                 </span>
                             </div>
                         ) : (
-                            <div className="text-sm text-muted italic">No hidden columns</div>
+                            <div className="text-sm text-tertiary-foreground italic">No hidden columns</div>
                         )}
                         {/* {pinnedColumns.length > 0 ? (
                             <div className="flex items-center gap-1 text-sm">
-                                <IconPinFilled className="text-xs text-primary" />
-                                <span className="text-muted">
-                                    Pinned: <span className="font-medium text-primary">{pinnedColumns.join(', ')}</span>
+                                <IconPinFilled className="text-xs text-foreground" />
+                                <span className="text-tertiary-foreground">
+                                    Pinned: <span className="font-medium text-foreground">{pinnedColumns.join(', ')}</span>
                                 </span>
                             </div>
                         ) : (
-                            <div className="text-sm text-muted italic">No pinned columns</div>
+                            <div className="text-sm text-tertiary-foreground italic">No pinned columns</div>
                         )} */}
                     </div>
                 </div>
@@ -275,7 +277,7 @@ export function MarketingAnalyticsColumnConfigModal({ query: rawQuery }: { query
                     <h4 className="font-semibold mb-3">Sorting</h4>
                     <div className="space-y-1">
                         <div className="flex items-center gap-1">
-                            <label className="text-sm font-medium text-muted min-w-20">Sort by:</label>
+                            <label className="text-sm font-medium text-tertiary-foreground min-w-20">Sort by:</label>
                             <div className="flex-1">
                                 <LemonSelect
                                     value={currentSortColumn}
@@ -297,7 +299,7 @@ export function MarketingAnalyticsColumnConfigModal({ query: rawQuery }: { query
                             </div>
                         </div>
                         <div className="flex items-center gap-1">
-                            <label className="text-sm font-medium text-muted min-w-20">Direction:</label>
+                            <label className="text-sm font-medium text-tertiary-foreground min-w-20">Direction:</label>
                             <div className="flex-1">
                                 <LemonSelect
                                     value={currentSortDirection}
@@ -323,7 +325,7 @@ export function MarketingAnalyticsColumnConfigModal({ query: rawQuery }: { query
                 {/* Column Management Section */}
                 <div>
                     <h4 className="font-semibold mb-3">Column visibility and pinning</h4>
-                    <p className="text-sm text-muted mb-2">
+                    <p className="text-sm text-tertiary-foreground mb-2">
                         Hide columns you don't need or pin important ones to keep them always visible.
                     </p>
 

@@ -43,7 +43,7 @@ export function AIConsentPopoverWrapper({
                         .<br />
                         <i>Your data won't be used for training models.</i>
                     </p>
-                    <p className="text-muted text-xs leading-relaxed mb-2">
+                    <p className="text-tertiary-foreground text-xs leading-relaxed mb-2">
                         If your org requires a Data Processing Agreement (DPA)
                         <br />
                         for compliance (and your existing DPA doesn't already

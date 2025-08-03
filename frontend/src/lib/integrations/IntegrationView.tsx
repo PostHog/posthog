@@ -21,7 +21,7 @@ export function IntegrationView({
     const errors = (integration.errors && integration.errors?.split(',')) || []
 
     return (
-        <div className="rounded border bg-surface-primary">
+        <div className="rounded border bg-card">
             <div className="flex justify-between items-center p-2">
                 <div className="flex gap-4 items-center ml-2">
                     <img src={integration.icon_url} className="w-10 h-10 rounded" />
@@ -49,7 +49,7 @@ export function IntegrationView({
                                 at={integration.created_at}
                                 by={integration.created_by}
                                 prefix="Updated"
-                                className="text-secondary"
+                                className="text-secondary-foreground"
                             />
                         ) : null}
                     </div>

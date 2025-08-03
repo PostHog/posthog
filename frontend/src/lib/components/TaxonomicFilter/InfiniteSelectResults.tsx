@@ -194,10 +194,7 @@ export function InfiniteSelectResults({
         <div className={cn('flex h-full', useVerticalLayout ? 'flex-row' : 'flex-col')}>
             {hasMultipleGroups && (
                 <div
-                    className={cn(
-                        useVerticalLayout ? 'border-r pr-2 mr-2 flex-shrink-0' : 'border-b',
-                        'border-primary'
-                    )}
+                    className={cn(useVerticalLayout ? 'border-r pr-2 mr-2 flex-shrink-0' : 'border-b', 'border-border')}
                 >
                     <div className="taxonomic-group-title">Categories</div>
                     <div

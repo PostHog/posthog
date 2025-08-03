@@ -41,7 +41,7 @@ export function HogFunctionMetrics({ id }: HogFunctionMetricsLogicProps): JSX.El
     useEffect(() => {
         loadMetrics()
         loadMetricsTotals()
-    }, [])
+    }, [loadMetricsTotals, loadMetrics])
 
     return (
         <BindLogic logic={hogFunctionMetricsLogic} props={{ id }}>
@@ -134,7 +134,7 @@ function AppMetricBigNumber({
 }): JSX.Element {
     return (
         <Tooltip title={tooltip}>
-            <div className="flex flex-col flex-1 gap-2 items-center p-2 rounded border bg-surface-primary">
+            <div className="flex flex-col flex-1 gap-2 items-center p-2 rounded border bg-card">
                 <div className="text-xs font-bold uppercase">{label.replace(/_/g, ' ')}</div>
                 <div className="flex flex-1 items-center mb-2 text-2xl">{humanFriendlyNumber(value ?? 0)}</div>
             </div>
@@ -250,7 +250,7 @@ function AppMetricsGraph(): JSX.Element {
     }, [appMetrics])
 
     return (
-        <div className="relative border rounded p-6 bg-surface-primary h-[50vh]">
+        <div className="relative border rounded p-6 bg-card h-[50vh]">
             {appMetricsLoading && <SpinnerOverlay />}
             {!!appMetrics && <canvas ref={canvasRef} />}
             <Popover

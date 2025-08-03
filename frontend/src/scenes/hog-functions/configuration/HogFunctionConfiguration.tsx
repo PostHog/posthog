@@ -201,7 +201,7 @@ export function HogFunctionConfiguration({ templateId, id, logicKey }: HogFuncti
                 >
                     <div className="flex flex-wrap gap-4 items-start">
                         <div className="flex flex-col flex-1 gap-4 min-w-100">
-                            <div className={clsx('p-3 rounded border deprecated-space-y-2 bg-surface-primary')}>
+                            <div className={clsx('p-3 rounded border deprecated-space-y-2 bg-card')}>
                                 <div className="flex flex-row gap-2 items-center min-h-16">
                                     <LemonField name="icon_url">
                                         {({ value, onChange }) => (

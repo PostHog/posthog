@@ -188,7 +188,7 @@ export function HogFunctionTest(): JSX.Element {
                 ref={testResultsRef}
                 className={clsx(
                     'p-3 rounded border deprecated-space-y-2',
-                    expanded ? 'bg-surface-primary' : 'bg-surface-secondary',
+                    expanded ? 'bg-card' : 'bg-secondary',
                     expanded ? 'min-h-120' : ''
                 )}
             >
@@ -475,7 +475,7 @@ export function HogFunctionTest(): JSX.Element {
                                             <div className="deprecated-space-y-2">
                                                 <div>Here are all the global variables you can use in your code:</div>
                                                 {sampleGlobalsError ? (
-                                                    <div className="text-warning">{sampleGlobalsError}</div>
+                                                    <div className="text-warning-foreground">{sampleGlobalsError}</div>
                                                 ) : null}
                                             </div>
                                             <HogFunctionTestEditor

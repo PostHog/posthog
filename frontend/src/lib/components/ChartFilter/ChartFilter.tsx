@@ -11,7 +11,7 @@ function ChartFilterOptionLabel(props: { label: string; description?: string }):
     return (
         <div className="flex flex-col gap-[2px]">
             <span>{props.label}</span>
-            <span className="text-xs text-tertiary font-normal">{props.description}</span>
+            <span className="text-xs text-tertiary-foreground font-normal">{props.description}</span>
         </div>
     )
 }

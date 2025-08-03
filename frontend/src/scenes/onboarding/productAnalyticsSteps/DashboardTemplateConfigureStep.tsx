@@ -51,7 +51,7 @@ const UrlInput = ({ iframeRef }: { iframeRef: React.RefObject<HTMLIFrameElement>
     }, [currentPath])
 
     return (
-        <div className="w-full flex gap-x-2 border-b border-1 border-primary p-2">
+        <div className="w-full flex gap-x-2 border-b border-1 border-border p-2">
             <LemonInput
                 size="medium"
                 className="grow font-mono text-sm pl-0.5"
@@ -143,7 +143,7 @@ export const SiteChooser = (): JSX.Element => {
                                 the HTML snippet wherever you want to track events, then come back here.
                             </p>
                             {isCloud && (
-                                <p className="text-secondary italic">
+                                <p className="text-secondary-foreground italic">
                                     Note: Sites must be served over HTTPS to be selected.
                                 </p>
                             )}
@@ -166,13 +166,13 @@ export const SiteChooser = (): JSX.Element => {
                         </>
                     ) : (
                         <>
-                            <p className="text-secondary">
+                            <p className="text-secondary-foreground">
                                 Hm, it looks like you haven't ingested any events from a website yet. To select actions
                                 from your site, head back to the{' '}
                                 <Link onClick={() => setStepKey(OnboardingStepKey.INSTALL)}>install step</Link> to
                                 install posthog-js in your frontend.
                             </p>
-                            <p className="text-secondary">
+                            <p className="text-secondary-foreground">
                                 You can still create a dashboard using custom event names, though it's not quite as fun.
                             </p>
                             <LemonButton onClick={() => setStepKey(OnboardingStepKey.INSTALL)} type="primary">
@@ -263,7 +263,7 @@ export const OnboardingDashboardTemplateConfigureStep = ({
                     <div className="grid grid-cols-6 deprecated-space-x-6 min-h-[80vh]">
                         <div className="col-span-4 relative max-h-[100vh] overflow-y-hidden">
                             {browserUrl && iframeBanner?.level != 'error' ? (
-                                <div className="border border-1 border-primary rounded h-full w-full flex flex-col">
+                                <div className="border border-1 border-border rounded h-full w-full flex flex-col">
                                     <UrlInput iframeRef={iframeRef} />
                                     <div className="m-2 grow rounded">
                                         <IframedToolbarBrowser iframeRef={iframeRef} userIntent="add-action" />

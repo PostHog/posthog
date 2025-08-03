@@ -102,7 +102,9 @@ export function EmptyState({
                         >
                             {suggestionsLoading ? 'Fetching...' : 'Fetch suggestions'}
                         </LemonButton>
-                        <span className="text-small text-secondary">Sent an event? Refetch suggestions.</span>
+                        <span className="text-small text-secondary-foreground">
+                            Sent an event? Refetch suggestions.
+                        </span>
                     </div>
                 )}
             </div>
@@ -118,5 +120,5 @@ export function EmptyState({
         displaySuggestions,
     ])
 
-    return children ? <div className="border rounded p-4 text-secondary">{children}</div> : null
+    return children ? <div className="border rounded p-4 text-secondary-foreground">{children}</div> : null
 }

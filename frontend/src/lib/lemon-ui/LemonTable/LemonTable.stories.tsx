@@ -237,7 +237,7 @@ WithColorCodedRows.args = {
             : occupation === 'Retired'
             ? 'var(--warning)'
             : occupation === 'Body-builder'
-            ? 'var(--danger)'
+            ? 'var(--color-error-foreground)'
             : null,
 }
 

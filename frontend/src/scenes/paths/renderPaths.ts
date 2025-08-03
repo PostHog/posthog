@@ -94,7 +94,7 @@ const appendDropoffs = (svg: D3Selector): void => {
 
     dropOffGradient.append('stop').attr('offset', '0%').attr('stop-color', 'var(--paths-dropoff)')
 
-    dropOffGradient.append('stop').attr('offset', '100%').attr('stop-color', 'var(--color-bg-surface-primary)')
+    dropOffGradient.append('stop').attr('offset', '100%').attr('stop-color', 'var(--color-card)')
 }
 
 const appendPathLinks = (
@@ -183,7 +183,7 @@ const addChartAxisLines = (svg: D3Selector, height: number, nodes: PathNodeData[
         const minWidthApart = nodes[1].x0 - nodes[0].x0
         arr.forEach((_, i) => {
             svg.append('line')
-                .style('stroke', 'var(--color-border-primary)')
+                .style('stroke', 'var(--color-border)')
                 .attr('stroke-width', 2)
                 .attr('x1', minWidthApart * (i + 1) - 20)
                 .attr('y1', 0)

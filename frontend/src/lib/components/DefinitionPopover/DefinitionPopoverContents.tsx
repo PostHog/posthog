@@ -136,7 +136,7 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
         if (selectedItemMeta && definition.name == selectedItemMeta.id) {
             setLocalDefinition(selectedItemMeta)
         }
-    }, [definition])
+    }, [definition, setLocalDefinition, selectedItemMeta.id, selectedItemMeta])
 
     const hasSentAsLabel = useMemo(() => {
         const _definition = definition as PropertyDefinition
@@ -418,7 +418,7 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
                                                 })}
                                             >
                                                 {label}
-                                                {!optional && <span className="text-muted">&nbsp;*</span>}
+                                                {!optional && <span className="text-tertiary-foreground">&nbsp;*</span>}
                                             </span>
                                             {description && (
                                                 <Tooltip title={description}>
@@ -510,7 +510,7 @@ function DefinitionEdit(): JSX.Element {
                     <>
                         <label className="definition-popover-edit-form-label" htmlFor="description">
                             <span className="label-text">Description</span>
-                            <span className="text-secondary">(optional)</span>
+                            <span className="text-secondary-foreground">(optional)</span>
                         </label>
                         <LemonTextArea
                             id="description"
@@ -529,7 +529,7 @@ function DefinitionEdit(): JSX.Element {
                     <>
                         <label className="definition-popover-edit-form-label" htmlFor="description">
                             <span className="label-text">Tags</span>
-                            <span className="text-secondary">(optional)</span>
+                            <span className="text-secondary-foreground">(optional)</span>
                         </label>
                         <div className="definition-popover-tags">
                             <ObjectTags
@@ -620,7 +620,7 @@ export function ControlledDefinitionPopover({
     // independently by `infiniteListLogic`
     useEffect(() => {
         setDefinition(item)
-    }, [item])
+    }, [item, setDefinition])
 
     // Supports all types specified in selectedItemHasPopover
     const value = group.getValue?.(item)

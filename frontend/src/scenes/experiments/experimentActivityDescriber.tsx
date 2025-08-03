@@ -25,7 +25,7 @@ export const ExperimentDetails = ({
                 <strong className="text-sm font-semibold">
                     {nameOrLinkToExperiment(logItem.detail.name, logItem.item_id)}
                 </strong>
-                <span className="text-xs text-muted">Experiment</span>
+                <span className="text-xs text-tertiary-foreground">Experiment</span>
             </div>
             <StatusTag status={status} />
         </LemonCard>

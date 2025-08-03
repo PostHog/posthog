@@ -254,8 +254,8 @@ export function MetricRowGroup({
                     style={{ height: `${CELL_HEIGHT}px`, maxHeight: `${CELL_HEIGHT}px` }}
                 >
                     <div className="text-sm">
-                        <div className="text-text-primary">{formatData(baselineResult)}</div>
-                        <div className="text-xs text-muted">
+                        <div className="text-text-foreground">{formatData(baselineResult)}</div>
+                        <div className="text-xs text-tertiary-foreground">
                             {humanFriendlyNumber(baselineResult.sum)} /{' '}
                             {humanFriendlyNumber(baselineResult.number_of_samples || 0)}
                         </div>
@@ -269,7 +269,7 @@ export function MetricRowGroup({
                     } ${variantResults.length === 0 ? 'border-b' : ''}`}
                     style={{ height: `${CELL_HEIGHT}px`, maxHeight: `${CELL_HEIGHT}px` }}
                 >
-                    <div className="text-xs text-muted" />
+                    <div className="text-xs text-tertiary-foreground" />
                 </td>
 
                 {/* Details column - with rowspan */}
@@ -325,7 +325,9 @@ export function MetricRowGroup({
                             </svg>
                         </div>
                     ) : (
-                        <div className="flex items-center justify-center h-full text-muted text-xs">—</div>
+                        <div className="flex items-center justify-center h-full text-tertiary-foreground text-xs">
+                            —
+                        </div>
                     )}
                 </td>
             </tr>
@@ -367,8 +369,8 @@ export function MetricRowGroup({
                             style={{ height: `${CELL_HEIGHT}px`, maxHeight: `${CELL_HEIGHT}px` }}
                         >
                             <div className="text-sm">
-                                <div className="text-text-primary">{formatData(variant)}</div>
-                                <div className="text-xs text-muted">
+                                <div className="text-text-foreground">{formatData(variant)}</div>
+                                <div className="text-xs text-tertiary-foreground">
                                     {humanFriendlyNumber(variant.sum)} /{' '}
                                     {humanFriendlyNumber(variant.number_of_samples || 0)}
                                 </div>
@@ -389,7 +391,7 @@ export function MetricRowGroup({
                                             ? deltaPositive
                                                 ? 'text-success font-semibold'
                                                 : 'text-danger font-semibold'
-                                            : 'text-text-primary'
+                                            : 'text-text-foreground'
                                     }`}
                                 >
                                     {deltaText}

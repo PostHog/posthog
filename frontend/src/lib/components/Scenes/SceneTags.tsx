@@ -83,7 +83,7 @@ export const SceneTags = ({
                         {onSave && canEdit ? (
                             'Click to add tags'
                         ) : (
-                            <span className="text-tertiary font-normal">No tags</span>
+                            <span className="text-tertiary-foreground font-normal">No tags</span>
                         )}
                     </>
                 )}

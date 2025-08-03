@@ -55,7 +55,7 @@ const DashboardRelationRow = ({
             {isPrimary && (
                 <Tooltip title="Primary dashboards are shown on the project home page">
                     <span className="flex items-center">
-                        <IconHome className="text-warning text-base" />
+                        <IconHome className="text-warning-foreground text-base" />
                     </span>
                 </Tooltip>
             )}
@@ -155,8 +155,9 @@ export function AddToDashboardModal({
                     value={searchQuery}
                     onChange={(newValue) => setSearchQuery(newValue)}
                 />
-                <div className="text-secondary">
-                    This insight is referenced on <strong className="text-text-3000">{currentDashboards.length}</strong>{' '}
+                <div className="text-secondary-foreground">
+                    This insight is referenced on{' '}
+                    <strong className="text-text-foreground">{currentDashboards.length}</strong>{' '}
                     {pluralize(currentDashboards.length, 'dashboard', 'dashboards', false)}
                 </div>
                 <div className="min-h-[420px]">

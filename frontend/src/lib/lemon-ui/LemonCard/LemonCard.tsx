@@ -29,11 +29,11 @@ export function LemonCard({
     return (
         <div
             className={cn(
-                'LemonCard border rounded p-6 bg-surface-primary relative',
+                'LemonCard border rounded p-6 bg-card relative',
                 {
                     'LemonCard--hoverEffect': hoverEffect,
                     'border-2 border-accent': focused,
-                    'border-primary': !focused,
+                    'border-border': !focused,
                     'cursor-pointer': !!onClick && !focused,
                 },
                 className

@@ -79,7 +79,7 @@ function PreviewCard({ feature, title, description, actions, children }: Preview
         <BasicCard
             className="pl-4 pr-2 pt-2 pb-3 gap-1 @container"
             id={`${feature.flagKey}`}
-            backgroundColor="var(--color-bg-surface-primary)"
+            backgroundColor="var(--color-card)"
         >
             <div className="flex flex-col justify-between gap-2">
                 <div className="flex flex-col gap-1">
@@ -113,7 +113,7 @@ function ConceptPreview({ feature }: { feature: EnrichedEarlyAccessFeature }): J
             }
             description={
                 <p className="m-0 max-w-prose">
-                    {description || <span className="text-tertiary">No description</span>}
+                    {description || <span className="text-tertiary-foreground">No description</span>}
                 </p>
             }
             actions={
@@ -173,7 +173,7 @@ function FeaturePreview({ feature }: { feature: EnrichedEarlyAccessFeature }): J
             }
             description={
                 <p className="m-0 max-w-prose">
-                    {description || <span className="text-tertiary">No description</span>}
+                    {description || <span className="text-tertiary-foreground">No description</span>}
                 </p>
             }
             actions={

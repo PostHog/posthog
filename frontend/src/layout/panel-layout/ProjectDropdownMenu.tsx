@@ -72,7 +72,7 @@ export function ProjectDropdownMenu({
                         <Label intent="menu" className="px-2">
                             Projects
                         </Label>
-                        <div className="-mx-1 my-1 h-px bg-border-primary shrink-0" />
+                        <div className="-mx-1 my-1 h-px bg-border-border shrink-0" />
 
                         <Combobox.Empty>No projects found</Combobox.Empty>
 
@@ -88,7 +88,7 @@ export function ProjectDropdownMenu({
                                         data-attr="tree-navbar-project-dropdown-current-project-button"
                                         className="pr-12"
                                     >
-                                        <IconCheck className="text-tertiary" />
+                                        <IconCheck className="text-tertiary-foreground" />
                                         <ProjectName team={currentTeam} />
                                     </ButtonPrimitive>
                                 </Combobox.Item>
@@ -104,7 +104,7 @@ export function ProjectDropdownMenu({
                                         to={urls.project(currentTeam.id, urls.settings('project'))}
                                         data-attr="tree-navbar-project-dropdown-current-project-settings-button"
                                     >
-                                        <IconGear className="text-tertiary" />
+                                        <IconGear className="text-tertiary-foreground" />
                                     </Link>
                                 </Combobox.Item>
                             </ButtonGroupPrimitive>
@@ -182,7 +182,7 @@ export function ProjectDropdownMenu({
                                     className="shrink-0"
                                     disabled={!!projectCreationForbiddenReason}
                                 >
-                                    <IconPlusSmall className="text-tertiary" />
+                                    <IconPlusSmall className="text-tertiary-foreground" />
                                     New project
                                 </ButtonPrimitive>
                             </Combobox.Item>

@@ -2,7 +2,7 @@
 // between the trends and top customers views
 export const InsightsWrapper = ({ children }: { children: React.ReactNode }): JSX.Element => {
     return (
-        <div className="InsightVizDisplay InsightVizDisplay--type-trends border rounded bg-surface-primary">
+        <div className="InsightVizDisplay InsightVizDisplay--type-trends border rounded bg-card">
             <div className="InsightVizDisplay__content">{children}</div>
         </div>
     )

@@ -132,7 +132,7 @@ export function CreateRoleModal(): JSX.Element {
                             })}
                         </div>
                     ) : (
-                        <div className="text-secondary mb-2">No members added yet</div>
+                        <div className="text-secondary-foreground mb-2">No members added yet</div>
                     )}
                 </>
             )}

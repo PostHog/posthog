@@ -282,9 +282,11 @@ export function ManagedMigrations(): JSX.Element {
                                 <div className="flex flex-col gap-1">
                                     <LemonProgress
                                         percent={progress}
-                                        strokeColor={migration.status === 'paused' ? 'var(--danger)' : undefined}
+                                        strokeColor={
+                                            migration.status === 'paused' ? 'var(--color-error-foreground)' : undefined
+                                        }
                                     />
-                                    <span className="text-xs text-muted">
+                                    <span className="text-xs text-tertiary-foreground">
                                         {migration.status === 'completed'
                                             ? 'Complete'
                                             : migration.status === 'paused'
@@ -319,7 +321,7 @@ export function ManagedMigrations(): JSX.Element {
                                     </div>
                                 )
                             }
-                            return <span className="text-secondary">—</span>
+                            return <span className="text-secondary-foreground">—</span>
                         },
                         align: 'right',
                     },

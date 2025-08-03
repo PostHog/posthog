@@ -45,7 +45,7 @@ export const InlineMenu = ({
         >
             <div
                 ref={menuRef}
-                className="NotebookInlineMenu flex bg-surface-primary rounded border items-center text-secondary p-1 gap-x-0.5"
+                className="NotebookInlineMenu flex bg-card rounded border items-center text-secondary-foreground p-1 gap-x-0.5"
             >
                 {ttEditor.isActive('link') ? (
                     <>

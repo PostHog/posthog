@@ -69,7 +69,7 @@ export function PayGateMini({
                 gate_variant: gateVariant,
             })
         }
-    }, [gateVariant])
+    }, [gateVariant, productWithFeature.type, feature])
 
     const handleCtaClick = (): void => {
         if (handleSubmit) {
@@ -89,7 +89,7 @@ export function PayGateMini({
                 <div
                     className={clsx(
                         className,
-                        background && 'bg-primary border border-primary',
+                        background && 'bg-primary border border-border',
                         'PayGateMini rounded flex flex-col items-center p-4 text-center'
                     )}
                 >
@@ -186,11 +186,11 @@ function PayGateContent({
         <div
             className={clsx(
                 className,
-                background && 'bg-primary border border-primary',
+                background && 'bg-primary border border-border',
                 'PayGateMini rounded flex flex-col items-center p-4 text-center'
             )}
         >
-            <div className="flex mb-2 text-4xl text-warning">
+            <div className="flex mb-2 text-4xl text-warning-foreground">
                 {getProductIcon(productWithFeature.name, featureInfo.icon_key)}
             </div>
             <h2>{featureInfo.name}</h2>
@@ -227,12 +227,12 @@ const renderUsageLimitMessage = (
                     <Tooltip title={featureInfo.description}>
                         <span>
                             <b>{featureInfo.name}</b>
-                            <IconInfo className="ml-0.5 text-secondary" />
+                            <IconInfo className="ml-0.5 text-secondary-foreground" />
                         </span>
                     </Tooltip>
                     .
                 </p>
-                <p className="p-4 border rounded border-primary bg-primary">
+                <p className="p-4 border rounded border-border bg-primary">
                     <b>Your current plan limit:</b>{' '}
                     <span>
                         {featureAvailableOnOrg.limit} {featureAvailableOnOrg.unit}
@@ -246,7 +246,7 @@ const renderUsageLimitMessage = (
                                 <b>{featureInfoOnNextPlan?.limit} projects</b>.
                             </p>
                         )}
-                        <p className="mb-4 text-xs italic text-secondary">
+                        <p className="mb-4 text-xs italic text-secondary-foreground">
                             Need unlimited projects? Check out one of our{' '}
                             <Link to="/organization/billing?products=platform_and_support" onClick={handleCtaClick}>
                                 platform add-ons
@@ -293,8 +293,8 @@ const renderGateVariantMessage = (
 const GrandfatheredMessage = (): JSX.Element => {
     return (
         <div className="flex mb-4 text-left rounded gap-x-2 bg-primary">
-            <IconInfo className="text-2xl text-secondary" />
-            <p className="mb-0 text-secondary">
+            <IconInfo className="text-2xl text-secondary-foreground" />
+            <p className="mb-0 text-secondary-foreground">
                 Your plan does not include this feature, but previously set settings may remain. Please upgrade your
                 plan to regain access.
             </p>

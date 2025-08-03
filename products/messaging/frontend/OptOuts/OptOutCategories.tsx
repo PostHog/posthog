@@ -47,7 +47,7 @@ export function OptOutCategories(): JSX.Element {
                         <div className="flex items-center gap-2">
                             <div>
                                 <div className="font-medium">{category.name}</div>
-                                <div className="text-xs text-muted">{category.description}</div>
+                                <div className="text-xs text-tertiary-foreground">{category.description}</div>
                             </div>
                             <LemonTag type={category.category_type === 'marketing' ? 'success' : 'completion'}>
                                 {capitalizeFirstLetter(category.category_type)}
@@ -100,9 +100,9 @@ export function OptOutCategories(): JSX.Element {
                 content: (
                     <div>
                         <div className="mb-3">
-                            <div className="text-sm text-muted mb-1">Key: {category.key}</div>
+                            <div className="text-sm text-tertiary-foreground mb-1">Key: {category.key}</div>
                             {category.public_description && (
-                                <div className="text-sm text-muted">
+                                <div className="text-sm text-tertiary-foreground">
                                     Public description: {category.public_description}
                                 </div>
                             )}
@@ -112,7 +112,7 @@ export function OptOutCategories(): JSX.Element {
                             {category.category_type === 'marketing' ? (
                                 <OptOutList category={category} />
                             ) : (
-                                <div className="text-sm text-muted mb-1">
+                                <div className="text-sm text-tertiary-foreground mb-1">
                                     Transactional messages are not eligible for opt-outs
                                 </div>
                             )}
@@ -146,7 +146,9 @@ export function OptOutCategories(): JSX.Element {
                     {collapseItems.length > 0 ? (
                         <LemonCollapse panels={collapseItems} />
                     ) : (
-                        <div className="text-center py-8 text-muted">No message categories configured yet</div>
+                        <div className="text-center py-8 text-tertiary-foreground">
+                            No message categories configured yet
+                        </div>
                     )}
                 </>
             )}

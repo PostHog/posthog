@@ -54,7 +54,7 @@ export function AssigneeDropdown({ assignee, onChange }: AssigneeDropdownProps):
                             icon={<IconPlusSmall />}
                             to={urls.settings('organization-roles')}
                         >
-                            <div className="text-secondary">Create role</div>
+                            <div className="text-secondary-foreground">Create role</div>
                         </LemonButton>
                     }
                 />
@@ -116,10 +116,10 @@ const Section = ({
                 ))}
 
                 {loading ? (
-                    <div className="p-2 text-secondary italic truncate border-t">Loading...</div>
+                    <div className="p-2 text-secondary-foreground italic truncate border-t">Loading...</div>
                 ) : items.length === 0 ? (
                     search ? (
-                        <div className="p-2 text-secondary italic truncate border-t">
+                        <div className="p-2 text-secondary-foreground italic truncate border-t">
                             <span>No matches</span>
                         </div>
                     ) : (

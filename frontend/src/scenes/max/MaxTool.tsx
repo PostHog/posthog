@@ -65,6 +65,7 @@ export function MaxTool({
         callback,
         registerTool,
         deregisterTool,
+        context,
     ])
 
     let content: JSX.Element
@@ -126,7 +127,7 @@ export function MaxTool({
             className={clsx(
                 'relative flex flex-col',
                 // Rounding is +1px to account for the border
-                isMaxOpen && 'border border-primary-3000 border-dashed -m-px rounded-[calc(var(--radius)+1px)]',
+                isMaxOpen && 'border border-border-3000 border-dashed -m-px rounded-[calc(var(--radius)+1px)]',
                 className
             )}
         >

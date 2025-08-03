@@ -25,7 +25,7 @@
         z-index: 2;
         height: var(--bar-height);
         cursor: pointer;
-        background-color: var(--color-border-primary);
+        background-color: var(--color-border);
         border-radius: var(--bar-height);
         transition: height 150ms ease-in-out, top 150ms ease-in-out;
 
@@ -41,7 +41,7 @@
 
         .PlayerSeekbar__bufferbar {
             z-index: 2;
-            background-color: var(--color-border-primary);
+            background-color: var(--color-border);
             border-radius: var(--bar-height);
         }
 
@@ -60,7 +60,7 @@
             .PlayerSeekbar__segments__item {
                 float: left;
                 height: 100%;
-                background-color: var(--color-bg-surface-primary);
+                background-color: var(--color-card);
                 opacity: 0.5;
 
                 &--active {
@@ -77,7 +77,7 @@
             height: var(--thumb-size);
             margin-top: calc(var(--thumb-size) / 2 * -1);
             background-color: var(--color-accent);
-            border: 2px solid var(--color-bg-surface-primary);
+            border: 2px solid var(--color-card);
             border-radius: 50%;
             transition: top 150ms ease-in-out;
             backface-visibility: hidden;
@@ -118,7 +118,7 @@
     height: 0.75rem;
 
     .PlayerSeekbarTick {
-        --tick-color: var(--color-text-secondary);
+        --tick-color: var(--color-secondary-foreground);
         --tick-width: 3px;
         --emoji-width: 16px;
         --comment-width: 12px;
@@ -134,7 +134,7 @@
         }
 
         &--danger {
-            --tick-color: var(--danger);
+            --tick-color: var(--color-error-foreground);
         }
 
         &--primary {

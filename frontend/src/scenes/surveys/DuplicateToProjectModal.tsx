@@ -91,7 +91,7 @@ export function DuplicateToProjectModal(): JSX.Element {
                                 </LemonButton>
                             ))}
                         {(!currentOrganization?.teams || currentOrganization.teams.length <= 1) && (
-                            <div className="text-center p-2 text-muted">No other projects available</div>
+                            <div className="text-center p-2 text-tertiary-foreground">No other projects available</div>
                         )}
                     </div>
                 </div>

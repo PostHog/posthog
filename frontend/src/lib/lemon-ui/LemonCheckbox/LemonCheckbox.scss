@@ -33,13 +33,13 @@
             flex-shrink: 0;
             width: 1rem;
             height: 1rem;
-            background: var(--color-bg-surface-primary);
-            border: 1.5px solid var(--color-border-primary);
+            background: var(--color-card);
+            border: 1.5px solid var(--color-border);
             border-radius: 0.25rem; // Intentionally a bit smaller than --radius
             transition: border 200ms ease, background 200ms ease;
 
             path {
-                stroke: var(--color-bg-surface-primary);
+                stroke: var(--color-card);
                 stroke-dasharray: var(--tick-length);
                 stroke-dashoffset: var(--tick-length);
                 transition: stroke-dashoffset 200ms ease;
@@ -48,7 +48,7 @@
     }
 
     &.LemonCheckbox--disabled label {
-        color: var(--color-text-secondary);
+        color: var(--color-secondary-foreground);
         cursor: not-allowed;
     }
 
@@ -98,8 +98,8 @@
         label {
             min-height: var(--lemon-checkbox-height);
             padding: 0 0.75rem;
-            background: var(--color-bg-surface-primary);
-            border: 1px solid var(--color-border-primary);
+            background: var(--color-card);
+            border: 1px solid var(--color-border);
             border-radius: var(--radius);
         }
 
@@ -119,7 +119,7 @@
 
         .Field--error & {
             label {
-                border: 1px solid var(--danger);
+                border: 1px solid var(--color-error-foreground);
             }
         }
     }

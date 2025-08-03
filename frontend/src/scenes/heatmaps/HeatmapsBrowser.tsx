@@ -31,7 +31,7 @@ function UrlSearchHeader(): JSX.Element {
     const placeholderUrl = browserUrlSearchOptions?.[0] ?? 'https://your-website.com/pricing'
 
     return (
-        <div className="bg-surface-primary p-2 border-b flex items-center gap-2">
+        <div className="bg-card p-2 border-b flex items-center gap-2">
             <span className="flex-1">
                 {hasValidReplayIframeData ? (
                     <LemonInput value={replayIframeData?.url} onChange={(s) => setReplayIframeDataURL(s)} />
@@ -116,7 +116,7 @@ function HeatmapsBrowserIntro(): JSX.Element {
                     </div>
                 </div>
 
-                <div className="gap-y-px p-2 border bg-surface-primary rounded">
+                <div className="gap-y-px p-2 border bg-card rounded">
                     {topUrlsLoading ? (
                         <LemonSkeleton className="h-10" repeat={10} />
                     ) : noPageviews ? (

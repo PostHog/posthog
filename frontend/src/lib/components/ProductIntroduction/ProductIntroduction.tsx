@@ -60,7 +60,7 @@ export const ProductIntroduction = ({
     const actionable = action || actionElementOverride
     return (
         <div
-            className="border-2 border-dashed border-primary w-full p-8 justify-center rounded mt-2 mb-4"
+            className="border-2 border-dashed border-border w-full p-8 justify-center rounded mt-2 mb-4"
             data-attr={`product-introduction-${thingName}`}
         >
             {!isEmpty && (

@@ -19,7 +19,7 @@ export function ExperimentMetricOutlierHandling({
             >
                 Outlier handling
             </LemonLabel>
-            <p className="text-sm text-muted-alt">
+            <p className="text-sm text-tertiary-foreground">
                 Set winsorization lower and upper bounds to cap metric values at the specified percentiles.
             </p>
             <div className="mt-3 flex items-center gap-2">

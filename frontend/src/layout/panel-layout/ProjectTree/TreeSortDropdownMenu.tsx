@@ -26,7 +26,7 @@ export function TreeSortDropdownMenu({ setSortMethod, sortMethod }: SortDropdown
                     tooltip={`Tree sorting: ${sortMethod === 'folder' ? 'Alphabetical' : 'Recently added'}`}
                     tooltipPlacement="bottom"
                 >
-                    <IconSort className="size-3 text-tertiary" />
+                    <IconSort className="size-3 text-tertiary-foreground" />
                 </ButtonPrimitive>
             </DropdownMenuTrigger>
             <DropdownMenuContent loop align="end" side="bottom" className="max-w-[250px]">

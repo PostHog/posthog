@@ -161,7 +161,7 @@ export function Tooltip({
                     >
                         <div
                             className={clsx(
-                                'bg-surface-tooltip text-primary-inverse py-1.5 px-2 break-words rounded text-start',
+                                'bg-tooltip text-tooltip-foreground py-1.5 px-2 break-words rounded text-start',
                                 className
                             )}
                             // eslint-disable-next-line react/forbid-dom-props
@@ -187,7 +187,7 @@ export function Tooltip({
                                 width={8}
                                 height={4}
                                 staticOffset={arrowOffset}
-                                fill="var(--color-bg-surface-tooltip)"
+                                fill="var(--color-bg-tooltip)"
                             />
                         </div>
                     </div>

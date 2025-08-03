@@ -149,7 +149,7 @@ function RowItemTitle({
     finalTimestamp: Dayjs | null
 }): JSX.Element {
     return (
-        <div className="flex items-center text-text-3000" data-attr="row-item-title">
+        <div className="flex items-center text-text-foreground" data-attr="row-item-title">
             {item.type === 'network' ? (
                 <ItemPerformanceEvent item={item.data} finalTimestamp={finalTimestamp} />
             ) : item.type === 'console' ? (
@@ -272,7 +272,7 @@ export function PlayerInspectorListItem({
                 'ml-1 flex flex-col items-center',
                 isExpanded && 'border border-accent',
                 isExpanded && item.highlightColor && `border border-${item.highlightColor}-dark`,
-                isHovering && 'bg-surface-primary'
+                isHovering && 'bg-card'
             )}
             // eslint-disable-next-line react/forbid-dom-props
             style={{
@@ -363,7 +363,7 @@ export function PlayerInspectorListItem({
                             className="flex justify-end cursor-pointer mx-2 my-1"
                             onClick={() => setItemExpanded(index, false)}
                         >
-                            <span className="text-secondary">Collapse</span>
+                            <span className="text-secondary-foreground">Collapse</span>
                         </div>
                     </div>
                 </div>

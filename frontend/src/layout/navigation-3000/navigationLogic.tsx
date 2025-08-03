@@ -387,7 +387,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                                                                   to: urls.dashboard(dashboard.id),
                                                               })),
                                                               footer: dashboardsLoading && (
-                                                                  <div className="px-2 py-1 text-tertiary">
+                                                                  <div className="px-2 py-1 text-tertiary-foreground">
                                                                       <Spinner /> Loading…
                                                                   </div>
                                                               ),
@@ -489,7 +489,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                                                                   to: urls.replayPlaylist(savedFilter.short_id),
                                                               })),
                                                               footer: savedFiltersLoading && (
-                                                                  <div className="px-2 py-1 text-tertiary">
+                                                                  <div className="px-2 py-1 text-tertiary-foreground">
                                                                       <Spinner /> Loading…
                                                                   </div>
                                                               ),

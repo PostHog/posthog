@@ -115,7 +115,7 @@ const renderItemContents = ({
         listGroupType === TaxonomicFilterGroupType.ErrorTrackingProperties ||
         listGroupType.startsWith(TaxonomicFilterGroupType.GroupsPrefix) ? (
         <>
-            <div className={clsx('taxonomic-list-row-contents', isStale && 'text-muted')}>
+            <div className={clsx('taxonomic-list-row-contents', isStale && 'text-tertiary-foreground')}>
                 {icon}
                 <PropertyKeyInfo
                     value={item.name ?? ''}
@@ -270,11 +270,11 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
                     }}
                     onClick={selectNonCapturedEvent}
                     onMouseEnter={() => mouseInteractionsEnabled && setIndex(rowIndex)}
-                    icon={<IconPlus className="text-muted size-4" />}
+                    icon={<IconPlus className="text-tertiary-foreground size-4" />}
                     data-attr="prop-filter-event-option-custom"
                 >
                     <div className="flex items-center gap-2">
-                        <span className="text-muted">Select event:</span>
+                        <span className="text-tertiary-foreground">Select event:</span>
                         <span className="font-medium">{trimmedSearchQuery}</span>
                         <LemonTag type="caution" size="small">
                             Not seen yet
@@ -373,7 +373,7 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
         <div className={clsx('taxonomic-infinite-list', showEmptyState && 'empty-infinite-list', 'h-full')}>
             {showEmptyState ? (
                 <div className="no-infinite-results flex flex-col deprecated-space-y-1 items-center">
-                    <IconArchive className="text-5xl text-tertiary" />
+                    <IconArchive className="text-5xl text-tertiary-foreground" />
                     <span>
                         {searchQuery ? (
                             <>

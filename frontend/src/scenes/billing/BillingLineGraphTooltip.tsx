@@ -17,16 +17,16 @@ export interface BillingLineGraphTooltipProps {
 export function BillingLineGraphTooltip({ title, sortedSeries }: BillingLineGraphTooltipProps): JSX.Element {
     return (
         <div className="space-y-1">
-            <div className="font-semibold text-text-primary">{title}</div>
+            <div className="font-semibold text-text-foreground">{title}</div>
             {sortedSeries.map((item) => (
                 <div key={item.id} className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-1">
                         <SeriesColorDot colorIndex={item.datasetIndex} />
-                        <span className="text-text-secondary whitespace-nowrap overflow-hidden text-ellipsis max-w-xs">
+                        <span className="text-text-secondary-foreground whitespace-nowrap overflow-hidden text-ellipsis max-w-xs">
                             {item.label}
                         </span>
                     </div>
-                    <span className="font-medium text-text-primary whitespace-nowrap">{item.formattedValue}</span>
+                    <span className="font-medium text-text-foreground whitespace-nowrap">{item.formattedValue}</span>
                 </div>
             ))}
         </div>

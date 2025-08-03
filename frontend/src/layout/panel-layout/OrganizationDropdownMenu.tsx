@@ -82,7 +82,7 @@ export function OrganizationDropdownMenu({
                             <Label intent="menu" className="px-2">
                                 Organizations
                             </Label>
-                            <div className="-mx-1 my-1 h-px bg-border-primary shrink-0" />
+                            <div className="-mx-1 my-1 h-px bg-border-border shrink-0" />
 
                             <Combobox.Empty>No organizations found</Combobox.Empty>
 
@@ -96,7 +96,7 @@ export function OrganizationDropdownMenu({
                                             tooltipPlacement="right"
                                             data-attr="tree-navbar-organization-dropdown-current-organization-button"
                                         >
-                                            <IconCheck className="text-tertiary" />
+                                            <IconCheck className="text-tertiary-foreground" />
                                             <UploadedLogo
                                                 size="xsmall"
                                                 name={currentOrganization.name}

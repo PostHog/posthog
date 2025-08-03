@@ -66,7 +66,7 @@ export function EntityFilterInfo({
             {!showSingleName && (
                 <span
                     className={clsx(
-                        'EntityFilterInfo max-w-100 ml-1 text-secondary text-xs',
+                        'EntityFilterInfo max-w-100 ml-1 text-secondary-foreground text-xs',
                         !allowWrap && 'whitespace-nowrap truncate'
                     )}
                     title={titleToDisplay}

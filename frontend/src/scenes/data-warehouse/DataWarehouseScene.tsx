@@ -19,18 +19,18 @@ export function DataWarehouseScene(): JSX.Element {
         <div>
             <div className="mb-6">
                 <h1 className="text-2xl font-semibold">Data Warehouse</h1>
-                <p className="text-muted">Manage your data warehouse sources and queries</p>
+                <p className="text-tertiary-foreground">Manage your data warehouse sources and queries</p>
             </div>
             <div className="space-y-4 p-4">
                 <div className="bg-bg-light rounded-lg p-6">
                     <h2 className="text-lg font-semibold mb-4">Data Warehouse Overview</h2>
-                    <p className="text-muted">
+                    <p className="text-tertiary-foreground">
                         This is the Data Warehouse scene. Here you can manage your data warehouse sources, create
                         queries, and explore your data.
                     </p>
                     <div className="mt-4">
-                        <p className="text-sm text-muted">Features coming soon:</p>
-                        <ul className="list-disc list-inside mt-2 text-sm text-muted">
+                        <p className="text-sm text-tertiary-foreground">Features coming soon:</p>
+                        <ul className="list-disc list-inside mt-2 text-sm text-tertiary-foreground">
                             <li>Data source management</li>
                             <li>Cost estimates</li>
                             <li>Materialized views</li>

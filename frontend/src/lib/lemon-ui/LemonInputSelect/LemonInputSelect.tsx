@@ -499,7 +499,7 @@ export function LemonInputSelect<T = string>({
             return null
         }
         return values.length === 0 ? (
-            <span className="-ml-2 text-muted">Select from {options.length} options</span>
+            <span className="-ml-2 text-tertiary-foreground">Select from {options.length} options</span>
         ) : (
             <span className="-ml-2">
                 {values.length === options.length
@@ -757,7 +757,7 @@ export function LemonInputSelect<T = string>({
                             {emptyStateComponent ? (
                                 emptyStateComponent
                             ) : (
-                                <p className="text-secondary italic p-1">
+                                <p className="text-secondary-foreground italic p-1">
                                     {allowCustomValues
                                         ? 'Start typing and press Enter to add options'
                                         : `No options matching "${inputValue}"`}

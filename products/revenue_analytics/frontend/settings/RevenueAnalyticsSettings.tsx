@@ -77,7 +77,7 @@ export function RevenueAnalyticsSettings(): JSX.Element {
                                     >
                                         Import revenue data from data warehouse
                                     </LemonButton>
-                                    <span className="text-xs text-muted-alt">
+                                    <span className="text-xs text-tertiary-foreground">
                                         Only Stripe is supported currently. <br />
                                         <Link to="https://github.com/PostHog/posthog/issues/new?assignees=&labels=enhancement,feature/revenue-analytics%2C+feature&projects=&template=feature_request.yml&title=New%20revenue%20source:%20%3Cinsert%20source%3E">
                                             Request more revenue integrations.

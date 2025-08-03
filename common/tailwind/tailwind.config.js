@@ -15,8 +15,8 @@ const commonColors = {
 
 const deprecatedColors = {
     'primary-highlight-light': 'var(--primary-highlight-light)',
-    'text-3000-light': 'var(--text-3000-light)',
-    'text-secondary-3000-light': 'var(--color-text-secondary-3000-light)',
+    'text-foreground': 'var(--text-foreground)',
+    'text-secondary-3000-light': 'var(--color-secondary-foreground-3000-light)',
     'muted-3000-light': 'var(--muted-3000-light)',
     'trace-3000-light': 'var(--trace-3000-light)',
     'primary-3000-light': 'var(--primary-3000-light)',
@@ -44,8 +44,8 @@ const deprecatedColors = {
     'danger-3000-button-border-hover-light': 'var(--danger-3000-button-border-hover-light)',
 
     // PostHog 3000 - Dark mode
-    'text-3000-dark': 'var(--text-3000-dark)',
-    'text-secondary-3000-dark': 'var(--color-text-secondary-3000-dark)',
+    'text-foreground-dark': 'var(--text-foreground-dark)',
+    'text-secondary-3000-dark': 'var(--color-secondary-foreground-3000-dark)',
     'muted-3000-dark': 'var(--muted-3000-dark)',
     'trace-3000-dark': 'var(--trace-3000-dark)',
     'primary-3000-dark': 'var(--primary-3000-dark)',
@@ -81,25 +81,25 @@ const deprecatedColors = {
     // --color-shadow-elevation-3000-dark: var(--shadow-elevation-3000-dark);
 
     // The derived colors
-    // `--default` is a pre-3000 alias for "default text color" (`--text-3000` now)
+    // `--default` is a pre-3000 alias for "default text color" (`--text-foreground` now)
     // --color-default: var(--default);
-    // --color-text-3000: var(--text-3000);
-    // --color-text-secondary-3000: var(--color-text-secondary-3000);
+    // --color-text-foreground: var(--color-foreground);
+    // --color-secondary-foreground-3000: var(--color-secondary-foreground-3000);
     // --color-muted-3000: var(--muted-3000);
     // --color-primary-3000: var(--primary-3000);
     // --color-secondary-3000: var(--secondary-3000);
     // --color-secondary-3000-hover: var(--secondary-3000-hover);
-    // --color-accent-3000: var(--color-bg-surface-primary);
-    // --color-bg-3000: var(--color-bg-primary);
+    // --color-accent-3000: var(--color-card);
+    // --color-bg-3000: var(--color-background);
     // --color-primary-highlight: var(--primary-highlight);
     // --color-primary-alt-highlight: var(--primary-alt-highlight);
     // --color-primary-alt: var(--primary-alt);
 
     // 'primary': 'var(--primary-3000)',
     muted: 'var(--muted-3000)',
-    default: 'var(--text-3000)',
+    default: 'var(--color-foreground)',
     'muted-alt': 'var(--muted-3000)',
-    'primary-alt': 'var(--text-3000)',
+    'primary-alt': 'var(--color-foreground)',
 
     // --color-border: var(--color-border-primary);
     // --color-border-bold: var(--border-bold-3000);
@@ -231,7 +231,7 @@ const deprecatedColors = {
     'notebook-column-right-width': 'var(--notebook-column-right-width)',
 
     // Light mode
-    danger: 'var(--danger)',
+    danger: 'var(--color-error-foreground)',
     'danger-light': 'var(--danger-light)',
     'danger-lighter': 'var(--danger-lighter)',
     'danger-dark': 'var(--danger-dark)',
@@ -246,13 +246,13 @@ const deprecatedColors = {
     'success-dark': 'var(--success-dark)',
     'success-highlight': 'var(--success-highlight)',
 
-    // --color-muted: var(--color-text-secondary);
-    // --color-muted-alt: var(--color-text-secondary);
+    // --color-muted: var(--color-secondary-foreground);
+    // --color-muted-alt: var(--color-secondary-foreground);
     // --color-primary-alt: var(--primary-alt);
     mark: 'var(--mark)',
     white: 'var(--white)',
 
-    // --color-bg-light: var(--color-bg-surface-primary);
+    // --color-bg-light: var(--color-card);
     side: 'var(--side)',
     mid: 'var(--mid)',
     border: 'var(--border)',
@@ -265,8 +265,8 @@ const deprecatedColors = {
     'brand-yellow': 'var(--brand-yellow)',
     'brand-key': 'var(--brand-key)',
     accent: 'var(--color-accent)',
-    'text-3000': 'var(--text-3000)',
-    'text-secondary-3000': 'var(--color-text-secondary-3000)',
+    'text-foreground': 'var(--color-foreground)',
+    'text-secondary-3000': 'var(--color-secondary-foreground-3000)',
     'muted-3000': 'var(--muted-3000)',
     'trace-3000': 'var(--trace-3000)',
     'primary-3000': 'var(--color-accent)',
@@ -275,14 +275,14 @@ const deprecatedColors = {
     'primary-3000-active': 'var(--color-accent-active)',
     'secondary-3000': 'var(--secondary-3000)',
     'secondary-3000-hover': 'var(--secondary-3000-hover)',
-    'accent-3000': 'var(--color-bg-surface-primary)',
-    'bg-3000': 'var(--color-bg-primary)',
+    'accent-3000': 'var(--color-card)',
+    'bg-3000': 'var(--color-background)',
     'border-3000': 'var(--color-border-primary)',
     'border-light-opaque': 'var(--border-light-opaque)',
     'border-bold-3000': 'var(--border-bold-3000)',
     'glass-bg-3000': 'var(--glass-bg-3000)',
     'glass-border-3000': 'var(--color-border-primary)',
-    'bg-light': 'var(--color-bg-surface-primary)',
+    'bg-light': 'var(--color-card)',
     'bg-table': 'var(--color-bg-table)',
 
     // --color-link: var(--link);
@@ -613,21 +613,22 @@ const config = {
 
                 // purple: '#B62AD9',
                 'primary-highlight': 'var(--primary-highlight)',
+                'primary-highlight': 'purple',
             },
             backgroundColor: {
                 ...commonColors,
-                primary: 'var(--color-bg-primary)',
+                primary: 'var(--color-background)',
 
-                'surface-primary': 'var(--color-bg-surface-primary)',
-                'surface-secondary': 'var(--color-bg-surface-secondary)',
-                'surface-tertiary': 'var(--color-bg-surface-tertiary)',
+                'surface-primary': 'var(--color-card)',
+                'surface-secondary': 'var(--color-bg-secondary)',
+                'surface-tertiary': 'var(--color-tertiary)',
                 'surface-tooltip': 'var(--color-bg-surface-tooltip)',
                 'surface-tooltip-inverse': 'var(--color-bg-surface-tooltip-inverse)',
                 'surface-popover': 'var(--color-bg-surface-popover)',
                 'surface-popover-inverse': 'var(--color-bg-surface-popover-inverse)',
-                'fill-primary': 'var(--color-bg-fill-primary)',
-                'fill-secondary': 'var(--color-bg-fill-secondary)',
-                'fill-tertiary': 'var(--color-bg-fill-tertiary)',
+                'fill-primary': 'var(--color-card)',
+                'fill-secondary': 'var(--color-background)',
+                'fill-tertiary': 'var(--color-card-tertiary)',
                 'fill-highlight-50': 'var(--color-bg-fill-highlight-50)',
                 'fill-highlight-inverse-50': 'var(--color-bg-fill-highlight-inverse-50)',
                 'fill-highlight-100': 'var(--color-bg-fill-highlight-100)',
@@ -636,7 +637,7 @@ const config = {
                 'fill-highlight-inverse-150': 'var(--color-bg-fill-highlight-inverse-150)',
                 'fill-highlight-200': 'var(--color-bg-fill-highlight-200)',
                 'fill-highlight-inverse-200': 'var(--color-bg-fill-highlight-inverse-200)',
-                // 'fill-primary-highlight': 'var(--color-bg-fill-primary-highlight)',
+                // 'fill-primary-highlight': 'var(--color-card-highlight)',
                 'fill-info-secondary': 'var(--color-bg-fill-info-secondary)',
                 'fill-info-tertiary': 'var(--color-bg-fill-info-tertiary)',
                 'fill-info-highlight': 'var(--color-bg-fill-info-highlight)',
@@ -660,21 +661,76 @@ const config = {
                 'fill-scroll-thumb': 'var(--color-bg-fill-scroll-thumb)',
                 'border-primary': 'var(--color-bg-border-primary)',
                 'border-secondary': 'var(--color-bg-border-secondary)',
+
+                'surface-primary': 'purple',
+                'surface-secondary': 'purple',
+                'surface-tertiary': 'purple',
+                'surface-tooltip': 'purple',
+                'surface-tooltip-inverse': 'purple',
+                'surface-popover': 'purple',
+                'surface-popover-inverse': 'purple',
+                'fill-primary': 'purple',
+                'fill-secondary': 'purple',
+                'fill-tertiary': 'purple',
+                'fill-highlight-50': 'purple',
+                'fill-highlight-inverse-50': 'purple',
+                'fill-highlight-100': 'purple',
+                'fill-highlight-inverse-100': 'purple',
+                'fill-highlight-150': 'purple',
+                'fill-highlight-inverse-150': 'purple',
+                'fill-highlight-200': 'purple',
+                'fill-highlight-inverse-200': 'purple',
+                // 'fill-primary-highlight': 'purple',
+                'fill-info-secondary': 'purple',
+                'fill-info-tertiary': 'purple',
+                'fill-info-highlight': 'purple',
+                'fill-warning-secondary': 'purple',
+                'fill-warning-tertiary': 'purple',
+                'fill-warning-highlight': 'purple',
+                'fill-error-secondary': 'purple',
+                'fill-error-tertiary': 'purple',
+                'fill-error-highlight': 'purple',
+                'fill-success-secondary': 'purple',
+                'fill-success-tertiary': 'purple',
+                'fill-success-highlight': 'purple',
+                'fill-button-group-tertiary-hover': 'purple',
+                'fill-button-tertiary-hover': 'purple',
+                'fill-button-tertiary-hover-inverse': 'purple',
+                'fill-button-tertiary-active': 'purple',
+                'fill-button-tertiary-active-inverse': 'purple',
+                'fill-input': 'purple',
+                'fill-switch': 'purple',
+                'fill-slider-rail': 'purple',
+                'fill-scroll-thumb': 'purple',
+                'border-primary': 'purple',
+                'border-secondary': 'purple',
             },
             textColor: {
                 ...commonColors,
 
-                primary: 'var(--color-text-primary)',
-                'primary-inverse': 'var(--color-text-primary-inverse)',
-                secondary: 'var(--color-text-secondary)',
-                tertiary: 'var(--color-text-tertiary)',
-                success: 'var(--color-text-success)',
-                warning: 'var(--color-text-warning)',
-                error: 'var(--color-text-error)',
-                'info-on-fill': 'var(--color-text-info-on-fill)',
-                'warning-on-fill': 'var(--color-text-warning-on-fill)',
-                'error-on-fill': 'var(--color-text-error-on-fill)',
-                'success-on-fill': 'var(--color-text-success-on-fill)',
+                // primary: 'var(--color-text-foreground)',
+                // 'primary-inverse': 'var(--color-text-foreground-inverse)',
+                // secondary: 'var(--color-secondary-foreground)',
+                // tertiary: 'var(--color-tertiary-foreground)',
+                // success: 'var(--color-success-foreground)',
+                // warning: 'var(--color-text-warning-foreground)',
+                // error: 'var(--color-error-foreground)',
+                // 'info-on-fill': 'var(--color-text-info-on-fill)',
+                // 'warning-on-fill': 'var(--color-text-warning-foreground-on-fill)',
+                // 'error-on-fill': 'var(--color-error-foreground-on-fill)',
+                // 'success-on-fill': 'var(--color-success-foreground-on-fill)',
+
+                // primary: 'purple',
+                // 'primary-inverse': 'purple',
+                // secondary: 'purple',
+                // tertiary: 'purple',
+                // success: 'purple',
+                // warning: 'purple',
+                // error: 'purple',
+                // 'info-on-fill': 'purple',
+                // 'warning-on-fill': 'purple',
+                // 'error-on-fill': 'purple',
+                // 'success-on-fill': 'purple',
             },
             borderColor: {
                 ...commonColors,
@@ -685,6 +741,13 @@ const config = {
                 warning: 'var(--color-border-warning)',
                 error: 'var(--color-border-error)',
                 success: 'var(--color-border-success)',
+
+                primary: 'purple',
+                secondary: 'purple',
+                info: 'purple',
+                warning: 'purple',
+                error: 'purple',
+                success: 'purple',
             },
             ringColor: {
                 ...commonColors,
@@ -695,6 +758,13 @@ const config = {
                 warning: 'var(--color-border-warning)',
                 error: 'var(--color-border-error)',
                 success: 'var(--color-border-success)',
+
+                primary: 'purple',
+                secondary: 'purple',
+                info: 'purple',
+                warning: 'purple',
+                error: 'purple',
+                success: 'purple',
             },
             fontFamily: {
                 sans: [

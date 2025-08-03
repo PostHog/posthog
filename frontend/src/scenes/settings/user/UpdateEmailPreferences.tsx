@@ -58,7 +58,7 @@ export function UpdateEmailPreferences(): JSX.Element {
                             disabled={userLoading}
                             label="Weekly digest"
                         />
-                        <p className="text-muted mt-2">
+                        <p className="text-tertiary-foreground mt-2">
                             The weekly digest keeps you up to date with everything that's happening in your PostHog
                             organizations.
                         </p>

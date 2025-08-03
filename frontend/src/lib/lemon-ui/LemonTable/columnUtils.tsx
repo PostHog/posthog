@@ -17,7 +17,7 @@ export function atColumn<T extends Record<string, any>>(key: keyof T, title: str
                     <TZLabel time={created_at} />
                 </div>
             ) : (
-                <span className="text-secondary">—</span>
+                <span className="text-secondary-foreground">—</span>
             )
         },
         align: 'right',

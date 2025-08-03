@@ -25,7 +25,7 @@ export function ToggleButtonPrimitive({
             className={cn(
                 className,
                 checked
-                    ? 'not-disabled:bg-zinc-700 not-disabled:hover:bg-zinc-700 dark:not-disabled:bg-zinc-300 dark:not-disabled:hover:bg-zinc-300 text-primary-inverse'
+                    ? 'not-disabled:bg-zinc-700 not-disabled:hover:bg-zinc-700 dark:not-disabled:bg-zinc-300 dark:not-disabled:hover:bg-zinc-300 text-foreground-inverse'
                     : ''
             )}
             onClick={() => onCheckedChange(!checked)}

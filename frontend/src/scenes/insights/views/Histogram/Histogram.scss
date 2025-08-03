@@ -28,7 +28,7 @@
 
             // Ticks at each interval
             .tick {
-                color: var(--color-text-secondary);
+                color: var(--color-secondary-foreground);
             }
         }
 
@@ -38,7 +38,7 @@
                 font-family: var(--font-sans);
                 font-size: 0.75rem;
                 font-weight: 500;
-                fill: var(--color-text-tertiary);
+                fill: var(--color-tertiary-foreground);
             }
         }
 
@@ -75,7 +75,7 @@
                 fill: var(--color-white);
 
                 &.outside {
-                    fill: var(--color-text-secondary);
+                    fill: var(--color-secondary-foreground);
                 }
             }
         }

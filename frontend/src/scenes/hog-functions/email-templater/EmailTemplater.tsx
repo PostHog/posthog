@@ -91,7 +91,7 @@ function EmailTemplaterForm({ mode }: { mode: 'full' | 'preview' }): JSX.Element
                         {({ value }) => (
                             <>
                                 <div className="flex absolute inset-0 justify-center items-end p-2 opacity-0 transition-opacity hover:opacity-100">
-                                    <div className="absolute inset-0 opacity-50 bg-surface-primary" />
+                                    <div className="absolute inset-0 opacity-50 bg-card" />
                                     <LemonButton type="primary" size="small" onClick={() => setIsModalOpen(true)}>
                                         Click to modify content
                                     </LemonButton>

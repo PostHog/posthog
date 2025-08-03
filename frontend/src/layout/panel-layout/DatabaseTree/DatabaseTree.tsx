@@ -25,7 +25,7 @@ export function DatabaseTree(): JSX.Element {
                         iconOnly
                         data-attr="tree-panel-new-query-button"
                     >
-                        <IconPlus className="text-tertiary" />
+                        <IconPlus className="text-tertiary-foreground" />
                     </ButtonPrimitive>
                 ) : undefined
             }

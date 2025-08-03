@@ -25,8 +25,8 @@ import { getHogFlowStep } from '../steps/HogFlowSteps'
 export function HogFlowTestPanelNonSelected(): JSX.Element {
     return (
         <div className="p-2 w-120">
-            <div className="p-8 text-center rounded border bg-surface-secondary">
-                <div className="text-muted">Please select a node...</div>
+            <div className="p-8 text-center rounded border bg-secondary">
+                <div className="text-tertiary-foreground">Please select a node...</div>
             </div>
         </div>
     )
@@ -80,14 +80,14 @@ export function HogFlowEditorTestPanel(): JSX.Element | null {
             <div className="flex overflow-y-auto flex-col flex-1 gap-2 p-2">
                 {/* Event Information */}
                 {sampleGlobals?.event && (
-                    <div className="p-3 rounded border bg-surface-secondary">
+                    <div className="p-3 rounded border bg-secondary">
                         <div className="flex flex-wrap gap-1 items-center">
                             {sampleGlobals.person && (
                                 <Link to={url} className="flex gap-2 items-center">
                                     <ProfilePicture name={display} /> <span className="font-semibold">{display}</span>
                                 </Link>
                             )}
-                            <span className="text-muted">performed</span>
+                            <span className="text-tertiary-foreground">performed</span>
                             <div className="space-y-1 font-semibold text-md">{sampleGlobals.event.event}</div>{' '}
                             <div>
                                 <TZLabel time={sampleGlobals.event.timestamp} />
@@ -98,8 +98,8 @@ export function HogFlowEditorTestPanel(): JSX.Element | null {
                         {sampleGlobals.event.properties && Object.keys(sampleGlobals.event.properties).length > 0 && (
                             <div className="mt-3">
                                 <div className="mb-2 text-sm">Event properties</div>
-                                <div className="overflow-auto max-h-32 rounded border bg-surface-primary">
-                                    <pre className="p-2 text-xs whitespace-pre-wrap text-muted">
+                                <div className="overflow-auto max-h-32 rounded border bg-card">
+                                    <pre className="p-2 text-xs whitespace-pre-wrap text-tertiary-foreground">
                                         {JSON.stringify(sampleGlobals.event.properties, null, 2)}
                                     </pre>
                                 </div>
@@ -176,7 +176,7 @@ export function HogFlowEditorTestPanel(): JSX.Element | null {
                 ) : (
                     <>
                         <div className="flex flex-col gap-2">
-                            <div className="text-sm text-muted">
+                            <div className="text-sm text-tertiary-foreground">
                                 Note: Delays will be logged to indicate when they would have been executed.
                             </div>
 

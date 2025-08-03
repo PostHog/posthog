@@ -29,7 +29,7 @@ import { dataNodeLogic } from '../DataNode/dataNodeLogic'
 const OVERVIEW_ITEM_CELL_MIN_WIDTH_REMS = 10
 
 // Keep min-w-[10rem] in sync with OVERVIEW_ITEM_CELL_MIN_WIDTH_REMS
-const OVERVIEW_ITEM_CELL_CLASSES = `flex-1 border p-2 bg-surface-primary rounded min-w-[10rem] h-30 flex flex-col items-center text-center justify-between`
+const OVERVIEW_ITEM_CELL_CLASSES = `flex-1 border p-2 bg-card rounded min-w-[10rem] h-30 flex flex-col items-center text-center justify-between`
 
 let uniqueNode = 0
 

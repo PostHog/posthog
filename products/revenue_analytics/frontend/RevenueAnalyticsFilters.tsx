@@ -132,7 +132,7 @@ const RevenueAnalyticsBreakdownBy = (): JSX.Element => {
     const { setGroupBy } = useActions(revenueAnalyticsLogic)
 
     return (
-        <div className="flex items-center gap-1 text-muted-alt">
+        <div className="flex items-center gap-1 text-tertiary-foreground">
             <span>{groupBy.length > 0 && 'Breakdown by'}</span>
             <LemonInputSelect
                 options={BREAKDOWN_BY_OPTIONS}

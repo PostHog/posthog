@@ -77,7 +77,7 @@ function ExceptionCardContent({ issue, issueLoading, timestamp, label }: Excepti
                             </TabsPrimitiveTrigger>
                         </div>
                         <div className="w-full flex gap-2 justify-end items-center">
-                            {timestamp && <TZLabel className="text-muted text-xs" time={timestamp} />}
+                            {timestamp && <TZLabel className="text-tertiary-foreground text-xs" time={timestamp} />}
                             {label}
                         </div>
                     </TabsPrimitiveList>

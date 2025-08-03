@@ -124,7 +124,7 @@ export function BatchExportBackfillModal({ id }: BatchExportBackfillModalLogicPr
                                     <span className="flex gap-2 items-center">
                                         Backfill since beginning of time
                                         <Tooltip title="If selected, we will backfill all data since the beginning of time until the end date set below. There is no need to set a start date for the backfill.">
-                                            <IconInfo className="text-lg text-secondary" />
+                                            <IconInfo className="text-lg text-secondary-foreground" />
                                         </Tooltip>
                                     </span>
                                 }

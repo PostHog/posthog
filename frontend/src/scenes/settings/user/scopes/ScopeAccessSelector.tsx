@@ -109,7 +109,7 @@ const ScopeAccessSelector = ({ accessType, organizations, teams }: Props): JSX.E
                                                                 )?.name
                                                             }
                                                         </span>
-                                                        <span className="text-secondary mx-1">/</span>
+                                                        <span className="text-secondary-foreground mx-1">/</span>
                                                         <span className="flex-1 font-semibold">{team.name}</span>
                                                     </span>
                                                 ) : (

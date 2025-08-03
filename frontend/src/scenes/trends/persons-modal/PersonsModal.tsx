@@ -192,7 +192,7 @@ export function PersonsModal({
                                   )
                         )}
 
-                    <div className="flex items-center gap-2 text-secondary">
+                    <div className="flex items-center gap-2 text-secondary-foreground">
                         {actorsResponseLoading ? (
                             <>
                                 <Spinner />
@@ -353,7 +353,7 @@ export function ActorRow({ actor, propertiesTimelineFilter }: ActorRowProps): JS
     const matchedRecordings = actor.matched_recordings || []
 
     return (
-        <div className="relative border rounded bg-surface-primary">
+        <div className="relative border rounded bg-card">
             <div className="flex items-center gap-2 p-2">
                 <LemonButton
                     noPadding
@@ -381,7 +381,7 @@ export function ActorRow({ actor, propertiesTimelineFilter }: ActorRowProps): JS
                                     explicitValue={actor.distinct_ids[0]}
                                     iconStyle={{ color: 'var(--color-accent)' }}
                                     iconPosition="end"
-                                    className="text-xs text-secondary"
+                                    className="text-xs text-secondary-foreground"
                                 >
                                     {midEllipsis(actor.distinct_ids[0], 32)}
                                 </CopyToClipboardInline>

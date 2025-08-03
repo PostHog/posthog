@@ -238,7 +238,7 @@ export function NodeCanvas<T extends Node>({ nodes, renderNode }: NodeCanvasProp
 
         window.addEventListener('resize', handleResize)
         return () => window.removeEventListener('resize', handleResize)
-    }, [offset, nodePositions])
+    }, [offset, nodePositions, drawGrid])
 
     const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>): void => {
         setIsDragging(true)
@@ -283,7 +283,7 @@ export function NodeCanvas<T extends Node>({ nodes, renderNode }: NodeCanvasProp
                                C ${controlPoint1X} ${controlPoint1Y}, 
                                  ${controlPoint2X} ${controlPoint2Y}, 
                                  ${edge.to.x + offset.x} ${edge.to.y + offset.y}`}
-                            stroke="var(--text-3000)"
+                            stroke="var(--color-foreground)"
                             strokeWidth="2"
                             fill="none"
                         />

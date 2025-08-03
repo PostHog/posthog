@@ -14,7 +14,7 @@ export default meta
 const Template: StoryFn<{ insight: InsightModel }> = ({ insight: legacyInsight }) => {
     const insight = getQueryBasedInsightModel(legacyInsight)
     return (
-        <div className="bg-surface-primary w-[24rem] p-4 rounded">
+        <div className="bg-card w-[24rem] p-4 rounded">
             <InsightDetailsComponent query={insight.query} footerInfo={insight} />
         </div>
     )

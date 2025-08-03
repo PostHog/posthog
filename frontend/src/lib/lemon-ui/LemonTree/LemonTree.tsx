@@ -331,7 +331,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                     if (item.type === 'separator') {
                         return (
                             <div key={item.id} className="h-1 -mx-2 flex items-center">
-                                <div className="border-b border-primary h-px my-2 flex-1" />
+                                <div className="border-b border-border h-px my-2 flex-1" />
                             </div>
                         )
                     }
@@ -341,7 +341,9 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                         }
                         return (
                             <div key={item.id} className="not-first:mt-3 py-1 pl-2 flex items-center">
-                                <span className="text-xs font-semibold text-tertiary">{item.displayName}</span>
+                                <span className="text-xs font-semibold text-tertiary-foreground">
+                                    {item.displayName}
+                                </span>
                             </div>
                         )
                     }
@@ -355,7 +357,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                             {/* Folder lines */}
                             {depth !== 0 && size !== 'narrow' && (
                                 <div
-                                    className="folder-line absolute border-r border-primary h-[calc(100%+2px)] -top-px pointer-events-none z-0"
+                                    className="folder-line absolute border-r border-border h-[calc(100%+2px)] -top-px pointer-events-none z-0"
                                     // eslint-disable-next-line react/forbid-dom-props
                                     style={{ width: `${folderLinesOffset}px` }}
                                 />
@@ -385,15 +387,15 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                         disabled: isEmptyFolder,
                                         className: cn(
                                             'group/lemon-tree-button gap-[5px]',
-                                            'relative z-1 focus-visible:bg-fill-button-tertiary-hover motion-safe:transition-[padding] duration-50 h-[var(--lemon-tree-button-height)] [&_.icon-shortcut]:size-3',
+                                            'relative z-1 focus-visible:bg-interactive-focus motion-safe:transition-[padding] duration-50 h-[var(--lemon-tree-button-height)] [&_.icon-shortcut]:size-3',
                                             {
-                                                'bg-fill-button-tertiary-hover':
+                                                'bg-interactive-focus':
                                                     ((selectMode === 'folder-only' || selectMode === 'all') &&
                                                         selectedId === item.id &&
                                                         !isEmptyFolder) ||
                                                     isContextMenuOpenForItem === item.id,
-                                                'bg-fill-button-tertiary-active': getItemActiveState(item),
-                                                'group-hover/lemon-tree-button-group:bg-fill-button-tertiary-hover cursor-pointer':
+                                                'bg-interactive-active': getItemActiveState(item),
+                                                'group-hover/lemon-tree-button-group:bg-interactive-focus cursor-pointer':
                                                     !isEmptyFolder,
                                                 'hover:bg-transparent opacity-50 cursor-default':
                                                     (selectMode === 'folder-only' && !isFolder) || isEmptyFolder,
@@ -474,7 +476,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
 
                                                     {/* Unapplied state */}
                                                     {item.record?.unapplied && (
-                                                        <IconUpload className="ml-1 text-warning" />
+                                                        <IconUpload className="ml-1 text-warning-foreground" />
                                                     )}
                                                 </span>
                                             )}
@@ -577,7 +579,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                     <DropdownMenuTrigger asChild>
                                                         {itemSideActionButton?.(item) ?? (
                                                             <ButtonPrimitive iconOnly isSideActionRight className="z-2">
-                                                                <IconEllipsis className="size-3 text-tertiary" />
+                                                                <IconEllipsis className="size-3 text-tertiary-foreground" />
                                                             </ButtonPrimitive>
                                                         )}
                                                     </DropdownMenuTrigger>
@@ -1351,7 +1353,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                 >
                     {mode === 'table' && (
                         <div
-                            className="sticky top-0 z-20 border-b border-primary bg-surface-secondary starting:h-0 h-[30px] motion-safe:transition-all [transition-behavior:allow-discrete] duration-500"
+                            className="sticky top-0 z-20 border-b border-border bg-secondary starting:h-0 h-[30px] motion-safe:transition-all [transition-behavior:allow-discrete] duration-500"
                             // eslint-disable-next-line react/forbid-dom-props
                             style={{
                                 width: mode === 'table' ? `${tableModeTotalWidth}px` : undefined,

@@ -31,7 +31,7 @@ const DiscussionContent = ({ logicProps }: { logicProps: CommentsLogicProps }): 
         if (selectedTabOptions) {
             setReplyingComment(selectedTabOptions)
         }
-    }, [selectedTabOptions])
+    }, [selectedTabOptions, setReplyingComment])
 
     return (
         <div className="flex flex-col flex-1 overflow-hidden">
@@ -59,7 +59,7 @@ export const SidePanelDiscussion = (): JSX.Element => {
                         <span>
                             Discussion{' '}
                             {scope ? (
-                                <span className="font-normal text-secondary">
+                                <span className="font-normal text-secondary-foreground">
                                     about {item_id ? 'this' : ''} {humanizeScope(scope, !!item_id)}
                                 </span>
                             ) : null}

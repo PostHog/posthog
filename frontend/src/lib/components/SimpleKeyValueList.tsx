@@ -62,7 +62,7 @@ export function SimpleKeyValueList({
                     <span className="font-semibold">
                         <PropertyKeyInfo value={key} />
                     </span>
-                    <pre className="text-primary-alt break-all mb-0">{JSON.stringify(value, null, 2)}</pre>
+                    <pre className="text-foreground-alt break-all mb-0">{JSON.stringify(value, null, 2)}</pre>
                 </div>
             ))}
             {Object.keys(item).length === 0 && emptyMessage}

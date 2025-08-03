@@ -13,7 +13,7 @@
             align-items: center;
 
             a {
-                color: var(--text-3000);
+                color: var(--color-foreground);
 
                 &:hover {
                     color: var(--color-accent);
@@ -38,6 +38,6 @@
         justify-content: center;
         width: 100%;
         padding: 4rem;
-        background-color: var(--color-bg-primary);
+        background-color: var(--color-background);
     }
 }

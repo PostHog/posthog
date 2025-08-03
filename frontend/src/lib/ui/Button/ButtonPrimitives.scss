@@ -54,18 +54,18 @@
         &[data-state='checked'],
         &[data-highlighted],
         &.button-primitive--active {
-            background-color: var(--color-bg-fill-button-tertiary-active);
+            background-color: var(--color-interactive-active);
         }
 
         &[data-focused='true'],
         &:hover {
-            background-color: var(--color-bg-fill-button-tertiary-hover);
+            background-color: var(--color-interactive-hover);
         }
     }
 }
 
 .button-primitive--variant-danger {
-    color: var(--color-text-error);
+    color: var(--color-error-foreground);
     border: 1px solid transparent;
 
     &:not([aria-disabled='true']) {
@@ -95,12 +95,12 @@
         &[data-state='checked'],
         &[data-highlighted],
         &.button-primitive--active {
-            background-color: var(--color-bg-fill-button-tertiary-active);
+            background-color: var(--color-interactive-active);
         }
 
         &[data-focused='true'],
         &:hover {
-            background-color: var(--color-bg-fill-button-tertiary-hover);
+            background-color: var(--color-interactive-hover);
         }
     }
 }

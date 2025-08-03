@@ -6,8 +6,8 @@
     min-width: 0;
     max-width: 100%;
     height: 30rem;
-    background: var(--color-bg-surface-primary);
-    border: 1px solid var(--color-border-primary);
+    background: var(--color-card);
+    border: 1px solid var(--color-border);
     border-radius: var(--radius);
     transition: border 200ms ease;
 
@@ -132,7 +132,7 @@
     font-size: 0.6875rem;
     font-weight: 600;
     line-height: 1rem;
-    color: var(--color-text-secondary);
+    color: var(--color-secondary-foreground);
     vertical-align: middle;
     background: var(--color-accent-highlight-secondary);
     border-radius: var(--radius);
@@ -149,7 +149,7 @@
             font-size: 0.625rem;
             font-weight: 700;
             line-height: 1rem;
-            color: var(--color-bg-surface-primary);
+            color: var(--color-card);
             text-align: center;
             background: var(--color-accent);
             border-radius: var(--radius);
@@ -173,5 +173,5 @@
     flex-shrink: 0;
     margin-right: 0.25rem;
     font-size: 1.25rem;
-    color: var(--color-text-secondary);
+    color: var(--color-secondary-foreground);
 }

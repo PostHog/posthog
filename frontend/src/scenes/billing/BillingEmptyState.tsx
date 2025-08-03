@@ -18,9 +18,9 @@ export function BillingEmptyState({
             <WarningHog width="100" height="100" className="mb-4" />
             <h2 className="text-xl leading-tight">{heading}</h2>
             {typeof detail === 'string' ? (
-                <p className="text-sm text-balance text-tertiary">{detail}</p>
+                <p className="text-sm text-balance text-tertiary-foreground">{detail}</p>
             ) : (
-                <div className="text-sm text-balance text-tertiary">{detail}</div>
+                <div className="text-sm text-balance text-tertiary-foreground">{detail}</div>
             )}
         </div>
     )

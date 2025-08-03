@@ -34,7 +34,7 @@ export const WebAnalyticsFilters = (): JSX.Element => {
                     </div>
 
                     <div className="hidden md:flex items-center gap-2">
-                        <span className="text-muted-alt">|</span>
+                        <span className="text-tertiary-foreground">|</span>
                         <WebAnalyticsLiveUserCount />
                     </div>
 

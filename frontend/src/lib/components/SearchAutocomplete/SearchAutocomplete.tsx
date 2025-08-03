@@ -314,7 +314,7 @@ export const SearchAutocomplete = forwardRef<HTMLDivElement, SearchAutocompleteP
                                 {suggestions.map((item) => (
                                     <Fragment key={item.value}>
                                         {item.value === '!__placeholder__' ? (
-                                            <div className="-mx-1 my-1 h-px bg-border-primary" />
+                                            <div className="-mx-1 my-1 h-px bg-border-border" />
                                         ) : null}
                                         <ListBox.Item asChild>
                                             <ButtonPrimitive
@@ -322,12 +322,12 @@ export const SearchAutocomplete = forwardRef<HTMLDivElement, SearchAutocompleteP
                                                 menuItem
                                                 data-attr={`tree-search-autocomplete-suggestion-${item.value}-button`}
                                             >
-                                                <div className="flex items-center justify-center size-4 text-tertiary">
+                                                <div className="flex items-center justify-center size-4 text-tertiary-foreground">
                                                     {item.icon}
                                                 </div>
                                                 {item.label}
                                                 {item.hint ? (
-                                                    <span className="text-xxs text-tertiary italic pt-1">
+                                                    <span className="text-xxs text-tertiary-foreground italic pt-1">
                                                         {item.hint}
                                                     </span>
                                                 ) : null}
@@ -338,7 +338,7 @@ export const SearchAutocomplete = forwardRef<HTMLDivElement, SearchAutocompleteP
                                 {currentHint && (
                                     <ButtonPrimitive
                                         menuItem
-                                        className="px-2 py-1 text-sm text-tertiary"
+                                        className="px-2 py-1 text-sm text-tertiary-foreground"
                                         disabled
                                         data-attr="tree-search-autocomplete-hint-disabled-button"
                                     >

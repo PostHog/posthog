@@ -30,32 +30,32 @@ export const renderTooltipContent = (variantResult: ExperimentVariantResult): JS
             </div>
 
             <div className="flex justify-between items-center">
-                <span className="text-muted-alt font-semibold">Total value:</span>
+                <span className="text-tertiary-foreground font-semibold">Total value:</span>
                 <span className="font-semibold">{humanFriendlyNumber(variantResult.sum)}</span>
             </div>
 
             <div className="flex justify-between items-center">
-                <span className="text-muted-alt font-semibold">Exposures:</span>
+                <span className="text-tertiary-foreground font-semibold">Exposures:</span>
                 <span className="font-semibold">{variantResult.number_of_samples}</span>
             </div>
 
             {isBayesianResult(variantResult) ? (
                 <div className="flex justify-between items-center">
-                    <span className="text-muted-alt font-semibold">Chance to win:</span>
+                    <span className="text-tertiary-foreground font-semibold">Chance to win:</span>
                     <span className="font-semibold">{formatChanceToWin(variantResult.chance_to_win)}</span>
                 </div>
             ) : (
                 <div className="flex justify-between items-center">
-                    <span className="text-muted-alt font-semibold">P-value:</span>
+                    <span className="text-tertiary-foreground font-semibold">P-value:</span>
                     <span className="font-semibold">{formatPValue(variantResult.p_value)}</span>
                 </div>
             )}
 
             <div className="flex justify-between items-center">
-                <span className="text-muted-alt font-semibold">Delta:</span>
+                <span className="text-tertiary-foreground font-semibold">Delta:</span>
                 <span className="font-semibold">
                     {variantResult.key === 'control' ? (
-                        <em className="text-muted-alt">Baseline</em>
+                        <em className="text-tertiary-foreground">Baseline</em>
                     ) : (
                         <span className={deltaPositive ? 'text-success' : 'text-danger'}>
                             {formatDeltaPercent(variantResult)}
@@ -65,7 +65,7 @@ export const renderTooltipContent = (variantResult: ExperimentVariantResult): JS
             </div>
 
             <div className="flex justify-between items-center">
-                <span className="text-muted-alt font-semibold">{intervalLabel}:</span>
+                <span className="text-tertiary-foreground font-semibold">{intervalLabel}:</span>
                 <span className="font-semibold">{intervalPercent}</span>
             </div>
         </div>

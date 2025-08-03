@@ -151,7 +151,7 @@ export function PerformanceDuration({
         <span
             className={clsx({
                 'text-error': !loading && value >= benchmarks[1],
-                'text-warning': !loading && value >= benchmarks[0] && value < benchmarks[1],
+                'text-warning-foreground': !loading && value >= benchmarks[0] && value < benchmarks[1],
                 'text-success': !loading && value < benchmarks[0],
             })}
         >

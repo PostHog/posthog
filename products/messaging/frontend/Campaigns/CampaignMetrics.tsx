@@ -14,7 +14,7 @@ export function CampaignMetrics({ id }: CampaignMetricsLogicProps): JSX.Element 
 
     useEffect(() => {
         loadMetricsByKind()
-    }, [id])
+    }, [id, loadMetricsByKind])
 
     return (
         <BindLogic logic={campaignMetricsLogic} props={{ id }}>
@@ -79,7 +79,7 @@ function CampaignMetric({
 }): JSX.Element {
     return (
         <Tooltip title={tooltip}>
-            <div className="flex flex-col flex-1 gap-2 items-center p-2 rounded border bg-surface-primary">
+            <div className="flex flex-col flex-1 gap-2 items-center p-2 rounded border bg-card">
                 <div className="text-xs font-bold uppercase">{label.replace(/_/g, ' ')}</div>
                 <div className="flex flex-1 items-center mb-2 text-2xl">{humanFriendlyNumber(value ?? 0)}</div>
             </div>

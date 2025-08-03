@@ -65,7 +65,7 @@ export function PlayerInspectorList(): JSX.Element {
                 listRef.current.scrollToRow(playbackIndicatorIndex)
             }
         }
-    }, [playbackIndicatorIndex])
+    }, [playbackIndicatorIndex, syncScrollPaused, playbackIndicatorIndexStop, cellMeasurerCache])
 
     const renderRow: ListRowRenderer = ({ index, key, parent, style }) => {
         return (
@@ -93,7 +93,9 @@ export function PlayerInspectorList(): JSX.Element {
     return (
         <div className="flex flex-col bg-primary flex-1 overflow-hidden relative">
             {!snapshotsLoaded ? (
-                <div className="p-16 text-center text-secondary">Data will be shown once playback starts</div>
+                <div className="p-16 text-center text-secondary-foreground">
+                    Data will be shown once playback starts
+                </div>
             ) : items.length ? (
                 <div
                     className="absolute inset-0"
@@ -135,7 +137,7 @@ export function PlayerInspectorList(): JSX.Element {
               inspectorDataState['console'] === 'ready' ||
               inspectorDataState['network'] === 'ready' ? (
                 // If we are "ready" but with no results this must mean some results are filtered out
-                <div className="p-16 text-center text-secondary">No results matching your filters.</div>
+                <div className="p-16 text-center text-secondary-foreground">No results matching your filters.</div>
             ) : null}
         </div>
     )

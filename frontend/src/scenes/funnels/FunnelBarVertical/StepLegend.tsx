@@ -44,13 +44,13 @@ export function StepLegend({ step, stepIndex, showTime, showPersonsModal }: Step
     const convertedCountPresentationWithPercentage = (
         <>
             {convertedCountPresentation}{' '}
-            <span className="text-secondary">({percentage(step.conversionRates.fromBasisStep, 2)})</span>
+            <span className="text-secondary-foreground">({percentage(step.conversionRates.fromBasisStep, 2)})</span>
         </>
     )
     const droppedOffCountPresentationWithPercentage = (
         <>
             {droppedOffCountPresentation}{' '}
-            <span className="text-secondary">({percentage(1 - step.conversionRates.fromPrevious, 2)})</span>
+            <span className="text-secondary-foreground">({percentage(1 - step.conversionRates.fromPrevious, 2)})</span>
         </>
     )
 

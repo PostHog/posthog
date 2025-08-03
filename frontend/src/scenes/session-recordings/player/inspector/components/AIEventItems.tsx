@@ -31,7 +31,7 @@ export function AIEventExpanded({ event }: { event: Record<string, any> }): JSX.
             ) : (
                 <LLMInputOutput
                     inputDisplay={
-                        <div className="p-2 text-xs border rounded bg-[var(--color-bg-fill-secondary)]">
+                        <div className="p-2 text-xs border rounded bg-[var(--color-background)]">
                             {isObject(input) ? (
                                 <JSONViewer src={input} collapsed={2} />
                             ) : (

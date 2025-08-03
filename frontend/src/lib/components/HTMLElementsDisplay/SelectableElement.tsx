@@ -184,7 +184,7 @@ function WithSelectedText({
     return (
         <>
             {text.slice(0, index)}
-            <span className="bg-accent/30 text-primary">{text.slice(index, index + selectedText.length)}</span>
+            <span className="bg-accent/30 text-foreground">{text.slice(index, index + selectedText.length)}</span>
             {text.slice(index + selectedText.length)}
         </>
     )
@@ -220,8 +220,8 @@ export function SelectableElement({
     return (
         <pre
             className={clsx(
-                '!p-0 !m-0 rounded whitespace-pre-wrap break-all text-primary',
-                isDeepestChild && highlight ? 'bg-accent/30 text-primary' : 'bg-transparent',
+                '!p-0 !m-0 rounded whitespace-pre-wrap break-all text-foreground',
+                isDeepestChild && highlight ? 'bg-accent/30 text-foreground' : 'bg-transparent',
                 size === 'xsmall' ? 'text-xs' : 'text-sm'
             )}
         >

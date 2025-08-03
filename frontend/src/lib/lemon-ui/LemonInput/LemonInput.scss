@@ -10,12 +10,12 @@
     padding: 0.25rem 0.5rem;
     font-size: 0.875rem;
     line-height: 1.25rem;
-    color: var(--text-3000);
+    color: var(--color-foreground);
     text-align: left;
     cursor: text;
     background: none;
-    background-color: var(--color-bg-fill-input);
-    border: 1px solid var(--color-border-primary);
+    background-color: var(--color-input);
+    border: 1px solid var(--color-border);
     border-radius: var(--radius);
 
     &[aria-disabled='true'] {
@@ -33,7 +33,7 @@
 
     .Field--error &:not(.ignore-error-border),
     &.LemonInput--status-danger {
-        border-color: var(--danger) !important; // The error border overrides hover/focus higlighting
+        border-color: var(--color-error-foreground) !important; // The error border overrides hover/focus higlighting
     }
 
     .LemonInput__input {
@@ -56,7 +56,7 @@
         width: 1em;
         height: 1em;
         font-size: 1.25rem;
-        color: var(--color-text-secondary);
+        color: var(--color-secondary-foreground);
         transition: color 200ms ease;
     }
 

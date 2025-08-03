@@ -50,7 +50,7 @@ export function HogFunctionList({
 
     const humanizedType = humanizeHogFunctionType(props.type)
 
-    useEffect(() => loadHogFunctions(), [])
+    useEffect(() => loadHogFunctions(), [loadHogFunctions])
 
     const isManualFunction = useCallback(
         (hogFunction: HogFunctionType): boolean => {
@@ -177,7 +177,15 @@ export function HogFunctionList({
         }
 
         return columns
-    }, [props.type, canEnableHogFunction, humanizedType, toggleEnabled, deleteHogFunction, isManualFunction])
+    }, [
+        props.type,
+        canEnableHogFunction,
+        humanizedType,
+        toggleEnabled,
+        deleteHogFunction,
+        isManualFunction,
+        setReorderModalOpen,
+    ])
 
     return (
         <>
@@ -222,7 +230,7 @@ export function HogFunctionList({
                     }
                     footer={
                         hiddenHogFunctions.length > 0 && (
-                            <div className="p-3 text-secondary">
+                            <div className="p-3 text-secondary-foreground">
                                 {hiddenHogFunctions.length} hidden.{' '}
                                 <Link
                                     onClick={() => {

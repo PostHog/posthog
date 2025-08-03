@@ -23,7 +23,7 @@ export const LemonSnack: React.FunctionComponent<LemonSnackProps & React.RefAttr
             <span
                 ref={ref}
                 className={twMerge(
-                    'inline-flex text-primary-alt max-w-full overflow-hidden break-all items-center py-1 leading-5',
+                    'inline-flex text-foreground-alt max-w-full overflow-hidden break-all items-center py-1 leading-5',
                     !wrap && 'whitespace-nowrap',
                     isRegular
                         ? 'bg-accent-highlight-secondary px-1.5 rounded'

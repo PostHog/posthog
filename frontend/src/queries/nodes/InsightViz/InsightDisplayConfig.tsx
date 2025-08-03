@@ -119,7 +119,7 @@ export function InsightDisplayConfig(): JSX.Element {
                               <h5 className="mx-2 my-1">
                                   Color customization by{' '}
                                   <Tooltip title="You can customize the appearance of individual results in your insights. This can be done based on the result's name (e.g., customize the breakdown value 'pizza' for the first series) or based on the result's rank (e.g., customize the first dataset in the results).">
-                                      <IconInfo className="relative top-0.5 text-lg text-secondary" />
+                                      <IconInfo className="relative top-0.5 text-lg text-secondary-foreground" />
                                   </Tooltip>
                               </h5>
                           </>
@@ -328,7 +328,7 @@ export function InsightDisplayConfig(): JSX.Element {
                             <span className="font-medium whitespace-nowrap">
                                 Options
                                 {advancedOptionsCount ? (
-                                    <span className="ml-0.5 text-secondary ligatures-none">
+                                    <span className="ml-0.5 text-secondary-foreground ligatures-none">
                                         ({advancedOptionsCount})
                                     </span>
                                 ) : null}

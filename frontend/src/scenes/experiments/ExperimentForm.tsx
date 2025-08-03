@@ -129,7 +129,7 @@ const ExperimentFormFields = (): JSX.Element => {
                 {webExperimentsAvailable && (
                     <div className="mt-10">
                         <h3 className="mb-1">Experiment type</h3>
-                        <div className="text-xs text-secondary font-medium tracking-normal">
+                        <div className="text-xs text-secondary-foreground font-medium tracking-normal">
                             Select your experiment setup, this cannot be changed once saved.
                         </div>
                         <LemonDivider />
@@ -145,7 +145,7 @@ const ExperimentFormFields = (): JSX.Element => {
                                     label: (
                                         <div className="translate-y-2">
                                             <div>Product experiment</div>
-                                            <div className="text-xs text-secondary">
+                                            <div className="text-xs text-secondary-foreground">
                                                 Use custom code to manage how variants modify your product.
                                             </div>
                                         </div>
@@ -156,7 +156,7 @@ const ExperimentFormFields = (): JSX.Element => {
                                     label: (
                                         <div className="translate-y-2">
                                             <div>No-code web experiment</div>
-                                            <div className="text-xs text-secondary">
+                                            <div className="text-xs text-secondary-foreground">
                                                 Define variants on your website using the PostHog toolbar, no coding
                                                 required.
                                             </div>
@@ -170,7 +170,7 @@ const ExperimentFormFields = (): JSX.Element => {
                 {groupsAccessStatus === GroupsAccessStatus.AlreadyUsing && (
                     <div className="mt-10">
                         <h3>Participant type</h3>
-                        <div className="text-xs text-secondary  max-w-150">
+                        <div className="text-xs text-secondary-foreground  max-w-150">
                             Determines on what level you want to aggregate metrics. You can change this later, but flag
                             values for users will change so you need to reset the experiment for accurate results.
                         </div>
@@ -223,7 +223,7 @@ const ExperimentFormFields = (): JSX.Element => {
                     <>
                         <div className="mt-10">
                             <h3 className="mb-1">Variants</h3>
-                            <div className="text-xs text-secondary">
+                            <div className="text-xs text-secondary-foreground">
                                 Add up to {MAX_EXPERIMENT_VARIANTS - 1} variants to test against your control.
                             </div>
                             <LemonDivider />
@@ -248,7 +248,7 @@ const ExperimentFormFields = (): JSX.Element => {
                                             </LemonField>
                                         </Group>
                                     </div>
-                                    <div className="text-muted text-xs mt-2">
+                                    <div className="text-tertiary-foreground text-xs mt-2">
                                         Included automatically, cannot be edited or removed
                                     </div>
                                 </div>
@@ -298,7 +298,7 @@ const ExperimentFormFields = (): JSX.Element => {
                                             </Group>
                                         )
                                     })}
-                                    <div className="text-secondary text-xs ml-9 mr-20 mt-2">
+                                    <div className="text-secondary-foreground text-xs ml-9 mr-20 mt-2">
                                         Alphanumeric, hyphens and underscores only
                                     </div>
                                     {(experiment.parameters.feature_flag_variants.length ?? 0) <
@@ -327,7 +327,7 @@ const ExperimentFormFields = (): JSX.Element => {
                                             fullWidth
                                             checked={value}
                                         />
-                                        <div className="text-secondary text-sm pl-7">
+                                        <div className="text-secondary-foreground text-sm pl-7">
                                             If your feature flag is evaluated for anonymous users, use this option to
                                             ensure the flag value remains consistent after the user logs in. Depending
                                             on your setup, this option may not always be appropriate. Note that this
@@ -430,7 +430,7 @@ const SelectExistingFeatureFlagModal = ({
     return (
         <LemonModal isOpen={isOpen} onClose={onClose} title="Choose an existing feature flag">
             <div className="deprecated-space-y-2">
-                <div className="text-muted mb-2 max-w-xl">
+                <div className="text-tertiary-foreground mb-2 max-w-xl">
                     Select an existing feature flag to use with this experiment. The feature flag must use multiple
                     variants with <code>'control'</code> as the first, and not be associated with an existing
                     experiment.

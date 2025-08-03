@@ -47,8 +47,8 @@ $xxl: 1600px;
 //     'brand-key': #000,
 
 //     // PostHog 3000
-//     'text-3000-light': #111,
-//     'text-secondary-3000-light': rgba(#111, 0.7),
+//     'text-foreground': #111,
+//     'text-secondary-foreground-3000-light': rgba(#111, 0.7),
 //     'muted-3000-light': rgba(#111, 0.6),
 //     'trace-3000-light': rgba(#111, 0.25),
 //     'primary-3000-light': var(--color-accent),
@@ -83,8 +83,8 @@ $xxl: 1600px;
 //     'danger-3000-button-border-light': #e96b30,
 //     'danger-3000-button-border-hover-light': #f54e00,
 
-//     'text-3000-dark': #fff,
-//     'text-secondary-3000-dark': rgba(#fff, 0.7),
+//     'text-foreground-dark': #fff,
+//     'text-secondary-foreground-3000-dark': rgba(#fff, 0.7),
 //     'muted-3000-dark': rgba(#fff, 0.5),
 //     'trace-3000-dark': rgba(#fff, 0.25),
 //     'primary-3000-dark': #f7a503,
@@ -124,15 +124,15 @@ $xxl: 1600px;
 //     'shadow-elevation-3000-dark': 0 3px 0 var(--border-3000-dark),
 
 //     // The derived colors
-//     // `--default` is a pre-3000 alias for "default text color" (`--text-3000` now)
+//     // `--default` is a pre-3000 alias for "default text color" (`--text-foreground` now)
 //     'default': var(--default),
-//     'text-3000': var(--text-3000),
-//     'text-secondary-3000': var(--color-text-secondary-3000),
+//     'text-foreground': var(--color-foreground),
+//     'text-secondary-foreground-3000': var(--color-secondary-foreground-3000),
 //     'muted-3000': var(--muted-3000),
 //     'primary-3000': var(--color-accent),
 //     'secondary-3000': var(--secondary-3000),
 //     'secondary-3000-hover': var(--secondary-3000-hover),
-//     'accent-3000': var(--color-bg-surface-primary),
+//     'accent-3000': var(--color-card),
 //     'bg-3000': var(--color-bg-3000),
 //     'primary-highlight': var(--primary-highlight),
 //     'primary-alt-highlight': var(--primary-alt-highlight),
@@ -166,7 +166,7 @@ $xxl: 1600px;
 //     --blue: #597dce;
 //     --purple: #c278cf;
 //     --green: var(--success);
-//     --black: var(--text-3000);
+//     --black: var(--color-foreground);
 
 //     //// Data colors (e.g. insight series). Note: colors.ts relies on these values being hexadecimal
 //     --data-color-1: #1d4aff;
@@ -230,16 +230,16 @@ $xxl: 1600px;
 //     // which attaches these variables to :root
 //     // which means they aren't available in the toolbar
 //     --toastify-color-dark: var(--color-accent-3000-dark);
-//     --toastify-color-light: var(--color-bg-surface-primary);
+//     --toastify-color-light: var(--color-card);
 //     --toastify-color-info: var(--color-accent);
 //     --toastify-color-success: var(--success);
 //     --toastify-color-warning: var(--warning);
-//     --toastify-color-error: var(--danger);
+//     --toastify-color-error: var(--color-error-foreground);
 //     --toastify-color-progress-info: var(--toastify-color-info);
 //     --toastify-color-progress-success: var(--toastify-color-success);
 //     --toastify-color-progress-warning: var(--toastify-color-warning);
 //     --toastify-color-progress-error: var(--toastify-color-error);
-//     --toastify-toast-background: var(--color-bg-surface-primary);
+//     --toastify-toast-background: var(--color-card);
 //     --toastify-toast-width: 26rem;
 //     --toastify-toast-min-height: 3.5rem;
 //     --toastify-toast-max-height: 16rem;
@@ -286,8 +286,8 @@ $xxl: 1600px;
 
 // // defined here so that they can be shared with the toolbar
 // @mixin light-mode-3000-variables {
-//     --text-3000: var(--text-3000-light);
-//     --color-text-secondary-3000: var(--color-text-secondary-3000-light);
+//     --text-foreground: var(--color-foreground);
+//     --color-secondary-foreground-3000: var(--color-secondary-foreground-3000-light);
 //     --muted-3000: var(--muted-3000-light);
 //     --trace-3000: var(--trace-3000-light);
 //     --primary-3000: var(--color-accent); // var(--primary-3000-light); // TODO: remove this
@@ -325,8 +325,8 @@ $xxl: 1600px;
 
 // // defined here so that they can be shared with the toolbar
 // @mixin dark-mode-3000-variables {
-//     --text-3000: var(--text-3000-dark);
-//     --color-text-secondary-3000: var(--color-text-secondary-3000-dark);
+//     --text-foreground: var(--text-foreground-dark);
+//     --color-secondary-foreground-3000: var(--color-secondary-foreground-3000-dark);
 //     --muted-3000: var(--muted-3000-dark);
 //     --trace-3000: var(--trace-3000-dark);
 //     --primary-3000: var(--color-accent); // var(--primary-3000-dark); // TODO: remove this
@@ -344,7 +344,7 @@ $xxl: 1600px;
 //     // --glass-bg-3000: var(--glass-bg-3000-dark);
 //     --glass-bg-3000: var(--surface-quaternary);
 //     --glass-border-3000: var(--glass-border-3000-dark);
-//     --color-bg-light: var(--color-bg-surface-primary);
+//     --color-bg-light: var(--color-card);
 //     --color-bg-table: #232429;
 //     --brand-key: #fff; // In dark mode the black in PostHog's logo is replaced with white for proper contrast
 //     --link: var(--link-3000-dark);
@@ -374,12 +374,12 @@ $xxl: 1600px;
 // @mixin common-variables {
 //     --primary: var(--primary-3000); // Changed to accent
 //     --muted: var(--muted-3000);
-//     --default: var(--text-3000);
+//     --default: var(--color-foreground);
 
 //     // `--muted-alt` can be removed now, as it's the same as `--muted` after the 3000 redesign
 //     --muted-alt: var(--muted-3000);
-//     --primary-alt: var(--text-3000);
-//     --border: var(--color-border-primary);
+//     --primary-alt: var(--color-foreground);
+//     --border: var(--color-border);
 //     --border-bold: var(--border-bold-3000);
 //     --data-color-1: #1d4aff;
 //     --data-color-1-hover: #1a3cf6;

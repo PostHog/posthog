@@ -70,8 +70,8 @@ export function ActionAttribute({
                     sliderColorOverrideUnchecked="muted-3000-light"
                 />
             )}
-            <div className="text-secondary text-xl">{icon}</div>
-            <div className="text-primary grow">{text}</div>
+            <div className="text-secondary-foreground text-xl">{icon}</div>
+            <div className="text-foreground grow">{text}</div>
         </div>
     )
 }

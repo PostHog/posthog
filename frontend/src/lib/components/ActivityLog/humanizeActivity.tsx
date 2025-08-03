@@ -179,7 +179,7 @@ export function defaultDescriber(
         return {
             description,
             extendedDescription: commentContent ? (
-                <div className="border rounded bg-surface-primary p-4">
+                <div className="border rounded bg-card p-4">
                     <LemonMarkdown lowKeyHeadings>{commentContent}</LemonMarkdown>
                 </div>
             ) : undefined,

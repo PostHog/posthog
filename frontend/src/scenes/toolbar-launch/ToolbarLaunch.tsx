@@ -71,7 +71,7 @@ export function ToolbarLaunch(): JSX.Element {
 
             <AuthorizedUrlList type={AuthorizedUrlListType.TOOLBAR_URLS} addText="Add authorized URL" />
 
-            <div className="footer-caption text-secondary mt-4 text-center">
+            <div className="footer-caption text-secondary-foreground mt-4 text-center">
                 Make sure you're using the <Link to={`${urls.settings('project')}#snippet`}>HTML snippet</Link> or the
                 latest <code>posthog-js</code> version.
             </div>
@@ -94,9 +94,9 @@ interface FeatureHighlightProps {
 function FeatureHighlight({ title, caption, icon }: FeatureHighlightProps): JSX.Element {
     return (
         <div className="fh-item flex items-center mt-4">
-            <div className="fh-icon mr-4 text-secondary">{icon}</div>
+            <div className="fh-icon mr-4 text-secondary-foreground">{icon}</div>
             <div>
-                <h4 className="mb-0 text-secondary">{title}</h4>
+                <h4 className="mb-0 text-secondary-foreground">{title}</h4>
                 <div className="caption">{caption}</div>
             </div>
         </div>

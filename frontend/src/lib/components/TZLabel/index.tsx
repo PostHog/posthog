@@ -45,7 +45,7 @@ const TZLabelPopoverContent = React.memo(function TZLabelPopoverContent({
 
     useEffect(() => {
         reportTimezoneComponentViewed('label', currentTeam?.timezone, shortTimeZone())
-    }, [])
+    }, [reportTimezoneComponentViewed, currentTeam.timezone])
 
     return (
         <div className={clsx('TZLabelPopover', showSeconds && 'TZLabelPopover--seconds')}>
@@ -60,7 +60,7 @@ const TZLabelPopoverContent = React.memo(function TZLabelPopoverContent({
                     </div>
                     <div>Your device</div>
                     <div className="text-xs">{shortTimeZone(undefined, time.toDate())}</div>
-                    <div className="text-muted text-xs">{time.format(DATE_OUTPUT_FORMAT)}</div>
+                    <div className="text-tertiary-foreground text-xs">{time.format(DATE_OUTPUT_FORMAT)}</div>
                     <LemonButton
                         size="xsmall"
                         icon={<IconCopy />}
@@ -75,7 +75,7 @@ const TZLabelPopoverContent = React.memo(function TZLabelPopoverContent({
                         </div>
                         <div>Project</div>
                         <div className="text-xs">{shortTimeZone(currentTeam.timezone, time.toDate())}</div>
-                        <div className="text-muted text-xs">
+                        <div className="text-tertiary-foreground text-xs">
                             {time.tz(currentTeam.timezone).format(DATE_OUTPUT_FORMAT)}
                         </div>
                         <LemonButton
@@ -93,7 +93,9 @@ const TZLabelPopoverContent = React.memo(function TZLabelPopoverContent({
                         </div>
                         <div />
                         <div className="text-xs">UTC</div>
-                        <div className="text-muted text-xs">{time.tz('UTC').format(DATE_OUTPUT_FORMAT)}</div>
+                        <div className="text-tertiary-foreground text-xs">
+                            {time.tz('UTC').format(DATE_OUTPUT_FORMAT)}
+                        </div>
                         <LemonButton
                             size="xsmall"
                             icon={<IconCopy />}
@@ -148,7 +150,7 @@ const TZLabelRaw = forwardRef<HTMLElement, TZLabelProps>(function TZLabelRaw(
         run()
 
         return () => clearInterval(interval)
-    }, [parsedTime, format])
+    }, [parsedTime, format, formattedContent])
 
     const innerContent = children ?? (
         <span

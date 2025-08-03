@@ -43,7 +43,7 @@ export function SeriesLetter({ className, hasBreakdown, seriesIndex, seriesColor
                               : hexToRGBA(color, 0.2),
                       }
                     : {
-                          color: 'var(--text-3000)',
+                          color: 'var(--color-foreground)',
                       }
             }
         >
@@ -63,11 +63,11 @@ export function ExperimentVariantNumber({ className, index }: ExperimentVariantN
         <SeriesGlyph
             className={className}
             style={{
-                borderColor: 'var(--color-text-secondary)',
-                color: 'var(--color-text-secondary)',
+                borderColor: 'var(--color-secondary-foreground)',
+                color: 'var(--color-secondary-foreground)',
                 backgroundColor: isDarkModeOn
-                    ? RGBToRGBA(lightenDarkenColor('var(--color-text-secondary)', -20), 0.3)
-                    : hexToRGBA('var(--color-text-secondary)', 0.2),
+                    ? RGBToRGBA(lightenDarkenColor('var(--color-secondary-foreground)', -20), 0.3)
+                    : hexToRGBA('var(--color-secondary-foreground)', 0.2),
             }}
         >
             {index}

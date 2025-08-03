@@ -122,7 +122,7 @@ const FormFields = ({
             name="discordWebhookUrl"
             label="Webhook URL"
             help={
-                <p className="text-secondary text-xs">
+                <p className="text-secondary-foreground text-xs">
                     See this page on how to generate a Webhook URL:{' '}
                     <Link to="https://support.discord.com/hc/en-us/articles/228383668-Intro-to-Webhooks">
                         https://support.discord.com/hc/en-us/articles/228383668-Intro-to-Webhooks
@@ -137,7 +137,7 @@ const FormFields = ({
             name="microsoftTeamsWebhookUrl"
             label="Webhook URL"
             help={
-                <p className="text-secondary text-xs">
+                <p className="text-secondary-foreground text-xs">
                     See this page on how to generate a Webhook URL:{' '}
                     <Link to="https://support.microsoft.com/en-us/office/create-incoming-webhooks-with-workflows-for-microsoft-teams-8ae491c7-0394-4861-ba59-055e33f75498">
                         https://support.microsoft.com/en-us/office/create-incoming-webhooks-with-workflows-for-microsoft-teams-8ae491c7-0394-4861-ba59-055e33f75498

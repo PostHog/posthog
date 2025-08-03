@@ -27,7 +27,7 @@ export function PasswordResetComplete(): JSX.Element {
         <BridgePage view="password-reset-complete">
             {invalidLink && (
                 <div className="text-center mb-2">
-                    <IconErrorOutline className="text-secondary text-4xl" />
+                    <IconErrorOutline className="text-secondary-foreground text-4xl" />
                 </div>
             )}
             <h2>{invalidLink ? 'Unable to reset' : 'Set a new password'}</h2>

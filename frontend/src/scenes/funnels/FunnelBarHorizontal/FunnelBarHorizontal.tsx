@@ -89,7 +89,7 @@ export function FunnelBarHorizontal({
                                 <FunnelStepMore stepIndex={stepIndex} />
                             </div>
                             {step.average_conversion_time && step.average_conversion_time >= Number.EPSILON ? (
-                                <div className="text-secondary">
+                                <div className="text-secondary-foreground">
                                     Average time to convert:{' '}
                                     <b>{humanFriendlyDuration(step.average_conversion_time, { maxUnits: 2 })}</b>
                                 </div>
@@ -184,7 +184,7 @@ export function FunnelBarHorizontal({
                                         )}
                                     </b>
                                 </ValueInspectorButton>{' '}
-                                <span className="text-secondary grow">
+                                <span className="text-secondary-foreground grow">
                                     {`(${percentage(step.conversionRates.fromPrevious, 2, true)}) completed step`}
                                 </span>
                             </div>
@@ -198,7 +198,7 @@ export function FunnelBarHorizontal({
                                         }
                                     >
                                         <IconTrendingFlatDown
-                                            style={{ color: 'var(--danger)' }}
+                                            style={{ color: 'var(--color-error-foreground)' }}
                                             className="value-inspector-button-icon"
                                         />
                                         <b>
@@ -209,7 +209,7 @@ export function FunnelBarHorizontal({
                                             )}
                                         </b>
                                     </ValueInspectorButton>{' '}
-                                    <span className="text-secondary">
+                                    <span className="text-secondary-foreground">
                                         {`(${percentage(1 - step.conversionRates.fromPrevious, 2, true)}) dropped off`}
                                     </span>
                                 </div>

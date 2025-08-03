@@ -1,6 +1,6 @@
 .UnwatchedIndicator {
     &.UnwatchedIndicator--primary {
-        background: var(--danger);
+        background: var(--color-error-foreground);
     }
 
     &.UnwatchedIndicator--secondary {

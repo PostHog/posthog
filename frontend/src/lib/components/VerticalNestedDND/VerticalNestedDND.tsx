@@ -699,7 +699,7 @@ export const Container = forwardRef(function Container_<Item extends VNDNDContai
     return (
         <Component
             {...props}
-            className={`flex flex-col p-4 bg-surface-primary border rounded overflow-hidden deprecated-space-y-2 ${
+            className={`flex flex-col p-4 bg-card border rounded overflow-hidden deprecated-space-y-2 ${
                 isDragging ? 'opacity-40' : ''
             }`}
             style={{
@@ -806,7 +806,7 @@ export const ChildItem = React.memo(
         return (
             <li
                 ref={ref}
-                className={`flex p-[calc(0.5rem-1px)] bg-surface-primary border rounded overflow-hidden ${
+                className={`flex p-[calc(0.5rem-1px)] bg-card border rounded overflow-hidden ${
                     isDragging ? 'opacity-40' : ''
                 }`}
             >

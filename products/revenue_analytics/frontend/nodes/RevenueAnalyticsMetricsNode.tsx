@@ -118,7 +118,7 @@ const makeTile = (
                 title={title}
                 tooltip={tooltip}
                 extra={
-                    <div className="flex items-center gap-1 text-muted-alt">
+                    <div className="flex items-center gap-1 text-tertiary-foreground">
                         <LemonSegmentedButton
                             value={insightsDisplayMode}
                             onChange={setInsightsDisplayMode}

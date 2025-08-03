@@ -4,30 +4,30 @@
     transition: background-color 200ms ease, color 200ms ease, border 200ms ease;
 
     &.SelectableElement--selected {
-        color: var(--color-text-primary);
+        color: var(--color-text-foreground);
         text-decoration: underline;
         background: var(--color-accent);
 
         [theme='dark'] & {
-            color: var(--color-text-primary-inverse);
+            color: var(--color-text-foreground-inverse);
         }
     }
 
     &:hover {
-        color: var(--color-text-primary);
+        color: var(--color-text-foreground);
         background: var(--color-accent-hover);
 
         [theme='dark'] & {
-            color: var(--color-text-primary-inverse);
+            color: var(--color-text-foreground-inverse);
         }
     }
 
     &:active {
-        color: var(--color-text-primary);
+        color: var(--color-text-foreground);
         background: var(--color-accent-active);
 
         [theme='dark'] & {
-            color: var(--color-text-primary-inverse);
+            color: var(--color-text-foreground-inverse);
         }
     }
 }

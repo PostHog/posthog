@@ -61,17 +61,17 @@ export function Max(): JSX.Element {
                 {isFloatingMaxExpanded ? (
                     <IconCornerDownRight
                         className={clsx(
-                            'text-3xl text-muted mb-2',
+                            'text-3xl text-tertiary-foreground mb-2',
                             floatingMaxPosition?.side === 'left' && '-scale-x-100'
                         )}
                     />
                 ) : (
-                    <IconSidePanel className="text-3xl text-muted mb-2" />
+                    <IconSidePanel className="text-3xl text-tertiary-foreground mb-2" />
                 )}
                 <h3 className="text-xl font-bold mb-1">
                     Max is currently {isFloatingMaxExpanded ? 'floating' : 'in the sidebar'}
                 </h3>
-                <p className="text-sm text-muted mb-2">You can navigate freely around the app, or…</p>
+                <p className="text-sm text-tertiary-foreground mb-2">You can navigate freely around the app, or…</p>
                 <LemonButton
                     type="secondary"
                     size="xsmall"

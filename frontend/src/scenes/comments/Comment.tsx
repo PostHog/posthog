@@ -32,7 +32,7 @@ const Comment = ({ comment }: { comment: CommentType }): JSX.Element => {
     return (
         <div
             ref={ref}
-            className={clsx('Comment border rounded-lg bg-surface-primary', isHighlighted && 'border-accent')}
+            className={clsx('Comment border rounded-lg bg-card', isHighlighted && 'border-accent')}
             data-comment-id={comment.id}
         >
             <div className="flex-1 flex justify-start p-2 gap-2">
@@ -73,7 +73,9 @@ const Comment = ({ comment }: { comment: CommentType }): JSX.Element => {
                         </LemonMenu>
                     </div>
                     <LemonMarkdown lowKeyHeadings>{comment.content}</LemonMarkdown>
-                    {comment.version ? <span className="text-xs text-secondary italic">(edited)</span> : null}
+                    {comment.version ? (
+                        <span className="text-xs text-secondary-foreground italic">(edited)</span>
+                    ) : null}
                 </div>
             </div>
 
@@ -123,7 +125,7 @@ export const CommentWithReplies = ({ commentWithReplies }: CommentProps): JSX.El
             {comment ? (
                 <Comment comment={comment} />
             ) : (
-                <div className="border rounded border-dashed p-2 font-semibold italic bg-surface-primary text-secondary">
+                <div className="border rounded border-dashed p-2 font-semibold italic bg-card text-secondary-foreground">
                     Deleted comment
                 </div>
             )}

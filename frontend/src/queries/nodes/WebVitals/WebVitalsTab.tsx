@@ -24,7 +24,7 @@ export function WebVitalsTab({ value, metric, isActive, setTab }: WebVitalsTabPr
         <div
             onClick={setTab}
             className={clsx(
-                'flex-1 gap-2 border p-2 bg-surface-primary rounded items-center sm:items-start flex flex-col justify-between cursor-pointer',
+                'flex-1 gap-2 border p-2 bg-card rounded items-center sm:items-start flex flex-col justify-between cursor-pointer',
                 isActive && 'border-accent border-2'
             )}
         >

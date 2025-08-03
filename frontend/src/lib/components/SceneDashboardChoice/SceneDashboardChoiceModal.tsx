@@ -60,7 +60,7 @@ export function SceneDashboardChoiceModal({ scene }: SceneDashboardChoiceModalPr
                                 <div className="flex flex-1 items-center justify-between overflow-hidden">
                                     <div className="flex-1 flex flex-col justify-center overflow-hidden">
                                         <strong>{dashboard.name}</strong>
-                                        <span className="text-text-3000 font-normal text-ellipsis">
+                                        <span className="text-text-foreground font-normal text-ellipsis">
                                             {dashboard.description}
                                         </span>
                                     </div>

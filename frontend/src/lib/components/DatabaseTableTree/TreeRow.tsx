@@ -21,7 +21,7 @@ export function TreeRow({ item, menuItems }: TreeRowProps): JSX.Element {
     const [isMenuOpen, setIsMenuOpen] = useState(false)
 
     return (
-        <li className={clsx('relative flex items-center', isMenuOpen && 'bg-surface-primary')}>
+        <li className={clsx('relative flex items-center', isMenuOpen && 'bg-card')}>
             <LemonButton
                 onClick={() => {
                     void copyToClipboard(item.name, item.name)
@@ -33,7 +33,7 @@ export function TreeRow({ item, menuItems }: TreeRowProps): JSX.Element {
             >
                 <span className="flex-1 flex gap-2">
                     <span className="truncate">{item.name}</span>
-                    <span className="italic text-secondary">{item.type}</span>
+                    <span className="italic text-secondary-foreground">{item.type}</span>
                 </span>
             </LemonButton>
             {menuItems && menuItems.length > 0 && (
@@ -112,7 +112,7 @@ export function TreeFolderRow({ item, depth, onClick, selectedRow, dropdownOverl
         return ''
     }
 
-    const getIconColor = (): 'text-accent' | 'text-danger' | 'text-warning' | 'text-success' => {
+    const getIconColor = (): 'text-accent' | 'text-danger' | 'text-warning-foreground' | 'text-success' => {
         if (item.table?.type === 'materialized_view') {
             if (item.table.status === 'Running') {
                 return 'text-accent'
@@ -121,7 +121,7 @@ export function TreeFolderRow({ item, depth, onClick, selectedRow, dropdownOverl
                 return 'text-danger'
             }
             if (item.table.status === 'Modified') {
-                return 'text-warning'
+                return 'text-warning-foreground'
             }
         }
         return 'text-success'
@@ -178,7 +178,7 @@ export function TreeFolderRow({ item, depth, onClick, selectedRow, dropdownOverl
                         ) : emptyLabel ? (
                             emptyLabel
                         ) : (
-                            <span className="text-secondary">No tables found</span>
+                            <span className="text-secondary-foreground">No tables found</span>
                         )}
                     </div>
                 ))}

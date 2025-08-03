@@ -11,7 +11,7 @@ export const SessionRecordingsPlaylistTroubleshooting = (): JSX.Element => {
 
     return (
         <>
-            <h3 className="title text-secondary mb-0">No matching recordings</h3>
+            <h3 className="title text-secondary-foreground mb-0">No matching recordings</h3>
             <div className="flex flex-col deprecated-space-y-2">
                 <ul className="deprecated-space-y-1">
                     {hiddenRecordingsCount > 0 && (

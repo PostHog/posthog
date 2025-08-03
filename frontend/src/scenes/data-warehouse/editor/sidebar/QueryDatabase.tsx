@@ -339,7 +339,7 @@ export const QueryDatabase = (): JSX.Element => {
                             }}
                             data-attr="sql-editor-add-source"
                         >
-                            <IconPlusSmall className="text-tertiary" />
+                            <IconPlusSmall className="text-tertiary-foreground" />
                         </ButtonPrimitive>
                     )
                 }

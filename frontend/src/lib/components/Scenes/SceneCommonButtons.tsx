@@ -57,7 +57,7 @@ export function SceneCommonButtons({
                     className="justify-center flex-1"
                     menuItem
                 >
-                    {favorite.active ? <IconStarFilled className="text-warning" /> : <IconStar />}
+                    {favorite.active ? <IconStarFilled className="text-warning-foreground" /> : <IconStar />}
                     Favorite
                 </ButtonPrimitive>
             )}
@@ -109,7 +109,7 @@ export function SceneCommonButtons({
                     menuItem
                     data-attr={`${dataAttrKey}-pin`}
                 >
-                    {pinned.active ? <IconPinFilled className="text-warning" /> : <IconPin />}
+                    {pinned.active ? <IconPinFilled className="text-warning-foreground" /> : <IconPin />}
                     Pin
                 </ButtonPrimitive>
             )}

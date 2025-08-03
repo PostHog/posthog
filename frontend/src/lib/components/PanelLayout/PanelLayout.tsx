@@ -50,9 +50,7 @@ function Container({ children, primary, className, column }: PanelContainerProps
 }
 
 function Panel({ children, primary, className }: Omit<PanelContainerProps, 'column'>): JSX.Element {
-    return (
-        <div className={clsx(primary && 'flex-1', 'border bg-surface-primary rounded-xs', className)}>{children}</div>
-    )
+    return <div className={clsx(primary && 'flex-1', 'border bg-card rounded-xs', className)}>{children}</div>
 }
 
 export function PanelSettings({
@@ -66,7 +64,7 @@ export function PanelSettings({
     return (
         <div
             className={clsx(
-                'flex flex-row w-full overflow-hidden bg-surface-primary items-center justify-between',
+                'flex flex-row w-full overflow-hidden bg-card items-center justify-between',
                 border === 'bottom' && 'border-b',
                 border === 'top' && 'border-t'
             )}

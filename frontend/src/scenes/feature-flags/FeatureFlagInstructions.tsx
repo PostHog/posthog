@@ -149,7 +149,7 @@ export function CodeInstructions({
         if (featureFlag?.ensure_experience_continuity) {
             setShowLocalEvalCode(false)
         }
-    }, [selectedLanguage, featureFlag])
+    }, [selectedLanguage, featureFlag, defaultSelectedOption.key, selectOption])
 
     const groups = featureFlag?.filters?.groups || []
     // return first non-instant property in group
@@ -244,7 +244,7 @@ export function CodeInstructions({
                                 checked={showPayloadCode}
                                 disabled={!PAYLOAD_LIBRARIES.includes(selectedOption.key)}
                             />
-                            <IconInfo className="text-xl text-secondary shrink-0" />
+                            <IconInfo className="text-xl text-secondary-foreground shrink-0" />
                         </div>
                     </Tooltip>
                     <>
@@ -266,7 +266,7 @@ export function CodeInstructions({
                                         !!featureFlag?.ensure_experience_continuity
                                     }
                                 />
-                                <IconInfo className="text-xl text-secondary shrink-0" />
+                                <IconInfo className="text-xl text-secondary-foreground shrink-0" />
                             </div>
                         </Tooltip>
                         <Tooltip
@@ -288,7 +288,7 @@ export function CodeInstructions({
                                         !!featureFlag?.ensure_experience_continuity
                                     }
                                 />
-                                <IconInfo className="text-xl text-secondary shrink-0" />
+                                <IconInfo className="text-xl text-secondary-foreground shrink-0" />
                             </div>
                         </Tooltip>
                     </>

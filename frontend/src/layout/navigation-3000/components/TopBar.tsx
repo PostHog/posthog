@@ -255,7 +255,7 @@ function Breadcrumb({ breadcrumb, here, isOnboarding }: BreadcrumbProps): JSX.El
                 buttonProps={{
                     size: 'xxs',
                     className:
-                        '-mr-1 [font-size:var(--content-font-size)] text-secondary p-0 hover:text-primary hover:bg-transparent font-semibold',
+                        '-mr-1 [font-size:var(--content-font-size)] text-secondary-foreground p-0 hover:text-foreground hover:bg-transparent font-semibold',
                 }}
             />
         )

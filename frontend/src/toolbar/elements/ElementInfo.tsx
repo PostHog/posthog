@@ -31,7 +31,7 @@ export function ElementInfo(): JSX.Element | null {
             </div>
 
             {position ? (
-                <div className="p-3 border-l-[5px] border-l-danger bg-surface-primary text-primary">
+                <div className="p-3 border-l-[5px] border-l-danger bg-card text-foreground">
                     <h1 className="section-title">Stats</h1>
                     <p className="">
                         <IconCalendar /> <u>{dateRange}</u>
@@ -52,13 +52,13 @@ export function ElementInfo(): JSX.Element | null {
                 </div>
             ) : null}
 
-            <div className="p-3 border-l-[5px] border-l-success bg-surface-secondary">
+            <div className="p-3 border-l-[5px] border-l-success bg-secondary">
                 {!automaticActionCreationEnabled && (
                     <>
                         <h1 className="section-title">Actions ({activeMeta.actions.length})</h1>
 
                         {activeMeta.actions.length === 0 ? (
-                            <p className="text-primary">No actions include this element</p>
+                            <p className="text-foreground">No actions include this element</p>
                         ) : (
                             <ActionsListView actions={activeMeta.actions.map((a) => a.action)} />
                         )}

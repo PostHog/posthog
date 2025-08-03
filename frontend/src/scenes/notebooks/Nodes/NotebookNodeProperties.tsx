@@ -39,7 +39,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodePropertiesAttri
                         <LemonLabel className="leading-4">
                             <PropertyKeyInfo value={key} />
                         </LemonLabel>
-                        <div className={`${!isLast && 'border-b border-primary pb-1'}`}>
+                        <div className={`${!isLast && 'border-b border-border pb-1'}`}>
                             <PropertiesTable properties={value} rootKey={key} type={PropertyDefinitionType.Person} />
                         </div>
                     </div>

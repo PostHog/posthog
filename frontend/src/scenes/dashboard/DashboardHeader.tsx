@@ -216,7 +216,7 @@ export function DashboardHeader(): JSX.Element | null {
                                                     {/* ✅ transfered to scene */}
                                                     {dashboard.created_by && (
                                                         <>
-                                                            <div className="flex p-2 text-secondary">
+                                                            <div className="flex p-2 text-secondary-foreground">
                                                                 Created by{' '}
                                                                 {dashboard.created_by.first_name ||
                                                                     dashboard.created_by.email ||

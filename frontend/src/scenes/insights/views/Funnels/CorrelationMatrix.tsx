@@ -56,7 +56,7 @@ export function CorrelationMatrix(): JSX.Element {
         correlationScoreStrength === 'strong' ? (
             <IconCheckCircle className="text-success" />
         ) : correlationScoreStrength === 'moderate' ? (
-            <IconCancel className="text-warning" />
+            <IconCancel className="text-warning-foreground" />
         ) : (
             <IconErrorOutline className="text-danger" />
         )
@@ -75,7 +75,7 @@ export function CorrelationMatrix(): JSX.Element {
                     </div>
                 ) : correlationDetails ? (
                     <>
-                        <p className="text-secondary mb-4">
+                        <p className="text-secondary-foreground mb-4">
                             The table below displays the correlation details for users who {action} <b>{displayName}</b>
                             .
                         </p>
@@ -207,7 +207,7 @@ export function CorrelationMatrix(): JSX.Element {
                                         correlationScoreStrength === 'strong'
                                             ? 'text-success'
                                             : correlationScoreStrength === 'moderate'
-                                            ? 'text-warning'
+                                            ? 'text-warning-foreground'
                                             : 'text-danger'
                                     )}
                                 >

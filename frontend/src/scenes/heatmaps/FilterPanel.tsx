@@ -64,7 +64,7 @@ export function FilterPanel({
     return (
         <div
             className={clsx(
-                'flex flex-col gap-y-2 px-2 py-1 border-r border-t bg-surface-primary mt-2 relative',
+                'flex flex-col gap-y-2 px-2 py-1 border-r border-t bg-card mt-2 relative',
                 !filterPanelCollapsed && 'w-100'
             )}
         >

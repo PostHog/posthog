@@ -71,10 +71,10 @@ export function EmojiPickerPopover({
                 >
                     <EmojiPicker.Search className="z-10 mx-2 mt-2 appearance-none rounded bg-fill-input px-2.5 py-2 text-sm border" />
                     <EmojiPicker.Viewport className="relative flex-1 outline-hidden">
-                        <EmojiPicker.Loading className="absolute inset-0 flex items-center justify-center text-tertiary text-sm">
+                        <EmojiPicker.Loading className="absolute inset-0 flex items-center justify-center text-tertiary-foreground text-sm">
                             Loading…
                         </EmojiPicker.Loading>
-                        <EmojiPicker.Empty className="absolute inset-0 flex items-center justify-center text-tertiary text-sm">
+                        <EmojiPicker.Empty className="absolute inset-0 flex items-center justify-center text-tertiary-foreground text-sm">
                             No emoji found.
                         </EmojiPicker.Empty>
                         <EmojiPicker.List

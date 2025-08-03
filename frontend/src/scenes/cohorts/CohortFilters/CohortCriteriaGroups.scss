@@ -2,12 +2,12 @@
     width: 100%;
     padding-top: 1rem;
     margin: 0.5rem 0;
-    background-color: var(--color-bg-surface-primary);
-    border: 1px solid var(--color-border-primary);
+    background-color: var(--color-card);
+    border: 1px solid var(--color-border);
     border-radius: var(--radius);
 
     &.CohortCriteriaGroups__matching-group--error {
-        border: 1px solid var(--danger);
+        border: 1px solid var(--color-error-foreground);
     }
 }
 

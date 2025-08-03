@@ -72,7 +72,7 @@ export function PathNodeLabel({ insightProps, node }: PathNodeLabelProps): JSX.E
                             { label: 'Copy path item name', onClick: copyName },
                         ]}
                     >
-                        <IconEllipsis className="ml-1 cursor-pointer text-muted hover:text-default" />
+                        <IconEllipsis className="ml-1 cursor-pointer text-tertiary-foreground hover:text-default" />
                     </LemonMenu>
                 )}
             </div>

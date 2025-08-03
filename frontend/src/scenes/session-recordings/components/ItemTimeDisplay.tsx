@@ -37,7 +37,7 @@ export function ItemTimeDisplay({
                             title="This event occurred before the recording started, likely as the page was loading."
                             placement="left"
                         >
-                            <span className="text-secondary">load</span>
+                            <span className="text-secondary-foreground">load</span>
                         </Tooltip>
                     ) : (
                         colonDelimitedDuration(timeInRecording / 1000, fixedUnits)

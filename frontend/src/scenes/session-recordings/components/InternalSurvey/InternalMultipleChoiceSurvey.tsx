@@ -24,7 +24,7 @@ function TooExpensiveHelpMessage(): JSX.Element {
         <>
             <p>
                 There are several ways to reduce costs by recording fewer sessions:
-                <ul className="list-disc pl-4 text-secondary">
+                <ul className="list-disc pl-4 text-secondary-foreground">
                     <li>Disable automatic recording and programmatically start and stop recordings</li>
                     <li>
                         Set a feature flag with the conditions that define which users or sessions you want to record.
@@ -67,7 +67,7 @@ function PerformanceHelpMessage(): JSX.Element {
                 performance and potential issues. This feature can be particularly useful for debugging and optimizing
                 your application's network interactions.
             </p>
-            <ul className="list-disc pl-4 text-secondary">
+            <ul className="list-disc pl-4 text-secondary-foreground">
                 <li>
                     <Link to="https://posthog.com/docs/session-replay/network-performance-recording" target="_blank">
                         Network performance recording
@@ -99,7 +99,7 @@ function CannotConfigureHelpMessage(): JSX.Element {
         <>
             <p>
                 There are several ways to control which sessions you record:
-                <ul className="list-disc pl-4 text-secondary">
+                <ul className="list-disc pl-4 text-secondary-foreground">
                     <li>
                         <Link
                             to="https://posthog.com/docs/session-replay/how-to-control-which-sessions-you-record#programmatically-start-and-stop-recordings"

@@ -54,7 +54,7 @@ export function PathNodeCardButton({
     return (
         <div className="flex justify-between items-center w-full">
             <div className="font-semibold overflow-hidden max-h-16">
-                <span className="text-xxs text-secondary mr-1">{`0${name[0]}`}</span>
+                <span className="text-xxs text-secondary-foreground mr-1">{`0${name[0]}`}</span>
                 <span className="text-xs break-words">{pageUrl(node, isPath)}</span>
             </div>
             {/* TRICKY: We don't want the popover to affect the buttons */}

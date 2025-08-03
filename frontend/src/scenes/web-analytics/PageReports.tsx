@@ -13,7 +13,7 @@ import { WebAnalyticsCompareFilter } from './WebAnalyticsFilters'
 
 function NoUrlSelectedMessage(): JSX.Element {
     return (
-        <div className="border-2 border-dashed border-primary w-full p-8 rounded flex items-center justify-center gap-8">
+        <div className="border-2 border-dashed border-border w-full p-8 rounded flex items-center justify-center gap-8">
             <div className="flex-shrink-0">
                 <XRayHog2 alt="X-ray hedgehog" className="w-60" />
             </div>
@@ -39,7 +39,7 @@ export function PageReportsFilters(): JSX.Element {
         labelComponent: (
             <div className="flex justify-between items-center w-full">
                 <span className="truncate">{option.url}</span>
-                <span className="text-muted ml-2">{option.count.toLocaleString()}</span>
+                <span className="text-tertiary-foreground ml-2">{option.count.toLocaleString()}</span>
             </div>
         ),
     }))
@@ -49,7 +49,7 @@ export function PageReportsFilters(): JSX.Element {
             <div className="flex items-center gap-2">
                 <div className="flex-1">
                     <div className="relative">
-                        <IconGlobe className="absolute left-2 top-1/2 -translate-y-1/2 text-muted" />
+                        <IconGlobe className="absolute left-2 top-1/2 -translate-y-1/2 text-tertiary-foreground" />
                         <LemonInputSelect
                             allowCustomValues={false}
                             placeholder="Click or type to see top pages"

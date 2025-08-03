@@ -58,7 +58,7 @@ export const renderTableCount = (count: undefined | number): null | JSX.Element 
     }
 
     return (
-        <span className="text-xs mr-1 italic text-[color:var(--color-text-secondary-3000)]">
+        <span className="text-xs mr-1 italic text-[color:var(--color-secondary-foreground-3000)]">
             {`(${new Intl.NumberFormat('en', {
                 notation: 'compact',
                 compactDisplay: 'short',
@@ -212,7 +212,10 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
                             </div>
                             <h4 className="mb-2">No data warehouse sources connected</h4>
                             {/* eslint-disable-next-line react/forbid-dom-props */}
-                            <p className="text-muted mb-4 text-xs px-2 break-words w" style={{ whiteSpace: 'normal' }}>
+                            <p
+                                className="text-tertiary-foreground mb-4 text-xs px-2 break-words w"
+                                style={{ whiteSpace: 'normal' }}
+                            >
                                 Import data from external sources like Postgres, Stripe, or other databases to enrich
                                 your analytics.
                             </p>

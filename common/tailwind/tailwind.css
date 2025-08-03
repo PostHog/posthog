@@ -11,6 +11,8 @@
 
     --color-background: var(--color-background);
     --color-foreground: var(--color-foreground);
+    --color-nav: var(--color-nav);
+    --color-nav-foreground: var(--color-nav-foreground);
     --color-secondary: var(--color-secondary);
     --color-secondary-foreground: var(--color-secondary-foreground);
     --color-tertiary: var(--color-tertiary);
@@ -39,8 +41,12 @@
     --color-interactive-active-foreground: var(--color-interactive-active-foreground);
     --color-interactive-hover: var(--color-interactive-hover);
     --color-interactive-hover-foreground: var(--color-interactive-hover-foreground);
+    --color-interactive-focus: var(--color-interactive-focus);
+    --color-interactive-focus-foreground: var(--color-interactive-focus-foreground);
     --color-input: var(--color-input);
     --color-input-foreground: var(--color-input-foreground);
+    --color-scrollbar: var(--color-scrollbar);
+    --color-scrollbar-foreground: var(--color-scrollbar-foreground);
     --color-border: var(--color-border);
     --color-border-secondary: var(--color-border-secondary);
 }

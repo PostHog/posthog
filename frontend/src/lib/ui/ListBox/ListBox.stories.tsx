@@ -42,7 +42,7 @@ const BasicTemplate: StoryFn<typeof ListBox> = (props: React.ComponentProps<type
                 ref={ref}
             >
                 <ListBox.Item asChild className="mb-4">
-                    <input type="text" className="h-9 border border-primary rounded-md p-2" />
+                    <input type="text" className="h-9 border border-border rounded-md p-2" />
                 </ListBox.Item>
                 <ListBox.Item asChild>
                     <Link
@@ -51,7 +51,7 @@ const BasicTemplate: StoryFn<typeof ListBox> = (props: React.ComponentProps<type
                         buttonProps={{
                             menuItem: true,
                         }}
-                        className="data-[focused=true]:bg-fill-button-tertiary-active aria-[current=true]:bg-fill-button-tertiary-active"
+                        className="data-[focused=true]:bg-interactive-active aria-[current=true]:bg-interactive-active"
                     >
                         Option 1 (Link)
                     </Link>
@@ -59,7 +59,7 @@ const BasicTemplate: StoryFn<typeof ListBox> = (props: React.ComponentProps<type
                 <ListBox.Item asChild onClick={() => alert('clicked')}>
                     <ButtonPrimitive
                         menuItem
-                        className="data-[focused=true]:bg-fill-button-tertiary-active aria-[current=true]:bg-fill-button-tertiary-active"
+                        className="data-[focused=true]:bg-interactive-active aria-[current=true]:bg-interactive-active"
                     >
                         Option 2 (Clickable)
                     </ButtonPrimitive>
@@ -68,7 +68,7 @@ const BasicTemplate: StoryFn<typeof ListBox> = (props: React.ComponentProps<type
                     <ButtonPrimitive
                         menuItem
                         disabled
-                        className="data-[focused=true]:bg-fill-button-tertiary-active aria-[current=true]:bg-fill-button-tertiary-active"
+                        className="data-[focused=true]:bg-interactive-active aria-[current=true]:bg-interactive-active"
                     >
                         Option 3
                     </ButtonPrimitive>

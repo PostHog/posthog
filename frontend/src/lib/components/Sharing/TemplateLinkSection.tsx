@@ -53,7 +53,7 @@ export function TemplateLinkSection({
                     <b>{heading}</b>
                 </TitleWithIcon>
             )}
-            {piiWarning && <p className="text-muted mb-1">{piiWarning}</p>}
+            {piiWarning && <p className="text-tertiary-foreground mb-1">{piiWarning}</p>}
             <div className="flex gap-2">
                 <div className="flex-1">
                     <input

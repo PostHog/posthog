@@ -54,7 +54,7 @@ export const OnboardingStep = ({
     return (
         <>
             <div className="pb-2">
-                <div className={`text-secondary max-w-screen-md mx-auto ${hideHeader && 'hidden'}`}>
+                <div className={`text-secondary-foreground max-w-screen-md mx-auto ${hideHeader && 'hidden'}`}>
                     <div
                         className="flex items-center justify-start gap-x-3 px-2 shrink-0 w-full"
                         data-attr="onboarding-breadcrumbs"
@@ -72,7 +72,7 @@ export const OnboardingStep = ({
                                         key={stepName}
                                         onClick={() => setStepKey(stepName)}
                                     >
-                                        <span className={`text-sm ${!highlightStep && 'text-muted'}`}>
+                                        <span className={`text-sm ${!highlightStep && 'text-tertiary-foreground'}`}>
                                             {stepKeyToTitle(stepName)}
                                         </span>
                                     </Link>

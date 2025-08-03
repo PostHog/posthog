@@ -33,7 +33,7 @@ export function JSBookmarklet({ team }: { team: TeamBasicType }): JSX.Element {
                 <IconBookmarkBorder fontSize="1.5rem" />
                 <span className="text-base">PostHog Bookmarklet</span>
             </a>
-            <p className="text-center text-secondary font-medium mt-2">
+            <p className="text-center text-secondary-foreground font-medium mt-2">
                 Drag to your bookmarks. Do not click on this link. The bookmarklet only works for the current browser
                 session.
             </p>

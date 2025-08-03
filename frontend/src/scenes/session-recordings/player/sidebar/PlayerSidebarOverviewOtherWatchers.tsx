@@ -93,7 +93,7 @@ export function PlayerSidebarOverviewOtherWatchers({
     const { sessionPlayerMetaDataLoading, sessionPlayerMetaData } = useValues(sessionRecordingPlayerLogic)
 
     return (
-        <div className="rounded border bg-surface-primary">
+        <div className="rounded border bg-card">
             {sessionPlayerMetaDataLoading ? (
                 <OtherWatchersLoading />
             ) : sessionPlayerMetaData?.viewers?.length ? (

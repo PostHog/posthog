@@ -19,7 +19,7 @@ export function DashboardTemplateVariables(): JSX.Element {
     // this is a hack, I'm not sure why it's not set properly initially. Figure it out.
     useEffect(() => {
         setVariables(activeDashboardTemplate?.variables || [])
-    }, [activeDashboardTemplate])
+    }, [activeDashboardTemplate, setVariables])
 
     return (
         <div className="mb-4 DashboardTemplateVariables max-w-192">
@@ -29,7 +29,7 @@ export function DashboardTemplateVariables(): JSX.Element {
                         <LemonLabel showOptional={!variable.required} info={<>{variable.description}</>}>
                             {variable.name}
                         </LemonLabel>
-                        <p className="text-sm text-secondary">{variable.description}</p>
+                        <p className="text-sm text-secondary-foreground">{variable.description}</p>
                     </div>
                     <div>
                         <ActionFilter

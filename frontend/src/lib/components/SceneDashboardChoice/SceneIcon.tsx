@@ -4,7 +4,7 @@ import { DashboardCompatibleScenes } from 'lib/components/SceneDashboardChoice/s
 import { Scene } from 'scenes/sceneTypes'
 
 export function SceneIcon(props: { scene: DashboardCompatibleScenes; size: 'small' | 'large' }): JSX.Element | null {
-    const className = clsx('text-warning', props.size === 'small' ? 'text-lg' : 'text-3xl')
+    const className = clsx('text-warning-foreground', props.size === 'small' ? 'text-lg' : 'text-3xl')
     if (props.scene === Scene.ProjectHomepage) {
         return <IconHome className={className} />
     } else if (props.scene === Scene.Group) {

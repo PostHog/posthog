@@ -110,7 +110,7 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
                     disabledReason: getChannelRefreshButtonDisabledReason(),
                 }}
                 emptyStateComponent={
-                    <p className="text-secondary italic p-1">
+                    <p className="text-secondary-foreground italic p-1">
                         No channels found. Make sure the PostHog Slack App is installed in the channel.{' '}
                         <Link to="https://posthog.com/docs/cdp/destinations/slack" target="_blank">
                             See the docs for more information.

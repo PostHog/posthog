@@ -36,14 +36,14 @@ export interface SessionRecordingPreviewProps {
 
 function RecordingDuration({ recordingDuration }: { recordingDuration: number | undefined }): JSX.Element {
     if (recordingDuration === undefined) {
-        return <div className="flex text-secondary text-xs">-</div>
+        return <div className="flex text-secondary-foreground text-xs">-</div>
     }
 
     const formattedDuration = colonDelimitedDuration(recordingDuration)
     const [hours, minutes, seconds] = formattedDuration.split(':')
 
     return (
-        <div className="flex text-secondary text-xs">
+        <div className="flex text-secondary-foreground text-xs">
             {hours != '00' && <span>{hours}:</span>}
             <span>
                 {minutes}:{seconds}
@@ -129,7 +129,7 @@ export function PropertyIcons({ recordingProperties, loading, iconClassNames }: 
 function FirstURL(props: { startUrl: string | undefined }): JSX.Element {
     const firstPath = props.startUrl?.replace(/https?:\/\//g, '').split(/[?|#]/)[0]
     return (
-        <span className="flex overflow-hidden text-secondary text-xs">
+        <span className="flex overflow-hidden text-secondary-foreground text-xs">
             <span title={`First URL: ${props.startUrl}`} className="truncate">
                 {firstPath}
             </span>
@@ -140,7 +140,7 @@ function FirstURL(props: { startUrl: string | undefined }): JSX.Element {
 function RecordingOngoingIndicator(): JSX.Element {
     return (
         <Tooltip title="This recording is still ongoing - we received data within the last 5 minutes.">
-            <IconLive className="animate-[pulse_1s_ease-out_infinite] text-primary-3000" />
+            <IconLive className="animate-[pulse_1s_ease-out_infinite] text-foreground-3000" />
         </Tooltip>
     )
 }
@@ -229,7 +229,7 @@ export function SessionRecordingPreview({ recording, isActive, onClick }: Sessio
     const loading = !recordingProperties && recordingPropertiesLoading
     const iconProperties = gatherIconProperties(recordingProperties, recording)
 
-    const iconClassNames = 'text-secondary shrink-0'
+    const iconClassNames = 'text-secondary-foreground shrink-0'
 
     return (
         <DraggableToNotebook href={urls.replaySingle(recording.id)}>
@@ -250,7 +250,7 @@ export function SessionRecordingPreview({ recording, isActive, onClick }: Sessio
 
                         {playlistTimestampFormat === TimestampFormat.Relative ? (
                             <TZLabel
-                                className="overflow-hidden text-ellipsis text-xs text-secondary shrink-0"
+                                className="overflow-hidden text-ellipsis text-xs text-secondary-foreground shrink-0"
                                 time={recording.start_time}
                                 placement="right"
                             />
@@ -263,7 +263,7 @@ export function SessionRecordingPreview({ recording, isActive, onClick }: Sessio
                     </div>
 
                     <div className="flex justify-between items-center gap-x-0.5">
-                        <div className="flex deprecated-space-x-2 text-secondary text-sm">
+                        <div className="flex deprecated-space-x-2 text-secondary-foreground text-sm">
                             <PropertyIcons
                                 recordingProperties={iconProperties}
                                 iconClassNames={iconClassNames}

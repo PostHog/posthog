@@ -31,7 +31,7 @@ export function FixErrorButton({ type, size, contentOverride, source }: FixError
         }
 
         if (fixErrorsError) {
-            return <IconWarning className="text-warning" />
+            return <IconWarning className="text-warning-foreground" />
         }
 
         return <IconMagicWand />

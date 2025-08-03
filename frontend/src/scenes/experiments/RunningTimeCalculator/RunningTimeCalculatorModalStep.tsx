@@ -17,7 +17,7 @@ export const RunningTimeCalculatorModalStep = ({
                 </span>
                 <h4 className="font-semibold m-0">{title}</h4>
             </div>
-            <p className="text-muted">{description}</p>
+            <p className="text-tertiary-foreground">{description}</p>
             <div className="space-y-2">{children}</div>
         </div>
     </div>

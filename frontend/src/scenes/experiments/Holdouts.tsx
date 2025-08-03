@@ -217,7 +217,7 @@ export function Holdouts(): JSX.Element {
 
             <LemonTable
                 emptyState={
-                    <div className="py-4 text-secondary text-sm text-center">
+                    <div className="py-4 text-secondary-foreground text-sm text-center">
                         You have not created any holdouts yet.
                     </div>
                 }

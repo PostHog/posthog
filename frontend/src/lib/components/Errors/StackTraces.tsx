@@ -38,7 +38,7 @@ function ExceptionHeader({ type, value, part }: ExceptionHeaderProps): JSX.Eleme
                 {type}
                 {part && <FingerprintRecordPartDisplay className="ml-1" part={part} />}
             </h3>
-            <div className="StackTrace__value line-clamp-2 text-secondary italic text-xs" title={value}>
+            <div className="StackTrace__value line-clamp-2 text-secondary-foreground italic text-xs" title={value}>
                 {value}
             </div>
         </div>
@@ -166,7 +166,7 @@ export function FrameHeaderDisplay({ frame }: { frame: ErrorTrackingStackFrame }
                     <span>{source}</span>
                     {line ? (
                         <>
-                            <span className="text-secondary">@</span>
+                            <span className="text-secondary-foreground">@</span>
                             <span>
                                 {line}
                                 {column && `:${column}`}
@@ -177,7 +177,7 @@ export function FrameHeaderDisplay({ frame }: { frame: ErrorTrackingStackFrame }
             </div>
             <div className="flex gap-x-1 items-center justify-end">
                 {resolved && source && (
-                    <span onClick={cancelEvent} className="text-secondary">
+                    <span onClick={cancelEvent} className="text-secondary-foreground">
                         <CopyToClipboardInline
                             tooltipMessage="Copy file name"
                             iconSize="xsmall"
@@ -188,7 +188,7 @@ export function FrameHeaderDisplay({ frame }: { frame: ErrorTrackingStackFrame }
                 {part && <FingerprintRecordPartDisplay part={part} />}
                 {!in_app && (
                     <Tooltip title="Vendor frame">
-                        <IconBox className="mr-0.5 text-secondary" fontSize={15} />
+                        <IconBox className="mr-0.5 text-secondary-foreground" fontSize={15} />
                     </Tooltip>
                 )}
                 {!resolved && (
@@ -228,7 +228,7 @@ function FrameContextLine({
     highlight?: boolean
 }): JSX.Element {
     return (
-        <div className={highlight ? 'bg-fill-error-highlight' : 'bg-surface-primary'}>
+        <div className={highlight ? 'bg-fill-error-highlight' : 'bg-card'}>
             {lines
                 .sort((l) => l.number)
                 .map(({ number, line }) => (

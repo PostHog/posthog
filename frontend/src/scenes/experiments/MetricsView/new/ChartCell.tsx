@@ -138,7 +138,7 @@ export function ChartCell({
                 {/* "Not enough data" message as HTML overlay */}
                 {!hasEnoughData && (
                     <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                        <div className="bg-border-light px-3 py-1 rounded text-xs text-muted whitespace-nowrap">
+                        <div className="bg-border-light px-3 py-1 rounded text-xs text-tertiary-foreground whitespace-nowrap">
                             Not enough data yet
                         </div>
                     </div>

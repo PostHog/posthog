@@ -168,7 +168,7 @@ export function FlagsSecureApiKeys(): JSX.Element {
             </p>
 
             {/* Primary Key */}
-            <h3 className="mt-4 mb-1 text-sm font-semibold text-muted">
+            <h3 className="mt-4 mb-1 text-sm font-semibold text-tertiary-foreground">
                 Primary Key <span className="text-green-700 text-xs ml-2">(Active)</span>
             </h3>
             <CodeSnippet
@@ -182,7 +182,7 @@ export function FlagsSecureApiKeys(): JSX.Element {
                         />
                     ) : undefined
                 }
-                className={currentTeam?.secret_api_token ? '' : 'text-muted'}
+                className={currentTeam?.secret_api_token ? '' : 'text-tertiary-foreground'}
                 thing="Primary Feature Flags Secure API key"
             >
                 {currentTeam?.secret_api_token || 'Click the rotate button on the right to generate a new key.'}
@@ -191,7 +191,7 @@ export function FlagsSecureApiKeys(): JSX.Element {
             {currentTeam?.secret_api_token_backup ? (
                 <>
                     {/* Backup Key */}
-                    <h3 className="mt-4 mb-1 text-sm font-semibold text-muted">
+                    <h3 className="mt-4 mb-1 text-sm font-semibold text-tertiary-foreground">
                         Backup Key <span className="text-orange-600 text-xs ml-2">(Pending deletion)</span>
                     </h3>
                     <CodeSnippet
@@ -208,13 +208,13 @@ export function FlagsSecureApiKeys(): JSX.Element {
                     >
                         {currentTeam.secret_api_token_backup}
                     </CodeSnippet>
-                    <p className="text-xs text-muted mt-1">
+                    <p className="text-xs text-tertiary-foreground mt-1">
                         This key is still active to support deployments using the previous key. Delete it once you've
                         fully migrated.
                     </p>
                 </>
             ) : (
-                <p className="text-xs text-muted mt-2">
+                <p className="text-xs text-tertiary-foreground mt-2">
                     Rotating the key will move this primary key to backup so you can migrate safely.
                 </p>
             )}

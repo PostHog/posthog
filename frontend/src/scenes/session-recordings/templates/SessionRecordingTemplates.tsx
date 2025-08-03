@@ -165,7 +165,7 @@ const RecordingTemplateCard = (props: RecordingTemplateCardProps): JSX.Element =
             <div className="flex flex-col gap-2">
                 <div className="flex items-center gap-2">
                     {props.template.icon && (
-                        <div className="bg-surface-primary rounded p-2 w-8 h-8 flex items-center justify-center">
+                        <div className="bg-card rounded p-2 w-8 h-8 flex items-center justify-center">
                             {props.template.icon}
                         </div>
                     )}

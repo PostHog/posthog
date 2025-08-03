@@ -46,11 +46,11 @@ export const BillingSummary = (): JSX.Element => {
                                                           )}`
                                                         : ''
                                                 }`}
-                                                className="text-secondary"
+                                                className="text-secondary-foreground"
                                             >
                                                 Projected total
                                             </LemonLabel>
-                                            <div className="font-semibold text-2xl text-secondary">
+                                            <div className="font-semibold text-2xl text-secondary-foreground">
                                                 {billing.discount_percent
                                                     ? humanFriendlyCurrency(
                                                           billing.projected_total_amount_usd_with_limit_after_discount
@@ -70,11 +70,11 @@ export const BillingSummary = (): JSX.Element => {
                                                       billing.amount_off_expires_at.format('LL')
                                                     : ''
                                             }`}
-                                            className="text-secondary"
+                                            className="text-secondary-foreground"
                                         >
                                             Available credits
                                         </LemonLabel>
-                                        <div className="font-semibold text-2xl text-secondary">
+                                        <div className="font-semibold text-2xl text-secondary-foreground">
                                             {humanFriendlyCurrency(billing.discount_amount_usd, 0)}
                                         </div>
                                     </div>
@@ -83,11 +83,11 @@ export const BillingSummary = (): JSX.Element => {
                                     <div>
                                         <LemonLabel
                                             info="The discount applied to your current bill, reflected in the total amount."
-                                            className="text-secondary"
+                                            className="text-secondary-foreground"
                                         >
                                             Applied discount
                                         </LemonLabel>
-                                        <div className="font-semibold text-2xl text-secondary">
+                                        <div className="font-semibold text-2xl text-secondary-foreground">
                                             {billing.discount_percent}%
                                         </div>
                                     </div>
@@ -109,7 +109,7 @@ export const BillingSummary = (): JSX.Element => {
                                 ({billing.billing_period.current_period_end.diff(dayjs(), 'days')} days remaining)
                             </p>
                             {!billing.has_active_subscription && (
-                                <p className="italic ml-0 text-secondary mb-0 break-words">
+                                <p className="italic ml-0 text-secondary-foreground mb-0 break-words">
                                     Monthly free allocation resets at the end of the cycle.
                                 </p>
                             )}

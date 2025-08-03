@@ -38,7 +38,7 @@ export const SeverityLevelsFilter = (): JSX.Element => {
         severityLevels.length > 0 ? severityLevels.map((l) => capitalizeFirstLetter(l)).join(', ') : 'All levels'
 
     return (
-        <span className="rounded bg-surface-primary">
+        <span className="rounded bg-card">
             <LemonMenu
                 closeOnClickInside={false}
                 items={Object.entries(options).map(([key, label]) => ({

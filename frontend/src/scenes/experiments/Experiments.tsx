@@ -151,7 +151,7 @@ export function Experiments(): JSX.Element {
                                                 LemonDialog.open({
                                                     title: 'Archive this experiment?',
                                                     content: (
-                                                        <div className="text-sm text-secondary">
+                                                        <div className="text-sm text-secondary-foreground">
                                                             This action will move the experiment to the archived tab. It
                                                             can be restored at any time.
                                                         </div>
@@ -182,7 +182,7 @@ export function Experiments(): JSX.Element {
                                         LemonDialog.open({
                                             title: 'Delete this experiment?',
                                             content: (
-                                                <div className="text-sm text-secondary">
+                                                <div className="text-sm text-secondary-foreground">
                                                     Experiment with its settings will be deleted, but event data will be
                                                     preserved.
                                                 </div>
@@ -350,7 +350,7 @@ export function Experiments(): JSX.Element {
                     </div>
                     <LemonDivider className="my-4" />
                     <div className="mb-4">
-                        <span className="text-secondary">
+                        <span className="text-secondary-foreground">
                             {count
                                 ? `${startCount}${
                                       endCount - startCount > 1 ? '-' + endCount : ''

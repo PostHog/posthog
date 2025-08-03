@@ -14,7 +14,7 @@ export function SavedFiltersEmptyState(): JSX.Element {
         <div className="flex items-center justify-center">
             <div className="max-w-248 mt-12 flex flex-col items-center">
                 <h2 className="text-xl">You don't have any saved filters yet.</h2>
-                <p className="text-secondary">
+                <p className="text-secondary-foreground">
                     To create a saved filter, you need to have at least one filter applied.
                 </p>
             </div>
@@ -31,7 +31,7 @@ export function SavedFiltersLoadingState(): JSX.Element {
         <div className="flex items-center justify-center">
             <div className="max-w-248 mt-12 flex flex-col items-center">
                 <h2 className="text-xl">Loading saved filters...</h2>
-                <p className="text-secondary">This may take a few seconds.</p>
+                <p className="text-secondary-foreground">This may take a few seconds.</p>
             </div>
         </div>
     )

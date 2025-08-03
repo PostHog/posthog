@@ -47,7 +47,7 @@ const Count = ({ tab }: CountProps): JSX.Element | null => {
     } else if (tabsLoading.includes(tab) && activeTab !== Tab.All) {
         return <Spinner className="ml-0.5" />
     } else if (!isLoading && tabsCount[tab] != null) {
-        return <span className="ml-1 text-xxs text-tertiary">{tabsCount[tab]}</span>
+        return <span className="ml-1 text-xxs text-tertiary-foreground">{tabsCount[tab]}</span>
     }
     return null
 }

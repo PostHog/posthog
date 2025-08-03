@@ -36,7 +36,7 @@ export function Intro(): JSX.Element {
             </div>
             <div className="text-center mb-1">
                 <h2 className="text-xl @md/max-welcome:text-2xl font-bold mb-2 text-balance">{headline}</h2>
-                <div className="text-sm text-secondary text-pretty">{description}</div>
+                <div className="text-sm text-secondary-foreground text-pretty">{description}</div>
             </div>
         </>
     )

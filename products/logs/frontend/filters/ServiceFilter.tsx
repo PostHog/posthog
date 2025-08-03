@@ -18,7 +18,7 @@ export const ServiceFilter = (): JSX.Element => {
     }).url
 
     return (
-        <span className="rounded bg-surface-primary min-w-[150px]">
+        <span className="rounded bg-card min-w-[150px]">
             <PropertyValue
                 size="small"
                 endpoint={endpoint}

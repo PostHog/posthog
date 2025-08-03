@@ -184,7 +184,7 @@ function LLMObservabilityNoEvents(): JSX.Element {
     return (
         <div className="w-full flex flex-col items-center justify-center">
             <div className="flex flex-col items-center justify-center max-w-md w-full">
-                <IconArchive className="text-5xl mb-2 text-muted-alt" />
+                <IconArchive className="text-5xl mb-2 text-tertiary-foreground" />
                 <h2 className="text-xl leading-tight">We haven't detected any LLM generations yet</h2>
                 <p className="text-sm text-center text-balance">
                     To use the LLM Observability product, please{' '}

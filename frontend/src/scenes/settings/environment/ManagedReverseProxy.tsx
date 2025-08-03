@@ -67,7 +67,7 @@ export function ManagedReverseProxy(): JSX.Element {
                                 ? 'text-success'
                                 : status == 'erroring'
                                 ? 'text-danger'
-                                : 'text-warning-dark'
+                                : 'text-warning-foreground-dark'
                         )}
                     >
                         {status === 'issuing' && <Spinner />}
@@ -118,7 +118,7 @@ export function ManagedReverseProxy(): JSX.Element {
                                 },
                             ]}
                         >
-                            <LemonButton size="small" icon={<IconEllipsis className="text-secondary" />} />
+                            <LemonButton size="small" icon={<IconEllipsis className="text-secondary-foreground" />} />
                         </LemonMenu>
                     )
                 )
@@ -191,7 +191,7 @@ function CreateRecordForm(): JSX.Element {
     const waitingRecords = proxyRecords.filter((r) => r.status === 'waiting')
 
     return (
-        <div className="bg-surface-primary rounded border px-5 py-4 deprecated-space-y-2">
+        <div className="bg-card rounded border px-5 py-4 deprecated-space-y-2">
             {formState == 'active' ? (
                 <Form
                     logic={proxyLogic}

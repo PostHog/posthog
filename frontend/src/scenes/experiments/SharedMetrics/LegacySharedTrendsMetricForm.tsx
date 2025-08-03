@@ -119,7 +119,7 @@ export function LegacySharedTrendsMetricForm(): JSX.Element {
                                         className={`flex-1 cursor-pointer p-4 rounded border ${
                                             !sharedMetricQuery.exposure_query
                                                 ? 'border-accent bg-accent-highlight-secondary'
-                                                : 'border-primary'
+                                                : 'border-border'
                                         }`}
                                         onClick={() => {
                                             setSharedMetric({
@@ -136,7 +136,7 @@ export function LegacySharedTrendsMetricForm(): JSX.Element {
                                                 <IconCheckCircle fontSize={18} color="var(--color-accent)" />
                                             )}
                                         </div>
-                                        <div className="text-secondary text-sm leading-relaxed">
+                                        <div className="text-secondary-foreground text-sm leading-relaxed">
                                             Uses the number of unique users who trigger the{' '}
                                             <LemonTag>$feature_flag_called</LemonTag> event as your exposure count. This
                                             is the recommended setting for most experiments, as it accurately tracks
@@ -147,7 +147,7 @@ export function LegacySharedTrendsMetricForm(): JSX.Element {
                                         className={`flex-1 cursor-pointer p-4 rounded border ${
                                             sharedMetricQuery.exposure_query
                                                 ? 'border-accent bg-accent-highlight-secondary'
-                                                : 'border-primary'
+                                                : 'border-border'
                                         }`}
                                         onClick={() => {
                                             setSharedMetric({
@@ -186,7 +186,7 @@ export function LegacySharedTrendsMetricForm(): JSX.Element {
                                                 <IconCheckCircle fontSize={18} color="var(--color-accent)" />
                                             )}
                                         </div>
-                                        <div className="text-secondary text-sm leading-relaxed">
+                                        <div className="text-secondary-foreground text-sm leading-relaxed">
                                             Define your own exposure metric for specific use cases, such as counting by
                                             sessions instead of users. This gives you full control but requires careful
                                             configuration.

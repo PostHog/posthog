@@ -87,7 +87,7 @@ export function Settings({
                       active={selectedLevel === level && !selectedSectionId}
                       onClick={() => selectLevel(level)}
                   >
-                      <span className="text-secondary">{SettingLevelNames[level]}</span>
+                      <span className="text-secondary-foreground">{SettingLevelNames[level]}</span>
                   </OptionButton>
               ),
               items: sections

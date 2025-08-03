@@ -10,7 +10,7 @@ export function ExperimentsSettings(): JSX.Element {
         <div className="space-y-8">
             <div>
                 <h2 className="mb-2">Statistical method</h2>
-                <p className="mb-4 text-secondary">
+                <p className="mb-4 text-secondary-foreground">
                     Choose the default statistical method for experiment analysis. This setting applies to all new
                     experiments in your organization and can be overridden per experiment.
                 </p>

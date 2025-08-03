@@ -55,16 +55,16 @@ const MappingSummary = memo(function MappingSummary({
     return (
         <span className="flex flex-1 gap-4 items-center">
             <span>
-                {eventSummary ? humanize(eventSummary) : <span className="text-secondary">All events</span>}{' '}
+                {eventSummary ? humanize(eventSummary) : <span className="text-secondary-foreground">All events</span>}{' '}
                 {propertyFiltersCount ? (
-                    <span className="text-secondary">
+                    <span className="text-secondary-foreground">
                         <Tooltip title={`Events have ${propertyFiltersCount} additional filters`}>
                             <IconFilter />
                         </Tooltip>
                     </span>
                 ) : null}
             </span>
-            <IconArrowRight className="text-secondary" />
+            <IconArrowRight className="text-secondary-foreground" />
             <span>
                 {mapping.name
                     ? humanize(mapping.name)
@@ -296,11 +296,11 @@ export function HogFunctionMappings(): JSX.Element | null {
                 ) : null
 
                 return (
-                    <div className="p-3 rounded border bg-surface-primary">
+                    <div className="p-3 rounded border bg-card">
                         <div className="flex justify-between items-start">
                             <div className="flex-1">
                                 <LemonLabel>Mappings</LemonLabel>
-                                <p className="text-sm text-secondary">
+                                <p className="text-sm text-secondary-foreground">
                                     Configure which events should act as triggers including filters and custom
                                     transformations
                                 </p>

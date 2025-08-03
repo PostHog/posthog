@@ -24,7 +24,7 @@ export function EmptyMessage({
             <div className="flex flex-col h-full items-center justify-center m-5">
                 <h3 className="title">{title}</h3>
 
-                <p className="text-secondary description">{description}</p>
+                <p className="text-secondary-foreground description">{description}</p>
                 {buttonText && (
                     <LemonButton type="secondary" to={buttonTo} onClick={buttonOnClick} size={size}>
                         {buttonText}

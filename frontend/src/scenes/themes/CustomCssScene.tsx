@@ -30,7 +30,7 @@ body[theme=dark] {
     --primary-3000: #00FF01;
     --primary-3000-hover: #00FF01;
     --primary-alt-highlight: rgba(0, 255, 1, 0.1);
-    --text-3000: #00FF01;
+    --text-foreground: #00FF01;
     --color-accent-3000: #222;
     --glass-border-3000: rgba(0,0,0,.3);
     --font-title: ui-monospace, 'Cascadia Code', 'Source Code Pro', Menlo, Consolas, 'DejaVu Sans Mono', monospace;
@@ -38,7 +38,7 @@ body[theme=dark] {
     --primary-3000-frame-bg-light: #00FF01;
     --primary-3000-button-bg: #00FF01;
     --primary-3000-button-border: #00FF01;
-    --color-text-tertiary: #00FF01;
+    --color-tertiary-foreground: #00FF01;
 }
 
 .TopBar3000__content {
@@ -62,8 +62,8 @@ body[theme=light] {
     --primary-3000: #FF69B4;
     --primary-3000-hover: #FF1493;
     --primary-alt-highlight: rgba(255, 105, 180, 0.1);
-    --text-3000: #ed3993;
-    --text-3000-light: #58003f;
+    --text-foreground: #ed3993;
+    --text-foreground: #58003f;
     --color-accent-3000: #FEBDE2;
     --glass-border-3000: rgba(245, 145, 199, 0.3);
 
@@ -71,7 +71,7 @@ body[theme=light] {
     --primary-3000-button-bg: #FF69B4;
     --primary-3000-button-border: #FF1493;
     --primary-3000-button-border-hover: #db097b;
-    --color-text-tertiary: #FFB6C1;
+    --color-tertiary-foreground: #FFB6C1;
 
     --secondary-3000-button-border: #FF1493;
     --secondary-3000-frame-bg-light: #F7B9D7;

@@ -20,7 +20,7 @@ interface StatCardProps {
 function StatCard({ title, value, description, isLoading }: StatCardProps): JSX.Element {
     return (
         <div className="p-4 border rounded bg-bg-light flex-1 min-w-[180px] flex flex-col gap-1">
-            <div className="text-xs font-semibold uppercase text-text-secondary">{title}</div>
+            <div className="text-xs font-semibold uppercase text-text-secondary-foreground">{title}</div>
             {isLoading ? (
                 <>
                     <LemonSkeleton className="h-9 w-16" />
@@ -29,7 +29,7 @@ function StatCard({ title, value, description, isLoading }: StatCardProps): JSX.
             ) : (
                 <>
                     <div className="text-3xl font-bold">{value}</div>
-                    <div className="text-sm text-text-secondary">{description}</div>
+                    <div className="text-sm text-text-secondary-foreground">{description}</div>
                 </>
             )}
         </div>
@@ -181,7 +181,7 @@ function SurveyStatsContainer({ children }: { children: React.ReactNode }): JSX.
                 </div>
             </div>
             {survey.start_date && (
-                <div className="flex items-center text-sm text-secondary">
+                <div className="flex items-center text-sm text-secondary-foreground">
                     <div className="flex gap-2 items-center">
                         <span className="inline-flex items-center gap-1">
                             Started: <TZLabel time={survey.start_date} />
@@ -250,7 +250,7 @@ export const SurveyStatsSummary = memo(function SurveyStatsSummary(): JSX.Elemen
     if (!processedSurveyStats) {
         return (
             <SurveyStatsContainer>
-                <div className="text-text-secondary text-left">No data available for this survey yet.</div>
+                <div className="text-text-secondary-foreground text-left">No data available for this survey yet.</div>
             </SurveyStatsContainer>
         )
     }

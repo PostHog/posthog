@@ -55,7 +55,7 @@ export const DateRangeFilter = (): JSX.Element => {
     const { setDateRange } = useActions(logsLogic)
 
     return (
-        <span className="rounded bg-surface-primary">
+        <span className="rounded bg-card">
             <DateFilter
                 size="small"
                 dateFrom={dateRange.date_from}

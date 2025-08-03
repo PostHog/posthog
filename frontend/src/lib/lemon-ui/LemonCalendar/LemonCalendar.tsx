@@ -56,7 +56,7 @@ export const LemonCalendar = forwardRef(function LemonCalendar(
         if (props.leftmostMonth && props.leftmostMonth.isSame(leftmostMonth, 'd')) {
             setLeftmostMonth(props.leftmostMonth)
         }
-    }, [props.leftmostMonth])
+    }, [props.leftmostMonth, leftmostMonth])
 
     return (
         <div
@@ -98,7 +98,7 @@ export const LemonCalendar = forwardRef(function LemonCalendar(
                                     )}
                                 </th>
                                 <th
-                                    className="relative font-title font-semibold text-secondary uppercase cursor-default text-center"
+                                    className="relative font-title font-semibold text-secondary-foreground uppercase cursor-default text-center"
                                     data-attr={`lemon-calendar-month-title-${month}`}
                                     colSpan={5}
                                 >
@@ -122,7 +122,10 @@ export const LemonCalendar = forwardRef(function LemonCalendar(
                             </tr>
                             <tr>
                                 {range(0, 7).map((day) => (
-                                    <th key={day} className="py-2 text-xs font-bold text-secondary uppercase">
+                                    <th
+                                        key={day}
+                                        className="py-2 text-xs font-bold text-secondary-foreground uppercase"
+                                    >
                                         {dayLabels[firstDay.add(day, 'day').day()]}
                                     </th>
                                 ))}

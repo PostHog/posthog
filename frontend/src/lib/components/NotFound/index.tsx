@@ -40,7 +40,7 @@ export function NotFound({ object, caption, meta }: NotFoundProps): JSX.Element 
 
     useEffect(() => {
         posthog.capture('not_found_shown', { object })
-    }, [])
+    }, [object])
 
     return (
         <div className="NotFoundComponent" data-attr={`not-found-${object.replace(/\s/g, '-').toLowerCase()}`}>
@@ -131,7 +131,7 @@ export function LogInAsSuggestions({ suggestedUsers }: { suggestedUsers: UserBas
     const [successfulUserId, setSuccessfulUserId] = useState<number | null>(null)
 
     return (
-        <ScrollableShadows direction="vertical" className="bg-surface-primary border rounded mt-1 max-h-64 *:p-1">
+        <ScrollableShadows direction="vertical" className="bg-card border rounded mt-1 max-h-64 *:p-1">
             <LemonMenuOverlay
                 items={suggestedUsers.map((user) => ({
                     icon: <ProfilePicture user={user} size="md" />,

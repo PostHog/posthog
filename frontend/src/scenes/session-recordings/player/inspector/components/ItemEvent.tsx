@@ -101,10 +101,15 @@ export function ItemEvent({ item }: ItemEventProps): JSX.Element {
                         value={capitalizeFirstLetter(autoCaptureEventToDescription(item.data))}
                         type={TaxonomicFilterGroupType.Events}
                     />
-                    {item.data.event === '$autocapture' ? <span className="text-secondary">(Autocapture)</span> : null}
+                    {item.data.event === '$autocapture' ? (
+                        <span className="text-secondary-foreground">(Autocapture)</span>
+                    ) : null}
                 </div>
                 {subValue ? (
-                    <div className="text-secondary truncate" title={isString(subValue) ? subValue : undefined}>
+                    <div
+                        className="text-secondary-foreground truncate"
+                        title={isString(subValue) ? subValue : undefined}
+                    >
                         {subValue}
                     </div>
                 ) : null}
@@ -209,7 +214,7 @@ export function ItemEventDetail({ item }: ItemEventProps): JSX.Element {
                             switch (tabKey) {
                                 case 'raw':
                                     return (
-                                        <pre className="text-xs text-secondary whitespace-pre-wrap">
+                                        <pre className="text-xs text-secondary-foreground whitespace-pre-wrap">
                                             {JSON.stringify(properties, null, 2)}
                                         </pre>
                                     )
@@ -257,7 +262,7 @@ export function ItemEventDetail({ item }: ItemEventProps): JSX.Element {
                         }}
                     />
                 ) : (
-                    <div className="text-secondary flex gap-1 items-center">
+                    <div className="text-secondary-foreground flex gap-1 items-center">
                         <Spinner textColored />
                         Loading...
                     </div>

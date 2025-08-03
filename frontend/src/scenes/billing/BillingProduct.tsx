@@ -94,8 +94,8 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
             ref={ref}
             data-attr={`billing-product-${product.type}`}
         >
-            <div className="border border-primary rounded w-full bg-surface-primary" ref={productRef}>
-                <div className="border-b border-primary rounded-t p-4">
+            <div className="border border-border rounded w-full bg-card" ref={productRef}>
+                <div className="border-b border-border rounded-t p-4">
                     <div className="flex gap-4 items-center justify-between">
                         {/* Product name and description */}
                         <div className="flex gap-x-2">
@@ -266,11 +266,12 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                                                 : 0))
                                                                 )}
                                                             </div>
-                                                            <span className="text-xs text-secondary">
+                                                            <span className="text-xs text-secondary-foreground">
                                                                 {capitalizeFirstLetter(
                                                                     billing?.billing_period?.interval || ''
                                                                 )}
-                                                                -to-date <IconInfo className="text-muted text-sm" />
+                                                                -to-date{' '}
+                                                                <IconInfo className="text-tertiary-foreground text-sm" />
                                                             </span>
                                                         </div>
                                                     </Tooltip>
@@ -292,7 +293,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                             }`}
                                                         >
                                                             <div className="flex flex-col items-center justify-end">
-                                                                <div className="font-bold text-secondary text-lg leading-5">
+                                                                <div className="font-bold text-secondary-foreground text-lg leading-5">
                                                                     {humanFriendlyCurrency(
                                                                         parseFloat(
                                                                             product.projected_amount_usd_with_limit ||
@@ -304,9 +305,9 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                                                     : 0))
                                                                     )}
                                                                 </div>
-                                                                <span className="text-xs text-secondary">
+                                                                <span className="text-xs text-secondary-foreground">
                                                                     Projected{' '}
-                                                                    <IconInfo className="text-muted text-sm" />
+                                                                    <IconInfo className="text-tertiary-foreground text-sm" />
                                                                 </span>
                                                             </div>
                                                         </Tooltip>
@@ -323,7 +324,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                     <div className="font-bold text-3xl leading-7">
                                                         {humanFriendlyCurrency(product.current_amount_usd)}
                                                     </div>
-                                                    <span className="text-xs text-secondary">
+                                                    <span className="text-xs text-secondary-foreground">
                                                         per {billing?.billing_period?.interval || 'period'}
                                                     </span>
                                                 </div>
@@ -412,7 +413,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
 export const FeatureFlagUsageNotice = ({ product }: { product: BillingProductV2Type }): JSX.Element | null => {
     return product.type === 'feature_flags' ? (
         <div className="p-4 px-8 pb-8 sm:pb-0 border-t border-border">
-            <p className="mt-0 ml-0 text-sm text-secondary italic">
+            <p className="mt-0 ml-0 text-sm text-secondary-foreground italic">
                 <IconInfo className="mr-1" />
                 Questions? Here's{' '}
                 <Link to="https://posthog.com/docs/feature-flags/common-questions#billing--usage" className="italic">

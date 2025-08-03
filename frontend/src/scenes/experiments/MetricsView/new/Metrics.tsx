@@ -62,7 +62,7 @@ export function Metrics({ isSecondary }: { isSecondary?: boolean }): JSX.Element
                                         : 'Primary metrics represent the main goal of your experiment. They directly measure whether your hypothesis was successful and are the key factor in deciding if the test achieved its primary objective.'
                                 }
                             >
-                                <IconInfo className="text-secondary text-lg" />
+                                <IconInfo className="text-secondary-foreground text-lg" />
                             </Tooltip>
                         )}
                     </div>
@@ -103,7 +103,7 @@ export function Metrics({ isSecondary }: { isSecondary?: boolean }): JSX.Element
                     )}
                 </>
             ) : (
-                <div className="border rounded bg-surface-primary pt-6 pb-8 text-secondary mt-2">
+                <div className="border rounded bg-card pt-6 pb-8 text-secondary-foreground mt-2">
                     <div className="flex flex-col items-center mx-auto deprecated-space-y-3">
                         <IconAreaChart fontSize="30" />
                         <div className="text-sm text-center text-balance max-w-sm">

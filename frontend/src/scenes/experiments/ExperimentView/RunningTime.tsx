@@ -29,11 +29,11 @@ export function RunningTime(): JSX.Element {
                     />
                 ) : null}
             </div>
-            <div className="relative border rounded bg-surface-primary p-4 h-[280px] overflow-y-auto">
+            <div className="relative border rounded bg-card p-4 h-[280px] overflow-y-auto">
                 {!recommendedSampleSize || !recommendedRunningTime ? (
                     <div className="flex justify-center items-center h-full">
                         <div className="text-center">
-                            <IconCalculator className="text-3xl mb-2 text-tertiary" />
+                            <IconCalculator className="text-3xl mb-2 text-tertiary-foreground" />
                             <div className="text-md font-semibold leading-tight mb-3">No running time yet</div>
                             <div className="flex justify-center">
                                 <LemonButton
@@ -56,7 +56,7 @@ export function RunningTime(): JSX.Element {
                             size="medium"
                             percent={(actualRunningTime / recommendedRunningTime) * 100}
                         />
-                        <div className="text-center mt-2 mb-4 text-xs text-muted">
+                        <div className="text-center mt-2 mb-4 text-xs text-tertiary-foreground">
                             {actualRunningTime} of {humanFriendlyNumber(recommendedRunningTime, 0)} days completed (
                             {Math.round((actualRunningTime / recommendedRunningTime) * 100)}%)
                         </div>

@@ -58,7 +58,11 @@ export function CyclotronJobInputs({
     sampleGlobalsWithInputs,
 }: CyclotronJobInputsProps): JSX.Element | null {
     if (!configuration.inputs_schema?.length) {
-        return <span className="italic text-secondary">This function does not require any input variables.</span>
+        return (
+            <span className="italic text-secondary-foreground">
+                This function does not require any input variables.
+            </span>
+        )
     }
 
     const inputSchemas = configuration.inputs_schema
@@ -254,7 +258,7 @@ function DictionaryField({
 
         const val = Object.fromEntries(filteredEntries)
         onChange?.({ ...input, value: val })
-    }, [entries, onChange])
+    }, [entries, onChange, input])
 
     const handleEnableIncludeObject = (): void => {
         setEntries([[EXTEND_OBJECT_KEY, '{event.properties}'], ...entries])
@@ -672,7 +676,7 @@ function CyclotronJobInputWithSchema({
                                 </div>
                                 {value?.secret ? (
                                     <div className="flex gap-2 items-center p-1 rounded border border-dashed">
-                                        <span className="flex-1 p-1 italic text-secondary">
+                                        <span className="flex-1 p-1 italic text-secondary-foreground">
                                             This value is secret and is not displayed here.
                                         </span>
                                         <LemonButton

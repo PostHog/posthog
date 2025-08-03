@@ -24,7 +24,7 @@ export function SmoothingFilter(): JSX.Element | null {
         label:
             value === smoothingIntervals ? (
                 <>
-                    <IconPulse className="mr-1.5 text-secondary" />
+                    <IconPulse className="mr-1.5 text-secondary-foreground" />
                     {label}
                 </>
             ) : (

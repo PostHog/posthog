@@ -5,12 +5,12 @@
     padding: 0.5rem;
     font-size: 0.875rem;
     line-height: 1.4;
-    color: var(--text-3000);
+    color: var(--color-foreground);
     text-align: left;
     text-overflow: ellipsis;
     cursor: text;
     background: none;
-    background-color: var(--color-bg-fill-input);
+    background-color: var(--color-input);
     outline: none;
 
     &:not(:disabled):hover,
@@ -24,7 +24,7 @@
     }
 
     .Field--error & {
-        border: 1px solid var(--danger);
+        border: 1px solid var(--color-error-foreground);
     }
 }
 

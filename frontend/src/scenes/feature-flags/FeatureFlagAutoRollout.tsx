@@ -45,7 +45,7 @@ export function FeatureFlagAutoRollback({ readOnly }: FeatureFlagAutoRollbackPro
                         {index > 0 && <div className="condition-set-separator">OR</div>}
                         {rollback_condition.threshold_type === 'insight' &&
                         rollback_condition.threshold_metric?.events?.[0]?.name ? (
-                            <div className="mb-4 border rounded p-4 bg-surface-primary">
+                            <div className="mb-4 border rounded p-4 bg-card">
                                 <b>{`${capitalizeFirstLetter(rollback_condition.threshold_type)} based rollback`}</b>
                                 <LemonDivider className="my-3" />
                                 <div className="flex items-center">
@@ -64,7 +64,7 @@ export function FeatureFlagAutoRollback({ readOnly }: FeatureFlagAutoRollbackPro
                                 </div>
                             </div>
                         ) : (
-                            <div className="mb-4 border rounded p-4 bg-surface-primary">
+                            <div className="mb-4 border rounded p-4 bg-card">
                                 <b>{`${capitalizeFirstLetter(rollback_condition.threshold_type)} based rollback`}</b>
                                 <LemonDivider className="my-3" />
                                 <div className="flex items-center">
@@ -80,7 +80,7 @@ export function FeatureFlagAutoRollback({ readOnly }: FeatureFlagAutoRollbackPro
                 featureFlag.rollback_conditions.map((_, index) => (
                     <>
                         {index > 0 && <div className="condition-set-separator">OR</div>}
-                        <div className="mb-4 border rounded p-4 bg-surface-primary">
+                        <div className="mb-4 border rounded p-4 bg-card">
                             <Group name={['rollback_conditions', index]}>
                                 <div className="flex items-center justify-between">
                                     <div className="flex">
@@ -228,7 +228,7 @@ export function FeatureFlagAutoRollback({ readOnly }: FeatureFlagAutoRollbackPro
                                         <code>"SENTRY_"</code> properties from your Sentry account to enable.
                                     </div>
                                 ) : (
-                                    <p className="text-secondary">
+                                    <p className="text-secondary-foreground">
                                         This PostHog instance is not configured for Sentry. Please contact the instance
                                         owner to configure it.
                                     </p>

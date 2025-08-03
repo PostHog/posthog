@@ -14,7 +14,7 @@ export const ReplayActiveUsersTable = (): JSX.Element => {
     const { countedUsers, countedUsersLoading } = useValues(replayActiveUsersTableLogic({ scene: 'templates' }))
 
     return (
-        <div className="flex flex-col border rounded bg-surface-primary w-full px-4 py-2">
+        <div className="flex flex-col border rounded bg-card w-full px-4 py-2">
             <LemonTable
                 embedded={true}
                 columns={[
@@ -38,7 +38,7 @@ export const ReplayActiveUsersTable = (): JSX.Element => {
                 loading={countedUsersLoading}
                 onRow={(record) => {
                     return {
-                        className: 'cursor-pointer hover:bg-surface-secondary',
+                        className: 'cursor-pointer hover:bg-secondary',
                         onClick: () => {
                             router.actions.push(
                                 urls.personByUUID(record.person.id as string) + '#activeTab=sessionRecordings'

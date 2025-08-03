@@ -4,7 +4,7 @@
         column-gap: 1rem;
         width: 700px;
         padding: 0.5rem;
-        background-color: var(--color-bg-primary);
+        background-color: var(--color-background);
         border-radius: var(--radius);
 
         @media (max-width: 960px) {
@@ -40,7 +40,7 @@
     .drag-handle {
         padding-right: 0.25rem;
         font-size: 1.2em;
-        color: var(--text-3000);
+        color: var(--color-foreground);
         cursor: move;
 
         svg {

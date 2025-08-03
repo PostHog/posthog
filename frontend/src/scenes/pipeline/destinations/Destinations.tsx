@@ -355,7 +355,7 @@ export function DestinationsTable({
             />
 
             {hiddenDestinations.length > 0 && (
-                <div className="text-secondary">
+                <div className="text-secondary-foreground">
                     {hiddenDestinations.length} hidden. <Link onClick={() => resetFilters()}>Show all</Link>
                 </div>
             )}

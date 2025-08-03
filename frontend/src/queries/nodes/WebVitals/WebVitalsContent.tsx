@@ -58,7 +58,7 @@ export const WebVitalsContent = ({ webVitalsQueryResponse }: WebVitalsContentPro
     const unit = webVitalsTab === 'CLS' ? '' : 'ms'
 
     return (
-        <div className="w-full p-4 sm:w-[30%] flex flex-col gap-2 bg-surface-primary rounded border">
+        <div className="w-full p-4 sm:w-[30%] flex flex-col gap-2 bg-card rounded border">
             <span className="text-lg">
                 <strong>{LONG_METRIC_NAME[webVitalsTab]}</strong>
             </span>
@@ -87,7 +87,7 @@ export const WebVitalsContent = ({ webVitalsQueryResponse }: WebVitalsContentPro
                 </span>
             </div>
 
-            <div className="text-xs text-secondary-foreground">
+            <div className="text-xs text-secondary-foreground-foreground">
                 {quantifier} {experience}
             </div>
 

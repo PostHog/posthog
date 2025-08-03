@@ -161,7 +161,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
 
     const setQuerySource = useCallback(
         (source: HogQLQuery) => props.setQuery?.({ ...props.query, source }),
-        [props.setQuery, props.query]
+        [props.setQuery, props.query, props]
     )
 
     let component: JSX.Element | null = null
@@ -169,7 +169,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
     // TODO(@Gilbert09): Better loading support for all components - e.g. using the `loading` param of `Table`
     if (!response || responseLoading) {
         component = (
-            <div className="flex flex-col flex-1 justify-center items-center bg-surface-primary h-full">
+            <div className="flex flex-col flex-1 justify-center items-center bg-card h-full">
                 <StatelessInsightLoadingState queryId={queryId} pollResponse={pollResponse} />
             </div>
         )
@@ -264,7 +264,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                 <div className="flex flex-1 flex-row gap-4">
                     <div className={clsx('w-full h-full flex-1 overflow-auto')}>
                         {visualizationType !== ChartDisplayType.ActionsTable && responseError ? (
-                            <div className="rounded bg-surface-primary relative flex flex-1 flex-col p-2">
+                            <div className="rounded bg-card relative flex flex-1 flex-col p-2">
                                 <InsightErrorState
                                     query={props.query}
                                     excludeDetail

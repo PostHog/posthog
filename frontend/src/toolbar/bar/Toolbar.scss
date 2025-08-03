@@ -17,7 +17,7 @@
         }
 
         ::-webkit-scrollbar-track {
-            background: var(--color-bg-surface-primary);
+            background: var(--color-card);
         }
 
         ::-webkit-scrollbar-thumb {
@@ -46,7 +46,7 @@
     }
 
     & .ReactModalPortal {
-        color: var(--text-3000);
+        color: var(--color-foreground);
     }
 }
 
@@ -66,8 +66,8 @@
         margin-left: -15rem;
         overflow: hidden;
         overflow-y: auto;
-        color: var(--text-3000);
-        background-color: var(--color-bg-primary);
+        color: var(--color-foreground);
+        background-color: var(--color-background);
         filter: drop-shadow(0 5px 10px var(--trace-3000));
         border-radius: var(--radius);
         transition: opacity 150ms ease, max-height 150ms ease;
@@ -94,7 +94,7 @@
 
     form {
         .form-error {
-            color: var(--danger);
+            color: var(--color-error-foreground);
         }
     }
 }
@@ -115,8 +115,8 @@
     // fixed width so that animations work when changing width
     width: var(--toolbar-width-expanded);
     overflow: hidden;
-    color: var(--color-text-primary);
-    background-color: var(--color-bg-primary);
+    color: var(--color-text-foreground);
+    background-color: var(--color-background);
     filter: drop-shadow(0 5px 10px var(--trace-3000));
     border: 1px solid var(--border-bold-3000);
     border-radius: var(--radius);

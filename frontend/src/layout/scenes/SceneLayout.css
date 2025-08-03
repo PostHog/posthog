@@ -7,7 +7,7 @@
 .scene-layout__content-panel {
     z-index: var(--z-top-navigation);
     width: var(--scene-layout-panel-width);
-    border-left: 1px solid var(--color-border-primary);
+    border-left: 1px solid var(--color-border);
 }
 
 .storybook-test-runner main,

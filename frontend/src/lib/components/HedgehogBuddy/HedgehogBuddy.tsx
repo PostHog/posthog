@@ -822,8 +822,8 @@ export class HedgehogActor {
                             // eslint-disable-next-line react/forbid-dom-props
                             style={{
                                 // NOTE: Some styles done here to avoid it showing as an interactable element (via border)
-                                border: '1px solid var(--color-border-primary)',
-                                backgroundColor: 'var(--color-bg-surface-primary)',
+                                border: '1px solid var(--color-border)',
+                                backgroundColor: 'var(--color-card)',
                             }}
                         >
                             {this.tooltip}

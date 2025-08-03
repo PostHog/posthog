@@ -58,7 +58,7 @@ export function SignupPanel2(): JSX.Element | null {
                 </LemonButton>
             </Form>
 
-            <div className="text-center text-secondary">
+            <div className="text-center text-secondary-foreground">
                 By {!preflight?.demo ? 'creating an account' : 'entering the demo environment'}, you agree to our{' '}
                 <Link to={`https://posthog.com/terms?${UTM_TAGS}`} target="_blank">
                     Terms of Service

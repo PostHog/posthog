@@ -179,7 +179,7 @@ export function LinkScene({ id }: { id?: string } = {}): JSX.Element {
                                     </LemonField>
                                 </div>
                             ) : (
-                                <Link to={link.redirect_url} className="text-muted" target="_blank">
+                                <Link to={link.redirect_url} className="text-tertiary-foreground" target="_blank">
                                     {link.redirect_url}
                                 </Link>
                             )}
@@ -190,9 +190,12 @@ export function LinkScene({ id }: { id?: string } = {}): JSX.Element {
                             {displayForm ? (
                                 <div className="flex gap-1 items-center">
                                     <LemonField name="short_link_domain">
-                                        <LemonSelect<AvailableDomain> options={DOMAIN_OPTIONS} className="text-muted" />
+                                        <LemonSelect<AvailableDomain>
+                                            options={DOMAIN_OPTIONS}
+                                            className="text-tertiary-foreground"
+                                        />
                                     </LemonField>
-                                    <span className="text-muted">/</span>
+                                    <span className="text-tertiary-foreground">/</span>
                                     <LemonField name="short_code" className="w-full">
                                         <LemonInput
                                             fullWidth
@@ -221,7 +224,11 @@ export function LinkScene({ id }: { id?: string } = {}): JSX.Element {
                                     </LemonField>
                                 </div>
                             ) : (
-                                <div>{link.description || <span className="text-muted">No description</span>}</div>
+                                <div>
+                                    {link.description || (
+                                        <span className="text-tertiary-foreground">No description</span>
+                                    )}
+                                </div>
                             )}
                         </div>
                     </div>

@@ -106,7 +106,7 @@ export function DashboardInsightColorsModal(): JSX.Element {
             />
 
             <LemonLabel className="mt-4">Breakdown colors</LemonLabel>
-            <p className="text-muted-alt mb-4">
+            <p className="text-tertiary-foreground mb-4">
                 Assign custom colors to breakdown values that will be used consistently across all insights on this
                 dashboard. <i>Note: This feature currently only works for trend and step-based funnel insights.</i>
             </p>
@@ -114,7 +114,7 @@ export function DashboardInsightColorsModal(): JSX.Element {
                 <div className="flex flex-col items-center">
                     {/* Slightly offset to the left for visual balance. */}
                     <Animation type={AnimationType.SportsHog} size="large" className="-ml-4" />
-                    <p className="text-primary">Waiting for dashboard tiles to load and refresh…</p>
+                    <p className="text-foreground">Waiting for dashboard tiles to load and refresh…</p>
                 </div>
             ) : (
                 <>

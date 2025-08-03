@@ -92,7 +92,7 @@ export function ProjectAccessSelector({ inviteIndex }: { inviteIndex: number }):
                         </span>
                     }
                 >
-                    <IconInfo className="text-muted-alt" />
+                    <IconInfo className="text-tertiary-foreground" />
                 </Tooltip>
                 {availableProjectsToShow.length > 0 && (
                     <LemonSelect
@@ -211,7 +211,7 @@ export function InviteRow({ index, isDeletable }: { index: number; isDeletable: 
     }))
 
     return (
-        <div className="space-y-4 bg-surface-secondary py-4 px-4 rounded-md">
+        <div className="space-y-4 bg-secondary py-4 px-4 rounded-md">
             <div className="flex gap-2">
                 <div className="flex-2">
                     <LemonInput

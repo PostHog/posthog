@@ -58,7 +58,7 @@ export const LemonFileInput = ({
         if (value && value !== files) {
             setFiles(value)
         }
-    }, [value])
+    }, [value, files])
 
     const handleCallToActionClick = (): void => {
         if (disabledReason === undefined && fileInputRef.current) {
@@ -130,7 +130,7 @@ export const LemonFileInput = ({
             div?.removeEventListener('dragover', handleDrag)
             div?.removeEventListener('drop', handleDrop)
         }
-    }, [value])
+    }, [value, handleDrop, handleDragOut, alternativeDropTargetRef, dropRef, handleDragIn])
 
     useEffect(() => {
         const extraDragTarget = alternativeDropTargetRef?.current
@@ -166,7 +166,7 @@ export const LemonFileInput = ({
                 />
                 <div
                     className={clsx(
-                        'text-secondary inline-flex flow-row items-center gap-1',
+                        'text-secondary-foreground inline-flex flow-row items-center gap-1',
                         disabledReason ? 'cursor-not-allowed' : 'cursor-pointer'
                     )}
                     onClick={handleCallToActionClick}

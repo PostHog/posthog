@@ -52,11 +52,7 @@ export function TextCardInternal(
 
     return (
         <div
-            className={clsx(
-                'TextCard bg-surface-primary border rounded flex flex-col',
-                className,
-                showResizeHandles && 'border'
-            )}
+            className={clsx('TextCard bg-card border rounded flex flex-col', className, showResizeHandles && 'border')}
             data-attr="text-card"
             {...divProps}
             ref={ref}

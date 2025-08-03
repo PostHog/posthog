@@ -41,10 +41,10 @@ export function LemonLabel({
                 <Tooltip title={info}>
                     {infoLink ? (
                         <Link to={infoLink} target="_blank" className="inline-flex">
-                            <IconInfo className="text-xl text-secondary shrink-0" />
+                            <IconInfo className="text-xl text-secondary-foreground shrink-0" />
                         </Link>
                     ) : (
-                        <IconInfo className="text-xl text-secondary shrink-0" />
+                        <IconInfo className="text-xl text-secondary-foreground shrink-0" />
                     )}
                 </Tooltip>
             ) : null}

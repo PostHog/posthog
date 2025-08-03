@@ -32,14 +32,16 @@ export function PreLaunchChecklist(): JSX.Element {
                                 <div>
                                     <div
                                         className={`font-semibold ${
-                                            experiment.description ? 'text-muted line-through' : ''
+                                            experiment.description ? 'text-tertiary-foreground line-through' : ''
                                         }`}
                                     >
                                         Add hypothesis
                                     </div>
                                     <div
                                         className={`text-sm ${
-                                            experiment.description ? 'text-muted line-through' : 'text-muted'
+                                            experiment.description
+                                                ? 'text-tertiary-foreground line-through'
+                                                : 'text-tertiary-foreground'
                                         }`}
                                     >
                                         Document what you expect to learn from this experiment
@@ -79,14 +81,18 @@ export function PreLaunchChecklist(): JSX.Element {
                                 <div>
                                     <div
                                         className={`font-semibold ${
-                                            experiment.metrics?.length > 0 ? 'text-muted line-through' : ''
+                                            experiment.metrics?.length > 0
+                                                ? 'text-tertiary-foreground line-through'
+                                                : ''
                                         }`}
                                     >
                                         Add first metric
                                     </div>
                                     <div
                                         className={`text-sm ${
-                                            experiment.metrics?.length > 0 ? 'text-muted line-through' : 'text-muted'
+                                            experiment.metrics?.length > 0
+                                                ? 'text-tertiary-foreground line-through'
+                                                : 'text-tertiary-foreground'
                                         }`}
                                     >
                                         Define your experiment's primary success metric
@@ -127,7 +133,7 @@ export function PreLaunchChecklist(): JSX.Element {
                                     <div
                                         className={`font-semibold ${
                                             experiment.parameters?.recommended_running_time
-                                                ? 'text-muted line-through'
+                                                ? 'text-tertiary-foreground line-through'
                                                 : ''
                                         }`}
                                     >
@@ -136,8 +142,8 @@ export function PreLaunchChecklist(): JSX.Element {
                                     <div
                                         className={`text-sm ${
                                             experiment.parameters?.recommended_running_time
-                                                ? 'text-muted line-through'
-                                                : 'text-muted'
+                                                ? 'text-tertiary-foreground line-through'
+                                                : 'text-tertiary-foreground'
                                         }`}
                                     >
                                         Determine how long your experiment needs to run

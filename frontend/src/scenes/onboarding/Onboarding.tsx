@@ -105,7 +105,17 @@ const OnboardingWrapper = ({
         steps = steps.filter(Boolean)
 
         setAllSteps(steps)
-    }, [children, billingLoading, minAdminRestrictionReason, currentOrganization])
+    }, [
+        children,
+        billingLoading,
+        minAdminRestrictionReason,
+        currentOrganization,
+        shouldShowBillingStep,
+        shouldShowDataWarehouseStep,
+        billing.products,
+        productKey,
+        shouldShowReverseProxyStep,
+    ])
 
     useEffect(() => {
         if (!allSteps.length || (billingLoading && waitForBilling)) {
@@ -113,7 +123,7 @@ const OnboardingWrapper = ({
         }
 
         setAllOnboardingSteps(allSteps)
-    }, [allSteps])
+    }, [allSteps, billingLoading, setAllOnboardingSteps, waitForBilling])
 
     if (!product || !children) {
         return <></>
@@ -122,7 +132,7 @@ const OnboardingWrapper = ({
     if (!currentOnboardingStep) {
         return (
             <div className="flex items-center justify-center my-20">
-                <Spinner className="text-2xl text-secondary w-10 h-10" />
+                <Spinner className="text-2xl text-secondary-foreground w-10 h-10" />
             </div>
         )
     }

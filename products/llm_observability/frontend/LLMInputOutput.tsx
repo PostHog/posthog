@@ -15,7 +15,7 @@ export function LLMInputOutput({
 }): JSX.Element {
     return (
         <>
-            <div className={bordered ? 'bg-surface-primary rounded-lg border p-2' : undefined}>
+            <div className={bordered ? 'bg-card rounded-lg border p-2' : undefined}>
                 <h4 className="flex items-center gap-x-1.5 text-xs font-semibold mb-2">
                     <IconArrowUp className="text-base" />
                     {inputHeading}

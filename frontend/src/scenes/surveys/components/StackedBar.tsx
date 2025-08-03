@@ -101,7 +101,7 @@ export function StackedBar({
                             count > 0 && (
                                 <div key={`stacked-bar-legend-${label}`} className="flex items-center gap-2">
                                     <div className={clsx('size-3 rounded-full', colorClass)} />
-                                    <span className="font-semibold text-secondary">{`${label} (${(
+                                    <span className="font-semibold text-secondary-foreground">{`${label} (${(
                                         (count / total) *
                                         100
                                     ).toFixed(1)}%)`}</span>

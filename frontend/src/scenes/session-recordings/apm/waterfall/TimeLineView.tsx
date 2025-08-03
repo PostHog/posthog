@@ -70,7 +70,7 @@ export const TimeLineView = ({ performanceEvent }: { performanceEvent: Performan
                 <>
                     <LemonDivider dashed={true} />
                     <Tooltip title={perfDescriptions['server_timing']}>
-                        <h3 className="text-sm text-secondary">Server timings</h3>
+                        <h3 className="text-sm text-secondary-foreground">Server timings</h3>
                     </Tooltip>
                     {performanceMeasures.serverTimings.map((timing) => {
                         return timing ? (

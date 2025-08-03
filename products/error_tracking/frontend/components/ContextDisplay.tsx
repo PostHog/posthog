@@ -92,7 +92,7 @@ function ContextTable({ entries }: ContextTableProps): JSX.Element {
                     className: 'whitespace-nowrap',
                 },
             ]}
-            rowClassName="even:bg-fill-tertiary odd:bg-surface-primary group"
+            rowClassName="even:bg-fill-tertiary odd:bg-card group"
             firstColumnSticky
         />
     )

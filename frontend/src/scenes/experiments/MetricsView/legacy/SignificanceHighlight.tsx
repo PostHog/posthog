@@ -30,7 +30,7 @@ export function SignificanceHighlight({
             <span className="text-xs font-semibold">{result.label}</span>
         </div>
     ) : (
-        <div className="bg-warning-highlight text-warning-dark px-1.5 py-0.5 flex items-center gap-1 rounded border border-warning">
+        <div className="bg-warning-highlight text-warning-foreground-dark px-1.5 py-0.5 flex items-center gap-1 rounded border border-warning">
             <IconMinus fontSize={20} fontWeight={600} />
             <span className="text-xs font-semibold">{result.label}</span>
         </div>

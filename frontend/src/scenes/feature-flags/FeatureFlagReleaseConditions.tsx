@@ -158,7 +158,7 @@ export function FeatureFlagReleaseConditions({
         return (
             <div className="w-full" key={group.sort_key}>
                 {index > 0 && <div className="condition-set-separator">OR</div>}
-                <div className="mb-4 border rounded p-4 bg-surface-primary">
+                <div className="mb-4 border rounded p-4 bg-card">
                     <div className="flex items-center justify-between">
                         <div className="flex items-center">
                             <LemonSnack className="mr-2">Set {index + 1}</LemonSnack>
@@ -448,7 +448,7 @@ export function FeatureFlagReleaseConditions({
         return (
             <div className="w-full" key={group.sort_key}>
                 {index > 0 && <div className="condition-set-separator">OR</div>}
-                <div className="mb-4 rounded p-4 bg-surface-primary">
+                <div className="mb-4 rounded p-4 bg-card">
                     <div className="flex items-center justify-between">
                         <div className="flex items-center">
                             <div>
@@ -514,12 +514,12 @@ export function FeatureFlagReleaseConditions({
                             {!excludeTitle && (
                                 <>
                                     <h3 className="l3">Release conditions</h3>
-                                    <div className="text-secondary">
+                                    <div className="text-secondary-foreground">
                                         Specify {aggregationTargetName} for flag release. Condition sets are evaluated
                                         top to bottom - the first matching set is used. A condition matches when all
                                         property filters pass AND the target falls within the rollout percentage.
                                     </div>
-                                    <div className="text-secondary mb-4">
+                                    <div className="text-secondary-foreground mb-4">
                                         {aggregationTargetName === 'users' && (
                                             <>
                                                 {' '}

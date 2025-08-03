@@ -6,9 +6,9 @@
     padding: 0.5rem;
     font-size: var(--text-sm);
     font-weight: 500;
-    color: var(--color-text-primary);
+    color: var(--color-text-foreground);
     text-align: left;
-    border: solid 1px var(--color-border-primary);
+    border: solid 1px var(--color-border);
     border-radius: var(--radius);
 
     &.LemonBanner--square {
@@ -16,24 +16,24 @@
     }
 
     &.LemonBanner--info {
-        background-color: var(--color-bg-fill-primary);
-        border-color: var(--color-border-primary);
+        background-color: var(--color-card);
+        border-color: var(--color-border);
     }
 
     &.LemonBanner--warning {
-        color: var(--color-text-warning-on-fill);
+        color: var(--color-warning-foreground-on-fill);
         background-color: var(--color-bg-fill-warning-secondary);
         border-color: var(--color-border-warning);
     }
 
     &.LemonBanner--error {
-        color: var(--color-text-error-on-fill);
+        color: var(--color-error-foreground-on-fill);
         background-color: var(--color-bg-fill-error-secondary);
         border-color: var(--color-border-error);
     }
 
     &.LemonBanner--success {
-        color: var(--color-text-success-on-fill);
+        color: var(--color-success-foreground-on-fill);
         background-color: var(--color-bg-fill-success-secondary);
         border-color: var(--color-border-success);
     }

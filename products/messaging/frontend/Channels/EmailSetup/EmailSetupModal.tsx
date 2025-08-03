@@ -38,7 +38,7 @@ export const EmailSetupModal = (props: EmailSetupModalLogicProps): JSX.Element =
     } else {
         modalContent = (
             <div className="space-y-2 max-w-[60rem]">
-                <p className="text-sm text-muted">
+                <p className="text-sm text-tertiary-foreground">
                     These DNS records verify ownership of your domain. This ensures your emails are delivered to inboxes
                     and not marked as spam.
                 </p>
@@ -90,7 +90,7 @@ export const EmailSetupModal = (props: EmailSetupModalLogicProps): JSX.Element =
                                             <Spinner className="text-lg" />
                                         ) : record.status === 'pending' ? (
                                             <div className="flex items-center gap-1">
-                                                <IconWarning className="size-6 text-warning" /> Not present
+                                                <IconWarning className="size-6 text-warning-foreground" /> Not present
                                             </div>
                                         ) : (
                                             <div className="flex items-center gap-1">

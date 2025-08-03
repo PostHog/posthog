@@ -23,7 +23,7 @@ export function AddSourceDropdown<T extends string>({
                             <div className="flex items-center gap-2">
                                 <DataWarehouseSourceIcon type={source} />
                                 {source}
-                                <IconPlus className="text-muted" />
+                                <IconPlus className="text-tertiary-foreground" />
                             </div>
                         </LemonButton>
                     ))}

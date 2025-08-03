@@ -54,7 +54,7 @@ export const CloseOnClick: Story = {
         <div className="space-y-4">
             <div>
                 <h4>Close on Click Mode</h4>
-                <p className="text-muted mb-2">
+                <p className="text-tertiary-foreground mb-2">
                     Hover to see the icon swap to close (X), click anywhere on the tag to close it
                 </p>
                 <div className="flex gap-2 flex-wrap">

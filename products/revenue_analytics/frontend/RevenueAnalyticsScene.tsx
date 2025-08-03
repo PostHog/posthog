@@ -170,7 +170,7 @@ const RevenueAnalyticsSceneOnboarding = (): JSX.Element => {
                         >
                             Connect revenue source
                         </LemonButton>
-                        <span className="text-xs text-muted-alt">
+                        <span className="text-xs text-tertiary-foreground">
                             Stripe is the only revenue source supported currently. <br />
                             <Link
                                 target="_blank"
