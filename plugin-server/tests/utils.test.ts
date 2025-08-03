@@ -353,7 +353,7 @@ describe('utils', () => {
             // event is after the switchover
             [new Date(january().setHours(16)).getTime(), january(), true],
             // before
-            [new Date(Date.UTC(2024, 121, 14)).getTime(), january(), true],
+            [new Date(Date.UTC(2024, 11, 14)).getTime(), january(), true],
         ])(
             'eventPassesMetadataSwitchoverTest: %s',
             (eventTime: number, switchoverDate: Date | null | boolean, expected: boolean) => {
