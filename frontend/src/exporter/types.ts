@@ -1,5 +1,6 @@
 import { DashboardType, DataColorThemeModel, InsightModel, SessionRecordingType } from '~/types'
 import { SharingConfigurationSettings } from '~/queries/schema/schema-general'
+import { SessionRecordingPlayerMode } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
 export enum ExportType {
     Image = 'image',
@@ -14,4 +15,7 @@ export interface ExportedData extends SharingConfigurationSettings {
     insight?: InsightModel
     themes?: DataColorThemeModel[]
     recording?: SessionRecordingType
+    autoplay?: boolean
+    noBorder?: boolean
+    mode?: SessionRecordingPlayerMode
 }
