@@ -97,6 +97,8 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
     const speedHotkeys = useMemo(() => createPlaybackSpeedKey(setSpeed), [setSpeed])
     const { isVerticallyStacked, sidebarOpen } = useValues(playerSettingsLogic)
 
+    const isScreenshotMode = mode === SessionRecordingPlayerMode.Screenshot
+
     useEffect(
         () => {
             if (isLikelyPastTTL) {
@@ -251,10 +253,7 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
                                 ) : (
                                     <div className="flex w-full h-full">
                                         <div className="flex flex-col flex-1 w-full">
-                                            {mode !== SessionRecordingPlayerMode.Screenshot &&
-                                            (!noMeta || isFullScreen) ? (
-                                                <PlayerMeta />
-                                            ) : null}
+                                            {!isScreenshotMode && (!noMeta || isFullScreen) ? <PlayerMeta /> : null}
 
                                             <div
                                                 className="SessionRecordingPlayer__body"
@@ -262,16 +261,10 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
                                                 {...elementProps}
                                             >
                                                 <PlayerFrame />
-                                                {mode !== SessionRecordingPlayerMode.Screenshot ? (
-                                                    <PlayerFrameOverlay />
-                                                ) : null}
-                                                {mode !== SessionRecordingPlayerMode.Screenshot ? (
-                                                    <PlayerFrameCommentOverlay />
-                                                ) : null}
+                                                {!isScreenshotMode ? <PlayerFrameOverlay /> : null}
+                                                {!isScreenshotMode ? <PlayerFrameCommentOverlay /> : null}
                                             </div>
-                                            {mode !== SessionRecordingPlayerMode.Screenshot ? (
-                                                <PlayerController />
-                                            ) : null}
+                                            {!isScreenshotMode ? <PlayerController /> : null}
                                         </div>
                                     </div>
                                 )}

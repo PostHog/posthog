@@ -40,7 +40,7 @@ logger = structlog.get_logger(__name__)
 TMP_DIR = "/tmp"  # NOTE: Externalise this to ENV var
 
 ScreenWidth = Literal[800, 1920, 1400]
-CSSSelector = Literal[".InsightCard", ".ExportedInsight", ".SessionRecordingPlayer"]
+CSSSelector = Literal[".InsightCard", ".ExportedInsight", ".replayer-wrapper"]
 
 
 # NOTE: We purposefully DON'T re-use the driver. It would be slightly faster but would keep an in-memory browser
@@ -121,7 +121,7 @@ def _export_to_png(exported_asset: ExportedAsset) -> None:
             url_to_render = absolute_uri(
                 f"/exporter?token={access_token}&t={exported_asset.export_context.get('timestamp') or 0}&fullscreen=true"
             )
-            wait_for_css_selector = exported_asset.export_context.get("css_selector", ".SessionRecordingPlayer")
+            wait_for_css_selector = exported_asset.export_context.get("css_selector", ".replayer-wrapper")
             screenshot_width = exported_asset.export_context.get("width", 1400)
             screenshot_height = exported_asset.export_context.get("height", 600)
 
@@ -134,7 +134,7 @@ def _export_to_png(exported_asset: ExportedAsset) -> None:
                 token_preview=access_token[:10],
             )
         else:
-            raise Exception(f"Export is missing required dashboard, insight ID, or replay_url in export_context")
+            raise Exception(f"Export is missing required dashboard, insight ID, or replay_id in export_context")
 
         logger.info("exporting_asset", asset_id=exported_asset.id, render_url=url_to_render)
 
@@ -201,7 +201,7 @@ def _screenshot_asset(
             """
             const element = document.querySelector('.InsightCard__viz') ||
                           document.querySelector('.ExportedInsight__content') ||
-                          document.querySelector('.SessionRecordingPlayer');
+                          document.querySelector('.replayer-wrapper');
             if (element) {
                 const rect = element.getBoundingClientRect();
                 return Math.max(rect.height, document.body.scrollHeight);
@@ -215,7 +215,7 @@ def _screenshot_asset(
         width = driver.execute_script(
             """
             // Check for replay player first
-            const replayElement = document.querySelector('.SessionRecordingPlayer');
+            const replayElement = document.querySelector('.replayer-wrapper');
             if (replayElement) {
                 return replayElement.offsetWidth;
             }
@@ -242,7 +242,7 @@ def _screenshot_asset(
             """
             const element = document.querySelector('.InsightCard__viz') ||
                           document.querySelector('.ExportedInsight__content') ||
-                          document.querySelector('.SessionRecordingPlayer');
+                          document.querySelector('.replayer-wrapper');
             if (element) {
                 const rect = element.getBoundingClientRect();
                 return Math.max(rect.height, document.body.scrollHeight);

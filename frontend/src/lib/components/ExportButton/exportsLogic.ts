@@ -125,7 +125,7 @@ export const exportsLogic = kea<exportsLogicType>([
                 export_context: {
                     replay_id: replayId,
                     timestamp: timestamp,
-                    css_selector: options?.css_selector || '.SessionRecordingPlayer',
+                    css_selector: options?.css_selector || '.replayer-wrapper',
                     width: options?.width || 1400,
                     height: options?.height || 600,
                     filename: options?.filename || `replay-${replayId}${timestamp ? `-t${timestamp}` : ''}`,
