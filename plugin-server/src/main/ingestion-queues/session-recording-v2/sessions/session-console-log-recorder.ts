@@ -1,6 +1,8 @@
 import { DateTime } from 'luxon'
 
-import { TimestampFormat } from '../../../../types'
+import { eventPassesMetadataSwitchoverTest } from '~/main/utils'
+
+import { SessionRecordingV2MetadataSwitchoverDate, TimestampFormat } from '../../../../types'
 import { castTimestampOrNow } from '../../../../utils/utils'
 import { ConsoleLogLevel, RRWebEventType } from '../rrweb-types'
 import { MessageWithTeam } from '../teams/types'
@@ -88,7 +90,7 @@ export class SessionConsoleLogRecorder {
         public readonly teamId: number,
         public readonly batchId: string,
         private readonly store: SessionConsoleLogStore,
-        private readonly metadataSwitchoverDate: Date | null
+        private readonly metadataSwitchoverDate: SessionRecordingV2MetadataSwitchoverDate
     ) {}
 
     /**
@@ -117,7 +119,7 @@ export class SessionConsoleLogRecorder {
                 if (event.type === RRWebEventType.Plugin && eventData?.plugin === 'rrweb/console@1') {
                     const timestamp = DateTime.fromMillis(event.timestamp)
 
-                    if (this.metadataSwitchoverDate === null || timestamp.toJSDate() < this.metadataSwitchoverDate) {
+                    if (!eventPassesMetadataSwitchoverTest(event.metadata.timestamp, this.metadataSwitchoverDate)) {
                         continue
                     }
 
