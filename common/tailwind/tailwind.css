@@ -3,9 +3,44 @@
 /* if this shows a warning, change the type of file in vscode to 'tailwind CSS' */
 @config "./tailwind.config.js";
 
-@theme {
+@theme inline {
     --text-xxs: 0.625rem;
     --text-xxs--line-height: 0.75rem;
 
     --spacing-button-padding-x: 7px; /* Match the padding of the button primitives base size (6px) + 1px border */
+
+    --color-background: var(--color-background);
+    --color-foreground: var(--color-foreground);
+    --color-secondary: var(--color-secondary);
+    --color-secondary-foreground: var(--color-secondary-foreground);
+    --color-tertiary: var(--color-tertiary);
+    --color-tertiary-foreground: var(--color-tertiary-foreground);
+    --color-card: var(--color-card);
+    --color-card-foreground: var(--color-card-foreground);
+    --color-card-secondary: var(--color-card-secondary);
+    --color-card-secondary-foreground: var(--color-card-secondary-foreground);
+    --color-card-tertiary: var(--color-card-tertiary);
+    --color-card-tertiary-foreground: var(--color-card-tertiary-foreground);
+    --color-tooltip: var(--color-tooltip);
+    --color-tooltip-foreground: var(--color-tooltip-foreground);
+    --color-popover: var(--color-popover);
+    --color-popover-foreground: var(--color-popover-foreground);
+    --color-info: var(--color-info);
+    --color-info-foreground: var(--color-info-foreground);
+    --color-warning: var(--color-warning);
+    --color-warning-foreground: var(--color-warning-foreground);
+    --color-error: var(--color-error);
+    --color-error-foreground: var(--color-error-foreground);
+    --color-success: var(--color-success);
+    --color-success-foreground: var(--color-success-foreground);
+    --color-interactive: transparent;
+    --color-interactive-foreground: var(--color-interactive-foreground);
+    --color-interactive-active: var(--color-interactive-active);
+    --color-interactive-active-foreground: var(--color-interactive-active-foreground);
+    --color-interactive-hover: var(--color-interactive-hover);
+    --color-interactive-hover-foreground: var(--color-interactive-hover-foreground);
+    --color-input: var(--color-input);
+    --color-input-foreground: var(--color-input-foreground);
+    --color-border: var(--color-border);
+    --color-border-secondary: var(--color-border-secondary);
 }
