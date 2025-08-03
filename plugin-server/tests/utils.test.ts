@@ -1,7 +1,9 @@
 import { randomBytes } from 'crypto'
 import { DateTime } from 'luxon'
 
-import { ClickHouseTimestamp } from '../src/types'
+import { eventPassesMetadataSwitchoverTest, parseSessionRecordingV2MetadataSwitchoverDate } from '~/main/utils'
+
+import { ClickHouseTimestamp, SessionRecordingV2MetadataSwitchoverDate } from '../src/types'
 import { safeClickhouseString } from '../src/utils/db/utils'
 import {
     bufferToStream,
@@ -327,6 +329,42 @@ describe('utils', () => {
                 DateTime.fromISO('2020-02-23T02:15:00.000Z').toUTC()
             )
         })
+    })
+
+    const january = () => new Date(Date.UTC(2025, 0, 1, 0, 0, 0))
+
+    describe('parseSessionRecordingV2MetadataSwitchoverDate', () => {
+        test.each([
+            [null, null],
+            ['*', true],
+            ['2025-01-01', january()],
+            ['2025-08-03T14:02:54+02:00', new Date(Date.UTC(2025, 7, 3, 12, 2, 54))],
+        ])(
+            'parseSessionRecordingV2MetadataSwitchoverDate: %s',
+            (configValue: string | null, expected: Date | null | boolean) => {
+                expect(parseSessionRecordingV2MetadataSwitchoverDate(configValue as string)).toEqual(expected)
+            }
+        )
+
+        test.each([
+            [123, null, false],
+            [123, true, true],
+            [january().getTime(), january(), true],
+            // event is after the switchover
+            [new Date(january().setHours(16)).getTime(), january(), true],
+            // before
+            [new Date(Date.UTC(2024, 121, 14)).getTime(), january(), true],
+        ])(
+            'eventPassesMetadataSwitchoverTest: %s',
+            (eventTime: number, switchoverDate: Date | null | boolean, expected: boolean) => {
+                expect(
+                    eventPassesMetadataSwitchoverTest(
+                        eventTime,
+                        switchoverDate as SessionRecordingV2MetadataSwitchoverDate
+                    )
+                ).toEqual(expected)
+            }
+        )
     })
 })
 

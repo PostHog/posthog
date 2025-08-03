@@ -91,7 +91,7 @@ export const eventPassesMetadataSwitchoverTest = (
 }
 
 export const parseSessionRecordingV2MetadataSwitchoverDate = (
-    config: string
+    config: string | null | undefined
 ): SessionRecordingV2MetadataSwitchoverDate => {
     let metadataSwitchoverDate: SessionRecordingV2MetadataSwitchoverDate = null
     if (config === '*') {
