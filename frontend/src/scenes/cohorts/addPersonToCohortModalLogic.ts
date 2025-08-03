@@ -34,6 +34,7 @@ export const addPersonToCohortModalLogic = kea<addPersonToCohortModalLogicType>(
                 showEventFilter: false,
                 showExport: false,
                 showSearch: true,
+                showActions: false,
             } as DataTableNode,
             {
                 setQuery: (state, { query }) => (isDataTableNode(query) ? query : state),

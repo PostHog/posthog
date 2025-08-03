@@ -11,6 +11,7 @@ export function AddPersonToChortModalBody(): JSX.Element {
     const context: QueryContext = {
         columns: {
             id: {
+                renderTitle: () => null,
                 render: () => {
                     const isInCohort = false
                     return (
@@ -18,7 +19,6 @@ export function AddPersonToChortModalBody(): JSX.Element {
                             type="secondary"
                             status={isInCohort ? 'danger' : 'default'}
                             size="small"
-                            fullWidth
                             onClick={(e) => {
                                 e.preventDefault()
 
