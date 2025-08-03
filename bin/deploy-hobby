@@ -136,6 +136,7 @@ REGISTRY_URL=$REGISTRY_URL
 CADDY_TLS_BLOCK=$TLS_BLOCK
 CADDY_HOST=$DOMAIN, http://, https://
 POSTHOG_APP_TAG=$POSTHOG_APP_TAG
+SESSION_RECORDING_V2_METADATA_SWITCHOVER=${date -Iseconds}
 EOF
 
 # Download GeoLite2-City.mmdb if it doesn't exist
@@ -243,6 +244,14 @@ if bash -c 'while [[ "$(curl -s -o /dev/null -w ''%{http_code}'' localhost/_heal
     }" https://us.i.posthog.com/batch/ &> /dev/null
 else
     echo "Failed to detect PostHog web boot. Please check the logs with 'docker-compose logs' for more details."
+    # send log of this fail!
+    curl -o /dev/null -L --header "Content-Type: application/json" -d "{
+        \"api_key\": \"sTMFPsFhdP1Ssg\",
+        \"distinct_id\": \"${DOMAIN}\",
+        \"properties\": {\"domain\": \"${DOMAIN}\"},
+        \"type\": \"capture\",
+        \"event\": \"magic_curl_install_failed\"
+    }" https://us.i.posthog.com/batch/ &> /dev/null
 fi
 
 echo ""
