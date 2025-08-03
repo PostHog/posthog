@@ -11,6 +11,7 @@ import {
     getProration,
     projectUsage,
     summarizeUsage,
+    updateBillingSearchParams,
 } from './billing-utils'
 
 describe('summarizeUsage', () => {
@@ -285,5 +286,112 @@ describe('getProration', () => {
             isProrated: false,
             prorationAmount: '0.00',
         })
+    })
+})
+
+describe('updateBillingSearchParams', () => {
+    it('should JSON stringify arrays to ensure proper URL parameter format', () => {
+        const searchParams: Record<string, any> = {}
+
+        updateBillingSearchParams(searchParams, 'breakdowns', ['type', 'team'], ['type'])
+        updateBillingSearchParams(searchParams, 'usage_types', ['product_analytics', 'session_replay'], [])
+        updateBillingSearchParams(searchParams, 'team_ids', [1, 2, 3], [])
+
+        expect(searchParams.breakdowns).toBe('["type","team"]')
+        expect(searchParams.usage_types).toBe('["product_analytics","session_replay"]')
+        expect(searchParams.team_ids).toBe('[1,2,3]')
+    })
+
+    it('should not modify non-array values', () => {
+        const searchParams: Record<string, any> = {}
+
+        updateBillingSearchParams(searchParams, 'interval', 'day', 'week')
+        updateBillingSearchParams(searchParams, 'date_from', '2024-01-01', '')
+        updateBillingSearchParams(searchParams, 'date_to', '2024-12-31', '')
+
+        expect(searchParams.interval).toBe('day')
+        expect(searchParams.date_from).toBe('2024-01-01')
+        expect(searchParams.date_to).toBe('2024-12-31')
+    })
+
+    it('should delete parameters when value equals defaultValue', () => {
+        const searchParams: Record<string, any> = {
+            breakdowns: '["type","team"]',
+            interval: 'day',
+        }
+
+        updateBillingSearchParams(searchParams, 'breakdowns', ['type', 'team'], ['type', 'team'])
+        updateBillingSearchParams(searchParams, 'interval', 'day', 'day')
+
+        expect(searchParams.breakdowns).toBeUndefined()
+        expect(searchParams.interval).toBeUndefined()
+    })
+
+    it('should handle mixed array and non-array values correctly', () => {
+        const searchParams: Record<string, any> = {}
+
+        updateBillingSearchParams(searchParams, 'breakdowns', ['type', 'team'], ['type'])
+        updateBillingSearchParams(searchParams, 'interval', 'day', 'week')
+        updateBillingSearchParams(searchParams, 'usage_types', ['product_analytics'], [])
+
+        expect(searchParams.breakdowns).toBe('["type","team"]')
+        expect(searchParams.interval).toBe('day')
+        expect(searchParams.usage_types).toBe('["product_analytics"]')
+    })
+
+    it('should handle empty arrays correctly', () => {
+        const searchParams: Record<string, any> = {}
+
+        updateBillingSearchParams(searchParams, 'breakdowns', [], ['type'])
+
+        expect(searchParams.breakdowns).toBe('[]')
+    })
+
+    it('should produce correct URL parameters for arrays', () => {
+        const searchParams: Record<string, any> = {}
+
+        updateBillingSearchParams(searchParams, 'breakdowns', ['type', 'team'], ['type'])
+
+        const urlParams = new URLSearchParams()
+        Object.entries(searchParams).forEach(([key, value]) => {
+            urlParams.set(key, value)
+        })
+
+        const url = `https://us.posthog.com/project/1/web?${urlParams.toString()}`
+
+        expect(url).toContain('breakdowns=%5B%22type%22%2C%22team%22%5D')
+
+        expect(searchParams.breakdowns).toBe('["type","team"]')
+
+        const decodedParams = new URLSearchParams(url.split('?')[1])
+        const decodedBreakdowns = JSON.parse(decodeURIComponent(decodedParams.get('breakdowns')!))
+        expect(decodedBreakdowns).toEqual(['type', 'team'])
+    })
+
+    it('should handle multiple array parameters in URL correctly', () => {
+        const searchParams: Record<string, any> = {}
+
+        updateBillingSearchParams(searchParams, 'usage_types', ['product_analytics', 'session_replay'], [])
+        updateBillingSearchParams(searchParams, 'team_ids', [1, 2, 3], [])
+        updateBillingSearchParams(searchParams, 'breakdowns', ['type', 'team'], ['type'])
+
+        const urlParams = new URLSearchParams()
+        Object.entries(searchParams).forEach(([key, value]) => {
+            urlParams.set(key, value)
+        })
+
+        const url = `https://us.posthog.com/project/1/web?${urlParams.toString()}`
+
+        expect(url).toContain('usage_types=%5B%22product_analytics%22%2C%22session_replay%22%5D')
+        expect(url).toContain('team_ids=%5B1%2C2%2C3%5D')
+        expect(url).toContain('breakdowns=%5B%22type%22%2C%22team%22%5D')
+
+        const decodedParams = new URLSearchParams(url.split('?')[1])
+        expect(JSON.parse(decodeURIComponent(decodedParams.get('usage_types')!))).toEqual([
+            'product_analytics',
+            'session_replay',
+        ])
+        expect(JSON.parse(decodeURIComponent(decodedParams.get('team_ids')!))).toEqual([1, 2, 3])
+        expect(JSON.parse(decodeURIComponent(decodedParams.get('breakdowns')!))).toEqual(['type', 'team'])
     })
 })

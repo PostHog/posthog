@@ -332,7 +332,8 @@ export function syncBillingSearchParams(
  */
 export function updateBillingSearchParams<T>(searchParams: Params, key: string, value: T, defaultValue: T): void {
     if (!equal(value, defaultValue)) {
-        searchParams[key] = value
+        // JSON stringify arrays to ensure proper URL parameter format
+        searchParams[key] = Array.isArray(value) ? JSON.stringify(value) : value
     } else {
         delete searchParams[key]
     }
