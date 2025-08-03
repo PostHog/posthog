@@ -111,7 +111,6 @@ class LocalEvaluationThrottle(BurstRateThrottle):
                 if cached_rate_limit is None:
                     team = Team.objects.get(id=team_id)
                     # Check if team has a custom local evaluation rate limit
-                    # You can store this in a team field or in a settings/config
                     custom_rate = getattr(team, "local_evaluation_rate_limit", None)
                     if custom_rate:
                         cached_rate_limit = custom_rate
