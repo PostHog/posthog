@@ -37,7 +37,7 @@ export const MarketingAnalyticsTable = ({ query, insightProps }: MarketingAnalyt
     const marketingAnalyticsContext: QueryContext = {
         ...webAnalyticsDataTableQueryContext,
         insightProps,
-        columnFeatures: [ColumnFeature.canSort, ColumnFeature.canRemove],
+        columnFeatures: [ColumnFeature.canSort, ColumnFeature.canRemove, ColumnFeature.canPin],
         columns: (query.source as MarketingAnalyticsTableQuery).select
             ?.filter((column) => !nonNumberColumns.includes(column))
             .reduce(
