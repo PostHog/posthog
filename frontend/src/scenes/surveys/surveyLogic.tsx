@@ -53,6 +53,7 @@ import {
 
 import { ProductIntentContext } from 'lib/utils/product-intents'
 import posthog from 'posthog-js'
+import { userLogic } from 'scenes/userLogic'
 import {
     defaultSurveyAppearance,
     defaultSurveyFieldValues,
@@ -485,7 +486,7 @@ export const surveyLogic = kea<surveyLogicType>([
             teamLogic,
             ['addProductIntent'],
         ],
-        values: [enabledFlagLogic, ['featureFlags as enabledFlags'], surveysLogic, ['data']],
+        values: [enabledFlagLogic, ['featureFlags as enabledFlags'], surveysLogic, ['data'], userLogic, ['user']],
     })),
     actions({
         setSurveyMissing: true,

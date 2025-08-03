@@ -54,7 +54,7 @@ import {
     SurveyType,
 } from '~/types'
 
-import { defaultSurveyFieldValues, SurveyMatchTypeLabels } from './constants'
+import { defaultSurveyFieldValues, SURVEY_TYPE_LABEL_MAP, SurveyMatchTypeLabels } from './constants'
 import { SurveyAPIEditor } from './SurveyAPIEditor'
 import { SurveyAppearancePreview } from './SurveyAppearancePreview'
 import { HTMLEditor, PresentationTypeCard } from './SurveyAppearanceUtils'
@@ -234,6 +234,7 @@ export default function SurveyEdit(): JSX.Element {
         deviceTypesMatchTypeValidationError,
         surveyErrors,
         isExternalSurveyFFEnabled,
+        user,
     } = useValues(surveyLogic)
     const {
         setSurveyValue,
@@ -302,7 +303,7 @@ export default function SurveyEdit(): JSX.Element {
                                                                 setSurveyValue('schedule', SurveySchedule.Once)
                                                             }
                                                         }}
-                                                        title="Popover"
+                                                        title={SURVEY_TYPE_LABEL_MAP[SurveyType.Popover]}
                                                         description="Automatically appears when PostHog JS is installed"
                                                         value={SurveyType.Popover}
                                                     >
@@ -321,7 +322,7 @@ export default function SurveyEdit(): JSX.Element {
                                                                 setSurveyValue('schedule', SurveySchedule.Once)
                                                             }
                                                         }}
-                                                        title="API"
+                                                        title={SURVEY_TYPE_LABEL_MAP[SurveyType.API]}
                                                         description="Use the PostHog API to show/hide your survey programmatically"
                                                         value={SurveyType.API}
                                                     >
@@ -332,7 +333,7 @@ export default function SurveyEdit(): JSX.Element {
                                                     <PresentationTypeCard
                                                         active={value === SurveyType.Widget}
                                                         onClick={() => onChange(SurveyType.Widget)}
-                                                        title="Feedback button"
+                                                        title={SURVEY_TYPE_LABEL_MAP[SurveyType.Widget]}
                                                         description="Set up a survey based on your own custom button or our prebuilt feedback tab"
                                                         value={SurveyType.Widget}
                                                     >
@@ -343,8 +344,8 @@ export default function SurveyEdit(): JSX.Element {
                                                     <PresentationTypeCard
                                                         active={value === SurveyType.ExternalSurvey}
                                                         onClick={() => onChange(SurveyType.ExternalSurvey)}
-                                                        title="External survey"
-                                                        description="Collect responses via an external link, hosted on PostHog. Make sure you update the posthog-js SDK if you are currently using surveys in your app."
+                                                        title={SURVEY_TYPE_LABEL_MAP[SurveyType.ExternalSurvey]}
+                                                        description="Collect responses via an external link, hosted on PostHog. Share the URL with your customers to gather feedback."
                                                         value={SurveyType.ExternalSurvey}
                                                         disabled={!isExternalSurveyFFEnabled}
                                                     >
@@ -354,6 +355,30 @@ export default function SurveyEdit(): JSX.Element {
                                                     </PresentationTypeCard>
                                                 </div>
                                                 {survey.type === SurveyType.Widget && <SurveyWidgetCustomization />}
+                                                {survey.type === SurveyType.ExternalSurvey && (
+                                                    <>
+                                                        <div className="font-semibold">How hosted surveys work:</div>
+                                                        <ul className="space-y-2 text-sm">
+                                                            <li>
+                                                                • The survey will be hosted by PostHog and you can share
+                                                                the URL with your customers
+                                                            </li>
+                                                            <li>
+                                                                • To identify responses, add the{' '}
+                                                                <code className="bg-surface-tertiary px-1 rounded">
+                                                                    distinct_id
+                                                                </code>{' '}
+                                                                query parameter to the URL. Here's an example:
+                                                            </li>
+                                                            <li>
+                                                                <Link
+                                                                    to={`https://us.posthog.com/external_surveys/01984280-fc8a-0000-28a5-01078e2d553f?distinct_id=${user.email}`}
+                                                                    target="_blank"
+                                                                >{`https://us.posthog.com/external_surveys/01984280-fc8a-0000-28a5-01078e2d553f?distinct_id=${user.email}`}</Link>
+                                                            </li>
+                                                        </ul>
+                                                    </>
+                                                )}
                                             </div>
                                         )
                                     }}

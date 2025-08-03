@@ -2,7 +2,7 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { IconLink } from 'lib/lemon-ui/icons'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
-export function CopySurveyLink({ surveyId }: { surveyId: string }): JSX.Element {
+export function CopySurveyLink({ surveyId, className }: { surveyId: string; className?: string }): JSX.Element {
     return (
         <LemonButton
             icon={<IconLink />}
@@ -11,6 +11,9 @@ export function CopySurveyLink({ surveyId }: { surveyId: string }): JSX.Element 
                 url.pathname = `/external_surveys/${surveyId}`
                 copyToClipboard(url.toString(), 'survey link')
             }}
+            className={className}
+            size="small"
+            tooltip="Responses are anonymous. Add the distinct_id query parameter to identify the response."
         >
             Copy survey external link
         </LemonButton>
