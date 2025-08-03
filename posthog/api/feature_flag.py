@@ -70,11 +70,12 @@ from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.property import Property
 from posthog.schema import PropertyOperator
 from posthog.models.feature_flag.flag_status import FeatureFlagStatusChecker, FeatureFlagStatus
+from posthog.models.team import Team
 from posthog.permissions import ProjectSecretAPITokenPermission
 from posthog.queries.base import (
     determine_parsed_date_for_property_matching,
 )
-from posthog.rate_limit import BurstRateThrottle
+from posthog.rate_limit import BurstRateThrottle, is_rate_limit_enabled
 from ee.models.rbac.organization_resource_access import OrganizationResourceAccess
 from django.dispatch import receiver
 from posthog.models.signals import model_activity_signal
@@ -90,11 +91,39 @@ BEHAVIOURAL_COHORT_FOUND_ERROR_CODE = "behavioral_cohort_found"
 MAX_PROPERTY_VALUES = 1000
 
 
-class FeatureFlagThrottle(BurstRateThrottle):
+class LocalEvaluationThrottle(BurstRateThrottle):
     # Throttle class that's scoped just to the local evaluation endpoint.
     # This makes the rate limit independent of other endpoints.
     scope = "feature_flag_evaluations"
     rate = "600/minute"
+
+    def allow_request(self, request, view):
+        if not is_rate_limit_enabled(round(time.time() / 60)):
+            return True
+
+        # Check for team-specific rate limits
+        try:
+            team_id = self.safely_get_team_id_from_view(view)
+            if team_id is not None:
+                rate_limit_cache_key = f"team_local_eval_ratelimit_{team_id}"
+                cached_rate_limit = self.cache.get(rate_limit_cache_key, None)
+
+                if cached_rate_limit is None:
+                    team = Team.objects.get(id=team_id)
+                    # Check if team has a custom local evaluation rate limit
+                    # You can store this in a team field or in a settings/config
+                    custom_rate = getattr(team, "local_evaluation_rate_limit", None)
+                    if custom_rate:
+                        cached_rate_limit = custom_rate
+                        self.cache.set(rate_limit_cache_key, cached_rate_limit, 300)  # Cache for 5 minutes
+
+                if cached_rate_limit:
+                    self.rate = cached_rate_limit
+                    self.num_requests, self.duration = self.parse_rate(self.rate)
+        except Exception:
+            pass
+
+        return super().allow_request(request, view)
 
 
 class CanEditFeatureFlag(BasePermission):
@@ -1159,7 +1188,7 @@ class FeatureFlagViewSet(
     @action(
         methods=["GET"],
         detail=False,
-        throttle_classes=[FeatureFlagThrottle],
+        throttle_classes=[LocalEvaluationThrottle],
         required_scopes=["feature_flag:read"],
         authentication_classes=[TemporaryTokenAuthentication, ProjectSecretAPIKeyAuthentication],
         permission_classes=[ProjectSecretAPITokenPermission],

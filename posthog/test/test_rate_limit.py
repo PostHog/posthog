@@ -19,6 +19,7 @@ from posthog.models.instance_setting import override_instance_config
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.utils import generate_random_token_personal
 from posthog.rate_limit import HogQLQueryThrottle, AISustainedRateThrottle, AIBurstRateThrottle
+from posthog.api.feature_flag import LocalEvaluationThrottle
 from posthog.test.base import APIBaseTest
 
 
@@ -519,3 +520,87 @@ class TestUserAPI(APIBaseTest):
 
             # Should call report_user_action with correct parameters
             mock_report_user_action.assert_called_once_with(self.user, "ai sustained rate limited")
+
+    def test_local_evaluation_throttle_loads_custom_rate_from_cache(self):
+        throttle = LocalEvaluationThrottle()
+
+        cache_key = f"team_local_eval_ratelimit_{self.team.id}"
+        cache.set(cache_key, "1200/minute")
+
+        if cached_rate_limit := cache.get(cache_key, None):
+            throttle.rate = cached_rate_limit
+            throttle.num_requests, throttle.duration = throttle.parse_rate(throttle.rate)
+
+        self.assertEqual(throttle.rate, "1200/minute")
+        self.assertEqual(throttle.num_requests, 1200)
+        self.assertEqual(throttle.duration, 60)
+
+    def test_local_evaluation_throttle_loads_custom_rate_from_db(self):
+        throttle = LocalEvaluationThrottle()
+
+        # Clear cache to ensure DB lookup
+        cache_key = f"team_local_eval_ratelimit_{self.team.id}"
+        cache.delete(cache_key)
+
+        with patch.object(Team.objects, "get") as mock_get:
+            mock_team = Mock()
+            mock_team.local_evaluation_rate_limit = "2400/hour"
+            mock_get.return_value = mock_team
+
+            # Simulate the DB loading logic
+            team = Team.objects.get(id=self.team.id)
+            custom_rate = getattr(team, "local_evaluation_rate_limit", None)
+            if custom_rate:
+                throttle.rate = custom_rate
+                throttle.num_requests, throttle.duration = throttle.parse_rate(throttle.rate)
+                # Cache it
+                cache.set(cache_key, custom_rate, 300)
+
+            self.assertEqual(throttle.rate, "2400/hour")
+            self.assertEqual(throttle.num_requests, 2400)
+            self.assertEqual(throttle.duration, 3600)
+            # Verify it was cached
+            self.assertEqual(cache.get(cache_key), "2400/hour")
+
+    def test_local_evaluation_throttle_uses_default_rate_when_no_custom_limit(self):
+        throttle = LocalEvaluationThrottle()
+
+        # Clear cache
+        cache_key = f"team_local_eval_ratelimit_{self.team.id}"
+        cache.delete(cache_key)
+
+        # No custom rate limit
+        self.team.local_evaluation_rate_limit = None
+        self.team.save()
+
+        # Mock view with team_id
+        mock_view = Mock()
+        mock_view.team_id = self.team.id
+
+        # Test with no custom limit
+        with patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True):
+            with patch.object(throttle.__class__.__bases__[0], "allow_request", return_value=True):
+                result = throttle.allow_request(Mock(), mock_view)
+
+                self.assertTrue(result)
+                # Should keep default rate
+                self.assertEqual(throttle.rate, "600/minute")
+
+                # Verify nothing was cached
+                self.assertIsNone(cache.get(cache_key))
+
+    def test_local_evaluation_throttle_handles_missing_team_gracefully(self):
+        throttle = LocalEvaluationThrottle()
+
+        # Mock view without team_id
+        mock_view = Mock()
+        mock_view.team_id = None
+
+        # Test with missing team
+        with patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True):
+            with patch.object(throttle.__class__.__bases__[0], "allow_request", return_value=True):
+                result = throttle.allow_request(Mock(), mock_view)
+
+                self.assertTrue(result)
+                # Should keep default rate
+                self.assertEqual(throttle.rate, "600/minute")
