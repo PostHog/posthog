@@ -40,8 +40,6 @@ export interface QueryContext<Q extends QuerySchema = QuerySchema> {
     fileNameForExport?: string
     /** Custom column features to pass down to the DataTable */
     columnFeatures?: ColumnFeature[]
-    /** Cell renderer function that can be used for any column */
-    cellRenderer?: (value: unknown) => JSX.Element | null
 }
 
 export type QueryContextColumnTitleComponent = ComponentType<{

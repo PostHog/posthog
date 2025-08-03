@@ -96,11 +96,6 @@ export function renderColumn(
         ) : (
             String(value)
         )
-    } else if (context?.cellRenderer) {
-        const rendered = context.cellRenderer(value)
-        if (rendered !== null) {
-            return rendered
-        }
     } else if (typeof value === 'object' && Array.isArray(value) && value[0] === '__hx_tag') {
         return renderHogQLX(value)
     } else if (value === null) {
