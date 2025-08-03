@@ -82,9 +82,11 @@ export const eventPassesMetadataSwitchoverTest = (
     if (metadataSwitchoverDate === null) {
         return false
     }
+
     if (metadataSwitchoverDate === true) {
         return true
     }
+
     return timestamp >= metadataSwitchoverDate.getTime()
 }
 

@@ -119,7 +119,9 @@ export class SessionConsoleLogRecorder {
                 if (event.type === RRWebEventType.Plugin && eventData?.plugin === 'rrweb/console@1') {
                     const timestamp = DateTime.fromMillis(event.timestamp)
 
-                    if (!eventPassesMetadataSwitchoverTest(event.metadata.timestamp, this.metadataSwitchoverDate)) {
+                    if (
+                        !eventPassesMetadataSwitchoverTest(timestamp.toJSDate().getTime(), this.metadataSwitchoverDate)
+                    ) {
                         continue
                     }
 
