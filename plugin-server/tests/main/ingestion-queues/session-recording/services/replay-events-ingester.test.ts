@@ -233,7 +233,7 @@ describe('replay events ingester', () => {
         })
 
         test.each([
-            ['drops events at or before switchover date', switchoverDate],
+            ['drops events at or after switchover date', switchoverDate],
             ['drops events with * switchover date', true],
         ])('%s', async (_name, configuredValue: Date | boolean) => {
             const ingester = new ReplayEventsIngester(
