@@ -2,8 +2,11 @@ import { actions, events, kea, key, path, props, reducers } from 'kea'
 
 import type { addPersonToCohortModalLogicType } from './addPersonToCohortModalLogicType'
 import { loaders } from 'kea-loaders'
-import api, { CountedPaginatedResponse, PaginatedResponse } from 'lib/api'
+import api, { PaginatedResponse } from 'lib/api'
 import { CohortType, PersonType } from '~/types'
+
+import { DataTableNode, Node, NodeKind } from '~/queries/schema/schema-general'
+import { isDataTableNode } from '~/queries/utils'
 
 export type AddPersonToCohortModalProps = {
     id?: CohortType['id']
@@ -16,9 +19,26 @@ export const addPersonToCohortModalLogic = kea<addPersonToCohortModalLogicType>(
     actions({
         showAddPersonToCohortModal: true,
         hideAddPersonToCohortModal: true,
-        loadPersons: true,
+        setQuery: (query: Node) => ({ query }),
     }),
     reducers({
+        query: [
+            {
+                kind: NodeKind.DataTableNode,
+                source: {
+                    kind: NodeKind.ActorsQuery,
+                    fixedProperties: [],
+                    select: ['id', 'person_display_name -- Person'],
+                },
+                showPropertyFilter: false,
+                showEventFilter: false,
+                showExport: false,
+                showSearch: true,
+            } as DataTableNode,
+            {
+                setQuery: (state, { query }) => (isDataTableNode(query) ? query : state),
+            },
+        ],
         addPersonToCohortModalVisible: [
             false,
             {
@@ -28,20 +48,6 @@ export const addPersonToCohortModalLogic = kea<addPersonToCohortModalLogicType>(
         ],
     }),
     loaders(({ props, values }) => ({
-        persons: [
-            { next: null, previous: null, count: 0, results: [], offset: 0 } as CountedPaginatedResponse<PersonType> & {
-                offset: number
-            },
-            {
-                loadPersons: async () => {
-                    if (props.id == null || props.id === 'new') {
-                        return values.persons
-                    }
-                    const result = { ...(await api.persons.list()), offset: 0 }
-                    return result
-                },
-            },
-        ],
         cohortPersons: [
             { next: null, previous: null, results: [] } as PaginatedResponse<PersonType>,
             {
@@ -58,7 +64,7 @@ export const addPersonToCohortModalLogic = kea<addPersonToCohortModalLogicType>(
     })),
     events(({ actions }) => ({
         afterMount: () => {
-            actions.loadPersons()
+            actions.loadCohortPersons()
         },
     })),
 ])
