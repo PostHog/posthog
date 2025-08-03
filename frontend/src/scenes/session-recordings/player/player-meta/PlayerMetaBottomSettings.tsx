@@ -25,7 +25,6 @@ import {
     PLAYBACK_SPEEDS,
     sessionRecordingPlayerLogic,
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
-import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 
 function SetPlaybackSpeed(): JSX.Element {
     const { speed, sessionPlayerData } = useValues(sessionRecordingPlayerLogic)
@@ -91,37 +90,14 @@ function InspectDOM(): JSX.Element {
 }
 
 function Screenshot(): JSX.Element {
-    const { startReplayExport } = useActions(exportsLogic)
-    const { sessionRecordingId, logicProps, rootFrame } = useValues(sessionRecordingPlayerLogic)
-    const { setPause } = useActions(sessionRecordingPlayerLogic)
-
-    const iframe = rootFrame?.querySelector('iframe')
-    const screenshotWidth = iframe?.width || 1400
-    const screenshotHeight = iframe?.height || 600
-
-    const getCurrentPlayerTime = (): number => {
-        // NOTE: We pull this value at call time as otherwise it would trigger re-renders if pulled from the hook
-        const playerTime = sessionRecordingPlayerLogic.findMounted(logicProps)?.values.currentPlayerTime || 0
-        return Math.floor(playerTime / 1000)
-    }
-
-    const handleScreenshot = (): void => {
-        const timestamp = getCurrentPlayerTime()
-        setPause()
-        startReplayExport(sessionRecordingId, timestamp, {
-            width: screenshotWidth,
-            height: screenshotHeight,
-            css_selector: '.replayer-wrapper',
-            filename: `replay-${sessionRecordingId}`,
-        })
-    }
+    const { takeScreenshot } = useActions(sessionRecordingPlayerLogic)
 
     return (
         <SettingsButton
             title="Take a screenshot of the current frame"
             label="Screenshot"
             data-attr="screenshot"
-            onClick={handleScreenshot}
+            onClick={takeScreenshot}
             icon={<IconLlmPromptEvaluation />}
         />
     )

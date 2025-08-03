@@ -19,7 +19,6 @@ import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import { delay } from 'kea-test-utils'
 import api from 'lib/api'
-import { takeScreenshotLogic } from 'lib/components/TakeScreenshot/takeScreenshotLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { now } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -38,6 +37,7 @@ import {
 import { MatchingEventsMatchType } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
+import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 
 import {
     AvailableFeature,
@@ -252,8 +252,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             ['setSpeed', 'setSkipInactivitySetting'],
             sessionRecordingEventUsageLogic,
             ['reportNextRecordingTriggered', 'reportRecordingExportedToFile'],
-            takeScreenshotLogic({ screenshotKey: 'replay' }),
-            ['setHtml'],
+            exportsLogic,
+            ['startReplayExport'],
         ],
     })),
     actions({
@@ -1383,7 +1383,19 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 return
             }
 
-            actions.setHtml(iframe)
+            const getCurrentPlayerTime = (): number => {
+                // NOTE: We pull this value at call time as otherwise it would trigger re-renders if pulled from the hook
+                const playerTime =
+                    sessionRecordingPlayerLogic.findMounted(values.logicProps)?.values.currentPlayerTime || 0
+                return Math.floor(playerTime / 1000)
+            }
+
+            actions.startReplayExport(values.sessionRecordingId, getCurrentPlayerTime(), {
+                width: iframe?.width || 1400,
+                height: iframe?.height || 600,
+                css_selector: '.replayer-wrapper',
+                filename: `replay-${values.sessionRecordingId}`,
+            })
         },
         openHeatmap: () => {
             actions.setPause()
