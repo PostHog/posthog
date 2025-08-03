@@ -28,12 +28,20 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
             databaseTableListLogic,
             ['loadDatabase'],
             externalDataSourcesLogic,
-            ['loadSources', 'loadSourcesSuccess', 'loadSourcesFailure', 'updateSource'],
+            [
+                'loadSources',
+                'loadSourcesSuccess',
+                'loadSourcesFailure',
+                'abortAnyRunningQuery',
+                'updateSource',
+                'deleteSource',
+                'reloadSource',
+                'reloadSourceSuccess',
+                'reloadSourceFailure',
+            ],
         ],
     })),
     actions({
-        deleteSource: (source: ExternalDataSource) => ({ source }),
-        reloadSource: (source: ExternalDataSource) => ({ source }),
         sourceLoadingFinished: (source: ExternalDataSource) => ({ source }),
         schemaLoadingFinished: (schema: ExternalDataSourceSchema) => ({ schema }),
         deleteSelfManagedTable: (tableId: string) => ({ tableId }),
@@ -138,10 +146,7 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
             actions.loadDatabase()
         },
         deleteSource: async ({ source }) => {
-            await api.externalDataSources.delete(source.id)
-            actions.loadSources(null)
             actions.sourceLoadingFinished(source)
-
             posthog.capture('source deleted', { sourceType: source.source_type })
         },
         reloadSource: async ({ source }) => {
@@ -167,17 +172,16 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
                 results: clonedSources,
             })
 
-            try {
-                await api.externalDataSources.reload(source.id)
-                actions.loadSources(null)
-
-                posthog.capture('source reloaded', { sourceType: source.source_type })
-            } catch (e: any) {
-                if (e.message) {
-                    lemonToast.error(e.message)
-                } else {
-                    lemonToast.error('Cant refresh source at this time')
-                }
+            posthog.capture('source reloaded', { sourceType: source.source_type })
+        },
+        reloadSourceSuccess: ({ source }) => {
+            actions.sourceLoadingFinished(source)
+        },
+        reloadSourceFailure: ({ source, error }) => {
+            if (error.message) {
+                lemonToast.error(error.message)
+            } else {
+                lemonToast.error('Cant refresh source at this time')
             }
             actions.sourceLoadingFinished(source)
         },

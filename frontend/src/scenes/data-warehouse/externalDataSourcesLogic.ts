@@ -10,6 +10,10 @@ export const externalDataSourcesLogic = kea<externalDataSourcesLogicType>([
     path(['scenes', 'data-warehouse', 'externalDataSourcesLogic']),
     actions({
         abortAnyRunningQuery: true,
+        deleteSource: (source: ExternalDataSource) => ({ source }),
+        reloadSource: (source: ExternalDataSource) => ({ source }),
+        reloadSourceSuccess: (source: ExternalDataSource) => ({ source }),
+        reloadSourceFailure: (source: ExternalDataSource, error: any) => ({ source, error }),
     }),
     loaders(({ cache, actions, values }) => ({
         dataWarehouseSources: [
@@ -44,21 +48,34 @@ export const externalDataSourcesLogic = kea<externalDataSourcesLogicType>([
             },
         ],
     })),
-    reducers(({ cache }) => ({
+    reducers(() => ({
         dataWarehouseSourcesLoading: [
             false as boolean,
             {
                 loadSources: () => true,
-                loadSourcesFailure: () => cache.abortController !== null,
-                loadSourcesSuccess: () => cache.abortController !== null,
+                loadSourcesFailure: () => false,
+                loadSourcesSuccess: () => false,
             },
         ],
     })),
-    listeners(({ cache }) => ({
+    listeners(({ cache, actions }) => ({
         abortAnyRunningQuery: () => {
             if (cache.abortController) {
                 cache.abortController.abort()
                 cache.abortController = null
+            }
+        },
+        deleteSource: async ({ source }) => {
+            await api.externalDataSources.delete(source.id)
+            actions.loadSources(null)
+        },
+        reloadSource: async ({ source }) => {
+            try {
+                await api.externalDataSources.reload(source.id)
+                actions.loadSources(null)
+                actions.reloadSourceSuccess(source)
+            } catch (e: any) {
+                actions.reloadSourceFailure(source, e)
             }
         },
     })),
