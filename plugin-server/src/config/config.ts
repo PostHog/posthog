@@ -242,6 +242,10 @@ export function getDefaultConfig(): PluginsServerConfig {
         SESSION_RECORDING_V2_REPLAY_EVENTS_KAFKA_TOPIC: 'clickhouse_session_replay_events',
         SESSION_RECORDING_V2_CONSOLE_LOG_ENTRIES_KAFKA_TOPIC: 'log_entries',
         SESSION_RECORDING_V2_CONSOLE_LOG_STORE_SYNC_BATCH_LIMIT: 1000,
+        // in both the PostHog cloud environment and development
+        // we want this metadata switchover to be in blob ingestion v2 mode
+        // hobby installs will set this metadata value to a datetime
+        // since they may be running v1 and being upgraded
         SESSION_RECORDING_V2_METADATA_SWITCHOVER: '*',
 
         // Cookieless
