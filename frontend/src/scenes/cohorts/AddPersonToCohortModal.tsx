@@ -12,6 +12,7 @@ export function AddPersonToCohortModal({ id }: CohortLogicProps): JSX.Element {
     return (
         <BindLogic logic={addPersonToCohortModalLogic} props={{ id }}>
             <LemonModal
+                width="50vw"
                 title="Add person to cohort"
                 onClose={hideAddPersonToCohortModal}
                 isOpen={addPersonToCohortModalVisible}
