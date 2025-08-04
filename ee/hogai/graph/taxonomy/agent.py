@@ -1,15 +1,14 @@
-from typing import Generic, get_args, get_origin
-from .nodes import TaxonomyAgentNode, TaxonomyAgentToolsNode
+from typing import Generic
+from .nodes import TaxonomyAgentNode, TaxonomyAgentToolsNode, StateClassMixin
 from .toolkit import TaxonomyAgentToolkit
 from posthog.models import Team, User
-from langgraph.graph import StateGraph
 from .types import TaxonomyNodeName
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
 from ee.hogai.utils.types import StateType, PartialStateType
 from ee.hogai.graph.graph import BaseAssistantGraph
 
 
-class TaxonomyAgent(Generic[StateType, PartialStateType], BaseAssistantGraph):
+class TaxonomyAgent(BaseAssistantGraph[StateType], Generic[StateType, PartialStateType], StateClassMixin):
     """Taxonomy agent that can be configured with different node classes."""
 
     def __init__(
@@ -20,33 +19,13 @@ class TaxonomyAgent(Generic[StateType, PartialStateType], BaseAssistantGraph):
         tools_node_class: type["TaxonomyAgentToolsNode"],
         toolkit_class: type["TaxonomyAgentToolkit"],
     ):
-        self._team = team
-        self._user = user
+        # Extract the State type from the generic parameter
+        state_class, _ = self._get_state_class(TaxonomyAgent)
+        super().__init__(team, user, state_class)
+
         self._loop_node_class = loop_node_class
         self._tools_node_class = tools_node_class
         self._toolkit_class = toolkit_class
-
-        # Extract the State type from the generic parameter
-        state_class, _ = self._get_state_class()
-        self._graph = StateGraph(state_class)
-        self._has_start_node = False
-
-    def _get_state_class(self) -> tuple[type, type]:
-        """Extract the State type from the class's generic parameters."""
-        # Check if this class has generic arguments
-        if hasattr(self.__class__, "__orig_bases__"):
-            for base in self.__class__.__orig_bases__:
-                if get_origin(base) is TaxonomyAgent:
-                    args = get_args(base)
-                    if args:
-                        return args[0], args[1]  # State is the first argument and PartialState is the second argument
-
-        # No generic type found - this shouldn't happen in proper usage
-        raise ValueError(
-            f"Could not determine state type for {self.__class__.__name__}. "
-            "Make sure to inherit from TaxonomyAgent with a specific state type, "
-            "e.g., TaxonomyAgent[TaxonomyAgentState]"
-        )
 
     def compile_full_graph(self, checkpointer: DjangoCheckpointer | None = None):
         """Compile a complete taxonomy graph."""

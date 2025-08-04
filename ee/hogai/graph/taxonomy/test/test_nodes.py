@@ -7,7 +7,7 @@ from pydantic import ValidationError
 
 from ee.hogai.graph.taxonomy.nodes import TaxonomyAgentNode, TaxonomyAgentToolsNode
 from ee.hogai.graph.taxonomy.toolkit import TaxonomyAgentToolkit
-from ee.hogai.graph.taxonomy.types import TaxonomyAgentState, PartialTaxonomyAgentState
+from ee.hogai.graph.taxonomy.types import TaxonomyAgentState
 from posthog.test.base import BaseTest
 
 
@@ -21,12 +21,12 @@ class MockTaxonomyAgentToolkit(TaxonomyAgentToolkit):
         return [MockTool]
 
 
-class ConcreteTaxonomyAgentNode(TaxonomyAgentNode[TaxonomyAgentState, PartialTaxonomyAgentState]):
-    def get_system_prompts(self):
+class ConcreteTaxonomyAgentNode(TaxonomyAgentNode[TaxonomyAgentState, TaxonomyAgentState]):
+    def _get_system_prompts(self):
         return ["test system prompt"]
 
 
-class ConcreteTaxonomyAgentToolsNode(TaxonomyAgentToolsNode[TaxonomyAgentState, PartialTaxonomyAgentState]):
+class ConcreteTaxonomyAgentToolsNode(TaxonomyAgentToolsNode[TaxonomyAgentState, TaxonomyAgentState]):
     pass
 
 
@@ -41,12 +41,12 @@ class TestTaxonomyAgentNode(BaseTest):
         self.assertIsInstance(self.node._toolkit, MockTaxonomyAgentToolkit)
 
     def test_get_state_class(self):
-        state_class, partial_state_class = self.node._get_state_class()
+        state_class, partial_state_class = self.node._get_state_class(TaxonomyAgentNode)
         self.assertEqual(state_class, TaxonomyAgentState)
-        self.assertEqual(partial_state_class, PartialTaxonomyAgentState)
+        self.assertEqual(partial_state_class, TaxonomyAgentState)
 
     def test_get_system_prompts_concrete_implementation(self):
-        prompts = self.node.get_system_prompts()
+        prompts = self.node._get_system_prompts()
         self.assertEqual(prompts, ["test system prompt"])
 
     def test_construct_messages(self):
@@ -94,7 +94,7 @@ class TestTaxonomyAgentNode(BaseTest):
             config = RunnableConfig()
             result = self.node.run(state, config)
 
-            self.assertIsInstance(result, PartialTaxonomyAgentState)
+            self.assertIsInstance(result, TaxonomyAgentState)
             self.assertEqual(len(result.intermediate_steps), 1)
             self.assertEqual(len(result.tool_progress_messages), 1)
             self.assertEqual(result.intermediate_steps[0][0].tool, "test_tool")
@@ -140,9 +140,9 @@ class TestTaxonomyAgentToolsNode(BaseTest):
         self.assertEqual(self.node.MAX_ITERATIONS, 10)
 
     def test_get_state_class(self):
-        state_class, partial_state_class = self.node._get_state_class()
+        state_class, partial_state_class = self.node._get_state_class(TaxonomyAgentToolsNode)
         self.assertEqual(state_class, TaxonomyAgentState)
-        self.assertEqual(partial_state_class, PartialTaxonomyAgentState)
+        self.assertEqual(partial_state_class, TaxonomyAgentState)
 
     def test_get_state_class_no_generic_error(self):
         # Test error case for non-generic class
@@ -171,7 +171,7 @@ class TestTaxonomyAgentToolsNode(BaseTest):
 
         result = self.node.run(state, RunnableConfig())
 
-        self.assertIsInstance(result, PartialTaxonomyAgentState)
+        self.assertIsInstance(result, TaxonomyAgentState)
         self.assertEqual(len(result.intermediate_steps), 1)
         self.assertEqual(result.intermediate_steps[0][1], "tool output")
 
@@ -189,7 +189,7 @@ class TestTaxonomyAgentToolsNode(BaseTest):
 
         result = self.node.run(state, RunnableConfig())
 
-        self.assertIsInstance(result, PartialTaxonomyAgentState)
+        self.assertIsInstance(result, TaxonomyAgentState)
         self.assertEqual(len(result.tool_progress_messages), 1)
 
     @patch.object(MockTaxonomyAgentToolkit, "get_tool_input_model")
@@ -215,7 +215,7 @@ class TestTaxonomyAgentToolsNode(BaseTest):
 
         result = self.node.run(state, RunnableConfig())
 
-        self.assertIsInstance(result, PartialTaxonomyAgentState)
+        self.assertIsInstance(result, TaxonomyAgentState)
         self.assertEqual(result.output, expected_data)
         self.assertIsNone(result.intermediate_steps)
 
@@ -233,7 +233,7 @@ class TestTaxonomyAgentToolsNode(BaseTest):
         state.intermediate_steps = [(action, None)]
 
         with patch.object(self.node, "_get_reset_state") as mock_reset:
-            mock_reset.return_value = PartialTaxonomyAgentState()
+            mock_reset.return_value = TaxonomyAgentState()
 
             _ = self.node.run(state, RunnableConfig())
 
@@ -250,7 +250,7 @@ class TestTaxonomyAgentToolsNode(BaseTest):
         state.intermediate_steps = actions
 
         with patch.object(self.node, "_get_reset_state") as mock_reset:
-            mock_reset.return_value = PartialTaxonomyAgentState()
+            mock_reset.return_value = TaxonomyAgentState()
 
             _ = self.node.run(state, RunnableConfig())
 

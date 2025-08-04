@@ -11,7 +11,7 @@ from pydantic import ValidationError
 from typing import get_args, get_origin, TypeVar, Generic
 from posthog.models import Team, User
 from ..base import BaseAssistantNode
-from .types import EntityType, TaxonomyAgentState, PartialTaxonomyAgentState
+from .types import EntityType, TaxonomyAgentState
 from functools import cached_property
 from ee.hogai.llm import MaxChatOpenAI
 from posthog.models.group_type_mapping import GroupTypeMapping
@@ -25,35 +25,45 @@ from .prompts import (
 )
 from ee.hogai.utils.helpers import format_events_prompt
 
+
+class StateClassMixin:
+    """Mixin to extract state types from generic class parameters."""
+
+    def _get_state_class(self, target_class: type) -> tuple[type, type]:
+        """Extract the State type from the class's generic parameters."""
+        # Check if this class has generic arguments
+        if hasattr(self.__class__, "__orig_bases__"):
+            for base in self.__class__.__orig_bases__:
+                if get_origin(base) is target_class:
+                    args = get_args(base)
+                    if args:
+                        return args[0], args[1]  # State is the first argument and PartialState is the second argument
+
+        # No generic type found - this shouldn't happen in proper usage
+        raise ValueError(
+            f"Could not determine state type for {self.__class__.__name__}. "
+            f"Make sure to inherit from {target_class.__name__} with a specific state type, "
+            f"e.g., {target_class.__name__}[StateType, PartialStateType]"
+        )
+
+
 # Type variables with bounds
 TaxonomyStateType = TypeVar("TaxonomyStateType", bound=TaxonomyAgentState)
-TaxonomyPartialStateType = TypeVar("TaxonomyPartialStateType", bound=PartialTaxonomyAgentState)
+TaxonomyPartialStateType = TypeVar("TaxonomyPartialStateType", bound=TaxonomyAgentState)
 TaxonomyNodeBound = BaseAssistantNode[TaxonomyStateType, TaxonomyPartialStateType]
 
 
-class TaxonomyAgentNode(Generic[TaxonomyStateType, TaxonomyPartialStateType], TaxonomyNodeBound):
+class TaxonomyAgentNode(Generic[TaxonomyStateType, TaxonomyPartialStateType], TaxonomyNodeBound, StateClassMixin):
     """Base node for taxonomy agents."""
 
     def __init__(self, team: Team, user: User, toolkit_class: type["TaxonomyAgentToolkit"]):
         super().__init__(team, user)
         self._toolkit = toolkit_class(team=team)
-        self._state_class, self._partial_state_class = self._get_state_class()
-
-    def _get_state_class(self) -> tuple[type, type]:
-        """Extract the State type from the class's generic parameters."""
-        # Check if this class has generic arguments
-        if hasattr(self.__class__, "__orig_bases__"):
-            for base in self.__class__.__orig_bases__:
-                if get_origin(base) is TaxonomyAgentNode:
-                    args = get_args(base)
-                    if args:
-                        return args[0], args[1]  # State is the first argument and PartialState is the second argument
-
-        # No generic type found - use default types
-        return TaxonomyAgentState, PartialTaxonomyAgentState
+        self._state_class, self._partial_state_class = self._get_state_class(TaxonomyAgentNode)
 
     @cached_property
     def _team_group_types(self) -> list[str]:
+        """Get all available group names for this team."""
         return list(
             GroupTypeMapping.objects.filter(project_id=self._team.project.id)
             .order_by("group_type_index")
@@ -78,18 +88,18 @@ class TaxonomyAgentNode(Generic[TaxonomyStateType, TaxonomyPartialStateType], Ta
         """Get the system prompt for this node. Override in subclasses."""
         return [PROPERTY_TYPES_PROMPT, TAXONOMY_TOOL_USAGE_PROMPT, HUMAN_IN_THE_LOOP_PROMPT]
 
-    def get_system_prompts(self) -> list[str]:
-        raise NotImplementedError("get_system_prompts must be implemented in subclasses")
+    def _get_system_prompts(self) -> list[str]:
+        raise NotImplementedError("_get_system_prompts must be implemented in subclasses")
 
     def _construct_messages(self, state: TaxonomyStateType) -> ChatPromptTemplate:
         """
         Construct the conversation thread for the agent. Handles both initial conversation setup
         and continuation with intermediate steps.
         """
-        system_messages = [("system", prompt) for prompt in self.get_system_prompts()]
+        system_messages = [("system", prompt) for prompt in self._get_system_prompts()]
         system_messages.append(("human", state.instructions or ""))
 
-        progress_messages = list(getattr(state, "tool_progress_messages", []))
+        progress_messages = state.tool_progress_messages or []
         all_messages = [*system_messages, *progress_messages]
 
         return ChatPromptTemplate(all_messages, template_format="mustache")
@@ -131,7 +141,7 @@ class TaxonomyAgentNode(Generic[TaxonomyStateType, TaxonomyPartialStateType], Ta
         )
 
 
-class TaxonomyAgentToolsNode(Generic[TaxonomyStateType, TaxonomyPartialStateType], TaxonomyNodeBound):
+class TaxonomyAgentToolsNode(Generic[TaxonomyStateType, TaxonomyPartialStateType], TaxonomyNodeBound, StateClassMixin):
     """Base tools node for taxonomy agents."""
 
     MAX_ITERATIONS = 10
@@ -139,24 +149,7 @@ class TaxonomyAgentToolsNode(Generic[TaxonomyStateType, TaxonomyPartialStateType
     def __init__(self, team: Team, user: User, toolkit_class: type["TaxonomyAgentToolkit"]):
         super().__init__(team, user)
         self._toolkit = toolkit_class(team=team)
-        self._state_class, self._partial_state_class = self._get_state_class()
-
-    def _get_state_class(self) -> tuple[type, type]:
-        """Extract the State type from the class's generic parameters."""
-        # Check if this class has generic arguments
-        if hasattr(self.__class__, "__orig_bases__"):
-            for base in self.__class__.__orig_bases__:
-                if get_origin(base) is TaxonomyAgentToolsNode:
-                    args = get_args(base)
-                    if args:
-                        return args[0], args[1]  # State is the first argument and PartialState is the second argument
-
-        # No generic type found - this shouldn't happen in proper usage
-        raise ValueError(
-            f"Could not determine state type for {self.__class__.__name__}. "
-            "Make sure to inherit from TaxonomyAgentToolsNode with a specific state type, "
-            "e.g., TaxonomyAgentToolsNode[TaxonomyAgentState, PartialTaxonomyAgentState]"
-        )
+        self._state_class, self._partial_state_class = self._get_state_class(TaxonomyAgentToolsNode)
 
     def run(self, state: TaxonomyStateType, config: RunnableConfig) -> TaxonomyPartialStateType:
         intermediate_steps = state.intermediate_steps or []
@@ -191,17 +184,16 @@ class TaxonomyAgentToolsNode(Generic[TaxonomyStateType, TaxonomyPartialStateType
 
         if input and not output:
             # Use the toolkit to handle tool execution
-            tool_name, output = self._toolkit.handle_tools(input.name, input)  # type: ignore
+            _, output = self._toolkit.handle_tools(input.name, input)  # type: ignore
 
         if output:
-            tool_context = f"Tool '{action.tool}' was called with arguments {action.tool_input} and returned: {output}"
             tool_msg = LangchainToolMessage(
-                content=tool_context,
+                content=output,
                 tool_call_id=action.log,
             )
             tool_result_msg.append(tool_msg)
 
-        old_msg = getattr(state, "tool_progress_messages", [])
+        old_msg = state.tool_progress_messages or []
         return self._partial_state_class(
             tool_progress_messages=[*old_msg, *tool_result_msg],
             intermediate_steps=[*intermediate_steps[:-1], (action, output)],

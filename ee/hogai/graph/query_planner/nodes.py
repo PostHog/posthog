@@ -119,6 +119,7 @@ class QueryPlannerNode(AssistantNode):
 
     @cached_property
     def _team_group_types(self) -> list[str]:
+        """Get all available group names for this team."""
         return list(
             GroupTypeMapping.objects.filter(project_id=self._team.project_id)
             .order_by("group_type_index")

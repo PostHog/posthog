@@ -102,6 +102,7 @@ class TaxonomyAgentToolkit:
 
     @cached_property
     def _team_group_types(self) -> list[str]:
+        """Get all available group names for this team."""
         return list(self._groups.values_list("group_type", flat=True))
 
     @cached_property
@@ -202,14 +203,14 @@ class TaxonomyAgentToolkit:
             response = runner.run(ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS)
         return response, verbose_name
 
-    def _generate_properties_output(self, props: list[tuple[str, str | None, str | None]]) -> str:
+    def _format_properties(self, props: list[tuple[str, str | None, str | None]]) -> str:
         """
         Generate the output format for properties. Can be overridden by subclasses.
         Default implementation uses XML format.
         """
-        return self._generate_properties_xml(props)
+        return self._format_properties_xml(props)
 
-    def _generate_properties_xml(self, children: list[tuple[str, str | None, str | None]]):
+    def _format_properties_xml(self, children: list[tuple[str, str | None, str | None]]):
         root = ET.Element("properties")
         property_type_to_tag = {}
 
@@ -228,7 +229,7 @@ class TaxonomyAgentToolkit:
 
         return ET.tostring(root, encoding="unicode")
 
-    def _generate_properties_yaml(self, children: list[tuple[str, str | None, str | None]]):
+    def _format_properties_yaml(self, children: list[tuple[str, str | None, str | None]]):
         properties_by_type: dict = {}
 
         for name, property_type, description in children:
@@ -307,7 +308,7 @@ class TaxonomyAgentToolkit:
         if not props:
             return f"Properties do not exist in the taxonomy for the entity {entity}."
 
-        return self._generate_properties_output(props)
+        return self._format_properties(props)
 
     def retrieve_entity_property_values(self, entity: str, property_name: str) -> str:
         """Retrieve property values for an entity."""
@@ -393,7 +394,7 @@ class TaxonomyAgentToolkit:
 
         if not props:
             return TaxonomyErrorMessages.event_properties_not_found(verbose_name)
-        return self._generate_properties_output(self._enrich_props_with_descriptions("event", props))
+        return self._format_properties(self._enrich_props_with_descriptions("event", props))
 
     def retrieve_event_or_action_property_values(self, event_name_or_action_id: str | int, property_name: str) -> str:
         try:

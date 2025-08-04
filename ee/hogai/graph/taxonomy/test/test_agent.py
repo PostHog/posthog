@@ -3,16 +3,16 @@ from unittest.mock import Mock, patch
 from ee.hogai.graph.taxonomy.agent import TaxonomyAgent
 from ee.hogai.graph.taxonomy.nodes import TaxonomyAgentNode, TaxonomyAgentToolsNode
 from ee.hogai.graph.taxonomy.toolkit import TaxonomyAgentToolkit
-from ee.hogai.graph.taxonomy.types import TaxonomyAgentState, PartialTaxonomyAgentState, TaxonomyNodeName
+from ee.hogai.graph.taxonomy.types import TaxonomyAgentState, TaxonomyNodeName
 from posthog.test.base import BaseTest
 
 
-class MockTaxonomyAgentNode(TaxonomyAgentNode[TaxonomyAgentState, PartialTaxonomyAgentState]):
-    def get_system_prompts(self):
+class MockTaxonomyAgentNode(TaxonomyAgentNode[TaxonomyAgentState, TaxonomyAgentState]):
+    def _get_system_prompts(self):
         return ["test system prompt"]
 
 
-class MockTaxonomyAgentToolsNode(TaxonomyAgentToolsNode[TaxonomyAgentState, PartialTaxonomyAgentState]):
+class MockTaxonomyAgentToolsNode(TaxonomyAgentToolsNode[TaxonomyAgentState, TaxonomyAgentState]):
     pass
 
 
@@ -21,16 +21,21 @@ class MockTaxonomyAgentToolkit(TaxonomyAgentToolkit):
         return []
 
 
-class ConcreteTaxonomyAgent(TaxonomyAgent[TaxonomyAgentState, PartialTaxonomyAgentState]):
+class ConcreteTaxonomyAgent(TaxonomyAgent[TaxonomyAgentState, TaxonomyAgentState]):
     pass
 
 
 class TestTaxonomyAgent(BaseTest):
-    @patch("ee.hogai.graph.taxonomy.agent.StateGraph")
-    def setUp(self, mock_state_graph):
+    def setUp(self):
         super().setUp()
-        mock_graph = Mock()
-        mock_state_graph.return_value = mock_graph
+
+        # Create a mock graph that will be returned by StateGraph()
+        self.mock_graph = Mock()
+
+        # Patch StateGraph to return our mock
+        self.patcher = patch("ee.hogai.graph.taxonomy.agent.StateGraph")
+        mock_state_graph_class = self.patcher.start()
+        mock_state_graph_class.return_value = self.mock_graph
 
         self.agent = ConcreteTaxonomyAgent(
             team=self.team,
@@ -39,6 +44,13 @@ class TestTaxonomyAgent(BaseTest):
             tools_node_class=MockTaxonomyAgentToolsNode,
             toolkit_class=MockTaxonomyAgentToolkit,
         )
+
+        # Ensure the agent's _graph attribute points to our mock
+        self.agent._graph = self.mock_graph
+
+    def tearDown(self):
+        super().tearDown()
+        self.patcher.stop()
 
     def test_agent_initialization(self):
         self.assertEqual(self.agent._team, self.team)
@@ -49,9 +61,9 @@ class TestTaxonomyAgent(BaseTest):
         self.assertFalse(self.agent._has_start_node)
 
     def test_get_state_class(self):
-        state_class, partial_state_class = self.agent._get_state_class()
+        state_class, partial_state_class = self.agent._get_state_class(TaxonomyAgent)
         self.assertEqual(state_class, TaxonomyAgentState)
-        self.assertEqual(partial_state_class, PartialTaxonomyAgentState)
+        self.assertEqual(partial_state_class, TaxonomyAgentState)
 
     def test_get_state_class_no_generic(self):
         # Create an agent without proper generic typing to test error case
@@ -70,7 +82,7 @@ class TestTaxonomyAgent(BaseTest):
         self.assertIn("Could not determine state type", str(context.exception))
 
     def test_add_edge(self):
-        result = self.agent.add_edge("START", "test_node")
+        result = self.agent.add_edge(TaxonomyNodeName.START, "test_node")
         self.assertEqual(result, self.agent)
         self.assertTrue(self.agent._has_start_node)
 
@@ -84,12 +96,6 @@ class TestTaxonomyAgent(BaseTest):
         result = self.agent.add_node("test_node", mock_action)
         self.assertEqual(result, self.agent)
 
-    def test_add_conditional_edges(self):
-        mock_router = Mock()
-        path_map = {"continue": "loop", "end": "END"}
-        result = self.agent.add_conditional_edges("test_node", mock_router, path_map)
-        self.assertEqual(result, self.agent)
-
     def test_compile_without_start_node(self):
         with self.assertRaises(ValueError) as context:
             self.agent.compile()
@@ -100,7 +106,10 @@ class TestTaxonomyAgent(BaseTest):
         self.agent._has_start_node = True
         _ = self.agent.compile()
 
-        self.agent._graph.compile.assert_called_once_with(checkpointer=None)
+        # When no checkpointer is passed, it should use the global checkpointer
+        self.agent._graph.compile.assert_called_once()
+        call_args = self.agent._graph.compile.call_args
+        self.assertIsNotNone(call_args[1]["checkpointer"])
 
     def test_compile_with_checkpointer(self):
         mock_checkpointer = Mock()
@@ -112,7 +121,10 @@ class TestTaxonomyAgent(BaseTest):
     def test_compile_full_graph(self):
         _ = self.agent.compile_full_graph()
 
-        self.agent._graph.compile.assert_called_once_with(checkpointer=None)
+        # When no checkpointer is passed, it should use the global checkpointer
+        self.agent._graph.compile.assert_called_once()
+        call_args = self.agent._graph.compile.call_args
+        self.assertIsNotNone(call_args[1]["checkpointer"])
 
     def test_compile_full_graph_with_checkpointer(self):
         mock_checkpointer = Mock()

@@ -15,7 +15,7 @@ ToolInputType = TypeVar("ToolInputType", bound=BaseModel)
 OutputType = TypeVar("OutputType", bound=BaseModel)
 
 
-class PartialTaxonomyAgentState(BaseState, Generic[OutputType]):
+class TaxonomyAgentState(BaseState, Generic[OutputType]):
     """
     Partial state class for filter options functionality.
     Only includes fields relevant to filter options generation.
@@ -26,7 +26,7 @@ class PartialTaxonomyAgentState(BaseState, Generic[OutputType]):
     Actions taken by the ReAct agent.
     """
 
-    output: Optional[OutputType] = Field(default=None)
+    output: Optional[OutputType | str] = Field(default=None)
     """
     The output of the taxonomy agent.
     """
@@ -44,13 +44,6 @@ class PartialTaxonomyAgentState(BaseState, Generic[OutputType]):
     tool_progress_messages: list[LangchainBaseMessage] = Field(default=[])
     """
     The messages with tool calls to collect tool progress.
-    """
-
-
-class TaxonomyAgentState(PartialTaxonomyAgentState[OutputType]):
-    """
-    State class specifically for filter options functionality.
-    Only includes fields relevant to filter options generation.
     """
 
 

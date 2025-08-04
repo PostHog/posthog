@@ -5,18 +5,25 @@ from ee.hogai.graph.taxonomy.nodes import TaxonomyAgentNode, TaxonomyAgentToolsN
 from ee.hogai.graph.taxonomy.toolkit import TaxonomyAgentToolkit
 from ee.hogai.graph.taxonomy.agent import TaxonomyAgent
 from ee.hogai.graph.taxonomy.tools import create_final_answer_model
-from ee.hogai.graph.taxonomy.types import TaxonomyAgentState, PartialTaxonomyAgentState
+from ee.hogai.graph.taxonomy.types import TaxonomyAgentState
 from ee.hogai.tool import MaxTool
+from posthog.models import Team, User
 from posthog.schema import MaxRecordingUniversalFilters
-from .prompts import USER_FILTER_OPTIONS_PROMPT
+from .prompts import (
+    PRODUCT_DESCRIPTION_PROMPT,
+    SESSION_REPLAY_EXAMPLES_PROMPT,
+    FILTER_FIELDS_TAXONOMY_PROMPT,
+    DATE_FIELDS_PROMPT,
+    USER_FILTER_OPTIONS_PROMPT,
+)
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
 
 class SessionReplayFilterOptionsToolkit(TaxonomyAgentToolkit):
-    def __init__(self, team):
-        super().__init__(team=team)
+    def __init__(self, team: Team):
+        super().__init__(team)
 
     def get_tools(self) -> list:
         """Get all available tools for filter options."""
@@ -24,29 +31,21 @@ class SessionReplayFilterOptionsToolkit(TaxonomyAgentToolkit):
 
         return [*self._get_default_tools(), final_answer]
 
-    def _generate_properties_output(self, props: list[tuple[str, str | None, str | None]]) -> str:
+    def _format_properties(self, props: list[tuple[str, str | None, str | None]]) -> str:
         """
         Override parent implementation to use YAML format instead of XML.
         """
-        return self._generate_properties_yaml(props)
+        return self._format_properties_yaml(props)
 
 
-class SessionReplayFilterNode(
-    TaxonomyAgentNode[TaxonomyAgentState, PartialTaxonomyAgentState[MaxRecordingUniversalFilters]]
-):
+class SessionReplayFilterNode(TaxonomyAgentNode[TaxonomyAgentState, TaxonomyAgentState[MaxRecordingUniversalFilters]]):
     """Node for generating filtering options for session replay."""
 
-    def __init__(self, team, user, toolkit_class: SessionReplayFilterOptionsToolkit):
+    def __init__(self, team: Team, user: User, toolkit_class: SessionReplayFilterOptionsToolkit):
         super().__init__(team, user, toolkit_class=toolkit_class)
 
-    def get_system_prompts(self) -> list[str]:
+    def _get_system_prompts(self) -> list[str]:
         """Get default system prompts. Override in subclasses for custom prompts."""
-        from .prompts import (
-            PRODUCT_DESCRIPTION_PROMPT,
-            SESSION_REPLAY_EXAMPLES_PROMPT,
-            FILTER_FIELDS_TAXONOMY_PROMPT,
-            DATE_FIELDS_PROMPT,
-        )
 
         return [
             PRODUCT_DESCRIPTION_PROMPT,
@@ -58,20 +57,20 @@ class SessionReplayFilterNode(
 
 
 class SessionReplayFilterOptionsToolsNode(
-    TaxonomyAgentToolsNode[TaxonomyAgentState, PartialTaxonomyAgentState[MaxRecordingUniversalFilters]]
+    TaxonomyAgentToolsNode[TaxonomyAgentState, TaxonomyAgentState[MaxRecordingUniversalFilters]]
 ):
     """Node for generating filtering options for session replay."""
 
-    def __init__(self, team, user, toolkit_class: SessionReplayFilterOptionsToolkit):
+    def __init__(self, team: Team, user: User, toolkit_class: SessionReplayFilterOptionsToolkit):
         super().__init__(team, user, toolkit_class=toolkit_class)
 
 
 class SessionReplayFilterOptionsGraph(
-    TaxonomyAgent[TaxonomyAgentState, PartialTaxonomyAgentState[MaxRecordingUniversalFilters]]
+    TaxonomyAgent[TaxonomyAgentState, TaxonomyAgentState[MaxRecordingUniversalFilters]]
 ):
     """Graph for generating filtering options for session replay."""
 
-    def __init__(self, team, user):
+    def __init__(self, team: Team, user: User):
         super().__init__(
             team,
             user,
@@ -118,19 +117,19 @@ class SearchSessionRecordingsTool(MaxTool):
 
         if "output" not in result or result["output"] is None:
             last_message = result["intermediate_steps"][-1]
-            help_content = "I need more information to proceed."
-
-            tool_call_id = getattr(last_message, "tool", None)
+            tool_call_id = last_message.tool or None
 
             if tool_call_id == "ask_user_for_help" or tool_call_id == "max_iterations":
-                content = getattr(last_message, "tool_input", None)
-                help_content = str(content)
+                if last_message.tool_input:
+                    content = last_message.tool_input
+                else:
+                    content = "I need more information to proceed."
 
             current_filters = MaxRecordingUniversalFilters.model_validate(
                 self.context.get("current_filters", {}),
             )
 
-            return help_content, current_filters
+            return content, current_filters
 
         try:
             result = MaxRecordingUniversalFilters.model_validate(result["output"])

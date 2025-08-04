@@ -272,11 +272,11 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, BaseTest):
             result = self.toolkit.get_tool_input_model(action)
             self.assertIsInstance(result, MockTool)
 
-    def test_generate_properties_output_formats(self):
+    def test_format_properties_formats(self):
         props = [("prop1", "String", "Test description"), ("prop2", "Numeric", None)]
 
         # Test XML format
-        xml_result = self.toolkit._generate_properties_xml(props)
+        xml_result = self.toolkit._format_properties_xml(props)
         self.assertIn("<properties>", xml_result)
         self.assertIn("<String>", xml_result)
         self.assertIn("<Numeric>", xml_result)
@@ -285,7 +285,7 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, BaseTest):
         self.assertIn("<name>prop2</name>", xml_result)
 
         # Test YAML format
-        yaml_result = self.toolkit._generate_properties_yaml(props)
+        yaml_result = self.toolkit._format_properties_yaml(props)
         self.assertIn("properties:", yaml_result)
         self.assertIn("String:", yaml_result)
         self.assertIn("Numeric:", yaml_result)

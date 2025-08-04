@@ -3,7 +3,7 @@ from typing import Any, Literal, TypedDict, TypeGuard, Union
 from langchain_core.messages import AIMessageChunk
 
 from ee.hogai.utils.types import AssistantNodeName, AssistantState, PartialAssistantState
-from ee.hogai.graph.taxonomy import TaxonomyNodeName
+from ee.hogai.graph.taxonomy.types import TaxonomyNodeName
 
 # A state update can have a partial state or a LangGraph's reserved dataclasses like Interrupt.
 GraphValueUpdate = dict[AssistantNodeName | TaxonomyNodeName, dict[Any, Any] | Any]

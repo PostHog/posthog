@@ -1,12 +1,8 @@
 import re
 from typing import Literal
 
-from ee.hogai.graph.taxonomy import (
-    TaxonomyAgentToolkit,
-    retrieve_action_properties,
-    retrieve_action_property_values,
-    TaxonomyToolNotFoundError,
-)
+from ee.hogai.graph.taxonomy.toolkit import TaxonomyAgentToolkit, TaxonomyToolNotFoundError
+from ee.hogai.graph.taxonomy.tools import retrieve_action_properties, retrieve_action_property_values
 from pydantic import BaseModel, field_validator
 
 from ee.hogai.graph.taxonomy.tools import get_dynamic_entity_tools
