@@ -37,7 +37,6 @@ def extract_insight_ids_from_text(text: str) -> list[int]:
                 insight_ids.extend([int(match) for match in matches])
             except ValueError:
                 pass
-            break
 
     return insight_ids
 
@@ -137,23 +136,23 @@ async def eval_insight_search_relevance(call_insight_search, pytestconfig):
         data=[
             EvalCase(
                 input="sql query for active users",
-                expected=[5],
+                expected=[18],
             ),
             EvalCase(
                 input="show me trends for pageviews",
-                expected=[9],
+                expected=[22],
             ),
             EvalCase(
                 input="funnel analysis for signup flow",
-                expected=[11],
+                expected=[24],
             ),
             EvalCase(
                 input="user retention metrics",
-                expected=[4],
+                expected=[17],
             ),
             EvalCase(
                 input="dashboard metrics overview",
-                expected=[1],
+                expected=[22],
             ),
         ],
         pytestconfig=pytestconfig,
