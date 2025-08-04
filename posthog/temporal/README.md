@@ -203,7 +203,7 @@ Every activity **must** have at least one of schedule-to-close and start-to-clos
 
 However, for long-running activities, these two timeouts are not enough: Imagine an activity that we expect to take 1 hour to complete, so we set a `start_to_close` timeout of 1 hour. If the worker crashes as soon as the activity begins, we will need to wait almost the full hour until the time out expires and the service re-schedules it. This is too long: We essentially wasted that whole hour, and potentially are now backed up as the new hour begins and we have a new workflow starting. This is why heartbeating and heartbeat timeouts are strongly recommended for any long running activities. By emitting heartbeats, the activities let the service know that they are still alive, and when they stop heartbeating for the duration of the timeout the service knows that the worker has likely crashed and the activity can be retried immediately, without waiting the full start-to-close timeout.
 
-Implementing hearbeating is very easy with the help of the `posthog.temporal.common.heartbeat.Heartbeater` class. This can be used as a context manager to wrap your long running work. `Heartbeater` will schedule a task that issues a heartbeat to the Temporal service within your configured `heartbeat_timeout`.
+Implementing heartbeating is very easy with the help of the `posthog.temporal.common.heartbeat.Heartbeater` class. This can be used as a context manager to wrap your long running work. `Heartbeater` will schedule a task that issues a heartbeat to the Temporal service within your configured `heartbeat_timeout`.
 
 ### Configure retries for your activities
 
