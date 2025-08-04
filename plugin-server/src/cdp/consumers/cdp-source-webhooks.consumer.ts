@@ -16,7 +16,19 @@ import { createAddLogFunction } from '../utils'
 import { createInvocation, createInvocationResult } from '../utils/invocation-utils'
 import { CdpConsumerBase } from './cdp-base.consumer'
 
-const DISALLOWED_HEADERS = ['x-forwarded-for', 'x-forwarded-host', 'x-forwarded-proto', 'x-forwarded-port', 'cookie']
+const DISALLOWED_HEADERS = [
+    'x-forwarded-for',
+    'x-forwarded-host',
+    'x-forwarded-proto',
+    'x-forwarded-port',
+    'cookie',
+    'x-csrftoken',
+    'proxy-authorization',
+    'referer',
+    'forwarded',
+    'x-real-ip',
+    'true-client-ip',
+]
 
 const getFirstHeaderValue = (value: string | string[] | undefined): string | undefined => {
     return Array.isArray(value) ? value[0] : value
