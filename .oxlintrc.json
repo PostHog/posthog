@@ -253,6 +253,12 @@
             "rules": {
                 "react-hooks/rules-of-hooks": "off"
             }
+        },
+        {
+            "files": ["*"],
+            "rules": {
+                "@typescript-eslint/explicit-module-boundary-types": "off"
+            }
         }
     ]
 }
