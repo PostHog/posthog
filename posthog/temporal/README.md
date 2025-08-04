@@ -415,3 +415,9 @@ As you run workflows, you will be able to see the logs in the worker's logs, and
 * [Documentation on different types of activities](https://docs.temporal.io/develop/python/python-sdk-sync-vs-async).
 * [Temporal Python SDK repository](https://github.com/temporalio/sdk-python).
 * [Temporal Python SDK code samples](https://github.com/temporalio/samples-python).
+
+## Examples in PostHog
+
+All of batch exports is built in Temporal, see some example workflows in [here](https://github.com/PostHog/posthog/tree/master/products/batch_exports/backend/temporal/destinations).
+
+Examples on how to unit test temporal workflows are available [here](https://github.com/PostHog/posthog/tree/master/products/batch_exports/backend/tests/temporal).
