@@ -51,7 +51,6 @@ pub async fn create_kafka_producer(
         )
         // For debugging SSL issues with broker in production
         .set("debug", "security,broker,protocol")
-        .set("log_level", "7")
         .set(
             "queue.buffering.max.messages",
             config.kafka_producer_queue_messages.to_string(),
