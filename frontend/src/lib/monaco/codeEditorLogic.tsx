@@ -77,7 +77,7 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
 
                     const variables =
                         props.sourceQuery?.kind === NodeKind.HogQLQuery
-                            ? props.sourceQuery.variables ?? undefined
+                            ? (props.sourceQuery.variables ?? undefined)
                             : undefined
 
                     const response = await performQuery<HogQLMetadata>(
