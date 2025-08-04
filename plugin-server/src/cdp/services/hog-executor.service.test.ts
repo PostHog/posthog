@@ -13,19 +13,26 @@ import { DateTime } from 'luxon'
 import { AddressInfo } from 'net'
 
 import { CyclotronInvocationQueueParametersFetchType } from '~/schema/cyclotron'
+import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 import { truth } from '~/tests/helpers/truth'
 import { logger } from '~/utils/logger'
 import { fetch } from '~/utils/request'
 
 import { HogExecutorService } from '../../../src/cdp/services/hog-executor.service'
 import { CyclotronJobInvocationHogFunction, HogFunctionType } from '../../../src/cdp/types'
-import { Hub } from '../../../src/types'
+import { Hub, Team } from '../../../src/types'
 import { createHub } from '../../../src/utils/db/hub'
 import { parseJSON } from '../../utils/json-parse'
 import { promisifyCallback } from '../../utils/utils'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../_tests/examples'
-import { createExampleInvocation, createHogExecutionGlobals, createHogFunction } from '../_tests/fixtures'
+import {
+    createExampleInvocation,
+    createHogExecutionGlobals,
+    createHogFunction,
+    insertIntegration,
+} from '../_tests/fixtures'
 import { EXTEND_OBJECT_KEY } from './hog-executor.service'
+import { HogInputsService } from './hog-inputs.service'
 
 const cleanLogs = (logs: string[]): string[] => {
     // Replaces the function time with a fixed value to simplify testing
@@ -37,14 +44,19 @@ const cleanLogs = (logs: string[]): string[] => {
 describe('Hog Executor', () => {
     jest.setTimeout(1000)
     let executor: HogExecutorService
+    let team: Team
+    let hogInputsService: HogInputsService
     let hub: Hub
 
     beforeEach(async () => {
+        await resetTestDatabase()
         const fixedTime = DateTime.fromObject({ year: 2025, month: 1, day: 1 }, { zone: 'UTC' })
         jest.spyOn(Date, 'now').mockReturnValue(fixedTime.toMillis())
 
         hub = await createHub()
+        team = await getFirstTeam(hub)
         executor = new HogExecutorService(hub)
+        hogInputsService = new HogInputsService(hub)
     })
 
     describe('general event processing', () => {
@@ -223,6 +235,80 @@ describe('Hog Executor', () => {
                     url: 'http://localhost:8000/events/1',
                     properties: { $lib_version: '1.2.3' },
                     timestamp: '2024-06-07T12:00:00.000Z',
+                },
+                groups: {},
+                nested: { foo: 'http://localhost:8000/events/1' },
+                person: {
+                    id: 'uuid',
+                    name: 'test',
+                    url: 'http://localhost:8000/persons/1',
+                    properties: { email: 'test@posthog.com', first_name: 'Pumpkin' },
+                },
+                event_url: 'http://localhost:8000/events/1-test',
+            })
+        })
+
+        it('refreshes oauth token if it is about to expire', async () => {
+            const fn = createHogFunction({
+                name: 'Test hog function',
+                ...HOG_EXAMPLES.simple_fetch,
+                ...HOG_INPUTS_EXAMPLES.simple_fetch_with_oauth,
+                ...HOG_FILTERS_EXAMPLES.no_filters,
+                team_id: team.id,
+            })
+
+            await insertIntegration(hub.postgres, team.id, {
+                id: 1,
+                kind: 'slack',
+                config: { team: 'foobar', expires_in: 1800, refreshed_at: 1754294544 },
+                sensitive_config: {
+                    access_token: hub.encryptedFields.encrypt('token'),
+                },
+            })
+
+            const invocation = createExampleInvocation(fn)
+            const globals = await hogInputsService.buildInputsWithGlobals(
+                invocation.hogFunction,
+                invocation.state.globals
+            )
+            invocation.state.globals = {
+                ...globals,
+                inputs: {
+                    ...globals.inputs,
+                    oauth: {
+                        ...globals.inputs.oauth,
+                        refreshed_at: 1735688699, // expired
+                        expires_in: 1800,
+                        access_token: 'expired-access-token',
+                    },
+                },
+            }
+
+            const result = await executor.execute(invocation)
+
+            expect(result.invocation).toMatchObject({
+                queue: 'hog',
+                queueParameters: {
+                    type: 'fetch',
+                    url: 'https://example.com/posthog-webhook',
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        Authorization: 'Bearer ',
+                    },
+                },
+            })
+
+            const body = parseJSON((result.invocation.queueParameters as any).body!)
+            expect(body).toEqual({
+                event: {
+                    uuid: 'uuid',
+                    event: 'test',
+                    elements_chain: '',
+                    distinct_id: 'distinct_id',
+                    url: 'http://localhost:8000/events/1',
+                    properties: { $lib_version: '1.2.3' },
+                    timestamp: expect.any(String),
                 },
                 groups: {},
                 nested: { foo: 'http://localhost:8000/events/1' },
