@@ -68,10 +68,10 @@ class HighPageviewsStrategy(TeamSelectionStrategy):
             context.log.info(f"Found {len(team_ids)} teams with high pageviews")
             return team_ids
         except ValueError as e:
-            context.log.exception(f"Invalid configuration for pageviews query: {e}")
+            context.log.warning(f"Invalid configuration for pageviews query: {e}")
             return set()
         except Exception as e:
-            context.log.exception(f"Failed to fetch top teams by pageviews: {e}")
+            context.log.warning(f"Failed to fetch top teams by pageviews: {e}")
             return set()
 
 

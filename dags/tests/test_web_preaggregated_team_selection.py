@@ -418,18 +418,26 @@ class TestWebAnalyticsTeamSelectionAsset:
 
 
 class TestIntegrationScenarios:
+    def setup_method(self):
+        self.mock_context = Mock(spec=dagster.OpExecutionContext)
+        self.mock_context.log = Mock()
+
     def test_complete_flow_with_env_variable(self):
         test_teams = "100, 200, 300"
-        expected_teams = [100, 200, 300]
 
         with patch.dict(os.environ, {"WEB_ANALYTICS_ENABLED_TEAM_IDS": test_teams}):
-            result = get_team_ids_from_sources()
+            result = get_team_ids_from_sources(self.mock_context)
 
-        assert result == expected_teams
+        # Should include env teams plus defaults
+        assert 100 in result
+        assert 200 in result
+        assert 300 in result
+        for default_team in DEFAULT_ENABLED_TEAM_IDS:
+            assert default_team in result
 
     def test_complete_flow_with_defaults(self):
         with patch.dict(os.environ, {}, clear=True):
-            result = get_team_ids_from_sources()
+            result = get_team_ids_from_sources(self.mock_context)
 
         assert result == sorted(DEFAULT_ENABLED_TEAM_IDS)
         assert len(result) > 0  # Ensure defaults are not empty
