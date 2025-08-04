@@ -71,7 +71,7 @@ export function SessionTimeline({ ...props }: TabsPrimitiveContentProps): JSX.El
                     style={{ scrollbarGutter: 'stable' }}
                 >
                     {match(itemsLoading)
-                        .with(true, () => <div className="p-2">Loading events...</div>)
+                        .with(true, () => <div className="p-2 text-secondary">Loading events...</div>)
                         .with(false, () =>
                             items.map((item) => {
                                 const renderer = getRenderer(item)
