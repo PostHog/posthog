@@ -102,6 +102,21 @@ class TestHogFunctionTemplates(ClickhouseTestMixin, APIBaseTest, QueryMatchingTe
             free=True,
         )
 
+        # Create legacy plugin templates to test they are excluded
+        HogFunctionTemplate.objects.create(
+            template_id="plugin-legacy-integration",
+            sha="1.0.0",
+            name="Legacy Plugin Integration",
+            description="A legacy plugin template",
+            code="return event",
+            code_language="hog",
+            inputs_schema={},
+            type="transformation",
+            status="stable",
+            category=["Legacy"],
+            free=True,
+        )
+
     def test_list_function_templates(self):
         response = self.client.get("/api/projects/@current/hog_function_templates/")
 
@@ -157,6 +172,24 @@ class TestHogFunctionTemplates(ClickhouseTestMixin, APIBaseTest, QueryMatchingTe
         assert response.status_code == status.HTTP_200_OK, response.json()
         for template_item in response.json()["results"]:
             assert template_item["status"] != "hidden", f"Hidden template {template_item['id']} should not be returned"
+
+    def test_legacy_plugin_templates_are_excluded_from_public_api(self):
+        """Test that templates with IDs starting with 'plugin-' are excluded from public API"""
+        self.client.logout()
+        # Request both destination and transformation types to ensure we test all templates
+        response = self.client.get("/api/public_hog_function_templates/?types=transformation")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        template_ids = [template["id"] for template in response.json()["results"]]
+
+        # Verify that no template IDs start with "plugin-"
+        for template_id in template_ids:
+            assert not template_id.startswith(
+                "plugin-"
+            ), f"Legacy plugin template {template_id} should not be returned in public API"
+
+        # Specifically verify our test legacy template is not included
+        assert "plugin-legacy-integration" not in template_ids
 
     def test_get_specific_deprecated_template_from_db(self):
         """Test retrieving a specific template from the database via API"""

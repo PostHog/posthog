@@ -70,6 +70,8 @@ class PublicHogFunctionTemplateViewSet(
 
         if self.request.path.startswith("/api/public_hog_function_templates"):
             queryset = queryset.exclude(status="hidden")
+            # Exclude legacy templates that start with "plugin-"
+            queryset = queryset.exclude(template_id__startswith="plugin-")
 
         return queryset
 
