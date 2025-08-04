@@ -815,6 +815,29 @@ class TestProperty(BaseTest):
         self.assertEqual(compare_op_2.left.chain, ["foobars", "properties", "$feature/test"])
         self.assertEqual(compare_op_2.right.value, "test")
 
+    def test_revenue_analytics_property(self):
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "revenue_analytics", "key": "product", "value": ["Product A"], "operator": "exact"},
+                scope="revenue_analytics",
+            ),
+            self._parse_expr("revenue_analytics_product.name = 'Product A'"),
+        )
+
+    def test_revenue_analytics_property_multiple_values(self):
+        self.assertEqual(
+            self._property_to_expr(
+                {
+                    "type": "revenue_analytics",
+                    "key": "product",
+                    "value": ["Product A", "Product C"],
+                    "operator": "exact",
+                },
+                scope="revenue_analytics",
+            ),
+            self._parse_expr("revenue_analytics_product.name IN ('Product A', 'Product C')"),
+        )
+
     def test_property_to_expr_event_metadata(self):
         self.assertEqual(
             self._property_to_expr(
