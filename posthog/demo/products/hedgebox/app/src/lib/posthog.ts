@@ -7,7 +7,7 @@ export function initPostHog(): void {
            console.warn('NEXT_PUBLIC_POSTHOG_KEY is not set, skipping PostHog initialization')
            return
         } 
-        const localApiHost = process.env.NEXT_PUBLIC_POSTHOG_HOST || 'http://localhost:8000'
+        const localApiHost = process.env.NEXT_PUBLIC_POSTHOG_HOST || 'http://localhost:8010'
         posthog.init(demoApiToken, {
             api_host: localApiHost,
             disable_compression: true,
