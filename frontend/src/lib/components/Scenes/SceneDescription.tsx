@@ -11,7 +11,7 @@ type SceneDescriptionProps = SceneInputProps & {
 }
 
 export function SceneDescription({
-    defaultValue,
+    defaultValue = '',
     onSave,
     dataAttrKey,
     optional = false,

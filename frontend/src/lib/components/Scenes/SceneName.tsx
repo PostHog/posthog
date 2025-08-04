@@ -8,7 +8,7 @@ import { SceneInputProps, SceneSaveCancelButtons } from './utils'
 type SceneNameProps = SceneInputProps
 
 export function SceneName({
-    defaultValue,
+    defaultValue = '',
     onSave,
     dataAttrKey,
     optional = false,
