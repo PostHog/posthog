@@ -25,7 +25,6 @@ from posthog.models.personal_api_key import (
 )
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.user import User
-from posthog.metrics import LABEL_TEAM_ID
 from django.contrib.auth.models import AnonymousUser
 from zxcvbn import zxcvbn
 
@@ -33,12 +32,6 @@ PERSONAL_API_KEY_QUERY_PARAM_COUNTER = Counter(
     "api_auth_personal_api_key_query_param",
     "Requests where the personal api key is specified in a query parameter",
     labelnames=["user_uuid"],
-)
-
-PROJECT_SECRET_API_KEY_QUERY_PARAM_COUNTER = Counter(
-    "api_auth_project_secret_api_key_query_param",
-    "Requests where the project secret api key is specified in a query parameter",
-    labelnames=[LABEL_TEAM_ID],
 )
 
 
