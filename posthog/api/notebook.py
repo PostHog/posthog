@@ -245,7 +245,7 @@ class NotebookSerializer(NotebookMinimalSerializer):
 )
 class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     scope_object = "notebook"
-    queryset = Notebook.objects.all()
+    queryset = Notebook.objects.filter(visibility=Notebook.Visibility.DEFAULT)
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ["short_id"]
     lookup_field = "short_id"
@@ -260,7 +260,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
 
         queryset = queryset.select_related("created_by", "last_modified_by", "team")
         if self.action == "list":
-            queryset = queryset.filter(deleted=False)
+            queryset = queryset.filter(deleted=False, visibility=Notebook.Visibility.DEFAULT)
             queryset = self._filter_list_request(self.request, queryset)
 
         order = self.request.GET.get("order", None)
