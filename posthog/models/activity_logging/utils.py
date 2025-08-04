@@ -1,5 +1,9 @@
 from typing import cast
 from django.db import models
+import structlog
+import traceback
+
+logger = structlog.get_logger(__name__)
 
 
 def get_changed_fields_local(before_update: models.Model, after_update: models.Model) -> list[str]:
@@ -33,6 +37,15 @@ def get_changed_fields_local(before_update: models.Model, after_update: models.M
                     changed_fields.append(field.name)
             except Exception:
                 # If we can't safely compare, assume it changed to be safe
+                logger.warning(
+                    "Field comparison failed",
+                    model_name=model_name,
+                    field_name=field.name,
+                    before_update=before_update,
+                    after_update=after_update,
+                    error=traceback.format_exc(),
+                )
+
                 changed_fields.append(field.name)
 
     return changed_fields
