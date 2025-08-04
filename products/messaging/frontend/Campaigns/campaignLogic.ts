@@ -35,10 +35,10 @@ const NEW_CAMPAIGN: HogFlow = {
             id: 'exit_node',
             type: 'exit',
             name: 'Exit',
+            description: 'User moved through the campaign without errors',
             config: {
                 reason: 'Default exit',
             },
-            description: '',
             created_at: 0,
             updated_at: 0,
         },

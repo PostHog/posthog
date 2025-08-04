@@ -1,5 +1,6 @@
 import { BaseEdge, EdgeProps, useEdges, Edge, EdgeLabelRenderer } from '@xyflow/react'
 import { HogFlowEdge } from '../types'
+import { LemonTag } from '@posthog/lemon-ui'
 
 const MINIMUM_EDGE_SPACING = 150 // Minimum horizontal distance between parallel edges
 
@@ -124,14 +125,16 @@ export function getSmartStepPath({
 
 function EdgeLabel({ transform, label }: { transform: string; label: string }): JSX.Element {
     return (
-        <div
+        <LemonTag
             style={{
                 transform,
             }}
-            className="nodrag nopan absolute text-[6px] bg-surface-primary/75 p-1 rounded"
+            size="small"
+            className="nodrag nopan absolute text-[0.45rem] font-sans font-medium"
+            type="muted"
         >
             {label}
-        </div>
+        </LemonTag>
     )
 }
 

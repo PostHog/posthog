@@ -10,7 +10,8 @@ export const StepFunctionEmail: HogFlowStep<'function_email'> = {
     type: 'function_email',
     name: 'Email',
     description: 'Send an email to the user.',
-    icon: <IconLetter />,
+    icon: <IconLetter className="text-[#005841]" />,
+    color: '#005841',
     renderNode: (props) => <StepFunctionEmailNode {...props} />,
     renderConfiguration: (node) => <StepFunctionEmailConfiguration node={node} />,
     create: () => {

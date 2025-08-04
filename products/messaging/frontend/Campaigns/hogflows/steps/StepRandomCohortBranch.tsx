@@ -14,7 +14,8 @@ export const StepRandomCohortBranch: HogFlowStep<'random_cohort_branch'> = {
     type: 'random_cohort_branch',
     name: 'Random cohort branch',
     description: 'Randomly branch off to a different path based on cohort percentages.',
-    icon: <IconPercentage />,
+    icon: <IconPercentage className="text-[#9a004d]" />,
+    color: '#9a004d',
     renderNode: (props) => <StepRandomCohortBranchNode {...props} />,
     renderConfiguration: (node) => <StepRandomCohortBranchConfiguration node={node} />,
     create: () => {
