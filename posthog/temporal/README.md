@@ -187,7 +187,9 @@ Now that your code is using asyncio, it will run in the Temporal workers coopera
 
 #### Multithreading
 
-There shouldn't be ever a need to run synchronous multithreading activities, as you can always start a thread pool in asynchronous activities when required. Regardless, if you do have the need, then know that just making an activity function synchronous is enough as our workers are configured with a thread pool executor by default. Similar considerations around blocking as in asyncio exist here too: The GIL will prevent other activities from running unless released, so your threaded code should contain I/O operations that release the GIL for this concurrency model to make sense.
+It is not recommended to run synchronous multithreading activities. Any threading needs can be satisfied by a thread pool in asynchronous activities, for example by using `asyncio.to_thread`. Regardless, if you have strong reasons to prefer multithreading, then know that making an activity function synchronous is enough as our workers are configured with a thread pool executor by default. However, do note that spawning threads will use up more resources than asyncio, and that a lot of the abstractions we have built on top of the Temporal API are built with asyncio in mind, so it requires additional wrapping to enable certain functions from synchronous code.
+
+Similar considerations around blocking as in asyncio exist here too: The GIL will prevent other activities from running unless released, so your threaded code should contain I/O operations that release the GIL for this concurrency model to make sense.
 
 Using synchronous activities means that you have to opt for synchronous versions of all of our abstractions, like `HeartbeaterSync` instead of `Heartbeater`.
 
@@ -206,6 +208,8 @@ Every activity **must** have at least one of schedule-to-close and start-to-clos
 However, for long-running activities, these two timeouts are not enough: Imagine an activity that we expect to take 1 hour to complete, so we set a `start_to_close` timeout of 1 hour. If the worker crashes as soon as the activity begins, we will need to wait almost the full hour until the time out expires and the service re-schedules it. This is too long: We essentially wasted that whole hour, and potentially are now backed up as the new hour begins and we have a new workflow starting. This is why heartbeating and heartbeat timeouts are strongly recommended for any long running activities. By emitting heartbeats, the activities let the service know that they are still alive, and when they stop heartbeating for the duration of the timeout the service knows that the worker has likely crashed and the activity can be retried immediately, without waiting the full start-to-close timeout.
 
 Implementing heartbeating is very easy with the help of the `posthog.temporal.common.heartbeat.Heartbeater` class. This can be used as a context manager to wrap your long running work. `Heartbeater` will schedule a task that issues a heartbeat to the Temporal service within your configured `heartbeat_timeout`.
+
+Hearbeats can include additional arbitrary information in them. This is known as the heartbeat's details. Anything passed is persisted in Temporal and can be obtained later. This can enable progress tracking using heartbeats, but keep in mind that heartbeat delivery is buffered and not guaranteed. For general tracking purposes including details in the heartbeat can be useful, but for precise controls we recommend looking somewhere else.
 
 ### Configure retries for your activities
 
@@ -320,6 +324,14 @@ async def my_activity(inputs):
 
 > ![NOTE]
 > External log messages are also consumed by our internal log consumers, so they will also be available in our log dashboards.
+
+### Watch for worker shutdowns
+
+As part of normal operations, Temporal workers are often shutdown and restarted (for example, when a new deployment is triggered). When a shutdown request is emitted, workers will wait for activities running in them to finish. However, they won't wait forever: There is a timeout that can range from a few minutes to hours, as configured in the deployment, and after the timeout fires, all activities will be forcibly killed.
+
+Particularly when working with long-running activities, it may be useful to keep track of when workers are shutting down. For example, your activity may choose to save any in-progress state, and exit early, to avoid being forcibly killed and lose all progress. For this scenario, we recommend using the `ShutdownMonitor` utility available in `posthog.temporal.common.shutdown`. This is a context manager that offers a `is_worker_shutdown` method to check whether the worker we are running on is shutting down. It also offers methods to wait for worker shutdown.
+
+However, short running activities in general won't need to concern themselves with this.
 
 ## Deploying to production
 
