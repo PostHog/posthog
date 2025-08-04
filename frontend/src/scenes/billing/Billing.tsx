@@ -69,7 +69,7 @@ export function Billing(): JSX.Element {
         if (billing) {
             reportBillingShown()
         }
-    }, [!!billing])
+    }, [!!billing]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     if (preflight && !isCloudOrDev) {
         router.actions.push(urls.default())

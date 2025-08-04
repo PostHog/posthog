@@ -109,7 +109,7 @@ export const batchExportBackfillModalLogic = kea<batchExportBackfillModalLogicTy
 
                 await api.batchExports
                     .createBackfill(props.id, {
-                        start_at: earliest_backfill ? null : start_at?.toISOString() ?? null,
+                        start_at: earliest_backfill ? null : (start_at?.toISOString() ?? null),
                         end_at: end_at?.toISOString() ?? null,
                     })
                     .catch((e) => {

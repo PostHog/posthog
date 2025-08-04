@@ -892,10 +892,13 @@ export interface TableSettings {
 
 export interface SharingConfigurationSettings {
     whitelabel?: boolean
+    // Insights
     noHeader?: boolean
-    showInspector?: boolean
     legend?: boolean
     detailed?: boolean
+    hideExtraDetails?: boolean
+    // Recordings
+    showInspector?: boolean
 }
 
 export interface DataVisualizationNode extends Node<never> {
@@ -2347,6 +2350,7 @@ export type CachedExperimentFunnelsQueryResponse = CachedQueryResponse<Experimen
 
 export interface ExperimentFunnelsQuery extends DataNode<ExperimentFunnelsQueryResponse> {
     kind: NodeKind.ExperimentFunnelsQuery
+    uuid?: string
     name?: string
     experiment_id?: integer
     funnels_query: FunnelsQuery
@@ -2354,6 +2358,7 @@ export interface ExperimentFunnelsQuery extends DataNode<ExperimentFunnelsQueryR
 
 export interface ExperimentTrendsQuery extends DataNode<ExperimentTrendsQueryResponse> {
     kind: NodeKind.ExperimentTrendsQuery
+    uuid?: string
     name?: string
     experiment_id?: integer
     count_query: TrendsQuery
@@ -2674,7 +2679,6 @@ export interface MultipleBreakdownOptions {
 }
 
 export interface InsightActorsQueryOptionsResponse {
-    // eslint-disable-next-line @typescript-eslint/no-duplicate-type-constituents
     day?: { label: string; value: string | DatetimeDay | Day }[]
     status?: { label: string; value: string }[]
     interval?: {
@@ -2983,8 +2987,7 @@ export type EventTaxonomyQueryResponse = AnalyticsQueryResponseBase<EventTaxonom
 export type CachedEventTaxonomyQueryResponse = CachedQueryResponse<EventTaxonomyQueryResponse>
 
 export interface ActorsPropertyTaxonomyResponse {
-    // Values can be floats and integers. The comment below is to preserve the `integer` type.
-    // eslint-disable-next-line @typescript-eslint/no-duplicate-type-constituents
+    // Values can be floats and integers
     sample_values: (string | number | boolean | integer)[]
     sample_count: integer
 }

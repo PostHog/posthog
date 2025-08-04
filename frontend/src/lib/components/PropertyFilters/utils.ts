@@ -487,7 +487,7 @@ export function createDefaultPropertyFilter(
     // is the equivalent of selecting a property value
     const property: AnyPropertyFilter = {
         key: isGroupNameFilter ? '$group_key' : propertyKey.toString(),
-        value: isGroupNameFilter ? propertyKey.toString() : originalQuery ?? null,
+        value: isGroupNameFilter ? propertyKey.toString() : (originalQuery ?? null),
         operator,
         type: propertyType as AnyPropertyFilter['type'] as any, // bad | pipe chain :(
         group_type_index: taxonomicGroup.groupTypeIndex,

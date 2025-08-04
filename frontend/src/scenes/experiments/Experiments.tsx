@@ -42,8 +42,8 @@ const getExperimentDuration = (experiment: Experiment): number | undefined => {
     return experiment.end_date
         ? dayjs(experiment.end_date).diff(dayjs(experiment.start_date), 'day')
         : experiment.start_date
-        ? dayjs().diff(dayjs(experiment.start_date), 'day')
-        : undefined
+          ? dayjs().diff(dayjs(experiment.start_date), 'day')
+          : undefined
 }
 
 export function Experiments(): JSX.Element {
