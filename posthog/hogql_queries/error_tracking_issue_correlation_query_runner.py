@@ -11,6 +11,8 @@ from posthog.schema import (
     CachedErrorTrackingIssueCorrelationQueryResponse,
     DateRange,
 )
+from posthog.models.error_tracking import ErrorTrackingIssue
+from posthog.api.error_tracking import ErrorTrackingIssueSerializer
 from posthog.hogql.parser import parse_select
 import datetime
 
@@ -35,8 +37,8 @@ class ErrorTrackingIssueCorrelationQueryRunner(QueryRunner):
         super().__init__(*args, **kwargs)
         self.paginator = HogQLHasMorePaginator.from_limit_context(
             limit_context=LimitContext.QUERY,
-            limit=self.query.limit if self.query.limit else None,
-            offset=self.query.offset,
+            limit=50,
+            offset=0,
         )
 
     def calculate(self):
@@ -51,7 +53,7 @@ class ErrorTrackingIssueCorrelationQueryRunner(QueryRunner):
             )
 
         columns: list[str] = query_result.columns or []
-        results = self.results(columns, query_result.results)
+        results = self.results(query_result.results)
 
         return ErrorTrackingIssueCorrelationQueryResponse(
             columns=columns,
@@ -61,6 +63,45 @@ class ErrorTrackingIssueCorrelationQueryRunner(QueryRunner):
             modifiers=self.modifiers,
             **self.paginator.response_params(),
         )
+
+    def results(self, rows):
+        issue_ids = set()
+        correlations = {}
+
+        for row in rows:
+            event, uuids, both, success_only, exception_only, neither = row
+            issues = list(zip(uuids, both, success_only, exception_only, neither))
+
+            for issue in issues:
+                uuid, a, b, c, d = issue
+
+                if not (a > 0 and b > 0 and c > 0 and d > 0):
+                    continue
+
+                issue_ids.update(uuids)
+                odds_ratio = a * b / c * d
+
+                correlations[str(uuid)].append()
+                issue_correlation = correlations.setdefault(uuid, {})
+                issue_correlation[event] = {"correlation_score": odds_ratio, "correlation_event": event}
+
+        issues = self.fetch_issues(issue_ids)
+
+        results = []
+        for issue in issues:
+            issue_correlations = correlations.get(issue["id"]).values()
+            for correlation in issue_correlations:
+                results.append({**issue, **correlation})
+
+        return results
+
+    def fetch_issues(self, ids):
+        queryset = (
+            ErrorTrackingIssue.objects.with_first_seen()
+            .select_related("assignment")
+            .filter(id__in=ids, team=self.team, status=ErrorTrackingIssue.Status.ACTIVE)
+        )
+        return ErrorTrackingIssueSerializer(queryset, many=True).data
 
     def to_query(self) -> ast.SelectQuery:
         return parse_select(
@@ -80,7 +121,7 @@ FROM(
     select
         $session_id,
         (SELECT * FROM issue_list) AS issue_ids,
-        minIf(toNullable(timestamp), event='$pageview') as earliest_success_event,
+        minIf(toNullable(timestamp), event='{self.query.events[0]}') as earliest_success_event,
         minForEach(arrayMap(x -> (if(x = issue_id, toNullable(timestamp), NULL)), issue_ids)) as earliest_exceptions,
         arrayMap(x -> if(x IS NOT NULL AND earliest_success_event IS NOT NULL AND x < earliest_success_event, 1, 0), earliest_exceptions) AS both,
         arrayMap(x -> if(x IS NULL AND earliest_success_event IS NOT NULL, 1, 0), earliest_exceptions) AS success_only,

@@ -2794,7 +2794,7 @@
                 },
                 "results": {
                     "items": {
-                        "$ref": "#/definitions/ErrorTrackingIssue"
+                        "$ref": "#/definitions/ErrorTrackingCorrelatedIssue"
                     },
                     "type": "array"
                 },
@@ -8365,6 +8365,61 @@
                         {
                             "additionalProperties": false,
                             "properties": {
+                                "columns": {
+                                    "items": {
+                                        "type": "string"
+                                    },
+                                    "type": "array"
+                                },
+                                "error": {
+                                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                                    "type": "string"
+                                },
+                                "hasMore": {
+                                    "type": "boolean"
+                                },
+                                "hogql": {
+                                    "description": "Generated HogQL query.",
+                                    "type": "string"
+                                },
+                                "limit": {
+                                    "$ref": "#/definitions/integer"
+                                },
+                                "modifiers": {
+                                    "$ref": "#/definitions/HogQLQueryModifiers",
+                                    "description": "Modifiers used when performing the query"
+                                },
+                                "offset": {
+                                    "$ref": "#/definitions/integer"
+                                },
+                                "query_status": {
+                                    "$ref": "#/definitions/QueryStatus",
+                                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                                },
+                                "resolved_date_range": {
+                                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                                    "description": "The date range used for the query"
+                                },
+                                "results": {
+                                    "items": {
+                                        "$ref": "#/definitions/ErrorTrackingCorrelatedIssue"
+                                    },
+                                    "type": "array"
+                                },
+                                "timings": {
+                                    "description": "Measured timings for different parts of the query generation process",
+                                    "items": {
+                                        "$ref": "#/definitions/QueryTiming"
+                                    },
+                                    "type": "array"
+                                }
+                            },
+                            "required": ["results"],
+                            "type": "object"
+                        },
+                        {
+                            "additionalProperties": false,
+                            "properties": {
                                 "credible_intervals": {
                                     "additionalProperties": {
                                         "items": {
@@ -8694,6 +8749,9 @@
                         },
                         {
                             "$ref": "#/definitions/ErrorTrackingQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/ErrorTrackingIssueCorrelationQuery"
                         },
                         {
                             "$ref": "#/definitions/ExperimentFunnelsQuery"
@@ -9524,6 +9582,61 @@
             "enum": ["actions", "events", "data_warehouse", "new_entity"],
             "type": "string"
         },
+        "ErrorTrackingCorrelatedIssue": {
+            "additionalProperties": false,
+            "properties": {
+                "assignee": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/ErrorTrackingIssueAssignee"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "correlation_event": {
+                    "type": "string"
+                },
+                "correlation_score": {
+                    "type": "number"
+                },
+                "description": {
+                    "type": ["string", "null"]
+                },
+                "external_issues": {
+                    "items": {
+                        "$ref": "#/definitions/ErrorTrackingExternalReference"
+                    },
+                    "type": "array"
+                },
+                "first_seen": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": ["string", "null"]
+                },
+                "status": {
+                    "enum": ["archived", "active", "resolved", "pending_release", "suppressed"],
+                    "type": "string"
+                }
+            },
+            "required": [
+                "assignee",
+                "correlation_event",
+                "correlation_score",
+                "description",
+                "first_seen",
+                "id",
+                "name",
+                "status"
+            ],
+            "type": "object"
+        },
         "ErrorTrackingExternalReference": {
             "additionalProperties": false,
             "properties": {
@@ -9768,7 +9881,7 @@
                 },
                 "results": {
                     "items": {
-                        "$ref": "#/definitions/ErrorTrackingIssue"
+                        "$ref": "#/definitions/ErrorTrackingCorrelatedIssue"
                     },
                     "type": "array"
                 },
@@ -17131,6 +17244,61 @@
                 {
                     "additionalProperties": false,
                     "properties": {
+                        "columns": {
+                            "items": {
+                                "type": "string"
+                            },
+                            "type": "array"
+                        },
+                        "error": {
+                            "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                            "type": "string"
+                        },
+                        "hasMore": {
+                            "type": "boolean"
+                        },
+                        "hogql": {
+                            "description": "Generated HogQL query.",
+                            "type": "string"
+                        },
+                        "limit": {
+                            "$ref": "#/definitions/integer"
+                        },
+                        "modifiers": {
+                            "$ref": "#/definitions/HogQLQueryModifiers",
+                            "description": "Modifiers used when performing the query"
+                        },
+                        "offset": {
+                            "$ref": "#/definitions/integer"
+                        },
+                        "query_status": {
+                            "$ref": "#/definitions/QueryStatus",
+                            "description": "Query status indicates whether next to the provided data, a query is still running."
+                        },
+                        "resolved_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The date range used for the query"
+                        },
+                        "results": {
+                            "items": {
+                                "$ref": "#/definitions/ErrorTrackingCorrelatedIssue"
+                            },
+                            "type": "array"
+                        },
+                        "timings": {
+                            "description": "Measured timings for different parts of the query generation process",
+                            "items": {
+                                "$ref": "#/definitions/QueryTiming"
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "required": ["results"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
                         "credible_intervals": {
                             "additionalProperties": {
                                 "items": {
@@ -18987,6 +19155,61 @@
                 {
                     "additionalProperties": false,
                     "properties": {
+                        "columns": {
+                            "items": {
+                                "type": "string"
+                            },
+                            "type": "array"
+                        },
+                        "error": {
+                            "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                            "type": "string"
+                        },
+                        "hasMore": {
+                            "type": "boolean"
+                        },
+                        "hogql": {
+                            "description": "Generated HogQL query.",
+                            "type": "string"
+                        },
+                        "limit": {
+                            "$ref": "#/definitions/integer"
+                        },
+                        "modifiers": {
+                            "$ref": "#/definitions/HogQLQueryModifiers",
+                            "description": "Modifiers used when performing the query"
+                        },
+                        "offset": {
+                            "$ref": "#/definitions/integer"
+                        },
+                        "query_status": {
+                            "$ref": "#/definitions/QueryStatus",
+                            "description": "Query status indicates whether next to the provided data, a query is still running."
+                        },
+                        "resolved_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The date range used for the query"
+                        },
+                        "results": {
+                            "items": {
+                                "$ref": "#/definitions/ErrorTrackingCorrelatedIssue"
+                            },
+                            "type": "array"
+                        },
+                        "timings": {
+                            "description": "Measured timings for different parts of the query generation process",
+                            "items": {
+                                "$ref": "#/definitions/QueryTiming"
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "required": ["results"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
                         "credible_intervals": {
                             "additionalProperties": {
                                 "items": {
@@ -19873,6 +20096,9 @@
                 },
                 {
                     "$ref": "#/definitions/ErrorTrackingQuery"
+                },
+                {
+                    "$ref": "#/definitions/ErrorTrackingIssueCorrelationQuery"
                 },
                 {
                     "$ref": "#/definitions/ExperimentFunnelsQuery"

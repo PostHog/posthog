@@ -216,6 +216,7 @@ export type QuerySchema =
     | RevenueExampleEventsQuery
     | RevenueExampleDataWarehouseTablesQuery
     | ErrorTrackingQuery
+    | ErrorTrackingIssueCorrelationQuery
     | ExperimentFunnelsQuery
     | ExperimentTrendsQuery
     | ExperimentQuery
@@ -782,6 +783,7 @@ export interface DataTableNode
                     | RevenueExampleDataWarehouseTablesQuery
                     | MarketingAnalyticsTableQuery
                     | ErrorTrackingQuery
+                    | ErrorTrackingIssueCorrelationQuery
                     | ExperimentFunnelsQuery
                     | ExperimentTrendsQuery
                     | TracesQuery
@@ -814,6 +816,7 @@ export interface DataTableNode
         | RevenueExampleDataWarehouseTablesQuery
         | MarketingAnalyticsTableQuery
         | ErrorTrackingQuery
+        | ErrorTrackingIssueCorrelationQuery
         | ExperimentFunnelsQuery
         | ExperimentTrendsQuery
         | TracesQuery
@@ -2069,7 +2072,8 @@ export interface ErrorTrackingIssueCorrelationQuery extends DataNode<ErrorTracki
     events: string[]
 }
 
-export interface ErrorTrackingIssueCorrelationQueryResponse extends AnalyticsQueryResponseBase<ErrorTrackingIssue[]> {
+export interface ErrorTrackingIssueCorrelationQueryResponse
+    extends AnalyticsQueryResponseBase<ErrorTrackingCorrelatedIssue[]> {
     hasMore?: boolean
     limit?: integer
     offset?: integer
@@ -2133,6 +2137,11 @@ export type ErrorTrackingIssue = ErrorTrackingRelationalIssue & {
     }
     aggregations?: ErrorTrackingIssueAggregations
     library: string | null
+}
+
+export type ErrorTrackingCorrelatedIssue = ErrorTrackingRelationalIssue & {
+    correlation_score: number
+    correlation_event: string
 }
 
 export interface ErrorTrackingQueryResponse extends AnalyticsQueryResponseBase<ErrorTrackingIssue[]> {
