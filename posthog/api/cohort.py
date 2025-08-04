@@ -60,6 +60,7 @@ from posthog.models.feature_flag.flag_matching import (
     FlagsMatcherCache,
     get_feature_flag_hash_key_overrides,
 )
+from posthog.models.cohort import CohortOrEmpty, DEFAULT_COHORT_INSERT_BATCH_SIZE
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.lifecycle_filter import LifecycleFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
@@ -768,6 +769,21 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
         API_COHORT_PERSON_BYTES_READ_FROM_POSTGRES_COUNTER.labels(team_id=team.pk).inc(size)
 
         return Response({"results": serialized_actors, "next": next_url, "previous": previous_url})
+
+    @action(methods=["PATCH"], detail=True)
+    def add_persons_to_static_cohort(self, request: request.Request, **kwargs):
+        cohort: Cohort = self.get_object()
+        if not cohort.is_static:
+            raise ValidationError("Can only add users to static cohorts")
+        distinct_ids = request.data.get("distinct_ids", None)
+        if not isinstance(distinct_ids, list):
+            raise ValidationError("distinct_ids need to be a list")
+        if len(distinct_ids) == 0:
+            raise ValidationError("Cannot have empty distinct ids")
+        if len(distinct_ids) >= DEFAULT_COHORT_INSERT_BATCH_SIZE:
+            raise ValidationError("List size exceeds limit")
+        cohort.insert_users_by_list(distinct_ids, team_id=self.team_id)
+        return Response({"success": True}, status=200)
 
     @action(methods=["GET"], url_path="activity", detail=False, required_scopes=["activity_log:read"])
     def all_activity(self, request: request.Request, **kwargs):
