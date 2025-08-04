@@ -69,9 +69,7 @@ class SessionSummarizationNode(AssistantNode):
         return max_filters
 
     def _get_session_ids_with_filters(self, replay_filters: MaxRecordingUniversalFilters) -> list[str] | None:
-        from posthog.session_recordings.queries_to_replace.session_recording_list_from_query import (
-            SessionRecordingListFromQuery,
-        )
+        from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
 
         # Convert Max filters into recordings query format
         properties = []
