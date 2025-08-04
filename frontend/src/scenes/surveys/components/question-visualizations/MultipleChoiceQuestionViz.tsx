@@ -87,7 +87,7 @@ export function MultipleChoiceQuestionViz({ responseData }: Props): JSX.Element 
             </div>
 
             {openEndedResponses.length > 0 && (
-                <div className="border rounded p-4">
+                <div>
                     <h4 className="font-semibold mb-3 text-sm text-muted-foreground">Open-ended responses:</h4>
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
                         {openEndedResponses.slice(0, 20).map((response, i) => (
