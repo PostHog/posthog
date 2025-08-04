@@ -1044,14 +1044,6 @@ const destinationDefinitions: DestinationConfig[] = [
         category: ['Surveys'],
     },
 
-    // Tag Managers
-    {
-        name: 'Google Tag Manager',
-        id: 'coming-soon-google-tag-manager',
-        icon_url: '/static/coming-soon-destinations/Google_Tag_Manager.svg',
-        category: ['Tag Managers'],
-    },
-
     // User Engagement Platforms
     {
         name: 'Appcues',

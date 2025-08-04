@@ -253,12 +253,14 @@ export const maxBillingContextLogic = kea<maxBillingContextLogicType>([
                 initialFilters: { breakdowns: ['type', 'team'] },
                 dateFrom: DEFAULT_BILLING_DATE_FROM, // we set them here so we are sure it will stay fixed to a 1 month period even if the usage logic changes default values
                 dateTo: DEFAULT_BILLING_DATE_TO,
+                dashboardItemId: 'max-billing-context', // This makes it a separate instance, prevents conflicts with the spend logic on the usage page
             }),
             ['billingUsageResponse'],
             billingSpendLogic({
                 initialFilters: { breakdowns: ['type', 'team'] },
                 dateFrom: DEFAULT_BILLING_DATE_FROM, // same here for spend
                 dateTo: DEFAULT_BILLING_DATE_TO,
+                dashboardItemId: 'max-billing-context', // This makes it a separate instance, prevents conflicts with the spend logic on the spend page
             }),
             ['billingSpendResponse'],
             organizationLogic,
