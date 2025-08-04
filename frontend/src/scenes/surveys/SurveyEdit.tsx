@@ -345,7 +345,7 @@ export default function SurveyEdit(): JSX.Element {
                                                         active={value === SurveyType.ExternalSurvey}
                                                         onClick={() => onChange(SurveyType.ExternalSurvey)}
                                                         title={SURVEY_TYPE_LABEL_MAP[SurveyType.ExternalSurvey]}
-                                                        description="Collect responses via an external link, hosted on PostHog. Share the URL with your customers to gather feedback."
+                                                        description="Collect responses via an external link, hosted on PostHog. If you are already using surveys, make sure to upgrade posthog-js to at least v1.258.1."
                                                         value={SurveyType.ExternalSurvey}
                                                         disabled={!isExternalSurveyFFEnabled}
                                                     >
@@ -368,9 +368,7 @@ export default function SurveyEdit(): JSX.Element {
                                                                 <code className="bg-surface-tertiary px-1 rounded">
                                                                     distinct_id
                                                                 </code>{' '}
-                                                                query parameter to the URL. Here's an example:
-                                                            </li>
-                                                            <li>
+                                                                query parameter to the URL. Here's an example:{'\n'}
                                                                 <Link
                                                                     to={`https://us.posthog.com/external_surveys/01984280-fc8a-0000-28a5-01078e2d553f?distinct_id=${user?.email ?? 'john@acme.co'}`}
                                                                     target="_blank"
