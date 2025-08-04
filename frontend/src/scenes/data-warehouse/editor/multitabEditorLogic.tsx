@@ -1516,14 +1516,49 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
     }),
     urlToAction(({ actions, values, props }) => ({
         [urls.sqlEditor()]: async (_, searchParams) => {
-            if (!searchParams.open_query && !searchParams.open_view && !searchParams.open_insight) {
+            if (
+                !searchParams.open_query &&
+                !searchParams.open_view &&
+                !searchParams.open_insight &&
+                !searchParams.open_draft
+            ) {
                 return
             }
 
             let tabAdded = false
 
             const createQueryTab = async (): Promise<void> => {
-                if (searchParams.open_view) {
+                if (searchParams.open_draft) {
+                    const draftId = searchParams.open_draft
+                    const draft = values.drafts.find((draft) => {
+                        return (draft.id = draftId)
+                    })
+
+                    if (!draft) {
+                        lemonToast.error('Draft not found')
+                        return
+                    }
+
+                    const existingTab = values.allTabs.find((tab) => {
+                        return tab.draft?.id === draft.id
+                    })
+
+                    if (existingTab) {
+                        actions.selectTab(existingTab)
+                    } else {
+                        const associatedView = draft.saved_query_id
+                            ? values.dataWarehouseSavedQueryMapById[draft.saved_query_id]
+                            : undefined
+
+                        actions.createTab(draft.query.query, associatedView, undefined, draft)
+
+                        const newTab = values.allTabs[values.allTabs.length - 1]
+                        if (newTab) {
+                            actions.setTabDraftId(newTab.uri.toString(), draft.id)
+                        }
+                    }
+                    return
+                } else if (searchParams.open_view) {
                     // Open view
                     const viewId = searchParams.open_view
 
