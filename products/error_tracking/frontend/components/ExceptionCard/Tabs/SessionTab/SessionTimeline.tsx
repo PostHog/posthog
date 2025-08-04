@@ -14,7 +14,7 @@ import {
 import { cva } from 'cva'
 import { dayjs } from 'lib/dayjs'
 import { IconWarning, IconToggle, IconGraph, IconMessage, IconPieChart, IconLogomark } from '@posthog/icons'
-import { match } from 'node_modules/ts-pattern/dist'
+import { match } from 'ts-pattern'
 import { Link, Spinner } from '@posthog/lemon-ui'
 import { exceptionCardLogic } from '../../exceptionCardLogic'
 
