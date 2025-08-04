@@ -116,10 +116,13 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
         nodesById: [
             (s) => [s.nodes],
             (nodes): Record<string, HogFlowActionNode> => {
-                return nodes.reduce((acc, node) => {
-                    acc[node.id] = node
-                    return acc
-                }, {} as Record<string, HogFlowActionNode>)
+                return nodes.reduce(
+                    (acc, node) => {
+                        acc[node.id] = node
+                        return acc
+                    },
+                    {} as Record<string, HogFlowActionNode>
+                )
             },
         ],
         selectedNode: [

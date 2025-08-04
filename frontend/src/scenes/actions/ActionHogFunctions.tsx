@@ -39,8 +39,8 @@ export function ActionHogFunctions(): JSX.Element | null {
                     hasCohortFilters
                         ? "Action with cohort filters can't be used in realtime destinations"
                         : actionChanged
-                        ? 'Please first save the action to create a destination'
-                        : undefined
+                          ? 'Please first save the action to create a destination'
+                          : undefined
                 }
             />
         </div>

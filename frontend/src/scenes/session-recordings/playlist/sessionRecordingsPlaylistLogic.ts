@@ -414,6 +414,8 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         setIsNewCollectionDialogOpen: (isNewCollectionDialogOpen: boolean) => ({ isNewCollectionDialogOpen }),
         setNewCollectionName: (newCollectionName: string) => ({ newCollectionName }),
         handleCreateNewCollectionBulkAdd: (onSuccess: () => void) => ({ onSuccess }),
+        handleBulkMarkAsViewed: (shortId?: string) => ({ shortId }),
+        handleBulkMarkAsNotViewed: (shortId?: string) => ({ shortId }),
     }),
     propsChanged(({ actions, props }, oldProps) => {
         // If the defined list changes, we need to call the loader to either load the new items or change the list
@@ -494,7 +496,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                     return {
                         has_next:
                             direction === 'newer'
-                                ? values.sessionRecordingsResponse?.has_next ?? true
+                                ? (values.sessionRecordingsResponse?.has_next ?? true)
                                 : response.has_next,
                         results: response.results,
                         order: params.order,
@@ -832,6 +834,62 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 onSuccess()
             }
         },
+        handleBulkMarkAsViewed: async ({ shortId }: { shortId?: string }) => {
+            await lemonToast.promise(
+                (async () => {
+                    try {
+                        await api.recordings.bulkViewedRecordings(values.selectedRecordingsIds)
+                        actions.setSelectedRecordingsIds([])
+
+                        // If it was a collection then we need to reload it, otherwise we need to reload the recordings
+                        if (shortId) {
+                            handleLoadCollectionRecordings(shortId)
+                        } else {
+                            actions.loadSessionRecordings()
+                        }
+                    } catch (e) {
+                        posthog.captureException(e)
+                    }
+                })(),
+                {
+                    success: `${values.selectedRecordingsIds.length} recording${
+                        values.selectedRecordingsIds.length > 1 ? 's' : ''
+                    } marked as viewed!`,
+                    error: 'Failed to mark as viewed!',
+                    pending: `Marking ${values.selectedRecordingsIds.length} recording${
+                        values.selectedRecordingsIds.length > 1 ? 's' : ''
+                    }...`,
+                }
+            )
+        },
+        handleBulkMarkAsNotViewed: async ({ shortId }: { shortId?: string }) => {
+            await lemonToast.promise(
+                (async () => {
+                    try {
+                        await api.recordings.bulkNotViewedRecordings(values.selectedRecordingsIds)
+                        actions.setSelectedRecordingsIds([])
+
+                        // If it was a collection then we need to reload it, otherwise we need to reload the recordings
+                        if (shortId) {
+                            handleLoadCollectionRecordings(shortId)
+                        } else {
+                            actions.loadSessionRecordings()
+                        }
+                    } catch (e) {
+                        posthog.captureException(e)
+                    }
+                })(),
+                {
+                    success: `${values.selectedRecordingsIds.length} recording${
+                        values.selectedRecordingsIds.length > 1 ? 's' : ''
+                    } marked as not viewed!`,
+                    error: 'Failed to mark as not viewed!',
+                    pending: `Marking ${values.selectedRecordingsIds.length} recording${
+                        values.selectedRecordingsIds.length > 1 ? 's' : ''
+                    }...`,
+                }
+            )
+        },
     })),
     selectors({
         logicProps: [() => [(_, props) => props], (props): SessionRecordingPlaylistLogicProps => props],
@@ -1058,7 +1116,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             Record<string, any>,
             {
                 replace: boolean
-            }
+            },
         ] => {
             const params: Params = objectClean({
                 ...router.values.searchParams,

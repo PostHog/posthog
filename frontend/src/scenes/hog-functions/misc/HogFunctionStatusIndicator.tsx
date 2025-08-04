@@ -61,16 +61,19 @@ const DISABLED_MANUALLY_DISPLAY: DisplayOptions = {
 export type HogFunctionStatusIndicatorProps = {
     hogFunction: HogFunctionType | null
 }
+
+const HIDE_STATUS_FOR_TYPES: HogFunctionType['type'][] = ['site_destination', 'site_app']
+
 export function HogFunctionStatusIndicator({ hogFunction }: HogFunctionStatusIndicatorProps): JSX.Element | null {
-    if (!hogFunction) {
+    if (!hogFunction || HIDE_STATUS_FOR_TYPES.includes(hogFunction.type)) {
         return null
     }
 
     const { tagType, display, description } = !hogFunction.enabled
         ? DISABLED_MANUALLY_DISPLAY
         : hogFunction.status?.state
-        ? displayMap[hogFunction.status.state]
-        : DEFAULT_DISPLAY
+          ? displayMap[hogFunction.status.state]
+          : DEFAULT_DISPLAY
 
     return (
         <LemonDropdown

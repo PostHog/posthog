@@ -462,7 +462,7 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
 
         // we bundle the whole app with the toolbar, which means we don't need ES5 support
         // so we can use IntersectionObserver
-        // eslint-disable-next-line compat/compat
+        // oxlint-disable-next-line compat/compat
         const intersectionObserver = new IntersectionObserver((entries) => {
             const observedElements: [HTMLElement, boolean][] = []
             entries.forEach((entry) => {

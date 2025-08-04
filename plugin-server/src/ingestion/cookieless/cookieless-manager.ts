@@ -92,7 +92,11 @@ export class CookielessManager {
     private readonly mutex = new ConcurrencyController(1)
     private cleanupInterval: NodeJS.Timeout | null = null
 
-    constructor(config: PluginsServerConfig, redis: GenericPool<Redis.Redis>, private teamManager: TeamManager) {
+    constructor(
+        config: PluginsServerConfig,
+        redis: GenericPool<Redis.Redis>,
+        private teamManager: TeamManager
+    ) {
         this.config = {
             disabled: config.COOKIELESS_DISABLED,
             forceStatelessMode: config.COOKIELESS_FORCE_STATELESS_MODE,
@@ -362,8 +366,8 @@ export class CookielessManager {
                         drop_cause: !userAgent
                             ? 'cookieless_missing_ua'
                             : !ip
-                            ? 'cookieless_missing_ip'
-                            : 'cookieless_missing_host',
+                              ? 'cookieless_missing_ip'
+                              : 'cookieless_missing_host',
                     })
                     .inc()
                 continue
