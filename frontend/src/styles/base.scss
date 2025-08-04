@@ -436,7 +436,7 @@
     --color-error: var(--color-red-100);
     --color-error-foreground: var(--color-red-600);
     --color-success: var(--color-green-100);
-    --color-success-foreground: var(--color-green-500);
+    --color-success-foreground: #388600;
     --color-interactive: transparent;
     --color-interactive-active: var(--color-bg-fill-highlight-50);
     --color-interactive-hover: color-mix(in oklab, var(--color-black) 7.5%, transparent);
@@ -457,6 +457,7 @@
     --color-border-warning: var(--color-yellow-400);
     --color-border-error: var(--color-red-400);
     --color-border-success: var(--color-green-400);
+    --color-tag-warning-foreground: #f7a501;
 
     // Behind surfaces, large areas: app scenes, etc.
     // //////////////////////////////////////////////////////////
