@@ -211,10 +211,10 @@ export function OverViewTab({
                                   {runtime === FeatureFlagEvaluationRuntime.ALL
                                       ? 'All'
                                       : runtime === FeatureFlagEvaluationRuntime.CLIENT
-                                      ? 'Client'
-                                      : runtime === FeatureFlagEvaluationRuntime.SERVER
-                                      ? 'Server'
-                                      : 'All'}
+                                        ? 'Client'
+                                        : runtime === FeatureFlagEvaluationRuntime.SERVER
+                                          ? 'Server'
+                                          : 'All'}
                               </LemonTag>
                           )
                       },
@@ -306,6 +306,19 @@ export function OverViewTab({
                                     Try out in Insights
                                 </LemonButton>
 
+                                <LemonButton
+                                    onClick={() => {
+                                        if (featureFlag.id) {
+                                            featureFlagLogic({ id: featureFlag.id }).mount()
+                                            featureFlagLogic({ id: featureFlag.id }).actions.createSurvey()
+                                        }
+                                    }}
+                                    data-attr="create-survey"
+                                    fullWidth
+                                >
+                                    Create survey
+                                </LemonButton>
+
                                 <LemonDivider />
 
                                 {featureFlag.id && (
@@ -327,10 +340,10 @@ export function OverViewTab({
                                             !featureFlag.can_edit
                                                 ? "You have only 'View' access for this feature flag. To make changes, please contact the flag's creator."
                                                 : (featureFlag.features?.length || 0) > 0
-                                                ? 'This feature flag is in use with an early access feature. Delete the early access feature to delete this flag'
-                                                : (featureFlag.experiment_set?.length || 0) > 0
-                                                ? 'This feature flag is linked to an experiment. Delete the experiment to delete this flag'
-                                                : null
+                                                  ? 'This feature flag is in use with an early access feature. Delete the early access feature to delete this flag'
+                                                  : (featureFlag.experiment_set?.length || 0) > 0
+                                                    ? 'This feature flag is linked to an experiment. Delete the experiment to delete this flag'
+                                                    : null
                                         }
                                         fullWidth
                                     >

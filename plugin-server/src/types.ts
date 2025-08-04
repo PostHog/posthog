@@ -66,6 +66,7 @@ export enum KafkaSaslMechanism {
 
 export enum PluginServerMode {
     ingestion_v2 = 'ingestion-v2',
+    local_cdp = 'local-cdp',
     async_webhooks = 'async-webhooks',
     recordings_blob_ingestion = 'recordings-blob-ingestion',
     recordings_blob_ingestion_overflow = 'recordings-blob-ingestion-overflow',
@@ -197,6 +198,7 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     CASSANDRA_HOST: string
     CASSANDRA_PORT: number
     CASSANDRA_KEYSPACE: string
+    CASSANDRA_LOCAL_DATACENTER: string
     CASSANDRA_USER: string | null
     CASSANDRA_PASSWORD: string | null
     WRITE_BEHAVIOURAL_COUNTERS_TO_CASSANDRA: boolean

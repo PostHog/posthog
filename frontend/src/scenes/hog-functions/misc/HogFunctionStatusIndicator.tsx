@@ -19,17 +19,7 @@ const displayMap: Record<HogWatcherState, DisplayOptions> = {
             </>
         ),
     },
-    [HogWatcherState.disabledForPeriod]: {
-        tagType: 'danger',
-        display: 'Disabled temporarily',
-        description: (
-            <>
-                The function has been disabled temporarily due to enough slow or failed requests. It will be re-enabled
-                soon.
-            </>
-        ),
-    },
-    [HogWatcherState.disabledIndefinitely]: {
+    [HogWatcherState.disabled]: {
         tagType: 'danger',
         display: 'Disabled',
         description: (
@@ -72,8 +62,8 @@ export function HogFunctionStatusIndicator({ hogFunction }: HogFunctionStatusInd
     const { tagType, display, description } = !hogFunction.enabled
         ? DISABLED_MANUALLY_DISPLAY
         : hogFunction.status?.state
-        ? displayMap[hogFunction.status.state]
-        : DEFAULT_DISPLAY
+          ? displayMap[hogFunction.status.state]
+          : DEFAULT_DISPLAY
 
     return (
         <LemonDropdown

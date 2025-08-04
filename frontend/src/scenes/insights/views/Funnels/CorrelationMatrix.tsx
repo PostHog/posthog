@@ -207,8 +207,8 @@ export function CorrelationMatrix(): JSX.Element {
                                         correlationScoreStrength === 'strong'
                                             ? 'text-success'
                                             : correlationScoreStrength === 'moderate'
-                                            ? 'text-warning'
-                                            : 'text-danger'
+                                              ? 'text-warning'
+                                              : 'text-danger'
                                     )}
                                 >
                                     {scoreIcon} {correlationScore.toFixed(3)}

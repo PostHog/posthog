@@ -546,10 +546,15 @@ class Assistant:
     def _chunk_reasoning_headline(self, reasoning: dict[str, Any]) -> Optional[str]:
         """Process a chunk of OpenAI `reasoning`, and if a new headline was just finalized, return it."""
         try:
-            summary_text_chunk = reasoning["summary"][0]["text"]
-        except (KeyError, IndexError) as e:
-            capture_exception(e)
-            self._reasoning_headline_chunk = None  # not expected, so let's just reset
+            if summary := reasoning.get("summary"):
+                summary_text_chunk = summary[0]["text"]
+            else:
+                self._reasoning_headline_chunk = None  # Reset as we don't have any summary yet
+                return None
+        except Exception as e:
+            logger.exception("Error in chunk_reasoning_headline", error=e)
+            capture_exception(e)  # not expected, so let's capture
+            self._reasoning_headline_chunk = None
             return None
 
         bold_marker_index = summary_text_chunk.find("**")

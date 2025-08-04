@@ -207,8 +207,8 @@ export function BatchExportsEditFields({
                                         batchExportConfigForm.file_format === 'Parquet'
                                             ? parquetCompressionOptions
                                             : batchExportConfigForm.file_format === 'JSONLines'
-                                            ? jsonLinesCompressionOptions
-                                            : []
+                                              ? jsonLinesCompressionOptions
+                                              : []
 
                                     const isSelectedCompressionOptionValid = (value: string | null): boolean => {
                                         if (batchExportConfigForm.file_format === 'Parquet') {
@@ -229,7 +229,7 @@ export function BatchExportsEditFields({
                                             // if file format is changed but existing compression is not valid, set to null
                                             onChange(null)
                                         }
-                                    }, [batchExportConfigForm.file_format, isNew])
+                                    }, [batchExportConfigForm.file_format, isNew]) // oxlint-disable-line react-hooks/exhaustive-deps
 
                                     return (
                                         <LemonSelect

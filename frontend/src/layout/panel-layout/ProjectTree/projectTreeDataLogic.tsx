@@ -436,10 +436,13 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
             (s) => [s.savedItems, s.pendingActions],
             (savedItems, pendingActions): FileSystemEntry[] => {
                 const initialItems = [...savedItems]
-                const itemsByPath = initialItems.reduce((acc, item) => {
-                    acc[item.path] = acc[item.path] ? [...acc[item.path], item] : [item]
-                    return acc
-                }, {} as Record<string, FileSystemEntry[]>)
+                const itemsByPath = initialItems.reduce(
+                    (acc, item) => {
+                        acc[item.path] = acc[item.path] ? [...acc[item.path], item] : [item]
+                        return acc
+                    },
+                    {} as Record<string, FileSystemEntry[]>
+                )
 
                 for (const action of pendingActions) {
                     if ((action.type === 'move' || action.type === 'prepare-move') && action.newPath) {
