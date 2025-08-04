@@ -55,7 +55,6 @@ logger = structlog.get_logger(__name__)
 
 class HogFunctionStatusSerializer(serializers.Serializer):
     state = serializers.ChoiceField(choices=[state.value for state in HogFunctionState])
-    rating: serializers.FloatField = serializers.FloatField()
     tokens: serializers.IntegerField = serializers.IntegerField()
 
 
@@ -180,9 +179,8 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
 
         template = None
         if data["template_id"]:
-            try:
-                template = HogFunctionTemplate.objects.get(template_id=data["template_id"])
-            except HogFunctionTemplate.DoesNotExist:
+            template = HogFunctionTemplate.get_template(data["template_id"])
+            if not template:
                 properties = {"team_id": team.id, "template_id": data.get("template_id")}
                 if instance and instance.id:
                     properties["hog_function_id"] = instance.id
@@ -191,9 +189,6 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
                 )
 
                 raise serializers.ValidationError({"template_id": f"No template found for id '{data['template_id']}'"})
-            except Exception as e:
-                capture_exception(e)
-                raise serializers.ValidationError({"template_id": f"Error loading template '{data['template_id']}'"})
 
         if data["type"] != "transformation" and not has_addon:
             if not template:
@@ -379,7 +374,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         # Standard update
         res: HogFunction = super().update(instance, validated_data)
 
-        if res.enabled and res.status.get("state", 0) >= HogFunctionState.DISABLED_TEMPORARILY.value:
+        if res.enabled and res.status.get("state", 0) >= HogFunctionState.DISABLED.value:
             res.set_function_status(HogFunctionState.DEGRADED.value)
 
         return res

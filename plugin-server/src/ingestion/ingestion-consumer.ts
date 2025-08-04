@@ -31,6 +31,7 @@ import { BatchWritingGroupStore } from '../worker/ingestion/groups/batch-writing
 import { GroupStoreForBatch } from '../worker/ingestion/groups/group-store-for-batch'
 import { BatchWritingPersonsStore } from '../worker/ingestion/persons/batch-writing-person-store'
 import { FlushResult, PersonsStoreForBatch } from '../worker/ingestion/persons/persons-store-for-batch'
+import { PostgresPersonRepository } from '../worker/ingestion/persons/repositories/postgres-person-repository'
 import { deduplicateEvents } from './deduplication/events'
 import { createDeduplicationRedis, DeduplicationRedis } from './deduplication/redis-client'
 import {
@@ -150,12 +151,18 @@ export class IngestionConsumer {
         this.ingestionWarningLimiter = new MemoryRateLimiter(1, 1.0 / 3600)
         this.hogTransformer = new HogTransformerService(hub)
 
-        this.personStore = new BatchWritingPersonsStore(this.hub.db, {
-            dbWriteMode: this.hub.PERSON_BATCH_WRITING_DB_WRITE_MODE,
-            maxConcurrentUpdates: this.hub.PERSON_BATCH_WRITING_MAX_CONCURRENT_UPDATES,
-            maxOptimisticUpdateRetries: this.hub.PERSON_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES,
-            optimisticUpdateRetryInterval: this.hub.PERSON_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS,
-        })
+        this.personStore = new BatchWritingPersonsStore(
+            new PostgresPersonRepository(this.hub.db.postgres, {
+                calculatePropertiesSize: this.hub.PERSON_UPDATE_CALCULATE_PROPERTIES_SIZE,
+            }),
+            this.hub.db.kafkaProducer,
+            {
+                dbWriteMode: this.hub.PERSON_BATCH_WRITING_DB_WRITE_MODE,
+                maxConcurrentUpdates: this.hub.PERSON_BATCH_WRITING_MAX_CONCURRENT_UPDATES,
+                maxOptimisticUpdateRetries: this.hub.PERSON_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES,
+                optimisticUpdateRetryInterval: this.hub.PERSON_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS,
+            }
+        )
 
         this.groupStore = new BatchWritingGroupStore(this.hub.db, {
             maxConcurrentUpdates: this.hub.GROUP_BATCH_WRITING_MAX_CONCURRENT_UPDATES,
@@ -760,7 +767,7 @@ export class IngestionConsumer {
                     // ``message.key`` should not be undefined here, but in the
                     // (extremely) unlikely event that it is, set it to ``null``
                     // instead as that behavior is safer.
-                    key: preservePartitionLocality ? message.key ?? null : null,
+                    key: preservePartitionLocality ? (message.key ?? null) : null,
                     headers: parseKafkaHeaders(headers),
                 })
             })

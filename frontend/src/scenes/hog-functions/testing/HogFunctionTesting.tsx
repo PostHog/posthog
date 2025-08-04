@@ -181,8 +181,8 @@ export function HogFunctionTesting({ id }: HogFunctionTestingLogicProps): JSX.El
                                             loadingRetries.length > 0
                                                 ? 'Please wait for the current tests to complete.'
                                                 : selectedForRetry.length === 0
-                                                ? 'No invocations selected'
-                                                : undefined
+                                                  ? 'No invocations selected'
+                                                  : undefined
                                         }
                                     >
                                         Test selected
@@ -200,8 +200,8 @@ export function HogFunctionTesting({ id }: HogFunctionTestingLogicProps): JSX.El
                                     {willReEnableOnSave
                                         ? ' & re-enable'
                                         : willChangeEnabledOnSave
-                                        ? ` & ${configuration.enabled ? 'enable' : 'disable'}`
-                                        : ''}
+                                          ? ` & ${configuration.enabled ? 'enable' : 'disable'}`
+                                          : ''}
                                 </LemonButton>
                             ) : null}
                         </>
@@ -318,7 +318,7 @@ function RunsFilters({ id }: { id: string }): JSX.Element {
                         formKey="configuration"
                         className="deprecated-space-y-3"
                     >
-                        <HogFunctionFilters embedded={true} />
+                        <HogFunctionFilters embedded={true} showTriggerOptions={false} />
                         <div className="flex justify-end mt-2">
                             <LemonButton size="small" type="primary" onClick={() => setDropdownOpen(false)}>
                                 Done

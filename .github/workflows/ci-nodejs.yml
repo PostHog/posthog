@@ -64,7 +64,7 @@ jobs:
               if: needs.changes.outputs.nodejs == 'true'
               uses: actions/setup-node@1d0ff469b7ec7b3cb9d8673fde0c81c44821de2a # v4
               with:
-                  node-version: 18.12.1
+                  node-version: 22.17.1
                   cache: pnpm
 
             - name: Install package.json dependencies with pnpm
@@ -97,7 +97,7 @@ jobs:
               if: needs.changes.outputs.nodejs == 'true'
               uses: actions/setup-node@1d0ff469b7ec7b3cb9d8673fde0c81c44821de2a # v4
               with:
-                  node-version: 18.12.1
+                  node-version: 22.17.1
                   cache: pnpm
 
             - name: Install package.json dependencies with pnpm
@@ -126,6 +126,7 @@ jobs:
         name: Node.js Tests (${{matrix.shard}}/3)
         needs: changes
         runs-on: depot-ubuntu-24.04-4
+        timeout-minutes: 30 # We know tests don't take this long
 
         strategy:
             fail-fast: false
@@ -167,7 +168,7 @@ jobs:
               uses: astral-sh/setup-uv@0c5e2b8115b80b4c7c5ddf6ffdd634974642d182 # v5.4.1
               with:
                   enable-cache: true
-                  pyproject-file: 'pyproject.toml'
+                  version: 0.7.8
 
             - name: Install rust
               if: needs.changes.outputs.nodejs == 'true'
@@ -205,7 +206,7 @@ jobs:
               if: needs.changes.outputs.nodejs == 'true'
               uses: actions/setup-node@1d0ff469b7ec7b3cb9d8673fde0c81c44821de2a # v4
               with:
-                  node-version: 18.12.1
+                  node-version: 22.17.1
                   cache: pnpm
                   cache-dependency-path: pnpm-lock.yaml
 
@@ -250,21 +251,34 @@ jobs:
                   CASSANDRA_KEYSPACE: 'test_posthog'
               run: bin/turbo run test --filter=@posthog/plugin-server
 
+            - name: Output logs on failure
+              if: failure()
+              run: |
+                  docker compose -f docker-compose.dev.yml logs clickhouse
+                  # Echo out the logs stored in the container
+                  docker compose -f docker-compose.dev.yml exec clickhouse cat /var/log/clickhouse-server/clickhouse-server.err.log
+
     node_tests:
         needs: [tests, build, lint]
         name: Node.js Tests Pass
         runs-on: ubuntu-latest
+        if: always()
         steps:
             - run: exit 0
-
-    posthog-analytics:
-        name: PostHog CI analytics
-        if: always() && needs.changes.outputs.nodejs == 'true'
-        needs: [tests, build, lint] # last job in this workflow
-        runs-on: ubuntu-latest
-        steps:
-            - name: Checkout
-              uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
-            - uses: ./.github/actions/ci-analytics
-              with:
-                  posthog-api-key: ${{ secrets.CI_ANALYTICS_TOKEN }}
+            - name: Check outcomes
+              run: |
+                  if [[ "${{ needs.tests.result }}" != "success" ]]; then
+                    echo "One or more jobs in the Node.js test matrix failed."
+                    exit 1
+                  fi
+                  echo "All jobs in the Node.js test matrix passed."
+                  if [[ "${{ needs.build.result }}" != "success" ]]; then
+                    echo "Node.js build failed."
+                    exit 1
+                  fi
+                  echo "Node.js build passed."
+                  if [[ "${{ needs.lint.result }}" != "success" ]]; then
+                    echo "Node.js lint failed."
+                    exit 1
+                  fi
+                  echo "Node.js lint passed."

@@ -2,6 +2,7 @@ import json
 import os
 from rest_framework import status
 
+from posthog.cdp.templates.hog_function_template import sync_template_to_db
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
 from posthog.cdp.templates.slack.template_slack import template as template_slack
 from posthog.models import HogFunction
@@ -25,7 +26,6 @@ EXPECTED_FIRST_RESULT = {
     "category": template_slack.category,
     "filters": template_slack.filters,
     "masking": template_slack.masking,
-    "mappings": template_slack.mappings,
     "mapping_templates": template_slack.mapping_templates,
     "icon_url": template_slack.icon_url,
 }
@@ -39,7 +39,7 @@ class TestHogFunctionTemplates(ClickhouseTestMixin, APIBaseTest, QueryMatchingTe
         HogFunctionTemplate.objects.all().delete()
 
         # Create test templates that the tests expect
-        self.template1, _ = HogFunctionTemplate.create_from_dataclass(template_slack)
+        self.template1 = sync_template_to_db(template_slack)
 
         # Create a webhook template
         self.webhook_template = HogFunctionTemplate.objects.create(
@@ -135,6 +135,13 @@ class TestHogFunctionTemplates(ClickhouseTestMixin, APIBaseTest, QueryMatchingTe
         response = self.client.get("/api/projects/@current/hog_function_templates/template-slack")
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert response.json()["id"] == "template-slack"
+        assert response.json()["type"] == "destination"
+
+    def test_retrieve_function_template_with_other_type(self):
+        response = self.client.get("/api/projects/@current/hog_function_templates/template-site-destination")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["id"] == "template-site-destination"
+        assert response.json()["type"] == "site_destination"
 
     def test_public_list_function_templates(self):
         self.client.logout()
@@ -184,7 +191,7 @@ class TestHogFunctionTemplates(ClickhouseTestMixin, APIBaseTest, QueryMatchingTe
         )
 
         # Save the modified template - this should update the existing one
-        HogFunctionTemplate.create_from_dataclass(modified_template)
+        sync_template_to_db(modified_template)
 
         # Get the template again and check it was updated
         updated_response = self.client.get("/api/projects/@current/hog_function_templates/template-slack")

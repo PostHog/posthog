@@ -1,6 +1,6 @@
 .LemonTable {
     --row-base-height: auto;
-    --row-horizontal-padding: 1rem;
+    --row-horizontal-padding: 0.5rem;
     --lemon-table-background-color: var(--bg-surface-primary);
 
     position: relative;
@@ -197,15 +197,16 @@
             > th,
             > td {
                 padding-right: var(--row-horizontal-padding);
+                padding-left: var(--row-horizontal-padding);
                 overflow: hidden;
                 text-overflow: ellipsis;
 
                 &:first-child {
-                    padding-left: calc(var(--row-horizontal-padding) + var(--row-ribbon-width, 0px));
+                    padding-left: calc(var(--row-horizontal-padding) * 2 + var(--row-ribbon-width, 0px));
                 }
 
-                &.LemonTable__boundary:not(:first-child) {
-                    padding-left: var(--row-horizontal-padding);
+                &:last-child {
+                    padding-right: calc(var(--row-horizontal-padding) * 2 + var(--row-ribbon-width, 0px));
                 }
 
                 &.LemonTable__boundary:not(:first-of-type) {
@@ -213,7 +214,7 @@
                 }
 
                 &.LemonTable__toggle {
-                    padding-right: 0;
+                    padding-right: var(--row-horizontal-padding);
                 }
 
                 &.LemonTable__toggle + * {
@@ -308,10 +309,17 @@
     background: var(--lemon-table-background-color);
 }
 
+.LemonTable__cell--pinned,
+.LemonTable__header--pinned {
+    background: var(--lemon-table-background-color);
+}
+
 // Stickiness is disabled in snapshots due to flakiness
 body:not(.storybook-test-runner) {
     .LemonTable__header--sticky,
-    .LemonTable__cell--sticky {
+    .LemonTable__cell--sticky,
+    .LemonTable__header--pinned,
+    .LemonTable__cell--pinned {
         position: sticky !important; // Important to override .LemonTable--with-ribbon's rule, which has more specificity
         left: 0;
         z-index: 1;
@@ -331,7 +339,9 @@ body:not(.storybook-test-runner) {
 
     .ScrollableShadows--left {
         .LemonTable__cell--sticky::before,
-        .LemonTable__header--sticky::before {
+        .LemonTable__header--sticky::before,
+        .LemonTable__cell--pinned::before,
+        .LemonTable__header--pinned::before {
             box-shadow: -16px 0 16px 16px rgb(0 0 0 / 25%);
         }
     }

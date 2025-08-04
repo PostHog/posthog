@@ -2,7 +2,7 @@
 import '../../tests/helpers/mocks/producer.mock'
 import { mockFetch } from '../../tests/helpers/mocks/request.mock'
 
-import express from 'express'
+import express from 'ultimate-express'
 import supertest from 'supertest'
 
 import { forSnapshot } from '../../tests/helpers/snapshots'
@@ -14,12 +14,17 @@ import { createHogFunction, insertHogFunction as _insertHogFunction } from './_t
 import { CdpApi } from './cdp-api'
 import { posthogFilterOutPlugin } from './legacy-plugins/_transformations/posthog-filter-out-plugin/template'
 import { HogFunctionInvocationGlobals, HogFunctionType } from './types'
+import { Server } from 'http'
 import { setupExpressApp } from '~/router'
+import { createCdpRedisPool } from './redis'
+import { deleteKeysWithPrefix } from './_tests/redis'
+import { BASE_REDIS_KEY, HogWatcherState } from './services/monitoring/hog-watcher.service'
 
 describe('CDP API', () => {
     let hub: Hub
     let team: Team
     let app: express.Application
+    let server: Server
     let api: CdpApi
     let hogFunction: HogFunctionType
     let hogFunctionMultiFetch: HogFunctionType
@@ -54,8 +59,7 @@ describe('CDP API', () => {
         return item
     }
 
-    beforeEach(async () => {
-        await resetTestDatabase()
+    beforeAll(async () => {
         hub = await createHub({
             SITE_URL: 'http://localhost:8000',
         })
@@ -65,29 +69,32 @@ describe('CDP API', () => {
         api = new CdpApi(hub)
         app = setupExpressApp()
         app.use('/', api.router())
+        server = app.listen(0, () => {})
+    })
+
+    beforeEach(async () => {
+        await resetTestDatabase()
 
         mockFetch.mockClear()
 
         hogFunction = await insertHogFunction({
+            name: 'test hog function',
             ...HOG_EXAMPLES.simple_fetch,
             ...HOG_INPUTS_EXAMPLES.simple_fetch,
             ...HOG_FILTERS_EXAMPLES.no_filters,
         })
 
         hogFunctionMultiFetch = await insertHogFunction({
+            name: 'test hog function multi fetch',
             ...HOG_EXAMPLES.recursive_fetch,
             ...HOG_INPUTS_EXAMPLES.simple_fetch,
             ...HOG_FILTERS_EXAMPLES.no_filters,
         })
     })
 
-    afterEach(async () => {
-        jest.setTimeout(10000)
+    afterAll(async () => {
+        server.close()
         await closeHub(hub)
-    })
-
-    afterAll(() => {
-        jest.useRealTimers()
     })
 
     it('errors if missing hog function or team', async () => {
@@ -476,6 +483,47 @@ describe('CDP API', () => {
             expect(res.status).toEqual(200)
             expect(res.body.logs.map((log: any) => log.message)).toMatchInlineSnapshot(`[]`)
             expect(res.body.result).toMatchInlineSnapshot(`null`)
+        })
+    })
+
+    describe('hog function states', () => {
+        beforeEach(async () => {
+            jest.spyOn(hub.teamManager, 'getTeam').mockResolvedValue(team)
+            const redis = createCdpRedisPool(hub)
+            await deleteKeysWithPrefix(redis, BASE_REDIS_KEY)
+        })
+
+        it('returns the states of all hog functions', async () => {
+            await api['hogWatcher'].forceStateChange(hogFunction, HogWatcherState.degraded)
+            await api['hogWatcher'].forceStateChange(hogFunctionMultiFetch, HogWatcherState.disabled)
+
+            const res = await supertest(app).get('/api/hog_functions/states')
+            expect(res.status).toEqual(200)
+            expect(res.body).toEqual({
+                results: [
+                    {
+                        function_enabled: true,
+                        function_id: hogFunctionMultiFetch.id,
+                        function_name: 'test hog function multi fetch',
+                        function_team_id: hogFunctionMultiFetch.team_id,
+                        function_type: 'destination',
+                        state: 'disabled',
+                        state_numeric: 3,
+                        tokens: 10000,
+                    },
+                    {
+                        function_enabled: true,
+                        function_id: hogFunction.id,
+                        function_name: 'test hog function',
+                        function_team_id: hogFunction.team_id,
+                        function_type: 'destination',
+                        state: 'degraded',
+                        state_numeric: 2,
+                        tokens: 10000,
+                    },
+                ],
+                total: 2,
+            })
         })
     })
 })

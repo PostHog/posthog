@@ -9,7 +9,7 @@ from rest_framework import status
 
 from common.hogvm.python.operation import HOGQL_BYTECODE_VERSION, Operation
 from posthog.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
-from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
+from posthog.cdp.templates.hog_function_template import sync_template_to_db
 from posthog.constants import AvailableFeature
 from posthog.models.action.action import Action
 from posthog.models.hog_functions.hog_function import DEFAULT_STATE, HogFunction
@@ -78,17 +78,12 @@ def get_db_field_value(field, model_id):
     return cursor.fetchone()[0]
 
 
-def _create_template_from_mock(template_data):
-    template = HogFunctionTemplateDC(**template_data)
-    return HogFunctionTemplate.create_from_dataclass(template)
-
-
 class TestHogFunctionAPIWithoutAvailableFeature(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     def setUp(self):
         super().setUp()
         # Create slack template in DB
-        HogFunctionTemplate.create_from_dataclass(template_slack)
-        _create_template_from_mock(webhook_template)
+        sync_template_to_db(template_slack)
+        sync_template_to_db(webhook_template)
 
     def _create_slack_function(self, data: Optional[dict] = None):
         payload = {
@@ -230,9 +225,9 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.organization.save()
 
         # Create slack template in DB
-        HogFunctionTemplate.create_from_dataclass(template_slack)
-        _create_template_from_mock(webhook_template)
-        _create_template_from_mock(geoip_template)
+        sync_template_to_db(template_slack)
+        sync_template_to_db(webhook_template)
+        sync_template_to_db(geoip_template)
 
         # Create the action referenced in EXAMPLE_FULL
         if not Action.objects.filter(id=9, team=self.team).exists():
@@ -287,12 +282,15 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             "transpiled": None,
             "inputs_schema": [],
             "inputs": {},
-            "filters": {"bytecode": ["_H", HOGQL_BYTECODE_VERSION, 29]},
+            "filters": {
+                "source": "events",
+                "bytecode": ["_H", HOGQL_BYTECODE_VERSION, 29],
+            },
             "icon_url": None,
             "template": None,
             "masking": None,
             "mappings": None,
-            "status": {"rating": 0, "state": 0, "tokens": 0},
+            "status": {"state": 0, "tokens": 0},
             "execution_order": None,
         }
 
@@ -352,7 +350,6 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             "code": webhook_template["code"].strip(),
             "filters": None,
             "masking": None,
-            "mappings": None,
             "mapping_templates": None,
         }
 
@@ -861,6 +858,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         assert response.json()["filters"] == {
+            "source": "events",
             "events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}],
             "actions": [{"id": f"{action.id}", "name": "Test Action", "type": "actions", "order": 1}],
             "filter_test_accounts": True,
@@ -951,7 +949,10 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     def test_loads_status_when_enabled_and_available(self, *args):
         with patch("posthog.plugins.plugin_server_api.requests.get") as mock_get:
             mock_get.return_value.status_code = status.HTTP_200_OK
-            mock_get.return_value.json.return_value = {"state": 1, "tokens": 0, "rating": 0}
+            mock_get.return_value.json.return_value = {
+                "state": 1,
+                "tokens": 0,
+            }
 
             response = self.client.post(
                 f"/api/projects/{self.team.id}/hog_functions/",
@@ -960,7 +961,10 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             assert response.status_code == status.HTTP_201_CREATED, response.json()
 
             response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/{response.json()['id']}")
-            assert response.json()["status"] == {"state": 1, "tokens": 0, "rating": 0}
+            assert response.json()["status"] == {
+                "state": 1,
+                "tokens": 0,
+            }
 
     def test_does_not_crash_when_status_not_available(self, *args):
         with patch("posthog.plugins.plugin_server_api.requests.get") as mock_get:
@@ -979,7 +983,10 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         with patch("posthog.plugins.plugin_server_api.requests.get") as mock_get:
             with patch("posthog.plugins.plugin_server_api.requests.patch") as mock_patch:
                 mock_get.return_value.status_code = status.HTTP_200_OK
-                mock_get.return_value.json.return_value = {"state": 4, "tokens": 0, "rating": 0}
+                mock_get.return_value.json.return_value = {
+                    "state": 4,
+                    "tokens": 0,
+                }
 
                 response = self.client.post(
                     f"/api/projects/{self.team.id}/hog_functions/",
@@ -1506,6 +1513,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                         }
                     },
                     "filters": {
+                        "source": "events",
                         "events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}],
                         "bytecode": [
                             "_H",

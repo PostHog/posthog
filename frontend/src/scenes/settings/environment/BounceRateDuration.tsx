@@ -70,14 +70,14 @@ export function BounceRateDurationSetting(): JSX.Element {
                         bounceRateDuration === savedDuration
                             ? 'No changes to save'
                             : bounceRateDuration == undefined
-                            ? undefined
-                            : isNaN(bounceRateDuration)
-                            ? 'Invalid number'
-                            : bounceRateDuration < MIN_BOUNCE_RATE_DURATION
-                            ? `Duration must be at least ${MIN_BOUNCE_RATE_DURATION} second`
-                            : bounceRateDuration > MAX_BOUNCE_RATE_DURATION
-                            ? `Duration must be less than ${MAX_BOUNCE_RATE_DURATION} seconds`
-                            : undefined
+                              ? undefined
+                              : isNaN(bounceRateDuration)
+                                ? 'Invalid number'
+                                : bounceRateDuration < MIN_BOUNCE_RATE_DURATION
+                                  ? `Duration must be at least ${MIN_BOUNCE_RATE_DURATION} second`
+                                  : bounceRateDuration > MAX_BOUNCE_RATE_DURATION
+                                    ? `Duration must be less than ${MAX_BOUNCE_RATE_DURATION} seconds`
+                                    : undefined
                     }
                 >
                     Save

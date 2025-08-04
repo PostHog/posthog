@@ -126,8 +126,8 @@ export function EventDefinitionsTable(): JSX.Element {
                 {filters.event_type === 'event_custom'
                     ? 'custom '
                     : filters.event_type === 'event_posthog'
-                    ? 'PostHog '
-                    : ''}
+                      ? 'PostHog '
+                      : ''}
                 event usage statistics?{' '}
                 <Link
                     to={urls.insightNewHogQL({
@@ -138,8 +138,8 @@ export function EventDefinitionsTable(): JSX.Element {
                             (filters.event_type === 'event_custom'
                                 ? "AND event NOT LIKE '$%'\n"
                                 : filters.event_type === 'event_posthog'
-                                ? "AND event LIKE '$%'\n"
-                                : '') +
+                                  ? "AND event LIKE '$%'\n"
+                                  : '') +
                             'GROUP BY event\n' +
                             'ORDER BY count() DESC',
                         filters: { dateRange: { date_from: '-24h' } },
