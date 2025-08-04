@@ -15,7 +15,8 @@ import { cva } from 'cva'
 import { dayjs } from 'lib/dayjs'
 import { IconWarning, IconToggle, IconGraph, IconMessage, IconPieChart, IconLogomark } from '@posthog/icons'
 import { match } from 'node_modules/ts-pattern/dist'
-import { Spinner } from '@posthog/lemon-ui'
+import { Link, Spinner } from '@posthog/lemon-ui'
+import { exceptionCardLogic } from '../../exceptionCardLogic'
 
 const groupIconMapping: Record<RendererGroup, React.ReactNode> = {
     [RendererGroup.ERROR_TRACKING]: <IconWarning />,
@@ -51,7 +52,7 @@ export function SessionTimeline({ ...props }: TabsPrimitiveContentProps): JSX.El
                             ))
                             .with(false, () =>
                                 usedGroups.map((group) => (
-                                    <SessionGroupToggle group={group}>
+                                    <SessionGroupToggle group={group} key={group}>
                                         {groupIconMapping[group] as React.ReactNode}
                                     </SessionGroupToggle>
                                 ))
@@ -113,6 +114,8 @@ export function SessionTimelineItemContainer<T extends SessionTimelineItem>({
     selected,
     ...props
 }: PreviewRenderProps<T> & { renderer: SessionTimelineRenderer<T> }): JSX.Element {
+    const { goToTimestamp } = useActions(sessionTabLogic)
+    const { setCurrentSessionTab } = useActions(exceptionCardLogic)
     return (
         <div className={itemContainer({ selected })} data-item-id={item.id}>
             <div className={itemPreview()}>
@@ -120,7 +123,15 @@ export function SessionTimelineItemContainer<T extends SessionTimelineItem>({
                     <renderer.runtimeIcon item={item} selected={selected} {...props} />
                 </span>
                 <span className="text-xs text-tertiary w-[50px] shrink-0 text-center">
-                    {dayjs(item.timestamp).format('HH:mm:ss')}
+                    <Link
+                        className="text-tertiary hover:text-accent"
+                        onClick={() => {
+                            goToTimestamp(item.timestamp, 1000)
+                            setCurrentSessionTab('recording')
+                        }}
+                    >
+                        {dayjs(item.timestamp).format('HH:mm:ss')}
+                    </Link>
                 </span>
                 <div className="shrink-0 w-[20px] text-center">{groupIconMapping[renderer.group]}</div>
                 <div className="flex-grow">

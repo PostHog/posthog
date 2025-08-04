@@ -1,19 +1,11 @@
 import { Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { dayjs } from 'lib/dayjs'
 import { TabsPrimitiveContent } from 'lib/ui/TabsPrimitive/TabsPrimitive'
-import { useLayoutEffect, useMemo } from 'react'
-import {
-    SessionRecordingPlayer,
-    SessionRecordingPlayerProps,
-} from 'scenes/session-recordings/player/SessionRecordingPlayer'
-import {
-    sessionRecordingPlayerLogic,
-    SessionRecordingPlayerMode,
-} from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
+import { useLayoutEffect } from 'react'
+import { SessionRecordingPlayer } from 'scenes/session-recordings/player/SessionRecordingPlayer'
+import { SessionRecordingPlayerMode } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
 import { exceptionCardLogic } from '../../exceptionCardLogic'
-import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
 import { match } from 'ts-pattern'
 import { SessionTabProps } from '.'
 import { sessionTabLogic } from './sessionTabLogic'
@@ -38,43 +30,15 @@ export function SessionRecordingLoading(): JSX.Element {
     )
 }
 
-export function SessionRecordingNoSession(): JSX.Element {
-    return (
-        <div className="flex justify-center w-full h-[300px] items-center">
-            <EmptyMessage
-                title="No session available"
-                description="There is not $session_id associated with this exception."
-                buttonText="Check doc"
-                buttonTo="https://posthog.com/docs/data/sessions"
-                size="small"
-            />
-        </div>
-    )
-}
-
-function getRecordingProps(sessionId: string): SessionRecordingPlayerProps {
-    return {
-        playerKey: `session-tab`,
-        sessionRecordingId: sessionId,
-        matchingEventsMatchType: {
-            matchType: 'name',
-            eventNames: ['$exception'],
-        },
-    }
-}
-
 export function SessionRecordingContent(): JSX.Element {
-    const { sessionId, timestamp } = useValues(sessionTabLogic)
-    const recordingProps = useMemo(() => getRecordingProps(sessionId), [sessionId])
-    const playerLogic = sessionRecordingPlayerLogic(recordingProps)
-    const { seekToTimestamp, setPlay } = useActions(playerLogic)
+    const { recordingProps, timestamp } = useValues(sessionTabLogic)
+    const { goToTimestamp } = useActions(sessionTabLogic)
 
     useLayoutEffect(() => {
         if (timestamp) {
-            const fiveSecondsBefore = dayjs(timestamp).valueOf() - 5000
-            seekToTimestamp(fiveSecondsBefore, false)
+            goToTimestamp(timestamp, 5000)
         }
-    }, [timestamp, seekToTimestamp, setPlay])
+    }, [timestamp, goToTimestamp])
 
     return (
         <div className="max-h-[500px] h-[500px] flex justify-center items-center">

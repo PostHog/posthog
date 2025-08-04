@@ -98,7 +98,7 @@ export function EventsTable({ issueId, selectedEvent, onEventSelect }: EventsTab
         // Click event is caught at the row level
         return (
             <div className="flex items-center">
-                <input type="radio" className="cursor-pointer" checked={isEventSelected(record)} />
+                <input type="radio" className="cursor-pointer" checked={isEventSelected(record)} onChange={() => {}} />
             </div>
         )
     }

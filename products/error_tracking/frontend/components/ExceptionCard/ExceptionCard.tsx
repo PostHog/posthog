@@ -1,6 +1,6 @@
 import { IconLogomark } from '@posthog/icons'
 import { LemonCard } from '@posthog/lemon-ui'
-import { BindLogic, useActions } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 import { errorPropertiesLogic, ErrorPropertiesLogicProps } from 'lib/components/Errors/errorPropertiesLogic'
 import { ErrorEventType } from 'lib/components/Errors/types'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -54,9 +54,11 @@ export function ExceptionCard({ issue, issueLoading, event, eventLoading, label 
 }
 
 function ExceptionCardContent({ issue, issueLoading, timestamp, label }: ExceptionCardContentProps): JSX.Element {
+    const { currentTab } = useValues(exceptionCardLogic)
+    const { setCurrentTab } = useActions(exceptionCardLogic)
     return (
         <LemonCard hoverEffect={false} className="p-0 relative overflow-hidden">
-            <TabsPrimitive defaultValue="session">
+            <TabsPrimitive value={currentTab} onValueChange={setCurrentTab}>
                 <div className="flex justify-between h-[2rem] items-center w-full px-2 border-b">
                     <TabsPrimitiveList className="flex justify-between w-full h-full items-center">
                         <div className="w-full h-full">
