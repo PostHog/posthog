@@ -50,7 +50,7 @@ export function TaxonomicStringPopover(props: TaxonomicPopoverProps<string>): JS
 }
 
 export const TaxonomicPopover = forwardRef(function TaxonomicPopover_<
-    ValueType extends TaxonomicFilterValue = TaxonomicFilterValue
+    ValueType extends TaxonomicFilterValue = TaxonomicFilterValue,
 >(
     {
         groupType,

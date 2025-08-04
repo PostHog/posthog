@@ -1048,8 +1048,8 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                         !name
                             ? 'You must enter a name'
                             : !/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(name)
-                            ? 'Name must be valid'
-                            : undefined,
+                              ? 'Name must be valid'
+                              : undefined,
                 },
                 onSubmit: async ({ viewName }) => {
                     await asyncActions.saveAsViewSubmit(viewName, materializeAfterSave, fromDraft)
@@ -1071,7 +1071,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             })
 
             const response = logic.values.response
-            const types = response && 'types' in response ? response.types ?? [] : []
+            const types = response && 'types' in response ? (response.types ?? []) : []
             try {
                 await dataWarehouseViewsLogic.asyncActions.createDataWarehouseSavedQuery({
                     name,

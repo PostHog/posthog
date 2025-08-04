@@ -185,8 +185,8 @@ function VariableSelector({
                                     allVariablesAreTouched
                                         ? goToNextUntouchedActiveVariableIndex()
                                         : variables.length !== activeVariableIndex + 1
-                                        ? incrementActiveVariableIndex()
-                                        : null
+                                          ? incrementActiveVariableIndex()
+                                          : null
                                 }}
                             >
                                 Continue

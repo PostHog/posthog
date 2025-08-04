@@ -205,8 +205,8 @@ export function LemonCalendarSelect({
                         selectionPeriod === 'upcoming' && newDate.isBefore(now)
                             ? 'Cannot choose a time in the past'
                             : selectionPeriod === 'past' && newDate.isAfter(now)
-                            ? 'Cannot choose a time in the future'
-                            : undefined
+                              ? 'Cannot choose a time in the future'
+                              : undefined
                     const disabledReason = selectValue ? periodValidityDisabledReason : 'Choose a date first'
 
                     return {

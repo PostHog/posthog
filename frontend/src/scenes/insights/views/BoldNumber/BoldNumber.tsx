@@ -106,22 +106,22 @@ export function BoldNumber({ showPersonsModal = true, context }: ChartParams): J
                     context?.onDataPointClick
                         ? () => context?.onDataPointClick?.({ compare: 'current' }, resultSeries)
                         : showPersonsModal && resultSeries.aggregated_value != null && !hasDataWarehouseSeries // != is intentional to catch undefined too
-                        ? () => {
-                              openPersonsModal({
-                                  title: resultSeries.label,
-                                  query: {
-                                      kind: NodeKind.InsightActorsQuery,
-                                      source: querySource!,
-                                      includeRecordings: true,
-                                  },
-                                  additionalSelect: {
-                                      value_at_data_point: 'event_count',
-                                      matched_recordings: 'matched_recordings',
-                                  },
-                                  orderBy: ['event_count DESC, actor_id DESC'],
-                              })
-                          }
-                        : undefined
+                          ? () => {
+                                openPersonsModal({
+                                    title: resultSeries.label,
+                                    query: {
+                                        kind: NodeKind.InsightActorsQuery,
+                                        source: querySource!,
+                                        includeRecordings: true,
+                                    },
+                                    additionalSelect: {
+                                        value_at_data_point: 'event_count',
+                                        matched_recordings: 'matched_recordings',
+                                    },
+                                    orderBy: ['event_count DESC, actor_id DESC'],
+                                })
+                            }
+                          : undefined
                 }
                 onMouseLeave={() => setIsTooltipShown(false)}
                 ref={valueRef}
@@ -163,10 +163,10 @@ function BoldNumberComparison({
         percentageDiff === null
             ? 'No data for comparison in the'
             : percentageDiff > 0
-            ? `Up ${percentage(percentageDiff)} from`
-            : percentageDiff < 0
-            ? `Down ${percentage(-percentageDiff)} from`
-            : 'No change from'
+              ? `Up ${percentage(percentageDiff)} from`
+              : percentageDiff < 0
+                ? `Down ${percentage(-percentageDiff)} from`
+                : 'No change from'
 
     return (
         <LemonRow

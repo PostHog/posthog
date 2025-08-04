@@ -259,8 +259,8 @@ export function PieChart({
                                             labelGroupType === 'people'
                                                 ? 'people'
                                                 : labelGroupType === 'none'
-                                                ? ''
-                                                : aggregationLabel(labelGroupType).plural
+                                                  ? ''
+                                                  : aggregationLabel(labelGroupType).plural
                                         }
                                         {...tooltipConfig}
                                     />

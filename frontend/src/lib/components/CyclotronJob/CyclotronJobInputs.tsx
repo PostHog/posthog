@@ -146,7 +146,7 @@ function JsonConfigField(props: {
                                     verticalScrollbarSize: 0,
                                 },
                             }}
-                            globals={props.templating ? props.sampleGlobalsWithInputs ?? undefined : undefined}
+                            globals={props.templating ? (props.sampleGlobalsWithInputs ?? undefined) : undefined}
                         />
                         {props.templating ? (
                             <span className="absolute top-0 right-0 z-10 p-px opacity-0 transition-opacity group-hover:opacity-100">

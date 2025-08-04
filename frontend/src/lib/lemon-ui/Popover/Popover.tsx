@@ -243,8 +243,8 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
     const clonedChildren = children ? React.cloneElement(children as ReactElement, { ref: mergedReferenceRef }) : null
 
     const isAttached = clonedChildren || referenceElement
-    const top = isAttached ? y ?? 0 : undefined
-    const left = isAttached ? x ?? 0 : undefined
+    const top = isAttached ? (y ?? 0) : undefined
+    const left = isAttached ? (x ?? 0) : undefined
 
     return (
         <>

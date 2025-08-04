@@ -423,8 +423,8 @@ export function cleanFilters(
             insight: isLifecycleFilter(filters)
                 ? InsightType.LIFECYCLE
                 : isStickinessFilter(filters)
-                ? InsightType.STICKINESS
-                : InsightType.TRENDS,
+                  ? InsightType.STICKINESS
+                  : InsightType.TRENDS,
             ...filters,
             interval: autocorrectInterval(filters),
             ...(isTrendsFilter(filters) ? { display: filters.display || ChartDisplayType.ActionsLineGraph } : {}),
@@ -479,8 +479,8 @@ export function cleanFilters(
         trendLikeFilter['shown_as'] = isStickinessFilter(filters)
             ? ShownAsValue.STICKINESS
             : isLifecycleFilter(filters)
-            ? ShownAsValue.LIFECYCLE
-            : undefined
+              ? ShownAsValue.LIFECYCLE
+              : undefined
 
         if (filters.date_from === 'all' || isLifecycleFilter(filters)) {
             trendLikeFilter['compare'] = false

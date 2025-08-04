@@ -605,7 +605,7 @@ AND properties.$lib != 'web'`
             }
             actions.setWasMarkedViewed(true) // this prevents us from calling the function multiple times
 
-            await breakpoint(IS_TEST_MODE ? 1 : delay ?? 3000)
+            await breakpoint(IS_TEST_MODE ? 1 : (delay ?? 3000))
             await api.recordings.update(props.sessionRecordingId, {
                 viewed: true,
                 player_metadata: values.sessionPlayerMetaData,

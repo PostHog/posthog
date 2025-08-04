@@ -71,8 +71,8 @@ export const signupLogic = kea<signupLogicType>([
                 email: !email
                     ? 'Please enter your email to continue'
                     : !emailRegex.test(email)
-                    ? 'Please use a valid email address'
-                    : undefined,
+                      ? 'Please use a valid email address'
+                      : undefined,
                 password: !values.preflight?.demo
                     ? !password
                         ? 'Please enter your password to continue'

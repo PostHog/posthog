@@ -242,7 +242,7 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
                                                                             <IconFilter />
                                                                         )
                                                                     ) : (
-                                                                        settingsIcon ?? <IconFilter />
+                                                                        (settingsIcon ?? <IconFilter />)
                                                                     )
                                                                 }
                                                                 active={editingNodeId === nodeId}

@@ -90,8 +90,8 @@ export const PlayerSeekbarPreview = memo(function PlayerSeekbarPreview({
         timestampFormat === TimestampFormat.Relative
             ? colonDelimitedDuration(minMs / 1000 + progressionSeconds, fixedUnits)
             : absoluteTime
-            ? (timestampFormat === TimestampFormat.UTC ? absoluteTime?.tz('UTC') : absoluteTime)?.format('HH:mm:ss')
-            : '00:00:00'
+              ? (timestampFormat === TimestampFormat.UTC ? absoluteTime?.tz('UTC') : absoluteTime)?.format('HH:mm:ss')
+              : '00:00:00'
 
     const isHovering = useIsHovering(seekBarRef)
 

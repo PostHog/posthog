@@ -272,8 +272,8 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                                         queryCancelled
                                             ? 'The query was cancelled'
                                             : response && 'error' in response
-                                            ? (response as any).error
-                                            : responseError
+                                              ? (response as any).error
+                                              : responseError
                                     }
                                 />
                             </div>

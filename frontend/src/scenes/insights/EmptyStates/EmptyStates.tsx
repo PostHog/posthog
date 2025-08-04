@@ -295,20 +295,23 @@ export function StatelessInsightLoadingState({
             return
         }
 
-        const interval = setInterval(() => {
-            setIsLoadingMessageVisible(false)
-            setTimeout(() => {
-                setLoadingMessageIndex((current) => {
-                    // Attempt to do random messages, but don't do the same message twice
-                    let newIndex = Math.floor(Math.random() * LOADING_MESSAGES.length)
-                    if (newIndex === current) {
-                        newIndex = (newIndex + 1) % LOADING_MESSAGES.length
-                    }
-                    return newIndex
-                })
-                setIsLoadingMessageVisible(true)
-            }, FADE_OUT_DURATION)
-        }, TOGGLE_INTERVAL_MIN + Math.random() * TOGGLE_INTERVAL_JITTER)
+        const interval = setInterval(
+            () => {
+                setIsLoadingMessageVisible(false)
+                setTimeout(() => {
+                    setLoadingMessageIndex((current) => {
+                        // Attempt to do random messages, but don't do the same message twice
+                        let newIndex = Math.floor(Math.random() * LOADING_MESSAGES.length)
+                        if (newIndex === current) {
+                            newIndex = (newIndex + 1) % LOADING_MESSAGES.length
+                        }
+                        return newIndex
+                    })
+                    setIsLoadingMessageVisible(true)
+                }, FADE_OUT_DURATION)
+            },
+            TOGGLE_INTERVAL_MIN + Math.random() * TOGGLE_INTERVAL_JITTER
+        )
 
         return () => clearInterval(interval)
     })

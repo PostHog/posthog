@@ -316,8 +316,8 @@ export const OnboardingDashboardTemplateConfigureStep = ({
                                             isLoading
                                                 ? 'Dashboard creating...'
                                                 : dashboardCreatedDuringOnboarding
-                                                ? 'Dashboard already created'
-                                                : undefined
+                                                  ? 'Dashboard already created'
+                                                  : undefined
                                         }
                                     >
                                         {hasTouchedAnyVariable ? 'Discard dashboard & skip' : 'Skip for now'}

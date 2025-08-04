@@ -207,8 +207,8 @@ export function BatchExportsEditFields({
                                         batchExportConfigForm.file_format === 'Parquet'
                                             ? parquetCompressionOptions
                                             : batchExportConfigForm.file_format === 'JSONLines'
-                                            ? jsonLinesCompressionOptions
-                                            : []
+                                              ? jsonLinesCompressionOptions
+                                              : []
 
                                     const isSelectedCompressionOptionValid = (value: string | null): boolean => {
                                         if (batchExportConfigForm.file_format === 'Parquet') {

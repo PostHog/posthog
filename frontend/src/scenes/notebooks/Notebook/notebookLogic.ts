@@ -346,8 +346,8 @@ export const notebookLogic = kea<notebookLogicType>([
                         values.mode === 'canvas'
                             ? 'Canvas'
                             : values.notebook?.short_id === 'scratchpad'
-                            ? 'Scratchpad'
-                            : 'Template'
+                              ? 'Scratchpad'
+                              : 'Template'
                     lemonToast.success(`Notebook created from ${source}!`)
 
                     if (values.notebook?.short_id === 'scratchpad') {

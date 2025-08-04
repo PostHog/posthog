@@ -127,8 +127,8 @@ export function FunnelsMetricForm({ isSecondary = false }: { isSecondary?: boole
                             !breakdownAttributionType
                                 ? BreakdownAttributionType.FirstTouch
                                 : breakdownAttributionType === BreakdownAttributionType.Step
-                                ? `${breakdownAttributionType}/${breakdownAttributionValue || 0}`
-                                : breakdownAttributionType
+                                  ? `${breakdownAttributionType}/${breakdownAttributionValue || 0}`
+                                  : breakdownAttributionType
 
                         return currentValue
                     })()}

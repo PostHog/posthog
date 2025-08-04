@@ -268,7 +268,7 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
                                         title={
                                             isDataWarehousePersonProperty
                                                 ? _definition.id
-                                                : _definition.name ?? undefined
+                                                : (_definition.name ?? undefined)
                                         }
                                     >
                                         {hasSentAsLabel}

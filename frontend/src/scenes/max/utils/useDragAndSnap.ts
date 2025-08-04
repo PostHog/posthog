@@ -115,8 +115,8 @@ export function useDragAndSnap({
                 const { width: elementWidth, height: elementHeight } = containerElement
                     ? getElementDimensions(containerElement)
                     : dragElementRef.current
-                    ? getElementDimensions(dragElementRef.current)
-                    : getFloatingMaxDimensions()
+                      ? getElementDimensions(dragElementRef.current)
+                      : getFloatingMaxDimensions()
                 const snapPosition = calculateSnapPosition(
                     e.clientX,
                     cachedBottomOffset,

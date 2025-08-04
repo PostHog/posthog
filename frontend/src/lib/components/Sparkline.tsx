@@ -71,8 +71,8 @@ export function Sparkline({
                 ? data // array of objects, one per series
                 : [data] // array of numbers, turn it into the first series
             : typeof data === 'object'
-            ? [data] // first series as an object
-            : [[data]] // just a random number... huh
+              ? [data] // first series as an object
+              : [[data]] // just a random number... huh
         return arrayData.map((timeseries, index): SparklineTimeSeries => {
             const defaultName =
                 names?.[index] || (arrayData.length === 1 ? name || 'Count' : `${name || 'Series'} ${index + 1}`)

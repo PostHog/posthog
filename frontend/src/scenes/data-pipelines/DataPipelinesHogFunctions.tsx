@@ -90,8 +90,8 @@ export function DataPipelinesHogFunctions({ kind, additionalKinds }: DataPipelin
                         kind === 'destination'
                             ? [...(hogFunctionPluginsDestinations ?? []), ...(hogFunctionBatchExports ?? [])]
                             : kind === 'site_app'
-                            ? [...(hogFunctionPluginsSiteApps ?? [])]
-                            : undefined
+                              ? [...(hogFunctionPluginsSiteApps ?? [])]
+                              : undefined
                     }
                 />
                 <div>

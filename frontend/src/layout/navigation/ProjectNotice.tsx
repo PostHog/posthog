@@ -36,8 +36,8 @@ function CountDown({ datetime, callback }: { datetime: dayjs.Dayjs; callback?: (
     const countdown = pastCountdown
         ? 'Expired'
         : duration.hours() > 0
-        ? duration.format('HH:mm:ss')
-        : duration.format('mm:ss')
+          ? duration.format('HH:mm:ss')
+          : duration.format('mm:ss')
 
     useOnMountEffect(() => {
         const interval = setInterval(() => setNow(dayjs()), 1000)

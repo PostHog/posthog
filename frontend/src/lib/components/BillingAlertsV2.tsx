@@ -38,16 +38,16 @@ export function BillingAlertsV2({ className }: { className?: string }): JSX.Elem
     const buttonProps = billingAlert.action
         ? billingAlert.action
         : billingAlert.contactSupport
-        ? {
-              to: 'mailto:sales@posthog.com',
-              children: billingAlert.buttonCTA || 'Contact support',
-              onClick: () => reportBillingAlertActionClicked(billingAlert),
-          }
-        : {
-              to: urls.organizationBilling(),
-              children: 'Manage billing',
-              onClick: () => reportBillingAlertActionClicked(billingAlert),
-          }
+          ? {
+                to: 'mailto:sales@posthog.com',
+                children: billingAlert.buttonCTA || 'Contact support',
+                onClick: () => reportBillingAlertActionClicked(billingAlert),
+            }
+          : {
+                to: urls.organizationBilling(),
+                children: 'Manage billing',
+                onClick: () => reportBillingAlertActionClicked(billingAlert),
+            }
 
     return (
         <div className={cn('my-4', requiresHorizontalMargin && 'mx-4', className)}>
@@ -58,8 +58,8 @@ export function BillingAlertsV2({ className }: { className?: string }): JSX.Elem
                     billingAlert.status !== 'error'
                         ? () => setAlertHidden(true)
                         : billingAlert.onClose
-                        ? () => billingAlert.onClose?.()
-                        : undefined
+                          ? () => billingAlert.onClose?.()
+                          : undefined
                 }
                 dismissKey={billingAlert.dismissKey}
             >

@@ -78,10 +78,10 @@ export function Destinations({ types }: DestinationsProps): JSX.Element {
                 {types.includes('destination')
                     ? 'New destinations'
                     : types.includes('site_app')
-                    ? 'New site app'
-                    : types.includes('transformation')
-                    ? 'New transformation'
-                    : 'New'}
+                      ? 'New site app'
+                      : types.includes('transformation')
+                        ? 'New transformation'
+                        : 'New'}
             </h2>
             <DestinationOptionsTable types={types} />
             {/* Old site-apps until we migrate everyone onto the new ones */}
@@ -118,8 +118,8 @@ export function DestinationsTable({
         types.includes('destination') || types.includes('site_destination')
             ? 'destination'
             : types.includes('site_app')
-            ? 'site app'
-            : 'Hog function'
+              ? 'site app'
+              : 'Hog function'
 
     const enabledTransformations = destinations.filter(
         (d): d is FunctionDestination => d.stage === PipelineStage.Transformation && d.enabled
@@ -309,8 +309,8 @@ export function DestinationsTable({
                                                     disabledReason: !canConfigurePlugins
                                                         ? `You do not have permission to toggle ${simpleName}s.`
                                                         : !canEnableDestination(destination) && !destination.enabled
-                                                        ? `Data pipelines add-on is required for enabling new ${simpleName}s`
-                                                        : undefined,
+                                                          ? `Data pipelines add-on is required for enabling new ${simpleName}s`
+                                                          : undefined,
                                                 },
                                                 ...usePipelineNodeMenuCommonItems(destination),
                                                 {
@@ -379,10 +379,13 @@ function ReorderTransformationsModal({ types }: { types: HogFunctionTypeType[] }
     // Store initial orders when modal opens
     useEffect(() => {
         if (reorderTransformationsModalOpen) {
-            const orders = enabledTransformations.reduce((acc, transformation) => {
-                acc[transformation.hog_function.id] = transformation.hog_function.execution_order || 0
-                return acc
-            }, {} as Record<string, number>)
+            const orders = enabledTransformations.reduce(
+                (acc, transformation) => {
+                    acc[transformation.hog_function.id] = transformation.hog_function.execution_order || 0
+                    return acc
+                },
+                {} as Record<string, number>
+            )
             setInitialOrders(orders)
         }
     }, [reorderTransformationsModalOpen, enabledTransformations])
@@ -404,12 +407,15 @@ function ReorderTransformationsModal({ types }: { types: HogFunctionTypeType[] }
             const to = sortedTransformations.findIndex((d) => d.id === over.id)
             const newSortedDestinations = arrayMove(sortedTransformations, from, to)
 
-            const newTemporaryOrder = newSortedDestinations.reduce((acc, destination, index) => {
-                if (destination.hog_function?.id) {
-                    acc[destination.hog_function.id] = index + 1
-                }
-                return acc
-            }, {} as Record<string, number>)
+            const newTemporaryOrder = newSortedDestinations.reduce(
+                (acc, destination, index) => {
+                    if (destination.hog_function?.id) {
+                        acc[destination.hog_function.id] = index + 1
+                    }
+                    return acc
+                },
+                {} as Record<string, number>
+            )
 
             setTemporaryTransformationOrder(newTemporaryOrder)
         }
@@ -417,13 +423,16 @@ function ReorderTransformationsModal({ types }: { types: HogFunctionTypeType[] }
 
     const handleSaveOrder = (): void => {
         // Compare and only include changed orders
-        const changedOrders = Object.entries(temporaryTransformationOrder).reduce((acc, [id, newOrder]) => {
-            const originalOrder = initialOrders[id]
-            if (originalOrder !== newOrder) {
-                acc[id] = newOrder
-            }
-            return acc
-        }, {} as Record<string, number>)
+        const changedOrders = Object.entries(temporaryTransformationOrder).reduce(
+            (acc, [id, newOrder]) => {
+                const originalOrder = initialOrders[id]
+                if (originalOrder !== newOrder) {
+                    acc[id] = newOrder
+                }
+                return acc
+            },
+            {} as Record<string, number>
+        )
 
         // Only send if there are changes
         if (Object.keys(changedOrders).length > 0) {

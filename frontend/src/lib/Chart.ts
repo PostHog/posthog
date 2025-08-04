@@ -18,7 +18,7 @@ Tooltip.positioners.cursor = function (_, coordinates) {
 export class Chart<
     TType extends ChartType = ChartType,
     TData = DefaultDataPoint<TType>,
-    TLabel = unknown
+    TLabel = unknown,
 > extends RawChart<TType, TData, TLabel> {
     draw(): void {
         if (inStorybookTestRunner()) {
