@@ -57,7 +57,7 @@ export const sessionTabLogic = kea<sessionTabLogicType>([
     })),
 
     actions({
-        setEventListEl: (eventListEl: React.RefObject<HTMLDivElement>) => ({ eventListEl }),
+        setEventListEl: (eventListEl: HTMLDivElement | null) => ({ eventListEl }),
         scrollToItem: (itemId: string) => ({ itemId }),
         registerRenderer: (renderer: SessionTimelineRenderer<SessionTimelineItem>) => ({
             renderer,
@@ -75,7 +75,7 @@ export const sessionTabLogic = kea<sessionTabLogicType>([
 
     reducers({
         eventListEl: {
-            setEventListEl: (_, { eventListEl }: { eventListEl: React.RefObject<HTMLDivElement> }) => eventListEl,
+            setEventListEl: (_, { eventListEl }: { eventListEl: HTMLDivElement | null }) => eventListEl,
         },
         rendererRegistry: {
             registerRenderer: (state, { renderer }: { renderer: SessionTimelineRenderer<SessionTimelineItem> }) => [
