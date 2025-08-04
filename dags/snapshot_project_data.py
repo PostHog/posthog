@@ -1,3 +1,4 @@
+from contextlib import contextmanager
 from tempfile import TemporaryFile
 
 import dagster
@@ -27,27 +28,39 @@ def compose_dump_path(project_id: int, file_name: str) -> str:
     return f"{settings.OBJECT_STORAGE_MAX_AI_EVALS_FOLDER}/models/{project_id}/{file_name}"
 
 
+@contextmanager
+def dump_model(*, s3: S3Resource, schema: type[AvroBase], file_key: str):
+    with TemporaryFile() as f:
+
+        def dump(models: list[AvroBase]):
+            writer(f, parse_schema(schema.avro_schema()), [model.model_dump() for model in models])
+            s3.get_client().upload_fileobj(f, settings.OBJECT_STORAGE_BUCKET, file_key)
+
+        yield dump
+
+
 @dagster.asset(
     description="Snapshots property definitions",
     tags={"owner": JobOwners.TEAM_MAX_AI.value},
 )
 def snapshot_property_definitions(config: SnapshotConfig, s3: S3Resource):
-    with TemporaryFile() as f:
-        models_to_dump = []
-        for table in DataWarehouseTable.objects.filter(team_id=config.project_id).iterator(500):
-            model = DataWarehouseTableSchema(
-                name=table.name,
-                format=table.format,
-                columns=table.columns,
+    file_key = compose_dump_path(config.project_id, "prop_defs.avro")
+    with dump_model(s3=s3, schema=DataWarehouseTableSchema, file_key=file_key) as dump:
+        models_to_dump: list[PropertyDefinitionSchema] = []
+        for prop in PropertyDefinition.objects.filter(project_id=config.project_id).iterator(500):
+            model = PropertyDefinitionSchema(
+                name=prop.name,
+                is_numerical=prop.is_numerical,
+                property_type=prop.property_type,
+                type=prop.type,
+                group_type_index=prop.group_type_index,
             )
-            models_to_dump.append(model.model_dump())
-        writer(f, parse_schema(DataWarehouseTableSchema.avro_schema()), models_to_dump)
-
-        file_key = compose_dump_path(config.project_id, "dwh_tables.avro")
-        s3.get_client().upload_fileobj(f, settings.OBJECT_STORAGE_BUCKET, file_key)
+            models_to_dump.append(model)
+        dump(models_to_dump)
     return dagster.MaterializeResult(metadata={"key": file_key})
 
 
+# posthog/models/warehouse/table.py
 class DataWarehouseTableSchema(AvroBase):
     name: str
     format: str
@@ -59,21 +72,17 @@ class DataWarehouseTableSchema(AvroBase):
     tags={"owner": JobOwners.TEAM_MAX_AI.value},
 )
 def snapshot_data_warehouse_tables(config: SnapshotConfig, s3: S3Resource):
-    with TemporaryFile() as f:
-        models_to_dump = []
-        for prop in PropertyDefinition.objects.filter(project_id=config.project_id).iterator(500):
-            model = PropertyDefinitionSchema(
-                name=prop.name,
-                is_numerical=prop.is_numerical,
-                property_type=prop.property_type,
-                type=prop.type,
-                group_type_index=prop.group_type_index,
+    file_key = compose_dump_path(config.project_id, "prop_defs.avro")
+    with dump_model(s3=s3, schema=DataWarehouseTableSchema, file_key=file_key) as dump:
+        models_to_dump: list[DataWarehouseTableSchema] = []
+        for table in DataWarehouseTable.objects.filter(team_id=config.project_id).iterator(500):
+            model = DataWarehouseTableSchema(
+                name=table.name,
+                format=table.format,
+                columns=table.columns,
             )
-            models_to_dump.append(model.model_dump())
-        writer(f, parse_schema(PropertyDefinitionSchema.avro_schema()), models_to_dump)
-
-        file_key = compose_dump_path(config.project_id, "prop_defs.avro")
-        s3.get_client().upload_fileobj(f, settings.OBJECT_STORAGE_BUCKET, file_key)
+            models_to_dump.append(model)
+        dump(models_to_dump)
     return dagster.MaterializeResult(metadata={"key": file_key})
 
 
