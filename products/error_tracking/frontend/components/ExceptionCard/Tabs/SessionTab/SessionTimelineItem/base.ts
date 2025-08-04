@@ -33,5 +33,4 @@ export type SessionTimelineRenderer<T> = {
     runtimeIcon: IconComponent<PreviewRenderProps<T>>
     group: RendererGroup
     renderPreview: React.FC<PreviewRenderProps<T>>
-    renderDetails: React.FC<DetailsRenderProps<T>>
 }

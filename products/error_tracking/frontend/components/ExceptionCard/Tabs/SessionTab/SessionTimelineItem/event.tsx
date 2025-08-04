@@ -1,5 +1,4 @@
 import {
-    DetailsRenderProps,
     PreviewRenderProps,
     RendererGroup,
     SessionTimelineEvent,
@@ -7,7 +6,7 @@ import {
     SessionTimelineRenderer,
 } from './base'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP } from '~/taxonomy/taxonomy'
-import { JSONViewer } from 'lib/components/JSONViewer'
+
 import { ErrorTrackingException } from 'lib/components/Errors/types'
 import { RuntimeIcon } from 'products/error_tracking/frontend/components/RuntimeIcon'
 import { getRuntimeFromLib } from 'lib/components/Errors/utils'
@@ -79,20 +78,6 @@ export function EventPreview({ item }: PreviewRenderProps<SessionTimelineEvent>)
     return <BasePreview name={sanitizeEventName(item.payload.event)} />
 }
 
-export function EventDetails({ item }: DetailsRenderProps<SessionTimelineEvent>): JSX.Element {
-    return (
-        <div className="p-2">
-            <JSONViewer
-                src={item.payload.properties}
-                name="event"
-                collapsed={1}
-                collapseStringsAfterLength={80}
-                sortKeys
-            />
-        </div>
-    )
-}
-
 function eventPredicate(item: SessionTimelineEvent, ...names: string[]): boolean {
     return item.type === 'event' && (names.length == 0 || names.includes(item.payload.event))
 }
@@ -104,7 +89,6 @@ export const eventRenderer: SessionTimelineRenderer<SessionTimelineEvent> = {
         return <RuntimeIcon runtime={runtime} />
     },
     renderPreview: EventPreview,
-    renderDetails: EventDetails,
     group: RendererGroup.PRODUCT_ANALYTICS,
 }
 
