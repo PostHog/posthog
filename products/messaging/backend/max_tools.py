@@ -54,7 +54,6 @@ Return ONLY the JSON object. Do not add any other text or explanation.
 """
         user_content = f"Create a template for these instructions: {instructions}"
         messages = [SystemMessage(content=system_content)]
-        model_name = "gpt-4.1"
 
         if url:
             try:
@@ -82,8 +81,7 @@ Now, create a template for these instructions: {instructions}
         parsed_result = None
         for _ in range(3):
             try:
-                model = ChatOpenAI(model=model_name, temperature=0.3, disable_streaming=True)
-                result = model.invoke(messages)
+                result = self._model.invoke(messages)
                 parsed_result = self._parse_output(result.content)
                 break
             except PydanticOutputParserException as e:
@@ -95,6 +93,10 @@ Now, create a template for these instructions: {instructions}
 
         template_json = json.dumps(parsed_result.model_dump(), indent=2)
         return f"```json\n{template_json}\n```", template_json
+
+    @property
+    def _model(self):
+        return ChatOpenAI(model="gpt-4.1", temperature=0.3, disable_streaming=True)
 
     def _parse_output(self, output: str) -> TemplateOutput:
         match = re.search(r"<template>(.*?)</template>", output, re.DOTALL)
