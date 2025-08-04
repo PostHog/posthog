@@ -17,6 +17,7 @@ const config = {
         ? {
               ca: fs.readFileSync(path.join(__dirname, '../../../sf-class2-root.crt')),
               rejectUnauthorized: true,
+              host: process.env.CASSANDRA_HOST || 'localhost',
           }
         : undefined,
     protocolOptions: {
