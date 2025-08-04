@@ -5389,7 +5389,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         assert flags is not None
         self.assertEqual(len(flags), 0)
 
-    @patch("posthog.api.feature_flag.FeatureFlagThrottle.rate", new="7/minute")
+    @patch("posthog.api.feature_flag.LocalEvaluationThrottle.rate", new="7/minute")
     @patch("posthog.rate_limit.BurstRateThrottle.rate", new="5/minute")
     @patch("posthog.rate_limit.statsd.incr")
     @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)

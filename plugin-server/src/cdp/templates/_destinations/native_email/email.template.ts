@@ -22,9 +22,9 @@ interface MaildevEmailRequest {
 function getMaildevEmailDeliveryRequest(payload: EmailPayload): MaildevEmailRequest {
     const { email } = payload
 
-    const requiredFields = ['to', 'from', 'subject', 'text', 'html']
+    const requiredFields = ['to', 'from', 'subject', 'text', 'html'] as const
     for (const field of requiredFields) {
-        if (!(field in email) || !email[field]) {
+        if (!email[field]) {
             throw new Error(`Missing required email field: ${field}`)
         }
     }
