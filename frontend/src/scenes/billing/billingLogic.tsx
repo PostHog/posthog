@@ -87,6 +87,54 @@ const parseBillingResponse = (data: Partial<BillingType>): BillingType => {
     return data as BillingType
 }
 
+const storeBillingAlertDismissal = (
+    organizationId: string | undefined,
+    productType: string,
+    billingPeriodEnd: string | null | undefined,
+    suffix: string = ''
+): void => {
+    if (billingPeriodEnd && organizationId) {
+        try {
+            const dismissKey = `${BILLING_ALERT_DISMISS_PREFIX}${organizationId}.${productType}${suffix}`
+            localStorage.setItem(dismissKey, billingPeriodEnd)
+        } catch (error) {
+            // localStorage not available, continue without storing
+            console.warn('localStorage not available for billing alert dismissal:', error)
+        }
+    }
+}
+
+const isBillingAlertDismissed = (
+    organizationId: string | undefined,
+    productType: string,
+    billingPeriodEnd: string | null | undefined,
+    suffix: string = ''
+): boolean => {
+    if (!billingPeriodEnd || !organizationId) {
+        return false
+    }
+
+    try {
+        const dismissKey = `${BILLING_ALERT_DISMISS_PREFIX}${organizationId}.${productType}${suffix}`
+        const dismissedData = localStorage.getItem(dismissKey)
+
+        if (dismissedData) {
+            // If the stored billing period end is different from current, remove the key and show the alert
+            if (dismissedData !== billingPeriodEnd) {
+                localStorage.removeItem(dismissKey)
+                return false
+            }
+            // Alert was dismissed for this period, don't show it
+            return true
+        }
+        return false
+    } catch (error) {
+        // localStorage not available, continue to show alert
+        console.warn('localStorage not available for billing alert dismissal:', error)
+        return false
+    }
+}
+
 export const billingLogic = kea<billingLogicType>([
     path(['scenes', 'billing', 'billingLogic']),
     actions({
@@ -696,24 +744,8 @@ export const billingLogic = kea<billingLogicType>([
 
                 // Check if this alert was dismissed for the current billing period
                 const billingPeriodEnd = values.billing.billing_period?.current_period_end?.format('YYYY-MM-DD')
-                if (billingPeriodEnd && values.currentOrganization?.id) {
-                    try {
-                        const dismissKey = `${BILLING_ALERT_DISMISS_PREFIX}${values.currentOrganization.id}.${productOverLimit.type}`
-                        const dismissedData = localStorage.getItem(dismissKey)
-
-                        if (dismissedData) {
-                            // If the stored billing period end is different from current, remove the key and show the alert
-                            if (dismissedData !== billingPeriodEnd) {
-                                localStorage.removeItem(dismissKey)
-                            } else {
-                                // Alert was dismissed for this period, don't show it
-                                return
-                            }
-                        }
-                    } catch (error) {
-                        // localStorage not available, continue to show alert
-                        console.warn('localStorage not available for billing alert dismissal:', error)
-                    }
+                if (isBillingAlertDismissed(values.currentOrganization?.id, productOverLimit.type, billingPeriodEnd)) {
+                    return
                 }
 
                 actions.setBillingAlert({
@@ -733,15 +765,11 @@ export const billingLogic = kea<billingLogicType>([
                         // Store dismissal in localStorage
                         const billingPeriodEnd =
                             values.billing?.billing_period?.current_period_end?.format('YYYY-MM-DD')
-                        if (billingPeriodEnd && values.currentOrganization?.id) {
-                            try {
-                                const dismissKey = `${BILLING_ALERT_DISMISS_PREFIX}${values.currentOrganization.id}.${productOverLimit.type}`
-                                localStorage.setItem(dismissKey, billingPeriodEnd)
-                            } catch (error) {
-                                // localStorage not available, continue without storing
-                                console.warn('localStorage not available for billing alert dismissal:', error)
-                            }
-                        }
+                        storeBillingAlertDismissal(
+                            values.currentOrganization?.id,
+                            productOverLimit.type,
+                            billingPeriodEnd
+                        )
                         actions.setBillingAlert(null)
                     },
                 })
@@ -763,24 +791,15 @@ export const billingLogic = kea<billingLogicType>([
 
                 // Check if this alert was dismissed for the current billing period
                 const billingPeriodEnd = values.billing?.billing_period?.current_period_end?.format('YYYY-MM-DD')
-                if (billingPeriodEnd && values.currentOrganization?.id) {
-                    try {
-                        const dismissKey = `${BILLING_ALERT_DISMISS_PREFIX}${values.currentOrganization.id}.${productApproachingLimit.type}-approaching`
-                        const dismissedData = localStorage.getItem(dismissKey)
-
-                        if (dismissedData) {
-                            // If the stored billing period end is different from current, remove the key and show the alert
-                            if (dismissedData !== billingPeriodEnd) {
-                                localStorage.removeItem(dismissKey)
-                            } else {
-                                // Alert was dismissed for this period, don't show it
-                                return
-                            }
-                        }
-                    } catch (error) {
-                        // localStorage not available, continue to show alert
-                        console.warn('localStorage not available for billing alert dismissal:', error)
-                    }
+                if (
+                    isBillingAlertDismissed(
+                        values.currentOrganization?.id,
+                        productApproachingLimit.type,
+                        billingPeriodEnd,
+                        '-approaching'
+                    )
+                ) {
+                    return
                 }
 
                 actions.setBillingAlert({
@@ -796,15 +815,12 @@ export const billingLogic = kea<billingLogicType>([
                         // Store dismissal in localStorage
                         const billingPeriodEnd =
                             values.billing?.billing_period?.current_period_end?.format('YYYY-MM-DD')
-                        if (billingPeriodEnd && values.currentOrganization?.id) {
-                            try {
-                                const dismissKey = `${BILLING_ALERT_DISMISS_PREFIX}${values.currentOrganization.id}.${productApproachingLimit.type}-approaching`
-                                localStorage.setItem(dismissKey, billingPeriodEnd)
-                            } catch (error) {
-                                // localStorage not available, continue without storing
-                                console.warn('localStorage not available for billing alert dismissal:', error)
-                            }
-                        }
+                        storeBillingAlertDismissal(
+                            values.currentOrganization?.id,
+                            productApproachingLimit.type,
+                            billingPeriodEnd,
+                            '-approaching'
+                        )
                         actions.setBillingAlert(null)
                     },
                 })
