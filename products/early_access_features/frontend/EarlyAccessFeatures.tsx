@@ -76,8 +76,8 @@ export function EarlyAccessFeatures(): JSX.Element {
                                             stage === 'beta'
                                                 ? 'warning'
                                                 : stage === 'general-availability'
-                                                ? 'success'
-                                                : 'default'
+                                                  ? 'success'
+                                                  : 'default'
                                         }
                                         className="uppercase cursor-default"
                                     >

@@ -150,7 +150,7 @@ export function useFunnelTooltip(showPersonsModal: boolean): React.RefObject<HTM
             tooltipEl.style.left = 'revert'
             tooltipEl.style.top = 'revert'
         }
-    }, [isTooltipShown, tooltipOrigin, currentTooltip])
+    }, [isTooltipShown, tooltipOrigin, currentTooltip]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     return vizRef
 }

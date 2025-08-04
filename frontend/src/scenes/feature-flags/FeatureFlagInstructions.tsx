@@ -149,7 +149,7 @@ export function CodeInstructions({
         if (featureFlag?.ensure_experience_continuity) {
             setShowLocalEvalCode(false)
         }
-    }, [selectedLanguage, featureFlag])
+    }, [selectedLanguage, featureFlag]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     const groups = featureFlag?.filters?.groups || []
     // return first non-instant property in group

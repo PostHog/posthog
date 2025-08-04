@@ -39,6 +39,7 @@ describe('HogWatcher', () => {
         jest.spyOn(hub.teamManager, 'getTeam').mockResolvedValue(team)
         redis = createCdpRedisPool(hub)
         process.env.CDP_HOG_WATCHER_2_ENABLED = 'true'
+        process.env.CDP_HOG_WATCHER_2_CAPTURE_ENABLED = 'true'
     })
 
     beforeEach(async () => {
@@ -110,7 +111,7 @@ describe('HogWatcher', () => {
     describe('observeResults', () => {
         const cases: [
             { name: string; cost: number; state: number },
-            CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>[]
+            CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>[],
         ][] = [
             [
                 { name: 'should calculate cost and state for single default result', cost: 0, state: 1 },
@@ -235,6 +236,7 @@ describe('HogWatcher', () => {
 
         describe('onStateChange', () => {
             it('should trigger state change events', async () => {
+                await watcher.clearLock(hogFunctionId) // For testing the logic
                 await watcher.observeResults(Array(10).fill(createResult({ duration: 1000, kind: 'hog' })))
                 expect(await watcher.getPersistedState(hogFunctionId)).toMatchInlineSnapshot(`
                     {
@@ -244,6 +246,7 @@ describe('HogWatcher', () => {
                 `)
                 expect(onStateChangeSpy).toHaveBeenCalledTimes(0)
 
+                await watcher.clearLock(hogFunctionId) // For testing the logic
                 await watcher.observeResults(Array(10).fill(createResult({ duration: 1000, kind: 'hog' })))
                 expect(await watcher.getPersistedState(hogFunctionId)).toMatchInlineSnapshot(`
                     {
@@ -258,6 +261,7 @@ describe('HogWatcher', () => {
                     previousState: HogWatcherStateEnum.healthy,
                 })
 
+                await watcher.clearLock(hogFunctionId) // For testing the logic
                 await watcher.observeResults(Array(10).fill(createResult({ duration: 1000, kind: 'hog' })))
                 expect(await watcher.getPersistedState(hogFunctionId)).toMatchInlineSnapshot(`
                     {
@@ -267,6 +271,7 @@ describe('HogWatcher', () => {
                 `)
                 expect(onStateChangeSpy).toHaveBeenCalledTimes(1) // NO New state change
 
+                await watcher.clearLock(hogFunctionId) // For testing the logic
                 await watcher.observeResults(Array(100).fill(createResult({ duration: 1000, kind: 'hog' })))
                 expect(await watcher.getPersistedState(hogFunctionId)).toMatchInlineSnapshot(`
                     {
@@ -282,7 +287,7 @@ describe('HogWatcher', () => {
                 })
             })
 
-            it('should should not transition to disabled if not enabled', async () => {
+            it('should not transition to disabled if not enabled', async () => {
                 hub.CDP_WATCHER_AUTOMATICALLY_DISABLE_FUNCTIONS = false
                 await watcher.observeResults(Array(1000).fill(createResult({ duration: 1000, kind: 'hog' })))
                 expect(await watcher.getPersistedState(hogFunctionId)).toMatchInlineSnapshot(`
@@ -302,7 +307,7 @@ describe('HogWatcher', () => {
                 expect(onStateChangeSpy).toHaveBeenCalledTimes(1)
             })
 
-            it('should should not automatically transition out of disabled', async () => {
+            it('should not automatically transition out of disabled', async () => {
                 await watcher.observeResults(Array(1000).fill(createResult({ duration: 1000, kind: 'hog' })))
                 expect(await watcher.getPersistedState(hogFunctionId)).toMatchInlineSnapshot(`
                     {
@@ -327,6 +332,19 @@ describe('HogWatcher', () => {
                     }
                 `)
                 expect(onStateChangeSpy).toHaveBeenCalledTimes(1)
+            })
+
+            it('should not change states if recently changed', async () => {
+                await watcher.doStageChanges([[hogFunction, HogWatcherStateEnum.healthy]])
+                await watcher.observeResults(Array(1000).fill(createResult({ duration: 1000, kind: 'hog' })))
+                expect((await watcher.getPersistedState(hogFunctionId)).state).toEqual(HogWatcherStateEnum.healthy)
+                const res = await redis.usePipeline({ name: 'getLock' }, (pipeline) => {
+                    pipeline.get(`@posthog-test/hog-watcher-2/state-lock/${hogFunctionId}`)
+                    pipeline.ttl(`@posthog-test/hog-watcher-2/state-lock/${hogFunctionId}`)
+                })
+                expect(res?.[0]?.[1]).toEqual('1') // The value
+                expect(res?.[1]?.[1]).toBeGreaterThan(hub.CDP_WATCHER_STATE_LOCK_TTL - 5) // The ttl
+                expect(res?.[1]?.[1]).toBeLessThan(hub.CDP_WATCHER_STATE_LOCK_TTL + 5) // The ttl
             })
         })
     })

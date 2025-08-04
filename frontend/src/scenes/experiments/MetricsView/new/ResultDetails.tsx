@@ -163,14 +163,24 @@ export function ResultDetails({
                     metricIndex={metricIndex}
                     isPrimary={!isSecondary}
                 >
-                    {({ query, breakdownResultsLoading, breakdownResults, exposureDifference }) => {
+                    {({
+                        query,
+                        breakdownResultsLoading,
+                        breakdownResults,
+                        exposureDifference,
+                        breakdownLastRefresh,
+                    }) => {
                         return (
                             <>
                                 {breakdownResultsLoading && <ResultsBreakdownSkeleton />}
                                 {query && breakdownResults && (
                                     <>
                                         <ResultsInsightInfoBanner exposureDifference={exposureDifference} />
-                                        <ResultsQuery query={query} breakdownResults={breakdownResults} />
+                                        <ResultsQuery
+                                            query={query}
+                                            breakdownResults={breakdownResults}
+                                            breakdownLastRefresh={breakdownLastRefresh}
+                                        />
                                     </>
                                 )}
                             </>

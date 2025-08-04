@@ -7,10 +7,11 @@ import {
     LemonCalendar,
     LemonCalendarProps,
 } from 'lib/lemon-ui/LemonCalendar/LemonCalendar'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 
 import { LemonSwitch } from '../LemonSwitch'
 import { Popover } from '../Popover'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 function timeDataAttr({ unit, value }: GetLemonButtonTimePropsOpts): string {
     return `${value}-${unit}`
@@ -140,11 +141,11 @@ export function LemonCalendarSelect({
         setSelectValue(date)
     }
 
-    useEffect(() => {
+    useOnMountEffect(() => {
         if (selectValue) {
             scrollToTime(selectValue, true)
         }
-    }, [])
+    })
 
     const onTimeClick = (props: GetLemonButtonTimePropsOpts): void => {
         const date = proposedDate(selectValue, props)
@@ -204,8 +205,8 @@ export function LemonCalendarSelect({
                         selectionPeriod === 'upcoming' && newDate.isBefore(now)
                             ? 'Cannot choose a time in the past'
                             : selectionPeriod === 'past' && newDate.isAfter(now)
-                            ? 'Cannot choose a time in the future'
-                            : undefined
+                              ? 'Cannot choose a time in the future'
+                              : undefined
                     const disabledReason = selectValue ? periodValidityDisabledReason : 'Choose a date first'
 
                     return {

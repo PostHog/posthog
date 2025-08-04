@@ -1,12 +1,13 @@
 import { offset } from '@floating-ui/react'
-import { IconRocket } from '@posthog/icons'
+import { IconMemory, IconRocket } from '@posthog/icons'
 import { LemonMenu, LemonMenuItem } from 'lib/lemon-ui/LemonMenu'
 import { useEffect, useMemo, useState } from 'react'
 
 export interface SlashCommand {
     name: `/${string}`
+    arg?: `[${string}]`
     description: string
-    icon?: JSX.Element
+    icon: JSX.Element
 }
 
 export const MAX_SLASH_COMMANDS: SlashCommand[] = [
@@ -14,6 +15,12 @@ export const MAX_SLASH_COMMANDS: SlashCommand[] = [
         name: '/init',
         description: 'Set up knowledge about your product & business',
         icon: <IconRocket />,
+    },
+    {
+        name: '/remember',
+        arg: '[information]',
+        description: "Add [information] to Max's project-level memory",
+        icon: <IconMemory />,
     },
 ]
 
@@ -36,7 +43,10 @@ const slashCommandToMenuItem = (
     key: command.name,
     label: (
         <div>
-            <div className="font-mono mt-0.5">{command.name}</div>
+            <div className="font-mono mt-0.5">
+                {command.name}
+                {command.arg && ` ${command.arg}`}
+            </div>
             <div className="text-muted text-xs">{command.description}</div>
         </div>
     ),
@@ -57,11 +67,11 @@ export function SlashCommandAutocomplete({
         return MAX_SLASH_COMMANDS.filter((command) => command.name.toLowerCase().startsWith(searchText.toLowerCase()))
     }, [searchText])
 
-    const [activeItemIndex, setActiveItemIndex] = useState(0) // Highlight first command by default
+    const [activeItemIndex, setActiveItemIndex] = useState(filteredCommands.length - 1) // Highlight bottom-most command by default
 
     // Reset highlighted key when visibility changes or commands change
     useEffect(() => {
-        setActiveItemIndex(0)
+        setActiveItemIndex(filteredCommands.length - 1)
     }, [visible, filteredCommands])
 
     // Handle keyboard navigation
@@ -83,6 +93,7 @@ export function SlashCommandAutocomplete({
                 onClose()
             } else if (e.key === 'Enter') {
                 e.preventDefault()
+                e.stopPropagation()
                 onActivate(filteredCommands[activeItemIndex])
             }
         }
@@ -97,7 +108,9 @@ export function SlashCommandAutocomplete({
                 .concat([
                     {
                         key: 'navigation-hint',
-                        label: NavigationHint,
+                        label: function NavigationHintLabel() {
+                            return <NavigationHint isArgRequired={!!filteredCommands[activeItemIndex]?.arg} />
+                        },
                     },
                 ])}
             visible={visible && filteredCommands.length > 0}
@@ -124,10 +137,11 @@ export function SlashCommandAutocomplete({
     )
 }
 
-function NavigationHint(): JSX.Element {
+function NavigationHint({ isArgRequired }: { isArgRequired: boolean }): JSX.Element {
     return (
         <div className="border-t px-1 pt-1.5 pb-0.5 mt-1 text-xxs text-muted-alt font-medium select-none">
-            {MAX_SLASH_COMMANDS.length > 1 && '↑↓ to navigate • '}⏎ to activate • → to select • Esc to close
+            {MAX_SLASH_COMMANDS.length > 1 && '↑↓ to navigate • '}
+            {!isArgRequired ? '⏎ to activate • → to select • Esc to close' : '⏎ or → to select • Esc to close'}
         </div>
     )
 }

@@ -136,7 +136,7 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
         if (selectedItemMeta && definition.name == selectedItemMeta.id) {
             setLocalDefinition(selectedItemMeta)
         }
-    }, [definition])
+    }, [definition]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     const hasSentAsLabel = useMemo(() => {
         const _definition = definition as PropertyDefinition
@@ -268,7 +268,7 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
                                         title={
                                             isDataWarehousePersonProperty
                                                 ? _definition.id
-                                                : _definition.name ?? undefined
+                                                : (_definition.name ?? undefined)
                                         }
                                     >
                                         {hasSentAsLabel}
@@ -620,7 +620,7 @@ export function ControlledDefinitionPopover({
     // independently by `infiniteListLogic`
     useEffect(() => {
         setDefinition(item)
-    }, [item])
+    }, [item, setDefinition])
 
     // Supports all types specified in selectedItemHasPopover
     const value = group.getValue?.(item)
