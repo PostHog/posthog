@@ -15,6 +15,7 @@ export function OverlayForNewInsightMenu({ dataAttr }: { dataAttr: string }): JS
     const menuEntries = Object.entries(INSIGHT_TYPES_METADATA).filter(
         ([insightType]) =>
             insightType !== InsightType.JSON &&
+            insightType !== InsightType.HOG &&
             (calendarHeatmapInsightEnabled || insightType !== InsightType.CALENDAR_HEATMAP)
     )
 
