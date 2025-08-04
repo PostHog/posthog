@@ -1790,7 +1790,7 @@
          "posthog_cohort"."cohort_type"
   FROM "posthog_cohort"
   WHERE (NOT "posthog_cohort"."deleted"
-         AND UPPER("posthog_cohort"."filters"::text) LIKE UPPER('%"value": 1571%')
+         AND UPPER("posthog_cohort"."filters"::text) LIKE UPPER('%"value": 70%')
          AND "posthog_cohort"."team_id" = 99999
          AND NOT ("posthog_cohort"."id" = 99999))
   '''
@@ -2911,7 +2911,7 @@
          "posthog_cohort"."cohort_type"
   FROM "posthog_cohort"
   WHERE (NOT "posthog_cohort"."deleted"
-         AND UPPER("posthog_cohort"."filters"::text) LIKE UPPER('%"value": 1578%')
+         AND UPPER("posthog_cohort"."filters"::text) LIKE UPPER('%"value": 77%')
          AND "posthog_cohort"."team_id" = 99999
          AND NOT ("posthog_cohort"."id" = 99999))
   '''
