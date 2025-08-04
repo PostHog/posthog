@@ -173,10 +173,9 @@ class TestHogFunctionTemplates(ClickhouseTestMixin, APIBaseTest, QueryMatchingTe
         for template_item in response.json()["results"]:
             assert template_item["status"] != "hidden", f"Hidden template {template_item['id']} should not be returned"
 
-    def test_legacy_plugin_templates_are_excluded_from_public_api(self):
+    def test_legacy_transformation_templates_are_excluded_from_public_api(self):
         """Test that templates with IDs starting with 'plugin-' are excluded from public API"""
         self.client.logout()
-        # Request both destination and transformation types to ensure we test all templates
         response = self.client.get("/api/public_hog_function_templates/?types=transformation")
 
         assert response.status_code == status.HTTP_200_OK, response.json()
