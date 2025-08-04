@@ -98,6 +98,13 @@ export function SceneHeader({ className }: { className?: string }): JSX.Element 
                                           ? 'Close info panel'
                                           : 'Open info panel'
                                 }
+                                aria-label={
+                                    scenePanelIsRelative
+                                        ? 'Force close info panel'
+                                        : scenePanelOpen
+                                          ? 'Close info panel'
+                                          : 'Open info panel'
+                                }
                                 active={scenePanelOpen}
                                 size="small"
                             />

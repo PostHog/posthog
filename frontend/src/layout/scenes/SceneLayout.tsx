@@ -165,8 +165,6 @@ export function SceneLayout({ children, className, layoutConfig }: SceneLayoutPr
                                 'scene-layout__content-panel order-2 bg-surface-secondary flex flex-col overflow-hidden row-span-2 col-span-2 row-start-1 col-start-2 top-0 h-screen min-w-0 fixed left-[calc(var(--scene-layout-outer-right)-var(--scene-layout-panel-width)-1px)]',
                                 {
                                     hidden: !scenePanelOpen,
-                                    'fixed left-[calc(var(--scene-layout-outer-right)-var(--scene-layout-panel-width)-1px)]':
-                                        scenePanelIsRelative,
                                 }
                             )}
                         >
@@ -184,7 +182,20 @@ export function SceneLayout({ children, className, layoutConfig }: SceneLayoutPr
                                                 ? setForceScenePanelClosedWhenRelative(true)
                                                 : setScenePanelOpen(false)
                                         }
-                                        tooltip={scenePanelIsRelative ? 'Force close info panel' : undefined}
+                                        tooltip={
+                                            scenePanelIsRelative
+                                                ? 'Force close info panel'
+                                                : scenePanelOpen
+                                                  ? 'Close info panel'
+                                                  : 'Open info panel'
+                                        }
+                                        aria-label={
+                                            scenePanelIsRelative
+                                                ? 'Force close info panel'
+                                                : scenePanelOpen
+                                                  ? 'Close info panel'
+                                                  : 'Open info panel'
+                                        }
                                     >
                                         <IconX className="size-4" />
                                     </ButtonPrimitive>
@@ -205,6 +216,7 @@ export function SceneLayout({ children, className, layoutConfig }: SceneLayoutPr
                                 onClick={() => {
                                     setScenePanelOpen(false)
                                 }}
+                                aria-hidden="true"
                                 className="z-[var(--z-top-navigation-under)] fixed inset-0 w-screen h-screen bg-fill-highlight-100"
                             />
                         )}
