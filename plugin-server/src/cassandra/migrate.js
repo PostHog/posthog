@@ -13,13 +13,14 @@ const config = {
         process.env.CASSANDRA_USER || 'cassandra',
         process.env.CASSANDRA_PASSWORD || 'cassandra'
     ),
-    sslOptions: process.env.CLOUD_DEPLOYMENT
-        ? {
-              ca: fs.readFileSync(path.join(__dirname, '../../../sf-class2-root.crt')),
-              rejectUnauthorized: true,
-              host: process.env.CASSANDRA_HOST || 'localhost',
-          }
-        : undefined,
+    sslOptions:
+        process.env.CREATE_CASSANDRA_KEYSPACE === 'false'
+            ? {
+                  ca: fs.readFileSync(path.join(__dirname, '../../../sf-class2-root.crt')),
+                  rejectUnauthorized: true,
+                  host: process.env.CASSANDRA_HOST || 'localhost',
+              }
+            : undefined,
     protocolOptions: {
         port: process.env.CASSANDRA_PORT || 9042,
     },
@@ -129,13 +130,13 @@ async function executeMigration(filename, content) {
 
 async function runMigrations() {
     try {
-        // skip keyspace creation for cloud deployments
-        const shouldCreateKeyspace = !process.env.CLOUD_DEPLOYMENT
+        // skip keyspace creation when CREATE_CASSANDRA_KEYSPACE is set to false
+        const shouldCreateKeyspace = process.env.CREATE_CASSANDRA_KEYSPACE !== 'false'
 
         if (shouldCreateKeyspace) {
             await createKeyspace()
         } else {
-            console.log('Skipping keyspace creation (CLOUD_DEPLOYMENT is set)')
+            console.log('Skipping keyspace creation (CREATE_CASSANDRA_KEYSPACE is set to false)')
         }
 
         // Connect to the keyspace
