@@ -10,11 +10,15 @@ DEFAULT_ENABLED_TEAM_IDS = [1, 2, 55348, 47074, 12669, 1589, 117126]
 
 # Strategy configurations
 DEFAULT_TOP_TEAMS_BY_PAGEVIEWS_LIMIT = 30
+# We want to limit the number of teams we proactively add while in beta
+MAX_TOP_TEAMS_BY_PAGEVIEWS_LIMIT = 100
 
 
 def get_top_teams_by_median_pageviews_sql(limit: int = DEFAULT_TOP_TEAMS_BY_PAGEVIEWS_LIMIT) -> str:
-    if not isinstance(limit, int) or limit < 1 or limit > 100:
-        raise ValueError(f"Invalid limit: {limit}. Must be an integer between 1 and 100.")
+    if not isinstance(limit, int) or limit < 1 or limit > MAX_TOP_TEAMS_BY_PAGEVIEWS_LIMIT:
+        raise ValueError(
+            f"Invalid limit: {limit}. Must be an integer between 1 and {MAX_TOP_TEAMS_BY_PAGEVIEWS_LIMIT}."
+        )
 
     return f"""
 SELECT
