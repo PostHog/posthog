@@ -53,6 +53,9 @@ import { ScenePanel, ScenePanelActions, ScenePanelDivider, ScenePanelMetaInfo } 
 import { earlyAccessFeatureLogic } from './earlyAccessFeatureLogic'
 import { InstructionsModal } from './InstructionsModal'
 import { SceneMetalyticsSummaryButton } from 'lib/components/Scenes/SceneMetalyticsSummaryButton'
+import { SceneName } from 'lib/components/Scenes/SceneName'
+import { SceneDescription } from 'lib/components/Scenes/SceneDescription'
+import { SceneSelect } from 'lib/components/Scenes/SceneSelect'
 
 const RESOURCE_TYPE = 'early-access-feature'
 
@@ -81,6 +84,7 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
         updateStage,
         deleteEarlyAccessFeature,
         toggleImplementOptInInstructionsModal,
+        setEarlyAccessFeatureValue,
     } = useActions(earlyAccessFeatureLogic)
 
     const { featureFlags } = useValues(featureFlagLogic)
@@ -255,6 +259,53 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
 
             <ScenePanel>
                 <ScenePanelMetaInfo>
+                    <SceneName
+                        defaultValue={earlyAccessFeature.name}
+                        onSave={(value) => {
+                            setEarlyAccessFeatureValue('name', value)
+                        }}
+                        dataAttrKey={RESOURCE_TYPE}
+                    />
+                    <SceneDescription
+                        defaultValue={earlyAccessFeature.description || ''}
+                        onSave={(value) => {
+                            setEarlyAccessFeatureValue('description', value)
+                        }}
+                        dataAttrKey={RESOURCE_TYPE}
+                        optional
+                    />
+
+                    <SceneSelect
+                        onSave={(value) => {
+                            setEarlyAccessFeatureValue('stage', value)
+                        }}
+                        value={earlyAccessFeature.stage}
+                        name="stage"
+                        dataAttrKey={RESOURCE_TYPE}
+                        options={[
+                            {
+                                label: 'Draft (default)',
+                                value: 'draft',
+                                disabled: true,
+                            },
+                            {
+                                label: 'Concept',
+                                value: 'concept',
+                            },
+                            {
+                                label: 'Alpha',
+                                value: 'alpha',
+                            },
+                            {
+                                label: 'Beta',
+                                value: 'beta',
+                            },
+                            {
+                                label: 'General availability / Archived',
+                                value: 'general-availability',
+                            },
+                        ]}
+                    />
                     <SceneFile dataAttrKey={RESOURCE_TYPE} />
                 </ScenePanelMetaInfo>
 
