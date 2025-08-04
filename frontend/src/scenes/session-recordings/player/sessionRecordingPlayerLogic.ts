@@ -1384,8 +1384,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             }
 
             actions.startReplayExport(values.sessionRecordingId, getCurrentPlayerTime(values.logicProps), {
-                width: iframe?.width || 1400,
-                height: iframe?.height || 600,
+                width: iframe?.width ? Number(iframe.width) : 1400,
+                height: iframe?.height ? Number(iframe.height) : 600,
                 css_selector: '.replayer-wrapper',
                 filename: `replay-${values.sessionRecordingId}`,
             })
