@@ -235,7 +235,7 @@ export function SemanticColors(): JSX.Element {
             name: '--color-error-foreground-on-fill',
         },
         {
-            tailwindClass: 'text-success-on-fill',
+            tailwindClass: 'text-success-foreground-on-fill',
             description: 'the success text color on a success fill',
             name: '--color-success-foreground-on-fill',
         },

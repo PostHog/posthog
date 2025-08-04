@@ -41,8 +41,8 @@ export const SidePanelActivation = (): JSX.Element | null => {
                         <LemonProgress
                             percent={completionPercent}
                             size="medium"
-                            bgColor="var(--color-bg-3000)"
-                            strokeColor="var(--success)"
+                            bgColor="var(--color-card)"
+                            strokeColor="var(--color-accent)"
                             className="w-full stroke-opacity-80 h-2"
                         />
                         <span className="font-medium text-tertiary-foreground">{completionPercent}%</span>
@@ -268,7 +268,7 @@ const ActivationTask = ({
             >
                 <div className="flex items-center gap-2">
                     {completed ? (
-                        <IconCheckCircle className="h-6 w-6 text-success" />
+                        <IconCheckCircle className="h-6 w-6 text-success-foreground" />
                     ) : lockedReason ? (
                         <Tooltip title={lockedReason}>
                             <IconLock className="h-6 w-6 text-tertiary-foreground" />

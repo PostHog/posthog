@@ -85,7 +85,7 @@ export function FunnelCorrelationTable(): JSX.Element | null {
             <>
                 <div className="font-semibold text-text-foreground">
                     {is_success ? (
-                        <IconTrending className="text-success" />
+                        <IconTrending className="text-success-foreground" />
                     ) : (
                         <IconTrendingDown className="text-danger" />
                     )}{' '}

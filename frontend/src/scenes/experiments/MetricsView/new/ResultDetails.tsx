@@ -85,7 +85,7 @@ export function ResultDetails({
                     return '—'
                 }
                 const label = item.significant ? 'Yes' : 'No'
-                return item.significant ? <div className="text-success font-semibold">{label}</div> : label
+                return item.significant ? <div className="text-success-foreground font-semibold">{label}</div> : label
             },
         },
         {

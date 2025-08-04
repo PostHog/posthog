@@ -41,7 +41,7 @@ export function PathNodeCardMenu({
         >
             {!isPathEnd && (
                 <CardItem
-                    icon={<IconTrendingFlat className="text-xl shrink-0 text-success" />}
+                    icon={<IconTrendingFlat className="text-xl shrink-0 text-success-foreground" />}
                     text="Continuing"
                     count={
                         <CountButton

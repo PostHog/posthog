@@ -211,7 +211,7 @@ export function InviteRow({ index, isDeletable }: { index: number; isDeletable: 
     }))
 
     return (
-        <div className="space-y-4 bg-secondary py-4 px-4 rounded-md">
+        <div className="space-y-4 bg-card border py-4 px-4 rounded">
             <div className="flex gap-2">
                 <div className="flex-2">
                     <LemonInput

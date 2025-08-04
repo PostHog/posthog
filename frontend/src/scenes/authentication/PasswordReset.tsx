@@ -35,7 +35,7 @@ export function PasswordReset(): JSX.Element {
             ) : (
                 requestPasswordResetSucceeded && (
                     <div className="text-center">
-                        <IconCheckCircle className="text-5xl text-success" />
+                        <IconCheckCircle className="text-5xl text-success-foreground" />
                     </div>
                 )
             )}

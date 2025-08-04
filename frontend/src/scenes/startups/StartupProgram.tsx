@@ -192,7 +192,7 @@ export function StartupProgram(): JSX.Element {
                     </h2>
                     <div className="space-y-3">
                         <div className="flex items-start">
-                            <IconCheck className="text-success shrink-0 mt-1 mr-2" />
+                            <IconCheck className="text-success-foreground shrink-0 mt-1 mr-2" />
                             <div>
                                 <h4 className="font-semibold">
                                     $50,000 in PostHog credit{' '}
@@ -204,7 +204,7 @@ export function StartupProgram(): JSX.Element {
                             </div>
                         </div>
                         <div className="flex items-start">
-                            <IconCheck className="text-success shrink-0 mt-1 mr-2" />
+                            <IconCheck className="text-success-foreground shrink-0 mt-1 mr-2" />
                             <div>
                                 <h4 className="font-semibold">
                                     Exclusive founder merch{' '}
@@ -216,7 +216,7 @@ export function StartupProgram(): JSX.Element {
                             </div>
                         </div>
                         <div className="flex items-start">
-                            <IconCheck className="text-success shrink-0 mt-1 mr-2" />
+                            <IconCheck className="text-success-foreground shrink-0 mt-1 mr-2" />
                             <div>
                                 <h4 className="font-semibold">50% off Mintlify and Speakeasy for 6 months</h4>
                                 <p className="text-tertiary-foreground text-sm">
@@ -226,7 +226,7 @@ export function StartupProgram(): JSX.Element {
                         </div>
                         {isYC && (
                             <div className="flex items-start">
-                                <IconCheck className="text-success shrink-0 mt-1 mr-2" />
+                                <IconCheck className="text-success-foreground shrink-0 mt-1 mr-2" />
                                 <div>
                                     <h4 className="font-semibold">Priority support</h4>
                                     <p className="text-tertiary-foreground text-sm">
@@ -283,7 +283,7 @@ export function StartupProgram(): JSX.Element {
                                 <span>Checking if you're on a paid plan</span>
                             </div>
                         ) : billing?.has_active_subscription ? (
-                            <div className="flex items-center gap-2 text-success">
+                            <div className="flex items-center gap-2 text-success-foreground">
                                 <IconCheck className="shrink-0" />
                                 <span>You're on a paid plan</span>
                             </div>
@@ -314,7 +314,7 @@ export function StartupProgram(): JSX.Element {
 
                         {formSubmitted ? (
                             <div className="space-y-4">
-                                <div className="flex items-center gap-2 text-success">
+                                <div className="flex items-center gap-2 text-success-foreground">
                                     <IconCheck className="shrink-0" />
                                     <span>Application submitted successfully!</span>
                                 </div>

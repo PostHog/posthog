@@ -57,7 +57,7 @@ export const renderTooltipContent = (variantResult: ExperimentVariantResult): JS
                     {variantResult.key === 'control' ? (
                         <em className="text-tertiary-foreground">Baseline</em>
                     ) : (
-                        <span className={deltaPositive ? 'text-success' : 'text-danger'}>
+                        <span className={deltaPositive ? 'text-success-foreground' : 'text-danger'}>
                             {formatDeltaPercent(variantResult)}
                         </span>
                     )}

@@ -28,7 +28,7 @@ const FreeTierItem = ({ limit }: { limit: FreeTierLimit }): JSX.Element => {
                 <Icon className="w-6 h-6" color={limit.color} />
             </div>
             <strong className="text-[15px] text-center leading-none mt-2 mb-1">{limit.title}</strong>
-            <div className="text-sm text-center text-success dark:text-green-400">
+            <div className="text-sm text-center text-success-foreground dark:text-green-400">
                 {`${formatFreeTierLimit(limit.value)} ${limit.unit}${limit.value === 1 ? '' : 's'}`}
             </div>
         </div>

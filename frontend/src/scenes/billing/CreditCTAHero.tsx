@@ -79,7 +79,7 @@ export const CreditCTAHero = (): JSX.Element | null => {
                             <>
                                 <h2 className="mb-0">
                                     Stop burning money.{' '}
-                                    <span className="text-success-light">
+                                    <span className="text-success-foreground-light">
                                         Prepay and save {computedDiscount * 100}%
                                     </span>{' '}
                                     over the next 12 months.

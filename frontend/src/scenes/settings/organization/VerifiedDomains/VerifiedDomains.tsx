@@ -96,7 +96,7 @@ function VerifiedDomainsTable(): JSX.Element {
                       ),
                       render: function Verified(_, { is_verified, verified_at }) {
                           return is_verified ? (
-                              <div className="flex items-center text-success">
+                              <div className="flex items-center text-success-foreground">
                                   <IconCheckCircle style={iconStyle} /> Verified
                               </div>
                           ) : verified_at ? (
@@ -194,7 +194,7 @@ function VerifiedDomainsTable(): JSX.Element {
                 return is_verified ? (
                     <>
                         {has_saml ? (
-                            <div className="flex items-center text-success">
+                            <div className="flex items-center text-success-foreground">
                                 <IconCheckCircle style={iconStyle} /> SAML enabled
                             </div>
                         ) : saml_acs_url || saml_entity_id || saml_x509_cert ? (

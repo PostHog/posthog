@@ -98,7 +98,7 @@ export function ColumnMappingModal({ table, isOpen, onClose }: ColumnMappingModa
     const getStatusIcon = (status: FieldStatus): JSX.Element => {
         switch (status) {
             case FieldStatus.Complete:
-                return <IconCheck className="text-success text-sm" />
+                return <IconCheck className="text-success-foreground text-sm" />
             case FieldStatus.Partial:
                 return <IconWarning className="text-warning-foreground text-sm" />
             case FieldStatus.Empty:

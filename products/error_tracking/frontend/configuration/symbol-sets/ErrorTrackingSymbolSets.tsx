@@ -96,7 +96,7 @@ const SymbolSetTable = (): JSX.Element => {
                                 <IconWarning /> Missing
                             </span>
                         ) : (
-                            <span className="text-success">
+                            <span className="text-success-foreground">
                                 <IconCheckCircle /> Uploaded
                             </span>
                         )}

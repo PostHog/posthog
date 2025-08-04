@@ -54,7 +54,7 @@ export function ConfirmUpgradeModal(): JSX.Element {
                         <div className="grid grid-cols-2 gap-x-4">
                             {upgradePlan?.features.map((feature, index) => (
                                 <div className="flex gap-x-2 items-center mb-2" key={'addon-features-' + index}>
-                                    <IconCheckCircle className="text-success" />
+                                    <IconCheckCircle className="text-success-foreground" />
                                     <Tooltip key={feature.key} title={feature.description}>
                                         <b>
                                             {feature.name}

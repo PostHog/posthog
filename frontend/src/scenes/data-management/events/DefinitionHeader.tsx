@@ -28,7 +28,7 @@ function IconWithBadge({ icon, verified, hidden, tooltipTitle, className }: Icon
                     {hidden ? (
                         <IconEyeHidden className="text-danger text-xs" />
                     ) : (
-                        <IconBadge className="text-success text-xs" />
+                        <IconBadge className="text-success-foreground text-xs" />
                     )}
                 </div>
             )}

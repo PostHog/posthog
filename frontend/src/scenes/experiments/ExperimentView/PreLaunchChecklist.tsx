@@ -20,12 +20,16 @@ export function PreLaunchChecklist(): JSX.Element {
                     {/* Step 1 - Hypothesis */}
                     <div className="flex gap-3 mb-6">
                         {experiment.description ? (
-                            <IconCheckCircle className="text-success flex-none w-6 h-6" />
+                            <IconCheckCircle className="text-success-foreground flex-none w-6 h-6" />
                         ) : (
                             <div className="flex-none w-5 h-5 rounded-full border-2 border-orange" />
                         )}
                         <div className="flex-1">
-                            <div className={`text-xs font-semibold ${experiment.description ? 'text-success' : ''}`}>
+                            <div
+                                className={`text-xs font-semibold ${
+                                    experiment.description ? 'text-success-foreground' : ''
+                                }`}
+                            >
                                 Step 1
                             </div>
                             <div className="flex items-center justify-between">
@@ -65,14 +69,14 @@ export function PreLaunchChecklist(): JSX.Element {
                     {/* Step 2 - Metric */}
                     <div className="flex gap-3 mb-6">
                         {experiment.metrics?.length > 0 ? (
-                            <IconCheckCircle className="text-success flex-none w-6 h-6" />
+                            <IconCheckCircle className="text-success-foreground flex-none w-6 h-6" />
                         ) : (
                             <div className="flex-none w-5 h-5 rounded-full border-2 border-orange" />
                         )}
                         <div className="flex-1">
                             <div
                                 className={`text-xs font-semibold ${
-                                    experiment.metrics?.length > 0 ? 'text-success' : ''
+                                    experiment.metrics?.length > 0 ? 'text-success-foreground' : ''
                                 }`}
                             >
                                 Step 2
@@ -116,14 +120,14 @@ export function PreLaunchChecklist(): JSX.Element {
                     {/* Step 3 - Running time */}
                     <div className="flex gap-3">
                         {experiment.parameters?.recommended_running_time ? (
-                            <IconCheckCircle className="text-success flex-none w-6 h-6" />
+                            <IconCheckCircle className="text-success-foreground flex-none w-6 h-6" />
                         ) : (
                             <div className="flex-none w-5 h-5 rounded-full border-2 border-orange" />
                         )}
                         <div className="flex-1">
                             <div
                                 className={`text-xs font-semibold ${
-                                    experiment.parameters?.recommended_running_time ? 'text-success' : ''
+                                    experiment.parameters?.recommended_running_time ? 'text-success-foreground' : ''
                                 }`}
                             >
                                 Step 3

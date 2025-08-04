@@ -72,8 +72,8 @@ function VariableSelector({
                 <div className="flex justify-between items-center bg-primary-light p-2 pl-3 rounded mb-4">
                     <div>
                         <p className="mb-2">
-                            <IconCheckCircle className="text-success font-bold" />{' '}
-                            <span className="text-success font-bold">Selected</span>
+                            <IconCheckCircle className="text-success-foreground font-bold" />{' '}
+                            <span className="text-success-foreground font-bold">Selected</span>
                         </p>
                         <div className="ml-4">
                             {variable.default.type === EntityTypes.ACTIONS ? (
@@ -316,7 +316,7 @@ export function DashboardTemplateVariables({
                     header: (
                         <div>
                             {v.name}
-                            {v.touched && <IconCheckCircle className="text-success ml-2 text-base" />}
+                            {v.touched && <IconCheckCircle className="text-success-foreground ml-2 text-base" />}
                         </div>
                     ),
                     content: (

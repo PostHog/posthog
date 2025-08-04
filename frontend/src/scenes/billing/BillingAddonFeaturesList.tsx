@@ -20,7 +20,11 @@ export const BillingAddonFeaturesList = ({
     }
 
     const icon =
-        variant === 'included' ? <IconCheckCircle className="text-success" /> : <IconX className="text-danger" />
+        variant === 'included' ? (
+            <IconCheckCircle className="text-success-foreground" />
+        ) : (
+            <IconX className="text-danger" />
+        )
 
     const title = variant === 'included' ? 'Features included:' : 'Features to lose:'
 

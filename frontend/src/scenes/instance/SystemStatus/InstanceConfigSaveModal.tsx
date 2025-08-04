@@ -121,7 +121,7 @@ export function InstanceConfigSaveModal({ onClose, isOpen }: { onClose: () => vo
                     />
                 ))}
                 {loading && (
-                    <div className="mt-4 text-success">
+                    <div className="mt-4 text-success-foreground">
                         <b>{pluralize(updatedInstanceConfigCount || 0, 'change')} updated successfully.</b>
                     </div>
                 )}

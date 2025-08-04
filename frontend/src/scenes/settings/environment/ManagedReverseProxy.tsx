@@ -64,7 +64,7 @@ export function ManagedReverseProxy(): JSX.Element {
                         className={clsx(
                             'deprecated-space-x-1',
                             status === 'valid'
-                                ? 'text-success'
+                                ? 'text-success-foreground'
                                 : status == 'erroring'
                                 ? 'text-danger'
                                 : 'text-warning-foreground-dark'

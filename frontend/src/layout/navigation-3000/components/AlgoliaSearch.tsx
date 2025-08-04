@@ -26,7 +26,7 @@ const rowRenderer = ({ key, index, style, hits, activeOption }: any): JSX.Elemen
                     <span className="flex deprecated-space-x-2 items-center">
                         <p className="m-0 font-bold font-sans line-clamp-1">{title}</p>
                         {type === 'question' && resolved && (
-                            <IconCheckCircle className="text-success size-4 flex-shrink-0" />
+                            <IconCheckCircle className="text-success-foreground size-4 flex-shrink-0" />
                         )}
                     </span>
                     <p className="text-xs m-0 opacity-80 font-normal font-sans line-clamp-1">/{slug}</p>

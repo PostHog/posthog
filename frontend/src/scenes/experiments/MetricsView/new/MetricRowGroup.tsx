@@ -389,7 +389,7 @@ export function MetricRowGroup({
                                     className={`${
                                         significant
                                             ? deltaPositive
-                                                ? 'text-success font-semibold'
+                                                ? 'text-success-foreground font-semibold'
                                                 : 'text-danger font-semibold'
                                             : 'text-text-foreground'
                                     }`}
@@ -397,7 +397,11 @@ export function MetricRowGroup({
                                     {deltaText}
                                 </span>
                                 {significant && deltaPositive !== undefined && (
-                                    <span className={`flex-shrink-0 ${deltaPositive ? 'text-success' : 'text-danger'}`}>
+                                    <span
+                                        className={`flex-shrink-0 ${
+                                            deltaPositive ? 'text-success-foreground' : 'text-danger'
+                                        }`}
+                                    >
                                         {deltaPositive ? (
                                             <IconTrending className="w-4 h-4" />
                                         ) : (

@@ -89,7 +89,7 @@ export function ErrorChecklist({ error, metric }: { error: any; metric: any }): 
             <div className="flex items-center deprecated-space-x-2">
                 {value === false ? (
                     <span className="flex items-center deprecated-space-x-2">
-                        <IconCheck className="text-success" fontSize={16} />
+                        <IconCheck className="text-success-foreground" fontSize={16} />
                         <span className="text-secondary-foreground">{successText[errorCode]}</span>
                     </span>
                 ) : (

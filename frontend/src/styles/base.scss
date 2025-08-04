@@ -434,7 +434,7 @@
     --color-error: var(--color-red-100);
     --color-error-foreground: var(--color-red-600);
     --color-success: var(--color-green-100);
-    --color-success-foreground: var(--color-neutral-950);
+    --color-success-foreground: var(--color-green-500);
     --color-interactive: transparent;
     --color-interactive-active: var(--color-bg-fill-highlight-50);
     --color-interactive-hover: color-mix(in oklab, var(--color-black) 7.5%, transparent);
@@ -536,7 +536,7 @@
     // --color-text-foreground-inverse: var(--color-neutral-100);
     // --color-secondary-foreground: var(--color-neutral-750);
     // --color-text-tertiary: var(--color-neutral-600);
-    // --color-text-success: var(--color-green-600);
+    // --color-text-success-foreground: var(--color-green-600);
     // --color-text-warning-foreground: var(--color-yellow-700);
     // --color-error-foreground: var(--color-red-600);
 
@@ -546,7 +546,7 @@
     // --color-text-info-on-fill: var(--color-blue-800);
     // --color-text-warning-foreground-on-fill: var(--color-yellow-800);
     // --color-error-foreground-on-fill: var(--color-red-800);
-    // --color-text-success-on-fill: var(--color-green-800);
+    // --color-text-success-foreground-on-fill: var(--color-green-800);
 
     // Borders
     // Borders for surfaces/fills (TODO: perhaps we need to do border-fill-primary, border-fill-warning, etc.)
@@ -795,6 +795,7 @@
     --white: #fff;
     --border-3000-light: #dadbd2;
     --border-bold: rgb(0 0 0 / 24%);
+    --primary-alt-highlight-light: #e5e7e0;
 
     // Vars
     --danger-highlight: rgb(219 55 7 / 10%);
@@ -845,7 +846,6 @@
     --primary-highlight-dark: purple; // rgb(247 165 3 / 10%);
     --primary-3000-hover-dark: purple; // #f7a503;
     --primary-3000-active-dark: purple; // #f7a503;
-    --primary-alt-highlight-light: purple; // #e5e7e0;
     --secondary-3000-dark: purple; // #1d1f27;
     --secondary-3000-hover-dark: purple; // #575d77;
     --color-accent-3000-dark: purple; // #21242b;
@@ -995,7 +995,7 @@
     --color-text-primary-inverse: var(--color-neutral-950);
     --color-text-secondary: var(--color-neutral-350);
     --color-text-tertiary: var(--color-neutral-400);
-    --color-text-success: var(--color-green-400);
+    --color-text-success-foreground: var(--color-green-400);
     --color-text-warning-foreground: var(--color-yellow-400);
     --color-error-foreground: var(--color-red-400);
 
@@ -1011,7 +1011,7 @@
     --color-error-foreground-on-fill: var(--color-red-50);
 
     /* On-fill text for error */
-    --color-text-success-on-fill: var(--color-green-50);
+    --color-text-success-foreground-on-fill: var(--color-green-50);
 
     /* On-fill text for success */
 
@@ -1065,7 +1065,6 @@
     --primary-3000-button-bg: var(--primary-3000-button-bg-dark);
     --primary-3000-button-border: var(--primary-3000-button-border-dark);
     --primary-3000-button-border-hover: var(--primary-3000-button-border-hover-dark);
-    --primary-alt-highlight: var(--primary-alt-highlight-dark);
     --secondary-3000-frame-bg: var(--secondary-3000-frame-bg-dark);
     --secondary-3000-button-bg: var(--secondary-3000-button-bg-dark);
     --secondary-3000-button-border: var(--secondary-3000-button-border-dark);

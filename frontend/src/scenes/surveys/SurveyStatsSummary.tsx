@@ -193,7 +193,7 @@ function SurveyStatsContainer({ children }: { children: React.ReactNode }): JSX.
                                 Ended: <TZLabel time={survey.end_date} />
                             </span>
                         ) : (
-                            <span className="inline-flex items-center gap-1 text-success">
+                            <span className="inline-flex items-center gap-1 text-success-foreground">
                                 <span className="h-2 w-2 rounded-full bg-success animate-pulse" />
                                 Active
                             </span>

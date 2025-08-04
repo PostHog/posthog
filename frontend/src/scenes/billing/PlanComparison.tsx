@@ -44,7 +44,7 @@ export function PlanIcon({
                 </>
             ) : (
                 <>
-                    <IconCheckCircle className={clsx('text-success mx-4 shrink-0', className)} />
+                    <IconCheckCircle className={clsx('text-success-foreground mx-4 shrink-0', className)} />
                     {feature.note}
                 </>
             )}

@@ -94,12 +94,12 @@ export const PlanCard: React.FC<PlanCardProps> = ({ planData, product, highlight
             />
             <div
                 className={clsx(
-                    'relative flex flex-col h-full p-6 bg-bg-light dark:bg-bg-depth rounded-xs border transition-transform transform hover:scale-[1.02] hover:shadow-lg',
+                    'relative flex flex-col h-full p-6 bg-bg-light dark:bg-bg-depth rounded border transition-transform transform hover:scale-[1.02] hover:shadow-lg',
                     highlight ? 'border-2 border-accent-active' : 'border-gray-200 dark:border-gray-700'
                 )}
             >
                 {planData.plan === Plan.RIDICULOUSLY_CHEAP && (
-                    <div className="absolute top-0 right-0 -mt-4 -mr-4 px-3 py-1 bg-bg-light dark:bg-bg-depth rounded-xs text-xs text-accent-active font-semibold shadow-md border-accent-active border-2">
+                    <div className="absolute top-0 right-0 -mt-4 -mr-4 px-3 py-1 bg-bg-light dark:bg-bg-depth rounded text-xs text-accent-active font-semibold shadow-md border-accent-active border-2">
                         Free tier included!
                     </div>
                 )}
@@ -130,7 +130,7 @@ export const PlanCard: React.FC<PlanCardProps> = ({ planData, product, highlight
                         {features.map((feature) => (
                             <li key={feature.name} className="flex items-center">
                                 {feature.available ? (
-                                    <IconCheck className="w-4 h-4 text-success mr-2" />
+                                    <IconCheck className="w-4 h-4 text-success-foreground mr-2" />
                                 ) : (
                                     <IconX className="w-4 h-4 text-gray-400 mr-2" />
                                 )}

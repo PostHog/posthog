@@ -54,7 +54,7 @@ export function CorrelationMatrix(): JSX.Element {
 
     const scoreIcon =
         correlationScoreStrength === 'strong' ? (
-            <IconCheckCircle className="text-success" />
+            <IconCheckCircle className="text-success-foreground" />
         ) : correlationScoreStrength === 'moderate' ? (
             <IconCancel className="text-warning-foreground" />
         ) : (
@@ -186,7 +186,7 @@ export function CorrelationMatrix(): JSX.Element {
                                 <Tooltip
                                     title={`Positive correlation means this ${actor} is correlated with a successful conversion.`}
                                 >
-                                    <span className="cursor-help text-success">
+                                    <span className="cursor-help text-success-foreground">
                                         <IconTrendingFlat /> positive correlation
                                     </span>
                                 </Tooltip>
@@ -205,7 +205,7 @@ export function CorrelationMatrix(): JSX.Element {
                                     className={clsx(
                                         'cursor-help',
                                         correlationScoreStrength === 'strong'
-                                            ? 'text-success'
+                                            ? 'text-success-foreground'
                                             : correlationScoreStrength === 'moderate'
                                             ? 'text-warning-foreground'
                                             : 'text-danger'

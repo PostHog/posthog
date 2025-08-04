@@ -49,7 +49,8 @@ export function DataColorThemes(): JSX.Element {
                             title: 'Official',
                             dataIndex: 'is_global',
                             key: 'is_global',
-                            render: (is_global) => (is_global ? <IconBadge className="text-success text-xl" /> : null),
+                            render: (is_global) =>
+                                is_global ? <IconBadge className="text-success-foreground text-xl" /> : null,
                         },
                     ]}
                 />

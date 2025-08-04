@@ -121,7 +121,9 @@ export function VariantTooltip({
                                 }
 
                                 return (
-                                    <span className={deltaResult.isPositive ? 'text-success' : 'text-danger'}>
+                                    <span
+                                        className={deltaResult.isPositive ? 'text-success-foreground' : 'text-danger'}
+                                    >
                                         {`${deltaResult.isPositive ? '+' : ''}${deltaResult.deltaPercent.toFixed(2)}%`}
                                     </span>
                                 )

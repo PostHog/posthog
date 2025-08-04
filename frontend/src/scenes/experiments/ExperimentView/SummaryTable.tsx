@@ -165,7 +165,11 @@ export function SummaryTable({
                 return (
                     <div
                         className={`font-semibold ${
-                            deltaResult.isPositive ? 'text-success' : deltaResult.deltaPercent < 0 ? 'text-danger' : ''
+                            deltaResult.isPositive
+                                ? 'text-success-foreground'
+                                : deltaResult.deltaPercent < 0
+                                ? 'text-danger'
+                                : ''
                         }`}
                     >
                         {`${deltaResult.isPositive ? '+' : ''}${deltaResult.deltaPercent.toFixed(2)}%`}
@@ -273,7 +277,9 @@ export function SummaryTable({
 
                     return (
                         <div
-                            className={`font-semibold ${delta > 0 ? 'text-success' : delta < 0 ? 'text-danger' : ''}`}
+                            className={`font-semibold ${
+                                delta > 0 ? 'text-success-foreground' : delta < 0 ? 'text-danger' : ''
+                            }`}
                         >{`${delta > 0 ? '+' : ''}${delta.toFixed(2)}%`}</div>
                     )
                 },
@@ -382,7 +388,7 @@ export function SummaryTable({
                     {percentage && (insightType === InsightType.FUNNELS ? hasValidConversionRate : true) ? (
                         <span className="inline-flex items-center w-52 deprecated-space-x-4">
                             <LemonProgress className="inline-flex w-3/4" percent={percentage} />
-                            <span className={`w-1/4 font-semibold ${isWinning && 'text-success'}`}>
+                            <span className={`w-1/4 font-semibold ${isWinning && 'text-success-foreground'}`}>
                                 {percentage.toFixed(2)}%
                             </span>
                         </span>

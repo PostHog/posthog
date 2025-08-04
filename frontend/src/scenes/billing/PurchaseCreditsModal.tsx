@@ -106,7 +106,7 @@ export const PurchaseCreditsModal = (): JSX.Element | null => {
                                 text:
                                     creditInputValue >= 3000 && creditInputValue < 20000 ? (
                                         <>
-                                            <IconCheckCircle className="text-success" /> 10% off
+                                            <IconCheckCircle className="text-success-foreground" /> 10% off
                                         </>
                                     ) : (
                                         '10% off'
@@ -119,7 +119,7 @@ export const PurchaseCreditsModal = (): JSX.Element | null => {
                                 text:
                                     creditInputValue >= 20000 && creditInputValue < 60000 ? (
                                         <>
-                                            <IconCheckCircle className="text-success" /> 20% off
+                                            <IconCheckCircle className="text-success-foreground" /> 20% off
                                         </>
                                     ) : (
                                         '20% off'
@@ -132,7 +132,7 @@ export const PurchaseCreditsModal = (): JSX.Element | null => {
                                 text:
                                     creditInputValue >= 60000 && creditInputValue < 100000 ? (
                                         <>
-                                            <IconCheckCircle className="text-success" /> 25% off
+                                            <IconCheckCircle className="text-success-foreground" /> 25% off
                                         </>
                                     ) : (
                                         '25% off'
@@ -145,7 +145,7 @@ export const PurchaseCreditsModal = (): JSX.Element | null => {
                                 text:
                                     creditInputValue >= 100000 ? (
                                         <>
-                                            <IconCheckCircle className="text-success" /> 35% off
+                                            <IconCheckCircle className="text-success-foreground" /> 35% off
                                         </>
                                     ) : (
                                         '35% off'
@@ -230,7 +230,7 @@ export const PurchaseCreditsModal = (): JSX.Element | null => {
                             {
                                 item: 'Discount',
                                 value: (
-                                    <span className="text-success-light">
+                                    <span className="text-success-foreground-light">
                                         -$
                                         {Math.round(creditInputValue * creditDiscount).toLocaleString('en-US', {
                                             minimumFractionDigits: 0,

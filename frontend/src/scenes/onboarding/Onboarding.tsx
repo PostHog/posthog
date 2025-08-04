@@ -112,7 +112,7 @@ const OnboardingWrapper = ({
         currentOrganization,
         shouldShowBillingStep,
         shouldShowDataWarehouseStep,
-        billing.products,
+        billing?.products,
         productKey,
         shouldShowReverseProxyStep,
     ])

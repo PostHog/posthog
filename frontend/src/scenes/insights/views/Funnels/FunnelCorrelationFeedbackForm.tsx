@@ -32,7 +32,9 @@ export const FunnelCorrelationFeedbackForm = (): JSX.Element | null => {
                     Was this correlation analysis report useful?
                 </h4>
                 <div className="flex items-center gap-2">
-                    {!!correlationFeedbackRating && <i className="text-success mr-2">Thanks for your feedback!</i>}
+                    {!!correlationFeedbackRating && (
+                        <i className="text-success-foreground mr-2">Thanks for your feedback!</i>
+                    )}
                     {(
                         [
                             [5, '😍'],

@@ -236,7 +236,7 @@ export const OnboardingDashboardTemplateConfigureStep = ({
                     <div className="mb-8 max-w-screen-md mx-auto">
                         <div className="bg-success-highlight rounded p-6 flex justify-between items-center">
                             <div className="flex gap-x-4">
-                                <IconCheckCircle className="text-success text-3xl mb-6" />
+                                <IconCheckCircle className="text-success-foreground text-3xl mb-6" />
                                 <div>
                                     <h3 className="text-lg font-bold mb-1 text-left">Dashboard created!</h3>
                                     <p className="mx-0 mb-0">We'll take you there when you're done onboarding.</p>

@@ -19,8 +19,8 @@ export function RealtimeCheckIndicator({
             {installationComplete ? (
                 <div className="flex flex-row gap-2">
                     <div className="flex items-center gap-2 px-2 py-1 font-medium">
-                        <IconCheck className="text-success" />
-                        <span className="text-success text-sm">Installation Complete</span>
+                        <IconCheck className="text-success-foreground" />
+                        <span className="text-success-foreground text-sm">Installation Complete</span>
                     </div>
                     <OnboardingLiveEvents />
                 </div>

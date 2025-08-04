@@ -94,7 +94,7 @@ export const EmailSetupModal = (props: EmailSetupModalLogicProps): JSX.Element =
                                             </div>
                                         ) : (
                                             <div className="flex items-center gap-1">
-                                                <IconCheckCircle className="size-6 text-success" /> Verified
+                                                <IconCheckCircle className="size-6 text-success-foreground" /> Verified
                                             </div>
                                         )}
                                     </td>

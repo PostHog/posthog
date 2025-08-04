@@ -23,6 +23,8 @@
     --color-card-secondary-foreground: var(--color-card-secondary-foreground);
     --color-card-tertiary: var(--color-card-tertiary);
     --color-card-tertiary-foreground: var(--color-card-tertiary-foreground);
+    --color-card-subtle: var(--color-card-subtle);
+    --color-card-subtle-foreground: var(--color-card-subtle-foreground);
     --color-glass: var(--color-glass);
     --color-glass-foreground: var(--color-glass-foreground);
     --color-tooltip: var(--color-tooltip);
