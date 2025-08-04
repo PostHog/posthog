@@ -385,7 +385,7 @@ Query kind:
 - Trends
     - single series (EventsNode) with math = total
     - dateRange: { date_from: “2025-01-01”, date_to: “2025-01-31” }
-    - display: BoldNumber (to show a single total count)
+    - display: ActionsLineGraph (to have the requested number for the month, but also see any trends)
 """,
             query=AssistantTrendsQuery(
                 dateRange={"date_from": "2025-01-01", "date_to": "2025-01-31"},
