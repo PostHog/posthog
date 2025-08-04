@@ -138,7 +138,7 @@ jobs:
 
             - name: Publish to Chromatic
               if: needs.changes.outputs.frontend == 'true'
-              uses: chromaui/action@d7afd50124cf4f337bcd943e7f45cfa85a5e4476 # v12
+              uses: chromaui/action@58d9ffb36c90c97a02d061544ecc849cc4a242a9 # v12
               id: publish
               env:
                   # 👇 Chromatic project token, refer to the manage page to obtain it
