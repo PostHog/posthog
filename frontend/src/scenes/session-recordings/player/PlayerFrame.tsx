@@ -52,7 +52,7 @@ export const PlayerFrame = (): JSX.Element => {
         if (frameRef.current) {
             setRootFrame(frameRef.current)
         }
-    }, [frameRef, sessionRecordingId, setRootFrame])
+    }, [sessionRecordingId, setRootFrame])
 
     // Cleanup ref on unmount
     useEffect(() => {
