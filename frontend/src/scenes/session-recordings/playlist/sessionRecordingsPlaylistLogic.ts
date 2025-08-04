@@ -496,7 +496,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                     return {
                         has_next:
                             direction === 'newer'
-                                ? values.sessionRecordingsResponse?.has_next ?? true
+                                ? (values.sessionRecordingsResponse?.has_next ?? true)
                                 : response.has_next,
                         results: response.results,
                         order: params.order,
@@ -1116,7 +1116,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             Record<string, any>,
             {
                 replace: boolean
-            }
+            },
         ] => {
             const params: Params = objectClean({
                 ...router.values.searchParams,

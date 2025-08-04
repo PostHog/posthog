@@ -78,6 +78,7 @@ from posthog.rate_limit import BurstRateThrottle
 from ee.models.rbac.organization_resource_access import OrganizationResourceAccess
 from django.dispatch import receiver
 from posthog.models.signals import model_activity_signal
+from posthog.settings.feature_flags import LOCAL_EVAL_RATE_LIMITS
 
 DATABASE_FOR_LOCAL_EVALUATION = (
     "default"
@@ -90,11 +91,26 @@ BEHAVIOURAL_COHORT_FOUND_ERROR_CODE = "behavioral_cohort_found"
 MAX_PROPERTY_VALUES = 1000
 
 
-class FeatureFlagThrottle(BurstRateThrottle):
+class LocalEvaluationThrottle(BurstRateThrottle):
     # Throttle class that's scoped just to the local evaluation endpoint.
     # This makes the rate limit independent of other endpoints.
     scope = "feature_flag_evaluations"
     rate = "600/minute"
+
+    def allow_request(self, request, view):
+        logger = logging.getLogger(__name__)
+
+        team_id = self.safely_get_team_id_from_view(view)
+        if team_id:
+            try:
+                custom_rate = LOCAL_EVAL_RATE_LIMITS.get(team_id)
+                if custom_rate:
+                    self.rate = custom_rate
+                    self.num_requests, self.duration = self.parse_rate(self.rate)
+            except Exception:
+                logger.exception(f"Error getting team-specific rate limit for team {team_id}")
+
+        return super().allow_request(request, view)
 
 
 class CanEditFeatureFlag(BasePermission):
@@ -690,6 +706,7 @@ class FeatureFlagSerializer(
                 ],
                 params=[str(flag_to_delete.id)],
             )
+            .order_by("key")
         )
 
     def _update_filters(self, validated_data):
@@ -1158,7 +1175,7 @@ class FeatureFlagViewSet(
     @action(
         methods=["GET"],
         detail=False,
-        throttle_classes=[FeatureFlagThrottle],
+        throttle_classes=[LocalEvaluationThrottle],
         required_scopes=["feature_flag:read"],
         authentication_classes=[TemporaryTokenAuthentication, ProjectSecretAPIKeyAuthentication],
         permission_classes=[ProjectSecretAPITokenPermission],

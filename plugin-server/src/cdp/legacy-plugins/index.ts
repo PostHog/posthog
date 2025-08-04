@@ -86,12 +86,18 @@ export const TRANSFORMATION_PLUGINS: LegacyTransformationPlugin[] = [
     userAgentPlugin,
 ]
 
-export const DESTINATION_PLUGINS_BY_ID = DESTINATION_PLUGINS.reduce((acc, plugin) => {
-    acc[plugin.template.id] = plugin
-    return acc
-}, {} as Record<string, LegacyDestinationPlugin>)
+export const DESTINATION_PLUGINS_BY_ID = DESTINATION_PLUGINS.reduce(
+    (acc, plugin) => {
+        acc[plugin.template.id] = plugin
+        return acc
+    },
+    {} as Record<string, LegacyDestinationPlugin>
+)
 
-export const TRANSFORMATION_PLUGINS_BY_ID = TRANSFORMATION_PLUGINS.reduce((acc, plugin) => {
-    acc[plugin.template.id] = plugin
-    return acc
-}, {} as Record<string, LegacyTransformationPlugin>)
+export const TRANSFORMATION_PLUGINS_BY_ID = TRANSFORMATION_PLUGINS.reduce(
+    (acc, plugin) => {
+        acc[plugin.template.id] = plugin
+        return acc
+    },
+    {} as Record<string, LegacyTransformationPlugin>
+)

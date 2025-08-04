@@ -193,10 +193,13 @@ describe('LazyLoader', () => {
         it('should load multiple values in parallel', async () => {
             loader.mockImplementation(async (keys) => {
                 await new Promise((resolve) => setTimeout(resolve, 100))
-                return keys.reduce((acc: any, key: string) => {
-                    acc[key] = { val: key }
-                    return acc
-                }, {} as Record<string, any>)
+                return keys.reduce(
+                    (acc: any, key: string) => {
+                        acc[key] = { val: key }
+                        return acc
+                    },
+                    {} as Record<string, any>
+                )
             })
 
             const result1 = lazyLoader.get('key1')

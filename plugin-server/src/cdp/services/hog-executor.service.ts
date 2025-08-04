@@ -340,10 +340,13 @@ export class HogExecutorService {
                 let hogLogs = 0
 
                 const asyncFunctionsNames = options.asyncFunctionsNames ?? ['fetch', 'sendEmail']
-                const asyncFunctions = asyncFunctionsNames.reduce((acc, fn) => {
-                    acc[fn] = async () => Promise.resolve()
-                    return acc
-                }, {} as Record<string, (args: any[]) => Promise<void>>)
+                const asyncFunctions = asyncFunctionsNames.reduce(
+                    (acc, fn) => {
+                        acc[fn] = async () => Promise.resolve()
+                        return acc
+                    },
+                    {} as Record<string, (args: any[]) => Promise<void>>
+                )
 
                 const execHogOutcome = await execHog(invocationInput, {
                     globals,
