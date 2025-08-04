@@ -62,8 +62,7 @@ export function NoSessionIdFound(): JSX.Element {
         <div className="flex justify-center w-full h-[300px] items-center">
             <EmptyMessage
                 title="No session found"
-                description="There is no $session_id associated with this exception. If it was captured from a server
-                SDK, you can read our doc on how to forward session IDs"
+                description="There is no $session_id associated with this exception. If it was captured from a server SDK, you can read our doc on how to forward session IDs"
                 buttonText="Check doc"
                 buttonTo="https://posthog.com/docs/data/sessions#server-sdks-and-sessions"
                 size="small"
