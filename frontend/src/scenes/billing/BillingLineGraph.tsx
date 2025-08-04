@@ -335,7 +335,7 @@ export function BillingLineGraph({
                                 className="absolute pointer-events-auto"
                                 style={{
                                     left: `${xPos}px`,
-                                    top: '10px',
+                                    top: `${chart.scales.y.top - 20}px`, // Position above the chart area
                                     transform: 'translateX(-50%)', // Center the label on the line
                                 }}
                             >
@@ -357,7 +357,16 @@ export function BillingLineGraph({
                                     }
                                     placement="bottom"
                                 >
-                                    <div className="bg-black text-white px-2 py-1 rounded text-xs font-bold cursor-help flex items-center gap-1 whitespace-nowrap">
+                                    <div
+                                        className="text-xs cursor-help flex items-center gap-1 whitespace-nowrap px-2 py-1 rounded border"
+                                        style={{
+                                            color: graphColors.axisLabel || '#666666',
+                                            backgroundColor: isDarkModeOn ? 'var(--bg-light)' : 'white',
+                                            borderColor: graphColors.axisLine || 'rgba(0, 0, 0, 0.1)',
+                                            fontWeight: 'normal',
+                                            fontSize: '12px',
+                                        }}
+                                    >
                                         New billing period
                                         <IconInfo className="w-3 h-3" />
                                     </div>
