@@ -102,10 +102,10 @@ export function SessionTimelineItemContainer<T extends SessionTimelineItem>({
                 <span className="text-xs text-tertiary w-[20px] shrink-0 text-center">
                     <renderer.runtimeIcon item={item} selected={selected} {...props} />
                 </span>
-                <span className="text-xs text-tertiary w-[50px] shrink-0">
+                <span className="text-xs text-tertiary w-[50px] shrink-0 text-center">
                     {dayjs(item.timestamp).format('HH:mm:ss')}
                 </span>
-                <div className="shrink-0 w-[24px] text-center">{groupIconMapping[renderer.group]}</div>
+                <div className="shrink-0 w-[20px] text-center">{groupIconMapping[renderer.group]}</div>
                 <div className="flex-grow">
                     <renderer.renderPreview item={item} selected={selected} {...props} />
                 </div>
