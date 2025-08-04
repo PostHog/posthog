@@ -98,6 +98,8 @@ class LocalEvaluationThrottle(BurstRateThrottle):
     rate = "600/minute"
 
     def allow_request(self, request, view):
+        logger = logging.getLogger(__name__)
+
         if not is_rate_limit_enabled(round(time.time() / 60)):
             return True
 
@@ -118,7 +120,7 @@ class LocalEvaluationThrottle(BurstRateThrottle):
                     self.rate = cached_rate_limit
                     self.num_requests, self.duration = self.parse_rate(self.rate)
         except Exception:
-            pass
+            logger.exception(f"Error getting team-specific rate limit for team {team_id}")
 
         return super().allow_request(request, view)
 
