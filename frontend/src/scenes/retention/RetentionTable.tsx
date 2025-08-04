@@ -83,8 +83,8 @@ export function RetentionTable({ inSharedMode = false }: { inSharedMode?: boolea
                                             {noBreakdown
                                                 ? 'Mean'
                                                 : breakdownValue === null || breakdownValue === ''
-                                                ? RETENTION_EMPTY_BREAKDOWN_VALUE
-                                                : breakdownValue}{' '}
+                                                  ? RETENTION_EMPTY_BREAKDOWN_VALUE
+                                                  : breakdownValue}{' '}
                                         </span>
                                     </div>
                                 </td>
@@ -96,7 +96,7 @@ export function RetentionTable({ inSharedMode = false }: { inSharedMode?: boolea
                                                 ? cohortRows.length
                                                     ? Math.round((meanData?.totalCohortSize ?? 0) / cohortRows.length)
                                                     : 0
-                                                : meanData?.totalCohortSize ?? 0}
+                                                : (meanData?.totalCohortSize ?? 0)}
                                         </span>
                                     </td>
                                 )}

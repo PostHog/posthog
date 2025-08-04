@@ -342,7 +342,7 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
         })
 
         const isResizeable =
-            typeof props.resizeable === 'function' ? props.resizeable(props.attributes) : props.resizeable ?? true
+            typeof props.resizeable === 'function' ? props.resizeable(props.attributes) : (props.resizeable ?? true)
 
         actions.setResizeable(isResizeable)
         actions.initializeNode()

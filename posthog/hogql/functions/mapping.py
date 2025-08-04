@@ -453,6 +453,17 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
             ((StringType(), IntegerType(), StringType()), DateTimeType()),
         ],
     ),
+    "toDateTimeUS": HogQLFunctionMeta(
+        "parseDateTime64BestEffortUSOrNull",
+        1,
+        2,
+        tz_aware=True,
+        signatures=[
+            ((StringType(),), DateTimeType()),
+            ((StringType(), IntegerType()), DateTimeType()),
+            ((StringType(), IntegerType(), StringType()), DateTimeType()),
+        ],
+    ),
     "toUUID": HogQLFunctionMeta("accurateCastOrNull", 1, 1, suffix_args=[ast.Constant(value="UUID")]),
     "toString": HogQLFunctionMeta(
         "toString",
@@ -1962,6 +1973,7 @@ ALL_EXPOSED_FUNCTION_NAMES = [
 # Functions where we use a -OrNull variant by default
 ADD_OR_NULL_DATETIME_FUNCTIONS = (
     "toDateTime",
+    "toDateTimeUS",
     "parseDateTime",
     "parseDateTimeBestEffort",
 )
