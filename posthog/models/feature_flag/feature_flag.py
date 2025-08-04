@@ -432,7 +432,7 @@ def send_feature_flag_webhooks_on_updates(sender, instance, created=False, **kwa
     from posthog.helpers.feature_flag_webhooks import notify_feature_flag_webhooks
 
     # Only process webhooks if the flag has webhook subscriptions configured
-    if not instance.webhook_subscriptions:
+    if not instance.webhook_subscriptions or not isinstance(instance.webhook_subscriptions, list):
         return
 
     # Determine the change type

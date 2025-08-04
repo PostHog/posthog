@@ -184,7 +184,7 @@ def send_all_feature_flag_webhooks(webhook_subscriptions: list[dict[str, Any]], 
 
 @shared_task(bind=True, max_retries=MAX_RETRIES)
 def send_single_feature_flag_webhook_task(
-    self, webhook_url: str, payload: dict[str, Any], custom_headers: dict[str, str] | None = None
+    self: Any, webhook_url: str, payload: dict[str, Any], custom_headers: dict[str, str] | None = None
 ) -> None:
     """
     Celery task to send a single feature flag webhook with retry logic.

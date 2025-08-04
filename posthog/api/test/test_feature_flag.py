@@ -6549,18 +6549,19 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertIsNotNone(webhook_flag)
 
         # Verify webhook subscriptions are present and redacted
-        self.assertIsNotNone(webhook_flag["webhook_subscriptions"])
-        self.assertEqual(len(webhook_flag["webhook_subscriptions"]), 2)
+        subscriptions = webhook_flag["webhook_subscriptions"] if webhook_flag else None
+        self.assertIsNotNone(subscriptions)
+        self.assertEqual(len(subscriptions), 2)
 
         # Check first webhook
-        webhook1 = webhook_flag["webhook_subscriptions"][0]
+        webhook1 = subscriptions[0]
         self.assertEqual(webhook1["url"], "https://webhook1.example.com/hook")
         headers1 = webhook1["headers"]
         self.assertRegex(headers1["Authorization"], r"^Bea\*+$")
         self.assertRegex(headers1["X-Custom-Header"], r"^cus\*+$")
 
         # Check second webhook
-        webhook2 = webhook_flag["webhook_subscriptions"][1]
+        webhook2 = subscriptions[1]
         self.assertEqual(webhook2["url"], "https://webhook2.example.com/hook")
         headers2 = webhook2["headers"]
         self.assertRegex(headers2["X-API-Token"], r"^tok\*+$")  # "token789" -> "tok" + asterisks

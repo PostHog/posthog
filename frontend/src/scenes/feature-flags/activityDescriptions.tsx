@@ -350,11 +350,11 @@ const featureFlagActionsMapping: Record<
                 }
             } else if (added.length > 0) {
                 return {
-                    description: [<>added webhook subscription{added.length > 1 ? 's' : ''}</>],
+                    description: [<>added {pluralize(added.length, 'webhook subscription')}</>],
                 }
             } else if (removed.length > 0) {
                 return {
-                    description: [<>removed webhook subscription{removed.length > 1 ? 's' : ''}</>],
+                    description: [<>removed {pluralize(added.length, 'webhook subscription')}</>],
                 }
             }
         }

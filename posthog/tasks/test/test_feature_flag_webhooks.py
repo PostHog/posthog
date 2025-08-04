@@ -1,5 +1,5 @@
 import json
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 from celery.exceptions import Retry
 import pytest
 import requests
@@ -14,7 +14,7 @@ from posthog.test.base import BaseTest
 
 
 class TestFeatureFlagWebhookTasks(BaseTest):
-    def setUp(self):
+    def setUp(self) -> None:
         super().setUp()
         self.webhook_url = "https://webhook.example.com/webhook"
         self.payload = {
@@ -34,7 +34,7 @@ class TestFeatureFlagWebhookTasks(BaseTest):
         self.custom_headers = {"Authorization": "Bearer token123"}
 
     @responses.activate
-    def test_send_feature_flag_webhook_success(self):
+    def test_send_feature_flag_webhook_success(self) -> None:
         """Test successful webhook sending"""
         responses.add(
             responses.POST,
@@ -62,7 +62,7 @@ class TestFeatureFlagWebhookTasks(BaseTest):
         assert request.headers["X-PostHog-Event"] == "feature_flag_changed"
 
     @responses.activate
-    def test_send_feature_flag_webhook_failure(self):
+    def test_send_feature_flag_webhook_failure(self) -> None:
         """Test webhook failure handling"""
         responses.add(
             responses.POST,
@@ -80,7 +80,7 @@ class TestFeatureFlagWebhookTasks(BaseTest):
         assert result is False
 
     @responses.activate
-    def test_send_feature_flag_webhook_timeout(self):
+    def test_send_feature_flag_webhook_timeout(self) -> None:
         """Test webhook timeout handling"""
         responses.add(
             responses.POST,
@@ -101,7 +101,7 @@ class TestFeatureFlagWebhookTasks(BaseTest):
         "posthog.tasks.feature_flag_webhooks.decrypt_webhook_headers",
         return_value={"Authorization": "Bearer decrypted-token"},
     )
-    def test_send_feature_flag_webhook_with_encrypted_headers(self, mock_decrypt):
+    def test_send_feature_flag_webhook_with_encrypted_headers(self, mock_decrypt: MagicMock) -> None:
         """Test webhook with encrypted headers"""
         # mock_decrypt.return_value = {"Authorization": "Bearer decrypted-token"}
         responses.add(responses.POST, self.webhook_url, json={"status": "ok"}, status=200)
@@ -121,7 +121,7 @@ class TestFeatureFlagWebhookTasks(BaseTest):
         assert request.headers["Authorization"] == "Bearer decrypted-token"
 
     @patch("posthog.tasks.feature_flag_webhooks.send_single_feature_flag_webhook_task.delay")
-    def test_send_all_feature_flag_webhooks_dispatch(self, mock_delay):
+    def test_send_all_feature_flag_webhooks_dispatch(self, mock_delay: MagicMock) -> None:
         """Test that send_all_feature_flag_webhooks properly dispatches tasks"""
         webhook_subscriptions = [
             {"url": "https://webhook1.example.com", "headers": {"key": "value1"}},
@@ -151,7 +151,7 @@ class TestFeatureFlagWebhookTasks(BaseTest):
 
     @patch("posthog.tasks.feature_flag_webhooks.send_single_feature_flag_webhook_task.delay")
     @patch("posthog.tasks.feature_flag_webhooks.send_feature_flag_webhook")
-    def test_send_all_feature_flag_webhooks_fallback(self, mock_sync_send, mock_delay):
+    def test_send_all_feature_flag_webhooks_fallback(self, mock_sync_send: MagicMock, mock_delay: MagicMock) -> None:
         """Test fallback to synchronous sending when task dispatch fails"""
         mock_delay.side_effect = Exception("Celery not available")
 
@@ -170,14 +170,14 @@ class TestFeatureFlagWebhookTasks(BaseTest):
             retry_count=0,
         )
 
-    def test_send_all_feature_flag_webhooks_empty_list(self):
+    def test_send_all_feature_flag_webhooks_empty_list(self) -> None:
         """Test that empty webhook list returns early"""
         with patch("posthog.tasks.feature_flag_webhooks.send_single_feature_flag_webhook_task.delay") as mock_delay:
             send_all_feature_flag_webhooks([], self.payload)
             mock_delay.assert_not_called()
 
     @responses.activate
-    def test_send_single_feature_flag_webhook_task_success(self):
+    def test_send_single_feature_flag_webhook_task_success(self) -> None:
         """Test successful webhook task execution"""
         responses.add(responses.POST, self.webhook_url, json={"status": "ok"}, status=200)
 
@@ -192,7 +192,7 @@ class TestFeatureFlagWebhookTasks(BaseTest):
 
     @responses.activate
     @patch("posthog.tasks.feature_flag_webhooks.send_single_feature_flag_webhook_task.retry")
-    def test_send_single_feature_flag_webhook_task_retry(self, mock_retry):
+    def test_send_single_feature_flag_webhook_task_retry(self, mock_retry: MagicMock) -> None:
         """Test webhook task retry logic"""
         responses.add(responses.POST, self.webhook_url, status=500)  # Server error
 
@@ -206,12 +206,14 @@ class TestFeatureFlagWebhookTasks(BaseTest):
             )
 
         # Should call retry with exponential backoff
-        mock_retry.assert_called_once_with(countdown=2)  # RETRY_DELAY * (2^0)
+        mock_retry.assert_called_once_with(countdown=2)
 
     @responses.activate
     @patch("posthog.tasks.feature_flag_webhooks.send_single_feature_flag_webhook_task.retry")
     @patch("celery.app.task.Task.request")
-    def test_send_single_feature_flag_webhook_task_max_retries(self, mock_request, mock_retry):
+    def test_send_single_feature_flag_webhook_task_max_retries(
+        self, mock_request: MagicMock, mock_retry: MagicMock
+    ) -> None:
         """Test webhook task when max retries reached"""
         responses.add(responses.POST, self.webhook_url, status=500)
 
@@ -229,7 +231,7 @@ class TestFeatureFlagWebhookTasks(BaseTest):
         mock_retry.assert_called_once_with(countdown=8)  # RETRY_DELAY * (2^2)
 
     @patch("posthog.tasks.feature_flag_webhooks.send_single_feature_flag_webhook_task.retry")
-    def test_send_single_feature_flag_webhook_task_retry_exception_passthrough(self, mock_retry):
+    def test_send_single_feature_flag_webhook_task_retry_exception_passthrough(self, mock_retry: MagicMock) -> None:
         """Test that Retry exceptions are properly re-raised"""
 
         with patch("posthog.tasks.feature_flag_webhooks.send_feature_flag_webhook") as mock_send:

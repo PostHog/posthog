@@ -6,6 +6,131 @@ import { useState } from 'react'
 
 import { WebhookSubscription } from '~/types'
 
+// Custom hook to manage headers state and operations
+interface HeaderEntry {
+    id: string
+    key: string
+    value: string
+}
+
+function useHeadersManagement(initialHeaders: Record<string, string> = {}): {
+    headers: Record<string, string>
+    headerEntries: HeaderEntry[]
+    addHeader: () => void
+    updateHeader: (id: string, newKey: string, newValue: string) => void
+    removeHeader: (id: string) => void
+    resetHeaders: (newHeaders?: Record<string, string>) => void
+} {
+    // Convert headers to array with stable IDs
+    const [headerEntries, setHeaderEntries] = useState<HeaderEntry[]>(() =>
+        Object.entries(initialHeaders).map(([key, value], index) => ({
+            id: `header-${index}-${Date.now()}`,
+            key,
+            value,
+        }))
+    )
+
+    const addHeader = (): void => {
+        const newEntry: HeaderEntry = {
+            id: `header-${headerEntries.length}-${Date.now()}`,
+            key: '',
+            value: '',
+        }
+        setHeaderEntries([...headerEntries, newEntry])
+    }
+
+    const updateHeader = (id: string, newKey: string, newValue: string): void => {
+        setHeaderEntries((entries) =>
+            entries.map((entry) => (entry.id === id ? { ...entry, key: newKey, value: newValue } : entry))
+        )
+    }
+
+    const removeHeader = (id: string): void => {
+        setHeaderEntries((entries) => entries.filter((entry) => entry.id !== id))
+    }
+
+    const resetHeaders = (newHeaders: Record<string, string> = {}): void => {
+        setHeaderEntries(
+            Object.entries(newHeaders).map(([key, value], index) => ({
+                id: `header-${index}-${Date.now()}`,
+                key,
+                value,
+            }))
+        )
+    }
+
+    // Convert back to headers object for external consumption
+    const headers = headerEntries.reduce(
+        (acc, entry) => {
+            if (entry.key.trim()) {
+                acc[entry.key] = entry.value
+            }
+            return acc
+        },
+        {} as Record<string, string>
+    )
+
+    return {
+        headers,
+        headerEntries,
+        addHeader,
+        updateHeader,
+        removeHeader,
+        resetHeaders,
+    }
+}
+
+// Component for editing header entries
+interface HeaderEditorProps {
+    headerEntries: HeaderEntry[]
+    onAddHeader: () => void
+    onUpdateHeader: (id: string, newKey: string, newValue: string) => void
+    onRemoveHeader: (id: string) => void
+    emptyMessage?: string
+}
+
+function HeaderEditor({
+    headerEntries,
+    onAddHeader,
+    onUpdateHeader,
+    onRemoveHeader,
+    emptyMessage = 'No custom headers. Click "Add Header" to add some.',
+}: HeaderEditorProps): JSX.Element {
+    return (
+        <div className="space-y-2">
+            <div className="flex items-center justify-between">
+                <h5 className="text-sm font-medium">Custom Headers</h5>
+                <LemonButton size="small" icon={<IconPlus />} onClick={onAddHeader}>
+                    Add Header
+                </LemonButton>
+            </div>
+            {headerEntries.map((entry) => (
+                <div key={entry.id} className="flex gap-2 items-center">
+                    <LemonInput
+                        placeholder="Header name"
+                        value={entry.key}
+                        onChange={(newKey) => onUpdateHeader(entry.id, newKey, entry.value)}
+                        className="flex-1"
+                    />
+                    <LemonInput
+                        placeholder="Header value"
+                        value={entry.value}
+                        onChange={(newValue) => onUpdateHeader(entry.id, entry.key, newValue)}
+                        className="flex-1"
+                    />
+                    <LemonButton
+                        size="small"
+                        status="danger"
+                        icon={<IconTrash />}
+                        onClick={() => onRemoveHeader(entry.id)}
+                    />
+                </div>
+            ))}
+            {headerEntries.length === 0 && <p className="text-muted text-sm">{emptyMessage}</p>}
+        </div>
+    )
+}
+
 interface WebhookSubscriptionCardProps {
     subscription: WebhookSubscription
     index: number
@@ -30,7 +155,23 @@ function WebhookSubscriptionCard({
 }: WebhookSubscriptionCardProps): JSX.Element {
     const [isEditing, setIsEditing] = useState(false)
     const [editUrl, setEditUrl] = useState(subscription.url)
-    const [editHeaders, setEditHeaders] = useState<Record<string, string>>(subscription.headers || {})
+    const {
+        headers: editHeaders,
+        headerEntries: editHeaderEntries,
+        addHeader,
+        updateHeader,
+        removeHeader,
+        resetHeaders,
+    } = useHeadersManagement(subscription.headers || {})
+
+    const handleUrlChange = (newUrl: string): void => {
+        setEditUrl(newUrl)
+        // If URL changed from original, clear headers since they're encrypted/redacted
+        // and user needs to provide headers for the new endpoint
+        if (newUrl.trim() !== subscription.url) {
+            resetHeaders()
+        }
+    }
 
     const handleSave = (): void => {
         if (editUrl.trim() && isValidUrl(editUrl.trim())) {
@@ -45,27 +186,8 @@ function WebhookSubscriptionCard({
 
     const handleCancel = (): void => {
         setEditUrl(subscription.url)
-        setEditHeaders(subscription.headers || {})
+        resetHeaders(subscription.headers || {})
         setIsEditing(false)
-    }
-
-    const addHeader = (): void => {
-        setEditHeaders({ ...editHeaders, '': '' })
-    }
-
-    const updateHeader = (oldKey: string, newKey: string, value: string): void => {
-        const updated = { ...editHeaders }
-        delete updated[oldKey]
-        if (newKey.trim()) {
-            updated[newKey] = value
-        }
-        setEditHeaders(updated)
-    }
-
-    const removeHeader = (key: string): void => {
-        const updated = { ...editHeaders }
-        delete updated[key]
-        setEditHeaders(updated)
     }
 
     if (isEditing) {
@@ -75,45 +197,18 @@ function WebhookSubscriptionCard({
                     <label className="block text-sm font-medium mb-1">Webhook URL</label>
                     <LemonInput
                         value={editUrl}
-                        onChange={setEditUrl}
+                        onChange={handleUrlChange}
                         placeholder="https://example.com/webhook"
                         type="url"
                     />
                 </div>
 
-                <div className="space-y-2">
-                    <div className="flex items-center justify-between">
-                        <h5 className="text-sm font-medium">Custom Headers</h5>
-                        <LemonButton size="small" icon={<IconPlus />} onClick={addHeader}>
-                            Add Header
-                        </LemonButton>
-                    </div>
-                    {Object.entries(editHeaders).map(([key, value]) => (
-                        <div key={key} className="flex gap-2 items-center">
-                            <LemonInput
-                                placeholder="Header name"
-                                value={key}
-                                onChange={(newKey) => updateHeader(key, newKey, value)}
-                                className="flex-1"
-                            />
-                            <LemonInput
-                                placeholder="Header value"
-                                value={value}
-                                onChange={(newValue) => updateHeader(key, key, newValue)}
-                                className="flex-1"
-                            />
-                            <LemonButton
-                                size="small"
-                                status="danger"
-                                icon={<IconTrash />}
-                                onClick={() => removeHeader(key)}
-                            />
-                        </div>
-                    ))}
-                    {Object.keys(editHeaders).length === 0 && (
-                        <p className="text-muted text-sm">No custom headers. Click "Add Header" to add some.</p>
-                    )}
-                </div>
+                <HeaderEditor
+                    headerEntries={editHeaderEntries}
+                    onAddHeader={addHeader}
+                    onUpdateHeader={updateHeader}
+                    onRemoveHeader={removeHeader}
+                />
 
                 <div className="flex gap-2 justify-end">
                     <LemonButton onClick={handleCancel}>Cancel</LemonButton>
@@ -178,27 +273,15 @@ function WebhookSubscriptionCard({
 
 export function EditableWebhookForm(): JSX.Element {
     const [newUrl, setNewUrl] = useState('')
-    const [newHeaders, setNewHeaders] = useState<Record<string, string>>({})
     const [showHeadersForm, setShowHeadersForm] = useState(false)
-
-    const addHeader = (): void => {
-        setNewHeaders({ ...newHeaders, '': '' })
-    }
-
-    const updateHeader = (oldKey: string, newKey: string, value: string): void => {
-        const updated = { ...newHeaders }
-        delete updated[oldKey]
-        if (newKey.trim()) {
-            updated[newKey] = value
-        }
-        setNewHeaders(updated)
-    }
-
-    const removeHeader = (key: string): void => {
-        const updated = { ...newHeaders }
-        delete updated[key]
-        setNewHeaders(updated)
-    }
+    const {
+        headers: newHeaders,
+        headerEntries: newHeaderEntries,
+        addHeader,
+        updateHeader,
+        removeHeader,
+        resetHeaders,
+    } = useHeadersManagement()
 
     return (
         <div className="border rounded bg-surface-primary">
@@ -220,7 +303,7 @@ export function EditableWebhookForm(): JSX.Element {
                                 }
                                 onChange([...webhookSubscriptions, subscription])
                                 setNewUrl('')
-                                setNewHeaders({})
+                                resetHeaders()
                                 setShowHeadersForm(false)
                             }
                         }
@@ -272,41 +355,12 @@ export function EditableWebhookForm(): JSX.Element {
                                     </div>
 
                                     {showHeadersForm && (
-                                        <div className="space-y-2">
-                                            <div className="flex items-center justify-between">
-                                                <h4 className="text-sm font-medium">Custom Headers</h4>
-                                                <LemonButton size="small" icon={<IconPlus />} onClick={addHeader}>
-                                                    Add Header
-                                                </LemonButton>
-                                            </div>
-                                            {Object.entries(newHeaders).map(([key, value]) => (
-                                                <div key={key} className="flex gap-2 items-center">
-                                                    <LemonInput
-                                                        placeholder="Header name"
-                                                        value={key}
-                                                        onChange={(newKey) => updateHeader(key, newKey, value)}
-                                                        className="flex-1"
-                                                    />
-                                                    <LemonInput
-                                                        placeholder="Header value"
-                                                        value={value}
-                                                        onChange={(newValue) => updateHeader(key, key, newValue)}
-                                                        className="flex-1"
-                                                    />
-                                                    <LemonButton
-                                                        size="small"
-                                                        status="danger"
-                                                        icon={<IconTrash />}
-                                                        onClick={() => removeHeader(key)}
-                                                    />
-                                                </div>
-                                            ))}
-                                            {Object.keys(newHeaders).length === 0 && (
-                                                <p className="text-muted text-sm">
-                                                    No custom headers added. Click "Add Header" to add some.
-                                                </p>
-                                            )}
-                                        </div>
+                                        <HeaderEditor
+                                            headerEntries={newHeaderEntries}
+                                            onAddHeader={addHeader}
+                                            onUpdateHeader={updateHeader}
+                                            onRemoveHeader={removeHeader}
+                                        />
                                     )}
                                 </div>
 
@@ -318,7 +372,7 @@ export function EditableWebhookForm(): JSX.Element {
                                             {webhookSubscriptions.map(
                                                 (subscription: WebhookSubscription, index: number) => (
                                                     <WebhookSubscriptionCard
-                                                        key={subscription.url}
+                                                        key={`${subscription.url}-${index}`}
                                                         subscription={subscription}
                                                         index={index}
                                                         onUpdate={handleUpdateSubscription}

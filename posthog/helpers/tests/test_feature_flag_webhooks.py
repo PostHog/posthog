@@ -274,7 +274,7 @@ class TestFeatureFlagWebhooks(BaseTest):
         """Test decryption with empty or None headers"""
         assert decrypt_webhook_headers(None) == {}
         assert decrypt_webhook_headers({}) == {}
-        assert decrypt_webhook_headers("not-a-dict") == {}
+        assert decrypt_webhook_headers("not-a-dict") == {}  # type: ignore[arg-type]
 
     def test_decrypt_webhook_headers_non_string_values(self):
         """Test decryption with non-string header values"""

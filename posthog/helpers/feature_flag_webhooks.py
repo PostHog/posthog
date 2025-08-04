@@ -64,7 +64,7 @@ def create_feature_flag_webhook_payload(feature_flag, change_type: str = "update
     # Add remote config payload if available and flag is remote config
     if feature_flag.is_remote_configuration:
         ff_payload = feature_flag.get_payload("true")
-        if ff_payload:
+        if ff_payload and isinstance(ff_payload, str):
             try:
                 # Try to parse the payload for remote config
                 remote_payload = json.loads(ff_payload)

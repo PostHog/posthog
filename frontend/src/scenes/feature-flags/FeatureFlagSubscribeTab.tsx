@@ -59,8 +59,8 @@ export function FeatureFlagSubscribeTab({ featureFlag }: { featureFlag: FeatureF
                 <div>
                     <h4 className="text-base font-medium mb-2">Configured Webhooks</h4>
                     <div className="space-y-2">
-                        {webhookSubscriptions.map((subscription) => (
-                            <ReadOnlyWebhookCard key={subscription.url} subscription={subscription} />
+                        {webhookSubscriptions.map((subscription, index) => (
+                            <ReadOnlyWebhookCard key={`${subscription.url}-${index}`} subscription={subscription} />
                         ))}
                     </div>
                 </div>

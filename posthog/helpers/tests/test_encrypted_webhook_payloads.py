@@ -1,3 +1,4 @@
+from typing import cast, Any
 from unittest.mock import patch, MagicMock
 import pytest
 from django.conf import settings
@@ -23,9 +24,10 @@ class TestEncryptWebhookPayloads(BaseTest):
             ]
         }
 
+        headers = cast(dict[str, str], validated_data["webhook_subscriptions"][0]["headers"])
         original_url = validated_data["webhook_subscriptions"][0]["url"]
-        original_auth = validated_data["webhook_subscriptions"][0]["headers"]["Authorization"]
-        original_custom = validated_data["webhook_subscriptions"][0]["headers"]["X-Custom-Header"]
+        original_auth = headers["Authorization"]
+        original_custom = headers["X-Custom-Header"]
 
         encrypt_webhook_payloads(validated_data)
 
@@ -33,8 +35,8 @@ class TestEncryptWebhookPayloads(BaseTest):
         assert validated_data["webhook_subscriptions"][0]["url"] == original_url
 
         # Headers should be encrypted
-        encrypted_auth = validated_data["webhook_subscriptions"][0]["headers"]["Authorization"]
-        encrypted_custom = validated_data["webhook_subscriptions"][0]["headers"]["X-Custom-Header"]
+        encrypted_auth = headers["Authorization"]
+        encrypted_custom = headers["X-Custom-Header"]
 
         assert encrypted_auth != original_auth
         assert encrypted_custom != original_custom
@@ -55,9 +57,11 @@ class TestEncryptWebhookPayloads(BaseTest):
             ]
         }
 
+        headers1 = cast(dict[str, str], validated_data["webhook_subscriptions"][0]["headers"])
+        headers2 = cast(dict[str, str], validated_data["webhook_subscriptions"][1]["headers"])
         original_tokens = [
-            validated_data["webhook_subscriptions"][0]["headers"]["Authorization"],
-            validated_data["webhook_subscriptions"][1]["headers"]["Authorization"],
+            headers1["Authorization"],
+            headers2["Authorization"],
         ]
 
         encrypt_webhook_payloads(validated_data)
@@ -68,8 +72,8 @@ class TestEncryptWebhookPayloads(BaseTest):
 
         # Both tokens should be encrypted and different
         encrypted_tokens = [
-            validated_data["webhook_subscriptions"][0]["headers"]["Authorization"],
-            validated_data["webhook_subscriptions"][1]["headers"]["Authorization"],
+            headers1["Authorization"],
+            headers2["Authorization"],
         ]
 
         assert encrypted_tokens[0] != original_tokens[0]
@@ -91,22 +95,23 @@ class TestEncryptWebhookPayloads(BaseTest):
             ]
         }
 
-        original_content_length = validated_data["webhook_subscriptions"][0]["headers"]["Content-Length"]
-        original_retry = validated_data["webhook_subscriptions"][0]["headers"]["X-Retry"]
-        original_auth = validated_data["webhook_subscriptions"][0]["headers"]["Authorization"]
+        headers = cast(dict[str, str], validated_data["webhook_subscriptions"][0]["headers"])
+        original_content_length = headers["Content-Length"]
+        original_retry = headers["X-Retry"]
+        original_auth = headers["Authorization"]
 
         encrypt_webhook_payloads(validated_data)
 
         # Non-string values should remain unchanged
-        assert validated_data["webhook_subscriptions"][0]["headers"]["Content-Length"] == original_content_length
-        assert validated_data["webhook_subscriptions"][0]["headers"]["X-Retry"] == original_retry
+        assert headers["Content-Length"] == original_content_length
+        assert headers["X-Retry"] == original_retry
 
         # String values should be encrypted
-        assert validated_data["webhook_subscriptions"][0]["headers"]["Authorization"] != original_auth
+        assert headers["Authorization"] != original_auth
 
     def test_encrypt_webhook_payloads_empty_array(self):
         """Test that function handles empty webhook_subscriptions array"""
-        validated_data = {"webhook_subscriptions": []}
+        validated_data: dict[str, Any] = {"webhook_subscriptions": []}
 
         encrypt_webhook_payloads(validated_data)
 
@@ -153,12 +158,15 @@ class TestEncryptWebhookPayloads(BaseTest):
         encrypt_webhook_payloads(validated_data1)
         encrypt_webhook_payloads(validated_data2)
 
+        headers1 = cast(dict[str, str], validated_data1["webhook_subscriptions"][0]["headers"])
+        headers2 = cast(dict[str, str], validated_data2["webhook_subscriptions"][0]["headers"])
+
         # URLs should be the same (not encrypted)
         assert validated_data1["webhook_subscriptions"][0]["url"] == validated_data2["webhook_subscriptions"][0]["url"]
 
         # Encrypted headers should be different each time (Fernet includes random IV)
-        encrypted1 = validated_data1["webhook_subscriptions"][0]["headers"]["Authorization"]
-        encrypted2 = validated_data2["webhook_subscriptions"][0]["headers"]["Authorization"]
+        encrypted1 = headers1["Authorization"]
+        encrypted2 = headers2["Authorization"]
         assert encrypted1 != encrypted2
 
         # But both should decrypt to the same original value
