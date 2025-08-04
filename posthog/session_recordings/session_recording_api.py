@@ -53,7 +53,7 @@ from posthog.rate_limit import (
     PersonalApiKeyRateThrottle,
 )
 from posthog.renderers import ServerSentEventRenderer
-from posthog.schema import HogQLQueryModifiers, PropertyFilterType, QueryTiming, RecordingsQuery
+from posthog.schema import PropertyFilterType, QueryTiming, RecordingsQuery
 from posthog.session_recordings.ai_data.ai_regex_prompts import AI_REGEX_PROMPTS
 from posthog.session_recordings.ai_data.ai_regex_schema import AiRegexSchema
 from posthog.session_recordings.models.session_recording import SessionRecording
@@ -413,8 +413,8 @@ class SourceVaryingSnapshotThrottle(PersonalApiKeyRateThrottle):
         num_requests, duration = self.parse_rate(self.get_rate())
 
         divisors = {
-            "realtime": 8,
-            "blob": 4,
+            "realtime": 32,
+            "blob": 24,
             "blob_v2": 1,
         }
 
@@ -590,12 +590,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
                 "Must specify at least one event or action filter, or event properties filter",
             )
 
-        distinct_id = str(cast(User, request.user).distinct_id)
-        modifiers = safely_read_modifiers_overrides(distinct_id, self.team)
-
-        results, _, timings = ReplayFiltersEventsSubQuery(
-            query=query, team=self.team, hogql_query_modifiers=modifiers
-        ).get_event_ids_for_session()
+        results, _, timings = ReplayFiltersEventsSubQuery(query=query, team=self.team).get_event_ids_for_session()
 
         response = JsonResponse(data={"results": results})
 
@@ -1504,26 +1499,15 @@ def list_recordings_from_query(
             query.session_ids = remaining_session_ids
 
     if (all_session_ids and query.session_ids) or not all_session_ids:
-        modifiers = safely_read_modifiers_overrides(str(user.distinct_id), team) if user else None
-
-        use_multiple_sub_queries = (
-            posthoganalytics.feature_enabled(
-                "use-multiple-sub-queries",
-                str(user.distinct_id),
-            )
-            if user
-            else False
-        )
-
         with (
             timer("load_recordings_from_hogql"),
             posthoganalytics.new_context(),
             tracer.start_as_current_span("load_recordings_from_hogql"),
         ):
-            posthoganalytics.tag("use_multiple_sub_queries", use_multiple_sub_queries)
-
             (ch_session_recordings, more_recordings_available, hogql_timings) = SessionRecordingListFromQuery(
-                query=query, team=team, hogql_query_modifiers=modifiers
+                query=query,
+                team=team,
+                hogql_query_modifiers=None,
             ).run()
 
         with timer("build_recordings"), tracer.start_as_current_span("build_recordings"):
@@ -1606,32 +1590,6 @@ def current_user_viewed(recording_ids_in_list: list[str], user: User | None, tea
         .values_list("session_id", flat=True)
     )
     return viewed_session_recordings
-
-
-def safely_read_modifiers_overrides(distinct_id: str, team: Team) -> HogQLQueryModifiers:
-    modifiers = HogQLQueryModifiers()
-
-    try:
-        groups = {"organization": str(team.organization.id)}
-        flag_key = "HOG_QL_ORG_QUERY_OVERRIDES"
-        flags_n_bags = posthoganalytics.get_all_flags_and_payloads(
-            distinct_id,
-            groups=groups,
-        )
-        # this loads nothing whereas the payload is available
-        # modifier_overrides = posthoganalytics.get_feature_flag_payload(
-        #     flag_key,
-        #     distinct_id,
-        #     groups=groups,
-        # )
-        modifier_overrides = (flags_n_bags.get("featureFlagPayloads") or {}).get(flag_key, None)
-        if modifier_overrides:
-            modifiers.optimizeJoinedFilters = json.loads(modifier_overrides).get("optimizeJoinedFilters", None)
-    except:
-        # be extra safe
-        pass
-
-    return modifiers
 
 
 def create_openai_messages(system_content: str, user_content: str) -> list[ChatCompletionMessageParam]:

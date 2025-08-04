@@ -20,7 +20,7 @@ import { VersionCheckerBanner } from 'lib/components/VersionChecker/VersionCheck
 import { dayjs } from 'lib/dayjs'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTableColumn } from 'lib/lemon-ui/LemonTable'
-import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { createdAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import stringWithWBR from 'lib/utils/stringWithWBR'
@@ -35,11 +35,10 @@ import { userLogic } from 'scenes/userLogic'
 import { ActivityScope, ProductKey, ProgressStatus, Survey } from '~/types'
 
 import { ProductIntentContext } from 'lib/utils/product-intents'
+import { SurveyFeedbackButton } from 'scenes/surveys/components/SurveyFeedbackButton'
 import { SURVEY_TYPE_LABEL_MAP, SurveyQuestionLabel } from './constants'
 import { SurveysDisabledBanner, SurveySettings } from './SurveySettings'
 import { getSurveyStatus, surveysLogic, SurveysTabs } from './surveysLogic'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 
 export const scene: SceneExport = {
     component: Surveys,
@@ -52,24 +51,8 @@ function NewSurveyButton(): JSX.Element {
     const { user } = useValues(userLogic)
 
     const button = (
-        <LemonButton
-            to={urls.surveyTemplates()}
-            type="primary"
-            data-attr="new-survey"
-            sideAction={{
-                dropdown: {
-                    placement: 'bottom-start',
-                    actionable: true,
-                    overlay: (
-                        <LemonButton size="small" to={urls.survey('new')}>
-                            Create blank survey
-                        </LemonButton>
-                    ),
-                },
-                'data-attr': 'saved-insights-new-insight-dropdown',
-            }}
-        >
-            New survey
+        <LemonButton to={urls.surveyTemplates()} type="primary" data-attr="new-survey">
+            <span className="pr-3">New survey</span>
         </LemonButton>
     )
 
@@ -105,6 +88,7 @@ function NewSurveyButton(): JSX.Element {
                 loadSurveys()
                 router.actions.push(urls.survey(toolOutput.survey_id))
             }}
+            position="bottom-right"
         >
             {button}
         </MaxTool>
@@ -130,22 +114,13 @@ function Surveys(): JSX.Element {
 
     const { user } = useValues(userLogic)
     const shouldShowEmptyState = !dataLoading && surveys.length === 0
-    const { featureFlags } = useValues(featureFlagLogic)
-    const newSceneLayout = featureFlags[FEATURE_FLAGS.NEW_SCENE_LAYOUT]
 
     return (
         <div>
             <PageHeader
                 buttons={
                     <>
-                        <LemonButton
-                            size="small"
-                            type={!newSceneLayout ? 'secondary' : undefined}
-                            id="surveys-page-feedback-button"
-                            tooltip={newSceneLayout ? 'Have any questions or feedback?' : undefined}
-                        >
-                            {!newSceneLayout ? <>Have any questions or feedback?</> : <>Feedback</>}
-                        </LemonButton>
+                        <SurveyFeedbackButton />
                         <NewSurveyButton />
                     </>
                 }
@@ -217,23 +192,27 @@ function Surveys(): JSX.Element {
                                         value={searchTerm || ''}
                                     />
                                     <div className="flex gap-2 items-center">
-                                        <span>
-                                            <b>Status</b>
-                                        </span>
-                                        <LemonSelect
-                                            dropdownMatchSelectWidth={false}
-                                            onChange={(status) => {
-                                                setSurveysFilters({ status })
-                                            }}
-                                            size="small"
-                                            options={[
-                                                { label: 'Any', value: 'any' },
-                                                { label: 'Draft', value: 'draft' },
-                                                { label: 'Running', value: 'running' },
-                                                { label: 'Complete', value: 'complete' },
-                                            ]}
-                                            value={filters.status}
-                                        />
+                                        {tab === SurveysTabs.Active && (
+                                            <>
+                                                <span>
+                                                    <b>Status</b>
+                                                </span>
+                                                <LemonSelect
+                                                    dropdownMatchSelectWidth={false}
+                                                    onChange={(status) => {
+                                                        setSurveysFilters({ status })
+                                                    }}
+                                                    size="small"
+                                                    options={[
+                                                        { label: 'Any', value: 'any' },
+                                                        { label: 'Draft', value: 'draft' },
+                                                        { label: 'Running', value: 'running' },
+                                                        { label: 'Complete', value: 'complete' },
+                                                    ]}
+                                                    value={filters.status}
+                                                />
+                                            </>
+                                        )}
                                         <span className="ml-1">
                                             <b>Created by</b>
                                         </span>
@@ -321,15 +300,21 @@ function Surveys(): JSX.Element {
                                                 : 'Multiple'
                                         },
                                     },
-                                    createdByColumn<Survey>() as LemonTableColumn<Survey, keyof Survey | undefined>,
-                                    createdAtColumn<Survey>() as LemonTableColumn<Survey, keyof Survey | undefined>,
-                                    {
-                                        title: 'Status',
-                                        width: 100,
-                                        render: function Render(_, survey: Survey) {
-                                            return <StatusTag survey={survey} />
-                                        },
-                                    },
+                                    ...(tab === SurveysTabs.Active
+                                        ? [
+                                              createdAtColumn<Survey>() as LemonTableColumn<
+                                                  Survey,
+                                                  keyof Survey | undefined
+                                              >,
+                                              {
+                                                  title: 'Status',
+                                                  width: 100,
+                                                  render: function Render(_: any, survey: Survey) {
+                                                      return <StatusTag survey={survey} />
+                                                  },
+                                              },
+                                          ]
+                                        : []),
                                     {
                                         width: 0,
                                         render: function Render(_, survey: Survey) {

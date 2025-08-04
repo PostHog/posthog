@@ -10,6 +10,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { identifierToHuman } from 'lib/utils'
 import { addProjectIdIfMissing, removeProjectIdIfPresent } from 'lib/utils/router-utils'
 import posthog from 'posthog-js'
+import { sceneTabsLogic } from '~/layout/scenes/sceneTabsLogic'
 
 /*
 Actions for which we don't want to show error alerts,
@@ -52,11 +53,11 @@ export const loggerPlugin: () => KeaPlugin = () => ({
         beforeReduxStore(options) {
             options.middleware.push((store) => (next) => (action) => {
                 const response = next(action)
-                /* eslint-disable no-console */
+                /* oxlint-disable no-console */
                 console.groupCollapsed('KEA LOGGER', action)
                 console.log(store.getState())
                 console.groupEnd()
-                /* eslint-enable no-console */
+                /* oxlint-enable no-console */
                 return response
             })
         },
@@ -92,6 +93,14 @@ export function initKea({
             },
             replaceInitialPathInWindow:
                 typeof replaceInitialPathInWindow === 'undefined' ? true : replaceInitialPathInWindow,
+            getRouterState: () => {
+                // This state is persisted into window.history
+                const logic = sceneTabsLogic.findMounted()
+                if (logic) {
+                    return { tabs: structuredClone(logic.values.tabs) }
+                }
+                return undefined
+            },
         }),
         formsPlugin,
         loadersPlugin({
@@ -128,7 +137,7 @@ export function initKea({
     }
 
     if ((window as any).__REDUX_DEVTOOLS_EXTENSION__) {
-        // eslint-disable-next-line no-console
+        // oxlint-disable-next-line no-console
         console.log('NB Redux Dev Tools are disabled on PostHog. See: https://github.com/PostHog/posthog/issues/17482')
     }
 

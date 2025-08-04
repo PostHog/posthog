@@ -80,10 +80,10 @@ export function OrganizationLogo(): JSX.Element {
                     restrictionReason
                         ? restrictionReason
                         : !currentOrganization
-                        ? 'Organization not loaded'
-                        : logoMediaId === currentOrganization.logo_media_id
-                        ? 'Logo unchanged'
-                        : undefined
+                          ? 'Organization not loaded'
+                          : logoMediaId === currentOrganization.logo_media_id
+                            ? 'Logo unchanged'
+                            : undefined
                 }
                 loading={currentOrganizationLoading || uploading}
             >
