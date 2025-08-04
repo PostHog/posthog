@@ -410,5 +410,6 @@ As you run workflows, you will be able to see the logs in the worker's logs, and
 
 * [Documentation for the Temporal Python SDK](https://docs.temporal.io/develop/python).
 * [Documentation on Temporal schedules](https://docs.temporal.io/evaluate/development-production-features/schedules).
+* [Documentation on different types of activities](https://docs.temporal.io/develop/python/python-sdk-sync-vs-async).
 * [Temporal Python SDK repository](https://github.com/temporalio/sdk-python).
 * [Temporal Python SDK code samples](https://github.com/temporalio/samples-python).
