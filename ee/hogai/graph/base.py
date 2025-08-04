@@ -10,7 +10,7 @@ from ee.hogai.utils.helpers import find_last_ui_context
 from ee.models import Conversation
 from posthog.models import Team
 from posthog.models.user import User
-from posthog.schema import AssistantMessage, AssistantToolCall, MaxUIContext
+from posthog.schema import AssistantMessage, AssistantToolCall, MaxUIContext, MaxBillingContext
 from posthog.sync import database_sync_to_async
 
 from ..graph.filter_options.types import FilterOptionsState, PartialFilterOptionsState
@@ -80,17 +80,14 @@ class BaseAssistantNode(Generic[StateType, PartialStateType], AssistantContextMi
             return find_last_ui_context(state.messages)
         return None
 
-    def _get_user_distinct_id(self, config: RunnableConfig) -> Any | None:
+    def _get_billing_context(self, config: RunnableConfig) -> MaxBillingContext | None:
         """
-        Extracts the user distinct ID from the runnable config.
+        Extracts the billing context from the runnable config.
         """
-        return (config.get("configurable") or {}).get("distinct_id") or None
-
-    def _get_trace_id(self, config: RunnableConfig) -> Any | None:
-        """
-        Extracts the trace ID from the runnable config.
-        """
-        return (config.get("configurable") or {}).get("trace_id") or None
+        billing_context = (config.get("configurable") or {}).get("billing_context")
+        if not billing_context:
+            return None
+        return MaxBillingContext.model_validate(billing_context)
 
 
 AssistantNode = BaseAssistantNode[AssistantState, PartialAssistantState]

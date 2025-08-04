@@ -137,8 +137,8 @@ export const UnsubscribeSurveyModal = ({
                     isAddonProduct
                         ? action
                         : product.type === 'platform_and_support'
-                        ? `${action} your plan`
-                        : `${action} from ${product.name}`
+                          ? `${action} your plan`
+                          : `${action} from ${product.name}`
                 }
                 footer={
                     unsubscribeModalStep === 1 ? (
@@ -157,10 +157,10 @@ export const UnsubscribeSurveyModal = ({
                                     surveyResponse['$survey_response_2'].length === 0
                                         ? 'Please select a reason'
                                         : !textAreaNotEmpty
-                                        ? 'Please share your feedback'
-                                        : includesPipelinesAddon
-                                        ? unsubscribeDisabledReason
-                                        : undefined
+                                          ? 'Please share your feedback'
+                                          : includesPipelinesAddon
+                                            ? unsubscribeDisabledReason
+                                            : undefined
                                 }
                                 onClick={handleUnsubscribe}
                                 loading={billingLoading}

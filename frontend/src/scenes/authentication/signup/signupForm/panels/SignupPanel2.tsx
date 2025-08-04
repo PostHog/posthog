@@ -53,8 +53,8 @@ export function SignupPanel2(): JSX.Element | null {
                     {!preflight?.demo
                         ? 'Create account'
                         : !isSignupPanel2Submitting
-                        ? 'Enter the demo environment'
-                        : 'Preparing demo data…'}
+                          ? 'Enter the demo environment'
+                          : 'Preparing demo data…'}
                 </LemonButton>
             </Form>
 

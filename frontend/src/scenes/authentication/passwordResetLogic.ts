@@ -87,8 +87,8 @@ export const passwordResetLogic = kea<passwordResetLogicType>([
                 passwordConfirm: !passwordConfirm
                     ? 'Please confirm your password to continue'
                     : password !== passwordConfirm
-                    ? 'Passwords do not match'
-                    : undefined,
+                      ? 'Passwords do not match'
+                      : undefined,
             }),
             submit: async ({ password }, breakpoint) => {
                 await breakpoint(150)

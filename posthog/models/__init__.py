@@ -69,8 +69,9 @@ from .instance_setting import InstanceSetting
 from .integration import Integration
 from .link import Link
 from .message_template import MessageTemplate
+from .message_category import MessageCategory
+from .message_preferences import MessageRecipientPreference
 from .messaging import MessagingRecord
-from .message_preferences import MessageCategory, MessageRecipientPreference
 from .notebook import Notebook
 from .organization import Organization, OrganizationMembership
 from .organization_domain import OrganizationDomain

@@ -1,6 +1,7 @@
 import json
 from typing import Any, Optional, cast
 
+import pydantic_core
 import structlog
 from django.db.models import Prefetch
 from django.utils.timezone import now
@@ -16,7 +17,6 @@ from posthog.api.dashboards.dashboard_template_json_schema_parser import (
 )
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.insight_variable import InsightVariable
-from posthog.api.insight_variable import InsightVariableMappingMixin
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
@@ -144,7 +144,7 @@ class DashboardBasicSerializer(
         return "v2"
 
 
-class DashboardSerializer(DashboardBasicSerializer, InsightVariableMappingMixin):
+class DashboardSerializer(DashboardBasicSerializer):
     tiles = serializers.SerializerMethodField()
     filters = serializers.SerializerMethodField()
     variables = serializers.SerializerMethodField()
@@ -473,8 +473,23 @@ class DashboardSerializer(DashboardBasicSerializer, InsightVariableMappingMixin)
                 if isinstance(tile.layouts, str):
                     tile.layouts = json.loads(tile.layouts)
 
-                tile_data = DashboardTileSerializer(tile, many=False, context=self.context).data
-                serialized_tiles.append(tile_data)
+                try:
+                    tile_data = DashboardTileSerializer(tile, many=False, context=self.context).data
+                    serialized_tiles.append(tile_data)
+                # A single broken query object has the potential to crash the entire dashboard
+                # Here we catch it and handle it gracefully
+                except pydantic_core.ValidationError as e:
+                    if not tile.insight:
+                        raise
+                    query = tile.insight.query
+                    tile.insight.query = None
+                    # If this throws with no query, it will still crash the dashboard. We could attempt to handle this
+                    # general case gracefully, but it gets increasingly complicated to handle the tile in a graceful
+                    # way if we don't have insight information attached.
+                    tile_data = DashboardTileSerializer(tile, context=self.context).data
+                    tile_data["insight"]["query"] = query
+                    tile_data["error"] = {"type": type(e).__name__, "message": str(e)}
+                    serialized_tiles.append(tile_data)
 
         return serialized_tiles
 
@@ -488,16 +503,9 @@ class DashboardSerializer(DashboardBasicSerializer, InsightVariableMappingMixin)
 
         return dashboard.filters
 
-    def get_variables(self, dashboard: Dashboard) -> dict:
+    def get_variables(self, dashboard: Dashboard) -> dict | None:
         request = self.context.get("request")
-
-        if request:
-            variables_override = variables_override_requested_by_client(request)
-
-            if variables_override is not None:
-                return self.map_stale_to_latest(variables_override, list(self.context["insight_variables"]))
-
-        return self.map_stale_to_latest(dashboard.variables, list(self.context["insight_variables"]))
+        return variables_override_requested_by_client(request, dashboard, list(self.context["insight_variables"]))
 
     def validate(self, data):
         if data.get("use_dashboard", None) and data.get("use_template", None):

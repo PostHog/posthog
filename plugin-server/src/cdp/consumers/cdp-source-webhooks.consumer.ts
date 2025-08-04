@@ -1,10 +1,10 @@
-import express from 'express'
 import { DateTime } from 'luxon'
+import express from 'ultimate-express'
 
 import { Hub } from '../../types'
 import { logger } from '../../utils/logger'
 import { PromiseScheduler } from '../../utils/promise-scheduler'
-import { UUIDT } from '../../utils/utils'
+import { UUID, UUIDT } from '../../utils/utils'
 import { CyclotronJobQueue } from '../services/job-queue/job-queue'
 import {
     CyclotronJobInvocationHogFunction,
@@ -12,11 +12,39 @@ import {
     HogFunctionInvocationGlobals,
     HogFunctionType,
 } from '../types'
+import { createAddLogFunction } from '../utils'
 import { createInvocation, createInvocationResult } from '../utils/invocation-utils'
 import { CdpConsumerBase } from './cdp-base.consumer'
 
 const getFirstHeaderValue = (value: string | string[] | undefined): string | undefined => {
     return Array.isArray(value) ? value[0] : value
+}
+
+export const getCustomHttpResponse = (
+    result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>
+): {
+    status: number
+    body: Record<string, any> | string
+} | null => {
+    if (typeof result.execResult === 'object' && result.execResult && 'httpResponse' in result.execResult) {
+        const httpResponse = result.execResult.httpResponse as Record<string, any>
+        return {
+            status: 'status' in httpResponse && typeof httpResponse.status === 'number' ? httpResponse.status : 500,
+            body: 'body' in httpResponse ? httpResponse.body : '',
+        }
+    }
+
+    return null
+}
+
+export class SourceWebhookError extends Error {
+    status: number
+
+    constructor(status: number, message: string) {
+        super(message)
+        this.name = 'SourceWebhookError'
+        this.status = status
+    }
 }
 
 export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
@@ -31,21 +59,27 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
     }
 
     public async getWebhook(webhookId: string): Promise<HogFunctionType | null> {
+        if (!UUID.validateString(webhookId, false)) {
+            return null
+        }
+
         const hogFunction = await this.hogFunctionManager.getHogFunction(webhookId)
 
-        if (hogFunction?.type !== 'source_webhook') {
+        if (hogFunction?.type !== 'source_webhook' || !hogFunction.enabled) {
             return null
         }
 
         return hogFunction
     }
 
-    public async processWebhook(webhookId: string, req: express.Request) {
+    public async processWebhook(
+        webhookId: string,
+        req: express.Request
+    ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
         const hogFunction = await this.getWebhook(webhookId)
 
         if (!hogFunction) {
-            // TODO: Maybe better error types?
-            throw new Error('Not found')
+            throw new SourceWebhookError(404, 'Not found')
         }
 
         const headers: Record<string, string> = {}
@@ -59,8 +93,11 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
         }
 
         const body: Record<string, any> = req.body
-        // TODO: Should this be filled via other headers?
-        const ip = getFirstHeaderValue(req.headers['x-forwarded-for']) || req.socket.remoteAddress || req.ip
+
+        const ipValue = getFirstHeaderValue(req.headers['x-forwarded-for']) || req.socket.remoteAddress || req.ip
+        // IP could be comma delimited list of IPs
+        const ips = ipValue?.split(',').map((ip) => ip.trim()) || []
+        const ip = ips[0]
 
         const projectUrl = `${this.hub.SITE_URL}/project/${hogFunction.team_id}`
 
@@ -101,9 +138,17 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
             // Run the initial step - this allows functions not using fetches to respond immediately
             result = await this.hogExecutor.execute(invocation)
 
+            const addLog = createAddLogFunction(result.logs)
+
             // Queue any queued work here. This allows us to enable delayed work like fetching eventually without blocking the API.
             if (!result.finished) {
                 await this.cyclotronJobQueue.queueInvocationResults([result])
+            }
+
+            const customHttpResponse = getCustomHttpResponse(result)
+            if (customHttpResponse) {
+                const level = customHttpResponse.status >= 400 ? 'warn' : 'info'
+                addLog(level, `Responded with response status - ${customHttpResponse.status}`)
             }
 
             void this.promiseScheduler.schedule(
@@ -125,6 +170,14 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
                     error: error.message,
                     logs: [{ level: 'error', message: error.message, timestamp: DateTime.now() }],
                 }
+            )
+            void this.promiseScheduler.schedule(
+                Promise.all([
+                    this.hogFunctionMonitoringService.queueInvocationResults([result]).then(() => {
+                        return this.hogFunctionMonitoringService.produceQueuedMessages()
+                    }),
+                    this.hogWatcher.observeResults([result]),
+                ])
             )
         }
 
