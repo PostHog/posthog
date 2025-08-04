@@ -2,7 +2,7 @@ import { PluginEvent } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 import express from 'ultimate-express'
 
-import { ModifiedRequest } from '~/router'
+import { ModifiedRequest } from '~/api/router'
 
 import { Hub, PluginServerService } from '../types'
 import { logger } from '../utils/logger'
