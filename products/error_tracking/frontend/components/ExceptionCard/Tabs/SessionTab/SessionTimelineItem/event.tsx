@@ -11,6 +11,8 @@ import { JSONViewer } from 'lib/components/JSONViewer'
 import { ErrorTrackingException } from 'lib/components/Errors/types'
 import { RuntimeIcon } from 'products/error_tracking/frontend/components/RuntimeIcon'
 import { getRuntimeFromLib } from 'lib/components/Errors/utils'
+import { Link } from '@posthog/lemon-ui'
+import { urls } from 'scenes/urls'
 
 function sanitizeEventName(event: string): string {
     if (event.startsWith('$')) {
@@ -56,7 +58,13 @@ function getExceptionMessage(exceptionList: ErrorTrackingException[]): string | 
     }
 }
 
-export function BasePreview({ name, description }: { name: string; description?: string }): JSX.Element {
+export function BasePreview({
+    name,
+    description,
+}: {
+    name: React.ReactNode
+    description?: React.ReactNode
+}): JSX.Element {
     return (
         <div className="flex justify-between items-center">
             <span className="font-medium">{name}</span>
@@ -107,7 +115,16 @@ export const pageRenderer: SessionTimelineRenderer<SessionTimelineEvent> = {
         return (
             <BasePreview
                 name={sanitizeEventName(item.payload.event)}
-                description={getUrlPathname(item.payload.properties['$current_url'])}
+                description={
+                    <Link
+                        className="text-secondary hover:text-accent"
+                        subtle
+                        to={item.payload.properties['$current_url']}
+                        target="_blank"
+                    >
+                        {getUrlPathname(item.payload.properties['$current_url'])}
+                    </Link>
+                }
             />
         )
     },
@@ -118,13 +135,26 @@ export const exceptionRenderer: SessionTimelineRenderer<SessionTimelineEvent> = 
     group: RendererGroup.ERROR_TRACKING,
     predicate: (item: SessionTimelineItem) => eventPredicate(item, '$exception'),
     renderPreview: ({ item }): JSX.Element => {
+        const name =
+            getExceptionType(item.payload.properties['$exception_list']) || sanitizeEventName(item.payload.event)
+        const description = getExceptionMessage(item.payload.properties['$exception_list'])
+        const eventIssueId = item.payload.properties['$exception_issue_id']
         return (
             <BasePreview
-                name={
-                    getExceptionType(item.payload.properties['$exception_list']) ||
-                    sanitizeEventName(item.payload.event)
+                name={name}
+                description={
+                    <Link
+                        className="text-secondary hover:text-accent"
+                        subtle
+                        to={urls.errorTrackingIssue(eventIssueId, {
+                            fingerprint: item.payload.properties['$exception_fingerprint'],
+                            timestamp: item.timestamp,
+                        })}
+                        onClick={() => {}}
+                    >
+                        {description}
+                    </Link>
                 }
-                description={getExceptionMessage(item.payload.properties['$exception_list'])}
             />
         )
     },
