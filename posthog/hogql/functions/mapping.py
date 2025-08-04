@@ -1643,9 +1643,35 @@ HOGQL_AGGREGATIONS: dict[str, HogQLFunctionMeta] = {
     "countStateIf": HogQLFunctionMeta("countStateIf", 1, 2, aggregate=True),
     "countDistinctIf": HogQLFunctionMeta("countDistinctIf", 1, 2, aggregate=True),
     "countMapIf": HogQLFunctionMeta("countMapIf", 2, 3, aggregate=True),
-    "min": HogQLFunctionMeta("min", 1, 1, aggregate=True, case_sensitive=False),
+    "min": HogQLFunctionMeta(
+        "min", 
+        1, 
+        1, 
+        aggregate=True, 
+        case_sensitive=False,
+        signatures=[
+            ((DateTimeType(),), DateTimeType()),  # MIN(DateTime) return DateTime
+            ((DateType(),), DateType()),          # MIN(Date) return Date
+            ((IntegerType(),), IntegerType()),    # MIN(Integer) return Integer
+            ((FloatType(),), FloatType()),        # MIN(Float) return Float
+            ((StringType(),), StringType()),      # MIN(String) return String
+        ]
+    ),
     "minIf": HogQLFunctionMeta("minIf", 2, 2, aggregate=True),
-    "max": HogQLFunctionMeta("max", 1, 1, aggregate=True, case_sensitive=False),
+    "max": HogQLFunctionMeta(
+        "max", 
+        1, 
+        1, 
+        aggregate=True, 
+        case_sensitive=False,
+        signatures=[
+            ((DateTimeType(),), DateTimeType()),  # MIN(DateTime) return DateTime
+            ((DateType(),), DateType()),          # MIN(Date) return Date
+            ((IntegerType(),), IntegerType()),    # MIN(Integer) return Integer
+            ((FloatType(),), FloatType()),        # MIN(Float) return Float
+            ((StringType(),), StringType()),      # MIN(String) return String
+        ]
+    ),
     "maxIf": HogQLFunctionMeta("maxIf", 2, 2, aggregate=True),
     "sum": HogQLFunctionMeta("sum", 1, 1, aggregate=True, case_sensitive=False),
     "sumForEach": HogQLFunctionMeta("sumForEach", 1, 1, aggregate=True),
