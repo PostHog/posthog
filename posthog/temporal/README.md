@@ -36,7 +36,7 @@ async def hello_world_activity() -> str:
 
 @workflow.defn
 class HelloWorldWorkflow:
-    @worklfow.run
+    @workflow.run
     async def run(self) -> str:
         return await workflow.execute_activity(hello_world_activity)
 
