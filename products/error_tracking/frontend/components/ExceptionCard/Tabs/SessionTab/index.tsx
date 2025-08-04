@@ -12,6 +12,8 @@ import { BindLogic, useValues } from 'kea'
 import { errorPropertiesLogic } from 'lib/components/Errors/errorPropertiesLogic'
 import { sessionTabLogic } from './sessionTabLogic'
 import { match, P } from 'ts-pattern'
+import { NotFound } from 'lib/components/NotFound'
+import { Link } from '@posthog/lemon-ui'
 
 export interface SessionTabProps extends TabsPrimitiveContentProps {
     timestamp?: string
@@ -22,7 +24,21 @@ export function SessionTab({ timestamp, ...props }: SessionTabProps): JSX.Elemen
     return (
         <TabsPrimitiveContent {...props}>
             {match([sessionId])
-                .with([P.nullish], () => <div>No session ID</div>)
+                .with([P.nullish], () => (
+                    <NotFound
+                        object="session"
+                        caption={
+                            <span>
+                                No session is associated with this exception. <br /> If it was captured from a server
+                                SDK, you can read{' '}
+                                <Link to="https://posthog.com/docs/data/sessions#server-sdks-and-sessions">
+                                    our guide
+                                </Link>{' '}
+                                on how to forward session ids.
+                            </span>
+                        }
+                    />
+                ))
                 .with([P.string], ([sessionId]) => (
                     <BindLogic logic={sessionTabLogic} props={{ timestamp, sessionId }}>
                         <TabsPrimitive defaultValue="timeline">
