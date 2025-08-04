@@ -70,7 +70,6 @@ from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.property import Property
 from posthog.schema import PropertyOperator
 from posthog.models.feature_flag.flag_status import FeatureFlagStatusChecker, FeatureFlagStatus
-from posthog.models.team import Team
 from posthog.permissions import ProjectSecretAPITokenPermission
 from posthog.queries.base import (
     determine_parsed_date_for_property_matching,
@@ -97,6 +96,15 @@ class LocalEvaluationThrottle(BurstRateThrottle):
     scope = "feature_flag_evaluations"
     rate = "600/minute"
 
+    def _get_team_rate_limit_from_env(self, team_id):
+        """Get team-specific rate limit from Django settings.
+
+        Expected format: LOCAL_EVAL_RATE_LIMITS='{"123": "1200/minute", "456": "2400/hour"}'
+        """
+        from posthog.settings.feature_flags import LOCAL_EVAL_RATE_LIMITS
+
+        return LOCAL_EVAL_RATE_LIMITS.get(str(team_id))
+
     def allow_request(self, request, view):
         if not is_rate_limit_enabled(round(time.time() / 60)):
             return True
@@ -109,9 +117,7 @@ class LocalEvaluationThrottle(BurstRateThrottle):
                 cached_rate_limit = self.cache.get(rate_limit_cache_key, None)
 
                 if cached_rate_limit is None:
-                    team = Team.objects.get(id=team_id)
-                    # Check if team has a custom local evaluation rate limit
-                    custom_rate = getattr(team, "local_evaluation_rate_limit", None)
+                    custom_rate = self._get_team_rate_limit_from_env(team_id)
                     if custom_rate:
                         cached_rate_limit = custom_rate
                         self.cache.set(rate_limit_cache_key, cached_rate_limit, 300)  # Cache for 5 minutes
