@@ -114,7 +114,7 @@ export function SessionTimelineItemContainer<T extends SessionTimelineItem>({
     selected,
     ...props
 }: PreviewRenderProps<T> & { renderer: SessionTimelineRenderer<T> }): JSX.Element {
-    const { goToTimestamp } = useActions(sessionTabLogic)
+    const { setRecordingTimestamp } = useActions(sessionTabLogic)
     const { setCurrentSessionTab } = useActions(exceptionCardLogic)
     return (
         <div className={itemContainer({ selected })} data-item-id={item.id}>
@@ -126,7 +126,7 @@ export function SessionTimelineItemContainer<T extends SessionTimelineItem>({
                     <Link
                         className="text-tertiary hover:text-accent"
                         onClick={() => {
-                            goToTimestamp(item.timestamp, 1000)
+                            setRecordingTimestamp(item.timestamp, 1000)
                             setCurrentSessionTab('recording')
                         }}
                     >
