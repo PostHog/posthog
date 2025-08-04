@@ -4,9 +4,9 @@ import cors from 'cors'
  * Custom origin validation function that allows *.posthog.com domains
  * without using wildcards for better security
  */
-function isPostHogDomain(origin: string): boolean {
+function isAllowedDomain(origin: string): boolean {
     // Allow localhost for development
-    if (origin.includes('localhost')) {
+    if (origin.startsWith('http://localhost:') || origin.startsWith('https://localhost:')) {
         return true
     }
 
@@ -24,7 +24,7 @@ export const corsMiddleware = cors({
             return callback(null, true)
         }
 
-        if (isPostHogDomain(origin)) {
+        if (isAllowedDomain(origin)) {
             return callback(null, true)
         }
 
