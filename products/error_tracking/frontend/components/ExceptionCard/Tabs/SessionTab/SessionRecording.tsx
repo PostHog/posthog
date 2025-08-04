@@ -1,7 +1,7 @@
 import { Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { TabsPrimitiveContent } from 'lib/ui/TabsPrimitive/TabsPrimitive'
-import { useLayoutEffect } from 'react'
+import { useEffect } from 'react'
 import { SessionRecordingPlayer } from 'scenes/session-recordings/player/SessionRecordingPlayer'
 import { SessionRecordingPlayerMode } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
@@ -31,14 +31,15 @@ export function SessionRecordingLoading(): JSX.Element {
 }
 
 export function SessionRecordingContent(): JSX.Element {
-    const { recordingProps, timestamp } = useValues(sessionTabLogic)
-    const { goToTimestamp } = useActions(sessionTabLogic)
+    const { recordingProps, recordingTimestamp } = useValues(sessionTabLogic)
+    const { seekToTimestamp, setPlay } = useActions(sessionTabLogic)
 
-    useLayoutEffect(() => {
-        if (timestamp) {
-            goToTimestamp(timestamp, 5000)
+    useEffect(() => {
+        if (recordingTimestamp) {
+            seekToTimestamp(recordingTimestamp)
         }
-    }, [timestamp, goToTimestamp])
+        setPlay()
+    }, [seekToTimestamp, recordingTimestamp, setPlay])
 
     return (
         <div className="max-h-[500px] h-[500px] flex justify-center items-center">

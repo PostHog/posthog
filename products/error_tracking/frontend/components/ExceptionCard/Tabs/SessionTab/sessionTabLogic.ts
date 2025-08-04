@@ -1,4 +1,17 @@
-import { actions, connect, defaults, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import {
+    actions,
+    connect,
+    defaults,
+    events,
+    kea,
+    key,
+    listeners,
+    path,
+    props,
+    reducers,
+    selectors,
+    propsChanged,
+} from 'kea'
 
 import type { sessionTabLogicType } from './sessionTabLogicType'
 import { loaders } from 'kea-loaders'
@@ -53,8 +66,17 @@ export const sessionTabLogic = kea<sessionTabLogicType>([
     props({} as SessionTabLogicProps),
     key(({ sessionId }) => sessionId as KeyType),
     connect(({ sessionId }: SessionTabLogicProps) => ({
-        actions: [sessionRecordingPlayerLogic(getRecordingProps(sessionId)), ['seekToTimestamp']],
+        actions: [
+            sessionRecordingPlayerLogic(getRecordingProps(sessionId)),
+            ['seekToTimestamp', 'setPlay', 'setPause'],
+        ],
     })),
+
+    propsChanged(({ actions, props }, oldProps) => {
+        if (props.timestamp !== oldProps.timestamp) {
+            actions.setRecordingTimestamp(props.timestamp, 5000)
+        }
+    }),
 
     actions({
         setEventListEl: (eventListEl: HTMLDivElement | null) => ({ eventListEl }),
@@ -63,7 +85,7 @@ export const sessionTabLogic = kea<sessionTabLogicType>([
             renderer,
         }),
         toggleGroup: (name: RendererGroup) => ({ name }),
-        goToTimestamp: (timestamp: string, offset: number) => ({ timestamp, offset }),
+        setRecordingTimestamp: (timestamp: string, offset: number) => ({ timestamp, offset }),
         loadEvents: true,
     }),
 
@@ -71,6 +93,7 @@ export const sessionTabLogic = kea<sessionTabLogicType>([
         setEventListEl: null as HTMLDivElement | null,
         activeGroups: [] as RendererGroup[],
         rendererRegistry: [] as RendererRegistry,
+        recordingTimestamp: null as number | null,
     }),
 
     reducers({
@@ -94,6 +117,10 @@ export const sessionTabLogic = kea<sessionTabLogicType>([
                 }
                 return [...state, name]
             },
+        },
+        recordingTimestamp: {
+            setRecordingTimestamp: (_, { timestamp, offset }: { timestamp: string; offset: number }) =>
+                dayjs(timestamp).valueOf() - offset,
         },
     }),
 
@@ -198,14 +225,7 @@ export const sessionTabLogic = kea<sessionTabLogicType>([
             },
         ],
     }),
-    listeners(({ actions }) => ({
-        goToTimestamp: ({ timestamp, offset }) => {
-            // Implement logic to navigate to the specified timestamp
-            const actualTimestamp = dayjs(timestamp).valueOf() - offset
-            actions.seekToTimestamp(actualTimestamp, false)
-        },
-    })),
-    events(({ actions }) => ({
+    events(({ props, actions }) => ({
         afterMount: () => {
             actions.registerRenderer(exceptionRenderer)
             actions.registerRenderer(featureFlagRenderer)
@@ -214,6 +234,7 @@ export const sessionTabLogic = kea<sessionTabLogicType>([
             actions.registerRenderer(webAnalyticsRenderer)
             actions.registerRenderer(eventRenderer)
             actions.loadEvents()
+            actions.setRecordingTimestamp(props.timestamp, 5000)
         },
     })),
 ])
