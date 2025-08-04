@@ -1,13 +1,14 @@
 from posthog.clickhouse.table_engines import MergeTreeEngine, ReplicationScheme
 from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
 from posthog.hogql.database.schema.web_analytics_s3 import get_s3_function_args
+from posthog.models.web_preaggregated.team_selection import WEB_PRE_AGGREGATED_TEAM_SELECTION_DICTIONARY_NAME
 
 
-def TABLE_TEMPLATE(table_name, columns, order_by):
+def TABLE_TEMPLATE(table_name, columns, order_by, on_cluster=True):
     engine = MergeTreeEngine(table_name, replication_scheme=ReplicationScheme.REPLICATED)
 
     return f"""
-    CREATE TABLE IF NOT EXISTS {table_name} {ON_CLUSTER_CLAUSE(on_cluster=True)}
+    CREATE TABLE IF NOT EXISTS {table_name} {ON_CLUSTER_CLAUSE(on_cluster=on_cluster)}
     (
         period_bucket DateTime,
         team_id UInt64,
@@ -20,13 +21,13 @@ def TABLE_TEMPLATE(table_name, columns, order_by):
     """
 
 
-def HOURLY_TABLE_TEMPLATE(table_name, columns, order_by, ttl=None):
+def HOURLY_TABLE_TEMPLATE(table_name, columns, order_by, ttl=None, on_cluster=True):
     engine = MergeTreeEngine(table_name, replication_scheme=ReplicationScheme.REPLICATED)
 
     ttl_clause = f"TTL period_bucket + INTERVAL {ttl} DELETE" if ttl else ""
 
     return f"""
-    CREATE TABLE IF NOT EXISTS {table_name} {ON_CLUSTER_CLAUSE(on_cluster=True)}
+    CREATE TABLE IF NOT EXISTS {table_name} {ON_CLUSTER_CLAUSE(on_cluster=on_cluster)}
     (
         period_bucket DateTime,
         team_id UInt64,
@@ -171,6 +172,14 @@ def WEB_BOUNCES_DAILY_SQL(table_name="web_bounces_daily"):
     return TABLE_TEMPLATE(table_name, WEB_BOUNCES_COLUMNS, WEB_BOUNCES_ORDER_BY_FUNC("period_bucket"))
 
 
+def WEB_STATS_SQL(table_name="web_pre_aggregated_stats", on_cluster=True):
+    return TABLE_TEMPLATE(table_name, WEB_STATS_COLUMNS, WEB_STATS_ORDER_BY_FUNC("period_bucket"), on_cluster)
+
+
+def WEB_BOUNCES_SQL(table_name="web_pre_aggregated_bounces", on_cluster=True):
+    return TABLE_TEMPLATE(table_name, WEB_BOUNCES_COLUMNS, WEB_BOUNCES_ORDER_BY_FUNC("period_bucket"), on_cluster)
+
+
 def WEB_STATS_HOURLY_SQL():
     return HOURLY_TABLE_TEMPLATE(
         "web_stats_hourly", WEB_STATS_COLUMNS, WEB_STATS_ORDER_BY_FUNC("period_bucket"), ttl="24 HOUR"
@@ -188,14 +197,24 @@ def format_team_ids(team_ids):
 
 
 def get_team_filters(team_ids):
-    team_ids_str = format_team_ids(team_ids) if team_ids else None
-    return {
-        "raw_sessions": f"raw_sessions.team_id IN({team_ids_str})" if team_ids else "1=1",
-        "person_distinct_id_overrides": (
-            f"person_distinct_id_overrides.team_id IN({team_ids_str})" if team_ids else "1=1"
-        ),
-        "events": f"e.team_id IN({team_ids_str})" if team_ids else "1=1",
-    }
+    """
+    Get team filters using dictionary lookup for enabled teams.
+    If team_ids is provided, use IN clause (for backward compatibility or debugging).
+    Otherwise, use dictionary lookup for the latest configuration.
+    """
+    if team_ids:
+        team_ids_str = format_team_ids(team_ids)
+        return {
+            "raw_sessions": f"raw_sessions.team_id IN({team_ids_str})",
+            "person_distinct_id_overrides": f"person_distinct_id_overrides.team_id IN({team_ids_str})",
+            "events": f"e.team_id IN({team_ids_str})",
+        }
+    else:
+        return {
+            "raw_sessions": f"dictHas('{WEB_PRE_AGGREGATED_TEAM_SELECTION_DICTIONARY_NAME}', raw_sessions.team_id)",
+            "person_distinct_id_overrides": f"dictHas('{WEB_PRE_AGGREGATED_TEAM_SELECTION_DICTIONARY_NAME}', person_distinct_id_overrides.team_id)",
+            "events": f"dictHas('{WEB_PRE_AGGREGATED_TEAM_SELECTION_DICTIONARY_NAME}', e.team_id)",
+        }
 
 
 def get_insert_params(team_ids, granularity="daily"):

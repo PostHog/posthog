@@ -1,16 +1,16 @@
 import { actions, events, kea, listeners, path, reducers, selectors } from 'kea'
 
-import { Node, NotebookEditor } from '../Notebook/utils'
 import { InsertionSuggestion } from './InsertionSuggestion'
 import type { insertionSuggestionsLogicType } from './insertionSuggestionsLogicType'
 import ReplayTimestampSuggestion from './ReplayTimestamp'
 import SlashCommands from './SlashCommands'
+import { RichContentEditorType, RichContentNode } from 'lib/components/RichContentEditor/types'
 
 export const insertionSuggestionsLogic = kea<insertionSuggestionsLogicType>([
     path(['scenes', 'notebooks', 'Suggestions', 'insertionSuggestionsLogic']),
     actions({
-        setEditor: (editor: NotebookEditor | null) => ({ editor }),
-        setPreviousNode: (node: Node | null) => ({ node }),
+        setEditor: (editor: RichContentEditorType | null) => ({ editor }),
+        setPreviousNode: (node: RichContentNode | null) => ({ node }),
         setSuggestions: (suggestions: InsertionSuggestion[]) => ({ suggestions }),
         resetSuggestions: true,
         onTab: true,
@@ -24,13 +24,13 @@ export const insertionSuggestionsLogic = kea<insertionSuggestionsLogicType>([
             },
         ],
         previousNode: [
-            null as Node | null,
+            null as RichContentNode | null,
             {
                 setPreviousNode: (_, { node }) => node,
             },
         ],
         editor: [
-            null as NotebookEditor | null,
+            null as RichContentEditorType | null,
             {
                 setEditor: (_, { editor }) => editor,
             },
@@ -39,7 +39,7 @@ export const insertionSuggestionsLogic = kea<insertionSuggestionsLogicType>([
     selectors({
         activeSuggestion: [
             (s) => [s.suggestions, s.previousNode],
-            (suggestions: InsertionSuggestion[], previousNode: Node): InsertionSuggestion =>
+            (suggestions: InsertionSuggestion[], previousNode: RichContentNode): InsertionSuggestion =>
                 suggestions.find(
                     ({ dismissed, shouldShow }) =>
                         !dismissed && (typeof shouldShow === 'function' ? shouldShow({ previousNode }) : shouldShow)

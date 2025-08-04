@@ -31,6 +31,7 @@ import { BatchWritingGroupStore } from '../worker/ingestion/groups/batch-writing
 import { GroupStoreForBatch } from '../worker/ingestion/groups/group-store-for-batch'
 import { BatchWritingPersonsStore } from '../worker/ingestion/persons/batch-writing-person-store'
 import { FlushResult, PersonsStoreForBatch } from '../worker/ingestion/persons/persons-store-for-batch'
+import { PostgresPersonRepository } from '../worker/ingestion/persons/repositories/postgres-person-repository'
 import { deduplicateEvents } from './deduplication/events'
 import { createDeduplicationRedis, DeduplicationRedis } from './deduplication/redis-client'
 import {
@@ -76,7 +77,7 @@ const KNOWN_SET_EVENTS = new Set([
     'survey sent',
 ])
 
-const trackIfNonPersonEventUpdatesPersons = (event: PipelineEvent) => {
+const trackIfNonPersonEventUpdatesPersons = (event: PipelineEvent): void => {
     if (
         !PERSON_EVENTS.has(event.event) &&
         !KNOWN_SET_EVENTS.has(event.event) &&
@@ -150,12 +151,18 @@ export class IngestionConsumer {
         this.ingestionWarningLimiter = new MemoryRateLimiter(1, 1.0 / 3600)
         this.hogTransformer = new HogTransformerService(hub)
 
-        this.personStore = new BatchWritingPersonsStore(this.hub.db, {
-            dbWriteMode: this.hub.PERSON_BATCH_WRITING_DB_WRITE_MODE,
-            maxConcurrentUpdates: this.hub.PERSON_BATCH_WRITING_MAX_CONCURRENT_UPDATES,
-            maxOptimisticUpdateRetries: this.hub.PERSON_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES,
-            optimisticUpdateRetryInterval: this.hub.PERSON_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS,
-        })
+        this.personStore = new BatchWritingPersonsStore(
+            new PostgresPersonRepository(this.hub.db.postgres, {
+                calculatePropertiesSize: this.hub.PERSON_UPDATE_CALCULATE_PROPERTIES_SIZE,
+            }),
+            this.hub.db.kafkaProducer,
+            {
+                dbWriteMode: this.hub.PERSON_BATCH_WRITING_DB_WRITE_MODE,
+                maxConcurrentUpdates: this.hub.PERSON_BATCH_WRITING_MAX_CONCURRENT_UPDATES,
+                maxOptimisticUpdateRetries: this.hub.PERSON_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES,
+                optimisticUpdateRetryInterval: this.hub.PERSON_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS,
+            }
+        )
 
         this.groupStore = new BatchWritingGroupStore(this.hub.db, {
             maxConcurrentUpdates: this.hub.GROUP_BATCH_WRITING_MAX_CONCURRENT_UPDATES,
@@ -164,7 +171,10 @@ export class IngestionConsumer {
         })
 
         this.deduplicationRedis = createDeduplicationRedis(this.hub)
-        this.kafkaConsumer = new KafkaConsumer({ groupId: this.groupId, topic: this.topic })
+        this.kafkaConsumer = new KafkaConsumer({
+            groupId: this.groupId,
+            topic: this.topic,
+        })
     }
 
     public get service(): PluginServerService {
@@ -214,7 +224,7 @@ export class IngestionConsumer {
         logger.info('👍', `${this.name} - stopped!`)
     }
 
-    public isHealthy() {
+    public isHealthy(): boolean {
         return this.kafkaConsumer?.isHealthy()
     }
 
@@ -548,7 +558,7 @@ export class IngestionConsumer {
         }
     }
 
-    private async handleProcessingErrorV1(error: any, message: Message, event: PipelineEvent) {
+    private async handleProcessingErrorV1(error: any, message: Message, event: PipelineEvent): Promise<void> {
         logger.error('🔥', `Error processing message`, {
             stack: error.stack,
             error: error,
@@ -669,21 +679,21 @@ export class IngestionConsumer {
         return groupedEvents
     }
 
-    private shouldSkipPerson(token?: string, distinctId?: string) {
+    private shouldSkipPerson(token?: string, distinctId?: string): boolean {
         if (!token) {
             return false
         }
         return this.eventIngestionRestrictionManager.shouldSkipPerson(token, distinctId)
     }
 
-    private shouldForceOverflow(token?: string, distinctId?: string) {
+    private shouldForceOverflow(token?: string, distinctId?: string): boolean {
         if (!token) {
             return false
         }
         return this.eventIngestionRestrictionManager.shouldForceOverflow(token, distinctId)
     }
 
-    private validateHeadersMatchEvent(event: PipelineEvent, headerToken?: string, headerDistinctId?: string) {
+    private validateHeadersMatchEvent(event: PipelineEvent, headerToken?: string, headerDistinctId?: string): void {
         let tokenStatus = 'ok'
         if (!headerToken && event.token) {
             tokenStatus = 'missing_in_header'
@@ -721,7 +731,7 @@ export class IngestionConsumer {
         }
     }
 
-    private overflowEnabled() {
+    private overflowEnabled(): boolean {
         return (
             !!this.hub.INGESTION_CONSUMER_OVERFLOW_TOPIC &&
             this.hub.INGESTION_CONSUMER_OVERFLOW_TOPIC !== this.topic &&
@@ -729,7 +739,7 @@ export class IngestionConsumer {
         )
     }
 
-    private async emitToOverflow(kafkaMessages: Message[], preservePartitionLocalityOverride?: boolean) {
+    private async emitToOverflow(kafkaMessages: Message[], preservePartitionLocalityOverride?: boolean): Promise<void> {
         const overflowTopic = this.hub.INGESTION_CONSUMER_OVERFLOW_TOPIC
         if (!overflowTopic) {
             throw new Error('No overflow topic configured')
@@ -757,14 +767,14 @@ export class IngestionConsumer {
                     // ``message.key`` should not be undefined here, but in the
                     // (extremely) unlikely event that it is, set it to ``null``
                     // instead as that behavior is safer.
-                    key: preservePartitionLocality ? message.key ?? null : null,
+                    key: preservePartitionLocality ? (message.key ?? null) : null,
                     headers: parseKafkaHeaders(headers),
                 })
             })
         )
     }
 
-    private async emitToTestingTopic(kafkaMessages: Message[]) {
+    private async emitToTestingTopic(kafkaMessages: Message[]): Promise<void> {
         const testingTopic = this.testingTopic
         if (!testingTopic) {
             throw new Error('No testing topic configured')

@@ -1,11 +1,12 @@
-import express from 'express'
 import { Server } from 'http'
 import { CompressionCodecs, CompressionTypes } from 'kafkajs'
 import SnappyCodec from 'kafkajs-snappy'
 import LZ4 from 'lz4-kafkajs'
 import * as schedule from 'node-schedule'
 import { Counter } from 'prom-client'
+import express from 'ultimate-express'
 
+import { setupCommonRoutes, setupExpressApp } from './api/router'
 import { getPluginServerCapabilities } from './capabilities'
 import { CdpApi } from './cdp/cdp-api'
 import { CdpBehaviouralEventsConsumer } from './cdp/consumers/cdp-behavioural-events.consumer'
@@ -14,6 +15,7 @@ import { CdpCyclotronWorkerHogFlow } from './cdp/consumers/cdp-cyclotron-worker-
 import { CdpEventsConsumer } from './cdp/consumers/cdp-events.consumer'
 import { CdpInternalEventsConsumer } from './cdp/consumers/cdp-internal-event.consumer'
 import { CdpLegacyEventsConsumer } from './cdp/consumers/cdp-legacy-event.consumer'
+import { CdpPersonUpdatesConsumer } from './cdp/consumers/cdp-person-updates-consumer'
 import { defaultConfig } from './config/config'
 import {
     KAFKA_EVENTS_PLUGIN_INGESTION,
@@ -25,7 +27,6 @@ import { KafkaProducerWrapper } from './kafka/producer'
 import { startAsyncWebhooksHandlerConsumer } from './main/ingestion-queues/on-event-handler-consumer'
 import { SessionRecordingIngester } from './main/ingestion-queues/session-recording/session-recordings-consumer'
 import { SessionRecordingIngester as SessionRecordingIngesterV2 } from './main/ingestion-queues/session-recording-v2/consumer'
-import { setupCommonRoutes, setupExpressApp } from './router'
 import { Hub, PluginServerService, PluginsServerConfig } from './types'
 import { ServerCommands } from './utils/commands'
 import { closeHub, createHub } from './utils/db/hub'
@@ -214,6 +215,14 @@ export class PluginServer {
                 })
             }
 
+            if (capabilities.cdpPersonUpdates) {
+                serviceLoaders.push(async () => {
+                    const consumer = new CdpPersonUpdatesConsumer(hub)
+                    await consumer.start()
+                    return consumer.service
+                })
+            }
+
             if (capabilities.cdpLegacyOnEvent) {
                 serviceLoaders.push(async () => {
                     await initPlugins()
@@ -273,7 +282,7 @@ export class PluginServer {
             if (!isTestEnv()) {
                 // We don't run http server in test env currently
                 this.httpServer = this.expressApp.listen(this.config.HTTP_SERVER_PORT, () => {
-                    logger.info('🩺', `Status server listening on port ${this.config.HTTP_SERVER_PORT}`)
+                    logger.info('🩺', `HTTP server listening on port ${this.config.HTTP_SERVER_PORT}`)
                 })
             }
 
