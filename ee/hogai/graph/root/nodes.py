@@ -26,6 +26,7 @@ from posthog.hogql_queries.apply_dashboard_filters import (
     apply_dashboard_filters_to_dict,
     apply_dashboard_variables_to_dict,
 )
+from posthog.models.organization import OrganizationMembership
 from posthog.schema import (
     AssistantContextualTool,
     AssistantMessage,
@@ -43,6 +44,8 @@ from posthog.schema import (
 
 from ..base import AssistantNode
 from .prompts import (
+    ROOT_BILLING_CONTEXT_WITH_ACCESS_PROMPT,
+    ROOT_BILLING_CONTEXT_WITH_NO_ACCESS_PROMPT,
     ROOT_DASHBOARD_CONTEXT_PROMPT,
     ROOT_DASHBOARDS_CONTEXT_PROMPT,
     ROOT_HARD_LIMIT_REACHED_PROMPT,
@@ -62,9 +65,9 @@ MAX_SUPPORTED_QUERY_KIND_TO_MODEL: dict[str, type[SupportedQueryTypes]] = {
 }
 
 SLASH_COMMAND_INIT = "/init"
+SLASH_COMMAND_REMEMBER = "/remember"
 
-
-RouteName = Literal["insights", "root", "end", "search_documentation", "memory_onboarding", "insights_search"]
+RouteName = Literal["insights", "root", "end", "search_documentation", "insights_search", "billing"]
 
 
 RootMessageUnion = HumanMessage | AssistantMessage | FailureMessage | AssistantToolCallMessage
@@ -302,7 +305,8 @@ class RootNode(RootNodeUIContextMixin):
                         "system",
                         CORE_MEMORY_PROMPT
                         + "\nNew memories will automatically be added to the core memory as the conversation progresses. "
-                        + " If users ask to save, update, or delete the core memory, say you have done it.",
+                        + " If users ask to save, update, or delete the core memory, say you have done it."
+                        + " If the '/remember [information]' command is used, the information gets appended verbatim to core memory.",
                     ),
                     *[
                         (
@@ -319,9 +323,13 @@ class RootNode(RootNodeUIContextMixin):
             )
             + history
         )
-        chain = prompt | self._get_model(state, config)
 
         ui_context = self._format_ui_context(self._get_ui_context(state), config)
+        has_billing_access, billing_context_prompt = self._get_billing_info(config)
+
+        chain = prompt | self._get_model(
+            state, config, extra_tools=["retrieve_billing_information"] if has_billing_access else []
+        )
 
         message = chain.invoke(
             {
@@ -333,6 +341,7 @@ class RootNode(RootNodeUIContextMixin):
                 "user_full_name": self._user.get_full_name(),
                 "user_email": self._user.email,
                 "ui_context": ui_context,
+                "billing_context": billing_context_prompt,
             },
             config,
         )
@@ -352,7 +361,27 @@ class RootNode(RootNodeUIContextMixin):
             ],
         )
 
-    def _get_model(self, state: AssistantState, config: RunnableConfig):
+    def _get_billing_info(self, config: RunnableConfig) -> tuple[bool, str]:
+        """Get billing information including access, prompt, and whether to include the tool.
+        Returns:
+            Tuple[bool, str]: (has_access, prompt)
+        """
+        has_billing_context = self._get_billing_context(config) is not None
+
+        if not has_billing_context:
+            return False, ""
+
+        has_access = self._user.organization_memberships.get(organization=self._team.organization).level in (
+            OrganizationMembership.Level.ADMIN,
+            OrganizationMembership.Level.OWNER,
+        )
+        prompt = ROOT_BILLING_CONTEXT_WITH_ACCESS_PROMPT if has_access else ROOT_BILLING_CONTEXT_WITH_NO_ACCESS_PROMPT
+
+        return has_access, prompt
+
+    def _get_model(self, state: AssistantState, config: RunnableConfig, extra_tools: list[str] | None = None):
+        if extra_tools is None:
+            extra_tools = []
         # Research suggests temperature is not _massively_ correlated with creativity (https://arxiv.org/html/2405.00492v1).
         # It _probably_ doesn't matter, but let's use a lower temperature for _maybe_ less of a risk of hallucinations.
         # We were previously using 0.0, but that wasn't useful, as the false determinism didn't help in any way,
@@ -391,6 +420,12 @@ class RootNode(RootNodeUIContextMixin):
             if ToolClass is None:
                 continue  # Ignoring a tool that the backend doesn't know about - might be a deployment mismatch
             available_tools.append(ToolClass(team=self._team, user=self._user))  # type: ignore
+
+        if "retrieve_billing_information" in extra_tools:
+            from ee.hogai.tool import retrieve_billing_information
+
+            available_tools.append(retrieve_billing_information)
+
         return base_model.bind_tools(available_tools, strict=True, parallel_tool_calls=False)
 
     def _get_assistant_messages_in_window(self, state: AssistantState) -> list[RootMessageUnion]:
@@ -525,7 +560,7 @@ class RootNodeTools(AssistantNode):
                 root_tool_insight_plan=tool_call.args["query_description"],
                 root_tool_calls_count=tool_call_count + 1,
             )
-        elif tool_call.name == "search_documentation":
+        elif tool_call.name in ["search_documentation", "retrieve_billing_information"]:
             return PartialAssistantState(
                 root_tool_call_id=tool_call.id,
                 root_tool_calls_count=tool_call_count + 1,
@@ -587,7 +622,13 @@ class RootNodeTools(AssistantNode):
 
         if isinstance(last_message, AssistantToolCallMessage):
             return "root"  # Let the root either proceed or finish, since it now can see the tool call result
-        if state.root_tool_call_id:
+        if isinstance(last_message, AssistantMessage) and state.root_tool_call_id:
+            tool_calls = getattr(last_message, "tool_calls", None)
+            if tool_calls and len(tool_calls) > 0:
+                tool_call = tool_calls[0]
+                tool_call_name = tool_call.name
+                if tool_call_name == "retrieve_billing_information":
+                    return "billing"
             if state.root_tool_insight_plan:
                 return "insights"
             elif state.search_insights_query:

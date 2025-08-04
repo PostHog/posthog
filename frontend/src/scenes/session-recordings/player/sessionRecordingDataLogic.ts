@@ -12,7 +12,6 @@ import { RecordingComment } from 'scenes/session-recordings/player/inspector/pla
 import {
     parseEncodedSnapshots,
     processAllSnapshots,
-    processAllSnapshotsRaw,
 } from 'scenes/session-recordings/player/snapshot-processing/process-all-snapshots'
 import { keyForSource } from 'scenes/session-recordings/player/snapshot-processing/source-key'
 import { teamLogic } from 'scenes/teamLogic'
@@ -35,7 +34,7 @@ import {
     SnapshotSourceType,
 } from '~/types'
 
-import { ExportedSessionRecordingFileV2, ExportedSessionType } from '../file-playback/types'
+import { ExportedSessionRecordingFileV2 } from '../file-playback/types'
 import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
 import type { sessionRecordingDataLogicType } from './sessionRecordingDataLogicType'
 import { getHrefFromSnapshot, ViewportResolution } from './snapshot-processing/patch-meta-event'
@@ -303,7 +302,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     }
 
                     const sessionEventsQuery = hogql`
-SELECT uuid, event, timestamp, elements_chain, properties.$window_id, properties.$current_url, properties.$event_type, properties.$viewport_width, properties.$viewport_height, properties.$screen_name
+SELECT uuid, event, timestamp, elements_chain, properties.$window_id, properties.$current_url, properties.$event_type, properties.$viewport_width, properties.$viewport_height, properties.$screen_name, distinct_id
 FROM events
 WHERE timestamp > ${start.subtract(TWENTY_FOUR_HOURS_IN_MS, 'ms')}
 AND timestamp < ${end.add(TWENTY_FOUR_HOURS_IN_MS, 'ms')}
@@ -312,7 +311,7 @@ ORDER BY timestamp ASC
 LIMIT 1000000`
 
                     let relatedEventsQuery = hogql`
-SELECT uuid, event, timestamp, elements_chain, properties.$window_id, properties.$current_url, properties.$event_type
+SELECT uuid, event, timestamp, elements_chain, properties.$window_id, properties.$current_url, properties.$event_type, distinct_id
 FROM events
 WHERE timestamp > ${start.subtract(FIVE_MINUTES_IN_MS, 'ms')}
 AND timestamp < ${end.add(FIVE_MINUTES_IN_MS, 'ms')}
@@ -374,6 +373,7 @@ AND properties.$lib != 'web'`
                                 },
                                 playerTime: +dayjs(event[2]) - +start,
                                 fullyLoaded: false,
+                                distinct_id: event[event.length - 1] || values.sessionPlayerMetaData?.distinct_id,
                             }
                         }
                     )
@@ -604,7 +604,7 @@ AND properties.$lib != 'web'`
             }
             actions.setWasMarkedViewed(true) // this prevents us from calling the function multiple times
 
-            await breakpoint(IS_TEST_MODE ? 1 : delay ?? 3000)
+            await breakpoint(IS_TEST_MODE ? 1 : (delay ?? 3000))
             await api.recordings.update(props.sessionRecordingId, {
                 viewed: true,
                 player_metadata: values.sessionPlayerMetaData,
@@ -881,7 +881,7 @@ AND properties.$lib != 'web'`
                 sources,
                 viewportForTimestamp,
                 sessionRecordingId,
-                // eslint-disable-next-line @typescript-eslint/no-unused-vars
+                // oxlint-disable-next-line @typescript-eslint/no-unused-vars
                 _snapshotsBySourceSuccessCount
             ): RecordingSnapshot[] => {
                 if (!sources || !cache.snapshotsBySource) {
@@ -894,22 +894,6 @@ AND properties.$lib != 'web'`
                     sessionRecordingId
                 )
                 return processedSnapshots['processed'].snapshots || []
-            },
-        ],
-
-        snapshotsRaw: [
-            (s) => [s.snapshotSources, s.viewportForTimestamp],
-            (
-                sources,
-                // eslint-disable-next-line @typescript-eslint/no-unused-vars
-                _snapshotsBySourceSuccessCount
-            ): RecordingSnapshot[] => {
-                if (!sources || !cache.snapshotsBySource) {
-                    return []
-                }
-
-                const processedSnapshots = processAllSnapshotsRaw(sources, cache.snapshotsBySource || {})
-                return processedSnapshots || []
             },
         ],
 
@@ -1004,21 +988,16 @@ AND properties.$lib != 'web'`
 
         createExportJSON: [
             (s) => [s.sessionPlayerMetaData, s.snapshots],
-            (
-                sessionPlayerMetaData,
-                snapshots
-            ): ((type?: ExportedSessionType) => ExportedSessionRecordingFileV2 | RecordingSnapshot[]) => {
-                return (type?: ExportedSessionType) => {
-                    return type === 'rrweb'
-                        ? snapshots
-                        : {
-                              version: '2023-04-28',
-                              data: {
-                                  id: sessionPlayerMetaData?.id ?? '',
-                                  person: sessionPlayerMetaData?.person,
-                                  snapshots: snapshots,
-                              },
-                          }
+            (sessionPlayerMetaData, snapshots): (() => ExportedSessionRecordingFileV2) => {
+                return (): ExportedSessionRecordingFileV2 => {
+                    return {
+                        version: '2023-04-28',
+                        data: {
+                            id: sessionPlayerMetaData?.id ?? '',
+                            person: sessionPlayerMetaData?.person,
+                            snapshots: snapshots,
+                        },
+                    }
                 }
             },
         ],

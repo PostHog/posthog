@@ -99,6 +99,50 @@ const PersonsTable: DataTableNode = {
     showReload: true,
 }
 
+const PinnedColumnsAtTheBeginning: DataTableNode = {
+    kind: NodeKind.DataTableNode,
+    source: {
+        kind: NodeKind.MarketingAnalyticsTableQuery,
+        select: [
+            'column 1',
+            'column 2',
+            'column 3',
+            'column 4',
+            'column 5',
+            'column 6',
+            'column 7',
+            'column 8',
+            'column 9',
+            'column 10',
+        ],
+        properties: [],
+        limit: 100,
+    },
+    pinnedColumns: ['column 1', 'column2', 'column3'],
+}
+
+const PinnedColumnsInTheMiddle: DataTableNode = {
+    kind: NodeKind.DataTableNode,
+    source: {
+        kind: NodeKind.MarketingAnalyticsTableQuery,
+        select: [
+            'column 1',
+            'column 2',
+            'column 3',
+            'column 4',
+            'column 5',
+            'column 6',
+            'column 7',
+            'column 8',
+            'column 9',
+            'column 10',
+        ],
+        properties: [],
+        limit: 100,
+    },
+    pinnedColumns: ['column 2', 'column 5', 'column 6'],
+}
+
 export const examples = {
     AllDefaults,
     Minimalist,
@@ -108,4 +152,6 @@ export const examples = {
     ShowAllTheThings,
     Persons,
     PersonsTable,
+    PinnedColumnsAtTheBeginning,
+    PinnedColumnsInTheMiddle,
 }

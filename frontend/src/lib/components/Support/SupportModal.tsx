@@ -20,7 +20,7 @@ function SupportModal({ onAfterClose }: { onAfterClose: () => void }): JSX.Eleme
         if (!isCloudOrDev) {
             onAfterClose()
         }
-    }, [isCloudOrDev])
+    }, [isCloudOrDev]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     if (!isCloudOrDev || sidePanelAvailable) {
         return null

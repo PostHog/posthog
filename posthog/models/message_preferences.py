@@ -2,53 +2,13 @@ from django.db import models
 from django.core.signing import TimestampSigner, SignatureExpired, BadSignature
 from typing import Optional
 from posthog.models.utils import UUIDModel
-from enum import Enum
 import uuid
 
 
-# class syntax
-class PreferenceStatus(str, Enum):
+class PreferenceStatus(models.TextChoices):
     OPTED_IN = "OPTED_IN"
     OPTED_OUT = "OPTED_OUT"
     NO_PREFERENCE = "NO_PREFERENCE"
-
-    @classmethod
-    def choices(cls):
-        return [(status.value, status.name) for status in cls]
-
-
-class MessageCategoryType(str, Enum):
-    MARKETING = "marketing"
-    TRANSACTIONAL = "transactional"
-
-    @classmethod
-    def choices(cls):
-        return [(status.value, status.name) for status in cls]
-
-
-class MessageCategory(UUIDModel):
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True)
-    deleted = models.BooleanField(default=False)
-    key = models.CharField(max_length=64)
-    name = models.CharField(max_length=128)
-    description = models.TextField(blank=True, default="")
-    public_description = models.TextField(blank=True, default="")
-    category_type = models.CharField(
-        max_length=32, choices=MessageCategoryType.choices(), default=MessageCategoryType.MARKETING.value
-    )
-
-    class Meta:
-        unique_together = (
-            "team",
-            "key",
-        )
-        verbose_name_plural = "message categories"
-
-    def __str__(self) -> str:
-        return self.name
 
 
 class MessageRecipientPreference(UUIDModel):
@@ -58,9 +18,7 @@ class MessageRecipientPreference(UUIDModel):
     created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True)
     deleted = models.BooleanField(default=False)
     identifier = models.CharField(max_length=512)
-    preferences = models.JSONField(
-        default=dict, help_text="Dictionary mapping MessageCategory UUIDs to preference statuses"
-    )
+    preferences = models.JSONField(default=dict)
 
     class Meta:
         unique_together = (
