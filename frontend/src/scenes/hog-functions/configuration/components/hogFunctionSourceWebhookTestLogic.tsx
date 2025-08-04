@@ -1,10 +1,10 @@
-import { apiHostOrigin } from 'lib/utils/apiHost'
 import { actions, connect, kea, key, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { tryJsonParse } from 'lib/utils'
 
 import { hogFunctionConfigurationLogic, HogFunctionConfigurationLogicProps } from '../hogFunctionConfigurationLogic'
 import type { hogFunctionSourceWebhookTestLogicType } from './hogFunctionSourceWebhookTestLogicType'
+import { publicWebhooksHostOrigin } from 'lib/utils/apiHost'
 
 export type HogFunctionSourceWebhookTestForm = {
     headers: string
@@ -96,7 +96,7 @@ export const hogFunctionSourceWebhookTestLogic = kea<hogFunctionSourceWebhookTes
 
                 return `curl -X POST ${headers} \\
   -d '${testInvocation.body}' \\
-  ${apiHostOrigin()}/public/webhooks/${props.id ?? 'unknown'}`
+  ${publicWebhooksHostOrigin()}/public/webhooks/${props.id ?? 'unknown'}`
             },
         ],
     }),
