@@ -87,6 +87,7 @@ export function SceneTextarea({
                 autoHeight
                 menuItem
                 inert={!canEdit}
+                variant="panel"
             >
                 {defaultValue !== '' ? (
                     markdown ? (

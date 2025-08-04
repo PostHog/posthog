@@ -85,6 +85,7 @@ export function SceneTextInput({
                 autoHeight
                 menuItem
                 inert={!canEdit}
+                variant="panel"
             >
                 {localValue !== '' ? (
                     localValue

@@ -51,6 +51,7 @@ export function SceneSelect({
                             ...buttonProps,
                             fullWidth: true,
                             tooltip: buttonProps?.tooltip,
+                            variant: 'panel',
                         }}
                     >
                         {options.find((option) => option.value === localValue)?.label || 'Select a value'}

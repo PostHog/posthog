@@ -62,7 +62,7 @@ export const ScenePanelCommonActions = ({
 
 // Should be second!
 export function ScenePanelMetaInfo({ children }: { children: React.ReactNode }): JSX.Element {
-    return <div className="pl-1 pb-1 flex flex-col gap-2 -ml-1">{children}</div>
+    return <div className="pl-1 pb-1 flex flex-col gap-2">{children}</div>
 }
 
 // Should be third!
@@ -80,7 +80,7 @@ export function ScenePanelActions({ children }: { children: React.ReactNode }): 
 export function ScenePanelLabel({ children, title, ...props }: PropsWithChildren<LabelProps>): JSX.Element {
     return (
         <div className="flex flex-col gap-0">
-            <Label intent="menu" {...props} className="mx-button-padding-x">
+            <Label intent="menu" {...props}>
                 {title}
             </Label>
             {children}
