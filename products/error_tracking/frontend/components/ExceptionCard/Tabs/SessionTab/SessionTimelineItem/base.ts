@@ -1,4 +1,4 @@
-import { IconComponent, IconProps } from '@posthog/icons/dist/src/types/icon-types'
+import { IconComponent } from '@posthog/icons/dist/src/types/icon-types'
 
 export interface PreviewRenderProps<T> {
     item: T
@@ -19,17 +19,18 @@ export type SessionTimelineEvent = {
 
 export type SessionTimelineItem = SessionTimelineEvent
 
-export type RendererGroup =
-    | 'error-tracking'
-    | 'product-analytics'
-    | 'web-analytics'
-    | 'surveys'
-    | 'feature-flags'
-    | 'internals'
+export enum RendererGroup {
+    ERROR_TRACKING = 'error-tracking',
+    PRODUCT_ANALYTICS = 'product-analytics',
+    WEB_ANALYTICS = 'web-analytics',
+    SURVEYS = 'surveys',
+    FEATURE_FLAGS = 'feature-flags',
+    INTERNALS = 'internals',
+}
 
 export type SessionTimelineRenderer<T> = {
     predicate: (item: SessionTimelineItem) => boolean
-    icon: IconComponent<IconProps>
+    runtimeIcon: IconComponent<PreviewRenderProps<T>>
     group: RendererGroup
     renderPreview: React.FC<PreviewRenderProps<T>>
     renderDetails: React.FC<DetailsRenderProps<T>>

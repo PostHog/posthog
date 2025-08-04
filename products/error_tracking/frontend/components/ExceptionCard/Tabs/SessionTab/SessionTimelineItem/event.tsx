@@ -1,7 +1,7 @@
-import { IconGraph, IconLogomark, IconToggle, IconWarning, IconPieChart, IconMessage } from '@posthog/icons'
 import {
     DetailsRenderProps,
     PreviewRenderProps,
+    RendererGroup,
     SessionTimelineEvent,
     SessionTimelineItem,
     SessionTimelineRenderer,
@@ -9,6 +9,8 @@ import {
 import { CORE_FILTER_DEFINITIONS_BY_GROUP } from '~/taxonomy/taxonomy'
 import { JSONViewer } from 'lib/components/JSONViewer'
 import { ErrorTrackingException } from 'lib/components/Errors/types'
+import { RuntimeIcon } from 'products/error_tracking/frontend/components/RuntimeIcon'
+import { getRuntimeFromLib } from 'lib/components/Errors/utils'
 
 function sanitizeEventName(event: string): string {
     if (event.startsWith('$')) {
@@ -54,12 +56,19 @@ function getExceptionMessage(exceptionList: ErrorTrackingException[]): string | 
     }
 }
 
-export function EventPreview({ item }: PreviewRenderProps<SessionTimelineEvent>): JSX.Element {
+export function BasePreview({ name, description }: { name: string; description?: string }): JSX.Element {
     return (
-        <div>
-            <span className="font-medium">{sanitizeEventName(item.payload.event)}</span>
+        <div className="flex justify-between items-center">
+            <span className="font-medium">{name}</span>
+            {description && (
+                <span className="text-secondary text-xs line-clamp-1 max-w-2/3 text-right">{description}</span>
+            )}
         </div>
     )
+}
+
+export function EventPreview({ item }: PreviewRenderProps<SessionTimelineEvent>): JSX.Element {
+    return <BasePreview name={sanitizeEventName(item.payload.event)} />
 }
 
 export function EventDetails({ item }: DetailsRenderProps<SessionTimelineEvent>): JSX.Element {
@@ -76,95 +85,77 @@ export function EventDetails({ item }: DetailsRenderProps<SessionTimelineEvent>)
     )
 }
 
-export const eventRenderer: SessionTimelineRenderer<SessionTimelineEvent> = {
-    predicate: (item: SessionTimelineItem) => item.type === 'event',
-    icon: IconGraph,
-    renderPreview: EventPreview,
-    renderDetails: EventDetails,
-    group: 'product-analytics',
+function eventPredicate(item: SessionTimelineEvent, ...names: string[]): boolean {
+    return item.type === 'event' && (names.length == 0 || names.includes(item.payload.event))
 }
 
-export const pageviewRenderer: SessionTimelineRenderer<SessionTimelineEvent> = {
+export const eventRenderer: SessionTimelineRenderer<SessionTimelineEvent> = {
+    predicate: (item: SessionTimelineEvent) => eventPredicate(item),
+    runtimeIcon: ({ item }) => {
+        const runtime = getRuntimeFromLib(item.payload.properties['$lib'])
+        return <RuntimeIcon runtime={runtime} />
+    },
+    renderPreview: EventPreview,
+    renderDetails: EventDetails,
+    group: RendererGroup.PRODUCT_ANALYTICS,
+}
+
+export const pageRenderer: SessionTimelineRenderer<SessionTimelineEvent> = {
     ...eventRenderer,
-    predicate: (item: SessionTimelineItem) =>
-        eventRenderer.predicate(item) && (item.payload.event === '$screen' || item.payload.event === '$pageview'),
-    icon: IconGraph,
+    predicate: (item: SessionTimelineItem) => eventPredicate(item, '$screen', '$pageview', '$pageleave'),
     renderPreview: ({ item }): JSX.Element => {
         return (
-            <div className="flex justify-between items-center">
-                <span className="font-medium">{sanitizeEventName(item.payload.event)}</span>
-                <span className="text-secondary text-xs">
-                    {getUrlPathname(item.payload.properties['$current_url'])}
-                </span>
-            </div>
+            <BasePreview
+                name={sanitizeEventName(item.payload.event)}
+                description={getUrlPathname(item.payload.properties['$current_url'])}
+            />
         )
     },
 }
 
 export const exceptionRenderer: SessionTimelineRenderer<SessionTimelineEvent> = {
     ...eventRenderer,
-    predicate: (item: SessionTimelineItem) => eventRenderer.predicate(item) && item.payload.event === '$exception',
-    icon: IconWarning,
-    group: 'error-tracking',
+    group: RendererGroup.ERROR_TRACKING,
+    predicate: (item: SessionTimelineItem) => eventPredicate(item, '$exception'),
     renderPreview: ({ item }): JSX.Element => {
         return (
-            <div className="flex justify-between items-center w-full">
-                <span className="font-medium">
-                    {getExceptionType(item.payload.properties['$exception_list']) ||
-                        sanitizeEventName(item.payload.event)}
-                </span>
-                <span className="text-secondary text-xs line-clamp-1 max-w-1/2 text-right">
-                    {getExceptionMessage(item.payload.properties['$exception_list'])}
-                </span>
-            </div>
+            <BasePreview
+                name={
+                    getExceptionType(item.payload.properties['$exception_list']) ||
+                    sanitizeEventName(item.payload.event)
+                }
+                description={getExceptionMessage(item.payload.properties['$exception_list'])}
+            />
         )
     },
 }
 
 export const featureFlagRenderer: SessionTimelineRenderer<SessionTimelineEvent> = {
     ...eventRenderer,
-    predicate: (item: SessionTimelineItem) =>
-        eventRenderer.predicate(item) &&
-        ['$feature_flag_called', '$feature_flag_response'].includes(item.payload.event),
-    icon: IconToggle,
-    group: 'feature-flags',
+    group: RendererGroup.FEATURE_FLAGS,
+    predicate: (item: SessionTimelineItem) => eventPredicate(item, '$feature_flag_called', '$feature_flag_response'),
 }
 
 export const webAnalyticsRenderer: SessionTimelineRenderer<SessionTimelineEvent> = {
     ...eventRenderer,
-    predicate: (item: SessionTimelineItem) =>
-        eventRenderer.predicate(item) && ['$web_vitals'].includes(item.payload.event),
-    icon: IconPieChart,
-    group: 'web-analytics',
+    group: RendererGroup.WEB_ANALYTICS,
+    predicate: (item: SessionTimelineItem) => eventPredicate(item, '$web_vitals'),
 }
 
 export const surveysRenderer: SessionTimelineRenderer<SessionTimelineEvent> = {
     ...eventRenderer,
-    predicate: (item: SessionTimelineItem) =>
-        eventRenderer.predicate(item) &&
-        ['survey shown', 'survey dismissed', 'survey sent'].includes(item.payload.event),
-    icon: IconMessage,
-    group: 'surveys',
-}
-
-export const pageleaveRenderer: SessionTimelineRenderer<SessionTimelineEvent> = {
-    ...eventRenderer,
-    predicate: (item: SessionTimelineItem) => eventRenderer.predicate(item) && item.payload.event === '$pageleave',
-    icon: IconGraph,
-    group: 'product-analytics',
+    group: RendererGroup.SURVEYS,
+    predicate: (item: SessionTimelineItem) => eventPredicate(item, 'survey shown', 'survey dismissed', 'survey sent'),
 }
 
 export const autocaptureRenderer: SessionTimelineRenderer<SessionTimelineEvent> = {
     ...eventRenderer,
-    predicate: (item: SessionTimelineItem) => eventRenderer.predicate(item) && item.payload.event === '$autocapture',
-    icon: IconGraph,
-    group: 'product-analytics',
+    predicate: (item: SessionTimelineItem) => eventPredicate(item, '$autocapture'),
 }
 
 export const coreRenderer: SessionTimelineRenderer<SessionTimelineEvent> = {
     ...eventRenderer,
+    group: RendererGroup.INTERNALS,
     predicate: (item: SessionTimelineItem) =>
-        eventRenderer.predicate(item) && !!CORE_FILTER_DEFINITIONS_BY_GROUP.events[item.payload.event],
-    group: 'internals',
-    icon: IconLogomark,
+        eventPredicate(item) && !!CORE_FILTER_DEFINITIONS_BY_GROUP.events[item.payload.event],
 }

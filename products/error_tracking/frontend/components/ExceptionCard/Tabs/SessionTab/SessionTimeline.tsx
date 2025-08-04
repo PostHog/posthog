@@ -4,7 +4,7 @@ import { useActions, useValues } from 'kea'
 import { IconVerticalAlignCenter } from 'lib/lemon-ui/icons'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { errorPropertiesLogic } from 'lib/components/Errors/errorPropertiesLogic'
-import { useLayoutEffect, useState } from 'react'
+import { useLayoutEffect } from 'react'
 import {
     PreviewRenderProps,
     SessionTimelineItem,
@@ -13,10 +13,19 @@ import {
 } from './SessionTimelineItem/base'
 import { cva } from 'cva'
 import { dayjs } from 'lib/dayjs'
-import { IconCollapse, IconExpand, IconWarning, IconToggle, IconGraph, IconMessage, IconPieChart } from '@posthog/icons'
+import { IconWarning, IconToggle, IconGraph, IconMessage, IconPieChart, IconLogomark } from '@posthog/icons'
+
+const groupIconMapping: Record<RendererGroup, React.ReactNode> = {
+    [RendererGroup.ERROR_TRACKING]: <IconWarning />,
+    [RendererGroup.PRODUCT_ANALYTICS]: <IconGraph />,
+    [RendererGroup.WEB_ANALYTICS]: <IconPieChart />,
+    [RendererGroup.FEATURE_FLAGS]: <IconToggle />,
+    [RendererGroup.SURVEYS]: <IconMessage />,
+    [RendererGroup.INTERNALS]: <IconLogomark />,
+}
 
 export function SessionTimeline({ ...props }: TabsPrimitiveContentProps): JSX.Element {
-    const { items, eventListEl, eventsLoading, getRenderer } = useValues(sessionTabLogic)
+    const { items, eventListEl, eventsLoading, getRenderer, usedGroups, canScrollToItem } = useValues(sessionTabLogic)
     const { setEventListEl, scrollToItem } = useActions(sessionTabLogic)
     const { uuid } = useValues(errorPropertiesLogic)
 
@@ -31,25 +40,17 @@ export function SessionTimeline({ ...props }: TabsPrimitiveContentProps): JSX.El
             <div className="flex">
                 <div className="flex flex-col justify-between items-center p-1 border-r border-gray-3">
                     <div className="flex flex-col items-center gap-2">
-                        <SessionGroupToggle group="error-tracking">
-                            <IconWarning />
-                        </SessionGroupToggle>
-                        <SessionGroupToggle group="feature-flags">
-                            <IconToggle />
-                        </SessionGroupToggle>
-                        <SessionGroupToggle group="product-analytics">
-                            <IconGraph />
-                        </SessionGroupToggle>
-                        <SessionGroupToggle group="web-analytics">
-                            <IconPieChart />
-                        </SessionGroupToggle>
-                        <SessionGroupToggle group="surveys">
-                            <IconMessage />
-                        </SessionGroupToggle>
+                        {usedGroups.map((group) => (
+                            <SessionGroupToggle group={group}>
+                                {groupIconMapping[group] as React.ReactNode}
+                            </SessionGroupToggle>
+                        ))}
                     </div>
-                    <ButtonPrimitive iconOnly onClick={() => scrollToItem(uuid)}>
-                        <IconVerticalAlignCenter />
-                    </ButtonPrimitive>
+                    {canScrollToItem(uuid) && (
+                        <ButtonPrimitive iconOnly onClick={() => scrollToItem(uuid)}>
+                            <IconVerticalAlignCenter />
+                        </ButtonPrimitive>
+                    )}
                 </div>
                 <div
                     ref={(el) => setEventListEl(el)}
@@ -95,25 +96,19 @@ export function SessionTimelineItemContainer<T extends SessionTimelineItem>({
     selected,
     ...props
 }: PreviewRenderProps<T> & { renderer: SessionTimelineRenderer<T> }): JSX.Element {
-    const [isOpen, setIsOpen] = useState(false)
     return (
         <div className={itemContainer({ selected })} data-item-id={item.id}>
             <div className={itemPreview()}>
+                <span className="text-xs text-tertiary w-[20px] shrink-0 text-center">
+                    <renderer.runtimeIcon item={item} selected={selected} {...props} />
+                </span>
                 <span className="text-xs text-tertiary w-[50px] shrink-0">
                     {dayjs(item.timestamp).format('HH:mm:ss')}
                 </span>
-                <div className="shrink-0 w-[24px] text-center">
-                    <renderer.icon />
-                </div>
+                <div className="shrink-0 w-[24px] text-center">{groupIconMapping[renderer.group]}</div>
                 <div className="flex-grow">
                     <renderer.renderPreview item={item} selected={selected} {...props} />
                 </div>
-                <ButtonPrimitive iconOnly onClick={() => setIsOpen(!isOpen)}>
-                    {isOpen ? <IconCollapse /> : <IconExpand />}
-                </ButtonPrimitive>
-            </div>
-            <div className="bg-[var(--gray-1)]">
-                {isOpen && <renderer.renderDetails item={item} selected={selected} {...props} />}
             </div>
         </div>
     )

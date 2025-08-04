@@ -15,8 +15,7 @@ import {
     eventRenderer,
     exceptionRenderer,
     featureFlagRenderer,
-    pageleaveRenderer,
-    pageviewRenderer,
+    pageRenderer,
     surveysRenderer,
     webAnalyticsRenderer,
 } from './SessionTimelineItem/event'
@@ -149,13 +148,40 @@ export const sessionTabLogic = kea<sessionTabLogicType>([
                 return (group: string) => activeGroups.includes(group)
             },
         ],
+        usedGroups: [
+            (s) => [s.rendererRegistry, s.items],
+            (rendererRegistry: RendererRegistry, items: SessionTimelineItem[]) => {
+                const usedGroups = new Set<RendererGroup>()
+                for (const item of items) {
+                    const renderer = rendererRegistry.find((renderer) => renderer.predicate(item))
+                    if (renderer) {
+                        usedGroups.add(renderer.group)
+                    }
+                }
+                return Array.from(usedGroups)
+            },
+        ],
+        canScrollToItem: [
+            (s) => [s.items, s.getRenderer],
+            (
+                items: SessionTimelineItem[],
+                getRenderer: (item: SessionTimelineItem) => SessionTimelineRenderer<SessionTimelineItem> | undefined
+            ) => {
+                return (itemId: string) => {
+                    const item = items.find((i) => i.id === itemId)
+                    if (!item) {
+                        return false
+                    }
+                    return !!getRenderer(item)
+                }
+            },
+        ],
     }),
     events(({ actions }) => ({
         afterMount: () => {
             actions.registerRenderer(exceptionRenderer)
             actions.registerRenderer(featureFlagRenderer)
-            actions.registerRenderer(pageviewRenderer)
-            actions.registerRenderer(pageleaveRenderer)
+            actions.registerRenderer(pageRenderer)
             actions.registerRenderer(surveysRenderer)
             actions.registerRenderer(webAnalyticsRenderer)
             actions.registerRenderer(eventRenderer)
