@@ -13,6 +13,14 @@ use common_metrics::inc;
 use common_redis::Client as RedisClient;
 use std::sync::Arc;
 
+/// Result of fetching feature flags, including cache hit status and deserialization errors status
+#[derive(Debug, Clone)]
+pub struct FlagResult {
+    pub flag_list: FeatureFlagList,
+    pub was_cache_hit: bool,
+    pub had_deserialization_errors: bool,
+}
+
 /// Service layer for handling feature flag operations
 pub struct FlagService {
     redis_reader: Arc<dyn RedisClient + Send + Sync>,
@@ -116,48 +124,57 @@ impl FlagService {
     }
 
     /// Fetches the flags from the cache or the database. Returns a tuple containing
-    /// the flags and a boolean indicating whether the flags came from cache.  Also, it
-    /// tracks cache hits and misses for a given project_id.
+    /// the flags and a boolean indicating whether there were deserialization errors.
+    /// Also tracks cache hits and misses for a given project_id.
     pub async fn get_flags_from_cache_or_pg(
         &self,
         project_id: i64,
-    ) -> Result<FeatureFlagList, FlagError> {
-        let (flags_result, cache_hit) =
-            match FeatureFlagList::from_redis(self.redis_reader.clone(), project_id).await {
-                Ok(flags) => (Ok(flags), true),
-                Err(_) => {
-                    match FeatureFlagList::from_pg(self.pg_client.clone(), project_id).await {
-                        Ok(flags) => {
-                            inc(DB_FLAG_READS_COUNTER, &[], 1);
-                            if (FeatureFlagList::update_flags_in_redis(
-                                self.redis_writer.clone(),
-                                project_id,
-                                &flags,
-                            )
-                            .await)
-                                .is_err()
-                            {
-                                inc(
-                                    FLAG_CACHE_ERRORS_COUNTER,
-                                    &[("reason".to_string(), "redis_update_failed".to_string())],
-                                    1,
-                                );
-                            }
-                            (Ok(flags), false)
-                        }
-                        Err(e) => (Err(e), false),
+    ) -> Result<FlagResult, FlagError> {
+        let flag_result = match FeatureFlagList::from_redis(self.redis_reader.clone(), project_id)
+            .await
+        {
+            Ok(flags_from_redis) => Ok(FlagResult {
+                flag_list: flags_from_redis,
+                was_cache_hit: true,
+                had_deserialization_errors: false,
+            }),
+            Err(_) => match FeatureFlagList::from_pg(self.pg_client.clone(), project_id).await {
+                Ok((flags_from_pg, had_deserialization_errors)) => {
+                    inc(DB_FLAG_READS_COUNTER, &[], 1);
+                    if (FeatureFlagList::update_flags_in_redis(
+                        self.redis_writer.clone(),
+                        project_id,
+                        &flags_from_pg,
+                    )
+                    .await)
+                        .is_err()
+                    {
+                        inc(
+                            FLAG_CACHE_ERRORS_COUNTER,
+                            &[("reason".to_string(), "redis_update_failed".to_string())],
+                            1,
+                        );
                     }
+                    Ok(FlagResult {
+                        flag_list: flags_from_pg,
+                        was_cache_hit: false,
+                        had_deserialization_errors,
+                    })
                 }
-            };
+                Err(database_error) => Err(database_error),
+            },
+        };
 
         // Track cache hits and misses
-        inc(
-            FLAG_CACHE_HIT_COUNTER,
-            &[("cache_hit".to_string(), cache_hit.to_string())],
-            1,
-        );
+        if let Ok(ref result) = flag_result {
+            inc(
+                FLAG_CACHE_HIT_COUNTER,
+                &[("cache_hit".to_string(), result.was_cache_hit.to_string())],
+                1,
+            );
+        }
 
-        flags_result
+        flag_result
     }
 }
 
@@ -296,8 +313,9 @@ mod tests {
                     },
                     deleted: false,
                     active: true,
-                    ensure_experience_continuity: false,
+                    ensure_experience_continuity: Some(false),
                     version: Some(1),
+                    evaluation_runtime: Some("all".to_string()),
                 },
                 FeatureFlag {
                     id: 2,
@@ -314,8 +332,9 @@ mod tests {
                     },
                     deleted: false,
                     active: false,
-                    ensure_experience_continuity: false,
+                    ensure_experience_continuity: Some(false),
                     version: Some(1),
+                    evaluation_runtime: Some("all".to_string()),
                 },
                 FeatureFlag {
                     id: 3,
@@ -343,8 +362,9 @@ mod tests {
                     },
                     deleted: false,
                     active: true,
-                    ensure_experience_continuity: false,
+                    ensure_experience_continuity: Some(false),
                     version: Some(1),
+                    evaluation_runtime: Some("all".to_string()),
                 },
             ],
         };
@@ -364,11 +384,12 @@ mod tests {
             .get_flags_from_cache_or_pg(team.project_id)
             .await;
         assert!(result.is_ok());
-        let fetched_flags = result.unwrap();
-        assert_eq!(fetched_flags.flags.len(), mock_flags.flags.len());
+        let flag_result = result.unwrap();
+        assert_eq!(flag_result.flag_list.flags.len(), mock_flags.flags.len());
 
         // Verify the contents of the fetched flags
-        let beta_feature = fetched_flags
+        let beta_feature = flag_result
+            .flag_list
             .flags
             .iter()
             .find(|f| f.key == "beta_feature")
@@ -383,7 +404,8 @@ mod tests {
             "country"
         );
 
-        let new_ui = fetched_flags
+        let new_ui = flag_result
+            .flag_list
             .flags
             .iter()
             .find(|f| f.key == "new_ui")
@@ -391,7 +413,8 @@ mod tests {
         assert!(!new_ui.active);
         assert!(new_ui.filters.groups.is_empty());
 
-        let premium_feature = fetched_flags
+        let premium_feature = flag_result
+            .flag_list
             .flags
             .iter()
             .find(|f| f.key == "premium_feature")

@@ -4,6 +4,7 @@ import { expectLogic } from 'kea-test-utils'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { useMocks } from '~/mocks/jest'
 import { AssistantMessageType } from '~/queries/schema/schema-assistant-messages'
+import { ConversationDetail, ConversationStatus } from '~/types'
 import { initKeaTests } from '~/test/init'
 
 import { maxContextLogic } from './maxContextLogic'
@@ -472,6 +473,310 @@ describe('maxThreadLogic', () => {
                 }),
                 expect.any(Object)
             )
+        })
+    })
+
+    describe('traceId functionality', () => {
+        it('sets and stores traceId correctly', async () => {
+            const testTraceId = 'test-trace-id-123'
+
+            await expectLogic(logic, () => {
+                logic.actions.setTraceId(testTraceId)
+            }).toMatchValues({
+                traceId: testTraceId,
+            })
+        })
+
+        it('includes traceId in stream API calls', async () => {
+            const streamSpy = mockStream()
+
+            await expectLogic(logic, () => {
+                logic.actions.askMax('test prompt')
+            })
+
+            expect(streamSpy).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    content: 'test prompt',
+                    trace_id: expect.any(String),
+                }),
+                expect.any(Object)
+            )
+        })
+    })
+
+    describe('reconnectToStream', () => {
+        it('calls streamConversation with conversation ID and null content', async () => {
+            const streamSpy = mockStream()
+
+            await expectLogic(logic, () => {
+                logic.actions.reconnectToStream()
+            })
+
+            expect(streamSpy).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    conversation: MOCK_CONVERSATION_ID,
+                    content: null,
+                }),
+                expect.any(Object)
+            )
+        })
+    })
+
+    describe('invisible tool call filtering', () => {
+        it('filters out invisible tool call messages from threadGrouped', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setThread([
+                    {
+                        type: AssistantMessageType.Human,
+                        content: 'hello',
+                        status: 'completed',
+                        id: 'human-1',
+                    },
+                    {
+                        type: AssistantMessageType.ToolCall,
+                        content: 'invisible tool call',
+                        status: 'completed',
+                        id: 'tool-1',
+                        visible: false,
+                        tool_call_id: 'tool-1',
+                        ui_payload: {},
+                    },
+                    {
+                        type: AssistantMessageType.Assistant,
+                        content: 'response',
+                        status: 'completed',
+                        id: 'assistant-1',
+                    },
+                ])
+            }).toMatchValues({
+                threadGrouped: [
+                    [
+                        {
+                            type: AssistantMessageType.Human,
+                            content: 'hello',
+                            status: 'completed',
+                            id: 'human-1',
+                        },
+                        {
+                            type: AssistantMessageType.Assistant,
+                            content: 'response',
+                            status: 'completed',
+                            id: 'assistant-1',
+                        },
+                    ],
+                ],
+            })
+        })
+    })
+
+    describe('failure message handling', () => {
+        it('adds failure message and stops streaming when failure event received', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setThread([
+                    {
+                        type: AssistantMessageType.Human,
+                        content: 'test question',
+                        status: 'completed',
+                        id: 'human-1',
+                    },
+                ])
+                // Simulate receiving a failure message
+                logic.actions.addMessage({
+                    type: AssistantMessageType.Failure,
+                    content: 'Something went wrong',
+                    status: 'completed',
+                    id: 'failure-1',
+                })
+            }).toMatchValues({
+                threadGrouped: [
+                    [
+                        {
+                            type: AssistantMessageType.Human,
+                            content: 'test question',
+                            status: 'completed',
+                            id: 'human-1',
+                        },
+                    ],
+                    [
+                        {
+                            type: AssistantMessageType.Failure,
+                            content: 'Something went wrong',
+                            status: 'completed',
+                            id: 'failure-1',
+                        },
+                    ],
+                ],
+            })
+        })
+    })
+
+    describe('generation error status handling', () => {
+        it('sets message status to error and stops streaming on generation error', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setThread([
+                    {
+                        type: AssistantMessageType.Human,
+                        content: 'test question',
+                        status: 'completed',
+                        id: 'human-1',
+                    },
+                    {
+                        type: AssistantMessageType.Assistant,
+                        content: 'partial response',
+                        status: 'loading',
+                        id: 'assistant-1',
+                    },
+                ])
+                // Simulate setting error status
+                logic.actions.setMessageStatus(1, 'error')
+            }).toMatchValues({
+                threadRaw: [
+                    {
+                        type: AssistantMessageType.Human,
+                        content: 'test question',
+                        status: 'completed',
+                        id: 'human-1',
+                    },
+                    {
+                        type: AssistantMessageType.Assistant,
+                        content: 'partial response',
+                        status: 'error',
+                        id: 'assistant-1',
+                    },
+                ],
+            })
+        })
+    })
+
+    describe('threadRaw status fields', () => {
+        it('initializes threadRaw with status fields from conversation messages', async () => {
+            const conversationWithMessages: ConversationDetail = {
+                id: MOCK_CONVERSATION_ID,
+                status: ConversationStatus.Idle,
+                title: 'Test conversation',
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString(),
+                messages: [
+                    {
+                        type: AssistantMessageType.Human,
+                        content: 'Initial question',
+                        id: 'human-1',
+                    },
+                    {
+                        type: AssistantMessageType.Assistant,
+                        content: 'Initial response',
+                        id: 'assistant-1',
+                    },
+                ],
+            }
+
+            // Create logic with conversation containing messages
+            logic.unmount()
+            logic = maxThreadLogic({
+                conversationId: MOCK_CONVERSATION_ID,
+                conversation: conversationWithMessages,
+            })
+            logic.mount()
+
+            // Check that threadRaw has messages with status fields
+            expect(logic.values.threadRaw).toEqual([
+                {
+                    type: AssistantMessageType.Human,
+                    content: 'Initial question',
+                    id: 'human-1',
+                    status: 'completed',
+                },
+                {
+                    type: AssistantMessageType.Assistant,
+                    content: 'Initial response',
+                    id: 'assistant-1',
+                    status: 'completed',
+                },
+            ])
+        })
+
+        it('initializes threadRaw as empty array when conversation has no messages', async () => {
+            const conversationWithoutMessages = {
+                id: MOCK_CONVERSATION_ID,
+                status: ConversationStatus.Idle,
+                title: 'Empty conversation',
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString(),
+                messages: [],
+            }
+
+            // Create logic with conversation containing no messages
+            logic.unmount()
+            logic = maxThreadLogic({
+                conversationId: MOCK_CONVERSATION_ID,
+                conversation: conversationWithoutMessages,
+            })
+            logic.mount()
+
+            // Check that threadRaw is empty
+            expect(logic.values.threadRaw).toEqual([])
+        })
+
+        it('updates threadRaw with status fields when conversation prop changes with new messages', async () => {
+            // Start with empty conversation
+            const initialConversation: ConversationDetail = {
+                id: MOCK_CONVERSATION_ID,
+                status: ConversationStatus.Idle,
+                title: 'Test conversation',
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString(),
+                messages: [],
+            }
+
+            logic.unmount()
+            logic = maxThreadLogic({
+                conversationId: MOCK_CONVERSATION_ID,
+                conversation: initialConversation,
+            })
+            logic.mount()
+
+            // Verify initial state
+            expect(logic.values.threadRaw).toEqual([])
+
+            // Update conversation with new messages via prop change
+            const updatedConversation: ConversationDetail = {
+                ...initialConversation,
+                messages: [
+                    {
+                        type: AssistantMessageType.Human,
+                        content: 'New question',
+                        id: 'human-1',
+                    },
+                    {
+                        type: AssistantMessageType.Assistant,
+                        content: 'New response',
+                        id: 'assistant-1',
+                    },
+                ],
+            }
+
+            // Simulate prop change by creating new logic instance with updated conversation
+            logic = maxThreadLogic({
+                conversationId: MOCK_CONVERSATION_ID,
+                conversation: updatedConversation,
+            })
+            logic.mount()
+
+            // Check that threadRaw now has messages with status fields
+            expect(logic.values.threadRaw).toEqual([
+                {
+                    type: AssistantMessageType.Human,
+                    content: 'New question',
+                    id: 'human-1',
+                    status: 'completed',
+                },
+                {
+                    type: AssistantMessageType.Assistant,
+                    content: 'New response',
+                    id: 'assistant-1',
+                    status: 'completed',
+                },
+            ])
         })
     })
 })

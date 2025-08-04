@@ -1,7 +1,7 @@
-from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
+from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
 
 
-template: HogFunctionTemplate = HogFunctionTemplate(
+template: HogFunctionTemplateDC = HogFunctionTemplateDC(
     status="stable",
     free=True,
     type="destination",
@@ -10,7 +10,8 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     description="Sends a message to a Microsoft Teams channel",
     icon_url="/static/services/microsoft-teams.png",
     category=["Customer Success"],
-    hog="""
+    code_language="hog",
+    code="""
 if (not match(inputs.webhookUrl, '^https://[^/]+.logic.azure.com:443/workflows/[^/]+/triggers/manual/paths/invoke?.*') and
     not match(inputs.webhookUrl, '^https://[^/]+.webhook.office.com/webhookb2/[^/]+/IncomingWebhook/[^/]+/[^/]+') and
     not match(inputs.webhookUrl, '^https://[^/]+.powerautomate.com/[^/]+') and

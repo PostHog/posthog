@@ -55,6 +55,22 @@ function createInitialEventsPayload(personId: string): DataTableNode {
     }
 }
 
+function createInitialExceptionsPayload(personId: string): DataTableNode {
+    return {
+        kind: NodeKind.DataTableNode,
+        full: true,
+        showEventFilter: false,
+        hiddenColumns: [PERSON_DISPLAY_NAME_COLUMN_NAME],
+        source: {
+            kind: NodeKind.EventsQuery,
+            select: defaultDataTableColumns(NodeKind.EventsQuery),
+            personId: personId,
+            event: '$exception',
+            after: '-24h',
+        },
+    }
+}
+
 export const personsLogic = kea<personsLogicType>([
     props({} as PersonsLogicProps),
     key((props) => {
@@ -85,6 +101,7 @@ export const personsLogic = kea<personsLogicType>([
         setSplitMergeModalShown: (shown: boolean) => ({ shown }),
         setDistinctId: (distinctId: string) => ({ distinctId }),
         setEventsQuery: (eventsQuery: DataTableNode | null) => ({ eventsQuery }),
+        setExceptionsQuery: (exceptionsQuery: DataTableNode | null) => ({ exceptionsQuery }),
     }),
     loaders(({ values, actions, props }) => ({
         persons: [
@@ -130,6 +147,8 @@ export const personsLogic = kea<personsLogicType>([
                         if (person.id != null) {
                             const eventsQuery = createInitialEventsPayload(person.id)
                             actions.setEventsQuery(eventsQuery)
+                            const exceptionsQuery = createInitialExceptionsPayload(person.id)
+                            actions.setExceptionsQuery(exceptionsQuery)
                         }
                     }
 
@@ -155,6 +174,8 @@ export const personsLogic = kea<personsLogicType>([
                         if (person.id != null) {
                             const eventsQuery = createInitialEventsPayload(person.id)
                             actions.setEventsQuery(eventsQuery)
+                            const exceptionsQuery = createInitialExceptionsPayload(person.id)
+                            actions.setExceptionsQuery(exceptionsQuery)
                         }
                         return person
                     }
@@ -255,6 +276,12 @@ export const personsLogic = kea<personsLogicType>([
                 setEventsQuery: (_, { eventsQuery }) => {
                     return eventsQuery
                 },
+            },
+        ],
+        exceptionsQuery: [
+            null as DataTableNode | null,
+            {
+                setExceptionsQuery: (_, { exceptionsQuery }) => exceptionsQuery,
             },
         ],
     })),

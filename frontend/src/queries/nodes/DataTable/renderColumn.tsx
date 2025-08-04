@@ -9,7 +9,7 @@ import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { autoCaptureEventToDescription } from 'lib/utils'
+import { autoCaptureEventToDescription, humanFriendlyNumber } from 'lib/utils'
 import { GroupActorDisplay } from 'scenes/persons/GroupActorDisplay'
 import { PersonDisplay, PersonDisplayProps } from 'scenes/persons/PersonDisplay'
 import { urls } from 'scenes/urls'
@@ -23,7 +23,7 @@ import {
     HasPropertiesNode,
     LLMTracePerson,
 } from '~/queries/schema/schema-general'
-import { QueryContext } from '~/queries/types'
+import { QueryContext, QueryContextColumn } from '~/queries/types'
 import {
     isActorsQuery,
     isEventsQuery,
@@ -35,6 +35,23 @@ import {
     trimQuotes,
 } from '~/queries/utils'
 import { AnyPropertyFilter, EventType, PersonType, PropertyFilterType, PropertyOperator } from '~/types'
+import { extractExpressionComment, removeExpressionComment } from './utils'
+
+export function getContextColumn(
+    key: string,
+    columns?: QueryContext<DataTableNode>['columns']
+): {
+    queryContextColumnName: string | undefined
+    queryContextColumn: QueryContextColumn | undefined
+} {
+    const queryContextColumnName = key.startsWith('context.columns.') ? trimQuotes(key.substring(16)) : undefined
+    const queryContextColumn = queryContextColumnName ? columns?.[queryContextColumnName] : undefined
+
+    return {
+        queryContextColumnName,
+        queryContextColumn,
+    }
+}
 
 export function renderColumn(
     key: string,
@@ -46,9 +63,8 @@ export function renderColumn(
     setQuery?: (query: DataTableNode) => void,
     context?: QueryContext<DataTableNode>
 ): JSX.Element | string {
-    const queryContextColumnName = key.startsWith('context.columns.') ? trimQuotes(key.substring(16)) : undefined
-    const queryContextColumn = queryContextColumnName ? context?.columns?.[queryContextColumnName] : undefined
-    key = key.split('--')[0].trim()
+    const { queryContextColumnName, queryContextColumn } = getContextColumn(key, context?.columns)
+    key = isGroupsQuery(query.source) ? extractExpressionComment(key) : removeExpressionComment(key)
 
     if (value === loadingColumn) {
         return <Spinner />
@@ -145,7 +161,7 @@ export function renderColumn(
         return <TZLabel time={value} showSeconds />
     } else if (!Array.isArray(record) && key.startsWith('properties.')) {
         // TODO: remove after removing the old events table
-        const propertyKey = trimQuotes(key.substring(11))
+        const propertyKey = trimQuotes(key.substring('properties.'.length))
         if (setQuery && (isEventsQuery(query.source) || isPersonsNode(query.source)) && query.showPropertyFilter) {
             const newProperty: AnyPropertyFilter = {
                 key: propertyKey,
@@ -269,7 +285,7 @@ export function renderColumn(
             withIcon: true,
             person: { id: value.id },
             displayName: value.display_name,
-            noPopover: true,
+            noPopover: false,
         }
         return <PersonDisplay {...displayProps} />
     } else if (key === 'group' && typeof value === 'object') {
@@ -288,6 +304,25 @@ export function renderColumn(
             <Component
                 record={record}
                 columnName={columnName}
+                value={value}
+                query={query}
+                recordIndex={recordIndex}
+                rowCount={rowCount}
+            />
+        ) : (
+            String(value)
+        )
+    } else if (
+        isGroupsQuery(query.source) &&
+        key.startsWith('properties.') &&
+        context?.columns?.[trimQuotes(key.substring('properties.'.length))]?.render
+    ) {
+        const propertyName = trimQuotes(key.substring('properties.'.length))
+        const Component = context?.columns?.[propertyName].render
+        return Component ? (
+            <Component
+                record={record}
+                columnName={propertyName}
                 value={value}
                 query={query}
                 recordIndex={recordIndex}
@@ -332,5 +367,11 @@ export function renderColumn(
             // do nothing
         }
     }
+
+    // Add number formatting for numeric values
+    if (context?.formatNumbers && typeof value === 'number') {
+        return humanFriendlyNumber(value)
+    }
+
     return String(value)
 }

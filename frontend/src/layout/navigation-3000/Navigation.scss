@@ -6,6 +6,10 @@
     --scene-padding: 1rem;
     --scene-padding-bottom: 4rem;
 
+    // These are used in SceneLayout.css
+    --scene-layout-panel-width: 300px;
+    --scene-layout-header-height: 42px;
+
     display: flex;
     width: 100%;
     height: 100vh;
@@ -37,6 +41,11 @@
     @media screen and (max-width: $lg) {
         --scene-padding: 0.5rem;
     }
+}
+
+// If flag is enabled, we use the scene header height for the breadcrumbs height
+.Navigation3000--minimal-scene-layout {
+    --breadcrumbs-height-compact: var(--scene-layout-header-height);
 }
 
 .Navigation3000__scene {
@@ -130,7 +139,9 @@
     background-color: var(--modal-backdrop-color);
     backdrop-filter: blur(var(--modal-backdrop-blur));
     opacity: 1;
-    transition: opacity 100ms ease-out, backdrop-filter 100ms ease-out;
+    transition:
+        opacity 100ms ease-out,
+        backdrop-filter 100ms ease-out;
 
     &.Navbar3000--hidden {
         pointer-events: none;

@@ -29,7 +29,6 @@ import { RefObject } from 'react'
 import { openBillingPopupModal } from 'scenes/billing/BillingPopup'
 import { ReplayIframeData } from 'scenes/heatmaps/heatmapsBrowserLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { ExportedSessionType } from 'scenes/session-recordings/file-playback/types'
 import { playerCommentModel } from 'scenes/session-recordings/player/commenting/playerCommentModel'
 import {
     sessionRecordingDataLogic,
@@ -219,7 +218,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 'sessionPlayerData',
                 'sessionPlayerMetaData',
                 'sessionPlayerMetaDataLoading',
-                'snapshotsRaw',
                 'createExportJSON',
                 'customRRWebEvents',
                 'fullyLoaded',
@@ -288,7 +286,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         incrementErrorCount: true,
         incrementWarningCount: (count: number = 1) => ({ count }),
         syncSnapshotsWithPlayer: true,
-        exportRecordingToFile: (type?: ExportedSessionType) => ({ type }),
+        exportRecordingToFile: true,
         deleteRecording: true,
         openExplorer: true,
         takeScreenshot: true,
@@ -817,13 +815,16 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         ],
     }),
     listeners(({ props, values, actions, cache }) => ({
-        [playerCommentModel.actionTypes.startCommenting]: async ({ annotation }) => {
+        [playerCommentModel.actionTypes.startCommenting]: async ({ comment }) => {
             actions.setIsCommenting(true)
-            if (annotation) {
+            if (comment) {
                 // and we need a short wait until the logic is mounted after calling setIsCommenting
                 const waitForLogic = async (): Promise<BuiltLogic<playerCommentOverlayLogicType> | null> => {
                     for (let attempts = 0; attempts < 5; attempts++) {
-                        const theMountedLogic = playerCommentOverlayLogic.findMounted()
+                        const theMountedLogic = playerCommentOverlayLogic.findMounted({
+                            recordingId: props.sessionRecordingId,
+                            ...props,
+                        })
                         if (theMountedLogic) {
                             return theMountedLogic
                         }
@@ -835,9 +836,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 const theMountedLogic = await waitForLogic()
 
                 if (theMountedLogic) {
-                    theMountedLogic.actions.editAnnotation(annotation)
+                    theMountedLogic.actions.editComment(comment)
                 } else {
-                    lemonToast.error('Could not start editing annotation 😓, please refresh the page and try again.')
+                    lemonToast.error('Could not start editing that comment 😓, please refresh the page and try again.')
                 }
             }
         },
@@ -1297,7 +1298,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             cache.pausedMediaElements = []
         },
 
-        exportRecordingToFile: async ({ type }) => {
+        exportRecordingToFile: async () => {
             if (!values.sessionPlayerData) {
                 return
             }
@@ -1322,11 +1323,10 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     await delay(delayTime)
                 }
 
-                const payload = type === 'raw' ? values.snapshotsRaw : values.createExportJSON(type)
-                const suffix = type === 'rrweb' ? 'rrweb-recording' : 'ph-recording'
+                const payload = values.createExportJSON()
                 const recordingFile = new File(
                     [JSON.stringify(payload, null, 2)],
-                    `export-${props.sessionRecordingId}-${suffix}.json`,
+                    `export-${props.sessionRecordingId}-ph-recording.json`,
                     { type: 'application/json' }
                 )
 

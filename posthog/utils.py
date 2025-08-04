@@ -60,7 +60,7 @@ from posthog.redis import get_client
 if TYPE_CHECKING:
     from django.contrib.auth.models import AbstractBaseUser, AnonymousUser
 
-    from posthog.models import Team, User
+    from posthog.models import Team, User, Dashboard, InsightVariable
 
 DATERANGE_MAP = {
     "second": datetime.timedelta(seconds=1),
@@ -79,23 +79,6 @@ logger = structlog.get_logger(__name__)
 
 # https://stackoverflow.com/questions/4060221/how-to-reliably-open-a-file-in-the-same-directory-as-a-python-script
 __location__ = os.path.realpath(os.path.join(os.getcwd(), os.path.dirname(__file__)))
-
-
-def format_label_date(date: datetime.datetime, interval: str = "default") -> str:
-    date_formats = {
-        "default": "%-d-%b-%Y",
-        "minute": "%-d-%b %H:%M",
-        "hour": "%-d-%b %H:%M",
-        "week": "%-d-%b – %-d-%b",
-        "month": "%b %Y",
-    }
-    labels_format = date_formats.get(interval, date_formats["default"])
-
-    if interval == "week":
-        end_date = date + datetime.timedelta(days=6)
-        return f"{date.strftime('%-d-%b')} – {end_date.strftime('%-d-%b')}"
-
-    return date.strftime(labels_format)
 
 
 class PotentialSecurityProblemException(Exception):
@@ -364,6 +347,19 @@ def render_template(
     if settings.DEBUG and not settings.TEST:
         context["debug"] = True
         context["git_branch"] = get_git_branch()
+        # Add vite dev scripts for development only when explicitly using Vite
+        if not settings.E2E_TESTING and os.environ.get("POSTHOG_USE_VITE"):
+            context["vite_dev_scripts"] = """
+    <script type="module">
+        import RefreshRuntime from 'http://localhost:8234/@react-refresh'
+        RefreshRuntime.injectIntoGlobalHook(window)
+        window.$RefreshReg$ = () => {}
+        window.$RefreshSig$ = () => (type) => type
+        window.__vite_plugin_react_preamble_installed__ = true
+    </script>
+    <!-- Vite development server -->
+    <script type="module" src="http://localhost:8234/@vite/client"></script>
+    <script type="module" src="http://localhost:8234/src/index.tsx"></script>"""
 
     context["js_posthog_ui_host"] = ""
 
@@ -1151,18 +1147,25 @@ def filters_override_requested_by_client(request: Request) -> Optional[dict]:
     return None
 
 
-def variables_override_requested_by_client(request: Request) -> Optional[dict[str, dict]]:
-    raw_variables = request.query_params.get("variables_override")
+def variables_override_requested_by_client(
+    request: Optional[Request], dashboard: Optional["Dashboard"], variables: list["InsightVariable"]
+) -> Optional[dict[str, dict]]:
+    from posthog.api.insight_variable import map_stale_to_latest
 
-    if raw_variables is not None:
+    raw_variables_override_param = request.query_params.get("variables_override") if request else None
+
+    request_variables = {}
+    dashboard_variables = dashboard.variables if dashboard else {}
+
+    if raw_variables_override_param is not None:
         try:
-            return json.loads(raw_variables)
+            request_variables = json.loads(raw_variables_override_param)
         except Exception:
             raise serializers.ValidationError(
                 {"variables_override": "Invalid JSON passed in variables_override parameter"}
             )
 
-    return None
+    return map_stale_to_latest({**dashboard_variables, **request_variables}, variables)
 
 
 def _request_has_key_set(key: str, request: Request, allowed_values: Optional[list[str]] = None) -> bool | str:
@@ -1192,6 +1195,14 @@ def str_to_bool(value: Any) -> bool:
     if not value:
         return False
     return str(value).lower() in ("y", "yes", "t", "true", "on", "1")
+
+
+def safe_int(value: Any, default: Optional[int] = None) -> Optional[int]:
+    """Safely convert a value to integer, returning default if conversion fails."""
+    try:
+        return int(value)
+    except (ValueError, TypeError):
+        return default
 
 
 def get_helm_info_env() -> dict:

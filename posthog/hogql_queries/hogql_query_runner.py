@@ -8,9 +8,10 @@ from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.filters import replace_filters
 from posthog.hogql.parser import parse_select
-from posthog.hogql.placeholders import find_placeholders
+from posthog.hogql.placeholders import find_placeholders, replace_placeholders
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.utils import deserialize_hx_ast
+from posthog.hogql.variables import replace_variables
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.schema import (
@@ -55,11 +56,17 @@ class HogQLQueryRunner(QueryRunner):
             elif isinstance(self.query, HogQLASTQuery):
                 parsed_select = cast(ast.SelectQuery, deserialize_hx_ast(self.query.query))
 
-        if self.query.filters:
-            with self.timings.measure("filters"):
-                placeholders_in_query = find_placeholders(parsed_select)
-                if "filters" in placeholders_in_query:
-                    parsed_select = replace_filters(parsed_select, self.query.filters, self.team)
+        finder = find_placeholders(parsed_select)
+        with self.timings.measure("filters"):
+            if self.query.filters and finder.has_filters:
+                parsed_select = replace_filters(parsed_select, self.query.filters, self.team)
+        if self.query.variables:
+            with self.timings.measure("replace_variables"):
+                parsed_select = replace_variables(parsed_select, list(self.query.variables.values()), self.team)
+        if finder.placeholder_fields or finder.placeholder_expressions:
+            with self.timings.measure("replace_placeholders"):
+                parsed_select = cast(ast.SelectQuery, replace_placeholders(parsed_select, values))
+
         return parsed_select
 
     def to_actors_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
@@ -81,8 +88,8 @@ class HogQLQueryRunner(QueryRunner):
             and self.team.pk not in app_settings.API_QUERIES_LEGACY_TEAM_LIST
         ):
             assert self.settings is not None
-            # p95 threads is 102
-            self.settings.max_threads = 80
+            # p95 threads is 102, limiting to 60 (below global max_threads of 64)
+            self.settings.max_threads = 60
             # p95 duration of HogQL query is 2.78sec
             self.settings.max_execution_time = 10
 

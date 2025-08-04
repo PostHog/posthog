@@ -75,12 +75,12 @@ export function formatTickValue(value: number): string {
  */
 export function valueToXCoordinate(
     value: number,
-    chartRadius: number,
+    axisRange: number,
     viewBoxWidth: number,
     svgEdgeMargin: number = 20
 ): number {
     // Scale the value to fit within the padded area
-    const percentage = (value / chartRadius + 1) / 2
+    const percentage = (value / axisRange + 1) / 2
     return svgEdgeMargin + percentage * (viewBoxWidth - 2 * svgEdgeMargin)
 }
 
@@ -169,13 +169,62 @@ export function isFrequentistResult(result: ExperimentVariantResult): result is 
 
 export function getVariantInterval(result: ExperimentVariantResult): [number, number] | null {
     if (isBayesianResult(result)) {
-        return result.credible_interval
+        return result.credible_interval || null
     } else if (isFrequentistResult(result)) {
-        return result.confidence_interval
+        return result.confidence_interval || null
     }
     return null
 }
 
 export function getIntervalLabel(result: ExperimentVariantResult): string {
     return isBayesianResult(result) ? 'Credible interval' : 'Confidence interval'
+}
+
+export function getIntervalBounds(result: ExperimentVariantResult): [number, number] {
+    const interval = getVariantInterval(result)
+    return interval ? [interval[0], interval[1]] : [0, 0]
+}
+
+export function formatIntervalPercent(result: ExperimentVariantResult): string {
+    const interval = getVariantInterval(result)
+    if (!interval) {
+        return 'N/A'
+    }
+    const [lower, upper] = interval
+    return `[${(lower * 100).toFixed(2)}%, ${(upper * 100).toFixed(2)}%]`
+}
+
+export function getDelta(result: ExperimentVariantResult): number {
+    const interval = getVariantInterval(result)
+    if (!interval) {
+        return 0
+    }
+    const [lower, upper] = interval
+    return (lower + upper) / 2
+}
+
+export function getDeltaPercent(result: ExperimentVariantResult): number {
+    return getDelta(result) * 100
+}
+
+export function isSignificant(result: ExperimentVariantResult): boolean {
+    return result.significant || false
+}
+
+export function isDeltaPositive(result: ExperimentVariantResult): boolean | undefined {
+    const interval = getVariantInterval(result)
+    if (!interval) {
+        return undefined
+    }
+    return getDelta(result) > 0
+}
+
+export function formatDeltaPercent(result: ExperimentVariantResult, decimals: number = 2): string {
+    const interval = getVariantInterval(result)
+    if (!interval) {
+        return '—'
+    }
+    const deltaPercent = getDeltaPercent(result)
+    const formatted = deltaPercent.toFixed(decimals)
+    return `${deltaPercent > 0 ? '+' : ''}${formatted}%`
 }

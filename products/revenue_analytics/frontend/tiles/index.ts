@@ -1,5 +1,5 @@
-export { CustomerCountTile } from './CustomerCountTile'
 export { OverviewTile } from './OverviewTile'
+export { MetricsTile } from './MetricsTile'
 export { RevenueGrowthRateTile } from './RevenueGrowthRateTile'
 export { RevenueTile } from './RevenueTile'
 export { TopCustomersTile } from './TopCustomersTile'

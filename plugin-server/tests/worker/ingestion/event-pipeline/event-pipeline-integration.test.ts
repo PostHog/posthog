@@ -1,9 +1,11 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
-import { DateTime } from 'luxon'
+// eslint-disable-next-line no-restricted-imports
 import { fetch } from 'undici'
 import { v4 } from 'uuid'
 
-import { MeasuringPersonsStoreForBatch } from '~/worker/ingestion/persons/measuring-person-store'
+import { BatchWritingPersonsStoreForBatch } from '~/worker/ingestion/persons/batch-writing-person-store'
+import { PersonRepository } from '~/worker/ingestion/persons/repositories/person-repository'
+import { PostgresPersonRepository } from '~/worker/ingestion/persons/repositories/postgres-person-repository'
 
 import { Hook, Hub, ProjectId, Team } from '../../../../src/types'
 import { closeHub, createHub } from '../../../../src/utils/db/hub'
@@ -17,8 +19,7 @@ import { processWebhooksStep } from '../../../../src/worker/ingestion/event-pipe
 import { EventPipelineRunner } from '../../../../src/worker/ingestion/event-pipeline/runner'
 import { BatchWritingGroupStoreForBatch } from '../../../../src/worker/ingestion/groups/batch-writing-group-store'
 import { HookCommander } from '../../../../src/worker/ingestion/hooks'
-import { setupPlugins } from '../../../../src/worker/plugins/setup'
-import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../../../helpers/clickhouse'
+import { Clickhouse } from '../../../helpers/clickhouse'
 import { commonUserId } from '../../../helpers/plugins'
 import { insertRow, resetTestDatabase } from '../../../helpers/sql'
 
@@ -47,12 +48,14 @@ const team: Team = {
 
 describe('Event Pipeline integration test', () => {
     let hub: Hub
+    let clickhouse: Clickhouse
+    let personRepository: PersonRepository
     let actionManager: ActionManager
     let actionMatcher: ActionMatcher
     let hookCannon: HookCommander
 
     const ingestEvent = async (event: PluginEvent) => {
-        const personsStoreForBatch = new MeasuringPersonsStoreForBatch(hub.db)
+        const personsStoreForBatch = new BatchWritingPersonsStoreForBatch(personRepository, hub.kafkaProducer)
         const groupStoreForBatch = new BatchWritingGroupStoreForBatch(hub.db)
         const runner = new EventPipelineRunner(
             hub,
@@ -69,11 +72,13 @@ describe('Event Pipeline integration test', () => {
 
     beforeEach(async () => {
         await resetTestDatabase()
-        await resetTestDatabaseClickhouse()
+        clickhouse = Clickhouse.create()
+        await clickhouse.resetTestDatabase()
         process.env.SITE_URL = 'https://example.com'
         hub = await createHub()
+        personRepository = new PostgresPersonRepository(hub.db.postgres)
 
-        actionManager = new ActionManager(hub.db.postgres, hub)
+        actionManager = new ActionManager(hub.db.postgres, hub.pubSub)
         await actionManager.start()
         actionMatcher = new ActionMatcher(hub.db.postgres, actionManager)
         hookCannon = new HookCommander(
@@ -84,82 +89,13 @@ describe('Event Pipeline integration test', () => {
             hub.EXTERNAL_REQUEST_TIMEOUT_MS
         )
 
-        jest.spyOn(hub.db, 'fetchPerson')
-        jest.spyOn(hub.db, 'createPerson')
+        jest.spyOn(personRepository, 'fetchPerson')
+        jest.spyOn(personRepository, 'createPerson')
     })
 
     afterEach(async () => {
+        clickhouse.close()
         await closeHub(hub)
-    })
-
-    it('handles plugins setting properties', async () => {
-        await resetTestDatabase(`
-            function processEvent (event) {
-                event.properties = {
-                    ...event.properties,
-                    $browser: 'Chrome',
-                    processed: 'hell yes'
-                }
-                event.$set = {
-                    ...event.$set,
-                    personProp: 'value'
-                }
-                return event
-            }
-        `)
-        await setupPlugins(hub)
-
-        const event: PluginEvent = {
-            event: 'xyz',
-            properties: { foo: 'bar' },
-            $set: { personProp: 1, anotherValue: 2 },
-            timestamp: new Date().toISOString(),
-            now: new Date().toISOString(),
-            team_id: 2,
-            distinct_id: 'abc',
-            ip: null,
-            site_url: 'https://example.com',
-            uuid: new UUIDT().toString(),
-        }
-
-        await ingestEvent(event)
-
-        const events = await delayUntilEventIngested(() => hub.db.fetchEvents())
-        const persons = await delayUntilEventIngested(() => hub.db.fetchPersons())
-
-        expect(events.length).toEqual(1)
-        expect(events[0]).toEqual(
-            expect.objectContaining({
-                uuid: event.uuid,
-                event: 'xyz',
-                team_id: 2,
-                timestamp: DateTime.fromISO(event.timestamp!, { zone: 'utc' }),
-                // :KLUDGE: Ignore properties like $plugins_succeeded, etc
-                properties: expect.objectContaining({
-                    foo: 'bar',
-                    $browser: 'Chrome',
-                    processed: 'hell yes',
-                    $set: {
-                        personProp: 'value',
-                        anotherValue: 2,
-                        $browser: 'Chrome',
-                    },
-                    $set_once: {
-                        $initial_browser: 'Chrome',
-                    },
-                }),
-            })
-        )
-
-        expect(persons.length).toEqual(1)
-        expect(persons[0].version).toEqual(0)
-        expect(persons[0].properties).toEqual({
-            $creator_event_uuid: event.uuid,
-            $initial_browser: 'Chrome',
-            $browser: 'Chrome',
-            personProp: 'value',
-            anotherValue: 2,
-        })
     })
 
     it('fires a webhook', async () => {
@@ -268,46 +204,5 @@ describe('Event Pipeline integration test', () => {
         expect(parseJSON(secondArg!.body as unknown as string)).toEqual(expectedPayload)
         expect(secondArg!.headers).toStrictEqual({ 'Content-Type': 'application/json' })
         expect(secondArg!.method).toBe('POST')
-    })
-
-    it('single postgres action per run to create or load person', async () => {
-        const event: PluginEvent = {
-            event: 'xyz',
-            properties: { foo: 'bar' },
-            timestamp: new Date().toISOString(),
-            now: new Date().toISOString(),
-            team_id: 2,
-            distinct_id: 'abc',
-            ip: null,
-            site_url: 'https://example.com',
-            uuid: new UUIDT().toString(),
-        }
-
-        const personsStoreForBatch = new MeasuringPersonsStoreForBatch(hub.db)
-        const groupStoreForBatch = new BatchWritingGroupStoreForBatch(hub.db)
-        await new EventPipelineRunner(
-            hub,
-            event,
-            undefined,
-            undefined,
-            personsStoreForBatch,
-            groupStoreForBatch
-        ).runEventPipeline(event, team)
-
-        expect(hub.db.fetchPerson).toHaveBeenCalledTimes(1) // we query before creating
-        expect(hub.db.createPerson).toHaveBeenCalledTimes(1)
-
-        // second time single fetch
-        await new EventPipelineRunner(
-            hub,
-            event,
-            undefined,
-            undefined,
-            personsStoreForBatch,
-            groupStoreForBatch
-        ).runEventPipeline(event, team)
-        expect(hub.db.fetchPerson).toHaveBeenCalledTimes(2)
-
-        await delayUntilEventIngested(() => hub.db.fetchEvents(), 2)
     })
 })

@@ -21,6 +21,7 @@ class JobOwners(str, Enum):
     TEAM_WEB_ANALYTICS = "team-web-analytics"
     TEAM_ERROR_TRACKING = "team-error-tracking"
     TEAM_GROWTH = "team-growth"
+    TEAM_EXPERIMENTS = "team-experiments"
 
 
 class ClickhouseClusterResource(dagster.ConfigurableResource):
@@ -122,7 +123,9 @@ def dagster_tags(
     return tags
 
 
-def settings_with_log_comment(context: dagster.OpExecutionContext | dagster.AssetExecutionContext) -> dict[str, str]:
+def settings_with_log_comment(
+    context: dagster.OpExecutionContext | dagster.AssetExecutionContext | dagster.AssetCheckExecutionContext,
+) -> dict[str, str]:
     qt = query_tagging.get_query_tags()
     qt.with_dagster(dagster_tags(context))
     return {"log_comment": qt.to_json()}

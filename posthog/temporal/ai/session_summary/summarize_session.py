@@ -1,5 +1,6 @@
 import asyncio
 from collections.abc import Generator
+import dataclasses
 from datetime import timedelta
 import json
 import time
@@ -10,15 +11,22 @@ import structlog
 import temporalio
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 from django.conf import settings
-from ee.session_recordings.session_summary.llm.consume import stream_llm_single_session_summary
-from ee.session_recordings.session_summary.summarize_session import ExtraSummaryContext, SingleSessionSummaryLlmInputs
-from ee.session_recordings.session_summary.utils import serialize_to_sse_event
+from ee.hogai.session_summaries import ExceptionToRetry
+from ee.hogai.session_summaries.llm.consume import stream_llm_single_session_summary
+from ee.hogai.session_summaries.session.summarize_session import (
+    ExtraSummaryContext,
+    SingleSessionSummaryLlmInputs,
+    get_session_data_from_db,
+    prepare_data_for_single_session_summary,
+    prepare_single_session_summary_input,
+)
+from ee.hogai.session_summaries.utils import serialize_to_sse_event
 from posthog import constants
 from posthog.models.team.team import Team
 from posthog.redis import get_client
-from posthog.temporal.ai.session_summary.shared import fetch_session_data_activity
 from posthog.temporal.ai.session_summary.state import (
     StateActivitiesEnum,
+    decompress_redis_data,
     generate_state_key,
     get_data_class_from_redis,
     get_redis_state_client,
@@ -34,6 +42,61 @@ logger = structlog.get_logger(__name__)
 
 # How often to poll for new chunks from the LLM stream
 SESSION_SUMMARIES_STREAM_INTERVAL = 0.1  # 100ms
+
+
+@temporalio.activity.defn
+async def fetch_session_data_activity(inputs: SingleSessionSummaryInputs) -> str | None:
+    """Fetch data from DB for a single session and store/cache in Redis (to avoid hitting Temporal memory limits)"""
+    redis_client, redis_input_key, _ = get_redis_state_client(
+        key_base=inputs.redis_key_base,
+        input_label=StateActivitiesEnum.SESSION_DB_DATA,
+        state_id=inputs.session_id,
+    )
+    try:
+        # Check if DB data is already in Redis. If it is and matched the target class - it's within TTL, so no need to re-fetch it from DB
+        # TODO: Think about edge-cases like stale data for still-running sessions
+        await get_data_class_from_redis(
+            redis_client=redis_client,
+            redis_key=redis_input_key,
+            label=StateActivitiesEnum.SESSION_DB_DATA,
+            target_class=SingleSessionSummaryLlmInputs,
+        )
+    except ValueError:
+        # If not yet, or TTL expired - fetch data from DB
+        session_db_data = await get_session_data_from_db(
+            session_id=inputs.session_id,
+            team_id=inputs.team_id,
+            local_reads_prod=inputs.local_reads_prod,
+        )
+        summary_data = await prepare_data_for_single_session_summary(
+            session_id=inputs.session_id,
+            user_id=inputs.user_id,
+            session_db_data=session_db_data,
+            extra_summary_context=inputs.extra_summary_context,
+        )
+        if summary_data.error_msg is not None:
+            # If we weren't able to collect the required data - retry
+            logger.exception(
+                f"Not able to fetch data from the DB for session {inputs.session_id} (by user {inputs.user_id}): {summary_data.error_msg}",
+                session_id=inputs.session_id,
+                user_id=inputs.user_id,
+            )
+            raise ExceptionToRetry()
+        input_data = prepare_single_session_summary_input(
+            session_id=inputs.session_id,
+            user_id=inputs.user_id,
+            summary_data=summary_data,
+        )
+        # Store the input in Redis
+        input_data_str = json.dumps(dataclasses.asdict(input_data))
+        await store_data_in_redis(
+            redis_client=redis_client,
+            redis_key=redis_input_key,
+            data=input_data_str,
+            label=StateActivitiesEnum.SESSION_DB_DATA,
+        )
+    # Nothing to return if the fetch was successful, as the data is stored in Redis
+    return None
 
 
 @temporalio.activity.defn
@@ -65,7 +128,7 @@ async def stream_llm_single_session_summary_activity(inputs: SingleSessionSummar
             target_class=SingleSessionSummaryLlmInputs,
         ),
     )
-    last_summary_state = ""
+    last_summary_state_str = ""
     temporalio.activity.heartbeat()
     last_heartbeat_timestamp = time.time()
     # Stream summary from the LLM stream
@@ -87,23 +150,23 @@ async def stream_llm_single_session_summary_activity(inputs: SingleSessionSummar
         session_duration=llm_input.session_duration,
         trace_id=temporalio.activity.info().workflow_id,
     )
-    async for current_summary_state in session_summary_generator:
-        if current_summary_state == last_summary_state:
+    async for current_summary_state_str in session_summary_generator:
+        if current_summary_state_str == last_summary_state_str:
             # Skip cases where no updates happened or the same state was sent again
             continue
-        last_summary_state = current_summary_state
+        last_summary_state_str = current_summary_state_str
         # Store the last summary state in Redis
-        # The size of the output is limited to <20kb, so compressing is excessive
         await store_data_in_redis(
             redis_client=redis_client,
             redis_key=redis_output_key,
-            data=json.dumps({"last_summary_state": last_summary_state, "timestamp": time.time()}),
+            data=json.dumps({"last_summary_state": last_summary_state_str, "timestamp": time.time()}),
+            label=StateActivitiesEnum.SESSION_SUMMARY,
         )
         # Heartbeat to avoid workflow timeout, throttle to 5 seconds to avoid sending too many
         if time.time() - last_heartbeat_timestamp > 5:
             temporalio.activity.heartbeat()
             last_heartbeat_timestamp = time.time()
-    return last_summary_state
+    return last_summary_state_str
 
 
 @temporalio.workflow.defn(name="summarize-session")
@@ -247,8 +310,7 @@ def execute_summarize_session_stream(
             if not redis_data_raw:
                 continue  # No data stored yet
             try:
-                # No compression, as summaries are <20kb, so it's not worth it performance-wise
-                redis_data_str = redis_data_raw.decode("utf-8") if isinstance(redis_data_raw, bytes) else redis_data_raw
+                redis_data_str = decompress_redis_data(redis_data_raw)
                 redis_data = json.loads(redis_data_str)
             except Exception as e:
                 raise ValueError(

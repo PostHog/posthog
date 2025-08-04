@@ -116,8 +116,9 @@ mod tests {
             },
             deleted: false,
             active: true,
-            ensure_experience_continuity: false,
+            ensure_experience_continuity: Some(false),
             version: Some(1),
+            evaluation_runtime: Some("all".to_string()),
         }
     }
 

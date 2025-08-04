@@ -61,7 +61,7 @@ describe('LazyLoader', () => {
             loader.mockResolvedValue({ key1: 'value1', key2: 'value2' })
             const result = await lazyLoader.get('key1')
             expect(result).toBe('value1')
-            expect(lazyLoader.cache).toEqual({ key1: 'value1', key2: 'value2' })
+            expect(lazyLoader.getCache()).toEqual({ key1: 'value1', key2: 'value2' })
             const result2 = await lazyLoader.get('key2')
             expect(result2).toBe('value2')
             expect(loader).toHaveBeenCalledTimes(1)
@@ -193,10 +193,13 @@ describe('LazyLoader', () => {
         it('should load multiple values in parallel', async () => {
             loader.mockImplementation(async (keys) => {
                 await new Promise((resolve) => setTimeout(resolve, 100))
-                return keys.reduce((acc: any, key: string) => {
-                    acc[key] = { val: key }
-                    return acc
-                }, {} as Record<string, any>)
+                return keys.reduce(
+                    (acc: any, key: string) => {
+                        acc[key] = { val: key }
+                        return acc
+                    },
+                    {} as Record<string, any>
+                )
             })
 
             const result1 = lazyLoader.get('key1')

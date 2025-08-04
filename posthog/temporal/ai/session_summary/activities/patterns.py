@@ -1,14 +1,22 @@
 import asyncio
+import json
 from typing import cast
 from redis import asyncio as aioredis
 import structlog
 import temporalio
-from ee.hogai.session_summaries.constants import FAILED_PATTERNS_ASSIGNMENT_MIN_RATIO, PATTERNS_ASSIGNMENT_CHUNK_SIZE
-from ee.session_recordings.session_summary.llm.consume import (
+from ee.hogai.session_summaries.constants import (
+    FAILED_PATTERNS_ASSIGNMENT_MIN_RATIO,
+    PATTERNS_ASSIGNMENT_CHUNK_SIZE,
+    PATTERNS_EXTRACTION_MAX_TOKENS,
+    SESSION_SUMMARIES_SYNC_MODEL,
+    SINGLE_ENTITY_MAX_TOKENS,
+)
+from ee.hogai.session_summaries.llm.consume import (
     get_llm_session_group_patterns_assignment,
+    get_llm_session_group_patterns_combination,
     get_llm_session_group_patterns_extraction,
 )
-from ee.session_recordings.session_summary.patterns.output_data import (
+from ee.hogai.session_summaries.session_group.patterns import (
     EnrichedSessionGroupSummaryPatternsList,
     RawSessionGroupPatternAssignmentsList,
     RawSessionGroupSummaryPatternsList,
@@ -18,12 +26,17 @@ from ee.session_recordings.session_summary.patterns.output_data import (
     combine_patterns_with_events_context,
     load_session_summary_from_string,
 )
-from ee.session_recordings.session_summary.summarize_session import ExtraSummaryContext, SingleSessionSummaryLlmInputs
-from ee.session_recordings.session_summary.summarize_session_group import (
+from ee.hogai.session_summaries.session.summarize_session import (
+    ExtraSummaryContext,
+    SingleSessionSummaryLlmInputs,
+)
+from ee.hogai.session_summaries.session_group.summarize_session_group import (
     generate_session_group_patterns_assignment_prompt,
+    generate_session_group_patterns_combination_prompt,
     generate_session_group_patterns_extraction_prompt,
     remove_excessive_content_from_session_summary_for_llm,
 )
+from ee.hogai.session_summaries.utils import estimate_tokens_from_strings
 from posthog.temporal.ai.session_summary.state import (
     StateActivitiesEnum,
     generate_state_key,
@@ -32,7 +45,11 @@ from posthog.temporal.ai.session_summary.state import (
     get_redis_state_client,
     store_data_in_redis,
 )
-from posthog.temporal.ai.session_summary.types.group import SessionGroupSummaryOfSummariesInputs
+from posthog.redis import get_async_client
+from posthog.temporal.ai.session_summary.types.group import (
+    SessionGroupSummaryOfSummariesInputs,
+    SessionGroupSummaryPatternsExtractionChunksInputs,
+)
 from temporalio.exceptions import ApplicationError
 
 logger = structlog.get_logger(__name__)
@@ -71,6 +88,7 @@ async def _get_session_summaries_str_from_inputs(
     redis_client: aioredis.Redis, inputs: SessionGroupSummaryOfSummariesInputs
 ) -> list[str]:
     """Fetch stringified session summaries for all input sessions from Redis."""
+    # TODO: Optimize as task group
     return [
         await get_data_str_from_redis(
             redis_client=redis_client,
@@ -83,6 +101,89 @@ async def _get_session_summaries_str_from_inputs(
         )
         for single_session_input in inputs.single_session_summaries_inputs
     ]
+
+
+@temporalio.activity.defn
+async def split_session_summaries_into_chunks_for_patterns_extraction_activity(
+    inputs: SessionGroupSummaryOfSummariesInputs,
+) -> list[list[str]]:
+    """
+    Split LLM input data into chunks based on token count.
+    This is an activity to avoid workflow deadlocks when using tiktoken inside workflow.
+    """
+    if not inputs.single_session_summaries_inputs:
+        return []
+    redis_client = get_async_client()
+    # Calculate token count for the prompt templates, providing empty context
+    prompt = generate_session_group_patterns_extraction_prompt(
+        session_summaries_str=[""], extra_summary_context=inputs.extra_summary_context
+    )
+    # Estimate base template tokens (without session summaries)
+    base_template_tokens = estimate_tokens_from_strings(
+        strings=[prompt.system_prompt, prompt.patterns_prompt], model=SESSION_SUMMARIES_SYNC_MODEL
+    )
+    # Get session summaries from Redis
+    session_summaries_str = await _get_session_summaries_str_from_inputs(redis_client=redis_client, inputs=inputs)
+    # Ensure we got all the summaries, as it's crucial to keep the order of sessions to match them with ids
+    if len(session_summaries_str) != len(inputs.single_session_summaries_inputs):
+        raise ValueError(
+            f"Expected {len(inputs.single_session_summaries_inputs)} session summaries, got {len(session_summaries_str)}, when splitting into chunks for patterns extraction"
+        )
+    # Remove excessive content from summaries for token estimation, and convert to strings
+    intermediate_session_summaries_str = [
+        json.dumps(remove_excessive_content_from_session_summary_for_llm(summary).data)
+        for summary in session_summaries_str
+    ]
+    # Calculate tokens for each session summary
+    session_tokens = [
+        estimate_tokens_from_strings(strings=[summary], model=SESSION_SUMMARIES_SYNC_MODEL)
+        for summary in intermediate_session_summaries_str
+    ]
+    # Create chunks ensuring each stays under the token limit
+    chunks = []
+    current_chunk: list[str] = []
+    current_tokens = base_template_tokens
+    for summary_input, summary_tokens in zip(inputs.single_session_summaries_inputs, session_tokens):
+        session_id = summary_input.session_id
+        # Check if single session exceeds the limit
+        if base_template_tokens + summary_tokens > PATTERNS_EXTRACTION_MAX_TOKENS:
+            # Check if it fits within the single entity max tokens limit
+            if base_template_tokens + summary_tokens <= SINGLE_ENTITY_MAX_TOKENS:
+                logger.warning(
+                    f"Session {session_id} exceeds PATTERNS_EXTRACTION_MAX_TOKENS "
+                    f"({base_template_tokens + summary_tokens} tokens) but fits within "
+                    f"SINGLE_ENTITY_MAX_TOKENS. Processing it in a separate chunk."
+                )
+                # Save current chunk if not empty
+                if current_chunk:
+                    chunks.append(current_chunk)
+                    current_chunk = []
+                    current_tokens = base_template_tokens
+                # Process this large session in its own chunk
+                chunks.append([session_id])
+                continue
+            else:
+                # Session is too large even for single entity processing
+                logger.error(
+                    f"Session {session_id} exceeds even SINGLE_ENTITY_MAX_TOKENS "
+                    f"({base_template_tokens + summary_tokens} tokens). Skipping this session."
+                )
+                continue
+
+        # Check if adding this session would exceed the limit
+        if current_tokens + summary_tokens > PATTERNS_EXTRACTION_MAX_TOKENS:
+            # If current chunk is not empty, save it and start a new one
+            if current_chunk:
+                chunks.append(current_chunk)
+                current_chunk = []
+                current_tokens = base_template_tokens
+        # Add session id to current chunk
+        current_chunk.append(session_id)
+        current_tokens += summary_tokens
+    # Don't forget the last chunk
+    if current_chunk:
+        chunks.append(current_chunk)
+    return chunks
 
 
 @temporalio.activity.defn
@@ -107,7 +208,7 @@ async def extract_session_group_patterns_activity(inputs: SessionGroupSummaryOfS
         session_summaries_str = await _get_session_summaries_str_from_inputs(redis_client=redis_client, inputs=inputs)
         # Remove excessive content (like UUIDs) from session summaries when using them as a context for group summaries (and not a final step)
         intermediate_session_summaries_str = [
-            remove_excessive_content_from_session_summary_for_llm(session_summary_str)
+            json.dumps(remove_excessive_content_from_session_summary_for_llm(session_summary_str).data)
             for session_summary_str in session_summaries_str
         ]
         patterns_extraction_prompt = generate_session_group_patterns_extraction_prompt(
@@ -122,7 +223,12 @@ async def extract_session_group_patterns_activity(inputs: SessionGroupSummaryOfS
         )
         patterns_extraction_str = patterns_extraction.model_dump_json(exclude_none=True)
         # Store the extracted patterns in Redis
-        await store_data_in_redis(redis_client=redis_client, redis_key=redis_output_key, data=patterns_extraction_str)
+        await store_data_in_redis(
+            redis_client=redis_client,
+            redis_key=redis_output_key,
+            data=patterns_extraction_str,
+            label=StateActivitiesEnum.SESSION_GROUP_EXTRACTED_PATTERNS,
+        )
         return None
 
 
@@ -222,11 +328,12 @@ async def assign_events_to_patterns_activity(
         session_summaries_str = await _get_session_summaries_str_from_inputs(redis_client=redis_client, inputs=inputs)
         # Remove excessive content (like UUIDs) from session summaries when using them as a context for group summaries (and not a final step)
         intermediate_session_summaries_str = [
-            remove_excessive_content_from_session_summary_for_llm(session_summary_str)
+            json.dumps(remove_excessive_content_from_session_summary_for_llm(session_summary_str).data)
             for session_summary_str in session_summaries_str
         ]
         # Split sessions summaries into chunks to keep context small-enough for LLM for proper assignment
         # TODO: Run activity for each chunk instead to avoid retrying the whole activity if one chunk fails
+        # TODO: Split not by number of sessions, but by tokens, as with patterns extraction
         session_summaries_chunks_str = [
             intermediate_session_summaries_str[i : i + PATTERNS_ASSIGNMENT_CHUNK_SIZE]
             for i in range(0, len(intermediate_session_summaries_str), PATTERNS_ASSIGNMENT_CHUNK_SIZE)
@@ -270,7 +377,7 @@ async def assign_events_to_patterns_activity(
         combined_event_ids_mappings = combine_event_ids_mappings_from_single_session_summaries(
             single_session_summaries_inputs=single_session_summaries_llm_inputs
         )
-        # Combine patterns assignments to have a single patter-to-event list
+        # Combine patterns assignments to have a single pattern-to-events list
         combined_patterns_assignments = combine_patterns_assignments_from_single_session_summaries(
             patterns_assignments_list_of_lists=patterns_assignments_list_of_lists
         )
@@ -286,4 +393,80 @@ async def assign_events_to_patterns_activity(
             pattern_id_to_event_context_mapping=pattern_id_to_event_context_mapping,
             total_sessions_count=len(session_ids),
         )
+        patterns_with_events_context_str = patterns_with_events_context.model_dump_json(exclude_none=True)
+        await store_data_in_redis(
+            redis_client=redis_client,
+            redis_key=redis_output_key,
+            data=patterns_with_events_context_str,
+            label=StateActivitiesEnum.SESSION_GROUP_PATTERNS_ASSIGNMENTS,
+        )
     return patterns_with_events_context
+
+
+@temporalio.activity.defn
+async def combine_patterns_from_chunks_activity(inputs: SessionGroupSummaryPatternsExtractionChunksInputs) -> None:
+    """Combine patterns from multiple chunks using LLM and store in Redis."""
+    redis_client = get_async_client()
+    _, _, redis_output_key = get_redis_state_client(
+        key_base=inputs.redis_key_base,
+        output_label=StateActivitiesEnum.SESSION_GROUP_EXTRACTED_PATTERNS,
+        state_id=",".join(inputs.session_ids),
+    )
+    try:
+        # Check if combined patterns are already in Redis (for all the sessions at once)
+        await get_data_class_from_redis(
+            redis_client=redis_client,
+            redis_key=redis_output_key,
+            label=StateActivitiesEnum.SESSION_GROUP_EXTRACTED_PATTERNS,
+            target_class=RawSessionGroupSummaryPatternsList,
+        )
+        return None  # Already exists, no need to regenerate
+    except ValueError:
+        # Retrieve all chunk patterns from Redis
+        chunk_patterns = []
+        for chunk_key in inputs.redis_keys_of_chunks_to_combine:
+            try:
+                chunk_pattern = await get_data_class_from_redis(
+                    redis_client=redis_client,
+                    redis_key=chunk_key,
+                    label=StateActivitiesEnum.SESSION_GROUP_EXTRACTED_PATTERNS,
+                    target_class=RawSessionGroupSummaryPatternsList,
+                )
+                chunk_patterns.append(chunk_pattern)
+            except ValueError as err:
+                # Raise error if any chunk is missing
+                logger.exception(
+                    f"Failed to retrieve chunk patterns from Redis key {chunk_key} when combining patterns from chunks: {err}",
+                    redis_key=chunk_key,
+                    user_id=inputs.user_id,
+                    session_ids=inputs.session_ids,
+                )
+                raise
+        if not chunk_patterns:
+            raise ApplicationError(
+                f"No chunk patterns could be retrieved for sessions {inputs.session_ids} "
+                f"for user {inputs.user_id}. All chunks may be missing or corrupted."
+            )
+
+        # Generate prompt for combining patterns from chunks
+        combined_patterns_prompt = generate_session_group_patterns_combination_prompt(
+            patterns_chunks=chunk_patterns,
+            extra_summary_context=inputs.extra_summary_context,
+        )
+
+        # Use LLM to intelligently combine and deduplicate patterns
+        combined_patterns = await get_llm_session_group_patterns_combination(
+            prompt=combined_patterns_prompt,
+            user_id=inputs.user_id,
+            session_ids=inputs.session_ids,
+            trace_id=temporalio.activity.info().workflow_id,
+        )
+        # Store the combined patterns in Redis with 24-hour TTL
+        combined_patterns_str = combined_patterns.model_dump_json(exclude_none=True)
+        await store_data_in_redis(
+            redis_client=redis_client,
+            redis_key=redis_output_key,
+            data=combined_patterns_str,
+            label=StateActivitiesEnum.SESSION_GROUP_EXTRACTED_PATTERNS,
+        )
+    return None

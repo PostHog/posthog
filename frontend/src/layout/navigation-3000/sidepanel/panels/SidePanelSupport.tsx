@@ -13,7 +13,7 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { AvailableFeature, BillingFeatureType, BillingType, ProductKey, SidePanelTab } from '~/types'
+import { AvailableFeature, BillingFeatureType, BillingPlan, BillingType, ProductKey, SidePanelTab } from '~/types'
 
 import { SidePanelPaneHeader } from '../components/SidePanelPaneHeader'
 import { sidePanelLogic } from '../sidePanelLogic'
@@ -44,30 +44,23 @@ const SUPPORT_MESSAGE_OVERRIDE_BODY =
 // Support response times are pulled dynamically from billing plans (product.features) where available
 const SupportResponseTimesTable = ({
     billing,
-    hasActiveTrial,
     isCompact = false,
 }: {
     billing?: BillingType | null
-    hasActiveTrial?: boolean
     isCompact?: boolean
 }): JSX.Element => {
-    const { supportPlans } = useValues(billingLogic)
+    const { supportPlans, billingPlan } = useValues(billingLogic)
+    const { user } = useValues(userLogic)
 
-    const platformAndSupportProduct = billing?.products?.find((p) => p.type === 'platform_and_support')
-    // Note(@zach): This is a legacy check that we can remove after migrating users off it.
-    const hasLegacyEnterprisePlan = platformAndSupportProduct?.plans?.some(
-        (a) => a.current_plan && a.plan_key?.includes('enterprise')
-    )
-    const hasPlatformAndSupportAddon =
-        platformAndSupportProduct?.addons?.find((a) => !!a.subscribed) || hasLegacyEnterprisePlan
+    const knownEnterpriseOrgIds = ['018713f3-8d56-0000-32fa-75ce97e6662f']
+    const isKnownEnterpriseOrg = knownEnterpriseOrgIds.includes(user?.organization?.id || '')
 
-    // Check for expired trials
+    const hasBoostTrial = billing?.trial?.status === 'active' && (billing.trial?.target as any) === 'boost'
+    const hasScaleTrial = billing?.trial?.status === 'active' && (billing.trial?.target as any) === 'scale'
+    const hasEnterpriseTrial = billing?.trial?.status === 'active' && billing.trial?.target === 'enterprise'
+
     const hasExpiredTrial = billing?.trial?.status === 'expired'
-
-    // Get expiry date for expired trials
     const expiredTrialDate = hasExpiredTrial ? dayjs(billing?.trial?.expires_at) : null
-
-    // Get support response time feature from plan
     const getResponseTimeFeature = (planName: string): BillingFeatureType | undefined => {
         // Find the plan in supportPlans
         const plan = supportPlans?.find((p) => p.name === planName)
@@ -76,7 +69,21 @@ const SupportResponseTimesTable = ({
         return plan?.features?.find((f) => f.key === AvailableFeature.SUPPORT_RESPONSE_TIME)
     }
 
-    // Create plans array from billing data - directly determine current_plan status here
+    const getCurrentPlan = (): string => {
+        if (isKnownEnterpriseOrg || hasEnterpriseTrial || billingPlan === BillingPlan.Enterprise) {
+            return 'enterprise'
+        } else if (hasScaleTrial) {
+            return 'scale_trial'
+        } else if (hasBoostTrial) {
+            return 'boost_trial'
+        } else if (billingPlan) {
+            return billingPlan
+        }
+        return 'free'
+    }
+
+    const currentPlan = getCurrentPlan()
+
     const plansToDisplay: {
         name: string
         current_plan: boolean | undefined
@@ -87,28 +94,46 @@ const SupportResponseTimesTable = ({
     }[] = [
         {
             name: 'Free',
-            current_plan: billing?.subscription_level === 'free' && !hasActiveTrial && !hasPlatformAndSupportAddon,
+            current_plan: currentPlan === 'free',
             features: [{ note: 'Community support only' }],
-            plan_key: 'free',
+            plan_key: BillingPlan.Free,
             link: 'https://posthog.com/questions',
         },
         {
             name: 'Pay-as-you-go',
-            current_plan: billing?.subscription_level === 'paid' && !hasActiveTrial && !hasPlatformAndSupportAddon,
+            current_plan: currentPlan === 'paid',
             features: [{ note: '72 hours' }],
-            plan_key: 'paid',
+            plan_key: BillingPlan.Paid,
         },
-        ...(platformAndSupportProduct?.addons?.map((addon) => {
-            return {
-                name: addon.name,
-                // Note(@zach): This is a legacy check that we can remove after migrating users off it.
-                current_plan:
-                    (addon.subscribed || (addon.type === 'enterprise' && hasLegacyEnterprisePlan)) && !hasActiveTrial,
-                features: [getResponseTimeFeature(addon.name) || { note: '1 business day' }],
-                plan_key: addon.type,
-                legacy_product: addon.legacy_product,
-            }
-        }) || []),
+        {
+            name: 'Boost',
+            current_plan: currentPlan === 'boost',
+            features: [getResponseTimeFeature('Boost') || { note: '1 business day' }],
+            plan_key: BillingPlan.Boost,
+        },
+        ...(billingPlan === BillingPlan.Teams
+            ? [
+                  {
+                      name: 'Teams',
+                      current_plan: currentPlan === 'teams',
+                      features: [{ note: '1 business day' }],
+                      plan_key: BillingPlan.Teams,
+                      legacy_product: true,
+                  },
+              ]
+            : []),
+        {
+            name: 'Scale',
+            current_plan: currentPlan === 'scale',
+            features: [getResponseTimeFeature('Scale') || { note: '1 business day' }],
+            plan_key: BillingPlan.Scale,
+        },
+        {
+            name: 'Enterprise',
+            current_plan: currentPlan === 'enterprise',
+            features: [getResponseTimeFeature('Enterprise') || { note: '1 business day' }],
+            plan_key: BillingPlan.Enterprise,
+        },
     ]
 
     return (
@@ -126,11 +151,11 @@ const SupportResponseTimesTable = ({
                         >
                             <span className={`${isCompact ? '' : 'text-sm'}`}>
                                 {plan.name}
-                                {isBold && ' '}
-                                {isBold && <span className="text-muted text-xs font-normal">(your plan)</span>}
                                 {plan.legacy_product && (
                                     <span className="text-muted text-xs font-normal"> (legacy)</span>
                                 )}
+                                {isBold && ' '}
+                                {isBold && <span className="text-muted text-xs font-normal">(your plan)</span>}
                             </span>
                         </div>
                         <div
@@ -152,14 +177,14 @@ const SupportResponseTimesTable = ({
             })}
 
             {/* Display expired trial information */}
-            {!hasActiveTrial && hasExpiredTrial && expiredTrialDate && (
+            {!(hasBoostTrial || hasScaleTrial || hasEnterpriseTrial) && hasExpiredTrial && expiredTrialDate && (
                 <>
                     <div className="border-t text-muted col-span-2">Trial expired</div>
                 </>
             )}
 
             {/* Display active trial information integrated into the table */}
-            {hasActiveTrial && (
+            {(hasBoostTrial || hasScaleTrial || hasEnterpriseTrial) && (
                 <>
                     <div className="font-bold border-t">Your trial</div>
                     <div className="font-bold border-t text-right">1 business day</div>
@@ -177,20 +202,23 @@ const SupportResponseTimesTable = ({
 export function SidePanelSupport(): JSX.Element {
     const { preflight } = useValues(preflightLogic)
     useValues(userLogic)
-    const { isEmailFormOpen, title: supportPanelTitle, sendSupportRequest } = useValues(supportLogic)
+    const { isEmailFormOpen, title: supportPanelTitle, targetArea } = useValues(supportLogic)
     const { closeEmailForm, openEmailForm, closeSupportForm, resetSendSupportRequest } = useActions(supportLogic)
-    const { billing, billingLoading } = useValues(billingLogic)
+    const { billing, billingLoading, billingPlan } = useValues(billingLogic)
     const { isCurrentOrganizationNew } = useValues(organizationLogic)
     const { openSidePanel } = useActions(sidePanelLogic)
+
+    const hasBoostTrial = billing?.trial?.status === 'active' && (billing.trial?.target as any) === 'boost'
+    const hasScaleTrial = billing?.trial?.status === 'active' && (billing.trial?.target as any) === 'scale'
+    const hasEnterpriseTrial = billing?.trial?.status === 'active' && billing.trial?.target === 'enterprise'
+    const hasActiveTrial = hasBoostTrial || hasScaleTrial || hasEnterpriseTrial
 
     const canEmail =
         billing?.subscription_level === 'paid' ||
         billing?.subscription_level === 'custom' ||
-        (!!billing?.trial?.status && billing.trial.status === 'active') ||
-        sendSupportRequest.target_area === 'billing' ||
+        hasActiveTrial ||
+        targetArea === 'billing' ||
         isCurrentOrganizationNew
-
-    const hasActiveTrial = !!billing?.trial?.status && billing.trial.status === 'active'
     const showEmailSupport = (preflight?.cloud || process.env.NODE_ENV === 'development') && canEmail
     const showMaxAI = preflight?.cloud || process.env.NODE_ENV === 'development'
     const isBillingLoaded = !billingLoading && billing !== undefined
@@ -201,13 +229,7 @@ export function SidePanelSupport(): JSX.Element {
         }
     }
 
-    const SupportFormBlock = ({
-        onCancel,
-        hasActiveTrial,
-    }: {
-        onCancel: () => void
-        hasActiveTrial?: boolean
-    }): JSX.Element => {
+    const SupportFormBlock = ({ onCancel }: { onCancel: () => void }): JSX.Element => {
         const { featureFlags } = useValues(featureFlagLogic)
 
         return (
@@ -249,7 +271,7 @@ export function SidePanelSupport(): JSX.Element {
                         </div>
 
                         {/* Show response time information from billing plans */}
-                        <SupportResponseTimesTable billing={billing} hasActiveTrial={hasActiveTrial} isCompact={true} />
+                        <SupportResponseTimesTable billing={billing} isCompact={true} />
                     </>
                 )}
             </Section>
@@ -269,7 +291,6 @@ export function SidePanelSupport(): JSX.Element {
                                 closeSupportForm()
                                 resetSendSupportRequest()
                             }}
-                            hasActiveTrial={hasActiveTrial}
                         />
                     ) : (
                         <>
@@ -345,16 +366,14 @@ export function SidePanelSupport(): JSX.Element {
                             <div className="mb-2">
                                 <strong>Support is open Monday - Friday</strong>
                             </div>
-                            <SupportResponseTimesTable
-                                billing={billing}
-                                hasActiveTrial={hasActiveTrial}
-                                isCompact={true}
-                            />
-                            <div className="flex justify-end">
-                                <Link to={urls.organizationBilling([ProductKey.PLATFORM_AND_SUPPORT])}>
-                                    Upgrade support plan
-                                </Link>
-                            </div>
+                            <SupportResponseTimesTable billing={billing} isCompact={true} />
+                            {billingPlan !== BillingPlan.Enterprise && (
+                                <div className="flex justify-end">
+                                    <Link to={urls.organizationBilling([ProductKey.PLATFORM_AND_SUPPORT])}>
+                                        Upgrade support plan
+                                    </Link>
+                                </div>
+                            )}
 
                             {/* Share feedback section */}
                             <Section title="Share feedback">

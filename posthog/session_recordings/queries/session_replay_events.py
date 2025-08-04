@@ -63,16 +63,72 @@ class SessionReplayEvents:
             FROM session_replay_events
             PREWHERE team_id = %(team_id)s
             AND session_id = %(session_id)s
-            AND min_first_timestamp >= now() - INTERVAL %(days)s DAY
-            AND min_first_timestamp <= now()
+            AND min_first_timestamp >= %(python_now)s - INTERVAL %(days)s DAY
+            AND min_first_timestamp <= %(python_now)s
             """,
             {
                 "team_id": team.pk,
                 "session_id": session_id,
                 "days": days,
+                "python_now": datetime.now(pytz.timezone("UTC")),
             },
         )
         return result[0][0] > 0
+
+    def sessions_found_with_timestamps(
+        self, session_ids: list[str], team: Team
+    ) -> tuple[set[str], Optional[datetime], Optional[datetime]]:
+        """
+        Check if sessions exist and return min/max timestamps for the entire list to optimize follow-up queries to get events for multiple sessions at once.
+        Returns a tuple of (sessions_found, min_timestamp, max_timestamp).
+        Timestamps are for the entire list of sessions, not per session.
+        """
+        if not session_ids:
+            return set(), None, None
+        # Check sessions within TTL
+        found_sessions = self._find_within_days_with_timestamps(ttl_days(team), session_ids, team)
+        if not found_sessions:
+            return set(), None, None
+        # Calculate min/max timestamps for the entire list of sessions and return
+        sessions_found = {session_id for session_id, _, _ in found_sessions}
+        min_timestamp = min(min_timestamp for _, min_timestamp, _ in found_sessions)
+        max_timestamp = max(max_timestamp for _, _, max_timestamp in found_sessions)
+        # Not searching for sessions outside of TTL to simplify logic
+        return sessions_found, min_timestamp, max_timestamp
+
+    @staticmethod
+    def _find_within_days_with_timestamps(
+        days: int, session_ids: list[str], team: Team
+    ) -> list[tuple[str, datetime, datetime]]:
+        """
+        Check which session IDs exist within the specified number of days.
+        Returns a list of tuples of (session_id, min_timestamp, max_timestamp).
+        Timestamps are per session, not for the entire list of sessions.
+        """
+        result = sync_execute(
+            """
+            SELECT
+                session_id,
+                min(min_first_timestamp) as min_timestamp,
+                max(max_last_timestamp) as max_timestamp
+            FROM session_replay_events
+            PREWHERE team_id = %(team_id)s
+            AND session_id IN %(session_ids)s
+            AND min_first_timestamp >= %(python_now)s - INTERVAL %(days)s DAY
+            AND min_first_timestamp <= %(python_now)s
+            GROUP BY session_id
+            """,
+            {
+                "team_id": team.pk,
+                "session_ids": session_ids,
+                "days": days,
+                "python_now": datetime.now(pytz.timezone("UTC")),
+            },
+        )
+        if not result:
+            return []
+        sessions_found: list[tuple[str, datetime, datetime]] = [tuple(row) for row in result]
+        return sessions_found
 
     @staticmethod
     def get_metadata_query(
@@ -137,6 +193,7 @@ class SessionReplayEvents:
                     team_id = %(team_id)s
                     AND session_id = %(session_id)s
                     AND min_first_timestamp <= %(python_now)s
+                    AND min_first_timestamp >= %(python_now)s - interval %(ttl_days)s days
                     {optional_timestamp_clause}
                 GROUP BY
                     session_id
@@ -193,6 +250,78 @@ class SessionReplayEvents:
         recording_metadata = self.build_recording_metadata(session_id, replay_response)
         return recording_metadata
 
+    def get_group_metadata(
+        self,
+        session_ids: list[str],
+        team_id: int,
+        recordings_min_timestamp: Optional[datetime] = None,
+        recordings_max_timestamp: Optional[datetime] = None,
+    ) -> dict[str, Optional[RecordingMetadata]]:
+        """
+        Get metadata for a group of sessions in one call.
+        """
+        if not session_ids:
+            return {}
+
+        # Minimal timestamp in the recordings provided
+        optional_min_timestamp_clause = (
+            "AND min_first_timestamp >= %(recordings_min_timestamp)s" if recordings_min_timestamp else ""
+        )
+        # Maximal timestamp in the recordings provided
+        optional_max_timestamp_clause = (
+            "AND min_first_timestamp <= %(recordings_max_timestamp)s" if recordings_max_timestamp else ""
+        )
+        # Get data from DB
+        query = f"""
+            SELECT
+                session_id,
+                any(distinct_id),
+                min(min_first_timestamp) as start_time,
+                max(max_last_timestamp) as end_time,
+                dateDiff('SECOND', start_time, end_time) as duration,
+                argMinMerge(first_url) as first_url,
+                sum(click_count),
+                sum(keypress_count),
+                sum(mouse_activity_count),
+                sum(active_milliseconds)/1000 as active_seconds,
+                sum(console_log_count) as console_log_count,
+                sum(console_warn_count) as console_warn_count,
+                sum(console_error_count) as console_error_count,
+                argMinMerge(snapshot_source) as snapshot_source,
+                groupArrayArray(block_first_timestamps) as block_first_timestamps,
+                groupArrayArray(block_last_timestamps) as block_last_timestamps,
+                groupArrayArray(block_urls) as block_urls
+            FROM
+                session_replay_events
+            PREWHERE
+                team_id = %(team_id)s
+                AND session_id IN %(session_ids)s
+                {optional_max_timestamp_clause if recordings_max_timestamp else "AND min_first_timestamp <= %(python_now)s"}
+                {optional_min_timestamp_clause}
+            GROUP BY
+                session_id
+        """
+        replay_response: list[tuple] = sync_execute(
+            query,
+            {
+                "team_id": team_id,
+                "session_ids": session_ids,
+                "recordings_min_timestamp": recordings_min_timestamp,
+                "recordings_max_timestamp": recordings_max_timestamp,
+                "python_now": datetime.now(pytz.timezone("UTC")),
+            },
+        )
+        # Build metadata for each session
+        result: dict[str, Optional[RecordingMetadata]] = {session_id: None for session_id in session_ids}
+        for row in replay_response:
+            # Match build_recording_metadata's expected format
+            session_id = row[0]
+            session_data = [row[1:]]
+            metadata = self.build_recording_metadata(session_id, session_data)
+            if metadata:
+                result[session_id] = metadata
+        return result
+
     @staticmethod
     def build_recording_block_listing(session_id: str, replay_response: list[tuple]) -> Optional[RecordingBlockListing]:
         if len(replay_response) == 0:
@@ -214,6 +343,7 @@ class SessionReplayEvents:
         session_id: str,
         team: Team,
         recording_start_time: Optional[datetime] = None,
+        ttl_days: Optional[int] = None,
     ) -> Optional[RecordingBlockListing]:
         query = self.get_block_listing_query(recording_start_time)
         replay_response: list[tuple] = sync_execute(
@@ -223,6 +353,7 @@ class SessionReplayEvents:
                 "session_id": session_id,
                 "recording_start_time": recording_start_time,
                 "python_now": datetime.now(pytz.timezone("UTC")),
+                "ttl_days": ttl_days or 365,
             },
         )
         recording_metadata = self.build_recording_block_listing(session_id, replay_response)

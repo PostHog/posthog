@@ -105,6 +105,7 @@ export const campaignLogic = kea<campaignLogicType>([
                 return {
                     name: name.length === 0 ? 'Name is required' : undefined,
                     trigger: {
+                        type: trigger.type === 'event' ? undefined : 'Invalid trigger type',
                         filters:
                             trigger.filters.events.length === 0 && trigger.filters.actions.length === 0
                                 ? 'At least one event or action is required'
@@ -130,19 +131,22 @@ export const campaignLogic = kea<campaignLogicType>([
         edgesByActionId: [
             (s) => [s.campaign],
             (campaign): Record<string, HogFlowEdge[]> => {
-                return campaign.edges.reduce((acc, edge) => {
-                    if (!acc[edge.from]) {
-                        acc[edge.from] = []
-                    }
-                    acc[edge.from].push(edge)
+                return campaign.edges.reduce(
+                    (acc, edge) => {
+                        if (!acc[edge.from]) {
+                            acc[edge.from] = []
+                        }
+                        acc[edge.from].push(edge)
 
-                    if (!acc[edge.to]) {
-                        acc[edge.to] = []
-                    }
-                    acc[edge.to].push(edge)
+                        if (!acc[edge.to]) {
+                            acc[edge.to] = []
+                        }
+                        acc[edge.to].push(edge)
 
-                    return acc
-                }, {} as Record<string, HogFlowEdge[]>)
+                        return acc
+                    },
+                    {} as Record<string, HogFlowEdge[]>
+                )
             },
         ],
     }),

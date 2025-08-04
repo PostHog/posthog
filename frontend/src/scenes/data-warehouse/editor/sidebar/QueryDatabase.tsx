@@ -1,47 +1,37 @@
-import { IconArrowLeft, IconCopy, IconEllipsis, IconPlusSmall, IconServer } from '@posthog/icons'
-import { lemonToast, Tooltip } from '@posthog/lemon-ui'
+import { IconPlusSmall } from '@posthog/icons'
+import { lemonToast } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { DatabaseTableTree } from 'lib/components/DatabaseTableTree/DatabaseTableTree'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
+
 import { LemonTree, LemonTreeRef } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { TreeNodeDisplayIcon } from 'lib/lemon-ui/LemonTree/LemonTreeUtils'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { DropdownMenuGroup, DropdownMenuItem, DropdownMenuSeparator } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { useEffect, useRef } from 'react'
-import { viewLinkLogic } from 'scenes/data-warehouse/viewLinkLogic'
-import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SearchHighlightMultiple } from '~/layout/navigation-3000/components/SearchHighlight'
-import { Sidebar } from '~/layout/navigation-3000/components/Sidebar'
-import { SidebarNavbarItem } from '~/layout/navigation-3000/types'
 import { PipelineStage } from '~/types'
 
 import { dataWarehouseViewsLogic } from '../../saved_queries/dataWarehouseViewsLogic'
-import { editorSceneLogic, renderTableCount } from '../editorSceneLogic'
+import { renderTableCount } from '../editorSceneLogic'
 import { multitabEditorLogic } from '../multitabEditorLogic'
 import { isJoined, queryDatabaseLogic } from './queryDatabaseLogic'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import api from 'lib/api'
+import { draftsLogic } from '../draftsLogic'
 
-export const QueryDatabase = ({ isOpen }: { isOpen: boolean }): JSX.Element => {
-    const { featureFlags } = useValues(featureFlagLogic)
-
-    if (featureFlags[FEATURE_FLAGS.SQL_EDITOR_TREE_VIEW]) {
-        return <QueryDatabaseTreeView />
-    }
-
-    return <QueryDatabaseLegacy isOpen={isOpen} />
-}
-
-export const QueryDatabaseTreeView = (): JSX.Element => {
-    const { treeData, expandedFolders, expandedSearchFolders, searchTerm, joinsByFieldName } =
-        useValues(queryDatabaseLogic)
+export const QueryDatabase = (): JSX.Element => {
+    const {
+        treeData,
+        searchTreeData,
+        expandedFolders,
+        expandedSearchFolders,
+        searchTerm,
+        joinsByFieldName,
+        editingDraftId,
+    } = useValues(queryDatabaseLogic)
     const {
         setExpandedFolders,
         toggleFolderOpen,
@@ -51,8 +41,12 @@ export const QueryDatabaseTreeView = (): JSX.Element => {
         toggleEditJoinModal,
         loadDatabase,
         loadJoins,
+        setEditingDraft,
+        renameDraft,
     } = useActions(queryDatabaseLogic)
     const { deleteDataWarehouseSavedQuery } = useActions(dataWarehouseViewsLogic)
+
+    const { deleteDraft } = useActions(draftsLogic)
 
     const treeRef = useRef<LemonTreeRef>(null)
     useEffect(() => {
@@ -62,7 +56,8 @@ export const QueryDatabaseTreeView = (): JSX.Element => {
     return (
         <LemonTree
             ref={treeRef}
-            data={treeData}
+            // TODO: Can move this to treedata selector but selectors are maxed out on dependencies
+            data={searchTerm ? searchTreeData : treeData}
             expandedItemIds={searchTerm ? expandedSearchFolders : expandedFolders}
             onSetExpandedItemIds={searchTerm ? setExpandedSearchFolders : setExpandedFolders}
             onFolderClick={(folder, isExpanded) => {
@@ -70,7 +65,21 @@ export const QueryDatabaseTreeView = (): JSX.Element => {
                     toggleFolderOpen(folder.id, isExpanded)
                 }
             }}
+            isItemEditing={(item) => {
+                return editingDraftId === item.record?.id
+            }}
+            onItemNameChange={(item, name) => {
+                if (item.name !== name) {
+                    renameDraft(item.record?.id, name)
+                }
+                setEditingDraft('')
+            }}
             onItemClick={(item) => {
+                // Handle draft clicks - focus existing tab or create new one
+                if (item && item.record?.type === 'draft') {
+                    router.actions.push(urls.sqlEditor(undefined, undefined, undefined, item.record.draft.id))
+                }
+
                 // Copy column name when clicking on a column
                 if (item && item.record?.type === 'column') {
                     void copyToClipboard(item.record.columnName, item.record.columnName)
@@ -99,6 +108,35 @@ export const QueryDatabaseTreeView = (): JSX.Element => {
                 )
             }}
             itemSideAction={(item) => {
+                // Show menu for drafts
+                if (item.record?.type === 'draft') {
+                    const draft = item.record.draft
+                    return (
+                        <DropdownMenuGroup>
+                            <DropdownMenuItem
+                                asChild
+                                onClick={(e) => {
+                                    e.stopPropagation()
+                                    setEditingDraft(draft.id)
+                                }}
+                            >
+                                <ButtonPrimitive menuItem>Rename</ButtonPrimitive>
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                                asChild
+                                onClick={(e) => {
+                                    e.stopPropagation()
+                                    deleteDraft(draft.id)
+                                }}
+                            >
+                                <ButtonPrimitive menuItem className="text-danger">
+                                    Delete
+                                </ButtonPrimitive>
+                            </DropdownMenuItem>
+                        </DropdownMenuGroup>
+                    )
+                }
+
                 // Show menu for tables
                 if (item.record?.type === 'table') {
                     return (
@@ -141,7 +179,7 @@ export const QueryDatabaseTreeView = (): JSX.Element => {
                 }
 
                 // Show menu for views
-                if (item.record?.type === 'view') {
+                if (item.record?.type === 'view' || item.record?.type === 'managed-view') {
                     // Extract view ID from item.id (format: 'view-{id}' or 'search-view-{id}')
                     const viewId = item.id.startsWith('search-view-')
                         ? item.id.replace('search-view-', '')
@@ -273,6 +311,7 @@ export const QueryDatabaseTreeView = (): JSX.Element => {
                                 e.stopPropagation()
                                 router.actions.push(urls.pipelineNodeNew(PipelineStage.Source))
                             }}
+                            data-attr="sql-editor-add-source"
                         >
                             <IconPlusSmall className="text-tertiary" />
                         </ButtonPrimitive>
@@ -291,80 +330,5 @@ export const QueryDatabaseTreeView = (): JSX.Element => {
                 )
             }}
         />
-    )
-}
-
-const QueryDatabaseLegacy = ({ isOpen }: { isOpen: boolean }): JSX.Element => {
-    const navBarItem: SidebarNavbarItem = {
-        identifier: Scene.SQLEditor,
-        label: 'SQL editor',
-        icon: <IconServer />,
-        logic: editorSceneLogic,
-    }
-
-    return (
-        <Sidebar navbarItem={navBarItem} sidebarOverlay={<EditorSidebarOverlay />} sidebarOverlayProps={{ isOpen }} />
-    )
-}
-const EditorSidebarOverlay = (): JSX.Element => {
-    const { setSidebarOverlayOpen } = useActions(editorSceneLogic)
-    const { sidebarOverlayTreeItems, selectedSchema } = useValues(queryDatabaseLogic)
-    const { toggleJoinTableModal, selectSourceTable } = useActions(viewLinkLogic)
-
-    const copy = (): void => {
-        if (selectedSchema?.name) {
-            void copyToClipboard(selectedSchema.name, 'schema')
-        }
-    }
-
-    return (
-        <div className="flex flex-col h-full">
-            <header className="flex flex-row items-center h-10 border-b shrink-0 p-1 gap-1">
-                <LemonButton size="small" icon={<IconArrowLeft />} onClick={() => setSidebarOverlayOpen(false)} />
-                <Tooltip title="Click to copy">
-                    <span
-                        className="font-mono cursor-pointer flex-1 whitespace-nowrap overflow-hidden text-ellipsis"
-                        onClick={() => copy()}
-                    >
-                        {selectedSchema?.name}
-                    </span>
-                </Tooltip>
-                <div className="flex">
-                    {selectedSchema?.name && (
-                        <LemonButton
-                            size="small"
-                            icon={<IconCopy style={{ color: 'var(--text-secondary)' }} />}
-                            noPadding
-                            className="ml-1 mr-1"
-                            data-attr="copy-icon"
-                            onClick={() => copy()}
-                        />
-                    )}
-
-                    {selectedSchema && 'type' in selectedSchema && selectedSchema.type !== 'managed_view' && (
-                        <LemonMenu
-                            items={[
-                                {
-                                    label: 'Add join',
-                                    onClick: () => {
-                                        if (selectedSchema) {
-                                            selectSourceTable(selectedSchema.name)
-                                            toggleJoinTableModal()
-                                        }
-                                    },
-                                },
-                            ]}
-                        >
-                            <div>
-                                <LemonButton size="small" noPadding icon={<IconEllipsis />} />
-                            </div>
-                        </LemonMenu>
-                    )}
-                </div>
-            </header>
-            <div className="overflow-y-auto flex-1">
-                <DatabaseTableTree items={sidebarOverlayTreeItems} />
-            </div>
-        </div>
     )
 }

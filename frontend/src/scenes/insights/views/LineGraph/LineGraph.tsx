@@ -46,6 +46,7 @@ import { groupsModel } from '~/models/groupsModel'
 import { GoalLine, TrendsFilter } from '~/queries/schema/schema-general'
 import { isInsightVizNode } from '~/queries/utils'
 import { GraphDataset, GraphPoint, GraphPointPayload, GraphType } from '~/types'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 let tooltipRoot: Root
 
@@ -325,7 +326,9 @@ export function LineGraph_({
     const { isDarkModeOn } = useValues(themeLogic)
 
     const { insightProps, insight } = useValues(insightLogic)
-    const { timezone, isTrends, breakdownFilter, query } = useValues(insightVizDataLogic(insightProps))
+    const { timezone, isTrends, breakdownFilter, query, interval, insightData } = useValues(
+        insightVizDataLogic(insightProps)
+    )
     const { theme, getTrendsColor } = useValues(trendsDataLogic(insightProps))
 
     const hideTooltipOnScroll = isInsightVizNode(query) ? query.hideTooltipOnScroll : undefined
@@ -371,15 +374,15 @@ export function LineGraph_({
     }, [hideTooltipOnScroll])
 
     // Remove tooltip element on unmount
-    useEffect(() => {
+    useOnMountEffect(() => {
         return () => {
             const tooltipEl = document.getElementById('InsightTooltipWrapper')
             tooltipEl?.remove()
         }
-    }, [])
+    })
 
     // Add event listeners to canvas
-    useEffect(() => {
+    useOnMountEffect(() => {
         const canvas = canvasRef.current
 
         if (canvas) {
@@ -410,7 +413,7 @@ export function LineGraph_({
                 canvas.removeEventListener('webglcontextlost', handleEvent)
             }
         }
-    }, [])
+    })
 
     function processDataset(dataset: ChartDataset<any>, index: number): ChartDataset<any> {
         const isPrevious = !!dataset.compare && dataset.compare_label === 'previous'
@@ -418,8 +421,8 @@ export function LineGraph_({
         const themeColor = dataset?.status
             ? getBarColorFromStatus(dataset.status)
             : isHorizontal
-            ? dataset.backgroundColor
-            : getTrendsColor(dataset) || '#000000' // Default to black if no color found
+              ? dataset.backgroundColor
+              : getTrendsColor(dataset) || '#000000' // Default to black if no color found
         const mainColor = isPrevious ? `${themeColor}80` : themeColor
 
         const hoverColor = dataset?.status ? getBarColorFromStatus(dataset.status, true) : mainColor
@@ -486,7 +489,12 @@ export function LineGraph_({
             hoverBorderWidth: isBar ? 0 : 2,
             hoverBorderRadius: isBar ? 0 : 2,
             type: (isHorizontal ? GraphType.Bar : type) as ChartType,
-            yAxisID: type === GraphType.Line && showMultipleYAxes && index > 0 ? `y${index}` : 'y',
+            yAxisID:
+                type === GraphType.Line && showMultipleYAxes && index > 0 && !dataset.yAxisID
+                    ? `y${index}`
+                    : dataset.yAxisID
+                      ? dataset.yAxisID
+                      : 'y',
         }
     }
 
@@ -721,6 +729,10 @@ export function LineGraph_({
                             const dataset = datasets[referenceDataPoint.datasetIndex]
                             const date = dataset?.days?.[referenceDataPoint.dataIndex]
                             const seriesData = createTooltipData(tooltip.dataPoints, (dp) => {
+                                if (tooltipConfig?.filter) {
+                                    return tooltipConfig.filter(dp)
+                                }
+
                                 const hasDotted =
                                     datasets.some((d) => d.dotted) &&
                                     dp.dataIndex - datasets?.[dp.datasetIndex]?.data?.length >=
@@ -742,6 +754,8 @@ export function LineGraph_({
                                     timezone={timezone}
                                     seriesData={seriesData}
                                     breakdownFilter={breakdownFilter}
+                                    interval={interval}
+                                    dateRange={insightData?.resolved_date_range}
                                     renderSeries={(value, datum) => {
                                         const hasBreakdown =
                                             datum.breakdown_value !== undefined && !!datum.breakdown_value
@@ -806,8 +820,8 @@ export function LineGraph_({
                                         labelGroupType === 'people'
                                             ? 'people'
                                             : labelGroupType === 'none'
-                                            ? ''
-                                            : aggregationLabel(labelGroupType).plural
+                                              ? ''
+                                              : aggregationLabel(labelGroupType).plural
                                     }
                                     {...tooltipConfig}
                                 />
@@ -922,7 +936,7 @@ export function LineGraph_({
                     },
                 },
                 ...generateYaxesForLineGraph(
-                    datasets.length,
+                    (showMultipleYAxes && new Set(datasets.map((d) => d.yAxisID)).size) || datasets.length,
                     seriesNonZeroMin,
                     goalLines,
                     goalLinesY,
@@ -1033,7 +1047,7 @@ export function LineGraph_({
         showMultipleYAxes,
         _goalLines,
         theme,
-    ])
+    ]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     return (
         <div className={clsx('LineGraph w-full grow relative overflow-hidden')} data-attr={dataAttr}>

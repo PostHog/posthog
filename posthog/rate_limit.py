@@ -3,7 +3,7 @@ import re
 import time
 from functools import lru_cache
 from typing import Optional
-
+from django.conf import settings
 from prometheus_client import Counter
 from rest_framework.throttling import SimpleRateThrottle, BaseThrottle, UserRateThrottle
 from rest_framework.request import Request
@@ -317,7 +317,7 @@ class ClickHouseBurstRateThrottle(PersonalApiKeyRateThrottle):
 
 
 class ClickHouseSustainedRateThrottle(PersonalApiKeyRateThrottle):
-    # Throttle class that's a bit more aggressive and is used specifically on endpoints that hit OpenAI
+    # Throttle class that's a bit more aggressive and is used specifically on endpoints that hit ClickHouse
     # Intended to block slower but sustained bursts of requests, per project
     scope = "clickhouse_sustained"
     rate = "1200/hour"
@@ -381,6 +381,16 @@ class APIQueriesSustainedThrottle(PersonalApiKeyRateThrottle):
     rate = "1200/hour"
 
 
+class WebAnalyticsAPIBurstThrottle(PersonalApiKeyRateThrottle):
+    scope = "web_analytics_api_burst"
+    rate = "240/minute"
+
+
+class WebAnalyticsAPISustainedThrottle(PersonalApiKeyRateThrottle):
+    scope = "web_analytics_api_sustained"
+    rate = "2400/hour"
+
+
 class UserPasswordResetThrottle(UserOrEmailRateThrottle):
     scope = "user_password_reset"
     rate = "6/day"
@@ -415,7 +425,10 @@ class SetupWizardAuthenticationRateThrottle(UserRateThrottle):
 
 
 class SetupWizardQueryRateThrottle(SimpleRateThrottle):
-    rate = "20/day"  # Since the authentication hash is valid for a short period, this is effectively per-user
+    def get_rate(self):
+        if settings.DEBUG:
+            return "1000/day"
+        return "20/day"
 
     # Throttle per wizard hash
     def get_cache_key(self, request, view):
@@ -424,3 +437,15 @@ class SetupWizardQueryRateThrottle(SimpleRateThrottle):
         if not hash:
             return self.get_ident(request)
         return f"throttle_wizard_query_{hash}"
+
+
+class BreakGlassBurstThrottle(UserOrEmailRateThrottle):
+    # Throttle class that can be applied when a bug is causing too many requests to hit and an endpoint, e.g. a bug in the frontend hitting an endpoint in a loop.
+    # Prefer making a subclass of this for specific endpoints, and setting a scope
+    rate = "15/minute"
+
+
+class BreakGlassSustainedThrottle(UserOrEmailRateThrottle):
+    # Throttle class that can be applied when a bug is causing too many requests to hit and an endpoint, e.g. a bug in the frontend hitting an endpoint in a loop
+    # Prefer making a subclass of this for specific endpoints, and setting a scope
+    rate = "75/hour"

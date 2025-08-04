@@ -40,18 +40,20 @@ import {
     ActionFilter,
     AnyPropertyFilter,
     Experiment,
-    Experiment as ExperimentType,
     ExperimentConclusion,
     ExperimentIdType,
     InsightShortId,
+    ProgressStatus,
 } from '~/types'
 
 import { CONCLUSION_DISPLAY_CONFIG, EXPERIMENT_VARIANT_MULTIPLE } from '../constants'
+import { DuplicateExperimentModal } from '../DuplicateExperimentModal'
+import { experimentLogic } from '../experimentLogic'
+import { getExperimentStatusColor } from '../experimentsLogic'
 import { getIndexForVariant } from '../legacyExperimentCalculations'
-import { experimentLogic, FORM_MODES } from '../experimentLogic'
-import { getExperimentStatus, getExperimentStatusColor } from '../experimentsLogic'
-import { getExperimentInsightColour } from '../utils'
 import { modalsLogic } from '../modalsLogic'
+import { getExperimentInsightColour } from '../utils'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 export function VariantTag({
     experimentId,
@@ -251,7 +253,7 @@ export function ResultsHeader(): JSX.Element {
 export function EllipsisAnimation(): JSX.Element {
     const [ellipsis, setEllipsis] = useState('.')
 
-    useEffect(() => {
+    useOnMountEffect(() => {
         let count = 1
         let direction = 1
 
@@ -265,7 +267,7 @@ export function EllipsisAnimation(): JSX.Element {
         }, 300)
 
         return () => clearInterval(interval)
-    }, [])
+    })
 
     return <span>{ellipsis}</span>
 }
@@ -286,18 +288,28 @@ export function PageHeaderCustom(): JSX.Element {
     const {
         experimentId,
         experiment,
+        isExperimentDraft,
         isExperimentRunning,
         isExperimentStopped,
-        isPrimaryMetricSignificant,
         isSingleVariantShipped,
         hasPrimaryMetricSet,
         isCreatingExperimentDashboard,
+        primaryMetricsResults,
+        legacyPrimaryMetricsResults,
+        hasMinimumExposureForResults,
     } = useValues(experimentLogic)
     const { launchExperiment, archiveExperiment, createExposureCohort, createExperimentDashboard } =
         useActions(experimentLogic)
     const { openShipVariantModal, openStopExperimentModal } = useActions(modalsLogic)
+    const [duplicateModalOpen, setDuplicateModalOpen] = useState(false)
 
     const exposureCohortId = experiment?.exposure_cohort
+
+    const shouldShowShipVariantButton =
+        !isExperimentDraft &&
+        !isSingleVariantShipped &&
+        hasMinimumExposureForResults &&
+        (legacyPrimaryMetricsResults.length > 0 || primaryMetricsResults.length > 0)
 
     return (
         <PageHeader
@@ -325,10 +337,7 @@ export function PageHeaderCustom(): JSX.Element {
                                 <More
                                     overlay={
                                         <>
-                                            <LemonButton
-                                                to={urls.experiment(`${experiment.id}`, FORM_MODES.duplicate)}
-                                                fullWidth
-                                            >
+                                            <LemonButton onClick={() => setDuplicateModalOpen(true)} fullWidth>
                                                 Duplicate
                                             </LemonButton>
                                             <LemonButton
@@ -395,7 +404,7 @@ export function PageHeaderCustom(): JSX.Element {
                             )}
                         </div>
                     )}
-                    {isPrimaryMetricSignificant(0) && !isSingleVariantShipped && (
+                    {shouldShowShipVariantButton && (
                         <>
                             <Tooltip title="Choose a variant and roll it out to all users">
                                 <LemonButton type="primary" icon={<IconFlask />} onClick={() => openShipVariantModal()}>
@@ -404,6 +413,13 @@ export function PageHeaderCustom(): JSX.Element {
                             </Tooltip>
                             <ShipVariantModal experimentId={experimentId} />
                         </>
+                    )}
+                    {experiment && (
+                        <DuplicateExperimentModal
+                            isOpen={duplicateModalOpen}
+                            onClose={() => setDuplicateModalOpen(false)}
+                            experiment={experiment}
+                        />
                     )}
                 </>
             }
@@ -691,8 +707,7 @@ export const ResetButton = ({ experimentId }: { experimentId: ExperimentIdType }
     )
 }
 
-export function StatusTag({ experiment }: { experiment: ExperimentType }): JSX.Element {
-    const status = getExperimentStatus(experiment)
+export function StatusTag({ status }: { status: ProgressStatus }): JSX.Element {
     return (
         <LemonTag type={getExperimentStatusColor(status)}>
             <b className="uppercase">{status}</b>

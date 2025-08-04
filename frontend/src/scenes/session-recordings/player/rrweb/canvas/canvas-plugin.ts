@@ -191,8 +191,8 @@ export const CanvasReplayerPlugin = (events: eventWithTime[]): ReplayPlugin => {
         const currentIndex = nextPreloadIndex
             ? nextPreloadIndex
             : currentEvent
-            ? quickFindClosestCanvasEventIndex(canvasMutationEvents, currentEvent, 0, canvasMutationEvents.length)
-            : 0
+              ? quickFindClosestCanvasEventIndex(canvasMutationEvents, currentEvent, 0, canvasMutationEvents.length)
+              : 0
 
         const eventsToPreload = canvasMutationEvents
             .slice(currentIndex, currentIndex + PRELOAD_BUFFER_SIZE)
@@ -214,41 +214,9 @@ export const CanvasReplayerPlugin = (events: eventWithTime[]): ReplayPlugin => {
             }
 
             if (node.nodeName === 'CANVAS' && node.nodeType === 1) {
-                const existingContainer = containers.get(id)
-                if (existingContainer) {
-                    return // Already processed
-                }
-
-                // Create wrapper div that gets all the canvas attributes
-                const wrapper = document.createElement('div')
-                const img = document.createElement('img')
-
-                const canvasElement = node as HTMLCanvasElement
-
-                // Copy all attributes from canvas to wrapper div
-                for (let i = 0; i < canvasElement.attributes.length; i++) {
-                    const attr = canvasElement.attributes[i]
-                    wrapper.setAttribute(attr.name, attr.value)
-                }
-
-                // Style the img to fill the wrapper
-                img.style.width = '100%'
-                img.style.height = '100%'
-                img.style.objectFit = 'contain'
-
-                // Set dimensions on wrapper if canvas has them
-                if (canvasElement.width) {
-                    wrapper.style.width = canvasElement.width + 'px'
-                }
-                if (canvasElement.height) {
-                    wrapper.style.height = canvasElement.height + 'px'
-                }
-
-                wrapper.appendChild(img)
-
-                const parent = node.parentNode as Node
-                parent?.replaceChild?.(wrapper, node as Node)
-                containers.set(id, img)
+                const el = containers.get(id) || document.createElement('img')
+                ;(node as HTMLCanvasElement).appendChild(el)
+                containers.set(id, el)
             }
         },
 

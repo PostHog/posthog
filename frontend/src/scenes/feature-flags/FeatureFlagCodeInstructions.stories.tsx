@@ -2,7 +2,7 @@ import { Meta } from '@storybook/react'
 
 import { useStorybookMocks } from '~/mocks/browser'
 import { useAvailableFeatures } from '~/mocks/features'
-import { AccessControlLevel, FeatureFlagType, SDKKey } from '~/types'
+import { AccessControlLevel, FeatureFlagEvaluationRuntime, FeatureFlagType, SDKKey } from '~/types'
 import { AvailableFeature } from '~/types'
 
 import { OPTIONS } from './FeatureFlagCodeOptions'
@@ -37,6 +37,7 @@ const REGULAR_FEATURE_FLAG: FeatureFlagType = {
     status: 'ACTIVE',
     version: 0,
     last_modified_by: null,
+    evaluation_runtime: FeatureFlagEvaluationRuntime.ALL,
 }
 
 const GROUP_FEATURE_FLAG: FeatureFlagType = {

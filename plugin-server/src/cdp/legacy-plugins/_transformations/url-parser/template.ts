@@ -12,7 +12,8 @@ export const urlParserPlugin: LegacyTransformationPlugin = {
         description: 'Parse your event URLs into useful properties.',
         icon_url: '/static/hedgehog/builder-hog-01.png',
         category: [],
-        hog: `return event`,
+        code_language: 'javascript',
+        code: `return event`,
         inputs_schema: [],
     },
 }

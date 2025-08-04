@@ -56,7 +56,7 @@ WEB_DATA_QUALITY_CONFIG_SCHEMA = {
 def table_has_data(table_name: str, tags: DagsterTags = None) -> AssetCheckResult:
     try:
         with tags_context(kind="dagster", dagster=tags):
-            result = sync_execute(f"SELECT COUNT(*) FROM {table_name} LIMIT 1", query_tags=dagster_tags)
+            result = sync_execute(f"SELECT COUNT(*) FROM {table_name} LIMIT 1")
         row_count = result[0][0] if result and result[0] else 0
 
         passed = row_count > 0

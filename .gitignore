@@ -1,4 +1,3 @@
-!.vscode/launch.json
 __emails__
 __pycache__/
 # Local files generated for the ANTLR VS Code extension (https://github.com/mike-lischke/vscode-antlr4)
@@ -18,6 +17,8 @@ __pycache__/
 .turbo
 .venv
 .vscode/*
+!.vscode/launch.json
+!.vscode/settings.example.json
 .wokeignore
 .yalc
 *-esbuild-bundle-visualization.html
@@ -63,6 +64,8 @@ frontend/public/Matter*.woff* # Paid font
 frontend/tmp
 frontend/types/
 frontend/src/products.tsx
+# Vite-specific assets (we copy public assets to src/assets) just for development
+frontend/src/assets
 .typegen
 # ANTLR-generated temp files when "npm run grammar:build" crashes
 gen/
@@ -96,6 +99,8 @@ playwright/test-results/
 
 .dagster_home/*
 !.dagster_home/.gitkeep
+!.dagster_home/workspace.yaml
+!.dagster_home/dagster.yaml
 .tmp_dagster_home*/*
 
 # Dist release target dir
@@ -103,3 +108,9 @@ target/*
 
 # Ignore user's Cursor rules
 .cursor/**/user*.mdc
+
+# Ignore file for clearing demo data on local
+posthog/management/commands/clear_demo_data.py
+
+# Ignore Claude Code settings
+.claude/settings.local.json

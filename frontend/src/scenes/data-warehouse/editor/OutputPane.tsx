@@ -19,11 +19,10 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { JSONViewer } from 'lib/components/JSONViewer'
-import { FEATURE_FLAGS } from 'lib/constants'
+
 import { IconTableChart } from 'lib/lemon-ui/icons'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { useCallback, useMemo, useState } from 'react'
 import DataGrid, { SortColumn, RenderHeaderCellProps } from 'react-data-grid'
@@ -52,6 +51,7 @@ import { outputPaneLogic, OutputTab } from './outputPaneLogic'
 import { QueryInfo } from './sidebar/QueryInfo'
 import { QueryVariables } from './sidebar/QueryVariables'
 import TabScroller from './TabScroller'
+import { renderHogQLX } from '~/queries/nodes/HogQLX/render'
 
 interface RowDetailsModalProps {
     isOpen: boolean
@@ -153,8 +153,8 @@ function RowDetailsModal({ isOpen, onClose, row, columns }: RowDetailsModalProps
                 value === null
                     ? 'null'
                     : typeof value === 'object' || isStringifiedJson
-                    ? JSON.stringify(value, null, 2)
-                    : String(value),
+                      ? JSON.stringify(value, null, 2)
+                      : String(value),
             value:
                 value === null ? (
                     <span className="text-muted">null</span>
@@ -279,7 +279,7 @@ export function OutputPane(): JSX.Element {
     } = useValues(dataNodeLogic)
     const { queryCancelled } = useValues(dataVisualizationLogic)
     const { toggleChartSettingsPanel } = useActions(dataVisualizationLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
+
     const response = (dataNodeResponse ?? localStorageResponse) as HogQLQueryResponse | undefined
 
     const [progressCache, setProgressCache] = useState<Record<string, number>>({})
@@ -324,8 +324,8 @@ export function OutputPane(): JSX.Element {
                         return typeof content === 'string'
                             ? content.length
                             : content === null
-                            ? 0
-                            : content.toString().length
+                              ? 0
+                              : content.toString().length
                     })
                 )
                 const isLongContent = maxContentLength > 100
@@ -383,7 +383,19 @@ export function OutputPane(): JSX.Element {
 
                 return {
                     ...baseColumn,
-                    renderCell: (props: any) => props.row[column],
+                    renderCell: (props: any) => {
+                        const value = props.row[column]
+                        if (typeof value === 'string' && value.startsWith('["__hx_tag",') && value.endsWith(']')) {
+                            try {
+                                const parsedHogQLX = JSON.parse(value)
+                                return renderHogQLX(parsedHogQLX)
+                            } catch (e) {
+                                console.error('Error parsing HogQLX value:', e)
+                                return <span className="text-red">Error parsing value</span>
+                            }
+                        }
+                        return value
+                    },
                 }
             }) ?? []),
         ]
@@ -416,8 +428,8 @@ export function OutputPane(): JSX.Element {
 
     return (
         <div className="OutputPane flex flex-col w-full flex-1 bg-white dark:bg-black">
-            <div className="flex flex-row justify-between align-center w-full h-[50px] overflow-y-auto">
-                <div className="flex h-[50px] gap-2 ml-4">
+            <div className="flex flex-row justify-between align-center w-full min-h-[50px] overflow-y-auto">
+                <div className="flex min-h-[50px] gap-2 ml-4">
                     {[
                         {
                             key: OutputTab.Results,
@@ -429,27 +441,21 @@ export function OutputPane(): JSX.Element {
                             label: 'Visualization',
                             icon: <IconGraph />,
                         },
-                        ...(featureFlags[FEATURE_FLAGS.SQL_EDITOR_TREE_VIEW]
-                            ? [
-                                  {
-                                      key: OutputTab.Variables,
-                                      label: (
-                                          <Tooltip
-                                              title={editingView ? 'Variables are not allowed in views.' : undefined}
-                                          >
-                                              Variables
-                                          </Tooltip>
-                                      ),
-                                      disabled: editingView,
-                                      icon: <IconBrackets />,
-                                  },
-                                  {
-                                      key: OutputTab.Materialization,
-                                      label: 'Materialization',
-                                      icon: <IconBolt />,
-                                  },
-                              ]
-                            : []),
+                        {
+                            key: OutputTab.Variables,
+                            label: (
+                                <Tooltip title={editingView ? 'Variables are not allowed in views.' : undefined}>
+                                    Variables
+                                </Tooltip>
+                            ),
+                            disabled: editingView,
+                            icon: <IconBrackets />,
+                        },
+                        {
+                            key: OutputTab.Materialization,
+                            label: 'Materialization',
+                            icon: <IconBolt />,
+                        },
                     ].map((tab) => (
                         <div
                             key={tab.key}
@@ -678,8 +684,8 @@ const ErrorState = ({ responseError, sourceQuery, queryCancelled, response }: an
     const error = queryCancelled
         ? 'The query was cancelled'
         : response && 'error' in response && !!response.error
-        ? response.error
-        : responseError
+          ? response.error
+          : responseError
 
     return (
         <div className={clsx('flex-1 absolute top-0 left-0 right-0 bottom-0 overflow-auto')}>

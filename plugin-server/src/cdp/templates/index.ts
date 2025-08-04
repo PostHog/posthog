@@ -1,12 +1,15 @@
 import { DESTINATION_PLUGINS, TRANSFORMATION_PLUGINS } from '../legacy-plugins'
 import { SEGMENT_DESTINATIONS } from '../segment/segment-templates'
-import { HogFunctionTemplate } from '../types'
+import { HogFunctionTemplate, NativeTemplate } from '../types'
 import { allComingSoonTemplates } from './_destinations/coming-soon/coming-soon-destinations.template'
 import { template as googleAdsTemplate } from './_destinations/google_ads/google.template'
+import { template as googleTagManagerTemplate } from './_destinations/google-tag-manager/google-tag-manager.template'
 import { template as linearTemplate } from './_destinations/linear/linear.template'
+import { template as nativeWebhookTemplate } from './_destinations/native-webhook/webhook.template'
 import { template as redditAdsTemplate } from './_destinations/reddit_ads/reddit.template'
 import { template as snapchatAdsTemplate } from './_destinations/snapchat_ads/snapchat.template'
 import { template as tiktokAdsTemplate } from './_destinations/tiktok_ads/tiktok.template'
+import { template as twilioTemplate } from './_destinations/twilio/twilio.template'
 import { template as webhookTemplate } from './_destinations/webhook/webhook.template'
 import { template as incomingWebhookTemplate } from './_sources/webhook/incoming_webhook.template'
 import { template as botDetectionTemplate } from './_transformations/bot-detection/bot-detection.template'
@@ -30,6 +33,8 @@ export const HOG_FUNCTION_TEMPLATES_DESTINATIONS: HogFunctionTemplate[] = [
     linearTemplate,
     googleAdsTemplate,
     redditAdsTemplate,
+    twilioTemplate,
+    googleTagManagerTemplate,
 ]
 
 export const HOG_FUNCTION_TEMPLATES_TRANSFORMATIONS: HogFunctionTemplate[] = [
@@ -46,6 +51,22 @@ export const HOG_FUNCTION_TEMPLATES_TRANSFORMATIONS: HogFunctionTemplate[] = [
     urlNormalizationTemplate,
 ]
 
+export const NATIVE_HOG_FUNCTIONS: (HogFunctionTemplate & NativeTemplate)[] = [nativeWebhookTemplate].map((plugin) => ({
+    ...plugin,
+    code_language: 'javascript',
+    code: 'return event;',
+    inputs_schema: [
+        ...plugin.inputs_schema,
+        {
+            key: 'debug_mode',
+            label: 'Debug Mode',
+            type: 'boolean',
+            description: 'Will log configuration and request details',
+            default: false,
+        },
+    ],
+}))
+
 export const HOG_FUNCTION_TEMPLATES_SOURCES: HogFunctionTemplate[] = [incomingWebhookTemplate]
 
 export const HOG_FUNCTION_TEMPLATES_DESTINATIONS_DEPRECATED: HogFunctionTemplate[] = DESTINATION_PLUGINS.map(
@@ -60,6 +81,14 @@ export const HOG_FUNCTION_TEMPLATES_TRANSFORMATIONS_DEPRECATED: HogFunctionTempl
     (x) => x.template
 )
 
+export const NATIVE_HOG_FUNCTIONS_BY_ID = NATIVE_HOG_FUNCTIONS.reduce(
+    (acc, plugin) => {
+        acc[plugin.id] = plugin
+        return acc
+    },
+    {} as Record<string, NativeTemplate>
+)
+
 export const HOG_FUNCTION_TEMPLATES: HogFunctionTemplate[] = [
     ...HOG_FUNCTION_TEMPLATES_DESTINATIONS,
     ...HOG_FUNCTION_TEMPLATES_SEGMENT_DESTINATIONS,
@@ -68,4 +97,5 @@ export const HOG_FUNCTION_TEMPLATES: HogFunctionTemplate[] = [
     ...HOG_FUNCTION_TEMPLATES_TRANSFORMATIONS_DEPRECATED,
     ...HOG_FUNCTION_TEMPLATES_SOURCES,
     ...HOG_FUNCTION_TEMPLATES_COMING_SOON,
+    ...NATIVE_HOG_FUNCTIONS,
 ]

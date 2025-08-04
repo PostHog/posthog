@@ -1,4 +1,5 @@
 import gc
+import sys
 import time
 from typing import Any, Literal
 
@@ -7,8 +8,6 @@ import posthoganalytics
 import pyarrow as pa
 import pyarrow.compute as pc
 from django.db.models import F
-from dlt.sources import DltSource
-from pympler import asizeof
 
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.common.logger import FilteringBoundLogger
@@ -26,8 +25,6 @@ from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     DuplicatePrimaryKeysException,
     _append_debug_column_to_pyarrows_table,
     _evolve_pyarrow_schema,
-    _get_column_hints,
-    _get_primary_keys,
     _handle_null_columns_with_definitions,
     normalize_column_name,
     normalize_table_column_names,
@@ -38,7 +35,7 @@ from posthog.temporal.data_imports.pipelines.pipeline_sync import (
     update_last_synced_at_sync,
     validate_schema_and_update_table_sync,
 )
-from posthog.temporal.data_imports.pipelines.stripe.constants import (
+from posthog.temporal.data_imports.sources.stripe.constants import (
     CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,
 )
 from posthog.temporal.data_imports.row_tracking import decrement_rows, increment_rows, will_hit_billing_limit
@@ -68,28 +65,14 @@ class PipelineNonDLT:
 
     def __init__(
         self,
-        source: DltSource | SourceResponse,
+        source: SourceResponse,
         logger: FilteringBoundLogger,
         job_id: str,
         reset_pipeline: bool,
         shutdown_monitor: ShutdownMonitor,
     ) -> None:
-        if isinstance(source, DltSource):
-            resources = list(source.resources.items())
-            assert len(resources) == 1
-            resource_name, resource = resources[0]
-
-            self._resource_name = resource_name
-            self._resource = SourceResponse(
-                items=resource,
-                primary_keys=_get_primary_keys(resource),
-                name=resource_name,
-                column_hints=_get_column_hints(resource),
-                partition_count=None,
-            )
-        else:
-            self._resource = source
-            self._resource_name = source.name
+        self._resource = source
+        self._resource_name = source.name
 
         self._job = ExternalDataJob.objects.prefetch_related("schema").get(id=job_id)
         self._reset_pipeline = reset_pipeline
@@ -139,6 +122,7 @@ class PipelineNonDLT:
                     )
 
             buffer: list[Any] = []
+            buffer_size_bytes = 0
             py_table = None
             row_count = 0
             chunk_index = 0
@@ -162,28 +146,34 @@ class PipelineNonDLT:
                 if isinstance(item, list):
                     if len(buffer) > 0:
                         buffer.extend(item)
-                        if asizeof.asizeof(buffer) >= self._chunk_size_bytes or len(buffer) >= self._chunk_size:
+                        buffer_size_bytes += _estimate_size(item)
+                        if buffer_size_bytes >= self._chunk_size_bytes or len(buffer) >= self._chunk_size:
                             self._logger.debug(f"Processing pipeline buffer (list). Length of buffer = {len(buffer)}")
 
                             py_table = table_from_py_list(buffer)
                             buffer = []
+                            buffer_size_bytes = 0
                         else:
                             continue
                     else:
-                        if asizeof.asizeof(item) >= self._chunk_size_bytes or len(item) >= self._chunk_size:
+                        buffer_size_bytes += _estimate_size(item)
+                        if buffer_size_bytes >= self._chunk_size_bytes or len(item) >= self._chunk_size:
                             self._logger.debug(f"Processing pipeline item (list). Length of item = {len(item)}")
                             py_table = table_from_py_list(item)
+                            buffer_size_bytes = 0
                         else:
                             buffer.extend(item)
                             continue
                 elif isinstance(item, dict):
                     buffer.append(item)
-                    if asizeof.asizeof(buffer) < self._chunk_size_bytes and len(buffer) < self._chunk_size:
+                    buffer_size_bytes += _estimate_size(item)
+                    if buffer_size_bytes < self._chunk_size_bytes and len(buffer) < self._chunk_size:
                         continue
 
                     self._logger.debug(f"Processing pipeline buffer (dict). Length of buffer = {len(buffer)}")
                     py_table = table_from_py_list(buffer)
                     buffer = []
+                    buffer_size_bytes = 0
                 elif isinstance(item, pa.Table):
                     py_table = item
                 else:
@@ -204,7 +194,10 @@ class PipelineNonDLT:
                 pa_memory_pool.release_unused()
                 gc.collect()
 
-                if self._schema.should_use_incremental_field:
+                # Only raise if we're not running in descending order, otherwise we'll often not
+                # complete the job before the incremental value can be updated
+                # TODO: raise when we're within `x` time of the worker being forced to shutdown
+                if self._schema.should_use_incremental_field and self._resource.sort_mode != "desc":
                     self._shutdown_monitor.raise_if_is_worker_shutdown()
 
             if len(buffer) > 0:
@@ -450,3 +443,12 @@ def _notify_revenue_analytics_that_sync_has_completed(schema: ExternalDataSchema
         # Sending an email is not critical to the pipeline
         logger.exception(f"Error notifying revenue analytics that sync has completed: {e}")
         capture_exception(e)
+
+
+def _estimate_size(obj: Any) -> int:
+    if isinstance(obj, dict):
+        return sys.getsizeof(obj) + sum(_estimate_size(k) + _estimate_size(v) for k, v in obj.items())
+    elif isinstance(obj, list | tuple | set):
+        return sys.getsizeof(obj) + sum(_estimate_size(i) for i in obj)
+    else:
+        return sys.getsizeof(obj)

@@ -20,6 +20,7 @@ from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, _cre
 from products.marketing_analytics.backend.hogql_queries.conversion_goal_processor import (
     ConversionGoalProcessor,
     add_conversion_goal_property_filters,
+    AttributionModeOperator,
 )
 
 
@@ -131,7 +132,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, query_date_range=self.date_range)
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
 
         # Test basic getters
         assert processor.get_cte_name() == "signup_goal"
@@ -153,9 +154,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
 
         # Test various index values
         for index in [0, 1, 5, 10]:
-            processor = ConversionGoalProcessor(
-                goal=goal, index=index, team=self.team, query_date_range=self.date_range
-            )
+            processor = ConversionGoalProcessor(goal=goal, index=index, team=self.team)
             join_clause = processor.generate_join_clause()
             assert join_clause.alias == f"cg_{index}"
 
@@ -174,7 +173,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, query_date_range=self.date_range)
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
 
         assert processor.get_table_name() == "events"
         conditions = processor.get_base_where_conditions()
@@ -193,7 +192,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, query_date_range=self.date_range)
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
 
         assert processor.get_table_name() == "events"
         conditions = processor.get_base_where_conditions()
@@ -219,7 +218,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             },
         )
 
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, query_date_range=self.date_range)
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
 
         assert processor.get_table_name() == "warehouse_table"
         assert processor.get_date_field() == "event_timestamp"
@@ -280,7 +279,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, query_date_range=self.date_range)
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
 
         additional_conditions = [
             ast.CompareOperation(
@@ -368,7 +367,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, query_date_range=self.date_range)
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
 
         additional_conditions = [
             ast.CompareOperation(
@@ -451,7 +450,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, query_date_range=self.date_range)
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
 
         additional_conditions = [
             ast.CompareOperation(
@@ -529,7 +528,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, query_date_range=self.date_range)
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
 
         additional_conditions = [
             ast.CompareOperation(
@@ -601,7 +600,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, query_date_range=self.date_range)
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
 
         additional_conditions = [
             ast.CompareOperation(
@@ -689,7 +688,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, query_date_range=self.date_range)
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
 
         additional_conditions = [
             ast.CompareOperation(
@@ -770,7 +769,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, query_date_range=self.date_range)
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
 
         # Apply property filters to additional conditions (same pattern as working test)
         additional_conditions = [
@@ -860,7 +859,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, query_date_range=self.date_range)
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
 
         # Apply property filters to additional conditions (same pattern as working test)
         additional_conditions = [
@@ -910,7 +909,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, query_date_range=self.date_range)
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
 
         utm_campaign, utm_source = processor.get_utm_expressions()
         assert utm_campaign.chain == ["events", "properties", "utm_campaign"]
@@ -936,7 +935,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             },
         )
 
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, query_date_range=self.date_range)
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
 
         utm_campaign, utm_source = processor.get_utm_expressions()
         assert utm_campaign.chain == ["campaign_field"]
@@ -953,7 +952,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "custom_campaign_field", "utm_source_name": "custom_source_field"},
         )
 
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, query_date_range=self.date_range)
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
 
         utm_campaign, utm_source = processor.get_utm_expressions()
         assert utm_campaign.chain == ["events", "properties", "custom_campaign_field"]
@@ -970,7 +969,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={},  # Empty schema map
         )
 
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, query_date_range=self.date_range)
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
 
         # Should handle missing schema gracefully and fallback to defaults
         utm_campaign, utm_source = processor.get_utm_expressions()
@@ -981,7 +980,6 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         assert utm_campaign.chain == ["events", "properties", "utm_campaign"]
         assert utm_source.chain == ["events", "properties", "utm_source"]
 
-    @pytest.mark.xfail(reason="Attribution logic is not implemented")
     def test_schema_mapping_custom_fields_end_to_end_attribution(self):
         """
         Test that custom schema mapping works end-to-end for attribution
@@ -1025,9 +1023,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "my_campaign_field", "utm_source_name": "my_source_field"},
         )
 
-        processor = ConversionGoalProcessor(
-            goal=goal, index=0, team=self.team, query_date_range=DateRange(date_from="2023-05-01", date_to="2023-05-31")
-        )
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
 
         additional_conditions = [
             ast.CompareOperation(
@@ -1078,7 +1074,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, query_date_range=self.date_range)
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
 
         join_clause = processor.generate_join_clause()
         assert join_clause.join_type == "LEFT JOIN"
@@ -1097,7 +1093,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, query_date_range=self.date_range)
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
 
         select_columns = processor.generate_select_columns()
         assert len(select_columns) == 2
@@ -1125,7 +1121,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, query_date_range=self.date_range)
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
 
         with pytest.raises(Action.DoesNotExist):
             processor.get_base_where_conditions()
@@ -1142,7 +1138,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, query_date_range=self.date_range)
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
 
         # Should handle gracefully by ignoring irrelevant math_property for DAU
         select_field = processor.get_select_field()
@@ -1193,7 +1189,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, query_date_range=self.date_range)
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
 
         additional_conditions = [
             ast.CompareOperation(
@@ -1215,7 +1211,6 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
     # 8. EDGE CASE TESTS - Complex scenarios
     # ================================================================
 
-    @pytest.mark.xfail(reason="Organic source is not implemented")
     def test_edge_case_very_long_goal_names(self):
         """Test that queries work correctly with very long goal names"""
 
@@ -1242,7 +1237,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, query_date_range=self.date_range)
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
 
         # Test that query executes successfully with very long goal name
         additional_conditions = [
@@ -1271,7 +1266,6 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             conversion_count == 1
         ), f"Expected conversion count of 1 with very long goal name, got {conversion_count}. Long names should not affect query results."
 
-    @pytest.mark.xfail(reason="Organic source is not implemented")
     def test_edge_case_special_characters_in_event_names(self):
         """Test that events with special characters in names are correctly matched"""
 
@@ -1307,7 +1301,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, query_date_range=self.date_range)
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
 
         # Test that query correctly matches only the event with special characters
         additional_conditions = [
@@ -1375,7 +1369,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "营销活动", "utm_source_name": "来源"},  # Chinese property names
         )
 
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, query_date_range=self.date_range)
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
 
         # Test that query executes successfully with Unicode property names
         additional_conditions = [
@@ -1399,7 +1393,6 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             total_conversions == 2
         ), f"Expected total of 2 conversions with Unicode properties, got {total_conversions}. Unicode property names should not affect conversion counting."
 
-    @pytest.mark.xfail(reason="Attribution logic is not implemented")
     def test_edge_case_temporal_attribution_complex_timeline(self):
         """Test that ConversionGoalProcessor correctly handles conversions with complex temporal scenarios"""
 
@@ -1441,7 +1434,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, query_date_range=self.date_range)
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
 
         # Test that query executes and finds the conversion despite complex timeline
         additional_conditions = [
@@ -1486,7 +1479,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, query_date_range=self.date_range)
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
 
         additional_conditions = [
             ast.CompareOperation(
@@ -1515,7 +1508,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, query_date_range=self.date_range)
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
 
         additional_conditions = [
             ast.CompareOperation(
@@ -1543,7 +1536,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, query_date_range=self.date_range)
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
 
         additional_conditions = [
             ast.CompareOperation(
@@ -1569,7 +1562,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, query_date_range=self.date_range)
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
 
         # Test all major components can be generated without errors
         assert processor.get_select_field() is not None
@@ -1582,7 +1575,6 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
     # 10. TEMPORAL ATTRIBUTION CORE TESTS - Ad timing vs conversion timing
     # ================================================================
 
-    @pytest.mark.xfail(reason="Attribution logic is not implemented")
     def test_temporal_attribution_basic_forward_order(self):
         """
         Test Case: Basic temporal attribution - Ad BEFORE conversion (SHOULD attribute)
@@ -1619,9 +1611,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(
-            goal=goal, index=0, team=self.team, query_date_range=DateRange(date_from="2023-05-01", date_to="2023-05-31")
-        )
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
 
         # Execute query and verify attribution
         additional_conditions = [
@@ -1645,7 +1635,6 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         assert source_name == "google", f"Expected google source, got {source_name}"
         assert conversion_count == 1, f"Expected 1 conversion, got {conversion_count}"
 
-    @pytest.mark.xfail(reason="Attribution logic is not implemented")
     def test_temporal_attribution_forward_order_validation_example(self):
         """
         EXAMPLE: How to validate attribution results properly
@@ -1677,9 +1666,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(
-            goal=goal, index=0, team=self.team, query_date_range=DateRange(date_from="2023-05-01", date_to="2023-05-31")
-        )
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
 
         additional_conditions = [
             ast.CompareOperation(
@@ -1714,7 +1701,6 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             first_result[2] == expected_conversion_count
         ), f"Expected {expected_conversion_count} conversion, got {first_result[2]}"
 
-    @pytest.mark.xfail(reason="Attribution logic is not implemented")
     def test_temporal_attribution_backward_order_validation_example(self):
         """
         Test that wrong temporal order produces Unknown attribution.
@@ -1752,7 +1738,9 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         )
 
         processor = ConversionGoalProcessor(
-            goal=goal, index=0, team=self.team, query_date_range=DateRange(date_from="2023-04-01", date_to="2023-04-30")
+            goal=goal,
+            index=0,
+            team=self.team,
         )
 
         additional_conditions = [
@@ -1778,7 +1766,6 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         assert source_name == "organic", f"Expected organic source, got {source_name}"
         assert conversion_count == 1, f"Expected 1 conversion, got {conversion_count}"
 
-    @pytest.mark.xfail(reason="Attribution logic is not implemented")
     def test_multiple_touchpoints_attribution_validation_example(self):
         """
         Test multi-touch attribution with last-touch logic.
@@ -1823,7 +1810,9 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         )
 
         processor = ConversionGoalProcessor(
-            goal=goal, index=0, team=self.team, query_date_range=DateRange(date_from="2023-04-01", date_to="2023-05-31")
+            goal=goal,
+            index=0,
+            team=self.team,
         )
 
         additional_conditions = [
@@ -1911,9 +1900,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(
-            goal=goal, index=0, team=self.team, query_date_range=DateRange(date_from="2023-05-01", date_to="2023-05-31")
-        )
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
 
         additional_conditions = [
             ast.CompareOperation(
@@ -1947,7 +1934,6 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         # 2. Last valid touchpoint before conversion (FALLBACK)
         # 3. Unknown Campaign/Source (DEFAULT)
 
-    @pytest.mark.xfail(reason="Organic source is not implemented")
     def test_temporal_attribution_basic_backward_order(self):
         """
         Test basic temporal attribution when ad comes after conversion.
@@ -1985,7 +1971,9 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         )
 
         processor = ConversionGoalProcessor(
-            goal=goal, index=0, team=self.team, query_date_range=DateRange(date_from="2023-04-01", date_to="2023-04-30")
+            goal=goal,
+            index=0,
+            team=self.team,
         )
 
         additional_conditions = [
@@ -2009,7 +1997,6 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         assert source_name == "organic", f"Expected organic source, got {source_name}"
         assert conversion_count == 1, f"Expected 1 conversion, got {conversion_count}"
 
-    @pytest.mark.xfail(reason="Attribution logic is not implemented")
     def test_temporal_attribution_multiple_touchpoints_last_touch(self):
         """
         Test Case: Multiple touchpoints before conversion - Last touch attribution
@@ -2055,9 +2042,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(
-            goal=goal, index=0, team=self.team, query_date_range=DateRange(date_from="2023-05-01", date_to="2023-05-31")
-        )
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
 
         additional_conditions = [
             ast.CompareOperation(
@@ -2080,7 +2065,78 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         assert conversion_count == 1, f"Expected 1 conversion, got {conversion_count}"
         assert campaign_name != "early_bird", f"Should not attribute to first touch early_bird"
 
-    @pytest.mark.xfail(reason="Attribution logic is not implemented")
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_temporal_attribution_multiple_touchpoints_first_touch(self):
+        """
+        Test Case: Multiple touchpoints before conversion - First touch attribution
+
+        Scenario: User sees multiple ads before converting, test first-touch attribution
+        Timeline:
+        - March 10: Email campaign ad (first touch)
+        - April 15: Google search ad (last touch before conversion)
+        - May 10: Conversion
+
+        Expected: Attribution should go to March email ad (first touch)
+        Note: This tests first-touch attribution model using AttributionModeOperator.FIRST_TOUCH
+        """
+        with freeze_time("2023-03-10"):
+            _create_person(distinct_ids=["first_touch_user"], team=self.team)
+            _create_event(
+                distinct_id="first_touch_user",
+                event="$pageview",
+                team=self.team,
+                properties={"utm_campaign": "early_bird", "utm_source": "email"},  # First touch
+            )
+            flush_persons_and_events()
+
+        with freeze_time("2023-04-15"):
+            _create_event(
+                distinct_id="first_touch_user",
+                event="$pageview",
+                team=self.team,
+                properties={"utm_campaign": "spring_sale", "utm_source": "google"},  # Last touch
+            )
+            flush_persons_and_events()
+
+        with freeze_time("2023-05-10"):
+            _create_event(distinct_id="first_touch_user", event="purchase", team=self.team, properties={"revenue": 100})
+            flush_persons_and_events()
+
+        goal = ConversionGoalFilter1(
+            kind=NodeKind.EVENTS_NODE,
+            event="purchase",
+            conversion_goal_id="multi_touch_first",
+            conversion_goal_name="Multi Touch First",
+            math=BaseMathType.TOTAL,
+            schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
+        )
+
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
+        # Set attribution mode to first touch
+        processor.attribution_mode = AttributionModeOperator.FIRST_TOUCH.value
+
+        additional_conditions = [
+            ast.CompareOperation(
+                left=ast.Field(chain=["events", "timestamp"]),
+                op=ast.CompareOperationOp.GtEq,
+                right=ast.Call(name="toDate", args=[ast.Constant(value="2023-05-01")]),
+            ),
+        ]
+
+        cte_query = processor.generate_cte_query(additional_conditions)
+        response = execute_hogql_query(query=cte_query, team=self.team)
+        assert len(response.results) == 1, f"Expected 1 result, got {len(response.results)}"
+
+        # Validation: First-touch attribution validation
+        # Expected: First ad in timeline (March "early_bird", not April "spring_sale")
+        first_result = response.results[0]
+        campaign_name, source_name, conversion_count = first_result[0], first_result[1], first_result[2]
+        assert campaign_name == "early_bird", f"Expected first-touch early_bird, got {campaign_name}"
+        assert source_name == "email", f"Expected email source, got {source_name}"
+        assert conversion_count == 1, f"Expected 1 conversion, got {conversion_count}"
+        assert campaign_name != "spring_sale", f"Should not attribute to last touch spring_sale"
+        assert pretty_print_in_tests(response.hogql, self.team.pk) == self.snapshot
+
     def test_temporal_attribution_touchpoints_before_and_after_conversion(self):
         """
         Test Case: Touchpoints both before AND after conversion
@@ -2151,9 +2207,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(
-            goal=goal, index=0, team=self.team, query_date_range=DateRange(date_from="2023-05-01", date_to="2023-05-31")
-        )
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
 
         additional_conditions = [
             ast.CompareOperation(
@@ -2177,7 +2231,6 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         assert campaign_name != "summer_sale", f"Should ignore ads after conversion"
         assert campaign_name != "july_promo", f"Should ignore ads after conversion"
 
-    @pytest.mark.xfail(reason="Attribution logic is not implemented")
     def test_temporal_attribution_long_attribution_window(self):
         """
         Test Case: Long attribution window - months apart
@@ -2187,7 +2240,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         - Jan 01: New Year campaign ad
         - Dec 31: Purchase (11 months later)
 
-        Expected: Should attribute if within attribution window, otherwise Unknown
+        Expected: Should attribute if within attribution window
         Tests attribution window limits and long customer journeys
         """
         with freeze_time("2023-01-01"):
@@ -2219,7 +2272,9 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         )
 
         processor = ConversionGoalProcessor(
-            goal=goal, index=0, team=self.team, query_date_range=DateRange(date_from="2023-12-01", date_to="2023-12-31")
+            goal=goal,
+            index=0,
+            team=self.team,
         )
 
         additional_conditions = [
@@ -2239,7 +2294,6 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         assert source_name == "google", f"Expected google source, got {source_name}"
         assert conversion_count == 1, f"Expected 1 conversion, got {conversion_count}"
 
-    @pytest.mark.xfail(reason="Attribution logic is not implemented")
     def test_temporal_attribution_multiple_conversions_separate_attribution(self):
         """
         Test Case: Multiple conversions with separate attribution tracking
@@ -2314,7 +2368,6 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             goal=goal,
             index=0,
             team=self.team,
-            query_date_range=DateRange(date_from="2023-04-01", date_to="2023-04-30"),
         )
 
         additional_conditions_april = [
@@ -2346,14 +2399,13 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         campaign, source, count = spring_sale_result[0], spring_sale_result[1], spring_sale_result[2]
         assert campaign == "spring_sale", f"Expected spring_sale for April purchase, got {campaign}"
         assert source == "google", f"Expected google source for April, got {source}"
-        assert count >= 1, f"Expected at least 1 conversion attributed to spring_sale, got {count}"
+        assert count == 1, f"Expected 1 conversion attributed to spring_sale, got {count}"
 
         # Test May conversion attribution (should use mothers_day)
         processor_may = ConversionGoalProcessor(
             goal=goal,
             index=0,
             team=self.team,
-            query_date_range=DateRange(date_from="2023-05-01", date_to="2023-05-31"),
         )
 
         additional_conditions_may = [
@@ -2367,7 +2419,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         cte_query_may = processor_may.generate_cte_query(additional_conditions_may)
         response_may = execute_hogql_query(query=cte_query_may, team=self.team)
 
-        # Find the mothers_day attribution (May conversion should be attributed to mothers_day)
+        # Find the mothers_day attribution (May+ conversions should be attributed to mothers_day)
         assert (
             response_may.results is not None and len(response_may.results) > 0
         ), "Should have attribution results for May"
@@ -2384,14 +2436,13 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         may_campaign, may_source, may_count = mothers_day_result[0], mothers_day_result[1], mothers_day_result[2]
         assert may_campaign == "mothers_day", f"Expected mothers_day for May purchase, got {may_campaign}"
         assert may_source == "facebook", f"Expected facebook source for May, got {may_source}"
-        assert may_count >= 1, f"Expected at least 1 conversion attributed to mothers_day, got {may_count}"
+        assert may_count == 2, f"Expected 2 conversions attributed to mothers_day, got {may_count}"
 
         # Test June conversion attribution (should still use mothers_day - no new ads)
         processor_june = ConversionGoalProcessor(
             goal=goal,
             index=0,
             team=self.team,
-            query_date_range=DateRange(date_from="2023-06-01", date_to="2023-06-30"),
         )
 
         additional_conditions_june = [
@@ -2426,13 +2477,12 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         )
         assert june_campaign == "mothers_day", f"Expected mothers_day for June purchase, got {june_campaign}"
         assert june_source == "facebook", f"Expected facebook source for June, got {june_source}"
-        assert june_count >= 1, f"Expected at least 1 conversion attributed to mothers_day in June, got {june_count}"
+        assert june_count == 1, f"Expected 1 conversion attributed to mothers_day in June, got {june_count}"
 
     # ================================================================
     # 11. SAME-DAY TEMPORAL ATTRIBUTION TESTS - Intraday timing precision
     # ================================================================
 
-    @pytest.mark.xfail(reason="Attribution logic is not implemented")
     def test_temporal_attribution_same_day_morning_evening(self):
         """
         Test Case: Same day temporal order - morning ad, evening conversion
@@ -2470,9 +2520,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(
-            goal=goal, index=0, team=self.team, query_date_range=DateRange(date_from="2023-05-15", date_to="2023-05-15")
-        )
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
 
         additional_conditions = [
             ast.CompareOperation(
@@ -2494,7 +2542,6 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         assert source_name == "email", f"Expected email source, got {source_name}"
         assert conversion_count == 1, f"Expected 1 conversion, got {conversion_count}"
 
-    @pytest.mark.xfail(reason="Organic source is not implemented")
     def test_temporal_attribution_same_day_evening_morning(self):
         """
         Test Case: Same day temporal order - morning conversion, evening ad
@@ -2532,9 +2579,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(
-            goal=goal, index=0, team=self.team, query_date_range=DateRange(date_from="2023-05-15", date_to="2023-05-15")
-        )
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
 
         additional_conditions = [
             ast.CompareOperation(
@@ -2556,7 +2601,6 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         assert source_name == "organic", f"Expected organic source, got {source_name}"
         assert conversion_count == 1, f"Expected 1 conversion, got {conversion_count}"
 
-    @pytest.mark.xfail(reason="Attribution logic is not implemented")
     def test_temporal_attribution_simultaneous_ad_conversion(self):
         """
         Test Case: Simultaneous ad and conversion at exact same timestamp
@@ -2593,9 +2637,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(
-            goal=goal, index=0, team=self.team, query_date_range=DateRange(date_from="2023-05-15", date_to="2023-05-15")
-        )
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
 
         additional_conditions = [
             ast.CompareOperation(
@@ -2617,7 +2659,6 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         assert source_name == "google", f"Expected google source, got {source_name}"
         assert conversion_count == 1, f"Expected 1 conversion, got {conversion_count}"
 
-    @pytest.mark.xfail(reason="Organic source is not implemented")
     def test_temporal_attribution_one_second_precision(self):
         """
         Test Case: Sub-minute temporal precision - 1 second difference
@@ -2653,9 +2694,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(
-            goal=goal, index=0, team=self.team, query_date_range=DateRange(date_from="2023-05-15", date_to="2023-05-15")
-        )
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
 
         additional_conditions = [
             ast.CompareOperation(
@@ -2677,7 +2716,6 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         assert source_name == "organic", f"Expected organic source, got {source_name}"
         assert conversion_count == 1, f"Expected 1 conversion, got {conversion_count}"
 
-    @pytest.mark.xfail(reason="Attribution logic is not implemented")
     def test_temporal_attribution_multiple_conversions_same_campaign(self):
         """
         Test Case: Multiple conversions from the same campaign attribution
@@ -2727,9 +2765,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(
-            goal=goal, index=0, team=self.team, query_date_range=DateRange(date_from="2023-04-01", date_to="2023-06-30")
-        )
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
 
         additional_conditions = [
             ast.CompareOperation(
@@ -2751,7 +2787,6 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         assert source_name == "google", f"Expected google source, got {source_name}"
         assert conversion_count == 3, f"Expected 3 conversions, got {conversion_count}"
 
-    @pytest.mark.xfail(reason="Attribution logic is not implemented")
     def test_temporal_attribution_multiple_users_same_campaign(self):
         """
         Test Case: Multiple users converting from the same campaign
@@ -2802,7 +2837,9 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         )
 
         processor = ConversionGoalProcessor(
-            goal=goal, index=0, team=self.team, query_date_range=DateRange(date_from="2023-04-01", date_to="2023-04-30")
+            goal=goal,
+            index=0,
+            team=self.team,
         )
 
         additional_conditions = [
@@ -2829,7 +2866,6 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
     # 12. COMPLEX CUSTOMER JOURNEY TESTS - Multi-event, multi-channel attribution
     # ================================================================
 
-    @pytest.mark.xfail(reason="Attribution logic is not implemented")
     def test_complex_customer_journey_multiple_event_types(self):
         """
         Test Case: Complex customer journey with multiple event types and channels
@@ -2911,7 +2947,9 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         )
 
         processor = ConversionGoalProcessor(
-            goal=goal, index=0, team=self.team, query_date_range=DateRange(date_from="2023-04-01", date_to="2023-04-30")
+            goal=goal,
+            index=0,
+            team=self.team,
         )
 
         additional_conditions = [
@@ -2936,7 +2974,6 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         assert conversion_count == 1, f"Expected 1 conversion, got {conversion_count}"
         assert campaign_name != "upsell", f"Should ignore post-purchase campaigns"
 
-    @pytest.mark.xfail(reason="Attribution logic is not implemented")
     def test_organic_vs_paid_attribution_organic_then_paid(self):
         """
         Test Case: Organic vs Paid attribution - Organic visit then paid ad
@@ -2985,7 +3022,9 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         )
 
         processor = ConversionGoalProcessor(
-            goal=goal, index=0, team=self.team, query_date_range=DateRange(date_from="2023-04-01", date_to="2023-04-30")
+            goal=goal,
+            index=0,
+            team=self.team,
         )
 
         additional_conditions = [
@@ -3008,7 +3047,6 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         assert source_name == "google", f"Expected google source, got {source_name}"
         assert conversion_count == 1, f"Expected 1 conversion, got {conversion_count}"
 
-    @pytest.mark.xfail(reason="Attribution logic is not implemented")
     def test_organic_vs_paid_attribution_paid_then_organic(self):
         """
         Test Case: Organic vs Paid attribution - Paid ad then organic visit
@@ -3058,7 +3096,9 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         )
 
         processor = ConversionGoalProcessor(
-            goal=goal, index=0, team=self.team, query_date_range=DateRange(date_from="2023-04-01", date_to="2023-04-30")
+            goal=goal,
+            index=0,
+            team=self.team,
         )
 
         additional_conditions = [
@@ -3081,7 +3121,6 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         assert source_name == "google", f"Expected google source, got {source_name}"
         assert conversion_count == 1, f"Expected 1 conversion, got {conversion_count}"
 
-    @pytest.mark.xfail(reason="Attribution logic is not implemented")
     def test_cross_channel_attribution_full_funnel(self):
         """
         Test Case: Cross-channel attribution across the full marketing funnel
@@ -3150,7 +3189,9 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         )
 
         processor = ConversionGoalProcessor(
-            goal=goal, index=0, team=self.team, query_date_range=DateRange(date_from="2023-03-20", date_to="2023-03-31")
+            goal=goal,
+            index=0,
+            team=self.team,
         )
 
         additional_conditions = [
@@ -3174,7 +3215,6 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         assert conversion_count == 1, f"Expected 1 conversion, got {conversion_count}"
         assert campaign_name != "brand_awareness", f"Should not attribute to first touch"
 
-    @pytest.mark.xfail(reason="Attribution logic is not implemented")
     def test_multi_session_attribution_across_devices(self):
         """
         Test Case: Multi-session attribution across different devices/platforms
@@ -3253,7 +3293,9 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         )
 
         processor = ConversionGoalProcessor(
-            goal=goal, index=0, team=self.team, query_date_range=DateRange(date_from="2023-04-01", date_to="2023-04-30")
+            goal=goal,
+            index=0,
+            team=self.team,
         )
 
         additional_conditions = [
@@ -3281,7 +3323,6 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
     # 13. ATTRIBUTION WINDOW TESTS - Time-based attribution limits
     # ================================================================
 
-    @pytest.mark.xfail(reason="Attribution logic is not implemented")
     def test_temporal_attribution_ignores_query_date_range_for_utm_lookback(self):
         """
         Test Case: Temporal attribution should find historical UTM touchpoints outside query range
@@ -3330,14 +3371,18 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             goal=goal,
             index=0,
             team=self.team,
-            query_date_range=DateRange(date_from="2023-05-01", date_to="2023-05-31"),  # May only!
         )
 
-        additional_conditions = [
+        additional_conditions = [  # May only!
             ast.CompareOperation(
                 left=ast.Field(chain=["events", "timestamp"]),
                 op=ast.CompareOperationOp.GtEq,
                 right=ast.Call(name="toDate", args=[ast.Constant(value="2023-05-01")]),
+            ),
+            ast.CompareOperation(
+                left=ast.Field(chain=["events", "timestamp"]),
+                op=ast.CompareOperationOp.LtEq,
+                right=ast.Call(name="toDate", args=[ast.Constant(value="2023-05-31")]),
             ),
         ]
 
@@ -3362,7 +3407,6 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         ), f"Temporal attribution should find historical source outside query range, got {source_name}"
         assert conversion_count == 1, f"Expected 1 conversion, got {conversion_count}"
 
-    @pytest.mark.xfail(reason="Attribution window limits not implemented - business requirement")
     def test_attribution_window_30_day_limit(self):
         """
         Test Case: 30-day attribution window enforcement
@@ -3408,14 +3452,19 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             goal=goal,
             index=0,
             team=self.team,
-            query_date_range=DateRange(date_from="2023-01-29", date_to="2023-01-29"),
         )
+        processor_within.attribution_window_days = 30
 
         additional_conditions_within = [
             ast.CompareOperation(
                 left=ast.Field(chain=["events", "timestamp"]),
                 op=ast.CompareOperationOp.GtEq,
                 right=ast.Call(name="toDate", args=[ast.Constant(value="2023-01-29")]),
+            ),
+            ast.CompareOperation(
+                left=ast.Field(chain=["events", "timestamp"]),
+                op=ast.CompareOperationOp.LtEq,
+                right=ast.Call(name="toDate", args=[ast.Constant(value="2023-01-31")]),
             ),
         ]
 
@@ -3436,7 +3485,6 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             goal=goal,
             index=0,
             team=self.team,
-            query_date_range=DateRange(date_from="2023-02-01", date_to="2023-02-01"),
         )
 
         additional_conditions_beyond = [
@@ -3446,6 +3494,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
                 right=ast.Call(name="toDate", args=[ast.Constant(value="2023-02-01")]),
             ),
         ]
+        processor_beyond.attribution_window_days = 30
 
         cte_query_beyond = processor_beyond.generate_cte_query(additional_conditions_beyond)
         response_beyond = execute_hogql_query(query=cte_query_beyond, team=self.team)
@@ -3459,34 +3508,6 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         assert beyond_count == 1, f"Expected 1 conversion beyond window, got {beyond_count}"
         assert beyond_source == "organic", f"Expected organic source, got {beyond_source}"
 
-        # Test conversion beyond 30-day attribution window (should not attribute)
-        processor_beyond = ConversionGoalProcessor(
-            goal=goal,
-            index=0,
-            team=self.team,
-            query_date_range=DateRange(date_from="2023-02-01", date_to="2023-02-01"),
-        )
-
-        additional_conditions_beyond = [
-            ast.CompareOperation(
-                left=ast.Field(chain=["events", "timestamp"]),
-                op=ast.CompareOperationOp.GtEq,
-                right=ast.Call(name="toDate", args=[ast.Constant(value="2023-02-01")]),
-            ),
-        ]
-
-        cte_query_beyond = processor_beyond.generate_cte_query(additional_conditions_beyond)
-        response_beyond = execute_hogql_query(query=cte_query_beyond, team=self.team)
-        assert len(response_beyond.results) == 1, f"Expected 1 result beyond window, got {len(response_beyond.results)}"
-
-        # 🎯 ATTRIBUTION VALIDATION: Beyond 30-day window should not attribute
-        beyond_result = response_beyond.results[0]
-        beyond_campaign, beyond_source, beyond_count = beyond_result[0], beyond_result[1], beyond_result[2]
-
-        assert beyond_campaign == "organic", f"Expected organic attribution, got {beyond_campaign}"
-        assert beyond_count == 1, f"Expected 1 conversion beyond window, got {beyond_count}"
-
-    @pytest.mark.xfail(reason="Attribution window limits not implemented")
     def test_attribution_window_beyond_limits(self):
         """
         Test Case: Attribution beyond reasonable limits - 2 years
@@ -3529,9 +3550,11 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         )
 
         processor = ConversionGoalProcessor(
-            goal=goal, index=0, team=self.team, query_date_range=DateRange(date_from="2022-01-01", date_to="2024-01-01")
+            goal=goal,
+            index=0,
+            team=self.team,
         )
-
+        processor.attribution_window_days = 10
         additional_conditions = [
             ast.CompareOperation(
                 left=ast.Field(chain=["events", "timestamp"]),
@@ -3556,7 +3579,6 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
     # 14. DATA QUALITY EDGE CASES - Malformed UTM, duplicates, missing data
     # ================================================================
 
-    @pytest.mark.xfail(reason="Organic source is not implemented")
     def test_malformed_utm_parameters_empty_campaign(self):
         """
         Test Case: Malformed UTM parameters - empty campaign name
@@ -3615,7 +3637,9 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         )
 
         processor = ConversionGoalProcessor(
-            goal=goal, index=0, team=self.team, query_date_range=DateRange(date_from="2023-06-01", date_to="2023-06-01")
+            goal=goal,
+            index=0,
+            team=self.team,
         )
 
         additional_conditions = [
@@ -3638,8 +3662,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         assert conversion_count == 1, f"Expected 1 conversion, got {conversion_count}"
         assert source_name == "organic", f"Expected organic source, got {source_name}"
 
-    @pytest.mark.xfail(reason="Attribution logic is not implemented")
-    def test_duplicate_events_same_timestamp(self):
+    def test_duplicate_events_same_timestamp_but_first_event_id_is_first(self):
         """
         Test Case: Duplicate events at the same timestamp
 
@@ -3661,12 +3684,14 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
                 event="$pageview",
                 team=self.team,
                 properties={"utm_campaign": "duplicate1", "utm_source": "google"},
+                event_uuid="11111111-1111-1111-1111-111111111111",
             )
             _create_event(
                 distinct_id="duplicate_events_user",
                 event="$pageview",
                 team=self.team,
                 properties={"utm_campaign": "duplicate2", "utm_source": "google"},  # Same timestamp
+                event_uuid="22222222-2222-2222-2222-222222222222",
             )
             flush_persons_and_events()
 
@@ -3685,9 +3710,78 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
 
-        processor = ConversionGoalProcessor(
-            goal=goal, index=0, team=self.team, query_date_range=DateRange(date_from="2023-05-15", date_to="2023-05-15")
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
+
+        additional_conditions = [
+            ast.CompareOperation(
+                left=ast.Field(chain=["events", "timestamp"]),
+                op=ast.CompareOperationOp.GtEq,
+                right=ast.Call(name="toDate", args=[ast.Constant(value="2023-05-15")]),
+            ),
+        ]
+
+        cte_query = processor.generate_cte_query(additional_conditions)
+        response = execute_hogql_query(query=cte_query, team=self.team)
+        assert len(response.results) == 1, f"Expected 1 result, got {len(response.results)}"
+
+        # Validation: Duplicate events handling
+        # Expected: Should handle duplicates gracefully (dedupe or use deterministic selection)
+        first_result = response.results[0]
+        campaign_name, source_name, _conversion_count = first_result[0], first_result[1], first_result[2]
+        # Should pick first duplicate campaign deterministically
+        assert campaign_name == "duplicate2", f"Expected duplicate2 campaign, got {campaign_name}"
+        assert source_name == "google", f"Expected google source, got {source_name}"
+        assert _conversion_count == 1, f"Expected 1 conversion, got {_conversion_count}"
+
+    def test_duplicate_events_same_timestamp_but_second_event_id_is_first(self):
+        """
+        Test Case: Duplicate events at the same timestamp
+
+        Scenario: Multiple identical or similar events at exact same time
+        Timeline:
+        - May 15 12:00:00.000: First page view with UTM
+        - May 15 12:00:00.000: Duplicate page view with different UTM (same timestamp)
+        - May 15 13:00:00.000: Purchase
+
+        Expected: Should handle duplicates appropriately (dedupe or use last processed)
+        Tests handling of duplicate/concurrent events
+        """
+        timestamp = "2023-05-15 12:00:00"
+
+        with freeze_time(timestamp):
+            _create_person(distinct_ids=["duplicate_events_user"], team=self.team)
+            _create_event(
+                distinct_id="duplicate_events_user",
+                event="$pageview",
+                team=self.team,
+                properties={"utm_campaign": "duplicate1", "utm_source": "google"},
+                event_uuid="22222222-2222-2222-2222-222222222222",
+            )
+            _create_event(
+                distinct_id="duplicate_events_user",
+                event="$pageview",
+                team=self.team,
+                properties={"utm_campaign": "duplicate2", "utm_source": "google"},  # Same timestamp
+                event_uuid="11111111-1111-1111-1111-111111111111",
+            )
+            flush_persons_and_events()
+
+        with freeze_time("2023-05-15 13:00:00"):
+            _create_event(
+                distinct_id="duplicate_events_user", event="purchase", team=self.team, properties={"revenue": 100}
+            )
+            flush_persons_and_events()
+
+        goal = ConversionGoalFilter1(
+            kind=NodeKind.EVENTS_NODE,
+            event="purchase",
+            conversion_goal_id="duplicate_events",
+            conversion_goal_name="Duplicate Events",
+            math=BaseMathType.TOTAL,
+            schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         )
+
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
 
         additional_conditions = [
             ast.CompareOperation(
@@ -3710,7 +3804,6 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         assert source_name == "google", f"Expected google source, got {source_name}"
         assert conversion_count == 1, f"Expected 1 conversion, got {conversion_count}"
 
-    @pytest.mark.xfail(reason="Attribution logic is not implemented")
     def test_utm_parameters_with_special_characters(self):
         """
         Test Case: UTM parameters containing special characters and encoding
@@ -3755,7 +3848,9 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         )
 
         processor = ConversionGoalProcessor(
-            goal=goal, index=0, team=self.team, query_date_range=DateRange(date_from="2023-04-01", date_to="2023-04-01")
+            goal=goal,
+            index=0,
+            team=self.team,
         )
 
         additional_conditions = [
@@ -3817,7 +3912,9 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         )
 
         processor = ConversionGoalProcessor(
-            goal=goal, index=0, team=self.team, query_date_range=DateRange(date_from="2023-04-01", date_to="2023-04-01")
+            goal=goal,
+            index=0,
+            team=self.team,
         )
 
         additional_conditions = [
@@ -3840,7 +3937,6 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         assert source_name is not None, "Should handle very long source values"
         assert conversion_count == 1, f"Expected 1 conversion, got {conversion_count}"
 
-    @pytest.mark.xfail(reason="This test is not working as expected because of the attribution logic")
     def test_case_sensitivity_utm_parameters(self):
         """
         Test Case: Case sensitivity in UTM parameter values in different time periods
@@ -3899,7 +3995,9 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         )
 
         processor = ConversionGoalProcessor(
-            goal=goal, index=0, team=self.team, query_date_range=DateRange(date_from="2023-04-01", date_to="2023-04-30")
+            goal=goal,
+            index=0,
+            team=self.team,
         )
 
         additional_conditions = [
@@ -3923,7 +4021,6 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         assert source_name == "GOOGLE", f"Expected GOOGLE (last-touch, got {source_name}"
         assert conversion_count == 1, f"Expected 1 conversion, got {conversion_count}"
 
-    @pytest.mark.xfail(reason="Organic source is not implemented")
     def test_null_vs_empty_utm_parameters(self):
         """
         Test Case: Null vs empty string UTM parameters
@@ -3980,7 +4077,9 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         )
 
         processor = ConversionGoalProcessor(
-            goal=goal, index=0, team=self.team, query_date_range=DateRange(date_from="2023-04-01", date_to="2023-04-30")
+            goal=goal,
+            index=0,
+            team=self.team,
         )
 
         additional_conditions = [
@@ -4008,7 +4107,6 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
     # 15. COMPREHENSIVE INTEGRATION TESTS - Real-world scenarios
     # ================================================================
 
-    @pytest.mark.xfail(reason="Attribution logic is not implemented")
     def test_non_pageview_utm_parameters_ignored(self):
         """
         Test Case: UTM parameters on non-pageview events should be ignored
@@ -4071,7 +4169,9 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         )
 
         processor = ConversionGoalProcessor(
-            goal=goal, index=0, team=self.team, query_date_range=DateRange(date_from="2023-04-01", date_to="2023-04-30")
+            goal=goal,
+            index=0,
+            team=self.team,
         )
 
         additional_conditions = [
@@ -4098,7 +4198,6 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         assert campaign_name != "ignored_signup", "Should not attribute to sign_up event UTM"
         assert campaign_name != "ignored_purchase", "Should not attribute to purchase event UTM"
 
-    @pytest.mark.xfail(reason="Attribution logic is not implemented")
     def test_comprehensive_real_world_attribution_scenario(self):
         """
         Test Case: Comprehensive real-world attribution scenario
@@ -4206,7 +4305,6 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             goal=goal,
             index=0,
             team=self.team,
-            query_date_range=DateRange(date_from="2023-02-01", date_to="2023-02-28"),
         )
 
         additional_conditions_first = [
@@ -4243,7 +4341,6 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             goal=goal,
             index=0,
             team=self.team,
-            query_date_range=DateRange(date_from="2023-02-01", date_to="2023-03-31"),
         )
 
         additional_conditions_full = [
@@ -4279,7 +4376,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         retarget_campaign, retarget_source, retarget_count = retarget_result[0], retarget_result[1], retarget_result[2]
         assert retarget_campaign == "retarget_feb", f"Expected retarget_feb for first purchase, got {retarget_campaign}"
         assert retarget_source == "facebook", f"Expected facebook source, got {retarget_source}"
-        assert retarget_count >= 1, f"Expected at least 1 conversion attributed to retarget_feb, got {retarget_count}"
+        assert retarget_count == 1, f"Expected 1 conversion attributed to retarget_feb, got {retarget_count}"
 
         # Second purchase should be attributed to upsell_campaign (Feb 22 ad before Mar 8 purchase)
         assert (
@@ -4290,9 +4387,8 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             upsell_campaign == "upsell_campaign"
         ), f"Expected upsell_campaign for second purchase, got {upsell_campaign}"
         assert upsell_source == "email", f"Expected email source for second purchase, got {upsell_source}"
-        assert upsell_count >= 1, f"Expected at least 1 conversion attributed to upsell_campaign, got {upsell_count}"
+        assert upsell_count == 1, f"Expected 1 conversion attributed to upsell_campaign, got {upsell_count}"
 
-    @pytest.mark.xfail(reason="Attribution logic is not implemented")
     def test_cross_device_multi_distinct_id_attribution(self):
         """
         Tests temporal attribution works correctly when user has multiple distinct IDs
@@ -4337,7 +4433,9 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         )
 
         processor = ConversionGoalProcessor(
-            goal=goal, index=0, team=self.team, query_date_range=DateRange(date_from="2023-03-01", date_to="2023-03-31")
+            goal=goal,
+            index=0,
+            team=self.team,
         )
 
         additional_conditions = [
@@ -4359,7 +4457,6 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         assert source == "google", f"Expected google source, got {source}"
         assert conversions == 2, f"Expected 2 conversions (both purchases), got {conversions}"
 
-    @pytest.mark.xfail(reason="Attribution logic is not implemented")
     def test_cross_session_temporal_attribution_edge_cases(self):
         """
         Tests temporal attribution with complex user journeys across multiple sessions
@@ -4443,7 +4540,9 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         )
 
         processor = ConversionGoalProcessor(
-            goal=goal, index=0, team=self.team, query_date_range=DateRange(date_from="2023-03-01", date_to="2023-04-30")
+            goal=goal,
+            index=0,
+            team=self.team,
         )
 
         additional_conditions = [
@@ -4473,3 +4572,873 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
 
         assert "valentines_special/email" in results_dict, "Should have valentines_special attribution"
         assert "spring_launch/google" in results_dict, "Should have spring_launch attribution"
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_attribution_window_sql_structure_demo(self):
+        """
+        Test Case: Demo of attribution window SQL structure
+
+        Scenario: Test broad attribution window with future dates to demo SQL structure
+        Timeline:
+        - Jan 01 2025: UTM campaign event
+        - Mar 15 2025: Another UTM campaign
+        - Jun 06 2025: User conversion (target date)
+
+        Expected: Should generate SQL with attribution window logic
+        Attribution window: 6 months (180 days) to include Jan events for Jun conversions
+        """
+        with freeze_time("2025-01-01"):
+            _create_person(distinct_ids=["demo_user"], team=self.team)
+            _create_event(
+                distinct_id="demo_user",
+                event="$pageview",
+                team=self.team,
+                properties={"utm_campaign": "winter_campaign", "utm_source": "google"},
+            )
+            flush_persons_and_events()
+
+        with freeze_time("2025-03-15"):
+            _create_event(
+                distinct_id="demo_user",
+                event="$pageview",
+                team=self.team,
+                properties={"utm_campaign": "spring_campaign", "utm_source": "facebook"},
+            )
+            flush_persons_and_events()
+
+        with freeze_time("2025-06-06"):
+            _create_event(distinct_id="demo_user", event="user signed up", team=self.team, properties={"value": 1})
+            flush_persons_and_events()
+
+        goal = ConversionGoalFilter1(
+            kind=NodeKind.EVENTS_NODE,
+            event="user signed up",
+            conversion_goal_id="demo_signup",
+            conversion_goal_name="Demo Signup",
+            math=BaseMathType.TOTAL,
+            schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
+        )
+
+        processor = ConversionGoalProcessor(
+            goal=goal,
+            index=0,
+            team=self.team,
+        )
+        processor.attribution_window_days = 180  # 6 month attribution window
+
+        additional_conditions = [
+            ast.CompareOperation(
+                left=ast.Field(chain=["events", "timestamp"]),
+                op=ast.CompareOperationOp.GtEq,
+                right=ast.Call(name="toDate", args=[ast.Constant(value="2025-06-06")]),
+            ),
+            ast.CompareOperation(
+                left=ast.Field(chain=["events", "timestamp"]),
+                op=ast.CompareOperationOp.LtEq,
+                right=ast.Call(name="toDate", args=[ast.Constant(value="2025-07-07")]),
+            ),
+        ]
+
+        cte_query = processor.generate_cte_query(additional_conditions)
+
+        # This will generate SQL showing our current array-based attribution structure
+        # The snapshot will show the actual SQL we generate vs the desired structure
+        response = execute_hogql_query(query=cte_query, team=self.team)
+
+        assert len(response.results) == 1, f"Expected 1 result, got {len(response.results)}"
+
+        # Should attribute to spring_campaign (most recent before conversion)
+        result = response.results[0]
+        campaign_name, source_name, conversion_count = result[0], result[1], result[2]
+        assert campaign_name == "spring_campaign", f"Expected spring_campaign, got {campaign_name}"
+        assert source_name == "facebook", f"Expected facebook, got {source_name}"
+        assert conversion_count == 1, f"Expected 1 conversion, got {conversion_count}"
+
+        assert pretty_print_in_tests(response.hogql, self.team.pk) == self.snapshot
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_attribution_window_sql_structure_demo_zero_windows(self):
+        """
+        Test Case: Demo of attribution window SQL structure
+
+        Scenario: Test broad attribution window with future dates to demo SQL structure
+        Timeline:
+        - Jan 01 2025: UTM campaign event
+        - Mar 15 2025: Another UTM campaign
+        - Jun 06 2025: User conversion (target date)
+
+        Expected: Should generate SQL with attribution window logic
+        Attribution window: 6 months (180 days) to include Jan events for Jun conversions
+        """
+        with freeze_time("2025-01-01"):
+            _create_person(distinct_ids=["demo_user"], team=self.team)
+            _create_event(
+                distinct_id="demo_user",
+                event="$pageview",
+                team=self.team,
+                properties={"utm_campaign": "winter_campaign", "utm_source": "google"},
+            )
+            flush_persons_and_events()
+
+        with freeze_time("2025-03-15"):
+            _create_event(
+                distinct_id="demo_user",
+                event="$pageview",
+                team=self.team,
+                properties={"utm_campaign": "spring_campaign", "utm_source": "facebook"},
+            )
+            flush_persons_and_events()
+
+        with freeze_time("2025-06-06"):
+            _create_event(distinct_id="demo_user", event="user signed up", team=self.team, properties={"value": 1})
+            flush_persons_and_events()
+
+        goal = ConversionGoalFilter1(
+            kind=NodeKind.EVENTS_NODE,
+            event="user signed up",
+            conversion_goal_id="demo_signup",
+            conversion_goal_name="Demo Signup",
+            math=BaseMathType.TOTAL,
+            schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
+        )
+
+        processor = ConversionGoalProcessor(
+            goal=goal,
+            index=0,
+            team=self.team,
+        )
+        processor.attribution_window_days = 180  # 6 month attribution window
+
+        additional_conditions = [
+            ast.CompareOperation(
+                left=ast.Field(chain=["events", "timestamp"]),
+                op=ast.CompareOperationOp.GtEq,
+                right=ast.Call(name="toDate", args=[ast.Constant(value="2025-06-06")]),
+            ),
+            ast.CompareOperation(
+                left=ast.Field(chain=["events", "timestamp"]),
+                op=ast.CompareOperationOp.LtEq,
+                right=ast.Call(name="toDate", args=[ast.Constant(value="2025-07-07")]),
+            ),
+        ]
+
+        cte_query = processor.generate_cte_query(additional_conditions)
+
+        # This will generate SQL showing our current array-based attribution structure
+        # The snapshot will show the actual SQL we generate vs the desired structure
+        response = execute_hogql_query(query=cte_query, team=self.team)
+
+        assert len(response.results) == 1, f"Expected 1 result, got {len(response.results)}"
+
+        # Should attribute to spring_campaign (most recent before conversion)
+        result = response.results[0]
+        campaign_name, source_name, conversion_count = result[0], result[1], result[2]
+        assert campaign_name == "spring_campaign", f"Expected spring_campaign, got {campaign_name}"
+        assert source_name == "facebook", f"Expected facebook, got {source_name}"
+        assert conversion_count == 1, f"Expected 1 conversion, got {conversion_count}"
+
+        assert pretty_print_in_tests(response.hogql, self.team.pk) == self.snapshot
+
+    def test_attribution_window_30_day_individual_conversion_boundaries(self):
+        """
+        Test Case: Attribution window calculated individually per conversion
+
+        Scenario: Two users with different timelines to validate that attribution
+        windows are calculated from each conversion date, not the query date range.
+
+        Timeline:
+        - May 29 2024: User2 pageview with UTM (social_campaign/facebook)
+        - May 30 2024: User1 pageview with UTM (email_campaign/newsletter)
+        - June 5 2024: User2 converts (7 days after pageview - within 30-day window)
+        - July 1 2024: User1 converts (32 days after pageview - outside 30-day window)
+
+        Query Range: June 2 to July 2 (both conversions included)
+        Attribution Window: 30 days
+
+        Expected Results:
+        - User1: Should be attributed as "organic" (pageview outside 30-day window)
+        - User2: Should be attributed to "social_campaign/facebook" (within window)
+
+        This validates that attribution windows work per-conversion, not per-query.
+        """
+        # User2: Pageview on May 29 with UTM
+        with freeze_time("2024-05-29"):
+            _create_person(distinct_ids=["user2"], team=self.team)
+            _create_event(
+                distinct_id="user2",
+                event="$pageview",
+                team=self.team,
+                properties={"utm_campaign": "social_campaign", "utm_source": "facebook"},
+            )
+            flush_persons_and_events()
+
+        # User1: Pageview on May 30 with UTM
+        with freeze_time("2024-05-30"):
+            _create_person(distinct_ids=["user1"], team=self.team)
+            _create_event(
+                distinct_id="user1",
+                event="$pageview",
+                team=self.team,
+                properties={"utm_campaign": "email_campaign", "utm_source": "newsletter"},
+            )
+            flush_persons_and_events()
+
+        # User2: Converts on June 5 (7 days after pageview - within 30-day window)
+        with freeze_time("2024-06-05"):
+            _create_event(distinct_id="user2", event="user signed up", team=self.team, properties={"value": 1})
+            flush_persons_and_events()
+
+        # User1: Converts on July 1 (32 days after pageview - outside 30-day window)
+        with freeze_time("2024-07-01"):
+            _create_event(distinct_id="user1", event="user signed up", team=self.team, properties={"value": 1})
+            flush_persons_and_events()
+
+        goal = ConversionGoalFilter1(
+            kind=NodeKind.EVENTS_NODE,
+            event="user signed up",
+            conversion_goal_id="signup_goal",
+            conversion_goal_name="User Signup",
+            math=BaseMathType.TOTAL,
+            schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
+        )
+
+        processor = ConversionGoalProcessor(
+            goal=goal,
+            index=0,
+            team=self.team,
+        )
+        processor.attribution_window_days = 30  # 30-day attribution window
+
+        # Query range: June 2 to July 2 (includes both conversions)
+        additional_conditions = [
+            ast.CompareOperation(
+                left=ast.Field(chain=["events", "timestamp"]),
+                op=ast.CompareOperationOp.GtEq,
+                right=ast.Call(name="toDate", args=[ast.Constant(value="2024-06-02")]),
+            ),
+            ast.CompareOperation(
+                left=ast.Field(chain=["events", "timestamp"]),
+                op=ast.CompareOperationOp.LtEq,
+                right=ast.Call(name="toDate", args=[ast.Constant(value="2024-07-02")]),
+            ),
+        ]
+
+        cte_query = processor.generate_cte_query(additional_conditions)
+        response = execute_hogql_query(query=cte_query, team=self.team)
+
+        # Convert results to dict for easier validation
+        results_dict = {}
+        for result in response.results:
+            key = f"{result[0]}/{result[1]}"
+            results_dict[key] = result[2]
+
+        # Should have exactly 2 results (one per user)
+        assert len(results_dict) == 2, f"Expected 2 results, got {len(results_dict)}: {results_dict}"
+
+        # User2: Within 30-day window - should be attributed to UTM
+        assert (
+            "social_campaign/facebook" in results_dict
+        ), f"Missing social_campaign/facebook attribution. Results: {results_dict}"
+        assert (
+            results_dict["social_campaign/facebook"] == 1
+        ), f"Expected 1 conversion for social_campaign/facebook, got {results_dict['social_campaign/facebook']}"
+
+        # User1: Outside 30-day window - should be organic
+        assert "organic/organic" in results_dict, f"Missing organic attribution. Results: {results_dict}"
+        assert (
+            results_dict["organic/organic"] == 1
+        ), f"Expected 1 conversion for organic, got {results_dict['organic/organic']}"
+
+        # Validate that email_campaign is NOT present (it's outside attribution window)
+        assert (
+            "email_campaign/newsletter" not in results_dict
+        ), f"email_campaign should not be attributed (outside 30-day window). Results: {results_dict}"
+
+    # ================================================================
+    # 16. ACTIONS WITH MULTIPLE EVENTS TESTS
+    # ================================================================
+
+    def test_actions_multiple_events_simple_count(self):
+        """
+        Test Case: Action with multiple events - TOTAL math counts all events
+
+        Scenario: Action defined with multiple events, user triggers both
+        Timeline:
+        - April 10: User sees ad (UTM pageview)
+        - April 15: User signs up (event 1 of action)
+        - April 20: User activates account (event 2 of action)
+
+        Expected: TOTAL math should count both events (2 conversions)
+        """
+        with freeze_time("2023-04-10"):
+            _create_person(distinct_ids=["multi_event_user"], team=self.team)
+            _create_event(
+                distinct_id="multi_event_user",
+                event="$pageview",
+                team=self.team,
+                properties={"utm_campaign": "conversion_campaign", "utm_source": "google"},
+            )
+            flush_persons_and_events()
+
+        with freeze_time("2023-04-15"):
+            _create_event(distinct_id="multi_event_user", event="sign_up", team=self.team)
+            flush_persons_and_events()
+
+        with freeze_time("2023-04-20"):
+            _create_event(distinct_id="multi_event_user", event="activate_account", team=self.team)
+            flush_persons_and_events()
+
+        # Create action with multiple events
+        action = Action.objects.create(
+            team=self.team, name="User Conversion", steps_json=[{"event": "sign_up"}, {"event": "activate_account"}]
+        )
+
+        goal = ConversionGoalFilter2(
+            kind=NodeKind.ACTIONS_NODE,
+            id=str(action.id),
+            conversion_goal_id="multi_events_total",
+            conversion_goal_name="Multi Events Total",
+            math=BaseMathType.TOTAL,
+            schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
+        )
+
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
+
+        additional_conditions = [
+            ast.CompareOperation(
+                left=ast.Field(chain=["events", "timestamp"]),
+                op=ast.CompareOperationOp.GtEq,
+                right=ast.Call(name="toDate", args=[ast.Constant(value="2023-04-01")]),
+            ),
+        ]
+
+        cte_query = processor.generate_cte_query(additional_conditions)
+        response = execute_hogql_query(query=cte_query, team=self.team)
+
+        assert len(response.results) == 1, f"Expected 1 result, got {len(response.results)}"
+
+        campaign_name, source_name, conversion_count = response.results[0]
+
+        # Validation: TOTAL should count both events (2 conversions)
+        assert conversion_count == 2, f"Expected 2 conversions for TOTAL math, got {conversion_count}"
+        assert campaign_name == "conversion_campaign", f"Expected conversion_campaign, got {campaign_name}"
+        assert source_name == "google", f"Expected google source, got {source_name}"
+
+    def test_actions_multiple_events_unique_users(self):
+        """
+        Test Case: Action with multiple events - multiple unique users
+
+        Scenario: Action with multiple events, different users trigger different events
+        Timeline:
+        - April 10: Ad campaign (all users see it)
+        - April 15: User A signs up (event 1)
+        - April 20: User B activates account (event 2)
+        - April 25: User C signs up (event 1)
+        - April 30: User A activates account (event 2)
+
+        Expected: TOTAL = 4 conversions, DAU = 3 unique users
+        """
+        with freeze_time("2023-04-10"):
+            # Create users and show them the ad
+            for user_id in ["user_a", "user_b", "user_c"]:
+                _create_person(distinct_ids=[user_id], team=self.team)
+                _create_event(
+                    distinct_id=user_id,
+                    event="$pageview",
+                    team=self.team,
+                    properties={"utm_campaign": "multi_user_campaign", "utm_source": "facebook"},
+                )
+            flush_persons_and_events()
+
+        with freeze_time("2023-04-15"):
+            # User A signs up
+            _create_event(
+                distinct_id="user_a",
+                event="sign_up",
+                team=self.team,
+                properties={"source": "ad_click"},
+            )
+            flush_persons_and_events()
+
+        with freeze_time("2023-04-20"):
+            # User B activates account (without signing up in our data)
+            _create_event(
+                distinct_id="user_b",
+                event="activate_account",
+                team=self.team,
+                properties={"activation_type": "email_verification"},
+            )
+            flush_persons_and_events()
+
+        with freeze_time("2023-04-25"):
+            # User C signs up
+            _create_event(
+                distinct_id="user_c",
+                event="sign_up",
+                team=self.team,
+                properties={"source": "ad_click"},
+            )
+            flush_persons_and_events()
+
+        with freeze_time("2023-04-30"):
+            # User A activates account (second event from same user)
+            _create_event(
+                distinct_id="user_a",
+                event="activate_account",
+                team=self.team,
+                properties={"activation_type": "email_verification"},
+            )
+            flush_persons_and_events()
+
+        # Create action with multiple events
+        action = Action.objects.create(
+            team=self.team,
+            name="User Conversion Steps",
+            steps_json=[{"event": "sign_up"}, {"event": "activate_account"}],
+        )
+
+        # Test with TOTAL math
+        goal_total = ConversionGoalFilter2(
+            kind=NodeKind.ACTIONS_NODE,
+            id=str(action.id),
+            conversion_goal_id="multi_users_total",
+            conversion_goal_name="Multi Users Total",
+            math=BaseMathType.TOTAL,
+            schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
+        )
+
+        processor_total = ConversionGoalProcessor(goal=goal_total, index=0, team=self.team)
+
+        additional_conditions = [
+            ast.CompareOperation(
+                left=ast.Field(chain=["events", "timestamp"]),
+                op=ast.CompareOperationOp.GtEq,
+                right=ast.Call(name="toDate", args=[ast.Constant(value="2023-04-01")]),
+            ),
+        ]
+
+        cte_query = processor_total.generate_cte_query(additional_conditions)
+        response = execute_hogql_query(query=cte_query, team=self.team)
+
+        assert len(response.results) == 1, f"Expected 1 result for TOTAL, got {len(response.results)}"
+
+        # Validation: TOTAL should count all events (4 conversions total)
+        campaign_name, source_name, conversion_count = response.results[0]
+        assert conversion_count == 4, f"Expected 4 total conversions, got {conversion_count}"
+
+        # Test with DAU math
+        goal_dau = ConversionGoalFilter2(
+            kind=NodeKind.ACTIONS_NODE,
+            id=str(action.id),
+            conversion_goal_id="multi_users_dau",
+            conversion_goal_name="Multi Users DAU",
+            math=BaseMathType.DAU,
+            schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
+        )
+
+        processor_dau = ConversionGoalProcessor(goal=goal_dau, index=0, team=self.team)
+        cte_query_dau = processor_dau.generate_cte_query(additional_conditions)
+        response_dau = execute_hogql_query(query=cte_query_dau, team=self.team)
+
+        assert len(response_dau.results) == 1, f"Expected 1 result for DAU, got {len(response_dau.results)}"
+
+        # Validation: DAU should count unique users (3 unique users)
+        campaign_name_dau, source_name_dau, conversion_count_dau = response_dau.results[0]
+        assert conversion_count_dau == 3, f"Expected 3 unique users for DAU, got {conversion_count_dau}"
+
+    def test_actions_multiple_events_with_property_filters(self):
+        """
+        Test Case: Action with multiple events and property filters
+
+        Scenario: Action with multiple events, each with different property filters
+        Only events matching the property filters should be counted
+        Timeline:
+        - April 10: UTM pageview
+        - April 15: User signs up with source=ad_click (matches filter) ✅
+        - April 20: User activates with activation_type=email (matches filter) ✅
+        - April 25: User signs up with source=organic (doesn't match filter) ❌
+        - April 30: User activates with activation_type=phone (doesn't match filter) ❌
+
+        Expected: Should only count events that match the property filters (2 conversions)
+        """
+        with freeze_time("2023-04-10"):
+            _create_person(distinct_ids=["filter_user"], team=self.team)
+            _create_event(
+                distinct_id="filter_user",
+                event="$pageview",
+                team=self.team,
+                properties={"utm_campaign": "property_filter_campaign", "utm_source": "google"},
+            )
+            flush_persons_and_events()
+
+        with freeze_time("2023-04-15"):
+            # Sign up with matching property
+            _create_event(
+                distinct_id="filter_user",
+                event="sign_up",
+                team=self.team,
+                properties={"source": "ad_click"},  # This should match
+            )
+            flush_persons_and_events()
+
+        with freeze_time("2023-04-20"):
+            # Activate with matching property
+            _create_event(
+                distinct_id="filter_user",
+                event="activate_account",
+                team=self.team,
+                properties={"activation_type": "email_verification"},  # This should match
+            )
+            flush_persons_and_events()
+
+        with freeze_time("2023-04-25"):
+            # Sign up with non-matching property
+            _create_event(
+                distinct_id="filter_user",
+                event="sign_up",
+                team=self.team,
+                properties={"source": "organic"},  # This should NOT match
+            )
+            flush_persons_and_events()
+
+        with freeze_time("2023-04-30"):
+            # Activate with non-matching property
+            _create_event(
+                distinct_id="filter_user",
+                event="activate_account",
+                team=self.team,
+                properties={"activation_type": "phone_verification"},  # This should NOT match
+            )
+            flush_persons_and_events()
+
+        # Create action with multiple events and property filters
+        action = Action.objects.create(
+            team=self.team,
+            name="Filtered User Conversion",
+            steps_json=[
+                {"event": "sign_up", "properties": [{"key": "source", "value": "ad_click", "operator": "exact"}]},
+                {
+                    "event": "activate_account",
+                    "properties": [{"key": "activation_type", "value": "email_verification", "operator": "exact"}],
+                },
+            ],
+        )
+
+        goal = ConversionGoalFilter2(
+            kind=NodeKind.ACTIONS_NODE,
+            id=str(action.id),
+            conversion_goal_id="filtered_multi_events",
+            conversion_goal_name="Filtered Multi Events",
+            math=BaseMathType.TOTAL,
+            schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
+        )
+
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
+
+        additional_conditions = [
+            ast.CompareOperation(
+                left=ast.Field(chain=["events", "timestamp"]),
+                op=ast.CompareOperationOp.GtEq,
+                right=ast.Call(name="toDate", args=[ast.Constant(value="2023-04-01")]),
+            ),
+        ]
+
+        cte_query = processor.generate_cte_query(additional_conditions)
+        response = execute_hogql_query(query=cte_query, team=self.team)
+
+        assert len(response.results) == 1, f"Expected 1 result, got {len(response.results)}"
+
+        # Validation: Should only count events that match property filters (2 conversions)
+        campaign_name, source_name, conversion_count = response.results[0]
+        assert conversion_count == 2, f"Expected 2 matching conversions, got {conversion_count}"
+        assert campaign_name == "property_filter_campaign", f"Expected property_filter_campaign, got {campaign_name}"
+        assert source_name == "google", f"Expected google source, got {source_name}"
+
+    def test_actions_multiple_events_and_vs_or_semantics(self):
+        """
+        Test Case: Understanding AND vs OR semantics for actions with multiple events
+
+        Question: If an action has 2 events, and a user triggers both, is that:
+        - 1 conversion (AND logic - both events needed for 1 conversion)
+        - 2 conversions (OR logic - each event is a separate conversion)
+
+        This test clarifies the current behavior.
+        """
+        with freeze_time("2023-04-10"):
+            _create_person(distinct_ids=["semantics_user"], team=self.team)
+            _create_event(
+                distinct_id="semantics_user",
+                event="$pageview",
+                team=self.team,
+                properties={"utm_campaign": "test_campaign", "utm_source": "google"},
+            )
+            flush_persons_and_events()
+
+        # User triggers ONLY the first event
+        with freeze_time("2023-04-15"):
+            _create_event(
+                distinct_id="semantics_user",
+                event="sign_up",
+                team=self.team,
+            )
+            flush_persons_and_events()
+
+        # Create action with 2 events
+        action_both_events = Action.objects.create(
+            team=self.team, name="Two Event Action", steps_json=[{"event": "sign_up"}, {"event": "activate_account"}]
+        )
+
+        goal = ConversionGoalFilter2(
+            kind=NodeKind.ACTIONS_NODE,
+            id=str(action_both_events.id),
+            conversion_goal_id="semantics_test",
+            conversion_goal_name="Semantics Test",
+            math=BaseMathType.TOTAL,
+            schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
+        )
+
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
+
+        additional_conditions = [
+            ast.CompareOperation(
+                left=ast.Field(chain=["events", "timestamp"]),
+                op=ast.CompareOperationOp.GtEq,
+                right=ast.Call(name="toDate", args=[ast.Constant(value="2023-04-01")]),
+            ),
+        ]
+
+        # Test with only first event triggered
+        cte_query = processor.generate_cte_query(additional_conditions)
+        response = execute_hogql_query(query=cte_query, team=self.team)
+
+        first_event_only_count = response.results[0][2] if response.results else 0
+
+        # Now user triggers the second event too
+        with freeze_time("2023-04-20"):
+            _create_event(distinct_id="semantics_user", event="activate_account", team=self.team)
+            flush_persons_and_events()
+
+        # Test again with both events triggered
+        response_both = execute_hogql_query(query=cte_query, team=self.team)
+        both_events_count = response_both.results[0][2] if response_both.results else 0
+
+        # Validation: Multi-event actions use OR logic - each matching event is a separate conversion
+        assert first_event_only_count == 1, f"Expected 1 conversion after first event, got {first_event_only_count}"
+        assert both_events_count == 2, f"Expected 2 conversions (OR logic), got {both_events_count}"
+
+    def test_action_attribution_behavior_detailed(self):
+        """
+        Test Case: Actions with temporal attribution correctly attribute to prior UTM pageviews
+
+        Scenario: UTM pageview → action event
+        Expected: Action should attribute to the prior pageview UTM parameters
+        """
+        with freeze_time("2023-04-10"):
+            _create_person(distinct_ids=["attribution_test_user"], team=self.team)
+            _create_event(
+                distinct_id="attribution_test_user",
+                event="$pageview",
+                team=self.team,
+                properties={"utm_campaign": "paid_campaign", "utm_source": "google_ads"},
+            )
+            flush_persons_and_events()
+
+        with freeze_time("2023-04-15"):
+            _create_event(distinct_id="attribution_test_user", event="sign_up", team=self.team)
+            flush_persons_and_events()
+
+        action = Action.objects.create(team=self.team, name="Sign Up Action", steps_json=[{"event": "sign_up"}])
+
+        goal = ConversionGoalFilter2(
+            kind=NodeKind.ACTIONS_NODE,
+            id=str(action.id),
+            conversion_goal_id="attribution_test",
+            conversion_goal_name="Attribution Test",
+            math=BaseMathType.TOTAL,
+            schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
+        )
+
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
+        additional_conditions = [
+            ast.CompareOperation(
+                left=ast.Field(chain=["events", "timestamp"]),
+                op=ast.CompareOperationOp.GtEq,
+                right=ast.Call(name="toDate", args=[ast.Constant(value="2023-04-01")]),
+            ),
+        ]
+
+        cte_query = processor.generate_cte_query(additional_conditions)
+        response = execute_hogql_query(query=cte_query, team=self.team)
+
+        assert len(response.results) == 1, f"Expected 1 result, got {len(response.results)}"
+
+        campaign, source, count = response.results[0]
+        assert campaign == "paid_campaign", f"Expected paid_campaign, got {campaign}"
+        assert source == "google_ads", f"Expected google_ads, got {source}"
+        assert count == 1, f"Expected 1 conversion, got {count}"
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_integration_multi_event_actions_temporal_attribution(self):
+        """
+        Integration test: Multi-event ActionsNode temporal attribution vs EventsNode
+
+        Validates:
+        - Multi-event actions correctly attribute to prior pageview UTMs
+        - ActionsNode vs EventsNode SQL generation differences
+        - OR logic for actions containing multiple events
+
+        Scenario: UTM pageview → sign_up event → activate_account event
+        Expected: Both action events attribute to same pageview UTMs
+        """
+        # Create test data with temporal attribution scenario
+        with freeze_time("2023-06-01 10:00:00"):
+            _create_person(distinct_ids=["test_user"], team=self.team)
+            _create_event(
+                distinct_id="test_user",
+                event="$pageview",
+                team=self.team,
+                properties={"utm_campaign": "summer_launch", "utm_source": "twitter_ads"},
+            )
+            flush_persons_and_events()
+
+        with freeze_time("2023-06-01 10:05:00"):
+            _create_event(distinct_id="test_user", event="sign_up", team=self.team)
+            flush_persons_and_events()
+
+        with freeze_time("2023-06-01 10:10:00"):
+            _create_event(distinct_id="test_user", event="activate_account", team=self.team)
+            flush_persons_and_events()
+
+        # Create multi-event action
+        action = Action.objects.create(
+            team=self.team, name="User Onboarding", steps_json=[{"event": "sign_up"}, {"event": "activate_account"}]
+        )
+
+        # Configure processors for comparison
+        schema_map = {"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"}
+
+        events_goal = ConversionGoalFilter1(
+            kind=NodeKind.EVENTS_NODE,
+            event="sign_up",
+            conversion_goal_id="events_test",
+            conversion_goal_name="Events Test",
+            math=BaseMathType.TOTAL,
+            schema_map=schema_map,
+        )
+
+        actions_goal = ConversionGoalFilter2(
+            kind=NodeKind.ACTIONS_NODE,
+            id=str(action.id),
+            conversion_goal_id="actions_test",
+            conversion_goal_name="Actions Test",
+            math=BaseMathType.TOTAL,
+            schema_map=schema_map,
+        )
+
+        date_conditions = [
+            ast.CompareOperation(
+                left=ast.Field(chain=["events", "timestamp"]),
+                op=ast.CompareOperationOp.GtEq,
+                right=ast.Call(name="toDate", args=[ast.Constant(value="2023-06-01")]),
+            ),
+            ast.CompareOperation(
+                left=ast.Field(chain=["events", "timestamp"]),
+                op=ast.CompareOperationOp.LtEq,
+                right=ast.Call(name="toDate", args=[ast.Constant(value="2023-06-02")]),
+            ),
+        ]
+
+        # Execute queries
+        events_processor = ConversionGoalProcessor(goal=events_goal, index=0, team=self.team)
+        actions_processor = ConversionGoalProcessor(goal=actions_goal, index=1, team=self.team)
+
+        events_query = events_processor.generate_cte_query(date_conditions)
+        actions_query = actions_processor.generate_cte_query(date_conditions)
+
+        events_response = execute_hogql_query(query=events_query, team=self.team)
+        actions_response = execute_hogql_query(query=actions_query, team=self.team)
+
+        # Validate attribution results
+        assert len(events_response.results) == 1
+        assert len(actions_response.results) == 1
+
+        events_campaign, events_source, events_count = events_response.results[0]
+        actions_campaign, actions_source, actions_count = actions_response.results[0]
+
+        # Both should attribute to same UTM source
+        assert events_campaign == actions_campaign == "summer_launch"
+        assert events_source == actions_source == "twitter_ads"
+
+        # ActionsNode should count both events, EventsNode only one
+        assert events_count == 1
+        assert actions_count == 2
+
+        assert pretty_print_in_tests(actions_response.hogql, self.team.pk) == self.snapshot
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_integration_actions_node_temporal_attribution_sql_validation(self):
+        """
+        Integration test: ActionsNode temporal attribution with SQL structure validation
+
+        Validates:
+        - End-to-end ActionsNode temporal attribution functionality
+        - Correct SQL generation with OR logic for temporal UTM lookup
+        - Action condition distribution across array collection queries
+
+        Scenario: UTM pageview → action event
+        Expected: Action correctly attributes to prior pageview UTMs
+        """
+        # Create temporal attribution test data
+        with freeze_time("2023-05-01"):
+            _create_person(distinct_ids=["test_user"], team=self.team)
+            _create_event(
+                distinct_id="test_user",
+                event="$pageview",
+                team=self.team,
+                properties={"utm_campaign": "spring_campaign", "utm_source": "facebook"},
+            )
+            flush_persons_and_events()
+
+        with freeze_time("2023-05-02"):
+            _create_event(distinct_id="test_user", event="sign_up", team=self.team)
+            flush_persons_and_events()
+
+        # Create action and processor
+        action = _create_action(team=self.team, name="User Signup Action", event_name="sign_up")
+
+        goal = ConversionGoalFilter2(
+            kind=NodeKind.ACTIONS_NODE,
+            id=str(action.id),
+            conversion_goal_id="signup_test",
+            conversion_goal_name="Signup Test",
+            math=BaseMathType.TOTAL,
+            schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
+        )
+
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
+
+        date_conditions = [
+            ast.CompareOperation(
+                left=ast.Field(chain=["events", "timestamp"]),
+                op=ast.CompareOperationOp.GtEq,
+                right=ast.Call(name="toDate", args=[ast.Constant(value="2023-05-01")]),
+            ),
+            ast.CompareOperation(
+                left=ast.Field(chain=["events", "timestamp"]),
+                op=ast.CompareOperationOp.LtEq,
+                right=ast.Call(name="toDate", args=[ast.Constant(value="2023-05-03")]),
+            ),
+        ]
+
+        # Execute query and validate attribution results
+        cte_query = processor.generate_cte_query(date_conditions)
+        response = execute_hogql_query(query=cte_query, team=self.team)
+
+        assert len(response.results) == 1
+        campaign_name, source_name, conversion_count = response.results[0]
+
+        assert campaign_name == "spring_campaign"
+        assert source_name == "facebook"
+        assert conversion_count == 1
+
+        assert pretty_print_in_tests(response.hogql, self.team.pk) == self.snapshot

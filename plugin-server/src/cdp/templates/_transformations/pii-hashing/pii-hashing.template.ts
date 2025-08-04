@@ -10,7 +10,8 @@ export const template: HogFunctionTemplate = {
         'This transformation hashes sensitive personal data (PII) like email, phone numbers, etc. using SHA-256 to protect user privacy.',
     icon_url: '/static/hedgehog/builder-hog-02.png',
     category: ['Custom'],
-    hog: `
+    code_language: 'hog',
+    code: `
 // Get the properties to hash from inputs and split by comma
 let propertiesToHash := []
 if (notEmpty(inputs.propertiesToHash)) {

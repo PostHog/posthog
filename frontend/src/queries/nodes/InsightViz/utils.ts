@@ -25,6 +25,7 @@ import {
 
 import { nodeKindToDefaultQuery } from '../InsightQuery/defaults'
 import { filtersToQueryNode } from '../InsightQuery/utils/filtersToQueryNode'
+import { ApiError } from 'lib/api'
 
 export const getAllEventNames = (query: InsightQueryNode, allActions: ActionType[]): string[] => {
     if (!isInsightQueryWithSeries(query)) {
@@ -83,8 +84,8 @@ type InputInsightModel = InsightModel | Partial<InsightModel>
 type ReturnInsightModel<T> = T extends InsightModel
     ? QueryBasedInsightModel
     : T extends Partial<InsightModel>
-    ? Partial<QueryBasedInsightModel>
-    : never
+      ? Partial<QueryBasedInsightModel>
+      : never
 
 /** Get an insight with `query` only. Eventual `filters` will be converted.  */
 export function getQueryBasedInsightModel<T extends InputInsightModel>(insight: T): ReturnInsightModel<T> {
@@ -168,7 +169,19 @@ export const getQueryBasedDashboard = (
                 ({
                     ...tile,
                     ...(tile.insight != null ? { insight: getQueryBasedInsightModel(tile.insight) } : {}),
-                } as DashboardTile<QueryBasedInsightModel>)
+                }) as DashboardTile<QueryBasedInsightModel>
         ),
     }
+}
+
+export const extractValidationError = (error: Error | Record<string, any> | null | undefined): string | null => {
+    if (error instanceof ApiError || (error && typeof error === 'object' && 'status' in error)) {
+        // We use 512 for query timeouts
+        // Async queries put the error message on data.error_message, while synchronous ones use detail
+        return error?.status === 400 || error?.status === 512
+            ? (error.detail || error.data?.error_message)?.replace('Try ', 'Try\u00A0') // Add unbreakable space for better line breaking
+            : null
+    }
+
+    return null
 }

@@ -14,7 +14,7 @@ export type APIScope = {
 
 export const API_SCOPES: APIScope[] = [
     { key: 'action', objectPlural: 'actions' },
-    { key: 'access_control', objectPlural: 'access controls', disabledActions: ['write'] },
+    { key: 'access_control', objectPlural: 'access controls' },
     { key: 'activity_log', objectPlural: 'activity logs' },
     { key: 'annotation', objectPlural: 'annotations' },
     { key: 'batch_export', objectPlural: 'batch exports' },
@@ -108,7 +108,7 @@ export const API_KEY_SCOPE_PRESETS: {
         value: 'mcp_server',
         label: 'MCP Server',
         scopes: API_SCOPES.map(({ key }) =>
-            ['feature_flag', 'insight'].includes(key) ? `${key}:write` : `${key}:read`
+            ['feature_flag', 'insight', 'dashboard'].includes(key) ? `${key}:write` : `${key}:read`
         ),
         access_type: 'all',
     },

@@ -2,6 +2,8 @@ from enum import Enum
 from typing import Any, Literal
 
 from django.db.models import Q, QuerySet
+from django.db.models.signals import pre_delete
+from django.dispatch import receiver
 from rest_framework import serializers, viewsets
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
@@ -25,7 +27,9 @@ from posthog.models.experiment import (
 )
 from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.filters.filter import Filter
+from posthog.models.signals import model_activity_signal
 from posthog.models.team.team import Team
+from posthog.models.activity_logging.activity_log import Detail, log_activity, changes_between
 from posthog.schema import ExperimentEventExposureConfig
 
 
@@ -233,9 +237,10 @@ class ExperimentSerializer(serializers.ModelSerializer):
 
         variants = []
         aggregation_group_type_index = None
-        if validated_data["parameters"]:
-            variants = validated_data["parameters"].get("feature_flag_variants", [])
-            aggregation_group_type_index = validated_data["parameters"].get("aggregation_group_type_index")
+        if "parameters" in validated_data:
+            if validated_data["parameters"] is not None:
+                variants = validated_data["parameters"].get("feature_flag_variants", [])
+                aggregation_group_type_index = validated_data["parameters"].get("aggregation_group_type_index")
 
         request = self.context["request"]
         validated_data["created_by"] = request.user
@@ -542,6 +547,63 @@ class EnterpriseExperimentsViewSet(ForbidDestroyModel, TeamAndOrgViewSetMixin, v
         return Response({"result": warning})
 
     @action(methods=["POST"], detail=True, required_scopes=["experiment:write"])
+    def duplicate(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        source_experiment: Experiment = self.get_object()
+
+        # Allow overriding the feature flag key from the request
+        feature_flag_key = request.data.get("feature_flag_key", source_experiment.feature_flag.key)
+
+        # Generate a unique name for the duplicate
+        base_name = f"{source_experiment.name} (Copy)"
+        duplicate_name = base_name
+        counter = 1
+        while Experiment.objects.filter(team_id=self.team_id, name=duplicate_name, deleted=False).exists():
+            duplicate_name = f"{base_name} {counter}"
+            counter += 1
+
+        # Prepare saved metrics data for the serializer
+        saved_metrics_data = []
+        for experiment_to_saved_metric in source_experiment.experimenttosavedmetric_set.all():
+            saved_metrics_data.append(
+                {
+                    "id": experiment_to_saved_metric.saved_metric.id,
+                    "metadata": experiment_to_saved_metric.metadata,
+                }
+            )
+
+        # Prepare data for duplication
+        duplicate_data = {
+            "name": duplicate_name,
+            "description": source_experiment.description,
+            "type": source_experiment.type,
+            "parameters": source_experiment.parameters,
+            "filters": source_experiment.filters,
+            "metrics": source_experiment.metrics,
+            "metrics_secondary": source_experiment.metrics_secondary,
+            "stats_config": source_experiment.stats_config,
+            "exposure_criteria": source_experiment.exposure_criteria,
+            "saved_metrics_ids": saved_metrics_data,
+            "feature_flag_key": feature_flag_key,  # Use provided key or fall back to existing
+            # Reset fields for new experiment
+            "start_date": None,
+            "end_date": None,
+            "archived": False,
+            "deleted": False,
+        }
+
+        # Create the duplicate experiment using the serializer
+        duplicate_serializer = ExperimentSerializer(
+            data=duplicate_data,
+            context=self.get_serializer_context(),
+        )
+        duplicate_serializer.is_valid(raise_exception=True)
+        duplicate_experiment = duplicate_serializer.save()
+
+        return Response(
+            ExperimentSerializer(duplicate_experiment, context=self.get_serializer_context()).data, status=201
+        )
+
+    @action(methods=["POST"], detail=True, required_scopes=["experiment:write"])
     def create_exposure_cohort_for_experiment(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         experiment = self.get_object()
         flag = getattr(experiment, "feature_flag", None)
@@ -626,3 +688,58 @@ class EnterpriseExperimentsViewSet(ForbidDestroyModel, TeamAndOrgViewSetMixin, v
         experiment.exposure_cohort = cohort
         experiment.save(update_fields=["exposure_cohort"])
         return Response({"cohort": cohort_serializer.data}, status=201)
+
+
+@receiver(model_activity_signal, sender=Experiment)
+def handle_experiment_change(sender, scope, before_update, after_update, activity, was_impersonated=False, **kwargs):
+    log_activity(
+        organization_id=after_update.team.organization_id,
+        team_id=after_update.team_id,
+        user=after_update.created_by
+        if activity == "created"
+        else getattr(after_update, "last_modified_by", after_update.created_by),
+        was_impersonated=was_impersonated,
+        item_id=after_update.id,
+        scope=scope,
+        activity=activity,
+        detail=Detail(
+            changes=changes_between(scope, previous=before_update, current=after_update), name=after_update.name
+        ),
+    )
+
+
+@receiver(model_activity_signal, sender=ExperimentSavedMetric)
+def handle_experiment_saved_metric_change(
+    sender, scope, before_update, after_update, activity, was_impersonated=False, **kwargs
+):
+    log_activity(
+        organization_id=after_update.team.organization_id,
+        team_id=after_update.team_id,
+        user=after_update.created_by
+        if activity == "created"
+        else getattr(after_update, "last_modified_by", after_update.created_by),
+        was_impersonated=was_impersonated,
+        item_id=after_update.id,
+        scope="Experiment",  # log under Experiment scope so it appears in experiment activity log
+        activity=activity,
+        detail=Detail(
+            # need to use ExperimentSavedMetric here for field exclusions...
+            changes=changes_between("ExperimentSavedMetric", previous=before_update, current=after_update),
+            name=after_update.name,
+            type="shared_metric",
+        ),
+    )
+
+
+@receiver(pre_delete, sender=ExperimentSavedMetric)
+def handle_experiment_saved_metric_delete(sender, instance, **kwargs):
+    log_activity(
+        organization_id=instance.team.organization_id,
+        team_id=instance.team_id,
+        user=getattr(instance, "last_modified_by", instance.created_by),
+        was_impersonated=False,
+        item_id=instance.id,
+        scope="Experiment",  # log under Experiment scope so it appears in experiment activity log
+        activity="deleted",
+        detail=Detail(name=instance.name, type="shared_metric"),
+    )

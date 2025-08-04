@@ -3,7 +3,7 @@ import {
     SessionRecordingPlayerProps,
 } from 'scenes/session-recordings/player/SessionRecordingPlayer'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
-import { NotebookNodeType, SessionRecordingId } from '~/types'
+import { SessionRecordingId } from '~/types'
 import { urls } from 'scenes/urls'
 import {
     SessionRecordingPlayerMode,
@@ -19,12 +19,13 @@ import {
 } from 'scenes/session-recordings/playlist/SessionRecordingPreview'
 import { notebookNodeLogic } from './notebookNodeLogic'
 import { LemonSwitch } from '@posthog/lemon-ui'
-import { JSONContent, NotebookNodeProps, NotebookNodeAttributeProperties } from '../Notebook/utils'
 import { asDisplay } from 'scenes/persons/person-utils'
-import { IconComment } from 'lib/lemon-ui/icons'
 import { NotFound } from 'lib/components/NotFound'
-import { IconPerson } from '@posthog/icons'
+import { IconComment, IconPerson } from '@posthog/icons'
 import { UUID_REGEX_MATCH_GROUPS } from './utils'
+import { JSONContent } from 'lib/components/RichContentEditor/types'
+import { NotebookNodeAttributeProperties, NotebookNodeProps, NotebookNodeType } from '../types'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 const HEIGHT = 500
 const MIN_HEIGHT = '20rem'
@@ -56,10 +57,8 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeRecordingAttrib
     const { loadRecordingMeta } = useActions(sessionRecordingDataLogic(recordingLogicProps))
     const { seekToTime, setPlay } = useActions(sessionRecordingPlayerLogic(recordingLogicProps))
 
-    useEffect(() => {
-        loadRecordingMeta()
-    }, [])
     // TODO Only load data when in view...
+    useOnMountEffect(loadRecordingMeta)
 
     useEffect(() => {
         const person = sessionPlayerMetaData?.person
@@ -88,9 +87,9 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeRecordingAttrib
                   }
                 : undefined,
         ])
-    }, [sessionPlayerMetaData?.person?.id])
+    }, [sessionPlayerMetaData?.person?.id]) // oxlint-disable-line exhaustive-deps
 
-    useEffect(() => {
+    useOnMountEffect(() => {
         setMessageListeners({
             'play-replay': ({ time }) => {
                 if (!expanded) {
@@ -102,7 +101,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeRecordingAttrib
                 scrollIntoView()
             },
         })
-    }, [])
+    })
 
     if (!sessionPlayerMetaData && !sessionPlayerMetaDataLoading) {
         return <NotFound object="replay" />

@@ -43,6 +43,7 @@ from posthog.schema import (
     LogEntryPropertyFilter,
     GroupPropertyFilter,
     FeaturePropertyFilter,
+    FlagPropertyFilter,
     HogQLPropertyFilter,
     EmptyPropertyFilter,
     DataWarehousePropertyFilter,
@@ -215,7 +216,7 @@ def _expr_to_compare_op(
         return ast.Call(
             name="ifNull",
             args=[
-                ast.Call(name="match", args=[ast.Call(name="toString", args=[expr]), ast.Constant(value=value)]),
+                ast.Call(name="match", args=[expr, ast.Constant(value=value)]),
                 ast.Constant(value=0),
             ],
         )
@@ -304,6 +305,7 @@ def property_to_expr(
         | LogEntryPropertyFilter
         | GroupPropertyFilter
         | FeaturePropertyFilter
+        | FlagPropertyFilter
         | HogQLPropertyFilter
         | EmptyPropertyFilter
         | DataWarehousePropertyFilter
@@ -407,10 +409,7 @@ def property_to_expr(
         operator = cast(Optional[PropertyOperator], property.operator) or PropertyOperator.EXACT
         value = property.value
 
-        if property.key.startswith("$virt") and property.type == "person":
-            # we pretend virtual person properties are regular properties, but they are ExpressionFields on the Persons table
-            chain = ["person"] if scope != "person" else []
-        elif property.type == "person" and scope != "person":
+        if property.type == "person" and scope != "person":
             chain = ["person", "properties"]
         elif property.type == "event" and scope == "replay_entity":
             chain = ["events", "properties"]
@@ -470,7 +469,7 @@ def property_to_expr(
         else:
             field = ast.Field(chain=[*chain, property.key])
 
-        expr: ast.Expr = field
+        expr: ast.Expr = map_virtual_properties(field)
 
         if property.type == "recording" and property.key == "snapshot_source":
             expr = ast.Call(name="argMinMerge", args=[field])
@@ -656,6 +655,19 @@ def property_to_expr(
     raise NotImplementedError(
         f"property_to_expr not implemented for filter type {type(property).__name__} and {property.type}"
     )
+
+
+def map_virtual_properties(e: ast.Expr):
+    if (
+        isinstance(e, ast.Field)
+        and len(e.chain) >= 2
+        and e.chain[-2] == "properties"
+        and isinstance(e.chain[-1], str)
+        and e.chain[-1].startswith("$virt")
+    ):
+        # we pretend virtual properties are regular properties, but they should map to the same field directly on the parent table
+        return ast.Field(chain=e.chain[:-2] + [e.chain[-1]])
+    return e
 
 
 def create_expr_for_revenue_analytics_property(property: RevenueAnalyticsPropertyFilter) -> ast.Expr:

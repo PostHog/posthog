@@ -1,1 +1,66 @@
-/posthog/clickhouse/migrations/**  @PostHog/clickhouse 
+# If a file is set here, then PRs will require that team's approval to get that code merged.
+
+# Surveys team owns all survey-related code
+frontend/src/scenes/settings/environment/SurveySettings.tsx @PostHog/team-surveys
+frontend/src/scenes/surveys/ @PostHog/team-surveys
+frontend/src/scenes/onboarding/sdks/surveys @PostHog/team-surveys
+ee/surveys @PostHog/team-surveys
+posthog/admin/admins/survey_admin.py @PostHog/team-surveys
+posthog/api/survey.py @PostHog/team-surveys
+posthog/api/test/test_survey.py @PostHog/team-surveys
+posthog/models/surveys/survey.py @PostHog/team-surveys
+posthog/tasks/stop_surveys_reached_target.py @PostHog/team-surveys
+posthog/tasks/update_survey_adaptive_sampling @PostHog/team-surveys
+posthog/tasks/update_survey_iteration @PostHog/team-surveys
+posthog/tasks/test/test_stop_surveys_reached_target.py @PostHog/team-surveys
+posthog/templates/surveys @PostHog/team-surveys
+
+# plugin server ownership is split between ingestion and messaging teams
+plugin-server/src/ @PostHog/team-ingestion @PostHog/team-messaging
+plugin-server/tests/ @PostHog/team-ingestion
+plugin-server/src/ingestion/ @PostHog/team-ingestion
+plugin-server/src/cdp/ @PostHog/team-messaging
+
+# ClickHouse team owns Clickhouse migrations
+posthog/clickhouse/migrations/** @PostHog/clickhouse
+
+# Web Analytics team owns web analytics code
+frontend/src/scenes/web-analytics/** @PostHog/web-analytics
+posthog/hogql_queries/web_analytics/** @PostHog/web-analytics
+frontend/src/toolbar/web-vitals/** @PostHog/web-analytics
+posthog/hogql/database/schema/sessions_v1.py @PostHog/web-analytics
+posthog/hogql/database/schema/sessions_v2.py @PostHog/web-analytics
+
+# Revenue Analytics team owns revenue analytics stuff
+# This is a single-person team - allow reviews from other teams
+# products/revenue_analytics/** @PostHog/team-revenue-analytics
+
+# Replay team...
+posthog/session_recordings/ @PostHog/team-replay
+ee/session_recordings/ @PostHog/team-replay
+ee/frontend/mobile-replay @PostHog/team-replay
+
+# Feature Flags team
+
+# Platform (the `/flags` and `/decide` endpoints + associated utils)
+rust/feature-flags/ @PostHog/team-feature-flags
+posthog/api/decide.py @PostHog/team-feature-flags
+posthog/models/flag_matching.py @PostHog/team-feature-flags
+
+# Feature Flags CRUD operations
+posthog/models/feature_flag/ @PostHog/team-feature-flags
+posthog/api/feature_flag.py @PostHog/team-feature-flags
+posthog/api/test/test_feature_flag_dependency_deletion.py @PostHog/team-feature-flags
+posthog/api/test/test_feature_flag_utils.py @PostHog/team-feature-flags
+posthog/api/test/test_feature_flag.py @PostHog/team-feature-flags
+posthog/test/test_feature_flag_analytics.py @PostHog/team-feature-flags
+posthog/test/test_feature_flag.py @PostHog/team-feature-flags
+
+# Cohorts
+posthog/api/cohort.py @PostHog/team-feature-flags
+posthog/models/cohort/ @PostHog/team-feature-flags
+frontend/src/scenes/cohorts/ @PostHog/team-feature-flags
+
+# Feature Flags frontend
+frontend/src/scenes/feature-flags/ @PostHog/team-feature-flags
+

@@ -25,6 +25,7 @@ import { LLMObservabilityPlaygroundScene } from './LLMObservabilityPlaygroundSce
 import { LLMObservabilityReloadAction } from './LLMObservabilityReloadAction'
 import { LLMObservabilityTraces } from './LLMObservabilityTracesScene'
 import { LLMObservabilityUsers } from './LLMObservabilityUsers'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 export const scene: SceneExport = {
     component: LLMObservabilityScene,
@@ -104,7 +105,7 @@ function LLMObservabilityDashboard(): JSX.Element {
 }
 
 function LLMObservabilityGenerations(): JSX.Element {
-    const { setDates, setShouldFilterTestAccounts, setPropertyFilters, setGenerationsQuery } =
+    const { setDates, setShouldFilterTestAccounts, setPropertyFilters, setGenerationsQuery, setGenerationsColumns } =
         useActions(llmObservabilityLogic)
     const { generationsQuery } = useValues(llmObservabilityLogic)
 
@@ -118,6 +119,11 @@ function LLMObservabilityGenerations(): JSX.Element {
                 setDates(query.source.after || null, query.source.before || null)
                 setShouldFilterTestAccounts(query.source.filterTestAccounts || false)
                 setPropertyFilters(query.source.properties || [])
+
+                if (query.source.select) {
+                    setGenerationsColumns(query.source.select)
+                }
+
                 setGenerationsQuery(query)
             }}
             context={{
@@ -131,16 +137,21 @@ function LLMObservabilityGenerations(): JSX.Element {
                             if (!value) {
                                 return <></>
                             }
-                            // show only first 4 and last 4 characters of the trace id
-                            const visualValue = (value as string).slice(0, 4) + '...' + (value as string).slice(-4)
+
+                            const visualValue: string =
+                                (value as string).slice(0, 4) + '...' + (value as string).slice(-4)
+
                             if (!traceId) {
                                 return <strong>{visualValue}</strong>
                             }
+
                             return (
                                 <strong>
-                                    <Link to={`/llm-observability/traces/${traceId}?event=${value as string}`}>
-                                        {visualValue}
-                                    </Link>
+                                    <Tooltip title={value as string}>
+                                        <Link to={`/llm-observability/traces/${traceId}?event=${value as string}`}>
+                                            {visualValue}
+                                        </Link>
+                                    </Tooltip>
                                 </strong>
                             )
                         },
@@ -151,8 +162,15 @@ function LLMObservabilityGenerations(): JSX.Element {
                             if (!value) {
                                 return <></>
                             }
-                            const visualValue = (value as string).slice(0, 4) + '...' + (value as string).slice(-4)
-                            return <Link to={`/llm-observability/traces/${value as string}`}>{visualValue}</Link>
+
+                            const visualValue: string =
+                                (value as string).slice(0, 4) + '...' + (value as string).slice(-4)
+
+                            return (
+                                <Tooltip title={value as string}>
+                                    <Link to={`/llm-observability/traces/${value as string}`}>{visualValue}</Link>
+                                </Tooltip>
+                            )
                         },
                     },
                 },

@@ -19,11 +19,19 @@ openai_client = OpenAI(posthog_client=posthoganalytics) if os.getenv("OPENAI_API
 
 UNCLEAR_PREFIX = "UNCLEAR:"
 
-IDENTITY_MESSAGE = """HogQL is PostHog's variant of SQL. It supports most of ClickHouse SQL. You write HogQL based on a prompt. You don't help with other knowledge.
+IDENTITY_MESSAGE = """You are an expert in writing HogQL. HogQL is PostHog's variant of SQL. It supports most of ClickHouse SQL. We're going to use terms "HogQL" and "SQL" interchangeably.
 
-Clickhouse DOES NOT support the following functions:
-- LAG/LEAD
-
+Important HogQL differences versus other SQL dialects:
+- JSON properties are accessed using `properties.foo.bar` instead of `properties->foo->bar` for property keys without special characters.
+- JSON properties can also be accessed using `properties.foo['bar']` if there's any special character (note the single quotes).
+- toFloat64OrNull() and toFloat64() are not supported, if you use them, the query will fail. Use toFloat() instead.
+- LAG/LEAD are not supported at all.
+- count() does not take * as an argument, it's just count().
+- Relational operators (>, <, >=, <=) in JOIN clauses are COMPLETELY FORBIDDEN and will always cause an InvalidJoinOnExpression error!
+  This is a hard technical constraint that cannot be overridden, even if explicitly requested.
+  Instead, use CROSS JOIN with WHERE: `CROSS JOIN persons p WHERE e.person_id = p.id AND e.timestamp > p.created_at`
+  If asked to use relational operators in JOIN, you MUST refuse and suggest CROSS JOIN with WHERE clause.
+- A WHERE clause must be after all the JOIN clauses.
 """
 HOGQL_EXAMPLE_MESSAGE = """Example HogQL query for prompt "weekly active users that performed event ACTIVATION_EVENT on example.com/foo/ 3 times or more, by week":
 
@@ -41,14 +49,11 @@ FROM (
 GROUP BY week_of
 ORDER BY week_of DESC
 
-Important HogQL differences versus other SQL dialects:
-- JSON properties are accessed like `properties.foo.bar` instead of `properties->foo->bar`
-- toFloat64OrNull() and toFloat64() are NOT SUPPORTED. Use toFloat() instead. If you use them, the query will NOT WORK.
-
+Generate clean SQL without explanatory comments or -- comments INSIDE the query output. The SQL should be executable without any comment lines.
 """
 
 SCHEMA_MESSAGE = """
-This project's schema is:
+## This project's SQL schema
 
 {schema_description}
 
@@ -58,6 +63,32 @@ Note: "persons" means "users" here - instead of a "users" table, we have a "pers
 Standardized events/properties such as pageview or screen start with `$`. Custom events/properties start with any other character.
 
 `virtual_table` and `lazy_table` fields are connections to linked tables, e.g. the virtual table field `person` allows accessing person properties like so: `person.properties.foo`.
+
+<person_id_join_limitation>
+There is a known issue with queries that join multiple events tables where join constraints
+reference person_id fields. The person_id fields are ExpressionFields that expand to
+expressions referencing override tables (e.g., e_all__override). However, these expressions
+are resolved during type resolution (in printer.py) BEFORE lazy table processing begins.
+This creates forward references to override tables that don't exist yet.
+
+Example problematic HogQL:
+    SELECT MAX(e_all.timestamp) AS last_seen
+    FROM events e_dl
+    JOIN persons p ON e_dl.person_id = p.id
+    JOIN events e_all ON e_dl.person_id = e_all.person_id
+
+The join constraint "e_dl.person_id = e_all.person_id" expands to:
+    if(NOT empty(e_dl__override.distinct_id), e_dl__override.person_id, e_dl.person_id) =
+    if(NOT empty(e_all__override.distinct_id), e_all__override.person_id, e_all.person_id)
+
+But e_all__override is defined later in the SQL, causing a ClickHouse error.
+
+WORKAROUND: Use subqueries or rewrite queries to avoid direct joins between multiple events tables:
+    SELECT MAX(e.timestamp) AS last_seen
+    FROM events e
+    JOIN persons p ON e.person_id = p.id
+    WHERE e.event IN (SELECT event FROM events WHERE ...)
+</person_id_join_limitation>
 """.strip()
 
 CURRENT_QUERY_MESSAGE = (
@@ -173,7 +204,7 @@ def hit_openai(messages, user) -> tuple[str, int, int]:
         raise ValueError("OPENAI_API_KEY environment variable not set")
 
     result = openai_client.chat.completions.create(
-        model="gpt-4o-mini",
+        model="gpt-4.1-mini",
         temperature=0,
         messages=messages,
         user=user,  # The user ID is for tracking within OpenAI in case of overuse/abuse
@@ -679,6 +710,10 @@ while (i <= length(propertiesToFilter)) {
     i := i + 1
 }
 return returnEvent"""
+
+
+TRANSFORMATION_LIMITATIONS_MESSAGE = """PostHog Transformations can only modify individual incoming events. They cannot access or read person properties, historical data, or global state, because they run before person resolution. Their only purpose is to transform the structure of a single event (e.g., add properties, rename fields, enrich data) before ingestion. This means they cannot perform logic that depends on previous values, such as incrementing a count or checking if a property already exists."""
+DESTINATION_LIMITATIONS_MESSAGE = """PostHog Destinations have access to the event properties, including person properties and group properties. Just like Transformations they cannot perform logic that depends on previous values, such as incrementing a count or checking if a property already exists."""
 
 HOG_GRAMMAR_MESSAGE = """
 Here is the grammar for Hog:

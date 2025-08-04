@@ -18,7 +18,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 export interface ToolDefinition {
     /** A unique identifier for the tool */
     name: AssistantContextualTool
-    /** A user-friendly display name for the tool */
+    /** A user-friendly display name for the tool. This must be a verb phrase, like "Create smth" or "Search smth" */
     displayName: string
     /** A user-friendly description for the tool */
     description: `Max can ${string}`

@@ -57,6 +57,7 @@ from posthog.schema import (
     TrendsFilter,
     TrendsQuery,
     TrendsFormulaNode,
+    MathGroupTypeIndex,
 )
 from posthog.schema import Series as InsightActorsQuerySeries
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
@@ -1829,6 +1830,26 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "2020-02-01",
             IntervalType.MONTH,
             [EventsNode(event="$pageview", math=BaseMathType.MONTHLY_ACTIVE)],
+            None,
+            None,
+        )
+
+        assert response.results[0]["data"] == [0, 4, 0]
+
+    def test_trends_aggregation_monthly_active_groups_long_interval(self):
+        self._create_test_events_for_groups()
+
+        response = self._run_trends_query(
+            "2019-12-31",
+            "2020-02-01",
+            IntervalType.MONTH,
+            [
+                EventsNode(
+                    event="$pageview",
+                    math=BaseMathType.MONTHLY_ACTIVE,
+                    math_group_type_index=MathGroupTypeIndex.NUMBER_0,
+                )
+            ],
             None,
             None,
         )
@@ -5678,3 +5699,61 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
     def test_trends_daily_compare_to_7_days_ago(self):
         self._compare_trends_test(CompareFilter(compare=True, compare_to="-7d"))
+
+    def test_trends_all_time(self):
+        self._create_test_events()
+
+        response = self._run_trends_query(
+            "all",
+            self.default_date_to,
+            IntervalType.DAY,
+            [EventsNode(event="$pageview")],
+        )
+
+        self.assertEqual(1, len(response.results))
+
+        # Check the first day is included
+        self.assertIn(
+            "2020-01-09",
+            response.results[0]["days"],
+        )
+
+    def test_cohort_breakdown_list_assertion_error_scenario(self):
+        """
+        In trends query runner, we run a couple things after init. When updating filters, make sure they get run again.
+        """
+        self._create_test_events()
+
+        cohort = Cohort.objects.create(
+            team=self.team,
+            groups=[{"properties": [{"key": "name", "value": "p1", "type": "person"}]}],
+            name="test cohort",
+        )
+        cohort.calculate_people_ch(pending_version=0)
+
+        base_query = TrendsQuery(
+            series=[EventsNode(event="$pageview")],
+            dateRange=DateRange(date_from="2020-01-09", date_to="2020-01-20"),
+            interval=IntervalType.DAY,
+        )
+
+        # Apply filters_override with cohort breakdown list (like from dashboard)
+        from posthog.schema import DashboardFilter
+
+        filters_override = DashboardFilter(
+            breakdown_filter=BreakdownFilter(
+                breakdown_type=BreakdownType.COHORT,
+                breakdown=[cohort.pk],  # This is a list - the problematic case
+            )
+        )
+
+        runner = TrendsQueryRunner(team=self.team, query=base_query)
+        runner.apply_dashboard_filters(filters_override)
+
+        # This is the call that would fail with assertion error before the fix
+        response = runner.calculate()
+
+        # If we get here, the fix is working
+        self.assertIsNotNone(response)
+        self.assertEqual(len(response.results), 1)
+        self.assertEqual(response.results[0]["breakdown_value"], cohort.pk)

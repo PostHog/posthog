@@ -20,6 +20,7 @@ from posthog.hogql.printer import (
 )
 from posthog.hogql.resolver_utils import extract_select_queries
 from posthog.hogql.timings import HogQLTimings
+from posthog.hogql.transforms.preaggregated_table_transformation import do_preaggregated_table_transforms
 from posthog.hogql.variables import replace_variables
 from posthog.hogql.visitor import clone_expr
 from posthog.models.team import Team
@@ -84,33 +85,19 @@ class HogQLQueryExecutor:
 
     def _process_placeholders(self):
         with self.timings.measure("replace_placeholders"):
-            placeholders_in_query = find_placeholders(self.select_query)
-            self.placeholders = self.placeholders or {}
+            if not self.placeholders:
+                self.placeholders = {}
+            finder = find_placeholders(self.select_query)
 
-            if "filters" in self.placeholders and self.filters is not None:
-                raise ExposedHogQLError(
-                    f"Query contains 'filters' placeholder, yet filters are also provided as a standalone query parameter."
-                )
-
-            if "filters" in placeholders_in_query or any(
-                placeholder and placeholder.startswith("filters.") for placeholder in placeholders_in_query
-            ):
+            # Need to use the "filters" system to replace a few special placeholders
+            if finder.has_filters:
+                if "filters" in self.placeholders and self.filters is not None:
+                    raise ValueError(f"Query contains 'filters' both as placeholder and as a query parameter.")
                 self.select_query = replace_filters(self.select_query, self.filters, self.team)
 
-                leftover_placeholders: list[str] = []
-                for placeholder in placeholders_in_query:
-                    if placeholder is None:
-                        raise ValueError("Placeholder expressions are not yet supported")
-                    if placeholder != "filters" and not placeholder.startswith("filters."):
-                        leftover_placeholders.append(placeholder)
-                placeholders_in_query = leftover_placeholders
-
-            if len(placeholders_in_query) > 0:
-                if len(self.placeholders) == 0:
-                    raise ExposedHogQLError(
-                        f"Query contains placeholders, but none were provided. Placeholders in query: {', '.join(s for s in placeholders_in_query if s is not None)}"
-                    )
-                self.select_query = replace_placeholders(self.select_query, self.placeholders)
+            # If there are placeholders remaining
+            if finder.placeholder_fields or finder.placeholder_expressions:
+                self.select_query = cast(ast.SelectQuery, replace_placeholders(self.select_query, self.placeholders))
 
     def _apply_limit(self):
         if self.limit_context in (LimitContext.COHORT_CALCULATION, LimitContext.SAVED_QUERY):
@@ -122,6 +109,13 @@ class HogQLQueryExecutor:
                     one_query.limit = ast.Constant(
                         value=get_default_limit_for_context(self.limit_context or LimitContext.QUERY)
                     )
+
+    def _apply_optimizers(self):
+        if self.query_modifiers.useWebAnalyticsPreAggregatedTables:
+            with self.timings.measure("preaggregated_table_transforms"):
+                transformed_node = do_preaggregated_table_transforms(self.select_query, self.context)
+                if isinstance(transformed_node, ast.SelectQuery) or isinstance(transformed_node, ast.SelectSetQuery):
+                    self.select_query = transformed_node
 
     def _generate_hogql(self):
         self.hogql_context = dataclasses.replace(
@@ -269,6 +263,7 @@ class HogQLQueryExecutor:
         self._process_variables()
         self._process_placeholders()
         self._apply_limit()
+        self._apply_optimizers()
         with self.timings.measure("_generate_hogql"):
             self._generate_hogql()
         with self.timings.measure("_generate_clickhouse_sql"):

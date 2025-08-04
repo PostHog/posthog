@@ -1,7 +1,7 @@
 import builtins
 import json
 from collections.abc import Callable
-from datetime import datetime
+from datetime import datetime, UTC
 from requests import HTTPError
 from typing import Any, List, Optional, TypeVar, Union, cast  # noqa: UP035
 
@@ -10,7 +10,6 @@ from django.shortcuts import get_object_or_404
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiExample, OpenApiParameter
 from loginas.utils import is_impersonated_session
-import posthoganalytics
 from posthog.api.insight import capture_legacy_api_call
 from prometheus_client import Counter
 from rest_framework import request, response, serializers, viewsets
@@ -22,7 +21,7 @@ from rest_framework.settings import api_settings
 from rest_framework_csv import renderers as csvrenderers
 from statshog.defaults.django import statsd
 
-from posthog.api.capture import capture_internal, new_capture_internal, CaptureInternalError
+from posthog.api.capture import capture_internal
 from posthog.api.documentation import PersonPropertiesSerializer, extend_schema
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import (
@@ -71,6 +70,8 @@ from posthog.queries.util import get_earliest_timestamp
 from posthog.rate_limit import (
     ClickHouseBurstRateThrottle,
     ClickHouseSustainedRateThrottle,
+    BreakGlassBurstThrottle,
+    BreakGlassSustainedThrottle,
 )
 from posthog.renderers import SafeJSONRenderer
 from posthog.settings import EE_AVAILABLE
@@ -147,6 +148,14 @@ class PersonsThrottle(ClickHouseSustainedRateThrottle):
     # Throttle class that's scoped just to the person endpoint.
     # This makes the rate limit apply to all endpoints under /api/person/
     # and independent of other endpoints.
+    scope = "persons"
+
+
+class PersonsBreakGlassBurstThrottle(BreakGlassBurstThrottle):
+    scope = "persons"
+
+
+class PersonsBreakGlassSustainedThrottle(BreakGlassSustainedThrottle):
     scope = "persons"
 
 
@@ -232,7 +241,12 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     queryset = Person.objects.all()
     serializer_class = PersonSerializer
     pagination_class = PersonLimitOffsetPagination
-    throttle_classes = [ClickHouseBurstRateThrottle, PersonsThrottle]
+    throttle_classes = [
+        ClickHouseBurstRateThrottle,
+        PersonsThrottle,
+        PersonsBreakGlassBurstThrottle,
+        PersonsBreakGlassSustainedThrottle,
+    ]
     lifecycle_class = Lifecycle
     stickiness_class = Stickiness
 
@@ -554,57 +568,43 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def delete_property(self, request: request.Request, pk=None, **kwargs) -> response.Response:
         person: Person = get_pk_or_uuid(Person.objects.filter(team_id=self.team_id), pk).get()
 
-        if posthoganalytics.feature_enabled("ingestion-new-capture-internal", person.distinct_ids[0]):
-            try:
-                event = {
-                    "event": "$delete_person_property",
-                    "properties": {
-                        "$unset": [request.data["$unset"]],
-                    },
-                    "timestamp": datetime.now().isoformat(),
-                }
-                resp = new_capture_internal(
-                    self.team.api_token,
-                    person.distinct_ids[0],
-                    event,
-                    True,
-                )
-                resp.raise_for_status()
+        event_name = "$delete_person_property"
+        distinct_id = person.distinct_ids[0]
+        timestamp = datetime.now(UTC)
+        properties = {
+            "$unset": [request.data["$unset"]],
+        }
 
-            except HTTPError as he:
-                return response.Response(
-                    {
-                        "success": False,
-                        "detail": "Unable to delete property",
-                    },
-                    status=he.response.status_code,
-                )
-
-            except CaptureInternalError:
-                return response.Response(
-                    {
-                        "success": False,
-                        "detail": f"Unable to delete property",
-                    },
-                    status=400,
-                )
-
-        else:
-            capture_internal(
-                distinct_id=person.distinct_ids[0],
-                ip=None,
-                site_url=None,
+        try:
+            resp = capture_internal(
                 token=self.team.api_token,
-                now=datetime.now(),
-                sent_at=None,
-                event={
-                    "event": "$delete_person_property",
-                    "properties": {
-                        "$unset": [request.data["$unset"]],
-                    },
-                    "distinct_id": person.distinct_ids[0],
-                    "timestamp": datetime.now().isoformat(),
+                event_name=event_name,
+                event_source="person_viewset",
+                distinct_id=distinct_id,
+                timestamp=timestamp,
+                properties=properties,
+                process_person_profile=True,
+            )
+            resp.raise_for_status()
+
+        # HTTP error - if applicable, thrown after retires are exhausted
+        except HTTPError as he:
+            return response.Response(
+                {
+                    "success": False,
+                    "detail": "Unable to delete property",
                 },
+                status=he.response.status_code,
+            )
+
+        # catches event payload errors (CaptureInternalError) and misc. (timeout etc.)
+        except Exception:
+            return response.Response(
+                {
+                    "success": False,
+                    "detail": f"Unable to delete property",
+                },
+                status=400,
             )
 
         log_activity(
@@ -696,45 +696,27 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def _set_properties(self, properties, user):
         instance = self.get_object()
         distinct_id = instance.distinct_ids[0]
+        event_name = "$set"
+        timestamp = datetime.now(UTC)
+        properties = {
+            "$set": properties,
+        }
 
-        if posthoganalytics.feature_enabled("ingestion-new-capture-internal", distinct_id):
-            try:
-                event = {
-                    "event": "$set",
-                    "properties": {
-                        "$set": properties,
-                    },
-                    "timestamp": datetime.now().isoformat(),
-                }
-                resp = new_capture_internal(
-                    instance.team.api_token,
-                    distinct_id,
-                    event,
-                    True,
-                )
-                resp.raise_for_status()
-
-            # Failures in this codepath (old and new) are ignored here
-            except (HTTPError, CaptureInternalError):
-                pass
-
-        else:
-            capture_internal(
-                distinct_id=distinct_id,
-                ip=None,
-                site_url=None,
+        try:
+            resp = capture_internal(
                 token=instance.team.api_token,
-                now=datetime.now(),
-                sent_at=None,
-                event={
-                    "event": "$set",
-                    "properties": {
-                        "$set": properties,
-                    },
-                    "distinct_id": distinct_id,
-                    "timestamp": datetime.now().isoformat(),
-                },
+                event_name=event_name,
+                event_source="person_viewset",
+                distinct_id=distinct_id,
+                timestamp=timestamp,
+                properties=properties,
+                process_person_profile=True,
             )
+            resp.raise_for_status()
+
+        # Failures in this codepath (old and new) are ignored here
+        except Exception:
+            pass
 
         if self.organization.id:  # should always be true, but mypy...
             log_activity(

@@ -5,6 +5,7 @@ import api from 'lib/api'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { IntegrationView } from 'lib/integrations/IntegrationView'
 import { getIntegrationNameFromKind } from 'lib/integrations/utils'
+import { ChannelSetupModal } from 'products/messaging/frontend/Channels/ChannelSetupModal'
 import { urls } from 'scenes/urls'
 
 import { CyclotronJobInputSchemaType } from '~/types'
@@ -26,8 +27,8 @@ export function IntegrationChoice({
     redirectUrl,
     beforeRedirect,
 }: IntegrationConfigureProps): JSX.Element | null {
-    const { integrationsLoading, integrations } = useValues(integrationsLogic)
-    const { newGoogleCloudKey } = useActions(integrationsLogic)
+    const { integrationsLoading, integrations, newIntegrationModalKind } = useValues(integrationsLogic)
+    const { newGoogleCloudKey, openNewIntegrationModal, closeNewIntegrationModal } = useActions(integrationsLogic)
     const kind = integration
 
     const integrationsOfKind = integrations?.filter((x) => x.kind === kind)
@@ -82,29 +83,38 @@ export function IntegrationChoice({
                           ],
                       }
                     : ['email'].includes(kind)
-                    ? {
-                          items: [
-                              {
-                                  to: urls.messaging('senders'),
-                                  label: 'Configure new email sender domain',
-                              },
-                          ],
-                      }
-                    : {
-                          items: [
-                              {
-                                  to: api.integrations.authorizeUrl({
-                                      kind,
-                                      next: redirectUrl,
-                                  }),
-                                  disableClientSideRouting: true,
-                                  onClick: beforeRedirect,
-                                  label: integrationsOfKind?.length
-                                      ? `Connect to a different integration for ${kindName}`
-                                      : `Connect to ${kindName}`,
-                              },
-                          ],
-                      },
+                      ? {
+                            items: [
+                                {
+                                    to: urls.messaging('channels'),
+                                    label: 'Configure new email sender domain',
+                                },
+                            ],
+                        }
+                      : ['twilio'].includes(kind)
+                        ? {
+                              items: [
+                                  {
+                                      label: 'Configure new Twilio account',
+                                      onClick: () => openNewIntegrationModal('twilio'),
+                                  },
+                              ],
+                          }
+                        : {
+                              items: [
+                                  {
+                                      to: api.integrations.authorizeUrl({
+                                          kind,
+                                          next: redirectUrl,
+                                      }),
+                                      disableClientSideRouting: true,
+                                      onClick: beforeRedirect,
+                                      label: integrationsOfKind?.length
+                                          ? `Connect to a different integration for ${kindName}`
+                                          : `Connect to ${kindName}`,
+                                  },
+                              ],
+                          },
                 {
                     items: [
                         {
@@ -138,6 +148,13 @@ export function IntegrationChoice({
             ) : (
                 button
             )}
+
+            <ChannelSetupModal
+                isOpen={newIntegrationModalKind === 'twilio'}
+                channelType="twilio"
+                integration={integrationKind || undefined}
+                onComplete={closeNewIntegrationModal}
+            />
         </>
     )
 }

@@ -83,7 +83,7 @@ class TestOrganizationInvite(BaseTest):
 
         # Verify the access control has been created correctly
         access_control = AccessControl.objects.filter(
-            team=team, resource="team", resource_id=str(team.id), organization_member=org_membership
+            team=team, resource="project", resource_id=str(team.id), organization_member=org_membership
         ).first()
         if not access_control:
             raise Exception("Access control not found")
@@ -117,7 +117,7 @@ class TestOrganizationInvite(BaseTest):
 
         # Verify the access control has been created with member level
         access_control = AccessControl.objects.filter(
-            team=team, resource="team", resource_id=str(team.id), organization_member=org_membership
+            team=team, resource="project", resource_id=str(team.id), organization_member=org_membership
         ).first()
 
         if not access_control:
@@ -165,7 +165,7 @@ class TestOrganizationInvite(BaseTest):
 
         # Verify the access control has been created correctly for the new team
         access_control = AccessControl.objects.filter(
-            team=new_team, resource="team", resource_id=str(new_team.id), organization_member=org_membership
+            team=new_team, resource="project", resource_id=str(new_team.id), organization_member=org_membership
         ).first()
         if not access_control:
             raise Exception("Access control not found")
@@ -225,3 +225,71 @@ class TestOrganizationInvite(BaseTest):
                 "organization_id": self.organization.id,
             }
         )
+
+    def test_invite_use_without_private_project_access(self):
+        """Test using an invite without private project access returns early"""
+        # Create a user who will use the invite
+        user = User.objects.create_user(email="no_access@posthog.com", password="password", first_name="first_name")
+
+        # Create an invite without private project access
+        invite = OrganizationInvite.objects.create(
+            organization=self.organization,
+            target_email="no_access@posthog.com",
+            private_project_access=None,
+        )
+
+        # Use the invite
+        invite.use(user, prevalidated=True)
+
+        # Verify the user has been added to the organization
+        org_membership = OrganizationMembership.objects.filter(organization=self.organization, user=user).first()
+        self.assertIsNotNone(org_membership)
+
+        # Verify no explicit team memberships were created
+        self.assertEqual(ExplicitTeamMembership.objects.filter(parent_membership=org_membership).count(), 0)
+
+        # Verify no access controls were created
+        self.assertEqual(AccessControl.objects.filter(organization_member=org_membership).count(), 0)
+
+        # Verify the invite has been deleted
+        self.assertFalse(OrganizationInvite.objects.filter(target_email="no_access@posthog.com").exists())
+
+    def test_invite_use_only_deletes_organization_specific_invites(self):
+        """Test that using an invite only deletes invites for the specific organization, not all organizations"""
+        from posthog.models import Organization
+
+        # Create a second organization
+        second_org = Organization.objects.create(name="Second Org")
+
+        # Create a user who will use the invite
+        user = User.objects.create_user(email="cross_org@posthog.com", password="password", first_name="Test")
+
+        # Create invites with the same email in both organizations
+        invite_org1 = OrganizationInvite.objects.create(
+            organization=self.organization,
+            target_email="cross_org@posthog.com",
+        )
+        invite_org2 = OrganizationInvite.objects.create(
+            organization=second_org,
+            target_email="cross_org@posthog.com",
+        )
+
+        # Verify both invites exist before using one
+        self.assertTrue(OrganizationInvite.objects.filter(id=invite_org1.id).exists())
+        self.assertTrue(OrganizationInvite.objects.filter(id=invite_org2.id).exists())
+
+        # Use the invite for the first organization
+        invite_org1.use(user, prevalidated=True)
+
+        # Verify the user has been added to the first organization
+        org_membership = OrganizationMembership.objects.filter(organization=self.organization, user=user).first()
+        self.assertIsNotNone(org_membership)
+
+        # Verify the invite for the first organization has been deleted
+        self.assertFalse(OrganizationInvite.objects.filter(id=invite_org1.id).exists())
+
+        # Verify the invite for the second organization still exists
+        self.assertTrue(OrganizationInvite.objects.filter(id=invite_org2.id).exists())
+
+        # Clean up
+        second_org.delete()

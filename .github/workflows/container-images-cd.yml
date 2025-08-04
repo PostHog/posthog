@@ -70,11 +70,11 @@ jobs:
 
             - name: Build and push container image
               id: build
-              uses: depot/build-push-action@636daae76684e38c301daa0c5eca1c095b24e780 # v1
+              uses: depot/build-push-action@2583627a84956d07561420dcc1d0eb1f2af3fac0 # v1
               with:
                   buildx-fallback: false # the fallback is so slow it's better to just fail
                   push: true
-                  tags: ghcr.io/posthog/posthog:latest,ghcr.io/posthog/posthog:${{ github.sha }},posthog/posthog:${{ github.sha }},posthog/posthog:latest,${{ steps.aws-ecr.outputs.registry }}/posthog-cloud:master
+                  tags: ghcr.io/posthog/posthog:latest,ghcr.io/posthog/posthog:${{ github.sha }},posthog/posthog:${{ github.sha }},posthog/posthog:latest,${{ steps.aws-ecr.outputs.registry }}/posthog-cloud:master,${{ steps.aws-ecr.outputs.registry }}/posthog-cloud:${{ github.sha }}
                   platforms: linux/arm64,linux/amd64
                   build-args: COMMIT_HASH=${{ github.sha }}
 
@@ -195,7 +195,7 @@ jobs:
             - name: Check for changes that affect Max AI Temporal worker
               id: check_changes_max_ai_temporal_worker
               run: |
-                  echo "changed=$((git diff --name-only HEAD^ HEAD | grep -qE '^posthog/temporal/common|^posthog/temporal/ai|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$' && echo true) || echo false)" >> $GITHUB_OUTPUT
+                  echo "changed=$((git diff --name-only HEAD^ HEAD | grep -qE '\.py$|^pyproject\.toml$|^bin/temporal-django-worker$' && echo true) || echo false)" >> $GITHUB_OUTPUT
 
             - name: Trigger Max AI Temporal worker cloud deployment
               if: steps.check_changes_max_ai_temporal_worker.outputs.changed == 'true'

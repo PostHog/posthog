@@ -10,7 +10,8 @@ export const template: HogFunctionTemplate = {
         'Normalizes URLs by replacing dynamic path segments (containing numbers or capital letters) with :id placeholders. This helps group similar URLs together for analysis.',
     icon_url: '/static/hedgehog/reading-hog.png',
     category: ['Custom'],
-    hog: `
+    code_language: 'hog',
+    code: `
 
 // Function to normalize a path segment
 fun normalizePathSegment(segment) {

@@ -79,7 +79,6 @@ PLUGINS_PREINSTALLED_URLS: list[str] = (
     if not DISABLE_MMDB
     else []
 )
-PLUGINS_RELOAD_PUBSUB_CHANNEL: str = os.getenv("PLUGINS_RELOAD_PUBSUB_CHANNEL", "reload-plugins")
 
 # Tokens used when installing plugins, for example to get the latest commit SHA or to download private repositories.
 # Used mainly to get around API limits and only if no ?private_token=TOKEN found in the plugin URL.

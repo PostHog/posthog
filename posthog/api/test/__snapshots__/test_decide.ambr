@@ -732,7 +732,6 @@
          "posthog_survey"."current_iteration_start_date",
          "posthog_survey"."schedule",
          "posthog_survey"."enable_partial_responses",
-         "posthog_survey"."is_publicly_shareable",
          "posthog_featureflag"."id",
          "posthog_featureflag"."key",
          "posthog_featureflag"."name",
@@ -752,6 +751,7 @@
          "posthog_featureflag"."has_enriched_analytics",
          "posthog_featureflag"."is_remote_configuration",
          "posthog_featureflag"."has_encrypted_payloads",
+         "posthog_featureflag"."evaluation_runtime",
          T5."id",
          T5."key",
          T5."name",
@@ -771,6 +771,7 @@
          T5."has_enriched_analytics",
          T5."is_remote_configuration",
          T5."has_encrypted_payloads",
+         T5."evaluation_runtime",
          T6."id",
          T6."key",
          T6."name",
@@ -789,7 +790,8 @@
          T6."usage_dashboard_id",
          T6."has_enriched_analytics",
          T6."is_remote_configuration",
-         T6."has_encrypted_payloads"
+         T6."has_encrypted_payloads",
+         T6."evaluation_runtime"
   FROM "posthog_survey"
   INNER JOIN "posthog_team" ON ("posthog_survey"."team_id" = "posthog_team"."id")
   LEFT OUTER JOIN "posthog_featureflag" ON ("posthog_survey"."linked_flag_id" = "posthog_featureflag"."id")
@@ -948,11 +950,11 @@
 # name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.28
   '''
   SELECT "posthog_teamrevenueanalyticsconfig"."team_id",
-         "posthog_teamrevenueanalyticsconfig"."base_currency",
          "posthog_teamrevenueanalyticsconfig"."filter_test_accounts",
          "posthog_teamrevenueanalyticsconfig"."notified_first_sync",
          "posthog_teamrevenueanalyticsconfig"."events",
-         "posthog_teamrevenueanalyticsconfig"."goals"
+         "posthog_teamrevenueanalyticsconfig"."goals",
+         "posthog_teamrevenueanalyticsconfig"."base_currency"
   FROM "posthog_teamrevenueanalyticsconfig"
   WHERE "posthog_teamrevenueanalyticsconfig"."team_id" = 99999
   LIMIT 21
@@ -1273,7 +1275,8 @@
          "posthog_featureflag"."usage_dashboard_id",
          "posthog_featureflag"."has_enriched_analytics",
          "posthog_featureflag"."is_remote_configuration",
-         "posthog_featureflag"."has_encrypted_payloads"
+         "posthog_featureflag"."has_encrypted_payloads",
+         "posthog_featureflag"."evaluation_runtime"
   FROM "posthog_featureflag"
   INNER JOIN "posthog_team" ON ("posthog_featureflag"."team_id" = "posthog_team"."id")
   WHERE ("posthog_featureflag"."active"
@@ -1806,7 +1809,8 @@
          "posthog_featureflag"."usage_dashboard_id",
          "posthog_featureflag"."has_enriched_analytics",
          "posthog_featureflag"."is_remote_configuration",
-         "posthog_featureflag"."has_encrypted_payloads"
+         "posthog_featureflag"."has_encrypted_payloads",
+         "posthog_featureflag"."evaluation_runtime"
   FROM "posthog_featureflag"
   INNER JOIN "posthog_team" ON ("posthog_featureflag"."team_id" = "posthog_team"."id")
   WHERE ("posthog_featureflag"."active"
@@ -2896,7 +2900,8 @@
          "posthog_featureflag"."usage_dashboard_id",
          "posthog_featureflag"."has_enriched_analytics",
          "posthog_featureflag"."is_remote_configuration",
-         "posthog_featureflag"."has_encrypted_payloads"
+         "posthog_featureflag"."has_encrypted_payloads",
+         "posthog_featureflag"."evaluation_runtime"
   FROM "posthog_featureflag"
   INNER JOIN "posthog_team" ON ("posthog_featureflag"."team_id" = "posthog_team"."id")
   WHERE ("posthog_featureflag"."active"
@@ -3830,7 +3835,8 @@
          "posthog_featureflag"."usage_dashboard_id",
          "posthog_featureflag"."has_enriched_analytics",
          "posthog_featureflag"."is_remote_configuration",
-         "posthog_featureflag"."has_encrypted_payloads"
+         "posthog_featureflag"."has_encrypted_payloads",
+         "posthog_featureflag"."evaluation_runtime"
   FROM "posthog_featureflag"
   INNER JOIN "posthog_team" ON ("posthog_featureflag"."team_id" = "posthog_team"."id")
   WHERE ("posthog_featureflag"."active"
@@ -5498,7 +5504,6 @@
          "posthog_survey"."current_iteration_start_date",
          "posthog_survey"."schedule",
          "posthog_survey"."enable_partial_responses",
-         "posthog_survey"."is_publicly_shareable",
          "posthog_featureflag"."id",
          "posthog_featureflag"."key",
          "posthog_featureflag"."name",
@@ -5518,6 +5523,7 @@
          "posthog_featureflag"."has_enriched_analytics",
          "posthog_featureflag"."is_remote_configuration",
          "posthog_featureflag"."has_encrypted_payloads",
+         "posthog_featureflag"."evaluation_runtime",
          T5."id",
          T5."key",
          T5."name",
@@ -5537,6 +5543,7 @@
          T5."has_enriched_analytics",
          T5."is_remote_configuration",
          T5."has_encrypted_payloads",
+         T5."evaluation_runtime",
          T6."id",
          T6."key",
          T6."name",
@@ -5555,7 +5562,8 @@
          T6."usage_dashboard_id",
          T6."has_enriched_analytics",
          T6."is_remote_configuration",
-         T6."has_encrypted_payloads"
+         T6."has_encrypted_payloads",
+         T6."evaluation_runtime"
   FROM "posthog_survey"
   INNER JOIN "posthog_team" ON ("posthog_survey"."team_id" = "posthog_team"."id")
   LEFT OUTER JOIN "posthog_featureflag" ON ("posthog_survey"."linked_flag_id" = "posthog_featureflag"."id")
@@ -5714,11 +5722,11 @@
 # name: TestDecideRemoteConfig.test_decide_doesnt_error_out_when_database_is_down.28
   '''
   SELECT "posthog_teamrevenueanalyticsconfig"."team_id",
-         "posthog_teamrevenueanalyticsconfig"."base_currency",
          "posthog_teamrevenueanalyticsconfig"."filter_test_accounts",
          "posthog_teamrevenueanalyticsconfig"."notified_first_sync",
          "posthog_teamrevenueanalyticsconfig"."events",
-         "posthog_teamrevenueanalyticsconfig"."goals"
+         "posthog_teamrevenueanalyticsconfig"."goals",
+         "posthog_teamrevenueanalyticsconfig"."base_currency"
   FROM "posthog_teamrevenueanalyticsconfig"
   WHERE "posthog_teamrevenueanalyticsconfig"."team_id" = 99999
   LIMIT 21
@@ -6206,7 +6214,6 @@
          "posthog_survey"."current_iteration_start_date",
          "posthog_survey"."schedule",
          "posthog_survey"."enable_partial_responses",
-         "posthog_survey"."is_publicly_shareable",
          "posthog_featureflag"."id",
          "posthog_featureflag"."key",
          "posthog_featureflag"."name",
@@ -6226,6 +6233,7 @@
          "posthog_featureflag"."has_enriched_analytics",
          "posthog_featureflag"."is_remote_configuration",
          "posthog_featureflag"."has_encrypted_payloads",
+         "posthog_featureflag"."evaluation_runtime",
          T5."id",
          T5."key",
          T5."name",
@@ -6245,6 +6253,7 @@
          T5."has_enriched_analytics",
          T5."is_remote_configuration",
          T5."has_encrypted_payloads",
+         T5."evaluation_runtime",
          T6."id",
          T6."key",
          T6."name",
@@ -6263,7 +6272,8 @@
          T6."usage_dashboard_id",
          T6."has_enriched_analytics",
          T6."is_remote_configuration",
-         T6."has_encrypted_payloads"
+         T6."has_encrypted_payloads",
+         T6."evaluation_runtime"
   FROM "posthog_survey"
   INNER JOIN "posthog_team" ON ("posthog_survey"."team_id" = "posthog_team"."id")
   LEFT OUTER JOIN "posthog_featureflag" ON ("posthog_survey"."linked_flag_id" = "posthog_featureflag"."id")
@@ -6439,7 +6449,8 @@
          "posthog_featureflag"."usage_dashboard_id",
          "posthog_featureflag"."has_enriched_analytics",
          "posthog_featureflag"."is_remote_configuration",
-         "posthog_featureflag"."has_encrypted_payloads"
+         "posthog_featureflag"."has_encrypted_payloads",
+         "posthog_featureflag"."evaluation_runtime"
   FROM "posthog_featureflag"
   INNER JOIN "posthog_team" ON ("posthog_featureflag"."team_id" = "posthog_team"."id")
   WHERE ("posthog_featureflag"."active"
@@ -6641,7 +6652,6 @@
          "posthog_survey"."current_iteration_start_date",
          "posthog_survey"."schedule",
          "posthog_survey"."enable_partial_responses",
-         "posthog_survey"."is_publicly_shareable",
          "posthog_featureflag"."id",
          "posthog_featureflag"."key",
          "posthog_featureflag"."name",
@@ -6661,6 +6671,7 @@
          "posthog_featureflag"."has_enriched_analytics",
          "posthog_featureflag"."is_remote_configuration",
          "posthog_featureflag"."has_encrypted_payloads",
+         "posthog_featureflag"."evaluation_runtime",
          T5."id",
          T5."key",
          T5."name",
@@ -6680,6 +6691,7 @@
          T5."has_enriched_analytics",
          T5."is_remote_configuration",
          T5."has_encrypted_payloads",
+         T5."evaluation_runtime",
          T6."id",
          T6."key",
          T6."name",
@@ -6698,7 +6710,8 @@
          T6."usage_dashboard_id",
          T6."has_enriched_analytics",
          T6."is_remote_configuration",
-         T6."has_encrypted_payloads"
+         T6."has_encrypted_payloads",
+         T6."evaluation_runtime"
   FROM "posthog_survey"
   INNER JOIN "posthog_team" ON ("posthog_survey"."team_id" = "posthog_team"."id")
   LEFT OUTER JOIN "posthog_featureflag" ON ("posthog_survey"."linked_flag_id" = "posthog_featureflag"."id")
@@ -7269,7 +7282,8 @@
          "posthog_featureflag"."usage_dashboard_id",
          "posthog_featureflag"."has_enriched_analytics",
          "posthog_featureflag"."is_remote_configuration",
-         "posthog_featureflag"."has_encrypted_payloads"
+         "posthog_featureflag"."has_encrypted_payloads",
+         "posthog_featureflag"."evaluation_runtime"
   FROM "posthog_featureflag"
   INNER JOIN "posthog_team" ON ("posthog_featureflag"."team_id" = "posthog_team"."id")
   WHERE ("posthog_featureflag"."active"
@@ -8833,7 +8847,8 @@
          "posthog_featureflag"."usage_dashboard_id",
          "posthog_featureflag"."has_enriched_analytics",
          "posthog_featureflag"."is_remote_configuration",
-         "posthog_featureflag"."has_encrypted_payloads"
+         "posthog_featureflag"."has_encrypted_payloads",
+         "posthog_featureflag"."evaluation_runtime"
   FROM "posthog_featureflag"
   INNER JOIN "posthog_team" ON ("posthog_featureflag"."team_id" = "posthog_team"."id")
   WHERE ("posthog_featureflag"."active"

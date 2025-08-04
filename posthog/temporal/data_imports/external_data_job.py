@@ -194,8 +194,8 @@ def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInputs) ->
         schema = ExternalDataSchema.objects.get(pk=inputs.schema_id)
 
         # Debug logging
-        logger.info(f"Enhancing error for source_type={source.source_type}, schema_name={schema.name}")
-        logger.info(f"Raw error: {inputs.latest_error or inputs.internal_error}")
+        logger.debug(f"Enhancing error for source_type={source.source_type}, schema_name={schema.name}")
+        logger.debug(f"Raw error: {inputs.latest_error or inputs.internal_error}")
 
         enhanced_latest_error = enhance_source_error(
             source_type=source.source_type,
@@ -203,7 +203,7 @@ def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInputs) ->
             raw_error=inputs.latest_error or inputs.internal_error,
         )
 
-        logger.info(f"Enhanced error: {enhanced_latest_error}")
+        logger.debug(f"Enhanced error: {enhanced_latest_error}")
 
     except Exception:
         enhanced_latest_error = inputs.latest_error
@@ -243,6 +243,11 @@ def create_source_templates(inputs: CreateSourceTemplateInputs) -> None:
 
 @activity.defn
 def trigger_schedule_buffer_one_activity(schedule_id: str) -> None:
+    schema = ExternalDataSchema.objects.get(id=schedule_id)
+    logger = bind_temporal_worker_logger_sync(team_id=schema.team.pk)
+
+    logger.debug(f"Triggering temporal schedule {schedule_id} with policy 'buffer one'")
+
     temporal = sync_connect()
     trigger_schedule_buffer_one(temporal, schedule_id)
 

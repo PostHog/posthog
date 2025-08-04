@@ -1,4 +1,6 @@
+import json
 import os
+from contextlib import suppress
 
 from posthog.settings.utils import get_list
 
@@ -16,3 +18,9 @@ PERSISTED_FEATURE_FLAGS = [
     "query-async",
     "artificial-hog",
 ]
+
+# Per-team local evaluation rate limits, e.g. {"123": "1200/minute", "456": "2400/hour"}
+LOCAL_EVAL_RATE_LIMITS: dict[int, str] = {}
+with suppress(Exception):
+    as_json = json.loads(os.getenv("LOCAL_EVAL_RATE_LIMITS", "{}"))
+    LOCAL_EVAL_RATE_LIMITS = {int(k): str(v) for k, v in as_json.items()}

@@ -10,7 +10,7 @@ import {
     HogFunctionType,
     MinimalLogEntry,
 } from '../../../types'
-import { buildGlobalsWithInputs, HogExecutorService } from '../../hog-executor.service'
+import { HogExecutorService } from '../../hog-executor.service'
 import { HogFunctionTemplateManagerService } from '../../managers/hog-function-template-manager.service'
 import { findContinueAction } from '../hogflow-utils'
 import { ActionHandler, ActionHandlerResult } from './action.interface'
@@ -72,6 +72,8 @@ export class HogFunctionHandler implements ActionHandler {
             deleted: false,
             hog: '<<TEMPLATE>>',
             bytecode: template.bytecode,
+            inputs: action.config.inputs,
+            inputs_schema: template.inputs_schema,
             is_addon_required: false,
             created_at: '',
             updated_at: '',
@@ -91,26 +93,18 @@ export class HogFunctionHandler implements ActionHandler {
                 url: '',
             },
             event: invocation.state.event,
-            person: {
-                name: '',
-                properties: {},
-                id: invocation.state.event.distinct_id,
-                url: `${projectUrl}/person/${encodeURIComponent(invocation.state.event.distinct_id)}`,
-            },
+            person: invocation.person,
         }
 
         const hogFunctionInvocation: CyclotronJobInvocationHogFunction = {
             ...invocation,
             hogFunction,
             state: invocation.state.currentAction?.hogFunctionState ?? {
-                globals: await buildGlobalsWithInputs(globals, action.config.inputs),
+                globals: await this.hogFunctionExecutor.buildInputsWithGlobals(hogFunction, globals),
                 timings: [],
                 attempts: 0,
             },
         }
-
-        // TODO: Swap to `executeWithAsync` or something
-        // TODO: Take logs and metrics - modify them to have the correct app_source_id, instance_id as well as pre-pending the logs with the action ID
 
         return this.hogFunctionExecutor.executeWithAsyncFunctions(hogFunctionInvocation)
     }

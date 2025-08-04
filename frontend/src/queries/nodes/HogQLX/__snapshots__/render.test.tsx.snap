@@ -1,7 +1,7 @@
 // Jest Snapshot v1, https://goo.gl/fbAQLP
 
 exports[`HogQLX render should render Sparkline 1`] = `
-<ErrorBoundary>
+<LightErrorBoundary>
   <Sparkline
     className="h-8"
     data={
@@ -17,7 +17,7 @@ exports[`HogQLX render should render Sparkline 1`] = `
       ]
     }
   />
-</ErrorBoundary>
+</LightErrorBoundary>
 `;
 
 exports[`HogQLX render should render array 1`] = `

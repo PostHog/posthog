@@ -21,17 +21,20 @@ pub async fn fetch_and_filter(
     flag_service: &FlagService,
     project_id: i64,
     query_params: &FlagsQueryParams,
-) -> Result<FeatureFlagList, FlagError> {
-    let all_flags = flag_service.get_flags_from_cache_or_pg(project_id).await?;
+) -> Result<(FeatureFlagList, bool), FlagError> {
+    let flag_result = flag_service.get_flags_from_cache_or_pg(project_id).await?;
 
     let flags_after_survey_filter = filter_survey_flags(
-        all_flags.flags,
+        flag_result.flag_list.flags,
         query_params
             .only_evaluate_survey_feature_flags
             .unwrap_or(false),
     );
 
-    Ok(FeatureFlagList::new(flags_after_survey_filter))
+    Ok((
+        FeatureFlagList::new(flags_after_survey_filter),
+        flag_result.had_deserialization_errors,
+    ))
 }
 
 /// Filters flags to only include survey flags if requested

@@ -103,13 +103,6 @@ export const experimentsLogic = kea<experimentsLogicType>([
             await breakpoint(300)
             actions.loadExperiments()
         },
-        setExperimentsTab: ({ tabKey }) => {
-            if (tabKey === ExperimentsTabs.SharedMetrics) {
-                // Saved Metrics is a fake tab that we use to redirect to the shared metrics page
-                actions.setExperimentsTab(ExperimentsTabs.All)
-                router.actions.push('/experiments/shared-metrics')
-            }
-        },
     })),
     loaders(({ values }) => ({
         experiments: [
@@ -131,6 +124,22 @@ export const experimentsLogic = kea<experimentsLogicType>([
                         ...values.experiments,
                         results: values.experiments.results.filter((experiment) => experiment.id !== id),
                         count: values.experiments.count - 1,
+                    }
+                },
+                duplicateExperiment: async (payload: { id: number; featureFlagKey?: string }) => {
+                    const data = payload.featureFlagKey ? { feature_flag_key: payload.featureFlagKey } : {}
+                    const duplicatedExperiment = await api.create(
+                        `api/projects/${values.currentProjectId}/experiments/${payload.id}/duplicate`,
+                        data
+                    )
+                    lemonToast.success('Experiment duplicated successfully')
+                    // Navigate to the newly created experiment
+                    router.actions.push(urls.experiment(duplicatedExperiment.id))
+
+                    return {
+                        ...values.experiments,
+                        results: [duplicatedExperiment, ...values.experiments.results],
+                        count: values.experiments.count + 1,
                     }
                 },
                 addToExperiments: (experiment: Experiment) => {
@@ -206,7 +215,7 @@ export const experimentsLogic = kea<experimentsLogicType>([
                   Record<string, any>,
                   {
                       replace: boolean
-                  }
+                  },
               ]
             | void => {
             const searchParams: Record<string, string | number> = {

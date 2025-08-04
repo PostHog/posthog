@@ -1,4 +1,4 @@
-from typing import Any, Optional
+from typing import Any, Optional, Protocol, TypeVar
 
 from django.core.files.uploadedfile import UploadedFile
 from posthog.models.team.team import Team
@@ -83,7 +83,7 @@ class ErrorTrackingExternalReferenceSerializer(serializers.ModelSerializer):
             return f"https://linear.app/{url_key}/issue/{reference.external_context['id']}"
         elif reference.integration.kind == Integration.IntegrationKind.GITHUB:
             org = GitHubIntegration(reference.integration).organization()
-            return f"https://github.com/{org}/{reference.external_context['repo']}/issues/{reference.external_context['id']}"
+            return f"https://github.com/{org}/{reference.external_context['repository']}/issues/{reference.external_context['number']}"
 
     def validate(self, data):
         issue = data["issue"]
@@ -737,12 +737,33 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
         return Response({"success": True}, status=status.HTTP_201_CREATED)
 
 
+class HasGetQueryset(Protocol):
+    def get_queryset(self): ...
+
+
+T = TypeVar("T", bound=HasGetQueryset)
+
+
+class RuleReorderingMixin:
+    @action(methods=["PATCH"], detail=False)
+    def reorder(self: T, request, **kwargs):
+        orders: dict[str, int] = request.data.get("orders", {})
+        rules = self.get_queryset().filter(id__in=orders.keys())
+
+        for rule in rules:
+            rule.order_key = orders[str(rule.id)]
+
+        self.get_queryset().bulk_update(rules, ["order_key"])
+
+        return Response({"ok": True}, status=status.HTTP_204_NO_CONTENT)
+
+
 class ErrorTrackingAssignmentRuleSerializer(serializers.ModelSerializer):
     assignee = serializers.SerializerMethodField()
 
     class Meta:
         model = ErrorTrackingAssignmentRule
-        fields = ["id", "filters", "assignee"]
+        fields = ["id", "filters", "assignee", "order_key", "disabled_data"]
         read_only_fields = ["team_id"]
 
     def get_assignee(self, obj):
@@ -753,9 +774,9 @@ class ErrorTrackingAssignmentRuleSerializer(serializers.ModelSerializer):
         return None
 
 
-class ErrorTrackingAssignmentRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+class ErrorTrackingAssignmentRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet, RuleReorderingMixin):
     scope_object = "error_tracking"
-    queryset = ErrorTrackingAssignmentRule.objects.all()
+    queryset = ErrorTrackingAssignmentRule.objects.order_by("order_key").all()
     serializer_class = ErrorTrackingAssignmentRuleSerializer
 
     def safely_get_queryset(self, queryset):
@@ -810,7 +831,7 @@ class ErrorTrackingGroupingRuleSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = ErrorTrackingGroupingRule
-        fields = ["id", "filters", "assignee"]
+        fields = ["id", "filters", "assignee", "order_key", "disabled_data"]
         read_only_fields = ["team_id"]
 
     def get_assignee(self, obj):
@@ -821,9 +842,9 @@ class ErrorTrackingGroupingRuleSerializer(serializers.ModelSerializer):
         return None
 
 
-class ErrorTrackingGroupingRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+class ErrorTrackingGroupingRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet, RuleReorderingMixin):
     scope_object = "error_tracking"
-    queryset = ErrorTrackingGroupingRule.objects.all()
+    queryset = ErrorTrackingGroupingRule.objects.order_by("order_key").all()
     serializer_class = ErrorTrackingGroupingRuleSerializer
 
     def safely_get_queryset(self, queryset):
@@ -883,9 +904,9 @@ class ErrorTrackingSuppressionRuleSerializer(serializers.ModelSerializer):
         read_only_fields = ["team_id"]
 
 
-class ErrorTrackingSuppressionRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+class ErrorTrackingSuppressionRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet, RuleReorderingMixin):
     scope_object = "error_tracking"
-    queryset = ErrorTrackingSuppressionRule.objects.all()
+    queryset = ErrorTrackingSuppressionRule.objects.order_by("order_key").all()
     serializer_class = ErrorTrackingSuppressionRuleSerializer
 
     def safely_get_queryset(self, queryset):

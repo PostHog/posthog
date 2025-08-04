@@ -1,7 +1,7 @@
 import { VMState } from '@posthog/hogvm'
 import { DateTime } from 'luxon'
 
-import { CyclotronInputType } from '~/schema/cyclotron'
+import { CyclotronInputType, CyclotronInvocationQueueParametersType } from '~/schema/cyclotron'
 
 import { HogFlow } from '../schema/hogflow'
 import {
@@ -44,6 +44,7 @@ export type HogFunctionMasking = {
 }
 
 export interface HogFunctionFilters {
+    source?: 'events' | 'person-updates' // Special case to identify what kind of thing this filters on
     events?: HogFunctionFilterEvent[]
     actions?: HogFunctionFilterAction[]
     filter_test_accounts?: boolean
@@ -56,6 +57,13 @@ export type GroupType = {
     index: number
     url: string
     properties: Record<string, any>
+}
+
+export type CyclotronPerson = {
+    id: string
+    properties: Record<string, any>
+    name: string
+    url: string
 }
 
 export type HogFunctionInvocationGlobals = {
@@ -80,15 +88,7 @@ export type HogFunctionInvocationGlobals = {
         /* Special fields in Hog */
         url: string
     }
-    person?: {
-        /** Database fields */
-        id: string
-        properties: Record<string, any>
-
-        /** Special fields in Hog */
-        name: string
-        url: string
-    }
+    person?: CyclotronPerson
     groups?: Record<string, GroupType>
 
     // Unique to sources - will be modified later
@@ -178,7 +178,7 @@ export type MinimalAppMetric = {
     team_id: number
     app_source_id: string // The main item (like the hog function or hog flow ID)
     instance_id?: string // The specific instance of the item (can be the invocation ID or a sub item like an action ID)
-    metric_kind: 'failure' | 'success' | 'other'
+    metric_kind: 'failure' | 'success' | 'other' | 'email'
     metric_name:
         | 'succeeded'
         | 'failed'
@@ -192,7 +192,15 @@ export type MinimalAppMetric = {
         | 'fetch'
         | 'event_triggered_destination'
         | 'destination_invoked'
-
+        | 'dropped'
+        | 'email_sent'
+        | 'email_failed'
+        | 'email_opened'
+        | 'email_clicked'
+        | 'email_bounced'
+        | 'email_blocked'
+        | 'email_spam'
+        | 'email_unsubscribed'
     count: number
 }
 
@@ -206,18 +214,7 @@ export interface HogFunctionTiming {
     duration_ms: number
 }
 
-export type HogFunctionQueueParametersFetchRequest = {
-    type: 'fetch'
-    url: string
-    method: string
-    body?: string
-    max_tries?: number
-    headers?: Record<string, string>
-}
-
-export type CyclotronInvocationQueueParameters = HogFunctionQueueParametersFetchRequest
-
-export const CYCLOTRON_INVOCATION_JOB_QUEUES = ['hog', 'plugin', 'segment', 'hogflow'] as const
+export const CYCLOTRON_INVOCATION_JOB_QUEUES = ['hog', 'hog_overflow', 'segment', 'hogflow'] as const
 export type CyclotronJobQueueKind = (typeof CYCLOTRON_INVOCATION_JOB_QUEUES)[number]
 
 export const CYCLOTRON_JOB_QUEUE_SOURCES = ['postgres', 'kafka'] as const
@@ -232,7 +229,7 @@ export type CyclotronJobInvocation = {
     // The queue that the invocation is on
     queue: CyclotronJobQueueKind
     // Optional parameters for that queue to use
-    queueParameters?: CyclotronInvocationQueueParameters | null
+    queueParameters?: CyclotronInvocationQueueParametersType | null
     // Priority of the invocation
     queuePriority: number
     // When the invocation is scheduled to run
@@ -269,17 +266,14 @@ export type CyclotronJobInvocationHogFunction = CyclotronJobInvocation & {
 export type CyclotronJobInvocationHogFlow = CyclotronJobInvocation & {
     state?: HogFlowInvocationContext
     hogFlow: HogFlow
-
-    // Add lazy getters for person and filter globals
-    // getFilterGlobals: () => Promise<HogFunctionFilterGlobals>
-    // getPerson: () => Promise<Person>
+    person?: CyclotronPerson
+    filterGlobals: HogFunctionFilterGlobals
 }
 
 export type HogFlowInvocationContext = {
     event: HogFunctionInvocationGlobals['event']
     actionStepCount: number
     // variables: Record<string, any> // NOTE: not used yet but
-    personId?: string
     currentAction?: {
         id: string
         startedAtTimestamp: number
@@ -315,7 +309,12 @@ export type HogFunctionInputSchemaType = {
     templating?: boolean
 }
 
-export type HogFunctionTypeType = 'destination' | 'transformation' | 'internal_destination' | 'source_webhook'
+export type HogFunctionTypeType =
+    | 'destination'
+    | 'transformation'
+    | 'internal_destination'
+    | 'source_webhook'
+    | 'site_destination'
 
 export interface HogFunctionMappingType {
     inputs_schema?: HogFunctionInputSchemaType[]
@@ -338,7 +337,6 @@ export type HogFunctionType = {
     filters?: HogFunctionFilters | null
     mappings?: HogFunctionMappingType[] | null
     masking?: HogFunctionMasking | null
-    depends_on_integration_ids?: Set<IntegrationType['id']>
     is_addon_required: boolean
     template_id?: string
     execution_order?: number
@@ -358,7 +356,7 @@ export type HogFunctionTemplate = {
     id: string
     name: string
     description: string
-    hog: string
+    code: string
     inputs_schema: HogFunctionInputSchemaType[]
     category: string[]
     filters?: HogFunctionFilters
@@ -366,6 +364,7 @@ export type HogFunctionTemplate = {
     mapping_templates?: HogFunctionMappingTemplate[]
     masking?: HogFunctionMasking
     icon_url?: string
+    code_language: 'javascript' | 'hog'
 }
 
 export type HogFunctionTemplateCompiled = HogFunctionTemplate & {
@@ -386,14 +385,9 @@ export type DBHogFunctionTemplate = {
 export type IntegrationType = {
     id: number
     team_id: number
-    kind: 'slack'
+    kind: 'slack' | 'email' | 'oauth'
     config: Record<string, any>
     sensitive_config: Record<string, any>
-
-    // Fields we don't load but need for seeding data
-    errors?: string
-    created_at?: string
-    created_by_id?: number
 }
 
 export type HogFunctionCapturedEvent = {
@@ -402,4 +396,28 @@ export type HogFunctionCapturedEvent = {
     distinct_id: string
     timestamp: string
     properties: Record<string, any>
+}
+
+export type Response = {
+    status: number
+    data: any
+    content: string
+    headers: Record<string, any>
+}
+
+export type NativeTemplate = Omit<HogFunctionTemplate, 'code' | 'code_language'> & {
+    perform: (
+        request: (
+            url: string,
+            options: {
+                method?: 'POST' | 'GET' | 'PATCH' | 'PUT' | 'DELETE'
+                headers: Record<string, any>
+                json?: any
+                body?: string | URLSearchParams
+                throwHttpErrors?: boolean
+                searchParams?: Record<string, any>
+            }
+        ) => Promise<Response>,
+        inputs: Record<string, any>
+    ) => Promise<any> | any
 }

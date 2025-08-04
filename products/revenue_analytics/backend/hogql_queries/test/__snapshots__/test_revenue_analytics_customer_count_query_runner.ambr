@@ -56,47 +56,21 @@
                posthog_test_stripe_subscription.metadata AS metadata
         FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_subscriptions/posthog_test_stripe_subscription/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `plan` String, `status` String, `created` DateTime, `customer` String, `ended_at` DateTime, `metadata` String, `current_period_end` DateTime, `current_period_start` DateTime') AS posthog_test_stripe_subscription) AS `stripe.posthog_test.subscription_revenue_view`) AS revenue_analytics_subscription
   LEFT JOIN
-    (SELECT `stripe.posthog_test.customer_revenue_view`.id AS id,
-            `stripe.posthog_test.customer_revenue_view`.source_label AS source_label,
-            `stripe.posthog_test.customer_revenue_view`.timestamp AS timestamp,
-            `stripe.posthog_test.customer_revenue_view`.name AS name,
-            `stripe.posthog_test.customer_revenue_view`.email AS email,
-            `stripe.posthog_test.customer_revenue_view`.phone AS phone,
-            `stripe.posthog_test.customer_revenue_view`.address AS address,
-            `stripe.posthog_test.customer_revenue_view`.metadata AS metadata,
-            `stripe.posthog_test.customer_revenue_view`.country AS country,
-            `stripe.posthog_test.customer_revenue_view`.cohort AS cohort,
-            `stripe.posthog_test.customer_revenue_view`.initial_coupon AS initial_coupon,
-            `stripe.posthog_test.customer_revenue_view`.initial_coupon_id AS initial_coupon_id
-     FROM
-       (SELECT outer.id AS id,
-               'stripe.posthog_test' AS source_label,
-               parseDateTime64BestEffortOrNull(toString(outer.created), 6, 'UTC') AS timestamp,
-               outer.name AS name,
-               outer.email AS email,
-               outer.phone AS phone,
-               outer.address AS address,
-               outer.metadata AS metadata,
-               JSONExtractString(address, 'country') AS country,
-               NULL AS cohort,
-               NULL AS initial_coupon,
-               NULL AS initial_coupon_id
-        FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_customers/posthog_test_stripe_customer/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `name` String, `email` String, `phone` String, `address` String, `created` DateTime, `metadata` String') AS outer) AS `stripe.posthog_test.customer_revenue_view`
-     UNION ALL SELECT `revenue_analytics.purchase.customer_events_revenue_view`.id AS id,
-                      `revenue_analytics.purchase.customer_events_revenue_view`.source_label AS source_label,
-                      `revenue_analytics.purchase.customer_events_revenue_view`.timestamp AS timestamp,
-                      `revenue_analytics.purchase.customer_events_revenue_view`.name AS name,
-                      `revenue_analytics.purchase.customer_events_revenue_view`.email AS email,
-                      `revenue_analytics.purchase.customer_events_revenue_view`.phone AS phone,
-                      `revenue_analytics.purchase.customer_events_revenue_view`.address AS address,
-                      `revenue_analytics.purchase.customer_events_revenue_view`.metadata AS metadata,
-                      `revenue_analytics.purchase.customer_events_revenue_view`.country AS country,
-                      `revenue_analytics.purchase.customer_events_revenue_view`.cohort AS cohort,
-                      `revenue_analytics.purchase.customer_events_revenue_view`.initial_coupon AS initial_coupon,
-                      `revenue_analytics.purchase.customer_events_revenue_view`.initial_coupon_id AS initial_coupon_id
+    (SELECT `revenue_analytics.events.purchase.customer_events_revenue_view`.id AS id,
+            `revenue_analytics.events.purchase.customer_events_revenue_view`.source_label AS source_label,
+            `revenue_analytics.events.purchase.customer_events_revenue_view`.timestamp AS timestamp,
+            `revenue_analytics.events.purchase.customer_events_revenue_view`.name AS name,
+            `revenue_analytics.events.purchase.customer_events_revenue_view`.email AS email,
+            `revenue_analytics.events.purchase.customer_events_revenue_view`.phone AS phone,
+            `revenue_analytics.events.purchase.customer_events_revenue_view`.address AS address,
+            `revenue_analytics.events.purchase.customer_events_revenue_view`.metadata AS metadata,
+            `revenue_analytics.events.purchase.customer_events_revenue_view`.country AS country,
+            `revenue_analytics.events.purchase.customer_events_revenue_view`.cohort AS cohort,
+            `revenue_analytics.events.purchase.customer_events_revenue_view`.initial_coupon AS initial_coupon,
+            `revenue_analytics.events.purchase.customer_events_revenue_view`.initial_coupon_id AS initial_coupon_id
      FROM
        (SELECT toString(persons.id) AS id,
-               'revenue_analytics.purchase' AS source_label,
+               'revenue_analytics.events.purchase' AS source_label,
                persons.created_at AS timestamp,
                persons.properties___name AS name,
                persons.properties___email AS email,
@@ -141,7 +115,33 @@
               GROUP BY person.id
               HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
            WHERE and(equals(events.team_id, 99999), 1)) AS events ON equals(persons.id, events.person_id)
-        ORDER BY persons.created_at DESC) AS `revenue_analytics.purchase.customer_events_revenue_view`) AS revenue_analytics_customer ON equals(revenue_analytics_subscription.customer_id, revenue_analytics_customer.id)
+        ORDER BY persons.created_at DESC) AS `revenue_analytics.events.purchase.customer_events_revenue_view`
+     UNION ALL SELECT `stripe.posthog_test.customer_revenue_view`.id AS id,
+                      `stripe.posthog_test.customer_revenue_view`.source_label AS source_label,
+                      `stripe.posthog_test.customer_revenue_view`.timestamp AS timestamp,
+                      `stripe.posthog_test.customer_revenue_view`.name AS name,
+                      `stripe.posthog_test.customer_revenue_view`.email AS email,
+                      `stripe.posthog_test.customer_revenue_view`.phone AS phone,
+                      `stripe.posthog_test.customer_revenue_view`.address AS address,
+                      `stripe.posthog_test.customer_revenue_view`.metadata AS metadata,
+                      `stripe.posthog_test.customer_revenue_view`.country AS country,
+                      `stripe.posthog_test.customer_revenue_view`.cohort AS cohort,
+                      `stripe.posthog_test.customer_revenue_view`.initial_coupon AS initial_coupon,
+                      `stripe.posthog_test.customer_revenue_view`.initial_coupon_id AS initial_coupon_id
+     FROM
+       (SELECT outer.id AS id,
+               'stripe.posthog_test' AS source_label,
+               parseDateTime64BestEffortOrNull(toString(outer.created), 6, 'UTC') AS timestamp,
+               outer.name AS name,
+               outer.email AS email,
+               outer.phone AS phone,
+               outer.address AS address,
+               outer.metadata AS metadata,
+               JSONExtractString(address, 'country') AS country,
+               NULL AS cohort,
+               NULL AS initial_coupon,
+               NULL AS initial_coupon_id
+        FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_customers/posthog_test_stripe_customer/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `name` String, `email` String, `phone` String, `address` String, `created` DateTime, `metadata` String') AS outer) AS `stripe.posthog_test.customer_revenue_view`) AS revenue_analytics_customer ON equals(revenue_analytics_subscription.customer_id, revenue_analytics_customer.id)
   WHERE ifNull(equals(revenue_analytics_customer.source_label, 'non-existent-source'), 0)
   GROUP BY breakdown_by,
            period_start
@@ -197,47 +197,21 @@
                posthog_test_stripe_subscription.metadata AS metadata
         FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_subscriptions/posthog_test_stripe_subscription/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `plan` String, `status` String, `created` DateTime, `customer` String, `ended_at` DateTime, `metadata` String, `current_period_end` DateTime, `current_period_start` DateTime') AS posthog_test_stripe_subscription) AS `stripe.posthog_test.subscription_revenue_view`) AS revenue_analytics_subscription
   LEFT JOIN
-    (SELECT `stripe.posthog_test.customer_revenue_view`.id AS id,
-            `stripe.posthog_test.customer_revenue_view`.source_label AS source_label,
-            `stripe.posthog_test.customer_revenue_view`.timestamp AS timestamp,
-            `stripe.posthog_test.customer_revenue_view`.name AS name,
-            `stripe.posthog_test.customer_revenue_view`.email AS email,
-            `stripe.posthog_test.customer_revenue_view`.phone AS phone,
-            `stripe.posthog_test.customer_revenue_view`.address AS address,
-            `stripe.posthog_test.customer_revenue_view`.metadata AS metadata,
-            `stripe.posthog_test.customer_revenue_view`.country AS country,
-            `stripe.posthog_test.customer_revenue_view`.cohort AS cohort,
-            `stripe.posthog_test.customer_revenue_view`.initial_coupon AS initial_coupon,
-            `stripe.posthog_test.customer_revenue_view`.initial_coupon_id AS initial_coupon_id
-     FROM
-       (SELECT outer.id AS id,
-               'stripe.posthog_test' AS source_label,
-               parseDateTime64BestEffortOrNull(toString(outer.created), 6, 'UTC') AS timestamp,
-               outer.name AS name,
-               outer.email AS email,
-               outer.phone AS phone,
-               outer.address AS address,
-               outer.metadata AS metadata,
-               JSONExtractString(address, 'country') AS country,
-               NULL AS cohort,
-               NULL AS initial_coupon,
-               NULL AS initial_coupon_id
-        FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_customers/posthog_test_stripe_customer/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `name` String, `email` String, `phone` String, `address` String, `created` DateTime, `metadata` String') AS outer) AS `stripe.posthog_test.customer_revenue_view`
-     UNION ALL SELECT `revenue_analytics.purchase.customer_events_revenue_view`.id AS id,
-                      `revenue_analytics.purchase.customer_events_revenue_view`.source_label AS source_label,
-                      `revenue_analytics.purchase.customer_events_revenue_view`.timestamp AS timestamp,
-                      `revenue_analytics.purchase.customer_events_revenue_view`.name AS name,
-                      `revenue_analytics.purchase.customer_events_revenue_view`.email AS email,
-                      `revenue_analytics.purchase.customer_events_revenue_view`.phone AS phone,
-                      `revenue_analytics.purchase.customer_events_revenue_view`.address AS address,
-                      `revenue_analytics.purchase.customer_events_revenue_view`.metadata AS metadata,
-                      `revenue_analytics.purchase.customer_events_revenue_view`.country AS country,
-                      `revenue_analytics.purchase.customer_events_revenue_view`.cohort AS cohort,
-                      `revenue_analytics.purchase.customer_events_revenue_view`.initial_coupon AS initial_coupon,
-                      `revenue_analytics.purchase.customer_events_revenue_view`.initial_coupon_id AS initial_coupon_id
+    (SELECT `revenue_analytics.events.purchase.customer_events_revenue_view`.id AS id,
+            `revenue_analytics.events.purchase.customer_events_revenue_view`.source_label AS source_label,
+            `revenue_analytics.events.purchase.customer_events_revenue_view`.timestamp AS timestamp,
+            `revenue_analytics.events.purchase.customer_events_revenue_view`.name AS name,
+            `revenue_analytics.events.purchase.customer_events_revenue_view`.email AS email,
+            `revenue_analytics.events.purchase.customer_events_revenue_view`.phone AS phone,
+            `revenue_analytics.events.purchase.customer_events_revenue_view`.address AS address,
+            `revenue_analytics.events.purchase.customer_events_revenue_view`.metadata AS metadata,
+            `revenue_analytics.events.purchase.customer_events_revenue_view`.country AS country,
+            `revenue_analytics.events.purchase.customer_events_revenue_view`.cohort AS cohort,
+            `revenue_analytics.events.purchase.customer_events_revenue_view`.initial_coupon AS initial_coupon,
+            `revenue_analytics.events.purchase.customer_events_revenue_view`.initial_coupon_id AS initial_coupon_id
      FROM
        (SELECT toString(persons.id) AS id,
-               'revenue_analytics.purchase' AS source_label,
+               'revenue_analytics.events.purchase' AS source_label,
                persons.created_at AS timestamp,
                persons.properties___name AS name,
                persons.properties___email AS email,
@@ -282,7 +256,33 @@
               GROUP BY person.id
               HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
            WHERE and(equals(events.team_id, 99999), 1)) AS events ON equals(persons.id, events.person_id)
-        ORDER BY persons.created_at DESC) AS `revenue_analytics.purchase.customer_events_revenue_view`) AS revenue_analytics_customer ON equals(revenue_analytics_subscription.customer_id, revenue_analytics_customer.id)
+        ORDER BY persons.created_at DESC) AS `revenue_analytics.events.purchase.customer_events_revenue_view`
+     UNION ALL SELECT `stripe.posthog_test.customer_revenue_view`.id AS id,
+                      `stripe.posthog_test.customer_revenue_view`.source_label AS source_label,
+                      `stripe.posthog_test.customer_revenue_view`.timestamp AS timestamp,
+                      `stripe.posthog_test.customer_revenue_view`.name AS name,
+                      `stripe.posthog_test.customer_revenue_view`.email AS email,
+                      `stripe.posthog_test.customer_revenue_view`.phone AS phone,
+                      `stripe.posthog_test.customer_revenue_view`.address AS address,
+                      `stripe.posthog_test.customer_revenue_view`.metadata AS metadata,
+                      `stripe.posthog_test.customer_revenue_view`.country AS country,
+                      `stripe.posthog_test.customer_revenue_view`.cohort AS cohort,
+                      `stripe.posthog_test.customer_revenue_view`.initial_coupon AS initial_coupon,
+                      `stripe.posthog_test.customer_revenue_view`.initial_coupon_id AS initial_coupon_id
+     FROM
+       (SELECT outer.id AS id,
+               'stripe.posthog_test' AS source_label,
+               parseDateTime64BestEffortOrNull(toString(outer.created), 6, 'UTC') AS timestamp,
+               outer.name AS name,
+               outer.email AS email,
+               outer.phone AS phone,
+               outer.address AS address,
+               outer.metadata AS metadata,
+               JSONExtractString(address, 'country') AS country,
+               NULL AS cohort,
+               NULL AS initial_coupon,
+               NULL AS initial_coupon_id
+        FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_customers/posthog_test_stripe_customer/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `name` String, `email` String, `phone` String, `address` String, `created` DateTime, `metadata` String') AS outer) AS `stripe.posthog_test.customer_revenue_view`) AS revenue_analytics_customer ON equals(revenue_analytics_subscription.customer_id, revenue_analytics_customer.id)
   WHERE ifNull(equals(revenue_analytics_customer.country, 'US'), 0)
   GROUP BY breakdown_by,
            period_start

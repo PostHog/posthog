@@ -20,10 +20,16 @@ export interface SparklineTimeSeries {
 export type AnyScaleOptions = ScaleOptions<'linear' | 'logarithmic' | 'time' | 'timeseries' | 'category'>
 
 interface SparklineProps {
-    /** Optional labels for the X axis. */
-    labels?: string[]
     /** Either a list of numbers for a muted graph or an array of time series */
     data: number[] | SparklineTimeSeries[]
+    /** Check vars.scss for available colors. @default 'muted' */
+    color?: string
+    colors?: string[]
+    /** A name for each time series. */
+    name?: string
+    names?: string[]
+    /** A label for each datapoint. */
+    labels?: string[]
     /** @default 'bar' */
     type?: 'bar' | 'line'
     /** Whether the Y-axis maximum should be indicated in the graph. @default true */
@@ -40,8 +46,12 @@ interface SparklineProps {
 }
 
 export function Sparkline({
-    labels,
     data,
+    color,
+    colors,
+    name,
+    names,
+    labels,
     type = 'bar',
     maximumIndicator = true,
     loading = false,
@@ -56,8 +66,38 @@ export function Sparkline({
     const [isTooltipShown, setIsTooltipShown] = useState(false)
     const [popoverContent, setPopoverContent] = useState<JSX.Element | null>(null)
     const adjustedData: SparklineTimeSeries[] = useMemo(() => {
-        return !isSparkLineTimeSeries(data) ? [{ name: 'Count', color: 'muted', values: data }] : data
-    }, [data])
+        const arrayData = Array.isArray(data)
+            ? data.length > 0 && typeof data[0] === 'object'
+                ? data // array of objects, one per series
+                : [data] // array of numbers, turn it into the first series
+            : typeof data === 'object'
+              ? [data] // first series as an object
+              : [[data]] // just a random number... huh
+        return arrayData.map((timeseries, index): SparklineTimeSeries => {
+            const defaultName =
+                names?.[index] || (arrayData.length === 1 ? name || 'Count' : `${name || 'Series'} ${index + 1}`)
+            const defaultColor = colors?.[index] || color || 'muted'
+            if (typeof timeseries === 'object') {
+                if (!Array.isArray(timeseries)) {
+                    return {
+                        name: timeseries.name || defaultName,
+                        color: timeseries.color || defaultColor,
+                        values: timeseries.values || [],
+                    }
+                }
+                return {
+                    name: defaultName,
+                    color: defaultColor,
+                    values: timeseries as number[],
+                }
+            }
+            return {
+                name: defaultName,
+                color: defaultColor,
+                values: timeseries ? [timeseries] : [],
+            }
+        })
+    }, [data]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     useEffect(() => {
         // data should always be provided but React can render this without it,
@@ -211,8 +251,4 @@ export function Sparkline({
     ) : (
         <LemonSkeleton className={finalClassName} />
     )
-}
-
-function isSparkLineTimeSeries(data: number[] | SparklineTimeSeries[]): data is SparklineTimeSeries[] {
-    return typeof data[0] !== 'number'
 }

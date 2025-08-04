@@ -104,7 +104,7 @@ export const LLMMessageDisplay = React.memo(
         const { role, content, ...additionalKwargs } = message
         const { isRenderingMarkdown } = useValues(llmObservabilityTraceLogic)
         const { toggleMarkdownRendering } = useActions(llmObservabilityTraceLogic)
-        const [show, setShow] = React.useState(role !== 'system' && role !== 'tool')
+        const [show, setShow] = React.useState(role !== 'system' && role !== 'tool' && role !== 'tools')
 
         // Compute whether the content looks like Markdown.
         // (Heuristic: looks for code blocks, blockquotes, headings, italic, bold, underline, strikethrough)
@@ -200,15 +200,15 @@ export const LLMMessageDisplay = React.memo(
                     isOutput
                         ? 'bg-[var(--bg-fill-success-tertiary)] not-last:mb-2'
                         : role === 'user'
-                        ? 'bg-[var(--bg-fill-tertiary)]'
-                        : role === 'assistant'
-                        ? 'bg-[var(--bg-fill-info-tertiary)]'
-                        : null
+                          ? 'bg-[var(--bg-fill-tertiary)]'
+                          : role === 'assistant'
+                            ? 'bg-[var(--bg-fill-info-tertiary)]'
+                            : null
                 )}
             >
                 <div className="flex items-center gap-1 w-full px-2 h-6 text-xs font-medium">
                     <span className="grow">{role}</span>
-                    {content && (
+                    {(content || Object.keys(additionalKwargsEntries).length > 0) && (
                         <>
                             <LemonButton
                                 size="small"

@@ -12,16 +12,13 @@ import { createServer } from 'http'
 import { DateTime } from 'luxon'
 import { AddressInfo } from 'net'
 
+import { CyclotronInvocationQueueParametersFetchType } from '~/schema/cyclotron'
 import { truth } from '~/tests/helpers/truth'
 import { logger } from '~/utils/logger'
 import { fetch } from '~/utils/request'
 
-import { formatHogInput, HogExecutorService } from '../../../src/cdp/services/hog-executor.service'
-import {
-    CyclotronJobInvocationHogFunction,
-    HogFunctionQueueParametersFetchRequest,
-    HogFunctionType,
-} from '../../../src/cdp/types'
+import { HogExecutorService } from '../../../src/cdp/services/hog-executor.service'
+import { CyclotronJobInvocationHogFunction, HogFunctionType } from '../../../src/cdp/types'
 import { Hub } from '../../../src/types'
 import { createHub } from '../../../src/utils/db/hub'
 import { parseJSON } from '../../utils/json-parse'
@@ -48,72 +45,6 @@ describe('Hog Executor', () => {
 
         hub = await createHub()
         executor = new HogExecutorService(hub)
-    })
-
-    describe('formatInput', () => {
-        it('can handle null values in input objects', async () => {
-            const globals = {
-                ...createHogExecutionGlobals({
-                    event: {
-                        event: 'test',
-                        uuid: 'test-uuid',
-                    } as any,
-                }),
-                inputs: {},
-            }
-
-            // Body with null values that should be preserved
-            const inputWithNulls = {
-                body: {
-                    value: {
-                        event: '{event}',
-                        person: null,
-                        userId: null,
-                    },
-                },
-            }
-
-            // Call formatInput directly to test that it handles null values
-            const result = await formatHogInput(inputWithNulls, globals)
-
-            // Verify that null values are preserved
-            expect(result.body.value.person).toBeNull()
-            expect(result.body.value.userId).toBeNull()
-            expect(result.body.value.event).toBe('{event}')
-        })
-
-        it('can handle deep null and undefined values', async () => {
-            const globals = {
-                ...createHogExecutionGlobals({
-                    event: {
-                        event: 'test',
-                        uuid: 'test-uuid',
-                    } as any,
-                }),
-                inputs: {},
-            }
-
-            const complexInput = {
-                body: {
-                    value: {
-                        data: {
-                            first: null,
-                            second: undefined,
-                            third: {
-                                nested: null,
-                            },
-                        },
-                    },
-                },
-            }
-
-            const result = await formatHogInput(complexInput, globals)
-
-            // Verify all null and undefined values are properly preserved
-            expect(result.body.value.data.first).toBeNull()
-            expect(result.body.value.data.second).toBeUndefined()
-            expect(result.body.value.data.third.nested).toBeNull()
-        })
     })
 
     describe('general event processing', () => {
@@ -750,7 +681,7 @@ describe('Hog Executor', () => {
         jest.setTimeout(10000)
         let server: any
         let baseUrl: string
-        let mockRequest = jest.fn()
+        const mockRequest = jest.fn()
         let timeoutHandle: NodeJS.Timeout | undefined
         let hogFunction: HogFunctionType
 
@@ -791,14 +722,14 @@ describe('Hog Executor', () => {
         beforeEach(() => {
             jest.spyOn(Math, 'random').mockReturnValue(0.5)
 
-            mockRequest = jest.fn((req, res) => {
+            mockRequest.mockImplementation((req, res) => {
                 res.writeHead(200, { 'Content-Type': 'text/plain' })
                 res.end('Hello, world!')
             })
         })
 
         const createFetchInvocation = async (
-            params: Omit<HogFunctionQueueParametersFetchRequest, 'type'>
+            params: Omit<CyclotronInvocationQueueParametersFetchType, 'type'>
         ): Promise<CyclotronJobInvocationHogFunction> => {
             const invocation = createExampleInvocation(hogFunction)
 
@@ -975,6 +906,29 @@ describe('Hog Executor', () => {
             expect(result.logs.map((log) => log.message)).toMatchInlineSnapshot(`
                 [
                   "HTTP fetch failed on attempt 1 with status code (none). Error: The operation was aborted due to timeout. Retrying in 1500ms.",
+                ]
+            `)
+        })
+
+        it('handles ResponseContentLengthMismatchError', async () => {
+            jest.mocked(fetch).mockImplementationOnce(() => {
+                const error = new Error('Response body length does not match content-length header')
+                error.name = 'ResponseContentLengthMismatchError'
+                return Promise.reject(error)
+            })
+
+            const invocation = await createFetchInvocation({
+                url: `${baseUrl}/test`,
+                method: 'GET',
+            })
+
+            const result = await executor.executeFetch(invocation)
+
+            expect(result.invocation.queue).toBe('hog')
+            expect(result.invocation.queueScheduledAt).toBeUndefined() // Should not retry
+            expect(result.logs.map((log) => log.message)).toMatchInlineSnapshot(`
+                [
+                  "HTTP fetch failed on attempt 1 with status code (none). Error: Response body length does not match content-length header.",
                 ]
             `)
         })

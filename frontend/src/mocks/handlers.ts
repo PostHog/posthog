@@ -65,7 +65,7 @@ function posthogCORSResponse(req: RestRequest, res: ResponseComposition, ctx: Re
 
 export const defaultMocks: Mocks = {
     get: {
-        '/api/projects/:team_id/activity_log/important_changes/': EMPTY_PAGINATED_RESPONSE,
+        '/api/projects/:team_id/important_changes/': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/actions/': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/annotations/': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/event_definitions/': EMPTY_PAGINATED_RESPONSE,
@@ -98,6 +98,7 @@ export const defaultMocks: Mocks = {
             enabled: false,
             access_token: 'foo',
             created_at: '2020-11-11T00:00:00Z',
+            settings: {},
         } as SharingConfigurationType,
         '/api/projects/': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/property_definitions/': EMPTY_PAGINATED_RESPONSE,

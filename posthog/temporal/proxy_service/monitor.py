@@ -152,8 +152,8 @@ async def check_certificate_status(inputs: CheckActivityInput) -> CheckActivityO
 
         if response.certificate_status != CertificateState_READY:
             return CheckActivityOutput(
-                errors=["DNS Certificate is not ready"],
-                warnings=[],
+                errors=[],
+                warnings=["TLS Certificate is not ready"],
             )
 
         if response.renewal_time.ToDatetime() < dt.datetime.now() - dt.timedelta(minutes=10):
