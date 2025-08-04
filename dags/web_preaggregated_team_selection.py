@@ -2,8 +2,8 @@ import os
 
 import dagster
 from clickhouse_driver import Client
-
 from posthog.clickhouse.cluster import ClickhouseCluster
+from posthog.models.team.team import Team
 from posthog.models.web_preaggregated.team_selection import (
     WEB_PRE_AGGREGATED_TEAM_SELECTION_DICTIONARY_NAME,
     WEB_PRE_AGGREGATED_TEAM_SELECTION_DATA_SQL,
@@ -14,14 +14,10 @@ from dags.web_preaggregated_team_selection_strategies import strategy_registry
 
 
 def validate_team_ids(context: dagster.OpExecutionContext, team_ids: set[int]) -> set[int]:
-    """Validate that team IDs exist in the database"""
     if not team_ids:
         return team_ids
 
     try:
-        from posthog.models.team.team import Team
-
-        # Check which teams exist
         existing_teams = set(Team.objects.filter(id__in=team_ids).values_list("id", flat=True))
         invalid_teams = team_ids - existing_teams
 
@@ -130,8 +126,6 @@ def web_analytics_team_selection(
     cluster: dagster.ResourceParam[ClickhouseCluster],
 ) -> dagster.MaterializeResult:
     """
-    Materializes web analytics team selection into ClickHouse.
-
     This asset manages which teams have access to web analytics pre-aggregated tables.
     The selection is then stored in a ClickHouse dictionary for fast lookups.
     """

@@ -9,6 +9,7 @@ from dags.web_preaggregated_team_selection import (
     get_team_ids_from_sources,
     validate_team_ids,
     store_team_selection_in_clickhouse,
+    web_analytics_team_selection,
 )
 from dags.web_preaggregated_team_selection_strategies import (
     EnvironmentVariableStrategy,
@@ -362,3 +363,73 @@ class TestStoreTeamSelectionInClickhouse:
 
         # Verify map_all_hosts was called twice (once for insert, once for reload)
         assert self.mock_cluster.map_all_hosts.call_count == 2
+
+
+class TestWebAnalyticsTeamSelectionAsset:
+    def setup_method(self):
+        self.mock_context = Mock(spec=dagster.AssetExecutionContext)
+        self.mock_context.log = Mock()
+        self.mock_cluster = Mock()
+
+    @patch("dags.web_preaggregated_team_selection.get_team_ids_from_sources")
+    @patch("dags.web_preaggregated_team_selection.store_team_selection_in_clickhouse")
+    def test_asset_execution_success(self, mock_store, mock_get_teams):
+        test_teams = [1, 2, 3]
+        mock_get_teams.return_value = test_teams
+        mock_store.return_value = test_teams
+
+        context = dagster.build_asset_context()
+
+        result = web_analytics_team_selection(context, self.mock_cluster)
+
+        # Verify functions were called
+        mock_get_teams.assert_called_once()
+        mock_store.assert_called_once_with(context, test_teams, self.mock_cluster)
+
+        # Verify result
+        assert isinstance(result, dagster.MaterializeResult)
+        assert result.metadata["team_count"] == len(test_teams)
+        assert result.metadata["team_ids"] == str(test_teams)
+
+    @patch("dags.web_preaggregated_team_selection.get_team_ids_from_sources")
+    @patch("dags.web_preaggregated_team_selection.store_team_selection_in_clickhouse")
+    def test_asset_handles_empty_teams(self, mock_store, mock_get_teams):
+        empty_teams = []
+        mock_get_teams.return_value = empty_teams
+        mock_store.return_value = empty_teams
+
+        context = dagster.build_asset_context()
+        result = web_analytics_team_selection(context, self.mock_cluster)
+
+        assert result.metadata["team_count"] == 0
+        assert result.metadata["team_ids"] == str(empty_teams)
+
+    @patch("dags.web_preaggregated_team_selection.get_team_ids_from_sources")
+    @patch("dags.web_preaggregated_team_selection.store_team_selection_in_clickhouse")
+    def test_asset_propagates_store_errors(self, mock_store, mock_get_teams):
+        test_teams = [1, 2, 3]
+        mock_get_teams.return_value = test_teams
+        mock_store.side_effect = Exception("ClickHouse error")
+
+        context = dagster.build_asset_context()
+
+        with pytest.raises(Exception, match="ClickHouse error"):
+            web_analytics_team_selection(context, self.mock_cluster)
+
+
+class TestIntegrationScenarios:
+    def test_complete_flow_with_env_variable(self):
+        test_teams = "100, 200, 300"
+        expected_teams = [100, 200, 300]
+
+        with patch.dict(os.environ, {"WEB_ANALYTICS_ENABLED_TEAM_IDS": test_teams}):
+            result = get_team_ids_from_sources()
+
+        assert result == expected_teams
+
+    def test_complete_flow_with_defaults(self):
+        with patch.dict(os.environ, {}, clear=True):
+            result = get_team_ids_from_sources()
+
+        assert result == sorted(DEFAULT_ENABLED_TEAM_IDS)
+        assert len(result) > 0  # Ensure defaults are not empty
