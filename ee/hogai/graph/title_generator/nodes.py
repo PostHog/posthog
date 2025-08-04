@@ -7,6 +7,7 @@ from ee.hogai.graph.base import AssistantNode
 from ee.hogai.graph.title_generator.prompts import TITLE_GENERATION_PROMPT
 from ee.hogai.utils.helpers import find_last_message_of_type
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
+from ee.models.assistant import Conversation
 from posthog.schema import HumanMessage
 
 
@@ -28,7 +29,7 @@ class TitleGeneratorNode(AssistantNode):
 
         title = runnable.invoke({"user_input": human_message.content}, config=config)
 
-        conversation.title = title
+        conversation.title = title[: Conversation.TITLE_MAX_LENGTH]
         conversation.save()
 
         return None
