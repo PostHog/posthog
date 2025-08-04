@@ -573,3 +573,23 @@ class TestUserAPI(APIBaseTest):
                 self.assertTrue(result)
                 # Should keep default rate
                 self.assertEqual(throttle.rate, "600/minute")
+
+    def test_local_evaluation_throttle_uses_custom_rate_for_team(self):
+        throttle = LocalEvaluationThrottle()
+
+        # Mock view and request
+        mock_view = Mock()
+        mock_request = Mock()
+
+        with (
+            patch("posthog.api.feature_flag.LOCAL_EVAL_RATE_LIMITS", {123: "1200/minute"}),
+            patch.object(throttle, "safely_get_team_id_from_view", return_value=123),
+            patch.object(throttle.__class__.__bases__[0], "allow_request", return_value=True),
+        ):
+            result = throttle.allow_request(mock_request, mock_view)
+
+            self.assertTrue(result)
+            # Should use custom rate
+            self.assertEqual(throttle.rate, "1200/minute")
+            self.assertEqual(throttle.num_requests, 1200)
+            self.assertEqual(throttle.duration, 60)  # 1 minute in seconds

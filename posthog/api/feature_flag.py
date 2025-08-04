@@ -100,15 +100,15 @@ class LocalEvaluationThrottle(BurstRateThrottle):
     def allow_request(self, request, view):
         logger = logging.getLogger(__name__)
 
-        try:
-            team_id = self.safely_get_team_id_from_view(view)
-            if team_id:
-                custom_rate = LOCAL_EVAL_RATE_LIMITS.get(str(team_id))
+        team_id = self.safely_get_team_id_from_view(view)
+        if team_id:
+            try:
+                custom_rate = LOCAL_EVAL_RATE_LIMITS.get(team_id)
                 if custom_rate:
                     self.rate = custom_rate
                     self.num_requests, self.duration = self.parse_rate(self.rate)
-        except Exception:
-            logger.exception(f"Error getting team-specific rate limit for team {team_id}")
+            except Exception:
+                logger.exception(f"Error getting team-specific rate limit for team {team_id}")
 
         return super().allow_request(request, view)
 
