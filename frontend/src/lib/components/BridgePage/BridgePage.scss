@@ -112,7 +112,9 @@
             &.BridgePage__left__message--enter-active,
             &.BridgePage__left__message--enter-done {
                 opacity: 1;
-                transition: 200ms opacity, 200ms transform;
+                transition:
+                    200ms opacity,
+                    200ms transform;
                 transform: translateY(0) rotate(5deg) scale(1);
             }
 
