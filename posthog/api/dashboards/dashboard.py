@@ -536,7 +536,7 @@ class DashboardsViewSet(
     queryset = Dashboard.objects_including_soft_deleted.order_by("-pinned", "name")
     permission_classes = [CanEditDashboard]
 
-    @tracer.start_as_current_span("DashboardViesSet.get_serializer_context")
+    @tracer.start_as_current_span("DashboardViewSet.get_serializer_context")
     def get_serializer_context(self) -> dict[str, Any]:
         context = super().get_serializer_context()
         context["insight_variables"] = InsightVariable.objects.filter(team=self.team).all()
@@ -546,7 +546,7 @@ class DashboardsViewSet(
     def get_serializer_class(self) -> type[BaseSerializer]:
         return DashboardBasicSerializer if self.action == "list" else DashboardSerializer
 
-    @tracer.start_as_current_span("DashboardViesSet.dangerously_get_queryset")
+    @tracer.start_as_current_span("DashboardViewSet.dangerously_get_queryset")
     def dangerously_get_queryset(self):
         # Dashboards are retrieved under /environments/ because they include team-specific query results,
         # but they are in fact project-level, rather than environment-level
