@@ -1,4 +1,4 @@
-import { actions, connect, kea, listeners, reducers, path, afterMount } from 'kea'
+import { actions, connect, kea, listeners, reducers, path, afterMount, selectors } from 'kea'
 import { combineUrl, router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
@@ -7,6 +7,7 @@ import { arrayMove } from '@dnd-kit/sortable'
 import type { sceneTabsLogicType } from './sceneTabsLogicType'
 import { addProjectIdIfMissing } from 'lib/utils/router-utils'
 import { urls } from 'scenes/urls'
+import { sceneLogic } from 'scenes/sceneLogic'
 
 export interface SceneTab {
     id: string
@@ -37,8 +38,8 @@ const generateTabId = (): string => crypto?.randomUUID?.() ?? `${Date.now()}-${M
 export const sceneTabsLogic = kea<sceneTabsLogicType>([
     path(['layout', 'scenes', 'sceneTabsLogic']),
     connect(() => ({
-        actions: [router, ['locationChanged', 'push']],
-        values: [breadcrumbsLogic, ['title']],
+        actions: [router, ['locationChanged', 'push'], sceneLogic, ['setScene']],
+        values: [breadcrumbsLogic, ['title'], sceneLogic, ['activeSceneLogic']],
     })),
     actions({
         setTabs: (tabs: SceneTab[]) => ({ tabs }),
@@ -105,7 +106,24 @@ export const sceneTabsLogic = kea<sceneTabsLogicType>([
             },
         ],
     }),
-    listeners(({ values, actions }) => ({
+    selectors({
+        activeTab: [
+            (s) => [s.tabs],
+            (tabs: SceneTab[]): SceneTab | null => {
+                return tabs.find((tab) => tab.active) || null
+            },
+        ],
+        tabIds: [
+            (s) => [s.tabs],
+            (tabs: SceneTab[]): Record<string, boolean> => {
+                return tabs.reduce((acc, tab) => {
+                    acc[tab.id] = true
+                    return acc
+                }, {} as Record<string, boolean>)
+            },
+        ],
+    }),
+    listeners(({ values, actions, cache }) => ({
         setTabs: () => persistTabs(values.tabs),
         newTab: () => {
             persistTabs(values.tabs)
@@ -114,7 +132,7 @@ export const sceneTabsLogic = kea<sceneTabsLogicType>([
         activateTab: () => persistTabs(values.tabs),
         removeTab: ({ tab }) => {
             if (tab.active) {
-                const activeTab = values.tabs.find((tab) => tab.active)
+                const { activeTab } = values
                 if (activeTab) {
                     router.actions.push(activeTab.pathname, activeTab.search, activeTab.hash)
                 } else {
@@ -187,6 +205,24 @@ export const sceneTabsLogic = kea<sceneTabsLogicType>([
             }
             persistTabs(values.tabs)
         },
+        setScene: ({ loadedScene, params }) => {
+            if (!cache.mountedTabLogic) {
+                cache.mountedTabLogic = {} as Record<string, () => void>
+            }
+            const activeTabId = values.activeTab?.id
+            if (!activeTabId) {
+                console.warn('No active tab found when setting scene logic')
+                return
+            }
+            const unmount = cache.mountedTabLogic[activeTabId]
+            if (unmount) {
+                window.setTimeout(unmount, 50)
+                delete cache.mountedTabLogic[activeTabId]
+            }
+            if (loadedScene?.logic) {
+                cache.mountedTabLogic[activeTabId] = loadedScene?.logic(loadedScene?.paramsToProps?.(params)).mount()
+            }
+        },
     })),
     subscriptions(({ actions, values, cache }) => ({
         title: (title) => {
@@ -220,6 +256,25 @@ export const sceneTabsLogic = kea<sceneTabsLogicType>([
             // When the title changes, trigger a history REPLACE event to persist the new title in the browser
             const { currentLocation } = router.values
             router.actions.replace(currentLocation.pathname, currentLocation.search, currentLocation.hash)
+        },
+        tabs: (tabs) => {
+            const tabIds = tabs.reduce((acc: Record<string, boolean>, tab: SceneTab) => {
+                acc[tab.id] = true
+                return acc
+            }, {} as Record<string, boolean>)
+            for (const id of Object.keys(cache.mountedTabLogic)) {
+                if (!tabIds[id]) {
+                    const mountedTabLogic = cache.mountedTabLogic[id]
+                    if (mountedTabLogic) {
+                        try {
+                            mountedTabLogic.unmount()
+                        } catch (error) {
+                            console.error('Error unmounting tab logic:', error)
+                        }
+                    }
+                    delete cache.mountedTabLogic[id]
+                }
+            }
         },
     })),
     afterMount(({ actions, cache, values }) => {
