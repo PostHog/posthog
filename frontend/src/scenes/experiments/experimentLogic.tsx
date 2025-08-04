@@ -711,6 +711,32 @@ export const experimentLogic = kea<experimentLogicType>([
                 setUnmodifiedExperiment: (_, { experiment }) => experiment,
             },
         ],
+        newSurvey: [
+            null as Survey | null,
+            {
+                createSurvey: async () => {
+                    const newSurvey = {
+                        ...NEW_SURVEY,
+                        name: `Survey: ${values.experiment.name}`,
+                        questions: [
+                            {
+                                type: SurveyQuestionType.Open,
+                                question: `What do you think of ${values.experiment.name}?`,
+                            },
+                        ],
+                    }
+                    const response = await api.surveys.create(newSurvey as NewSurvey)
+                    actions.addProductIntent({
+                        product_type: ProductKey.SURVEYS,
+                        intent_context: ProductIntentContext.SURVEY_CREATED,
+                        metadata: {
+                            survey_id: response.id,
+                        },
+                    })
+                    return response
+                },
+            },
+        ],
         tabKey: [
             'results',
             {
@@ -1950,6 +1976,18 @@ export const experimentLogic = kea<experimentLogicType>([
                     actions.createExperiment(true, 'Unfiled/Experiments')
                 }
             },
+        },
+    })),
+    listeners(() => ({
+        createSurveySuccess: ({ newSurvey }) => {
+            if (newSurvey) {
+                lemonToast.success('Survey created successfully', {
+                    button: {
+                        label: 'View survey',
+                        action: () => router.actions.push(urls.survey(newSurvey.id)),
+                    },
+                })
+            }
         },
     })),
     urlToAction(({ actions, values }) => ({
