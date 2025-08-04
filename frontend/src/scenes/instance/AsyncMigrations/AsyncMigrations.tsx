@@ -63,7 +63,7 @@ export function AsyncMigrations(): JSX.Element {
             const interval = setInterval(() => loadAsyncMigrations(), STATUS_RELOAD_INTERVAL_MS)
             return () => clearInterval(interval)
         }
-    }, [isAnyMigrationRunning])
+    }, [isAnyMigrationRunning]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     const nameColumn: AsyncMigrationColumnType = {
         title: 'Migration',

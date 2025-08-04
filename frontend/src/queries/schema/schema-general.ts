@@ -892,10 +892,13 @@ export interface TableSettings {
 
 export interface SharingConfigurationSettings {
     whitelabel?: boolean
+    // Insights
     noHeader?: boolean
-    showInspector?: boolean
     legend?: boolean
     detailed?: boolean
+    hideExtraDetails?: boolean
+    // Recordings
+    showInspector?: boolean
 }
 
 export interface DataVisualizationNode extends Node<never> {
@@ -2676,7 +2679,6 @@ export interface MultipleBreakdownOptions {
 }
 
 export interface InsightActorsQueryOptionsResponse {
-    // eslint-disable-next-line @typescript-eslint/no-duplicate-type-constituents
     day?: { label: string; value: string | DatetimeDay | Day }[]
     status?: { label: string; value: string }[]
     interval?: {
@@ -2985,8 +2987,7 @@ export type EventTaxonomyQueryResponse = AnalyticsQueryResponseBase<EventTaxonom
 export type CachedEventTaxonomyQueryResponse = CachedQueryResponse<EventTaxonomyQueryResponse>
 
 export interface ActorsPropertyTaxonomyResponse {
-    // Values can be floats and integers. The comment below is to preserve the `integer` type.
-    // eslint-disable-next-line @typescript-eslint/no-duplicate-type-constituents
+    // Values can be floats and integers
     sample_values: (string | number | boolean | integer)[]
     sample_count: integer
 }

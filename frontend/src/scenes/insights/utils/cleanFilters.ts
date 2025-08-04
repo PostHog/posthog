@@ -148,7 +148,7 @@ const cleanBreakdownParams = (cleanedParams: Partial<FilterType>, filters: Parti
         // Support automatic switching to country code breakdown both from no breakdown and from country name breakdown
         cleanedParams['breakdown'] = '$geoip_country_code'
         // this isn't a react hook
-        // eslint-disable-next-line react-hooks/rules-of-hooks
+        // oxlint-disable-next-line react-hooks/rules-of-hooks
         useMostRelevantBreakdownType(cleanedParams, filters)
         return
     }

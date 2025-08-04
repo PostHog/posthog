@@ -52,6 +52,7 @@ import { samplingFilterLogic } from '../EditorFilters/samplingFilterLogic'
 import { MathAvailability } from '../filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { insightDataLogic } from '../insightDataLogic'
 import { insightVizDataLogic } from '../insightVizDataLogic'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 export function InsightEmptyState({
     heading = 'There are no matching events for this query',
@@ -284,7 +285,7 @@ export function StatelessInsightLoadingState({
     }, [pollResponse, showLoadingDetails])
 
     // Toggle between loading messages every 2.5-3.5 seconds, with 300ms fade out, then change text, keep in sync with the transition duration below
-    useEffect(() => {
+    useOnMountEffect(() => {
         const TOGGLE_INTERVAL_MIN = 2500
         const TOGGLE_INTERVAL_JITTER = 1000
         const FADE_OUT_DURATION = 300
@@ -310,7 +311,7 @@ export function StatelessInsightLoadingState({
         }, TOGGLE_INTERVAL_MIN + Math.random() * TOGGLE_INTERVAL_JITTER)
 
         return () => clearInterval(interval)
-    }, [])
+    })
 
     const suggestions = suggestion ? (
         suggestion

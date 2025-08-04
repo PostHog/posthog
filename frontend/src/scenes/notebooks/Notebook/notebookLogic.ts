@@ -447,7 +447,7 @@ export const notebookLogic = kea<notebookLogicType>([
 
         nodeLogicsWithChildren: [
             (s) => [s.nodeLogics, s.content],
-            // eslint-disable-next-line @typescript-eslint/no-unused-vars
+            // oxlint-disable-next-line @typescript-eslint/no-unused-vars
             (nodeLogics, _content) => {
                 // NOTE: _content is not but is needed to retrigger as it could mean the children have changed
                 return Object.values(nodeLogics).filter((nodeLogic) => nodeLogic.props.attributes?.children)

@@ -127,6 +127,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
         loadFeatureFlag,
         saveFeatureFlag,
         createStaticCohort,
+        createSurvey,
         setFeatureFlagFilters,
         setActiveTab,
     } = useActions(featureFlagLogic)
@@ -579,6 +580,16 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                                         fullWidth
                                                     >
                                                         <span>Duplicate feature flag</span>
+                                                    </LemonButton>
+
+                                                    <LemonButton
+                                                        onClick={() => {
+                                                            createSurvey()
+                                                        }}
+                                                        data-attr="create-survey"
+                                                        fullWidth
+                                                    >
+                                                        Create survey
                                                     </LemonButton>
                                                     <LemonDivider />
                                                     <AccessControlledLemonButton

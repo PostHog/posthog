@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 import time
 import math
 
@@ -8,6 +9,7 @@ from django.core.management.base import BaseCommand
 from django.db import transaction
 from django.db.models import Q
 
+from posthog.hogql_queries.query_metadata import InsightQueryMetadata
 from posthog.models import Insight
 
 logger = structlog.get_logger(__name__)
@@ -78,7 +80,9 @@ class Command(BaseCommand):
         Uses proper row locking to prevent race conditions.
         """
         # Build base query
-        base_query = Insight.objects.filter(Q(query_metadata__isnull=True) | Q(query_metadata={}))
+        base_query = Insight.objects_including_soft_deleted.filter(
+            Q(query_metadata__isnull=True) | Q(query_metadata={})
+        )
 
         if team_id:
             base_query = base_query.filter(team_id=team_id)
@@ -133,17 +137,22 @@ class Command(BaseCommand):
                     # Generate metadata
                     try:
                         insight.generate_query_metadata()
-                        insights_to_update.append(insight)
                         batch_updated += 1
-
                         if verbose:
                             self.stdout.write(f"Insight {insight.id}: Generated query metadata")
                     except Exception as e:
                         logger.exception(f"Failed to generate metadata for insight {insight.id}: {e}")
+                        # store an empty metadata to avoid reprocessing, with a specific datetime to know which ones failed via this command (hacky, I know)
+                        failed_datetime = datetime(2025, 1, 1, 0, 0, 0)
+                        insight.query_metadata = InsightQueryMetadata(events=[], updated_at=failed_datetime).model_dump(
+                            exclude_none=True, mode="json"
+                        )
+
+                    insights_to_update.append(insight)
 
                 # Update all modified insights in this batch
                 if insights_to_update and not dry_run:
-                    Insight.objects.bulk_update(insights_to_update, ["query_metadata"])
+                    Insight.objects_including_soft_deleted.bulk_update(insights_to_update, ["query_metadata"])
 
                 total_updated += batch_updated
                 total_processed += len(insights)

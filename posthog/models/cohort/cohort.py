@@ -367,7 +367,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         """
         dependent_ids = set()
         for prop in self.properties.flat:
-            if prop.type == "cohort" and prop.value is not None:
+            if prop.type == "cohort" and prop.value is not None and not isinstance(prop.value, list):
                 try:
                     cohort_id = int(prop.value)
                     dependent_ids.add(cohort_id)

@@ -422,6 +422,7 @@ export const updateOrganizationAvailableFeatures = async (
     )
 }
 
+type PartialProject = { organization_id: string }
 export const createTeam = async (
     pg: PostgresRouter,
     projectOrOrganizationId: ProjectId | string,
@@ -435,7 +436,7 @@ export const createTeam = async (
     if (typeof projectOrOrganizationId === 'number') {
         projectId = projectOrOrganizationId
         organizationId = await pg
-            .query<{ organization_id: string }>(
+            .query<PartialProject>(
                 PostgresUse.COMMON_READ,
                 'SELECT organization_id FROM posthog_project WHERE id = $1',
                 [projectId],

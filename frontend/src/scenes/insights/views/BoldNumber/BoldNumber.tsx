@@ -71,7 +71,7 @@ function useBoldNumberTooltip({
                 groupTypeLabel={groupTypeLabel || aggregationLabel(series?.[0].math_group_type_index).plural}
             />
         )
-    }, [isTooltipShown])
+    }, [isTooltipShown]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     useEffect(() => {
         const tooltipRect = tooltipEl.getBoundingClientRect()

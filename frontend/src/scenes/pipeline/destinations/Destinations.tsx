@@ -348,7 +348,7 @@ export function DestinationsTable({
                         'No destinations found'
                     ) : (
                         <>
-                            No destinations matching filters. <Link onClick={() => resetFilters()}>Clear filters</Link>{' '}
+                            No destinations matching filters. <Link onClick={() => resetFilters()}>Clear filters</Link>
                         </>
                     )
                 }

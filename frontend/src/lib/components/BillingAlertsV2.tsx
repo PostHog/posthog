@@ -23,7 +23,7 @@ export function BillingAlertsV2({ className }: { className?: string }): JSX.Elem
         if (billingAlert) {
             reportBillingAlertShown(billingAlert)
         }
-    }, [billingAlert, currentLocation])
+    }, [billingAlert, currentLocation]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     if (!billingAlert || alertHidden) {
         return null

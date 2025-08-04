@@ -235,6 +235,7 @@ export function SummaryTable({
                 },
             })
         }
+
         columns.push({
             key: 'conversionRate',
             title: 'Conversion rate',
@@ -246,66 +247,68 @@ export function SummaryTable({
 
                 return <div className="font-semibold">{`${conversionRate.toFixed(2)}%`}</div>
             },
-        }),
-            columns.push({
-                key: 'delta',
-                title: (
-                    <div className="inline-flex items-center deprecated-space-x-1">
-                        <div className="">Delta %</div>
-                        <Tooltip title="Delta % indicates the percentage change in the conversion rate between the control and the test variant.">
-                            <IconInfo className="text-secondary text-base" />
-                        </Tooltip>
-                    </div>
-                ),
-                render: function Key(_, item): JSX.Element {
-                    if (item.key === 'control') {
-                        return <em>Baseline</em>
-                    }
+        })
 
-                    const controlConversionRate = conversionRateForVariant(result, 'control')
-                    const variantConversionRate = conversionRateForVariant(result, item.key)
+        columns.push({
+            key: 'delta',
+            title: (
+                <div className="inline-flex items-center deprecated-space-x-1">
+                    <div className="">Delta %</div>
+                    <Tooltip title="Delta % indicates the percentage change in the conversion rate between the control and the test variant.">
+                        <IconInfo className="text-secondary text-base" />
+                    </Tooltip>
+                </div>
+            ),
+            render: function Key(_, item): JSX.Element {
+                if (item.key === 'control') {
+                    return <em>Baseline</em>
+                }
 
-                    if (!controlConversionRate || !variantConversionRate) {
-                        return <>—</>
-                    }
+                const controlConversionRate = conversionRateForVariant(result, 'control')
+                const variantConversionRate = conversionRateForVariant(result, item.key)
 
-                    const delta = ((variantConversionRate - controlConversionRate) / controlConversionRate) * 100
+                if (!controlConversionRate || !variantConversionRate) {
+                    return <>—</>
+                }
 
-                    return (
-                        <div
-                            className={`font-semibold ${delta > 0 ? 'text-success' : delta < 0 ? 'text-danger' : ''}`}
-                        >{`${delta > 0 ? '+' : ''}${delta.toFixed(2)}%`}</div>
-                    )
-                },
-            }),
-            columns.push({
-                key: 'credibleInterval',
-                title: (
-                    <div className="inline-flex items-center deprecated-space-x-1">
-                        <div className="">Credible interval (95%)</div>
-                        <Tooltip title="A credible interval estimates the percentage change in the conversion rate, indicating with 95% probability how much higher or lower the test variant's conversion rate is compared to the control.">
-                            <IconInfo className="text-secondary text-base" />
-                        </Tooltip>
-                    </div>
-                ),
-                render: function Key(_, item): JSX.Element {
-                    if (item.key === 'control') {
-                        return <em>Baseline</em>
-                    }
+                const delta = ((variantConversionRate - controlConversionRate) / controlConversionRate) * 100
 
-                    const credibleInterval = credibleIntervalForVariant(result || null, item.key, insightType)
-                    if (!credibleInterval) {
-                        return <>—</>
-                    }
-                    const [lowerBound, upperBound] = credibleInterval
+                return (
+                    <div className={`font-semibold ${delta > 0 ? 'text-success' : delta < 0 ? 'text-danger' : ''}`}>{`${
+                        delta > 0 ? '+' : ''
+                    }${delta.toFixed(2)}%`}</div>
+                )
+            },
+        })
 
-                    return (
-                        <div className="font-semibold">{`[${lowerBound > 0 ? '+' : ''}${lowerBound.toFixed(2)}%, ${
-                            upperBound > 0 ? '+' : ''
-                        }${upperBound.toFixed(2)}%]`}</div>
-                    )
-                },
-            })
+        columns.push({
+            key: 'credibleInterval',
+            title: (
+                <div className="inline-flex items-center deprecated-space-x-1">
+                    <div className="">Credible interval (95%)</div>
+                    <Tooltip title="A credible interval estimates the percentage change in the conversion rate, indicating with 95% probability how much higher or lower the test variant's conversion rate is compared to the control.">
+                        <IconInfo className="text-secondary text-base" />
+                    </Tooltip>
+                </div>
+            ),
+            render: function Key(_, item): JSX.Element {
+                if (item.key === 'control') {
+                    return <em>Baseline</em>
+                }
+
+                const credibleInterval = credibleIntervalForVariant(result || null, item.key, insightType)
+                if (!credibleInterval) {
+                    return <>—</>
+                }
+                const [lowerBound, upperBound] = credibleInterval
+
+                return (
+                    <div className="font-semibold">{`[${lowerBound > 0 ? '+' : ''}${lowerBound.toFixed(2)}%, ${
+                        upperBound > 0 ? '+' : ''
+                    }${upperBound.toFixed(2)}%]`}</div>
+                )
+            },
+        })
     }
 
     if (featureFlags[FEATURE_FLAGS.EXPERIMENT_P_VALUE]) {

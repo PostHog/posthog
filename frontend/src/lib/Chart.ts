@@ -1,4 +1,4 @@
-/* eslint-disable no-restricted-imports */
+/* oxlint-disable no-restricted-imports */
 import { Chart as RawChart, ChartType, DefaultDataPoint, registerables, Tooltip } from 'chart.js'
 import CrosshairPlugin from 'chartjs-plugin-crosshair'
 import { inStorybookTestRunner } from 'lib/utils'
@@ -57,4 +57,4 @@ export type {
     TooltipPositionerFunction,
 } from 'chart.js'
 export { defaults, registerables } from 'chart.js'
-/* eslint-enable no-restricted-imports */
+/* oxlint-enable no-restricted-imports */

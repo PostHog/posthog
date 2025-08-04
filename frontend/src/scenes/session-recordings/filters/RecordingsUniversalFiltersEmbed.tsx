@@ -11,7 +11,7 @@ import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/util
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
 import { maxLogic } from 'scenes/max/maxLogic'
 import { maxThreadLogic } from 'scenes/max/maxThreadLogic'
@@ -38,6 +38,7 @@ import { savedSessionRecordingPlaylistsLogic } from '../saved-playlists/savedSes
 import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
 import { DurationFilter } from './DurationFilter'
 import { SavedFilters } from './SavedFilters'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 function HideRecordingsMenu(): JSX.Element {
     const { hideViewedRecordings, hideRecordingsMenuLabelFor } = useValues(playerSettingsLogic)
@@ -546,9 +547,7 @@ const RecordingsUniversalFilterGroup = (): JSX.Element => {
     const { replaceGroupValue, removeGroupValue } = useActions(universalFiltersLogic)
     const [allowInitiallyOpen, setAllowInitiallyOpen] = useState(false)
     const [isPopoverVisible, setIsPopoverVisible] = useState(false)
-    useEffect(() => {
-        setAllowInitiallyOpen(true)
-    }, [])
+    useOnMountEffect(() => setAllowInitiallyOpen(true))
 
     return (
         <>
