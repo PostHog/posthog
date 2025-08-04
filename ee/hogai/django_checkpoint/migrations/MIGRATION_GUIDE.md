@@ -91,7 +91,7 @@ registry.get_migrations_needed(from_version=0)  # Returns [Migration0001, ...]
 ## Creating New Migrations
 
 1. Create file: `ee/hogai/django_checkpoint/migrations/_NNNN_description.py`
-2. Implement migration class
+2. Implement migration class (custom or composed)
 3. Register at module end:
 ```python
 from .registry import registry
@@ -150,3 +150,38 @@ class Migration0001(BaseMigration):
             state_indicators = {'messages', 'plan', 'current_filters', ...}
             return bool(state_indicators.intersection(state_obj.keys()))
 ```
+
+### Composed Migrations
+Migrations 0002+ use declarative operations. They are based on the `ComposedMigration` class.
+Composed migrations allow to chain migrations using simple util classes.
+
+```python
+class Migration0002(ComposedMigration):
+    operations = [
+        AddFieldMigration(
+            graph_type=GraphType.ASSISTANT,
+            field="conversation_metadata",
+            default={"session_id": None}
+        ),
+        RemoveFieldMigration(
+            graph_type="assistant",
+            field="legacy_field"
+        ),
+    ]
+```
+
+### Composed Operations
+
+Operations return tuples of `(transformed_state, version_metadata)`:
+
+### Field Operations
+- `AddFieldMigration`: Add fields with defaults
+- `RemoveFieldMigration`: Remove fields
+- `RenameFieldMigration`: Rename fields
+- `TransformFieldMigration`: Transform fields with functions
+
+### Advanced Operations
+- `SplitStateMigration`: Split one state into multiple types
+- `UpdateVersionMetadataMigration`: Update graph_type/context in metadata
+
+Check `ee/hogai/django_checkpoint/migrations/operations.py` to read each migration's signature.
