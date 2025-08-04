@@ -2421,7 +2421,7 @@ describe('PersonState.processEvent()', () => {
 
             expect(hub.db.postgres.transaction).toHaveBeenCalledTimes(1)
             jest.spyOn(hub.db.postgres, 'transaction').mockRestore()
-            expect(hub.db.kafkaProducer.queueMessages).not.toBeCalled()
+            expect(hub.db.kafkaProducer.queueMessages).not.toHaveBeenCalled()
             // verify Postgres persons
             const persons = sortPersons(await fetchPostgresPersonsH())
             expect(persons).toEqual(
@@ -2468,7 +2468,7 @@ describe('PersonState.processEvent()', () => {
 
             expect(state.mergePeople).toHaveBeenCalledTimes(3)
             jest.spyOn(state, 'mergePeople').mockRestore()
-            expect(hub.db.kafkaProducer.queueMessages).not.toBeCalled()
+            expect(hub.db.kafkaProducer.queueMessages).not.toHaveBeenCalled()
             // verify Postgres persons
             const persons = sortPersons(await fetchPostgresPersonsH())
             expect(persons).toEqual(
@@ -2521,7 +2521,7 @@ describe('PersonState.processEvent()', () => {
 
             expect(state.mergePeople).toHaveBeenCalledTimes(3)
             jest.spyOn(state, 'mergePeople').mockRestore()
-            expect(hub.db.kafkaProducer.queueMessages).not.toBeCalled()
+            expect(hub.db.kafkaProducer.queueMessages).not.toHaveBeenCalled()
             // verify Postgres persons
             const persons = sortPersons(await fetchPostgresPersonsH())
             expect(persons).toEqual(
