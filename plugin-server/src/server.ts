@@ -282,7 +282,7 @@ export class PluginServer {
             if (!isTestEnv()) {
                 // We don't run http server in test env currently
                 this.httpServer = this.expressApp.listen(this.config.HTTP_SERVER_PORT, () => {
-                    logger.info('🩺', `Status server listening on port ${this.config.HTTP_SERVER_PORT}`)
+                    logger.info('🩺', `HTTP server listening on port ${this.config.HTTP_SERVER_PORT}`)
                 })
             }
 

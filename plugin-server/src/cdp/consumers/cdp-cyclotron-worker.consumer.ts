@@ -98,6 +98,10 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
             return { backgroundTask: Promise.resolve(), invocationResults: [] }
         }
 
+        logger.info('🔁', `${this.name} - handling batch`, {
+            size: invocations.length,
+        })
+
         const invocationResults = await this.runInstrumented(
             'handleEachBatch.executeInvocations',
             async () => await this.processInvocations(invocations)
@@ -114,13 +118,9 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
                         captureException(err)
                         logger.error('Error processing invocation results', { err })
                     }),
-                this.hogWatcher.observeResults(invocationResults).catch((err) => {
+                this.hogWatcher.observeResults(invocationResults).catch((err: any) => {
                     captureException(err)
                     logger.error('Error observing results', { err })
-                }),
-                this.hogWatcher2.observeResults(invocationResults).catch((err) => {
-                    captureException(err)
-                    logger.error('Error observing results with hogWatcher2', { err })
                 }),
             ])
         })
