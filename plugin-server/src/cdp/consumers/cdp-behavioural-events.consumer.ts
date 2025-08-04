@@ -5,8 +5,6 @@ import { join } from 'path'
 import Piscina from 'piscina'
 import { Counter, Histogram } from 'prom-client'
 
-import { isCloud } from '~/utils/env-utils'
-
 import { KAFKA_EVENTS_JSON } from '../../config/kafka-topics'
 import { KafkaConsumer } from '../../kafka/consumer'
 import { runInstrumentedFunction } from '../../main/utils'
@@ -79,8 +77,6 @@ export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
             },
         })
 
-        const isCloudDeployment = isCloud()
-
         // Only initialize Cassandra client if the feature is enabled
         if (hub.WRITE_BEHAVIOURAL_COUNTERS_TO_CASSANDRA) {
             this.cassandra = new CassandraClient({
@@ -94,11 +90,6 @@ export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
                     hub.CASSANDRA_USER || 'cassandra',
                     hub.CASSANDRA_PASSWORD || 'cassandra'
                 ),
-                sslOptions: isCloudDeployment
-                    ? {
-                          rejectUnauthorized: true,
-                      }
-                    : undefined,
             })
             this.behavioralCounterRepository = new BehavioralCounterRepository(this.cassandra)
         } else {
