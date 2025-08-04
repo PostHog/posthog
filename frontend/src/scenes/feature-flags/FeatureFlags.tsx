@@ -306,6 +306,19 @@ export function OverViewTab({
                                     Try out in Insights
                                 </LemonButton>
 
+                                <LemonButton
+                                    onClick={() => {
+                                        if (featureFlag.id) {
+                                            featureFlagLogic({ id: featureFlag.id }).mount()
+                                            featureFlagLogic({ id: featureFlag.id }).actions.createSurvey()
+                                        }
+                                    }}
+                                    data-attr="create-survey"
+                                    fullWidth
+                                >
+                                    Create survey
+                                </LemonButton>
+
                                 <LemonDivider />
 
                                 {featureFlag.id && (
