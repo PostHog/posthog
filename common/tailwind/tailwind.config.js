@@ -86,7 +86,7 @@ const deprecatedColors = {
     // --color-text-foreground: var(--color-foreground);
     // --color-secondary-foreground-3000: var(--color-secondary-foreground-3000);
     // --color-muted-3000: var(--muted-3000);
-    // --color-primary-3000: var(--primary-3000);
+    // --color-primary-3000: var(--color-accent);
     // --color-secondary-3000: var(--secondary-3000);
     // --color-secondary-3000-hover: var(--secondary-3000-hover);
     // --color-accent-3000: var(--color-card);
@@ -95,7 +95,7 @@ const deprecatedColors = {
     // --color-primary-alt-highlight: var(--primary-alt-highlight);
     // --color-primary-alt: var(--primary-alt);
 
-    // 'primary': 'var(--primary-3000)',
+    // 'primary': 'var(--color-accent)',
     muted: 'var(--muted-3000)',
     default: 'var(--color-foreground)',
     'muted-alt': 'var(--muted-3000)',

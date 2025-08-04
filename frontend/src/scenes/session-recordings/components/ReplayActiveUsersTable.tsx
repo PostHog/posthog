@@ -38,7 +38,7 @@ export const ReplayActiveUsersTable = (): JSX.Element => {
                 loading={countedUsersLoading}
                 onRow={(record) => {
                     return {
-                        className: 'cursor-pointer hover:bg-secondary',
+                        className: 'cursor-pointer hover:bg-interactive-hover',
                         onClick: () => {
                             router.actions.push(
                                 urls.personByUUID(record.person.id as string) + '#activeTab=sessionRecordings'

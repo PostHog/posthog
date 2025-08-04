@@ -95,7 +95,7 @@ const CLOUD_FEATURES: CloudFeature[] = [
 export function MoveToPostHogCloud(): JSX.Element {
     return (
         <div className="-m-4">
-            <header className="bg-primary-alt-highlight border-b border-t border-border flex justify-center p-8">
+            <header className="bg-card-subtle border-b border-t border-border flex justify-center p-8">
                 <div className="grid md:grid-cols-2 items-center gap-8 w-full max-w-screen-xl">
                     <div className="">
                         <h2 className="text-2xl font-bold">PostHog Cloud</h2>
@@ -129,10 +129,7 @@ export function MoveToPostHogCloud(): JSX.Element {
                     <ul className="list-none p-0 grid sm:grid-cols-2 md:grid-cols-3 gap-8 mb-8 ">
                         {CLOUD_FEATURES.map((feature, i) => {
                             return (
-                                <li
-                                    className="rounded-lg p-4 sm:p-6 sm:pb-8 bg-primary-alt-highlight"
-                                    key={`subfeature-${i}`}
-                                >
+                                <li className="rounded-lg p-4 sm:p-6 sm:pb-8 bg-card-subtle" key={`subfeature-${i}`}>
                                     <span className="inline-block text-2xl mb-2 opacity-75">{feature.icon}</span>
                                     <h3 className="text-[17px] mb-1 leading-tight">{feature.name}</h3>
                                     <p className="m-0 text-[15px]">{feature.description}</p>

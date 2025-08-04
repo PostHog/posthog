@@ -69,7 +69,7 @@ export function EmojiPickerPopover({
                         setEmojiPickerOpen(false)
                     }}
                 >
-                    <EmojiPicker.Search className="z-10 mx-2 mt-2 appearance-none rounded bg-fill-input px-2.5 py-2 text-sm border" />
+                    <EmojiPicker.Search className="z-10 mx-2 mt-2 appearance-none rounded bg-input px-2.5 py-2 text-sm border" />
                     <EmojiPicker.Viewport className="relative flex-1 outline-hidden">
                         <EmojiPicker.Loading className="absolute inset-0 flex items-center justify-center text-tertiary-foreground text-sm">
                             Loading…

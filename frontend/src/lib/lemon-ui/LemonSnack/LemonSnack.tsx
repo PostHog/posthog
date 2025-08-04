@@ -25,9 +25,7 @@ export const LemonSnack: React.FunctionComponent<LemonSnackProps & React.RefAttr
                 className={twMerge(
                     'inline-flex text-foreground-alt max-w-full overflow-hidden break-all items-center py-1 leading-5',
                     !wrap && 'whitespace-nowrap',
-                    isRegular
-                        ? 'bg-accent-highlight-secondary px-1.5 rounded'
-                        : 'bg-primary-alt-highlight px-4 rounded-full h-8',
+                    isRegular ? 'bg-accent-highlight-secondary px-1.5 rounded' : 'bg-card-subtle px-4 rounded-full h-8',
                     isClickable && 'cursor-pointer',
                     className
                 )}

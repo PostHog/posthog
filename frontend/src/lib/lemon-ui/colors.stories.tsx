@@ -42,7 +42,7 @@ const preThousand = [
     'bg-success-light',
     'bg-success',
     'bg-success-dark',
-    'bg-primary-alt-highlight',
+    'bg-card-subtle',
     'bg-primary-alt',
     'bg-muted',
     'bg-muted-alt',

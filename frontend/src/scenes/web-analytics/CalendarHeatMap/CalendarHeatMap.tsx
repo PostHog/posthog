@@ -140,7 +140,7 @@ export function CalendarHeatMap({
                                     <th
                                         key={i}
                                         className={cn(
-                                            cellIsClickable ? 'rounded cursor-pointer hover:bg-highlight' : ''
+                                            cellIsClickable ? 'rounded cursor-pointer hover:bg-interactive-hover' : ''
                                         )}
                                         onClick={
                                             cellIsClickable

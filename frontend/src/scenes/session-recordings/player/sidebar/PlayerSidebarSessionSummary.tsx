@@ -115,7 +115,7 @@ function SessionSegmentCollapse({
                 <LemonButton
                     fullWidth
                     className={clsx(
-                        'LemonCollapsePanel__header hover:bg-primary-alt-highlight border-l-[5px]',
+                        'LemonCollapsePanel__header hover:bg-card-subtle border-l-[5px]',
                         !actionsPresent && 'LemonCollapsePanel__header--disabled',
                         isFailed && 'border-l-danger'
                     )}
@@ -314,6 +314,7 @@ function SessionSummaryKeyActions({
                 isValidTimestamp(event.milliseconds_since_start) ? (
                     <div
                         key={`${segmentName}-${eventIndex}`}
+                        bg-card-subtle
                         className={clsx(
                             'cursor-pointer py-2 px-2 hover:bg-primary-alt-highlight',
                             // Avoid adding a border to the last event

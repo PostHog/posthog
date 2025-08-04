@@ -117,7 +117,7 @@ export const SiteChooser = (): JSX.Element => {
 
     return (
         <>
-            <div className="absolute inset-0 bg-primary-alt-highlight z-10 rounded opacity-80 backdrop-filter backdrop-blur-md flex items-center justify-center" />
+            <div className="absolute inset-0 bg-card-subtle z-10 rounded opacity-80 backdrop-filter backdrop-blur-md flex items-center justify-center" />
             <div className="absolute inset-0 z-20 rounded flex items-center justify-center">
                 <LemonCard className="max-w-lg" hoverEffect={false}>
                     {iframeBanner?.level == 'error' && (

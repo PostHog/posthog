@@ -158,7 +158,7 @@ function CollaboratorRow({
                 placement="left"
             >
                 <div className="flex items-center gap-2">
-                    <span className="rounded bg-primary-alt-highlight p-1">{privilegeLevelName}</span>
+                    <span className="rounded bg-card-subtle p-1">{privilegeLevelName}</span>
                     {deleteCollaborator && wasInvited && (
                         <LemonButton
                             icon={<IconTrash />}

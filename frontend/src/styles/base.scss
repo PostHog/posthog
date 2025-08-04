@@ -409,18 +409,20 @@
     // New
     --color-background: var(--color-posthog-3000-25);
     --color-foreground: var(--color-neutral-950);
+    --color-secondary: var(--color-posthog-3000-50);
+    --color-secondary-foreground: var(--color-neutral-750);
+    --color-tertiary: var(--color-posthog-3000-100);
+    --color-tertiary-foreground: var(--color-neutral-550);
     --color-nav: var(--color-posthog-3000-100);
     --color-nav-foreground: var(--color-neutral-100);
-    --color-secondary: var(--color-posthog-3000-100);
-    --color-secondary-foreground: var(--color-neutral-750);
-    --color-tertiary: var(--color-posthog-3000-150);
-    --color-tertiary-foreground: var(--color-neutral-550);
     --color-card: var(--color-white);
     --color-card-foreground: var(--color-neutral-950);
     --color-card-secondary: var(--color-posthog-3000-100);
     --color-card-secondary-foreground: var(--color-neutral-950);
     --color-card-tertiary: var(--color-posthog-3000-150);
     --color-card-tertiary-foreground: var(--color-neutral-950);
+    --color-card-subtle: #e5e7e0;
+    --color-card-subtle-foreground: var(--color-neutral-750);
     --color-glass: #e4e5deb3;
     --color-glass-foreground: var(--color-neutral-950);
     --color-tooltip: var(--color-neutral-cool-850);
@@ -524,40 +526,6 @@
     --color-bg-fill-switch: var(--color-neutral-cool-250);
     --color-bg-fill-slider-rail: color-mix(in oklab, var(--color-black) 10%, transparent);
     --color-bg-fill-scroll-thumb: color-mix(in oklab, var(--color-black) 20%, transparent);
-
-    // Borders (Useful for single pixel backgrounds to mimic borders)
-    // //////////////////////////////////////////////////////////
-    // --color-bg-border-primary: var(--color-posthog-3000-200);
-    // --color-bg-border-secondary: var(--color-posthog-3000-400);
-
-    // Content (text, icons)
-    // //////////////////////////////////////////////////////////
-    // --color-text-foreground: var(--color-neutral-950);
-    // --color-text-foreground-inverse: var(--color-neutral-100);
-    // --color-secondary-foreground: var(--color-neutral-750);
-    // --color-text-tertiary: var(--color-neutral-600);
-    // --color-text-success-foreground: var(--color-green-600);
-    // --color-text-warning-foreground: var(--color-yellow-700);
-    // --color-error-foreground: var(--color-red-600);
-
-    // Content on fills
-    // Texts which are on colourful fills, ensures contrast
-    // //////////////////////////////////////////////////////////
-    // --color-text-info-on-fill: var(--color-blue-800);
-    // --color-text-warning-foreground-on-fill: var(--color-yellow-800);
-    // --color-error-foreground-on-fill: var(--color-red-800);
-    // --color-text-success-foreground-on-fill: var(--color-green-800);
-
-    // Borders
-    // Borders for surfaces/fills (TODO: perhaps we need to do border-fill-primary, border-fill-warning, etc.)
-    // //////////////////////////////////////////////////////////
-    // --color-border-primary: var(--color-posthog-3000-200);
-
-    // --color-border-secondary: var(--color-posthog-3000-400);
-    // --color-border-info: var(--color-blue-400);
-    // --color-border-warning: var(--color-yellow-400);
-    // --color-border-error: var(--color-red-400);
-    // --color-border-success: var(--color-green-400);
 
     // Graph colors
     // //////////////////////////////////////////////////////////
@@ -823,10 +791,7 @@
     --color-secondary-foreground-3000-light: purple; // rgb(17 17 17 / 70%);
     --muted-3000-light: purple; // rgb(17 17 17 / 60%);
     --trace-3000-light: purple; // rgb(17 17 17 / 25%);
-    --primary-3000-light: purple; // #f54e01;
     --primary-highlight-light: purple; // rgb(245 78 1 / 10%);
-    --primary-3000-hover-light: purple; // #f54e01;
-    --primary-3000-active-light: purple; // #f54e01;
     --secondary-3000-light: purple; // rgb(207 209 194 / 60%);
     --secondary-3000-hover-light: purple; // #cfd1c2;
     --color-accent-3000-light: purple; // #eeefe9;
@@ -842,10 +807,7 @@
     --color-secondary-foreground-3000-dark: purple; // rgb(255 255 255 / 70%);
     --muted-3000-dark: purple; // rgb(255 255 255 / 50%);
     --trace-3000-dark: purple; // rgb(255 255 255 / 25%);
-    --primary-3000-dark: purple; // #f7a503;
     --primary-highlight-dark: purple; // rgb(247 165 3 / 10%);
-    --primary-3000-hover-dark: purple; // #f7a503;
-    --primary-3000-active-dark: purple; // #f7a503;
     --secondary-3000-dark: purple; // #1d1f27;
     --secondary-3000-hover-dark: purple; // #575d77;
     --color-accent-3000-dark: purple; // #21242b;
@@ -859,9 +821,6 @@
     --color-secondary-foreground-3000: purple; // var(--color-secondary-foreground-3000-light);
     --muted-3000: purple; // var(--muted-3000-light);
     --trace-3000: purple; // var(--trace-3000-light);
-    --primary-3000: purple; // var(--primary-3000-light);
-    --primary-3000-hover: purple; // var(--primary-3000-hover-light);
-    --primary-3000-active: purple; // var(--primary-3000-active-light);
     --secondary-3000: purple; // var(--secondary-3000-light);
     --secondary-3000-hover: purple; // var(--secondary-3000-hover-light);
     --color-accent-3000: purple; // var(--color-accent-3000-light);

@@ -109,7 +109,7 @@ export function MaxTool({
                     >
                         {/* Burst border - the inset and size vals are very specific just bc these look nice */}
                         <svg className={clsx('absolute -inset-1 size-8')} viewBox="0 0 100 100">
-                            <polygon points={generateBurstPoints(16, 3 / 16)} fill="var(--primary-3000)" />
+                            <polygon points={generateBurstPoints(16, 3 / 16)} fill="var(--color-accent)" />
                         </svg>
                         <ProfilePicture
                             user={{ hedgehog_config: { ...user?.hedgehog_config, use_as_profile: true } }}

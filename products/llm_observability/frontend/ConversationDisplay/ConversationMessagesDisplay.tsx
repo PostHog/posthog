@@ -200,7 +200,7 @@ export const LLMMessageDisplay = React.memo(
                     isOutput
                         ? 'bg-[var(--color-bg-fill-success-tertiary)] not-last:mb-2'
                         : role === 'user'
-                        ? 'bg-[var(--color-card-tertiary)]'
+                        ? 'bg-[var(--color-secondary)]'
                         : role === 'assistant'
                         ? 'bg-[var(--color-bg-fill-info-tertiary)]'
                         : null
