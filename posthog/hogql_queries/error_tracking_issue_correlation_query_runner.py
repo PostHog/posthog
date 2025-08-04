@@ -116,7 +116,7 @@ FROM(
     WITH issue_list AS (
         SELECT groupUniqArray(issue_id) as value
         FROM events
-        WHERE timestamp > now() - INTERVAL 6 MONTH AND notEmpty(events.$session_id) AND issue_id IS NOT NULL AND event = '$exception'
+        WHERE timestamp > now() - INTERVAL 6 HOUR AND notEmpty(events.$session_id) AND issue_id IS NOT NULL AND event = '$exception'
     )
     select
         $session_id,
@@ -129,7 +129,7 @@ FROM(
         arrayMap(x -> if(x IS NULL AND earliest_success_event IS NULL, 1, 0), earliest_exceptions) AS neither
     from events
     where
-        timestamp > now() - INTERVAL 6 MONTH AND
+        timestamp > now() - INTERVAL 6 HOUR AND
         notEmpty(events.$session_id)
     group by $session_id
 )"""
