@@ -91,7 +91,7 @@ impl Cli {
                     project,
                     version,
                     delete_after,
-                    skip_ssl_verification,  
+                    skip_ssl_verification,
                 } => {
                     sourcemap::upload::upload(
                         command.host,
