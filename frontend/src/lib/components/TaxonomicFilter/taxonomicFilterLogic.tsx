@@ -731,8 +731,11 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
         ],
         taxonomicGroupTypes: [
             (s, p) => [p.taxonomicGroupTypes, s.taxonomicGroups],
-            (groupTypes, taxonomicGroups): TaxonomicFilterGroupType[] =>
-                groupTypes || taxonomicGroups.map((g) => g.type),
+            (groupTypes, taxonomicGroups): TaxonomicFilterGroupType[] => {
+                // TODO: Ordering here!
+                console.log('here!', groupTypes, taxonomicGroups)
+                return groupTypes || taxonomicGroups.map((g) => g.type)
+            },
         ],
         groupAnalyticsTaxonomicGroupNames: [
             (s) => [s.groupTypes, s.currentTeamId, s.aggregationLabel],
@@ -754,7 +757,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             (s) => [s.groupTypes, s.currentProjectId, s.aggregationLabel],
             (groupTypes, projectId, aggregationLabel): TaxonomicFilterGroup[] =>
                 Array.from(groupTypes.values()).map((type) => ({
-                    name: `${capitalizeFirstLetter(aggregationLabel(type.group_type_index).singular)} properties`,
+                    name: `${capitalizeFirstLetter(aggregationLabel(type.group_type_index).singular)} properties (group)`,
                     searchPlaceholder: `${aggregationLabel(type.group_type_index).singular} properties`,
                     type: `${TaxonomicFilterGroupType.GroupsPrefix}_${type.group_type_index}` as unknown as TaxonomicFilterGroupType,
                     endpoint: combineUrl(`api/projects/${projectId}/property_definitions`, {
