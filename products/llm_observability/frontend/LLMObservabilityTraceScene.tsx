@@ -573,8 +573,8 @@ const EventContent = React.memo(
                                                         output={
                                                             event.properties.$ai_is_error
                                                                 ? event.properties.$ai_error
-                                                                : event.properties.$ai_output_choices ??
-                                                                  event.properties.$ai_output
+                                                                : (event.properties.$ai_output_choices ??
+                                                                  event.properties.$ai_output)
                                                         }
                                                         httpStatus={event.properties.$ai_http_status}
                                                         raisedError={event.properties.$ai_is_error}

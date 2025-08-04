@@ -282,10 +282,10 @@ export const LLMMessageDisplay = React.memo(
                     isOutput
                         ? 'bg-[var(--bg-fill-success-tertiary)] not-last:mb-2'
                         : role === 'user'
-                        ? 'bg-[var(--bg-fill-tertiary)]'
-                        : role === 'assistant'
-                        ? 'bg-[var(--bg-fill-info-tertiary)]'
-                        : null
+                          ? 'bg-[var(--bg-fill-tertiary)]'
+                          : role === 'assistant'
+                            ? 'bg-[var(--bg-fill-info-tertiary)]'
+                            : null
                 )}
             >
                 <div className="flex items-center gap-1 w-full px-2 h-6 text-xs font-medium">

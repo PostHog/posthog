@@ -111,8 +111,8 @@ export function HogFunctionConfiguration({ templateId, id, logicKey }: HogFuncti
                         !configurationChanged
                             ? 'No changes'
                             : isConfigurationSubmitting
-                            ? 'Saving in progress…'
-                            : undefined
+                              ? 'Saving in progress…'
+                              : undefined
                     }
                 >
                     Clear changes
@@ -128,8 +128,8 @@ export function HogFunctionConfiguration({ templateId, id, logicKey }: HogFuncti
                 {willReEnableOnSave
                     ? ' & re-enable'
                     : willChangeEnabledOnSave
-                    ? ` & ${configuration.enabled ? 'enable' : 'disable'}`
-                    : ''}
+                      ? ` & ${configuration.enabled ? 'enable' : 'disable'}`
+                      : ''}
             </LemonButton>
         </>
     )

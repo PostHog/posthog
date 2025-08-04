@@ -1,0 +1,200 @@
+#!/bin/bash
+# PostHog Worktree wrapper function installer
+# Source this file in your shell profile to use the phw function
+
+# Get the directory of this script when being sourced
+_phw_script_dir=""
+if [ -n "${BASH_SOURCE[0]:-}" ]; then
+    _phw_script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+elif [ -n "${ZSH_VERSION:-}" ]; then
+    _phw_script_dir="$(cd "$(dirname "$0")" && pwd)"
+fi
+
+# Source utility functions for consistent error handling
+source "$_phw_script_dir/helpers/_utils.sh" 2>/dev/null || {
+    # Fallback error function if utils not available
+    error() { echo "Error: $*" >&2; }
+    fatal() { error "$*"; return 1; }
+}
+
+# Helper function to find worktree path by branch name
+_find_worktree_path() {
+    git worktree list 2>/dev/null | grep -E "\[$1\]$" | awk '{print $1}'
+}
+
+# Helper function to clean environment variables before entering worktree
+_clean_environment() {
+    unset VIRTUAL_ENV PYTHONPATH CONDA_DEFAULT_ENV 2>/dev/null || true
+}
+
+# Helper function to activate Flox environment
+_activate_flox() {
+    if ! command -v direnv &>/dev/null; then
+        echo "Activating Flox environment via .envrc…"
+        source .envrc
+    fi
+    # If direnv is set up, it will auto-activate via .envrc
+}
+
+# Helper function to switch to worktree directory
+_switch_to_worktree() {
+    local worktree_path="$1"
+    local branch_name="$2"
+    
+    if [[ -d "$worktree_path" ]]; then
+        echo "Switching to worktree directory…"
+        _clean_environment
+        cd "$worktree_path"
+        _activate_flox
+    else
+        error "Worktree directory not found: $worktree_path"
+        return 1
+    fi
+}
+
+phw() {
+    local script_path="${_phw_script_dir}/posthog-worktree"
+    local command="$1"
+    local branch="$2"
+    
+    # Handle switch command directly (doesn't need main script)
+    if [[ "$command" == "switch" ]]; then
+        if [[ -z "$branch" ]]; then
+            error "Branch name required"
+            echo "Usage: phw switch <branch-name>"
+            return 1
+        fi
+        
+        local worktree_path=$(_find_worktree_path "$branch")
+        
+        if [[ -z "$worktree_path" ]]; then
+            error "No worktree found for branch '$branch'"
+            echo "Available worktrees:"
+            git worktree list
+            return 1
+        fi
+        
+        if [[ ! -d "$worktree_path" ]]; then
+            error "Worktree directory does not exist: $worktree_path"
+            return 1
+        fi
+        
+        echo "Switching to worktree: $branch"
+        echo "Location: $worktree_path"
+        
+        # Add to shell history for convenience
+        if command -v history >/dev/null 2>&1; then
+            history -s "cd \"$worktree_path\""
+        fi
+        
+        _switch_to_worktree "$worktree_path" "$branch"
+        return 0
+    fi
+    
+    # Run the actual script for other commands
+    "$script_path" "$@"
+    
+    # Auto-cd to worktree after successful command execution
+    if [[ -n "$branch" ]]; then
+        local worktree_base="${POSTHOG_WORKTREE_BASE:-$HOME/.worktrees/posthog}"
+        local worktree_path=""
+        
+        case "$command" in
+            create|checkout|start)
+                worktree_path="$worktree_base/$branch"
+                ;;
+            pr)
+                # For PR, find the directory by pattern (pr-NUMBER-author)
+                worktree_path=$(find "$worktree_base" -maxdepth 1 -type d -name "pr-${branch}-*" 2>/dev/null | head -n1)
+                ;;
+        esac
+        
+        if [[ -n "$worktree_path" ]] && [[ -d "$worktree_path" ]]; then
+            _switch_to_worktree "$worktree_path" "$branch"
+        fi
+    fi
+}
+
+# Add completion support for bash and zsh
+if [ -n "$BASH_VERSION" ]; then
+    _phw_completions() {
+        local cur="${COMP_WORDS[COMP_CWORD]}"
+        local prev="${COMP_WORDS[COMP_CWORD-1]}"
+        
+        if [[ $COMP_CWORD -eq 1 ]]; then
+            COMPREPLY=($(compgen -W "create checkout pr remove list switch" -- "$cur"))
+        elif [[ $COMP_CWORD -eq 2 ]]; then
+            case "$prev" in
+                remove|switch)
+                    # Complete with existing worktree branch names
+                    local worktrees=$(git worktree list 2>/dev/null | sed -n 's/.*\[\(.*\)\].*/\1/p' | grep -v '^$')
+                    COMPREPLY=($(compgen -W "$worktrees" -- "$cur"))
+                    ;;
+                checkout)
+                    # Complete with branch names
+                    local branches=$(git branch -a 2>/dev/null | grep -v HEAD | sed 's/^[* ]*//' | sed 's/remotes\/origin\///' | sort -u)
+                    COMPREPLY=($(compgen -W "$branches" -- "$cur"))
+                    ;;
+                pr)
+                    # No completion for PR numbers
+                    ;;
+                create)
+                    # Suggest branch name format
+                    COMPREPLY=($(compgen -W "haacked/" -- "$cur"))
+                    ;;
+            esac
+        fi
+    }
+    complete -F _phw_completions phw
+elif [ -n "$ZSH_VERSION" ]; then
+    # Advanced zsh completion function
+    _phw_complete() {
+        local -a commands
+        local context state line
+        
+        commands=(
+            'create:Create a new worktree for a branch'
+            'checkout:Checkout existing branch in a worktree'  
+            'pr:Checkout a PR in a worktree'
+            'remove:Remove a worktree'
+            'list:List all worktrees'
+            'switch:Switch to existing worktree'
+        )
+        
+        case $CURRENT in
+            2)
+                _describe 'commands' commands
+                ;;
+            3)
+                case $words[2] in
+                    remove|switch)
+                        # Complete with existing worktree branch names
+                        local -a worktrees
+                        worktrees=($(git worktree list 2>/dev/null | sed -n 's/.*\[\(.*\)\].*/\1/p' | grep -v '^$' 2>/dev/null))
+                        if [[ ${#worktrees[@]} -gt 0 ]]; then
+                            _describe 'worktrees' worktrees
+                        fi
+                        ;;
+                    checkout)
+                        # Complete with branch names
+                        local -a branches
+                        branches=($(git branch -a 2>/dev/null | grep -v HEAD | sed 's/^[* ]*//' | sed 's/remotes\/origin\///' | sort -u 2>/dev/null))
+                        if [[ ${#branches[@]} -gt 0 ]]; then
+                            _describe 'branches' branches
+                        fi
+                        ;;
+                esac
+                ;;
+        esac
+    }
+    
+    # Use compdef to register the completion function
+    if command -v compdef >/dev/null 2>&1; then
+        compdef _phw_complete phw
+    else
+        # Fallback to simple completion if compdef not available
+        compctl -k '(create checkout pr remove list)' phw
+    fi
+fi
+
+echo "PostHog worktree helper loaded. Use 'phw' command."
