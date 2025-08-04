@@ -321,9 +321,11 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                                 </>
                             )}
                         </LemonField>
-                        <LemonButton className="mt-3" type="primary" onClick={showAddPersonToCohortModal}>
-                            Add User Manually
-                        </LemonButton>
+                        {!isNewCohort && (
+                            <LemonButton className="mt-3" type="primary" onClick={showAddPersonToCohortModal}>
+                                Add User Manually
+                            </LemonButton>
+                        )}
                     </div>
                 ) : (
                     <>
