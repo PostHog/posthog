@@ -29,7 +29,7 @@ class TitleGeneratorNode(AssistantNode):
 
         title = runnable.invoke({"user_input": human_message.content}, config=config)
 
-        conversation.title = title[: Conversation.TITLE_MAX_LENGTH]
+        conversation.title = title[: Conversation.TITLE_MAX_LENGTH].strip()
         conversation.save()
 
         return None
