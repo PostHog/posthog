@@ -1,5 +1,6 @@
 import { auth, Client as CassandraClient } from 'cassandra-driver'
 import { createHash } from 'crypto'
+import * as fs from 'fs'
 import { Message } from 'node-rdkafka'
 import { join } from 'path'
 import Piscina from 'piscina'
@@ -88,6 +89,7 @@ export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
                 },
                 sslOptions: isCloud()
                     ? {
+                          ca: fs.readFileSync(join(__dirname, '../cassandra/ca.crt')),
                           rejectUnauthorized: true,
                       }
                     : undefined,

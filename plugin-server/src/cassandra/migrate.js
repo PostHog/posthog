@@ -15,6 +15,7 @@ const config = {
     ),
     sslOptions: process.env.CLOUD_DEPLOYMENT
         ? {
+              ca: fs.readFileSync(path.join(__dirname, '../../../sf-class2-root.crt')),
               rejectUnauthorized: true,
           }
         : undefined,
