@@ -2,7 +2,8 @@ export const NODE_WIDTH = 110
 export const NODE_HEIGHT = 34
 
 export const NODE_GAP = 50
-export const NODE_LAYER_GAP = NODE_GAP * 2.5
+export const NODE_EDGE_GAP = 150
+export const NODE_LAYER_GAP = NODE_GAP * 2.25
 
 export const TOP_HANDLE_POSITION = {
     x: NODE_WIDTH / 2,
