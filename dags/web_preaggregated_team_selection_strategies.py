@@ -71,7 +71,7 @@ class HighPageviewsStrategy(TeamSelectionStrategy):
             context.log.exception(f"Invalid configuration for pageviews query: {e}")
             return set()
         except Exception as e:
-            context.log.warning(f"Failed to fetch top teams by pageviews: {e}")
+            context.log.exception(f"Failed to fetch top teams by pageviews: {e}")
             return set()
 
 
