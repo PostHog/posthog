@@ -1383,14 +1383,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 return
             }
 
-            const getCurrentPlayerTime = (): number => {
-                // NOTE: We pull this value at call time as otherwise it would trigger re-renders if pulled from the hook
-                const playerTime =
-                    sessionRecordingPlayerLogic.findMounted(values.logicProps)?.values.currentPlayerTime || 0
-                return Math.floor(playerTime / 1000)
-            }
-
-            actions.startReplayExport(values.sessionRecordingId, getCurrentPlayerTime(), {
+            actions.startReplayExport(values.sessionRecordingId, getCurrentPlayerTime(values.logicProps), {
                 width: iframe?.width || 1400,
                 height: iframe?.height || 600,
                 css_selector: '.replayer-wrapper',
