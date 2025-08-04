@@ -71,7 +71,7 @@ export function MultipleChoiceQuestionViz({ responseData }: Props): JSX.Element 
                             {
                                 id: 1,
                                 label: 'Number of responses',
-                                barPercentage: 0.9,
+                                barPercentage: 0.8,
                                 minBarLength: 2,
                                 data: chartData.map((d) => d.value),
                                 labels: chartData.map((d) => d.label),
