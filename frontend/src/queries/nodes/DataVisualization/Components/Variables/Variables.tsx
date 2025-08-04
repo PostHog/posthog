@@ -362,8 +362,8 @@ export const VariableComponent = ({
                         {variable.isNull
                             ? 'Set to null'
                             : (variable.value?.toString() || variable.default_value?.toString() || '') === ''
-                            ? emptyState
-                            : variable.value?.toString() ?? variable.default_value?.toString()}
+                              ? emptyState
+                              : (variable.value?.toString() ?? variable.default_value?.toString())}
                     </LemonButton>
                 </LemonField.Pure>
             </div>

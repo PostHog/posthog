@@ -127,8 +127,8 @@ function LemonCollapsePanel({
     const headerProps: LemonButtonProps = React.isValidElement(header)
         ? { children: header }
         : typeof header === 'string'
-        ? { children: header }
-        : header ?? {}
+          ? { children: header }
+          : (header ?? {})
 
     return (
         <div className="LemonCollapsePanel" aria-expanded={isExpanded}>

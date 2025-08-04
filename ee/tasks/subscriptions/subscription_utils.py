@@ -28,6 +28,7 @@ SUBSCRIPTION_ASSET_GENERATION_TIMER = Histogram(
 def generate_assets(
     resource: Union[Subscription, SharingConfiguration],
     max_asset_count: int = DEFAULT_MAX_ASSET_COUNT,
+    use_celery: bool = True,
 ) -> tuple[list[Insight], list[ExportedAsset]]:
     with SUBSCRIPTION_ASSET_GENERATION_TIMER.time():
         if resource.dashboard:
@@ -53,17 +54,34 @@ def generate_assets(
         if not assets:
             return insights, assets
 
-        # Wait for all assets to be exported
-        tasks = [exporter.export_asset.si(asset.id) for asset in assets]
-        # run them one after the other, so we don't exhaust celery workers
-        exports_expire = datetime.datetime.now(tz=datetime.UTC) + datetime.timedelta(
-            minutes=settings.PARALLEL_ASSET_GENERATION_MAX_TIMEOUT_MINUTES
-        )
-        parallel_job = chain(*tasks).apply_async(expires=exports_expire, retry=False)
+        if use_celery:
+            # Celery approach - queue tasks and wait for completion
+            tasks = [exporter.export_asset.si(asset.id) for asset in assets]
+            # run them one after the other, so we don't exhaust celery workers
+            exports_expire = datetime.datetime.now(tz=datetime.UTC) + datetime.timedelta(
+                minutes=settings.PARALLEL_ASSET_GENERATION_MAX_TIMEOUT_MINUTES
+            )
+            parallel_job = chain(*tasks).apply_async(expires=exports_expire, retry=False)
 
-        wait_for_parallel_celery_group(
-            parallel_job,
-            expires=exports_expire,
-        )
+            wait_for_parallel_celery_group(
+                parallel_job,
+                expires=exports_expire,
+            )
+        else:
+            # Direct execution approach - no Celery (Temporal-compatible)
+            for asset in assets:
+                try:
+                    exporter.export_asset(asset.id)
+                except Exception as e:
+                    logger.error(
+                        "Failed to export asset for subscription",
+                        asset_id=asset.id,
+                        subscription_id=getattr(resource, "id", None),
+                        error=str(e),
+                        exc_info=True,
+                    )
+                    # Continue with other assets even if one fails
+                    asset.exception = str(e)
+                    asset.save()
 
         return insights, assets

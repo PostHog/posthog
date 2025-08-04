@@ -198,6 +198,7 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     CASSANDRA_HOST: string
     CASSANDRA_PORT: number
     CASSANDRA_KEYSPACE: string
+    CASSANDRA_LOCAL_DATACENTER: string
     CASSANDRA_USER: string | null
     CASSANDRA_PASSWORD: string | null
     WRITE_BEHAVIOURAL_COUNTERS_TO_CASSANDRA: boolean

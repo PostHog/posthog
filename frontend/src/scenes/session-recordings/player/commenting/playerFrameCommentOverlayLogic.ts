@@ -128,8 +128,8 @@ export const playerCommentOverlayLogic = kea<playerCommentOverlayLogicType>([
                 content: !content?.trim()
                     ? 'A comment must have text content.'
                     : content.length > 400
-                    ? 'Must be 400 characters or less'
-                    : null,
+                      ? 'Must be 400 characters or less'
+                      : null,
             }),
             submit: async (data) => {
                 const { commentId, content, dateForTimestamp } = data

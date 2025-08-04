@@ -207,8 +207,8 @@ export default function FeatureFlagSchedule(): JSX.Element {
                                     !scheduleDateMarker
                                         ? 'Select the scheduled date and time'
                                         : hasFormErrors(schedulePayloadErrors)
-                                        ? 'Fix release condition errors'
-                                        : undefined
+                                          ? 'Fix release condition errors'
+                                          : undefined
                                 }
                             >
                                 Schedule

@@ -97,8 +97,8 @@ function CompactPropertyFiltersDisplay({
                                             ? 'where '
                                             : null
                                         : subType === FilterLogicalOperator.Or
-                                        ? 'or '
-                                        : 'and '}
+                                          ? 'or '
+                                          : 'and '}
                                     {isCohortPropertyFilter(leafFilter) ? (
                                         <>
                                             {isFirstFilterOverall && !embedded ? 'Person' : 'person'} belongs to cohort
@@ -193,8 +193,8 @@ function SeriesDisplay({
         isLifecycleQuery(query)
             ? 'dau'
             : series.math
-            ? apiValueToMathType(series.math, series.math_group_type_index)
-            : 'total'
+              ? apiValueToMathType(series.math, series.math_group_type_index)
+              : 'total'
     ] as MathDefinition | undefined
 
     return (

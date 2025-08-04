@@ -1,6 +1,7 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { AnimatedCollapsible } from 'lib/components/AnimatedCollapsible'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
@@ -9,7 +10,6 @@ import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner'
-import { useEffect } from 'react'
 import { urls } from 'scenes/urls'
 
 import { ToolbarMenu } from '~/toolbar/bar/ToolbarMenu'
@@ -32,11 +32,11 @@ export const FlagsToolbarMenu = (): JSX.Element => {
     const { apiURL, posthog: posthogClient } = useValues(toolbarConfigLogic)
     const { openPayloadEditors } = useValues(flagsToolbarLogic)
 
-    useEffect(() => {
+    useOnMountEffect(() => {
         posthogClient?.onFeatureFlags(setFeatureFlagValueFromPostHogClient)
         getUserFlags()
         checkLocalOverrides()
-    }, [])
+    })
 
     return (
         <ToolbarMenu>
