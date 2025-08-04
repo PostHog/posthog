@@ -46,12 +46,6 @@ export const QueryDatabase = (): JSX.Element => {
     } = useActions(queryDatabaseLogic)
     const { deleteDataWarehouseSavedQuery } = useActions(dataWarehouseViewsLogic)
 
-    const multitabLogic = multitabEditorLogic({
-        key: `hogQLQueryEditor/${router.values.location.pathname}`,
-    })
-    const { allTabs } = useValues(multitabLogic)
-    const { createTab, selectTab, setTabDraftId } = useActions(multitabLogic)
-    const { dataWarehouseSavedQueryMapById } = useValues(dataWarehouseViewsLogic)
     const { deleteDraft } = useActions(draftsLogic)
 
     const treeRef = useRef<LemonTreeRef>(null)
@@ -83,27 +77,7 @@ export const QueryDatabase = (): JSX.Element => {
             onItemClick={(item) => {
                 // Handle draft clicks - focus existing tab or create new one
                 if (item && item.record?.type === 'draft') {
-                    const draft = item.record.draft
-
-                    const existingTab = allTabs.find((tab) => {
-                        return tab.draft?.id === draft.id
-                    })
-
-                    if (existingTab) {
-                        selectTab(existingTab)
-                    } else {
-                        const associatedView = draft.saved_query_id
-                            ? dataWarehouseSavedQueryMapById[draft.saved_query_id]
-                            : undefined
-
-                        createTab(draft.query.query, associatedView, undefined, draft)
-
-                        const newTab = allTabs[allTabs.length - 1]
-                        if (newTab) {
-                            setTabDraftId(newTab.uri.toString(), draft.id)
-                        }
-                    }
-                    return
+                    router.actions.push(urls.sqlEditor(undefined, undefined, undefined, item.record.draft.id))
                 }
 
                 // Copy column name when clicking on a column
