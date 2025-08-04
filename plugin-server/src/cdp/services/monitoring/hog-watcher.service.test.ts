@@ -111,7 +111,7 @@ describe('HogWatcher', () => {
     describe('observeResults', () => {
         const cases: [
             { name: string; cost: number; state: number },
-            CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>[]
+            CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>[],
         ][] = [
             [
                 { name: 'should calculate cost and state for single default result', cost: 0, state: 1 },
