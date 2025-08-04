@@ -16,10 +16,24 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
                 sessionRecordingBlobIngestionV2Overflow: config.SESSION_RECORDING_OVERFLOW_ENABLED,
                 appManagementSingleton: true,
                 cdpProcessedEvents: true,
+                cdpPersonUpdates: true,
                 cdpInternalEvents: true,
                 cdpLegacyOnEvent: true,
                 cdpCyclotronWorker: true,
                 cdpCyclotronWorkerHogFlow: true,
+                cdpBehaviouralEvents: true,
+                cdpApi: true,
+            }
+
+        case PluginServerMode.local_cdp:
+            return {
+                ingestionV2: true,
+                cdpProcessedEvents: true,
+                cdpPersonUpdates: true,
+                cdpInternalEvents: true,
+                cdpLegacyOnEvent: true,
+                cdpCyclotronWorker: true,
+                // cdpCyclotronWorkerHogFlow: true,
                 cdpBehaviouralEvents: true,
                 cdpApi: true,
             }
@@ -54,6 +68,10 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
         case PluginServerMode.cdp_processed_events:
             return {
                 cdpProcessedEvents: true,
+            }
+        case PluginServerMode.cdp_person_updates:
+            return {
+                cdpPersonUpdates: true,
             }
         case PluginServerMode.cdp_internal_events:
             return {

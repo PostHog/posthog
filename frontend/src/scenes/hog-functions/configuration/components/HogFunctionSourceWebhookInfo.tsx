@@ -3,6 +3,7 @@ import { CodeSnippet } from 'lib/components/CodeSnippet'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 
 import { hogFunctionConfigurationLogic } from '../hogFunctionConfigurationLogic'
+import { publicWebhooksHostOrigin } from 'lib/utils/apiHost'
 
 export function HogFunctionSourceWebhookInfo(): JSX.Element {
     const { logicProps } = useValues(hogFunctionConfigurationLogic)
@@ -13,7 +14,7 @@ export function HogFunctionSourceWebhookInfo(): JSX.Element {
             <CodeSnippet thing="Webhook URL">
                 {!id
                     ? 'The webhook URL will be shown here once you save'
-                    : window.location.origin + '/public/webhooks/' + id}
+                    : publicWebhooksHostOrigin() + '/public/webhooks/' + id}
             </CodeSnippet>
 
             <p className="text-sm">

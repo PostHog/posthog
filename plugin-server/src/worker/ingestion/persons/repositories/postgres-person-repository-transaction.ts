@@ -3,13 +3,16 @@ import { DateTime } from 'luxon'
 
 import { TopicMessage } from '../../../../kafka/producer'
 import { InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt, Team } from '../../../../types'
-import { MoveDistinctIdsResult } from '../../../../utils/db/db'
+import { CreatePersonResult, MoveDistinctIdsResult } from '../../../../utils/db/db'
 import { TransactionClient } from '../../../../utils/db/postgres'
 import { PersonRepositoryTransaction } from './person-repository-transaction'
 import { RawPostgresPersonRepository } from './raw-postgres-person-repository'
 
 export class PostgresPersonRepositoryTransaction implements PersonRepositoryTransaction {
-    constructor(private transaction: TransactionClient, private repository: RawPostgresPersonRepository) {}
+    constructor(
+        private transaction: TransactionClient,
+        private repository: RawPostgresPersonRepository
+    ) {}
 
     async createPerson(
         createdAt: DateTime,
@@ -21,7 +24,7 @@ export class PostgresPersonRepositoryTransaction implements PersonRepositoryTran
         isIdentified: boolean,
         uuid: string,
         distinctIds?: { distinctId: string; version?: number }[]
-    ): Promise<[InternalPerson, TopicMessage[]]> {
+    ): Promise<CreatePersonResult> {
         return await this.repository.createPerson(
             createdAt,
             properties,

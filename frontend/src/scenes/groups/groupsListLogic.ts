@@ -56,7 +56,7 @@ export const groupsListLogic = kea<groupsListLogicType>([
                     showEventFilter: false,
                     showPersistentColumnConfigurator: true,
                     propertiesViaUrl: true,
-                } as DataTableNode),
+                }) as DataTableNode,
             { setQuery: (_, { query }) => query },
         ],
         groupFilters: [
@@ -100,8 +100,20 @@ export const groupsListLogic = kea<groupsListLogicType>([
         setQuery: () => {
             const searchParams: Record<string, string> = {}
 
-            if (values.query.source.kind === NodeKind.GroupsQuery && values.query.source.properties?.length) {
+            if (values.query.source.kind !== NodeKind.GroupsQuery) {
+                return [router.values.location.pathname, searchParams, undefined, { replace: true }]
+            }
+
+            if (values.query.source.properties?.length) {
                 searchParams[`properties_${props.groupTypeIndex}`] = JSON.stringify(values.query.source.properties)
+            }
+
+            if (values.query.source.select?.length) {
+                searchParams[`select_${props.groupTypeIndex}`] = JSON.stringify(values.query.source.select)
+            }
+
+            if (values.query.source.orderBy?.length) {
+                searchParams[`orderBy_${props.groupTypeIndex}`] = JSON.stringify(values.query.source.orderBy)
             }
 
             return [router.values.location.pathname, searchParams, undefined, { replace: true }]
@@ -122,23 +134,35 @@ export const groupsListLogic = kea<groupsListLogicType>([
                 return
             }
 
-            const properties = searchParams[`properties_${props.groupTypeIndex}`]
-            if (properties) {
+            const queryOverrides = {} as Record<string, Array<string> | object>
+            const parseParam = (paramName: string): void => {
+                const rawParam = searchParams[`${paramName}_${props.groupTypeIndex}`]
+                if (!rawParam) {
+                    return
+                }
+
                 try {
-                    const parsedProperties = JSON.parse(properties)
-                    if (parsedProperties && Array.isArray(parsedProperties)) {
-                        actions.setQuery({
-                            ...values.query,
-                            source: {
-                                ...values.query.source,
-                                properties: parsedProperties,
-                                orderBy: values.sorting,
-                            },
-                        })
+                    const parsedParam = JSON.parse(rawParam)
+                    if (parsedParam) {
+                        queryOverrides[paramName] = parsedParam
                     }
                 } catch (error: any) {
-                    posthog.captureException('Failed to parse properties', error)
+                    posthog.captureException('Failed to parse query overrides from URL', error)
                 }
+            }
+
+            parseParam('properties')
+            parseParam('select')
+            parseParam('orderBy')
+
+            if (Object.keys(queryOverrides).length > 0) {
+                actions.setQuery({
+                    ...values.query,
+                    source: {
+                        ...values.query.source,
+                        ...queryOverrides,
+                    },
+                })
             } else {
                 actions.setQuery({
                     ...values.query,

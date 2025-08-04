@@ -152,7 +152,9 @@ export class IngestionConsumer {
         this.hogTransformer = new HogTransformerService(hub)
 
         this.personStore = new BatchWritingPersonsStore(
-            new PostgresPersonRepository(this.hub.db.postgres),
+            new PostgresPersonRepository(this.hub.db.postgres, {
+                calculatePropertiesSize: this.hub.PERSON_UPDATE_CALCULATE_PROPERTIES_SIZE,
+            }),
             this.hub.db.kafkaProducer,
             {
                 dbWriteMode: this.hub.PERSON_BATCH_WRITING_DB_WRITE_MODE,
@@ -765,7 +767,7 @@ export class IngestionConsumer {
                     // ``message.key`` should not be undefined here, but in the
                     // (extremely) unlikely event that it is, set it to ``null``
                     // instead as that behavior is safer.
-                    key: preservePartitionLocality ? message.key ?? null : null,
+                    key: preservePartitionLocality ? (message.key ?? null) : null,
                     headers: parseKafkaHeaders(headers),
                 })
             })

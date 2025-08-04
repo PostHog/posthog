@@ -26,7 +26,7 @@ import { dataTableLogic, DataTableLogicProps, DataTableRow } from '~/queries/nod
 import { EventRowActions } from '~/queries/nodes/DataTable/EventRowActions'
 import { InsightActorsQueryOptions } from '~/queries/nodes/DataTable/InsightActorsQueryOptions'
 import { QueryFeature } from '~/queries/nodes/DataTable/queryFeatures'
-import { renderColumn } from '~/queries/nodes/DataTable/renderColumn'
+import { getContextColumn, renderColumn } from '~/queries/nodes/DataTable/renderColumn'
 import { renderColumnMeta } from '~/queries/nodes/DataTable/renderColumnMeta'
 import { SavedQueries } from '~/queries/nodes/DataTable/SavedQueries'
 import {
@@ -83,6 +83,7 @@ export enum ColumnFeature {
     canEdit = 'canEdit',
     canAddColumns = 'canAddColumns',
     canRemove = 'canRemove',
+    canPin = 'canPin',
 }
 
 interface DataTableProps {
@@ -203,9 +204,44 @@ export function DataTable({
 
     const eventActionsColumnShown =
         showActions && sourceFeatures.has(QueryFeature.eventActionsColumn) && columnsInResponse?.includes('*')
-    const columnsInLemonTable = sourceFeatures.has(QueryFeature.columnsInResponse)
-        ? columnsInResponse ?? columnsInQuery
+    const allColumns = sourceFeatures.has(QueryFeature.columnsInResponse)
+        ? (columnsInResponse ?? columnsInQuery)
         : columnsInQuery
+    const columnsInLemonTable = allColumns.filter((colName) => {
+        const col = getContextColumn(colName, context?.columns)
+        return !col?.queryContextColumn?.hidden
+    })
+    const rowFillFractionIndex = allColumns.findIndex((colName) => {
+        const col = getContextColumn(colName, context?.columns)
+        return col?.queryContextColumn?.isRowFillFraction
+    })
+
+    const contextRowPropsFn = context?.rowProps
+    const onRow = useCallback(
+        (record) => {
+            const rowProps = contextRowPropsFn?.(record)
+            const rowFillFraction =
+                rowFillFractionIndex >= 0 && Array.isArray(record.result)
+                    ? record.result[rowFillFractionIndex]
+                    : undefined
+            if (
+                typeof rowFillFraction === 'number' &&
+                !Number.isNaN(rowFillFraction) &&
+                rowFillFraction >= 0 &&
+                rowFillFraction <= 1
+            ) {
+                return {
+                    ...rowProps,
+                    style: {
+                        ...rowProps?.style,
+                        '--data-table-fraction-fill': `${Math.round(rowFillFraction * 100)}%`,
+                    },
+                }
+            }
+            return rowProps ?? {}
+        },
+        [contextRowPropsFn, rowFillFractionIndex]
+    )
 
     const groupTypes = isActorsQuery(query.source) ? personGroupTypes : eventGroupTypes
 
@@ -369,8 +405,8 @@ export function DataTable({
                                         const hogQl = isActorsQuery(query.source)
                                             ? taxonomicPersonFilterToHogQL(g, v)
                                             : isGroupsQuery(query.source)
-                                            ? taxonomicGroupFilterToHogQL(g, v)
-                                            : taxonomicEventFilterToHogQL(g, v)
+                                              ? taxonomicGroupFilterToHogQL(g, v)
+                                              : taxonomicEventFilterToHogQL(g, v)
                                         if (
                                             setQuery &&
                                             hogQl &&
@@ -408,8 +444,8 @@ export function DataTable({
                                         const hogQl = isActorsQuery(query.source)
                                             ? taxonomicPersonFilterToHogQL(g, v)
                                             : isGroupsQuery(query.source)
-                                            ? taxonomicGroupFilterToHogQL(g, v)
-                                            : taxonomicEventFilterToHogQL(g, v)
+                                              ? taxonomicGroupFilterToHogQL(g, v)
+                                              : taxonomicEventFilterToHogQL(g, v)
                                         if (
                                             setQuery &&
                                             hogQl &&
@@ -484,6 +520,29 @@ export function DataTable({
                                     </LemonButton>
                                 </>
                             )}
+                        {columnFeatures.includes(ColumnFeature.canPin) && (
+                            <>
+                                <LemonDivider />
+                                <LemonButton
+                                    fullWidth
+                                    data-attr="datatable-pin-column"
+                                    onClick={() => {
+                                        let newPinnedColumns = new Set(query.pinnedColumns ?? [])
+                                        if (newPinnedColumns.has(key)) {
+                                            newPinnedColumns.delete(key)
+                                        } else {
+                                            newPinnedColumns.add(key)
+                                        }
+                                        setQuery?.({
+                                            ...query,
+                                            pinnedColumns: Array.from(newPinnedColumns),
+                                        })
+                                    }}
+                                >
+                                    {query.pinnedColumns?.includes(key) ? 'Unpin' : 'Pin column'}
+                                </LemonButton>
+                            </>
+                        )}
                     </>
                 ) : undefined,
         })),
@@ -699,8 +758,8 @@ export function DataTable({
                                                 queryCancelled
                                                     ? 'The query was cancelled'
                                                     : response && 'error' in response
-                                                    ? response.error
-                                                    : responseError
+                                                      ? response.error
+                                                      : responseError
                                             }
                                         />
                                     ) : (
@@ -746,6 +805,7 @@ export function DataTable({
                                         result &&
                                         result[0] &&
                                         result[0]['event'] === '$exception',
+                                    DataTable__has_pinned_columns: (query.pinnedColumns ?? []).length > 0,
                                 })
                             }
                             footer={
@@ -754,7 +814,8 @@ export function DataTable({
                                     <LoadNext query={query.source} />
                                 ) : null
                             }
-                            onRow={context?.rowProps}
+                            onRow={onRow}
+                            pinnedColumns={query.pinnedColumns}
                         />
                     )}
                     {/* TODO: this doesn't seem like the right solution... */}

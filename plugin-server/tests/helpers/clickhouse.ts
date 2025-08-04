@@ -32,7 +32,7 @@ export class Clickhouse {
     static createClient(): ClickHouseClient {
         // NOTE: We never query CH in production so we just load these from the env directly
         const CLICKHOUSE_HOST = process.env.CLICKHOUSE_HOST ?? 'localhost'
-        const CLICKHOUSE_DATABASE = process.env.CLICKHOUSE_DATABASE ?? isTestEnv() ? 'posthog_test' : 'default'
+        const CLICKHOUSE_DATABASE = process.env.CLICKHOUSE_DATABASE ?? (isTestEnv() ? 'posthog_test' : 'default')
         const CLICKHOUSE_USER = process.env.CLICKHOUSE_USER ?? 'default'
         const CLICKHOUSE_PASSWORD = process.env.CLICKHOUSE_PASSWORD ?? null
 
@@ -42,7 +42,13 @@ export class Clickhouse {
             username: CLICKHOUSE_USER,
             password: CLICKHOUSE_PASSWORD || undefined,
             database: CLICKHOUSE_DATABASE,
-            max_open_connections: 30,
+            max_open_connections: 50, // Increased from 30 for better concurrency
+            // Connection reliability improvements
+            request_timeout: 30000, // 30s minutes request timeout
+            keep_alive: {
+                enabled: true,
+                idle_socket_ttl: 30000, // 30 seconds idle timeout
+            },
         })
 
         return clickhouse

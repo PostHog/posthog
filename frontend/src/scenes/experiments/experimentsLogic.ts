@@ -215,7 +215,7 @@ export const experimentsLogic = kea<experimentsLogicType>([
                   Record<string, any>,
                   {
                       replace: boolean
-                  }
+                  },
               ]
             | void => {
             const searchParams: Record<string, string | number> = {

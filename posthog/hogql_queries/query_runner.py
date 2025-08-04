@@ -422,38 +422,25 @@ def get_query_runner(
             limit_context=limit_context,
         )
 
-    if kind == "RevenueAnalyticsArpuQuery":
-        from products.revenue_analytics.backend.hogql_queries.revenue_analytics_arpu_query_runner import (
-            RevenueAnalyticsArpuQueryRunner,
-        )
-
-        return RevenueAnalyticsArpuQueryRunner(
-            query=query,
-            team=team,
-            timings=timings,
-            modifiers=modifiers,
-            limit_context=limit_context,
-        )
-
-    if kind == "RevenueAnalyticsCustomerCountQuery":
-        from products.revenue_analytics.backend.hogql_queries.revenue_analytics_customer_count_query_runner import (
-            RevenueAnalyticsCustomerCountQueryRunner,
-        )
-
-        return RevenueAnalyticsCustomerCountQueryRunner(
-            query=query,
-            team=team,
-            timings=timings,
-            modifiers=modifiers,
-            limit_context=limit_context,
-        )
-
     if kind == "RevenueAnalyticsGrowthRateQuery":
         from products.revenue_analytics.backend.hogql_queries.revenue_analytics_growth_rate_query_runner import (
             RevenueAnalyticsGrowthRateQueryRunner,
         )
 
         return RevenueAnalyticsGrowthRateQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+        )
+
+    if kind == "RevenueAnalyticsMetricsQuery":
+        from products.revenue_analytics.backend.hogql_queries.revenue_analytics_metrics_query_runner import (
+            RevenueAnalyticsMetricsQueryRunner,
+        )
+
+        return RevenueAnalyticsMetricsQueryRunner(
             query=query,
             team=team,
             timings=timings,
@@ -1035,6 +1022,10 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             "query": query,
             "team_id": self.team.pk,
             "hogql_modifiers": to_dict(self.modifiers),
+            "products_modifiers": {
+                "revenue_analytics": self.team.revenue_analytics_config.to_cache_key_dict(),
+                "marketing_analytics": self.team.marketing_analytics_config.to_cache_key_dict(),
+            },
             "limit_context": self._limit_context_aliased_for_cache,
             "timezone": self.team.timezone,
             "week_start_day": self.team.week_start_day or WeekStartDay.SUNDAY,

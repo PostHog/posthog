@@ -27,7 +27,7 @@ from posthog.models.hog_function_template import HogFunctionTemplate
 if TYPE_CHECKING:
     from posthog.models.team import Team
 
-DEFAULT_STATE = {"state": 0, "tokens": 0, "rating": 0}
+DEFAULT_STATE = {"state": 0, "tokens": 0}
 
 logger = structlog.get_logger(__name__)
 
@@ -36,8 +36,7 @@ class HogFunctionState(enum.Enum):
     UNKNOWN = 0
     HEALTHY = 1
     DEGRADED = 2
-    DISABLED_TEMPORARILY = 3
-    DISABLED_PERMANENTLY = 4
+    DISABLED = 3
 
 
 class HogFunctionType(models.TextChoices):
@@ -145,15 +144,7 @@ class HogFunction(FileSystemSyncMixin, UUIDModel):
         if not self.template_id:
             return None
 
-        try:
-            template = HogFunctionTemplate.objects.get(template_id=self.template_id)
-        except HogFunctionTemplate.DoesNotExist:
-            return None
-
-        if template:
-            return template
-
-        return None
+        return HogFunctionTemplate.get_template(self.template_id)
 
     @property
     def filter_action_ids(self) -> list[int]:

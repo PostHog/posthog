@@ -31,7 +31,7 @@ export function useSvgResizeObserver(deps: any[] = []): SvgResizeObserverState {
         const ticksSvg = ticksSvgRef.current
         const chartSvg = chartSvgRef.current
 
-        // eslint-disable-next-line compat/compat
+        // oxlint-disable-next-line compat/compat
         const resizeObserver = new ResizeObserver((entries) => {
             for (const entry of entries) {
                 if (entry.target === ticksSvg) {

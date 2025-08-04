@@ -66,7 +66,7 @@ class ErrorTrackingQueryRunner(QueryRunner):
         This is used to convert the date range from the query into a datetime object.
         """
         if date == "all" or date is None:
-            return datetime.datetime.now(tz=ZoneInfo("UTC")) - datetime.timedelta(weeks=52 * 4)  # 4 years ago
+            return datetime.datetime.now(tz=ZoneInfo("UTC")) - datetime.timedelta(days=365 * 4)  # 4 years ago
 
         return relative_date_parse(date, now=datetime.datetime.now(tz=ZoneInfo("UTC")), timezone_info=ZoneInfo("UTC"))
 
@@ -500,6 +500,8 @@ class ErrorTrackingQueryRunner(QueryRunner):
             }
 
     def get_volume_buckets(self) -> list[datetime.datetime]:
+        if self.query.volumeResolution == 0:
+            return []
         total_ms = (self.date_to - self.date_from).total_seconds() * 1000
         bin_size = int(total_ms / self.query.volumeResolution)
         return [
@@ -511,7 +513,7 @@ class ErrorTrackingQueryRunner(QueryRunner):
         aggregations = {f: result[f] for f in ("occurrences", "sessions", "users", "volumeRange")}
         histogram_bins = self.get_volume_buckets()
         aggregations["volume_buckets"] = [
-            {"label": bin, "value": aggregations["volumeRange"][i] if aggregations["volumeRange"] else None}
+            {"label": bin.isoformat(), "value": aggregations["volumeRange"][i] if aggregations["volumeRange"] else None}
             for i, bin in enumerate(histogram_bins)
         ]
         return aggregations
