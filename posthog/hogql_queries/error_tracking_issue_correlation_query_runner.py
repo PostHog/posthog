@@ -69,17 +69,17 @@ class ErrorTrackingIssueCorrelationQueryRunner(QueryRunner):
         correlations = {}
 
         for row in rows:
-            event, uuids, both, success_only, exception_only, neither = row
-            issues = list(zip(uuids, both, success_only, exception_only, neither))
+            event, issue_uuids, issue_both, issue_success_only, issue_exception_only, issue_neither = row
+            issues = list(zip(issue_uuids, issue_both, issue_success_only, issue_exception_only, issue_neither))
 
             for issue in issues:
-                uuid, a, b, c, d = issue
+                uuid, both, success_only, exception_only, neither = issue
 
-                if not (a > 0 and b > 0 and c > 0 and d > 0):
+                if not (both > 0 and success_only > 0 and exception_only > 0 and neither > 0):
                     continue
 
-                issue_ids.update(uuids)
-                odds_ratio = a * b / c * d
+                issue_ids.update(issue_uuids)
+                odds_ratio = both * neither / success_only * exception_only
 
                 correlations[str(uuid)].append()
                 issue_correlation = correlations.setdefault(uuid, {})
@@ -93,7 +93,7 @@ class ErrorTrackingIssueCorrelationQueryRunner(QueryRunner):
             for correlation in issue_correlations:
                 results.append({**issue, **correlation})
 
-        return results
+        return sorted(results, key=lambda r: r["correlation_score"], reverse=True)
 
     def fetch_issues(self, ids):
         queryset = (
