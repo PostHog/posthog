@@ -79,7 +79,7 @@ export function EventPreview({ item }: PreviewRenderProps<SessionTimelineEvent>)
 }
 
 function eventPredicate(item: SessionTimelineEvent, ...names: string[]): boolean {
-    return item.type === 'event' && (names.length == 0 || names.includes(item.payload.event))
+    return item.type === 'event' && (names.length === 0 || names.includes(item.payload.event))
 }
 
 export const eventRenderer: SessionTimelineRenderer<SessionTimelineEvent> = {
@@ -134,7 +134,6 @@ export const exceptionRenderer: SessionTimelineRenderer<SessionTimelineEvent> = 
                             fingerprint: item.payload.properties['$exception_fingerprint'],
                             timestamp: item.timestamp,
                         })}
-                        onClick={() => {}}
                     >
                         {description}
                     </Link>
