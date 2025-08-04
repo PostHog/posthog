@@ -37,7 +37,9 @@ class TestProperty(BaseTest):
         self,
         property: Union[PropertyGroup, Property, HogQLPropertyFilter, dict, list],
         team: Optional[Team] = None,
-        scope: Optional[Literal["event", "person", "group"]] = None,
+        scope: Optional[
+            Literal["event", "person", "group", "session", "replay", "replay_entity", "revenue_analytics"]
+        ] = None,
     ):
         return clear_locations(property_to_expr(property, team=team or self.team, scope=scope or "event"))
 
