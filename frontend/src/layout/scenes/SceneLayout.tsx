@@ -11,6 +11,7 @@ import { SceneConfig } from 'scenes/sceneTypes'
 import { SceneHeader } from './SceneHeader'
 import './SceneLayout.css'
 import { sceneLayoutLogic } from './sceneLayoutLogic'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { SceneTabs } from '~/layout/scenes/SceneTabs'
 
 type SceneLayoutProps = {
@@ -93,7 +94,7 @@ export function SceneLayout({ children, className, layoutConfig }: SceneLayoutPr
     const sceneLayoutContainer = useRef<HTMLDivElement>(null)
     const [outerRight, setOuterRight] = useState<number>(0)
 
-    useEffect(() => {
+    useOnMountEffect(() => {
         const updateOuterRight = (): void => {
             if (sceneLayoutContainer.current) {
                 setOuterRight(sceneLayoutContainer.current.getBoundingClientRect().right)
@@ -107,7 +108,7 @@ export function SceneLayout({ children, className, layoutConfig }: SceneLayoutPr
         return () => {
             window.removeEventListener('resize', updateOuterRight)
         }
-    }, [])
+    })
 
     return (
         <div

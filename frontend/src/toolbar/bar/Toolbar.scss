@@ -70,7 +70,9 @@
         background-color: var(--bg-primary);
         filter: drop-shadow(0 5px 10px var(--trace-3000));
         border-radius: var(--radius);
-        transition: opacity 150ms ease, max-height 150ms ease;
+        transition:
+            opacity 150ms ease,
+            max-height 150ms ease;
     }
 
     &--visible {
