@@ -1,3 +1,4 @@
+import json
 import uuid
 from datetime import datetime
 from typing import cast, Any
@@ -42,6 +43,7 @@ from posthog.schema import (
     FunnelsActorsQuery,
     FunnelsFilter,
     FunnelsQuery,
+    GroupPropertyFilter,
     HogQLQueryModifiers,
     DateRange,
     PersonsOnEventsMode,
@@ -160,6 +162,40 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                 event="$autocapture",
                 elements=[Element(nth_of_type=1, nth_child=0, tag_name="a", href="/movie")],
                 **kwargs,
+            )
+
+        def _create_groups(self):
+            GroupTypeMapping.objects.create(
+                team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+            )
+            GroupTypeMapping.objects.create(
+                team=self.team, project_id=self.team.project_id, group_type="company", group_type_index=1
+            )
+
+            create_group(
+                team_id=self.team.pk,
+                group_type_index=0,
+                group_key="org:5",
+                properties={"industry": "finance"},
+            )
+            create_group(
+                team_id=self.team.pk,
+                group_type_index=0,
+                group_key="org:6",
+                properties={"industry": "technology"},
+            )
+
+            create_group(
+                team_id=self.team.pk,
+                group_type_index=1,
+                group_key="company:1",
+                properties={},
+            )
+            create_group(
+                team_id=self.team.pk,
+                group_type_index=1,
+                group_key="company:2",
+                properties={},
             )
 
         def _basic_funnel(self, properties=None, filters=None):
@@ -4880,6 +4916,109 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             self.assertEqual(results[0]["count"], 0)
             self.assertEqual(results[1]["name"], "added to cart")
             self.assertEqual(results[1]["count"], 0)
+
+        @snapshot_clickhouse_queries
+        def test_funnel_aggregation_with_groups(self):
+            self._create_groups()
+
+            events_by_person = {
+                "user_1": [
+                    {
+                        "event": "user signed up",
+                        "timestamp": datetime(2020, 1, 2, 14),
+                        "properties": {"$group_0": "org:5"},
+                    },
+                    {
+                        "event": "user signed up",  # same person, different group, so should count as different step 1 in funnel
+                        "timestamp": datetime(2020, 1, 10, 14),
+                        "properties": {"$group_0": "org:6"},
+                    },
+                ],
+                "user_2": [
+                    {  # different person, same group, so should count as step two in funnel
+                        "event": "paid",
+                        "timestamp": datetime(2020, 1, 3, 14),
+                        "properties": {"$group_0": "org:5"},
+                    }
+                ],
+            }
+            journeys_for(events_by_person, self.team)
+
+            query = FunnelsQuery(
+                series=[
+                    EventsNode(event="user signed up"),
+                    EventsNode(event="paid"),
+                ],
+                dateRange=DateRange(
+                    date_from="2020-01-01",
+                    date_to="2020-01-14",
+                ),
+                aggregation_group_type_index=0,
+            )
+            result = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
+
+            assert result[0]["count"] == 2
+            assert result[1]["count"] == 1
+            assert result[1]["average_conversion_time"] == 86400
+
+        @snapshot_clickhouse_queries
+        def test_funnel_aggregation_with_groups_global_filtering(self):
+            self._create_groups()
+
+            events_by_person = {
+                "user_1": [
+                    {
+                        "event": "user signed up",
+                        "timestamp": datetime(2020, 1, 2, 14),
+                        "properties": {"$group_0": "org:5"},
+                    },
+                    {
+                        "event": "paid",
+                        "timestamp": datetime(2020, 1, 3, 14),
+                        "properties": {
+                            "$group_0": "org:6"
+                        },  # second event belongs to different group, so shouldn't complete funnel
+                    },
+                ],
+                "user_2": [
+                    {
+                        "event": "user signed up",  # event belongs to different group, so shouldn't enter funnel
+                        "timestamp": datetime(2020, 1, 2, 14),
+                        "properties": {"$group_0": "org:6"},
+                    },
+                    {
+                        "event": "paid",
+                        "timestamp": datetime(2020, 1, 3, 14),
+                        "properties": {"$group_0": "org:5"},  # same group, but different person, so not in funnel
+                    },
+                ],
+            }
+            journeys_for(events_by_person, self.team)
+
+            query = FunnelsQuery(
+                series=[
+                    EventsNode(event="user signed up"),
+                    EventsNode(event="paid"),
+                ],
+                dateRange=DateRange(
+                    date_from="2020-01-01",
+                    date_to="2020-01-14",
+                ),
+                aggregation_group_type_index=0,
+                properties=[
+                    GroupPropertyFilter(
+                        key="industry",
+                        value="finance",
+                        type="group",
+                        group_type_index=0,
+                        operator=PropertyOperator.EXACT,
+                    )
+                ],
+            )
+            result = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
+
+            assert result[0]["count"] == 1
+            assert result[1]["count"] == 0
 
     return TestGetFunnel
 
