@@ -130,6 +130,7 @@ export const sessionTabLogic = kea<sessionTabLogicType>([
         sessionId: [(_, props) => [props.sessionId], (sessionId: string) => sessionId],
         timestamp: [(_, props) => [props.timestamp], (timestamp: string) => timestamp],
         items: [(s) => [s.events], (events: SessionTimelineEvent[]) => events as SessionTimelineItem[]],
+        itemsLoading: [(s) => [s.eventsLoading], (eventsLoading: boolean) => eventsLoading],
         getRenderer: [
             (s) => [s.rendererRegistry, s.activeGroups],
             (rendererRegistry: RendererRegistry, activeGroups: string[]) => {

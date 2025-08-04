@@ -13,7 +13,8 @@ import { errorPropertiesLogic } from 'lib/components/Errors/errorPropertiesLogic
 import { sessionTabLogic } from './sessionTabLogic'
 import { match, P } from 'ts-pattern'
 import { NotFound } from 'lib/components/NotFound'
-import { Link } from '@posthog/lemon-ui'
+import { Link, Spinner } from '@posthog/lemon-ui'
+import { exceptionCardLogic } from '../../exceptionCardLogic'
 
 export interface SessionTabProps extends TabsPrimitiveContentProps {
     timestamp?: string
@@ -21,10 +22,17 @@ export interface SessionTabProps extends TabsPrimitiveContentProps {
 
 export function SessionTab({ timestamp, ...props }: SessionTabProps): JSX.Element {
     const { sessionId } = useValues(errorPropertiesLogic)
+    const { loading } = useValues(exceptionCardLogic)
+
     return (
         <TabsPrimitiveContent {...props}>
-            {match([sessionId])
-                .with([P.nullish], () => (
+            {match([loading, sessionId])
+                .with([true, P.any], () => (
+                    <div className="flex justify-center items-center h-[300px]">
+                        <Spinner />
+                    </div>
+                ))
+                .with([false, P.nullish], () => (
                     <NotFound
                         object="session"
                         caption={
@@ -39,7 +47,7 @@ export function SessionTab({ timestamp, ...props }: SessionTabProps): JSX.Elemen
                         }
                     />
                 ))
-                .with([P.string], ([sessionId]) => (
+                .with([false, P.string], ([_, sessionId]) => (
                     <BindLogic logic={sessionTabLogic} props={{ timestamp, sessionId }}>
                         <TabsPrimitive defaultValue="timeline">
                             <SubHeader className="p-0">

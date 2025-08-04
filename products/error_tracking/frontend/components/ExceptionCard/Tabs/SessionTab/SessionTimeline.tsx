@@ -14,6 +14,8 @@ import {
 import { cva } from 'cva'
 import { dayjs } from 'lib/dayjs'
 import { IconWarning, IconToggle, IconGraph, IconMessage, IconPieChart, IconLogomark } from '@posthog/icons'
+import { match } from 'node_modules/ts-pattern/dist'
+import { Spinner } from '@posthog/lemon-ui'
 
 const groupIconMapping: Record<RendererGroup, React.ReactNode> = {
     [RendererGroup.ERROR_TRACKING]: <IconWarning />,
@@ -25,7 +27,8 @@ const groupIconMapping: Record<RendererGroup, React.ReactNode> = {
 }
 
 export function SessionTimeline({ ...props }: TabsPrimitiveContentProps): JSX.Element {
-    const { items, eventListEl, eventsLoading, getRenderer, usedGroups, canScrollToItem } = useValues(sessionTabLogic)
+    const { items, itemsLoading, eventListEl, eventsLoading, getRenderer, usedGroups, canScrollToItem } =
+        useValues(sessionTabLogic)
     const { setEventListEl, scrollToItem } = useActions(sessionTabLogic)
     const { uuid } = useValues(errorPropertiesLogic)
 
@@ -40,11 +43,20 @@ export function SessionTimeline({ ...props }: TabsPrimitiveContentProps): JSX.El
             <div className="flex">
                 <div className="flex flex-col justify-between items-center p-1 border-r border-gray-3">
                     <div className="flex flex-col items-center gap-2">
-                        {usedGroups.map((group) => (
-                            <SessionGroupToggle group={group}>
-                                {groupIconMapping[group] as React.ReactNode}
-                            </SessionGroupToggle>
-                        ))}
+                        {match(itemsLoading)
+                            .with(true, () => (
+                                <ButtonPrimitive iconOnly disabled={true}>
+                                    <Spinner />
+                                </ButtonPrimitive>
+                            ))
+                            .with(false, () =>
+                                usedGroups.map((group) => (
+                                    <SessionGroupToggle group={group}>
+                                        {groupIconMapping[group] as React.ReactNode}
+                                    </SessionGroupToggle>
+                                ))
+                            )
+                            .exhaustive()}
                     </div>
                     {canScrollToItem(uuid) && (
                         <ButtonPrimitive iconOnly onClick={() => scrollToItem(uuid)}>
@@ -57,20 +69,25 @@ export function SessionTimeline({ ...props }: TabsPrimitiveContentProps): JSX.El
                     className="flex flex-col h-[500px] w-full overflow-y-auto relative"
                     style={{ scrollbarGutter: 'stable' }}
                 >
-                    {items.map((item) => {
-                        const renderer = getRenderer(item)
-                        if (!renderer) {
-                            return null
-                        }
-                        return (
-                            <SessionTimelineItemContainer
-                                renderer={renderer}
-                                key={item.id}
-                                item={item}
-                                selected={item.id === uuid}
-                            />
+                    {match(itemsLoading)
+                        .with(true, () => <div className="p-2">Loading events...</div>)
+                        .with(false, () =>
+                            items.map((item) => {
+                                const renderer = getRenderer(item)
+                                if (!renderer) {
+                                    return null
+                                }
+                                return (
+                                    <SessionTimelineItemContainer
+                                        renderer={renderer}
+                                        key={item.id}
+                                        item={item}
+                                        selected={item.id === uuid}
+                                    />
+                                )
+                            })
                         )
-                    })}
+                        .exhaustive()}
                 </div>
             </div>
         </TabsPrimitiveContent>
