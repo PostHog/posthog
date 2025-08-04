@@ -158,7 +158,7 @@
         "husky": "^7.0.4",
         "idb": "^8.0.3",
         "image-blob-reduce": "^4.1.0",
-        "kea": "^3.1.5",
+        "kea": "^3.1.6",
         "kea-forms": "^3.2.0",
         "kea-loaders": "^3.1.1",
         "kea-localstorage": "^3.1.0",
