@@ -2,7 +2,6 @@ import { LemonButton, LemonBanner } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import MaxTool from 'scenes/max/MaxTool'
 import { useValues, useActions } from 'kea'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { AvailableFeature, CyclotronJobInputSchemaType } from '~/types'
 import { PayGateButton } from 'lib/components/PayGateMini/PayGateButton'
 import { IconX, IconCheck, IconPlus } from '@posthog/icons'
@@ -31,8 +30,6 @@ export function HogFunctionInputs(): JSX.Element {
         reportAIHogFunctionInputsRejected,
         reportAIHogFunctionInputsPromptOpen,
     } = useActions(hogFunctionConfigurationLogic)
-
-    const aiHogFunctionCreation = !!useFeatureFlag('AI_HOG_FUNCTION_CREATION')
 
     const content = (
         <div className={clsx('p-3 rounded border deprecated-space-y-2 bg-surface-primary')}>
@@ -125,10 +122,6 @@ export function HogFunctionInputs(): JSX.Element {
             </div>
         </div>
     )
-
-    if (!aiHogFunctionCreation) {
-        return content
-    }
 
     return (
         <MaxTool

@@ -1,12 +1,11 @@
-// Signup.stories.tsx
 import { Meta } from '@storybook/react'
-import { useEffect } from 'react'
 
 import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
 
 import { InviteSignup } from './InviteSignup'
 import { inviteSignupLogic } from './inviteSignupLogic'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 const meta: Meta = {
     title: 'Scenes-Other/InviteSignup',
@@ -51,9 +50,11 @@ export const SelfHosted = (): JSX.Element => {
             },
         },
     })
-    useEffect(() => {
+
+    useOnMountEffect(() => {
         inviteSignupLogic.actions.prevalidateInvite('1234')
-    }, [])
+    })
+
     return <InviteSignup />
 }
 
@@ -69,9 +70,11 @@ export const Cloud = (): JSX.Element => {
             },
         },
     })
-    useEffect(() => {
+
+    useOnMountEffect(() => {
         inviteSignupLogic.actions.prevalidateInvite('1234')
-    }, [])
+    })
+
     return <InviteSignup />
 }
 export const CloudEU = (): JSX.Element => {
@@ -87,9 +90,11 @@ export const CloudEU = (): JSX.Element => {
             },
         },
     })
-    useEffect(() => {
+
+    useOnMountEffect(() => {
         inviteSignupLogic.actions.prevalidateInvite('1234')
-    }, [])
+    })
+
     return <InviteSignup />
 }
 
@@ -105,9 +110,11 @@ export const InvalidLink = (): JSX.Element => {
             },
         },
     })
-    useEffect(() => {
+
+    useOnMountEffect(() => {
         inviteSignupLogic.actions.prevalidateInvite('not-found')
-    }, [])
+    })
+
     return <InviteSignup />
 }
 
@@ -133,9 +140,11 @@ export const LoggedIn = (): JSX.Element => {
             ],
         },
     })
-    useEffect(() => {
+
+    useOnMountEffect(() => {
         inviteSignupLogic.actions.prevalidateInvite('1234')
-    }, [])
+    })
+
     return <InviteSignup />
 }
 
@@ -167,9 +176,11 @@ export const LoggedInWrongUser = (): JSX.Element => {
             ],
         },
     })
-    useEffect(() => {
+
+    useOnMountEffect(() => {
         inviteSignupLogic.actions.prevalidateInvite('1234')
-    }, [])
+    })
+
     return (
         <div>
             <div className="border-b border-t p-4 font-bold">HEADER AREA</div>
@@ -184,9 +195,11 @@ export const SSOEnforcedSaml = (): JSX.Element => {
             '/api/login/precheck': { sso_enforcement: 'saml', saml_available: true },
         },
     })
-    useEffect(() => {
+
+    useOnMountEffect(() => {
         inviteSignupLogic.actions.prevalidateInvite('1234')
-    }, [])
+    })
+
     return (
         <div>
             <div className="border-b border-t p-4 font-bold">HEADER AREA</div>
@@ -199,9 +212,11 @@ export const SSOEnforcedGoogle = (): JSX.Element => {
     useStorybookMocks({
         post: { '/api/login/precheck': { sso_enforcement: 'google-oauth2', saml_available: false } },
     })
-    useEffect(() => {
+
+    useOnMountEffect(() => {
         inviteSignupLogic.actions.prevalidateInvite('1234')
-    }, [])
+    })
+
     return (
         <div>
             <div className="border-b border-t p-4 font-bold">HEADER AREA</div>
