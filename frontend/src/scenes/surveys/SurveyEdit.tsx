@@ -374,6 +374,16 @@ export default function SurveyEdit(): JSX.Element {
                                                                     target="_blank"
                                                                 >{`https://us.posthog.com/external_surveys/01984280-fc8a-0000-28a5-01078e2d553f?distinct_id=${user?.email ?? 'john@acme.co'}`}</Link>
                                                             </li>
+                                                            <li>
+                                                                • Check more details about identifying respondents in
+                                                                the{' '}
+                                                                <Link
+                                                                    to="https://posthog.com/docs/surveys/creating-surveys#identifying-respondents-on-hosted-surveys"
+                                                                    target="_blank"
+                                                                >
+                                                                    documentation
+                                                                </Link>
+                                                            </li>
                                                         </ul>
                                                     </>
                                                 )}

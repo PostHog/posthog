@@ -67,9 +67,16 @@ export function SurveyOverview(): JSX.Element {
                         </div>
                         {isExternalSurvey && (
                             <span>
-                                To identify respondents, add the{' '}
+                                Responses are anonymous by default. To identify respondents, add the{' '}
                                 <code className="bg-surface-tertiary px-1 rounded">?distinct_id=user123</code> to the
-                                URL. Otherwise responses are anonymous.
+                                URL.{' '}
+                                <Link
+                                    to="https://posthog.com/docs/surveys/creating-surveys#identifying-respondents-on-hosted-surveys"
+                                    target="_blank"
+                                >
+                                    Check more details in the documentation
+                                </Link>
+                                .
                             </span>
                         )}
                     </div>
