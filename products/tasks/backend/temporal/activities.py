@@ -213,14 +213,20 @@ async def ai_agent_work_activity(args: dict) -> dict[str, Any]:
     - Try not to add new external dependencies, only if needed.
     - Implement structured logging and error handling; never log secrets.
     - Avoid destructive shell commands.
+    - ALWAYS create appropriate .gitignore files to exclude build artifacts, dependencies, and temporary files.
+    - NEVER commit node_modules/, site-packages/, __pycache__/, .env files, or other build artifacts.
   </constraints>
 
   <checklist>
+    - Created or updated .gitignore file with appropriate exclusions
+    - Created dependency files (requirements.txt, package.json, etc.) with exact versions
+    - Added clear setup/installation instructions to README.md
     - Code compiles and tests pass.
     - Added or updated tests.
     - Captured meaningful events with PostHog SDK.
     - Wrapped new logic in an PostHog feature flag.
     - Updated docs, readme or type hints if needed.
+    - Verified no build artifacts or dependencies are being committed
   </checklist>
 
   <ticket>
@@ -429,6 +435,7 @@ async def commit_and_push_changes_activity(args: dict) -> dict[str, Any]:
     branch_name = args["branch_name"]
     task_title = args["task_title"]
     task_id = args["task_id"]
+    access_token = args.get("access_token")  # GitHub access token for authentication
 
     bind_contextvars(
         repo_path=repo_path,
@@ -449,6 +456,20 @@ async def commit_and_push_changes_activity(args: dict) -> dict[str, Any]:
                 logger.info("No changes to commit")
                 return {"success": True, "message": "No changes to commit"}
 
+            # Update git remote URL with access token for authentication if provided
+            if access_token:
+                # Get current remote URL
+                remote_result = subprocess.run(["git", "remote", "get-url", "origin"], capture_output=True, text=True)
+                if remote_result.returncode == 0:
+                    current_url = remote_result.stdout.strip()
+                    # Replace with authenticated URL
+                    if "github.com" in current_url and "x-access-token" not in current_url:
+                        authenticated_url = current_url.replace(
+                            "https://github.com/", f"https://x-access-token:{access_token}@github.com/"
+                        )
+                        subprocess.run(["git", "remote", "set-url", "origin", authenticated_url], check=True)
+                        logger.info("Updated git remote with authentication")
+
             # Add all changes
             subprocess.run(["git", "add", "."], check=True)
 
@@ -459,7 +480,8 @@ async def commit_and_push_changes_activity(args: dict) -> dict[str, Any]:
             subprocess.run(["git", "commit", "-m", commit_message], check=True)
 
             # Push the branch (use force push to handle conflicts with existing branch)
-            subprocess.run(["git", "push", "--force", "origin", branch_name], check=True)
+            env = {"GIT_TERMINAL_PROMPT": "0", "GIT_ASKPASS": "echo"}
+            subprocess.run(["git", "push", "--force", "origin", branch_name], check=True, env=env)
 
             logger.info(f"Successfully committed and pushed changes for task {task_id}")
             return {

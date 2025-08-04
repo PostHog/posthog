@@ -315,6 +315,7 @@ class TaskProcessingWorkflow(PostHogWorkflow):
                         "branch_name": repo_info["branch_name"],
                         "task_title": task_details["title"],
                         "task_id": inputs.task_id,
+                        "access_token": repo_info.get("access_token"),  # Pass access token for git authentication
                     },
                     start_to_close_timeout=timedelta(minutes=10),
                     retry_policy=RetryPolicy(

@@ -606,6 +606,7 @@ async def clone_repo_and_create_branch_activity(inputs: TaskProcessingInputs) ->
             "repo_url": repo_url,
             "default_branch": default_branch,
             "branch_exists_remotely": branch_exists_remotely,
+            "access_token": access_token,  # Include access token for subsequent operations
         }
 
     except Exception as e:
@@ -623,15 +624,40 @@ async def cleanup_repo_activity(repo_path: str) -> bool:
 
     try:
         if os.path.exists(repo_path):
-            shutil.rmtree(repo_path)
-            logger.info(f"Successfully cleaned up repository at {repo_path}")
-            return True
+            # Try to remove normally first
+            try:
+                shutil.rmtree(repo_path)
+                logger.info(f"Successfully cleaned up repository at {repo_path}")
+                return True
+            except (OSError, FileNotFoundError) as e:
+                # If normal removal fails (e.g., due to gc.pid or other locked files),
+                # try a more robust approach
+                logger.warning(f"Normal cleanup failed ({str(e)}), trying robust cleanup")
+
+                # Try to forcefully remove with error handling
+                def handle_remove_error(func, path, exc_info):
+                    """Error handler for rmtree that handles permission and lock issues."""
+                    import stat
+
+                    try:
+                        # Try to change permissions and retry
+                        os.chmod(path, stat.S_IWRITE | stat.S_IREAD)
+                        func(path)
+                    except:
+                        # If we still can't remove it, just log and continue
+                        logger.warning(f"Could not remove {path}, skipping")
+
+                shutil.rmtree(repo_path, onerror=handle_remove_error)
+                logger.info(f"Successfully cleaned up repository at {repo_path} (with error handling)")
+                return True
         else:
             logger.warning(f"Repository path {repo_path} does not exist")
             return True
     except Exception as e:
         logger.exception(f"Failed to cleanup repository at {repo_path}: {str(e)}")
-        return False
+        # Don't fail the workflow just because cleanup failed
+        logger.warning("Cleanup failed but continuing workflow")
+        return True  # Return True to not fail the workflow
 
 
 async def _create_initial_commit(repo_path: Path, task_title: str, task_id: str) -> dict[str, Any]:
