@@ -169,7 +169,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         CDP_WATCHER_REFILL_RATE: 10,
         CDP_WATCHER_STATE_LOCK_TTL: 60, // 1 minute
         CDP_WATCHER_DISABLED_TEMPORARY_MAX_COUNT: 3,
-        CDP_WATCHER_SEND_EVENTS: false,
+        CDP_WATCHER_SEND_EVENTS: isProdEnv() ? false : true,
         CDP_HOG_FILTERS_TELEMETRY_TEAMS: '',
         CDP_REDIS_PASSWORD: '',
         CDP_EVENT_PROCESSOR_EXECUTE_FIRST_STEP: true,
