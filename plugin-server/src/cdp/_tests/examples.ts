@@ -338,6 +338,76 @@ export const HOG_INPUTS_EXAMPLES: Record<string, Pick<HogFunctionType, 'inputs' 
             },
         },
     },
+    simple_fetch_with_oauth: {
+        inputs_schema: [
+            { key: 'oauth', type: 'integration', integration: 'slack', label: 'OAuth', secret: false, required: true },
+            { key: 'url', type: 'string', label: 'Webhook URL', secret: false, required: true },
+            { key: 'body', type: 'json', label: 'JSON body', secret: false, required: true },
+            {
+                key: 'method',
+                type: 'choice',
+                label: 'HTTP Method',
+                secret: false,
+                choices: [
+                    { label: 'POST', value: 'POST' },
+                    { label: 'PUT', value: 'PUT' },
+                    { label: 'PATCH', value: 'PATCH' },
+                    { label: 'GET', value: 'GET' },
+                ],
+                required: true,
+            },
+            { key: 'headers', type: 'dictionary', label: 'Headers', secret: false, required: false },
+        ],
+        inputs: {
+            oauth: {
+                value: 1,
+            },
+            url: {
+                value: 'https://example.com/posthog-webhook',
+                bytecode: ['_h', 32, 'https://example.com/posthog-webhook'],
+            },
+            method: { value: 'POST' },
+            headers: {
+                value: { Authorization: 'Bearer {inputs.oauth.access_token}' },
+                bytecode: {
+                    'Content-Type': ['_H', 1, 32, 'application/json'],
+                    Authorization: [
+                        '_H',
+                        1,
+                        32,
+                        'Bearer ',
+                        32,
+                        'token',
+                        32,
+                        'oauth',
+                        32,
+                        'inputs',
+                        1,
+                        3,
+                        2,
+                        'concat',
+                        2,
+                    ],
+                },
+            },
+            body: {
+                value: {
+                    event: '{event}',
+                    groups: '{groups}',
+                    nested: { foo: '{event.url}' },
+                    person: '{person}',
+                    event_url: "{f'{event.url}-test'}",
+                },
+                bytecode: {
+                    event: ['_h', 32, 'event', 1, 1],
+                    groups: ['_h', 32, 'groups', 1, 1],
+                    nested: { foo: ['_h', 32, 'url', 32, 'event', 1, 2] },
+                    person: ['_h', 32, 'person', 1, 1],
+                    event_url: ['_h', 32, '-test', 32, 'url', 32, 'event', 1, 2, 2, 'concat', 2],
+                },
+            },
+        },
+    },
     simple_google_fetch: {
         inputs_schema: [
             { key: 'url', type: 'string', label: 'Webhook URL', secret: false, required: true },
