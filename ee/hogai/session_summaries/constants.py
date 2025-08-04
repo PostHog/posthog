@@ -10,6 +10,9 @@ SESSION_SUMMARIES_TEMPERATURE = 0.1  # Reduce hallucinations, but >0 to allow fo
 
 # Summarization
 HALLUCINATED_EVENTS_MIN_RATIO = 0.15  # If more than 15% of events in the summary hallucinated, fail the summarization
+GROUP_SUMMARIES_MIN_SESSIONS = (
+    5  # Minimum number of sessions to use group summary logic (find patterns) instead of summarizing them separately
+)
 
 # Temporal
 # How long to store the DB data in Redis within Temporal session summaries jobs

@@ -8,7 +8,7 @@ from asgiref.sync import async_to_sync
 from langchain_core.runnables import RunnableConfig
 
 from ee.hogai.graph.base import AssistantNode
-from ee.hogai.session_summaries.constants import SESSION_SUMMARIES_STREAMING_MODEL
+from ee.hogai.session_summaries.constants import SESSION_SUMMARIES_STREAMING_MODEL, GROUP_SUMMARIES_MIN_SESSIONS
 from ee.hogai.session_summaries.session_group.summarize_session_group import find_sessions_timestamps
 from ee.hogai.session_summaries.session_group.summary_notebooks import create_summary_notebook
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
@@ -106,7 +106,7 @@ class SessionSummarizationNode(AssistantNode):
         """Summarizes the sessions using the provided session IDs."""
         # If a small amount of sessions - we won't be able to extract lots of patters,
         # so it's ok to summarize them one by one and answer fast (without notebook creation)
-        if len(session_ids) <= 5:
+        if len(session_ids) <= GROUP_SUMMARIES_MIN_SESSIONS:
             summaries_tasks = [
                 # As it's used as a direct output, use faster streaming model instead
                 execute_summarize_session(
