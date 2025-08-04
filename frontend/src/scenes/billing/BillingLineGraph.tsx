@@ -373,6 +373,10 @@ export function BillingLineGraph({
                                                 show zero spend, while heavy users may temporarily show higher costs
                                                 before reaching volume discounts.
                                             </p>
+                                            <p className="mt-2 text-xs">
+                                                In days before a new period starts, some products' usage or spend might
+                                                drop to 0. This typically means reaching monthly billing limits.
+                                            </p>
                                         </div>
                                     }
                                     placement="bottom"
