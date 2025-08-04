@@ -74,7 +74,7 @@ from posthog.permissions import ProjectSecretAPITokenPermission
 from posthog.queries.base import (
     determine_parsed_date_for_property_matching,
 )
-from posthog.rate_limit import BurstRateThrottle, is_rate_limit_enabled
+from posthog.rate_limit import BurstRateThrottle
 from ee.models.rbac.organization_resource_access import OrganizationResourceAccess
 from django.dispatch import receiver
 from posthog.models.signals import model_activity_signal
@@ -99,10 +99,6 @@ class LocalEvaluationThrottle(BurstRateThrottle):
 
     def allow_request(self, request, view):
         logger = logging.getLogger(__name__)
-
-        if not is_rate_limit_enabled(round(time.time() / 60)):
-            return True
-
         # Check for team-specific rate limits
         try:
             team_id = self.safely_get_team_id_from_view(view)
