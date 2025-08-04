@@ -1,4 +1,4 @@
-import { actions, defaults, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, connect, defaults, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 
 import type { sessionTabLogicType } from './sessionTabLogicType'
 import { loaders } from 'kea-loaders'
@@ -19,6 +19,8 @@ import {
     surveysRenderer,
     webAnalyticsRenderer,
 } from './SessionTimelineItem/event'
+import { SessionRecordingPlayerProps } from 'scenes/session-recordings/player/SessionRecordingPlayer'
+import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
 export type SessionTabLogicProps = {
     sessionId: string
@@ -35,10 +37,24 @@ export type TimelineEvent = {
 
 export type RendererRegistry = SessionTimelineRenderer<SessionTimelineItem>[]
 
+function getRecordingProps(sessionId: string): SessionRecordingPlayerProps {
+    return {
+        playerKey: `session-tab`,
+        sessionRecordingId: sessionId,
+        matchingEventsMatchType: {
+            matchType: 'name',
+            eventNames: ['$exception'],
+        },
+    }
+}
+
 export const sessionTabLogic = kea<sessionTabLogicType>([
     path((key) => ['scenes', 'error-tracking', 'exceptionCard', 'sessionTab', key]),
     props({} as SessionTabLogicProps),
     key(({ sessionId }) => sessionId as KeyType),
+    connect(({ sessionId }: SessionTabLogicProps) => ({
+        actions: [sessionRecordingPlayerLogic(getRecordingProps(sessionId)), ['seekToTimestamp']],
+    })),
 
     actions({
         setCurrentTab: (tab: TabId) => ({ tab }),
@@ -48,6 +64,7 @@ export const sessionTabLogic = kea<sessionTabLogicType>([
             renderer,
         }),
         toggleGroup: (name: RendererGroup) => ({ name }),
+        goToTimestamp: (timestamp: string, offset: number) => ({ timestamp, offset }),
         loadEvents: true,
     }),
 
@@ -60,7 +77,7 @@ export const sessionTabLogic = kea<sessionTabLogicType>([
 
     reducers({
         currentTab: {
-            setCurrentTab: (_, { tab }: { tab: TabId }) => tab,
+            setCurrentTab: (_, { tab }: { tab: string }) => tab,
         },
         eventListEl: {
             setEventListEl: (_, { eventListEl }: { eventListEl: React.RefObject<HTMLDivElement> }) => eventListEl,
@@ -99,7 +116,7 @@ export const sessionTabLogic = kea<sessionTabLogicType>([
                     AND timestamp < ${end}
                     AND $session_id = ${props.sessionId}
                     ORDER BY timestamp ASC
-                    LIMIT 1000`
+                    LIMIT 1000000`
 
                     const response = await api.queryHogQL(sessionEventsQuery)
                     return response.results.map((result: any) => ({
@@ -152,6 +169,8 @@ export const sessionTabLogic = kea<sessionTabLogicType>([
         usedGroups: [
             (s) => [s.rendererRegistry, s.items],
             (rendererRegistry: RendererRegistry, items: SessionTimelineItem[]) => {
+                const orderedRenderers = Object.values(RendererGroup)
+
                 const usedGroups = new Set<RendererGroup>()
                 for (const item of items) {
                     const renderer = rendererRegistry.find((renderer) => renderer.predicate(item))
@@ -159,7 +178,7 @@ export const sessionTabLogic = kea<sessionTabLogicType>([
                         usedGroups.add(renderer.group)
                     }
                 }
-                return Array.from(usedGroups)
+                return Array.from(usedGroups).sort((a, b) => orderedRenderers.indexOf(a) - orderedRenderers.indexOf(b))
             },
         ],
         canScrollToItem: [
@@ -177,7 +196,20 @@ export const sessionTabLogic = kea<sessionTabLogicType>([
                 }
             },
         ],
+        recordingProps: [
+            (s) => [s.sessionId],
+            (sessionId: string) => {
+                return getRecordingProps(sessionId)
+            },
+        ],
     }),
+    listeners(({ actions }) => ({
+        goToTimestamp: ({ timestamp, offset }) => {
+            // Implement logic to navigate to the specified timestamp
+            const actualTimestamp = dayjs(timestamp).valueOf() - offset
+            actions.seekToTimestamp(actualTimestamp, false)
+        },
+    })),
     events(({ actions }) => ({
         afterMount: () => {
             actions.registerRenderer(exceptionRenderer)
