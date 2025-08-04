@@ -1,6 +1,6 @@
 from abc import ABC
 from functools import cached_property
-from typing import cast
+from typing import Literal, cast
 
 from langchain_core.agents import AgentAction
 from langchain_core.messages import (
@@ -10,7 +10,7 @@ from langchain_core.messages import (
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
 from langchain_openai import ChatOpenAI
-from pydantic import ValidationError
+from pydantic import Field, ValidationError, create_model
 
 from ee.hogai.graph.root.prompts import ROOT_INSIGHT_DESCRIPTION_PROMPT
 from ee.hogai.graph.shared_prompts import CORE_MEMORY_PROMPT, PROJECT_ORG_USER_CONTEXT_PROMPT
@@ -40,11 +40,56 @@ from .prompts import (
     REACT_PYDANTIC_VALIDATION_EXCEPTION_PROMPT,
 )
 from .toolkit import (
-    QueryPlannerTaxonomyAgentToolkit,
+    TaxonomyAgentTool,
+    TaxonomyAgentToolkit,
+    ask_user_for_help,
+    final_answer,
+    retrieve_action_properties,
+    retrieve_action_property_values,
+    retrieve_event_properties,
+    retrieve_event_property_values,
 )
 
 
 class QueryPlannerNode(AssistantNode):
+    def _get_dynamic_entity_tools(self):
+        """Create dynamic Pydantic models with correct entity types for this team."""
+        # Create Literal type with actual entity names
+        DynamicEntityLiteral = Literal["person", "session", *self._team_group_types]  # type: ignore
+        # Create dynamic retrieve_entity_properties model
+        retrieve_entity_properties_dynamic = create_model(
+            "retrieve_entity_properties",
+            entity=(
+                DynamicEntityLiteral,
+                Field(..., description="The type of the entity that you want to retrieve properties for."),
+            ),
+            __doc__="""
+            Use this tool to retrieve property names for a property group (entity). You will receive a list of properties containing their name, value type, and description, or a message that properties have not been found.
+
+            - **Infer the property groups from the user's request.**
+            - **Try other entities** if the tool doesn't return any properties.
+            - **Prioritize properties that are directly related to the context or objective of the user's query.**
+            - **Avoid using ambiguous properties** unless their relevance is explicitly confirmed.
+            """,
+        )
+        # Create dynamic retrieve_entity_property_values model
+        retrieve_entity_property_values_dynamic = create_model(
+            "retrieve_entity_property_values",
+            entity=(
+                DynamicEntityLiteral,
+                Field(..., description="The type of the entity that you want to retrieve properties for."),
+            ),
+            property_name=(
+                str,
+                Field(..., description="The name of the property that you want to retrieve values for."),
+            ),
+            __doc__="""
+            Use this tool to retrieve property values for a property name. Adjust filters to these values. You will receive a list of property values or a message that property values have not been found. Some properties can have many values, so the output will be truncated. Use your judgment to find a proper value.
+            """,
+        )
+
+        return retrieve_entity_properties_dynamic, retrieve_entity_property_values_dynamic
+
     def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
         conversation = self._construct_messages(state)
 
@@ -91,8 +136,8 @@ class QueryPlannerNode(AssistantNode):
 
     def _get_model(self, state: AssistantState):
         # Get dynamic entity tools with correct types for this team
+        dynamic_retrieve_entity_properties, dynamic_retrieve_entity_property_values = self._get_dynamic_entity_tools()
 
-        toolkit = QueryPlannerTaxonomyAgentToolkit(self._team)
         return ChatOpenAI(
             model="o4-mini",
             use_responses_api=True,
@@ -104,7 +149,16 @@ class QueryPlannerNode(AssistantNode):
                 "summary": "auto",  # Without this, there's no reasoning summaries! Only works with reasoning models
             },
         ).bind_tools(
-            *toolkit.get_tools(),
+            [
+                retrieve_event_properties,
+                retrieve_action_properties,
+                dynamic_retrieve_entity_properties,
+                retrieve_event_property_values,
+                retrieve_action_property_values,
+                dynamic_retrieve_entity_property_values,
+                ask_user_for_help,
+                final_answer,
+            ],
             tool_choice="required",
             parallel_tool_calls=False,
         )
@@ -119,7 +173,6 @@ class QueryPlannerNode(AssistantNode):
 
     @cached_property
     def _team_group_types(self) -> list[str]:
-        """Get all available group names for this team."""
         return list(
             GroupTypeMapping.objects.filter(project_id=self._team.project_id)
             .order_by("group_type_index")
@@ -200,7 +253,7 @@ class QueryPlannerToolsNode(AssistantNode, ABC):
     """
 
     def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
-        toolkit = QueryPlannerTaxonomyAgentToolkit(self._team)
+        toolkit = TaxonomyAgentToolkit(self._team)
         intermediate_steps = state.intermediate_steps or []
         action, _output = intermediate_steps[-1]
 
@@ -208,7 +261,7 @@ class QueryPlannerToolsNode(AssistantNode, ABC):
         output = ""
 
         try:
-            input = toolkit.get_tool_input_model(action)
+            input = TaxonomyAgentTool.model_validate({"name": action.tool, "arguments": action.tool_input})
         except ValidationError as e:
             output = str(
                 ChatPromptTemplate.from_template(REACT_PYDANTIC_VALIDATION_EXCEPTION_PROMPT, template_format="mustache")
@@ -218,7 +271,7 @@ class QueryPlannerToolsNode(AssistantNode, ABC):
         else:
             # First check if we've reached the terminal stage.
             # The plan has been found. Move to the generation.
-            if input.name == "final_answer":  # type: ignore
+            if input.name == "final_answer":
                 return PartialAssistantState(
                     plan=input.arguments.plan,  # type: ignore
                     root_tool_insight_type=input.arguments.query_kind,  # type: ignore
@@ -227,15 +280,15 @@ class QueryPlannerToolsNode(AssistantNode, ABC):
                 )
 
             # The agent has requested help, so we return a message to the root node.
-            if input.name == "ask_user_for_help":  # type: ignore
-                return self._get_reset_state(state, REACT_HELP_REQUEST_PROMPT.format(request=input.arguments))  # type: ignore
+            if input.name == "ask_user_for_help":
+                return self._get_reset_state(state, REACT_HELP_REQUEST_PROMPT.format(request=input.arguments))
 
         # If we're still here, the final prompt hasn't helped.
         if len(intermediate_steps) >= self.MAX_ITERATIONS:
             return self._get_reset_state(state, ITERATION_LIMIT_PROMPT)
 
         if input and not output:
-            _, output = toolkit.handle_tools(input.name, input)  # type: ignore
+            output = self._handle_tool(input, toolkit)
 
         return PartialAssistantState(
             intermediate_steps=[*intermediate_steps[:-1], (action, output)],
@@ -249,6 +302,29 @@ class QueryPlannerToolsNode(AssistantNode, ABC):
         if not state.root_tool_call_id:
             return "end"
         return "continue"
+
+    def _handle_tool(self, input: TaxonomyAgentTool, toolkit: TaxonomyAgentToolkit) -> str:
+        if input.name == "retrieve_event_properties":
+            output = toolkit.retrieve_event_or_action_properties(input.arguments.event_name)  # type: ignore
+        elif input.name == "retrieve_action_properties":
+            output = toolkit.retrieve_event_or_action_properties(input.arguments.action_id)  # type: ignore
+        elif input.name == "retrieve_event_property_values":
+            output = toolkit.retrieve_event_or_action_property_values(
+                input.arguments.event_name,  # type: ignore
+                input.arguments.property_name,  # type: ignore
+            )
+        elif input.name == "retrieve_action_property_values":
+            output = toolkit.retrieve_event_or_action_property_values(
+                input.arguments.action_id,  # type: ignore
+                input.arguments.property_name,  # type: ignore
+            )
+        elif input.name == "retrieve_entity_properties":
+            output = toolkit.retrieve_entity_properties(input.arguments.entity)  # type: ignore
+        elif input.name == "retrieve_entity_property_values":
+            output = toolkit.retrieve_entity_property_values(input.arguments.entity, input.arguments.property_name)  # type: ignore
+        else:
+            output = toolkit.handle_incorrect_response(input)
+        return output
 
     def _get_reset_state(self, state: AssistantState, output: str):
         reset_state = PartialAssistantState.get_reset_state()

@@ -32,8 +32,8 @@ class TestTaxonomyAgent(BaseTest):
         # Create a mock graph that will be returned by StateGraph()
         self.mock_graph = Mock()
 
-        # Patch StateGraph to return our mock
-        self.patcher = patch("ee.hogai.graph.taxonomy.agent.StateGraph")
+        # Patch StateGraph in the parent class where it's actually used
+        self.patcher = patch("ee.hogai.graph.graph.StateGraph")
         mock_state_graph_class = self.patcher.start()
         mock_state_graph_class.return_value = self.mock_graph
 

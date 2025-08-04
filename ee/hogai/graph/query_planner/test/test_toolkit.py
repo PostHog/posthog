@@ -3,7 +3,7 @@ from textwrap import dedent
 
 from freezegun import freeze_time
 
-from ee.hogai.graph.query_planner.toolkit import QueryPlannerTaxonomyAgentToolkit, final_answer
+from ee.hogai.graph.query_planner.toolkit import TaxonomyAgentToolkit, final_answer
 from posthog.models import Action
 from posthog.models.group.util import create_group
 from posthog.models.group_type_mapping import GroupTypeMapping
@@ -11,11 +11,11 @@ from posthog.models.property_definition import PropertyDefinition, PropertyType
 from posthog.test.base import APIBaseTest, BaseTest, ClickhouseTestMixin, _create_event, _create_person
 
 
-class DummyToolkit(QueryPlannerTaxonomyAgentToolkit):
+class DummyToolkit(TaxonomyAgentToolkit):
     pass
 
 
-class TestQueryPlannerTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
+class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
     def setUp(self):
         super().setUp()
         self.action = Action.objects.create(team=self.team, name="action1", steps_json=[{"event": "event1"}])
