@@ -31,11 +31,11 @@ export function publicWebhooksHostOrigin(): string | null {
     const appOrigin = window.location.origin
 
     if (appOrigin === 'https://us.posthog.com') {
-        return 'https://webhooks.us.posthog.com'
+        return 'https://us.hoghooks.com'
     } else if (appOrigin === 'https://eu.posthog.com') {
-        return 'https://webhooks.eu.posthog.com'
+        return 'https://eu.hoghooks.com'
     } else if (appOrigin === 'https://app.dev.posthog.dev') {
-        return 'https://webhooks.dev.posthog.dev'
+        return 'https://dev.hoghooks.dev'
     }
 
     return appOrigin
