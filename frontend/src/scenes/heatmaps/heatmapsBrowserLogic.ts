@@ -233,7 +233,7 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
         browserUrlSearchOptions: [
             (s) => [s.browserSearchResults, s.topUrls, s.browserSearchTerm],
             (browserSearchResults, topUrls, browserSearchTerm) => {
-                return browserSearchTerm ? browserSearchResults : topUrls?.map((x) => x.url) ?? []
+                return browserSearchTerm ? browserSearchResults : (topUrls?.map((x) => x.url) ?? [])
             },
         ],
 

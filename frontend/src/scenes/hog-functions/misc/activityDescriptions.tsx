@@ -169,8 +169,8 @@ export function hogFunctionActivityDescriber(logItem: ActivityLogItem, asNotific
                             {change.field === 'hog'
                                 ? 'source code'
                                 : change.field === 'inputs_schema'
-                                ? 'inputs schema'
-                                : change.field}
+                                  ? 'inputs schema'
+                                  : change.field}
                         </DiffLink>
                     )
                     changes.push({ inline: <>updated {code} for</>, inlist: <>updated {code}</> })
