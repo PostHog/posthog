@@ -372,9 +372,9 @@ export default function SurveyEdit(): JSX.Element {
                                                             </li>
                                                             <li>
                                                                 <Link
-                                                                    to={`https://us.posthog.com/external_surveys/01984280-fc8a-0000-28a5-01078e2d553f?distinct_id=${user.email}`}
+                                                                    to={`https://us.posthog.com/external_surveys/01984280-fc8a-0000-28a5-01078e2d553f?distinct_id=${user?.email ?? 'john@acme.co'}`}
                                                                     target="_blank"
-                                                                >{`https://us.posthog.com/external_surveys/01984280-fc8a-0000-28a5-01078e2d553f?distinct_id=${user.email}`}</Link>
+                                                                >{`https://us.posthog.com/external_surveys/01984280-fc8a-0000-28a5-01078e2d553f?distinct_id=${user?.email ?? 'john@acme.co'}`}</Link>
                                                             </li>
                                                         </ul>
                                                     </>
