@@ -1807,9 +1807,9 @@ describe('processResultsForSurveyQuestions', () => {
             ]
             // For multiple choice questions, the response at questionIndex is an array of selected choices
             const results: SurveyRawResults = [
-                [['A', 'B'], null, 'user1', '2024-01-15T10:00:00Z'], // User 1: picked A and B for question 0
-                [['A'], null, 'user2', '2024-01-15T10:15:00Z'], // User 2: picked A only for question 0
-                [['C', 'Custom'], null, 'user3', '2024-01-15T10:30:00Z'], // User 3: picked C and a custom answer for question 0
+                [['A', 'B'], '', 'user1', '2024-01-15T10:00:00Z'], // User 1: picked A and B for question 0
+                [['A'], '', 'user2', '2024-01-15T10:15:00Z'], // User 2: picked A only for question 0
+                [['C', 'Custom'], '', 'user3', '2024-01-15T10:30:00Z'], // User 3: picked C and a custom answer for question 0
             ]
 
             const processed = processResultsForSurveyQuestions(questions, results)
