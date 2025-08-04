@@ -1,4 +1,4 @@
-import { path, selectors, kea } from 'kea'
+import { path, selectors, kea, reducers, actions, listeners } from 'kea'
 import { loaders } from 'kea-loaders'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -12,19 +12,39 @@ import { ErrorTrackingCorrelatedIssue } from '~/queries/schema/schema-general'
 export const errorTrackingImpactSceneLogic = kea<errorTrackingImpactSceneLogicType>([
     path(['scenes', 'error-tracking', 'configuration', 'errorTrackingImpactSceneLogic']),
 
-    loaders({
+    actions({
+        setEvent: (event: string | null) => ({ event }),
+    }),
+
+    reducers({
+        event: [
+            null as string | null,
+            {
+                setEvent: (_, { event }) => event,
+            },
+        ],
+    }),
+
+    loaders(({ values }) => ({
         issues: [
             [] as ErrorTrackingCorrelatedIssue[],
             {
                 loadIssues: async () => {
-                    const issues = await api.query(errorTrackingIssueCorrelationQuery({ events: [] }), {
-                        refresh: 'force_blocking',
-                    })
-                    return issues.results
+                    if (values.event) {
+                        const issues = await api.query(errorTrackingIssueCorrelationQuery({ events: [] }), {
+                            refresh: 'force_blocking',
+                        })
+                        return issues.results
+                    }
+                    return []
                 },
             },
         ],
-    }),
+    })),
+
+    listeners(({ actions }) => ({
+        setEvent: () => actions.loadIssues(),
+    })),
 
     selectors({
         breadcrumbs: [
