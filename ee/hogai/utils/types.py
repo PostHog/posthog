@@ -1,6 +1,6 @@
 import uuid
 from collections.abc import Sequence
-from enum import StrEnum
+from enum import Enum, StrEnum
 from typing import Annotated, Any, Literal, Optional, Self, TypeVar, Union
 
 from langchain_core.agents import AgentAction
@@ -103,15 +103,50 @@ StateType = TypeVar("StateType", bound=BaseModel)
 PartialStateType = TypeVar("PartialStateType", bound=BaseModel)
 
 
+class GraphType(Enum):
+    """Current graph types supported by the system."""
+
+    ASSISTANT = "assistant"
+    INSIGHTS = "insights"
+    FILTER_OPTIONS = "filter_options"
+
+
+class GraphContext(Enum):
+    """Graph execution contexts."""
+
+    ROOT = "root"  # Independent graph execution
+    SUBGRAPH = "subgraph"  # Subgraph within another graph
+
+
+class VersionMetadata(BaseModel):
+    """Version metadata for state migration tracking."""
+
+    schema_version: int
+    """Schema version number for migration tracking."""
+
+    migrated_at: str
+    """ISO timestamp when migration was applied."""
+
+    graph_type: GraphType
+    """Graph type (assistant, filteroptions, etc.) for migration routing."""
+
+    context: GraphContext
+    """Context (root, subgraph, etc.) for migration routing."""
+
+
 class BaseState(BaseModel):
     """Base state class with reset functionality."""
+
+    # Migration metadata (optional, won't break existing code)
+    version_metadata: Optional[VersionMetadata] = Field(default=None)
+    """Migration version and routing metadata."""
 
     @staticmethod
     def _get_ignored_reset_fields() -> set[str]:
         """
         Fields to ignore during state resets due to race conditions.
         """
-        return set()
+        return {"version_metadata"}
 
     @classmethod
     def get_reset_state(cls) -> Self:

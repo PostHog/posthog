@@ -1,4 +1,5 @@
 from ee.hogai.utils.types import AssistantNodeName
+from ee.hogai.utils.types import GraphType, GraphContext
 from .types import FilterOptionsState, FilterOptionsNodeName
 
 from .nodes import FilterOptionsNode, FilterOptionsToolsNode
@@ -10,8 +11,8 @@ from ee.hogai.graph.graph import BaseAssistantGraph
 class FilterOptionsGraph(BaseAssistantGraph[FilterOptionsState]):
     """Graph for generating filtering options based on user queries."""
 
-    def __init__(self, team, user, injected_prompts: Optional[dict] = None):
-        super().__init__(team, user, FilterOptionsState)
+    def __init__(self, team, user, injected_prompts: Optional[dict] = None, context: GraphContext = GraphContext.ROOT):
+        super().__init__(team, user, FilterOptionsState, GraphType.FILTER_OPTIONS, context)
         self.injected_prompts = injected_prompts or {}
 
     def add_filter_options_generator(self, next_node: AssistantNodeName = AssistantNodeName.END):

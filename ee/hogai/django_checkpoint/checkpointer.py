@@ -1,7 +1,10 @@
 import json
 import random
+import logging
 from collections.abc import AsyncIterator, Sequence
 from typing import Any, Optional, cast
+from datetime import datetime, UTC
+from posthog.settings import TEST
 
 from django.db import transaction
 from django.db.models import Prefetch, Q
@@ -19,12 +22,26 @@ from langgraph.checkpoint.base import (
 from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
 from langgraph.checkpoint.serde.types import TASKS, ChannelProtocol
 
+from ee.hogai.utils.types import GraphContext, GraphType, VersionMetadata
 from ee.models.assistant import ConversationCheckpoint, ConversationCheckpointBlob, ConversationCheckpointWrite
+from ee.hogai.django_checkpoint.migrations.registry import registry
 from posthog.sync import database_sync_to_async
+
+logger = logging.getLogger(__name__)
 
 
 class DjangoCheckpointer(BaseCheckpointSaver[str]):
     jsonplus_serde = JsonPlusSerializer()
+
+    def __init__(self, graph_type: GraphType | None = None, graph_context: GraphContext | None = None, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if not TEST and (not graph_type or not graph_context):
+            raise ValueError("graph_type and graph_context must be provided")
+
+        self._graph_metadata = {
+            "graph_type": graph_type.value if graph_type else None,
+            "context": graph_context.value if graph_context else None,
+        }
 
     def _load_writes(self, writes: Sequence[ConversationCheckpointWrite]) -> list[PendingWrite]:
         return (
@@ -102,6 +119,66 @@ class DjangoCheckpointer(BaseCheckpointSaver[str]):
             Q(thread_id=checkpoint.thread_id, checkpoint_ns=checkpoint.checkpoint_ns) & query
         )
 
+    async def _apply_migrations_to_checkpoint(self, checkpoint: ConversationCheckpoint) -> bool:
+        """
+        Apply all needed migrations to a checkpoint.
+
+        This method:
+        1. Determines current checkpoint version from metadata
+        2. Gets list of migrations needed to reach current version
+        3. Applies migrations in order
+        4. Updates migration statistics
+
+        Args:
+            checkpoint: ConversationCheckpoint to migrate
+
+        Returns:
+            True if any migrations were applied, False otherwise
+        """
+        # Get current checkpoint version
+        metadata = checkpoint.metadata or {}
+        current_version = registry.get_checkpoint_version(metadata)
+
+        # Get migrations that need to be applied
+        migrations_needed = registry.get_migrations_needed(current_version)
+
+        if not migrations_needed:
+            return False
+
+        if not self._graph_metadata["graph_type"] or not self._graph_metadata["context"]:
+            return False
+
+        # Apply each migration in order
+        migration_applied = False
+        for MigrationClass in migrations_needed:
+            try:
+                # Apply the migration to the checkpoint
+                applied = await MigrationClass.apply_to_checkpoint(
+                    checkpoint, self.serde, self._graph_metadata["graph_type"], self._graph_metadata["context"]
+                )
+
+                if applied:
+                    migration_applied = True
+
+            except Exception as e:
+                logger.exception(f"Failed to apply migration {MigrationClass.__name__}, error: {e}")
+                migration_applied = False
+                break
+
+        return migration_applied
+
+    def _add_version_metadata(self, state: dict[str, Any]) -> dict[str, Any]:
+        if not registry._migrations:
+            return state
+
+        version_metadata = VersionMetadata(
+            schema_version=registry.current_version,
+            migrated_at=datetime.now(UTC).isoformat(),
+            graph_type=GraphType(self._graph_metadata["graph_type"]),
+            context=GraphContext(self._graph_metadata["context"]),
+        )
+        return {**state, "version_metadata": version_metadata.model_dump()}
+
     async def alist(
         self,
         config: Optional[RunnableConfig],
@@ -129,6 +206,8 @@ class DjangoCheckpointer(BaseCheckpointSaver[str]):
             qs = qs[:limit]
 
         async for checkpoint in qs:
+            await self._apply_migrations_to_checkpoint(checkpoint)
+
             channel_values = self._get_checkpoint_channel_values(checkpoint)
             loaded_checkpoint: Checkpoint = self._load_json(checkpoint.checkpoint)
 
@@ -256,14 +335,16 @@ class DjangoCheckpointer(BaseCheckpointSaver[str]):
                 defaults={
                     "parent_checkpoint_id": checkpoint_id,
                     "checkpoint": self._dump_json({**checkpoint_copy, "pending_sends": []}),
-                    "metadata": self._dump_json(metadata),
+                    "metadata": self._add_version_metadata(self._dump_json(metadata)),
                 },
             )
 
             blobs = []
             for channel, version in new_versions.items():
                 type, blob = (
-                    self.serde.dumps_typed(channel_values[channel]) if channel in channel_values else ("empty", None)
+                    self.serde.dumps_typed(self._add_version_metadata(channel_values[channel]))
+                    if channel in channel_values
+                    else ("empty", None)
                 )
                 blobs.append(
                     ConversationCheckpointBlob(
@@ -320,7 +401,7 @@ class DjangoCheckpointer(BaseCheckpointSaver[str]):
 
             writes_to_create = []
             for idx, (channel, value) in enumerate(writes):
-                type, blob = self.serde.dumps_typed(value)
+                type, blob = self.serde.dumps_typed(self._add_version_metadata(value))
                 writes_to_create.append(
                     ConversationCheckpointWrite(
                         checkpoint=checkpoint,

@@ -8,7 +8,8 @@ from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
 from ee.hogai.graph.query_planner.nodes import QueryPlannerNode, QueryPlannerToolsNode
 from ee.hogai.graph.billing.nodes import BillingNode
 from ee.hogai.graph.title_generator.nodes import TitleGeneratorNode
-from ee.hogai.utils.types import AssistantNodeName, AssistantState
+from ee.hogai.utils.types import AssistantNodeName, AssistantState, GraphType, GraphContext
+
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
@@ -39,18 +40,22 @@ from .trends.nodes import TrendsGeneratorNode, TrendsGeneratorToolsNode
 from .base import StateType
 from .insights.nodes import InsightSearchNode
 
-global_checkpointer = DjangoCheckpointer()
-
 
 class BaseAssistantGraph(Generic[StateType]):
     _team: Team
     _user: User
     _graph: StateGraph
+    _graph_type: GraphType
+    _context: GraphContext
 
-    def __init__(self, team: Team, user: User, state_type: type[StateType]):
+    def __init__(
+        self, team: Team, user: User, state_type: type[StateType], graph_type: GraphType, context: GraphContext
+    ):
         self._team = team
         self._user = user
         self._graph = StateGraph(state_type)
+        self._graph_type = graph_type
+        self._context = context
         self._has_start_node = False
 
     def add_edge(self, from_node: AssistantNodeName, to_node: AssistantNodeName):
@@ -63,15 +68,48 @@ class BaseAssistantGraph(Generic[StateType]):
         self._graph.add_node(node, action)
         return self
 
-    def compile(self, checkpointer: DjangoCheckpointer | None = None):
+    def compile(
+        self,
+        checkpointer: DjangoCheckpointer | None = None,
+    ):
         if not self._has_start_node:
             raise ValueError("Start node not added to the graph")
-        return self._graph.compile(checkpointer=checkpointer or global_checkpointer)
+
+        if checkpointer is None:
+            checkpointer = DjangoCheckpointer(self._graph_type, self._context)
+
+        return self._graph.compile(checkpointer=checkpointer)
+
+    def add_subgraph(
+        self,
+        node_name: AssistantNodeName,
+        subgraph_class,
+        graph_type: GraphType,
+        next_node: AssistantNodeName | None = None,
+    ):
+        """
+        Add a subgraph with automatic context management.
+
+        This helper automatically configures the subgraph with SUBGRAPH context
+        and handles checkpointer setup.
+        """
+        # Create subgraph with subgraph-specific checkpointer
+        subgraph_instance = subgraph_class(self._team, self._user)
+        subgraph_checkpointer = DjangoCheckpointer(graph_type, GraphContext.SUBGRAPH)
+
+        compiled_subgraph = subgraph_instance.compile(checkpointer=subgraph_checkpointer)
+
+        self._graph.add_node(node_name, compiled_subgraph)
+
+        if next_node:
+            self._graph.add_edge(node_name, next_node)
+
+        return self
 
 
 class InsightsAssistantGraph(BaseAssistantGraph[AssistantState]):
-    def __init__(self, team: Team, user: User):
-        super().__init__(team, user, AssistantState)
+    def __init__(self, team: Team, user: User, context: GraphContext = GraphContext.ROOT):
+        super().__init__(team, user, AssistantState, GraphType.INSIGHTS, context)
 
     def add_rag_context(self):
         builder = self._graph
@@ -219,8 +257,8 @@ class InsightsAssistantGraph(BaseAssistantGraph[AssistantState]):
 
 
 class AssistantGraph(BaseAssistantGraph[AssistantState]):
-    def __init__(self, team: Team, user: User):
-        super().__init__(team, user, AssistantState)
+    def __init__(self, team: Team, user: User, context: GraphContext = GraphContext.ROOT):
+        super().__init__(team, user, AssistantState, GraphType.ASSISTANT, context)
 
     def add_root(
         self,
@@ -246,12 +284,9 @@ class AssistantGraph(BaseAssistantGraph[AssistantState]):
         return self
 
     def add_insights(self, next_node: AssistantNodeName = AssistantNodeName.ROOT):
-        builder = self._graph
-        insights_assistant_graph = InsightsAssistantGraph(self._team, self._user)
-        compiled_graph = insights_assistant_graph.compile_full_graph()
-        builder.add_node(AssistantNodeName.INSIGHTS_SUBGRAPH, compiled_graph)
-        builder.add_edge(AssistantNodeName.INSIGHTS_SUBGRAPH, next_node)
-        return self
+        return self.add_subgraph(
+            AssistantNodeName.INSIGHTS_SUBGRAPH, InsightsAssistantGraph, GraphType.INSIGHTS, next_node
+        )
 
     def add_memory_onboarding(
         self,
