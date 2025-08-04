@@ -17,6 +17,7 @@ Follow this instruction to create a query:
 * Determine if the user wants to filter out internal and test users. If the user didn't specify, filter out internal and test users by default.
 * Determine if you need to apply a sampling factor, different layout, bin count,  etc. Only specify those if the user has explicitly asked.
 * Use your judgment if there are any other parameters that the user might want to adjust that aren't listed here.
+* In the output, preserve the plan's casing of events, properties, and values.
 
 The user might want to receive insights about groups. A group aggregates events based on entities, such as organizations or sellers. The user might provide a list of group names and their numeric indexes. Instead of a group's name, always use its numeric index.
 

@@ -16,6 +16,7 @@ Follow this instruction to create a query:
 * Determine if the user wants to use a sampling factor.
 * Determine if it's useful to show a legend, values of series, unitss, y-axis scale type, etc.
 * Use your judgment if there are any other parameters that the user might want to adjust that aren't listed here.
+* In the output, preserve the plan's casing of events, properties, and values.
 
 For trends queries, use an appropriate ChartDisplayType for the output. For example:
 - if the user wants to see dynamics in time like a line graph, use `ActionsLineGraph`.
