@@ -25,7 +25,10 @@ export function killGracefully(): void {
     logger.error('⏲', 'Shutting plugin server down gracefully with SIGTERM...')
     process.kill(process.pid, 'SIGTERM')
     setTimeout(() => {
-        logger.error('⏲', `Plugin server still running after ${GRACEFUL_EXIT_PERIOD_SECONDS} s, killing it forcefully!`)
+        logger.error(
+            '⏲',
+            `Plugin server still running after ${GRACEFUL_EXIT_PERIOD_SECONDS} s, killing it forcefully!`
+        )
         process.exit(1)
     }, GRACEFUL_EXIT_PERIOD_SECONDS * 1000)
 }
@@ -492,19 +495,25 @@ export function groupBy<T extends Record<string, any>, K extends keyof T>(
     flat = false
 ): Record<T[K], T[] | T> {
     return flat
-        ? objects.reduce((grouping, currentItem) => {
-              if (currentItem[key] in grouping) {
-                  throw new Error(
-                      `Key "${String(key)}" has more than one matching value, which is not allowed in flat groupBy!`
-                  )
-              }
-              grouping[currentItem[key]] = currentItem
-              return grouping
-          }, {} as Record<T[K], T>)
-        : objects.reduce((grouping, currentItem) => {
-              ;(grouping[currentItem[key]] = grouping[currentItem[key]] || []).push(currentItem)
-              return grouping
-          }, {} as Record<T[K], T[]>)
+        ? objects.reduce(
+              (grouping, currentItem) => {
+                  if (currentItem[key] in grouping) {
+                      throw new Error(
+                          `Key "${String(key)}" has more than one matching value, which is not allowed in flat groupBy!`
+                      )
+                  }
+                  grouping[currentItem[key]] = currentItem
+                  return grouping
+              },
+              {} as Record<T[K], T>
+          )
+        : objects.reduce(
+              (grouping, currentItem) => {
+                  ;(grouping[currentItem[key]] = grouping[currentItem[key]] || []).push(currentItem)
+                  return grouping
+              },
+              {} as Record<T[K], T[]>
+          )
 }
 
 export function clamp(value: number, min: number, max: number): number {

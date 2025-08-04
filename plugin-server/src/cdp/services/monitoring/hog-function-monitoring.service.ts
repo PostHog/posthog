@@ -142,7 +142,7 @@ export class HogFunctionMonitoringService {
 
                         if (result.finished || result.error) {
                             // Process each timing entry individually instead of totaling them
-                            const timings = isHogFunctionResult(result) ? result.invocation.state?.timings ?? [] : []
+                            const timings = isHogFunctionResult(result) ? (result.invocation.state?.timings ?? []) : []
                             for (const timing of timings) {
                                 // Record metrics for this timing entry
                                 hogFunctionExecutionTimeSummary
