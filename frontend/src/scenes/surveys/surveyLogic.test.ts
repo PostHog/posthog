@@ -1774,10 +1774,10 @@ describe('processResultsForSurveyQuestions', () => {
                 },
             ]
             const results = [
-                ['Yes'], // User 1: picked Yes for question 0
-                ['No'], // User 2: picked No for question 0
-                ['Yes'], // User 3: picked Yes for question 0
-                ['Custom answer'], // User 4: picked custom answer for question 0
+                ['Yes', '', 'user1', '2024-01-15T10:00:00Z'], // User 1: picked Yes for question 0
+                ['No', '', 'user2', '2024-01-15T10:15:00Z'], // User 2: picked No for question 0
+                ['Yes', '', 'user3', '2024-01-15T10:30:00Z'], // User 3: picked Yes for question 0
+                ['Custom answer', '', 'user4', '2024-01-15T10:45:00Z'], // User 4: picked custom answer for question 0
             ]
 
             const processed = processResultsForSurveyQuestions(questions, results)
@@ -1789,9 +1789,23 @@ describe('processResultsForSurveyQuestions', () => {
             // Check that all values exist (order may vary due to sorting)
             const dataMap = new Map(singleData.data.map((item) => [item.label, item]))
             expect(dataMap.get('Yes')).toEqual({ label: 'Yes', value: 2, isPredefined: true })
-            expect(dataMap.get('No')).toEqual({ label: 'No', value: 1, isPredefined: true })
+            expect(dataMap.get('No')).toEqual({
+                label: 'No',
+                value: 1,
+                isPredefined: true,
+                distinctId: 'user2',
+                personProperties: undefined,
+                timestamp: '2024-01-15T10:15:00Z',
+            })
             expect(dataMap.get('Maybe')).toEqual({ label: 'Maybe', value: 0, isPredefined: true })
-            expect(dataMap.get('Custom answer')).toEqual({ label: 'Custom answer', value: 1, isPredefined: false })
+            expect(dataMap.get('Custom answer')).toEqual({
+                label: 'Custom answer',
+                value: 1,
+                isPredefined: false,
+                distinctId: 'user4',
+                personProperties: undefined,
+                timestamp: '2024-01-15T10:45:00Z',
+            })
         })
     })
 

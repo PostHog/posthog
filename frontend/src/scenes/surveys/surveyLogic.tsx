@@ -257,11 +257,12 @@ function isQuestionOpenChoice(question: SurveyQuestion, choiceIndex: number): bo
     return !!(choiceIndex === question.choices.length - 1 && question?.hasOpenChoice)
 }
 
-// Extract question processors into separate functions for better maintainability
-function processSingleChoiceQuestion(
+// Shared utility for processing choice-based questions
+function processChoiceQuestion(
     question: MultipleSurveyQuestion,
     questionIndex: number,
-    results: SurveyRawResults
+    results: SurveyRawResults,
+    questionType: SurveyQuestionType.SingleChoice | SurveyQuestionType.MultipleChoice
 ): ChoiceQuestionProcessedResponses {
     const counts: { [key: string]: number } = {}
     // Track person data for unique responses
@@ -277,16 +278,42 @@ function processSingleChoiceQuestion(
         }
     })
 
-    // Count responses
+    // Count responses based on question type
     results?.forEach((row: SurveyResponseRow) => {
-        const value = row[questionIndex] as string
-        if (!isEmptyOrUndefined(value)) {
-            const previousCount = counts[value] || 0
-            counts[value] = previousCount + 1
-            total += 1
+        if (questionType === SurveyQuestionType.SingleChoice) {
+            const value = row[questionIndex] as string
+            if (!isEmptyOrUndefined(value)) {
+                const previousCount = counts[value] || 0
+                counts[value] = previousCount + 1
+                total += 1
 
-            // Store person data only for the first occurrence (unique responses)
-            if (previousCount === 0) {
+                // Store person data only for the first occurrence (unique responses)
+                if (previousCount === 0) {
+                    const distinctId = row.at(-2) as string
+                    const timestamp = row.at(-1) as string
+                    const unparsedPersonProperties = row.at(-3)
+                    let personProperties: Record<string, any> | undefined
+
+                    if (unparsedPersonProperties && unparsedPersonProperties !== null) {
+                        try {
+                            personProperties = JSON.parse(unparsedPersonProperties as string)
+                        } catch {
+                            // Ignore parsing errors for person properties
+                        }
+                    }
+
+                    uniqueResponsePersonData[value] = {
+                        distinctId,
+                        personProperties,
+                        timestamp,
+                    }
+                }
+            }
+        } else {
+            // Multiple choice
+            const value = row[questionIndex] as string[]
+            if (value !== null && value !== undefined) {
+                total += 1
                 const distinctId = row.at(-2) as string
                 const timestamp = row.at(-1) as string
                 const unparsedPersonProperties = row.at(-3)
@@ -300,11 +327,22 @@ function processSingleChoiceQuestion(
                     }
                 }
 
-                uniqueResponsePersonData[value] = {
-                    distinctId,
-                    personProperties,
-                    timestamp,
-                }
+                value.forEach((choice) => {
+                    const cleaned = choice.replace(/^['"]+|['"]+$/g, '')
+                    if (!isEmptyOrUndefined(cleaned)) {
+                        const previousCount = counts[cleaned] || 0
+                        counts[cleaned] = previousCount + 1
+
+                        // Store person data only for the first occurrence (unique responses)
+                        if (previousCount === 0) {
+                            uniqueResponsePersonData[cleaned] = {
+                                distinctId,
+                                personProperties,
+                                timestamp,
+                            }
+                        }
+                    }
+                })
             }
         }
     })
@@ -318,7 +356,7 @@ function processSingleChoiceQuestion(
             }
 
             // Add person data for unique responses
-            if (value === 1 && uniqueResponsePersonData[label]) {
+            if (uniqueResponsePersonData[label]) {
                 return {
                     ...baseData,
                     distinctId: uniqueResponsePersonData[label].distinctId,
@@ -332,7 +370,7 @@ function processSingleChoiceQuestion(
         .sort((a, b) => b.value - a.value)
 
     return {
-        type: SurveyQuestionType.SingleChoice,
+        type: questionType,
         data,
         totalResponses: total,
     }
@@ -394,89 +432,6 @@ function processRatingQuestion(
     }
 }
 
-function processMultipleChoiceQuestion(
-    question: MultipleSurveyQuestion,
-    questionIndex: number,
-    results: SurveyRawResults
-): ChoiceQuestionProcessedResponses {
-    const counts: { [key: string]: number } = {}
-    // Track person data for unique responses
-    const uniqueResponsePersonData: {
-        [key: string]: { distinctId: string; personProperties?: Record<string, any>; timestamp: string }
-    } = {}
-    let total = 0
-
-    // Zero-fill predefined choices (excluding open choice)
-    question.choices?.forEach((choice: string, choiceIndex: number) => {
-        if (!isQuestionOpenChoice(question, choiceIndex)) {
-            counts[choice] = 0
-        }
-    })
-
-    results?.forEach((row: SurveyResponseRow) => {
-        const value = row[questionIndex] as string[]
-        if (value !== null && value !== undefined) {
-            total += 1
-            const distinctId = row.at(-2) as string
-            const timestamp = row.at(-1) as string
-            const unparsedPersonProperties = row.at(-3)
-            let personProperties: Record<string, any> | undefined
-
-            if (unparsedPersonProperties && unparsedPersonProperties !== null) {
-                try {
-                    personProperties = JSON.parse(unparsedPersonProperties as string)
-                } catch {
-                    // Ignore parsing errors for person properties
-                }
-            }
-
-            value.forEach((choice) => {
-                const cleaned = choice.replace(/^['"]+|['"]+$/g, '')
-                if (!isEmptyOrUndefined(cleaned)) {
-                    const previousCount = counts[cleaned] || 0
-                    counts[cleaned] = previousCount + 1
-
-                    // Store person data only for the first occurrence (unique responses)
-                    if (previousCount === 0) {
-                        uniqueResponsePersonData[cleaned] = {
-                            distinctId,
-                            personProperties,
-                            timestamp,
-                        }
-                    }
-                }
-            })
-        }
-    })
-
-    const data = Object.entries(counts)
-        .map(([label, value]) => {
-            const baseData = {
-                label,
-                value,
-                isPredefined: question.choices?.includes(label) ?? false,
-            }
-
-            if (uniqueResponsePersonData[label]) {
-                return {
-                    ...baseData,
-                    distinctId: uniqueResponsePersonData[label].distinctId,
-                    personProperties: uniqueResponsePersonData[label].personProperties,
-                    timestamp: uniqueResponsePersonData[label].timestamp,
-                }
-            }
-
-            return baseData
-        })
-        .sort((a, b) => b.value - a.value)
-
-    return {
-        type: SurveyQuestionType.MultipleChoice,
-        data,
-        totalResponses: total,
-    }
-}
-
 function processOpenQuestion(questionIndex: number, results: SurveyRawResults): OpenQuestionProcessedResponses {
     const data: { distinctId: string; response: string; personProperties?: Record<string, any>; timestamp?: string }[] =
         []
@@ -532,13 +487,11 @@ export function processResultsForSurveyQuestions(
 
         switch (question.type) {
             case SurveyQuestionType.SingleChoice:
-                processedData = processSingleChoiceQuestion(question, index, results)
+            case SurveyQuestionType.MultipleChoice:
+                processedData = processChoiceQuestion(question, index, results, question.type)
                 break
             case SurveyQuestionType.Rating:
                 processedData = processRatingQuestion(question, index, results)
-                break
-            case SurveyQuestionType.MultipleChoice:
-                processedData = processMultipleChoiceQuestion(question, index, results)
                 break
             case SurveyQuestionType.Open:
                 processedData = processOpenQuestion(index, results)
