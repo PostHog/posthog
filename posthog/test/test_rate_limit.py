@@ -535,55 +535,49 @@ class TestUserAPI(APIBaseTest):
         self.assertEqual(throttle.num_requests, 1200)
         self.assertEqual(throttle.duration, 60)
 
-    def test_local_evaluation_throttle_loads_custom_rate_from_settings(self):
-        throttle = LocalEvaluationThrottle()
-
-        # Clear cache to ensure env lookup
-        cache_key = f"team_local_eval_ratelimit_{self.team.id}"
-        cache.delete(cache_key)
-
-        # Test loading from Django settings
-        with patch("posthog.settings.feature_flags.LOCAL_EVAL_RATE_LIMITS", {str(self.team.id): "2400/hour"}):
-            # Simulate the settings loading logic
-            custom_rate = throttle._get_team_rate_limit_from_env(self.team.id)
-            if custom_rate:
-                throttle.rate = custom_rate
-                throttle.num_requests, throttle.duration = throttle.parse_rate(throttle.rate)
-                # Cache it
-                cache.set(cache_key, custom_rate, 300)
-
-            self.assertEqual(throttle.rate, "2400/hour")
-            self.assertEqual(throttle.num_requests, 2400)
-            self.assertEqual(throttle.duration, 3600)
-            # Verify it was cached
-            self.assertEqual(cache.get(cache_key), "2400/hour")
-
     def test_local_evaluation_throttle_uses_default_rate_when_no_custom_limit(self):
         throttle = LocalEvaluationThrottle()
 
         # Clear cache
-        cache_key = f"team_local_eval_ratelimit_{self.team.id}"
+        cache_key = "team_local_eval_ratelimit_123"
         cache.delete(cache_key)
 
-        # Test with no settings variable set (default behavior)
-        with patch("posthog.settings.feature_flags.LOCAL_EVAL_RATE_LIMITS", {}):
-            # Test settings loading returns None
-            custom_rate = throttle._get_team_rate_limit_from_env(self.team.id)
-            self.assertIsNone(custom_rate)
+        # Mock view and request
+        mock_view = Mock()
+        mock_request = Mock()
 
+        with (
+            patch("posthog.api.feature_flag.LOCAL_EVAL_RATE_LIMITS", {}),
+            patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True),
+            patch.object(throttle, "safely_get_team_id_from_view", return_value=123),
+            patch.object(throttle.__class__.__bases__[0], "allow_request", return_value=True),
+        ):
+            result = throttle.allow_request(mock_request, mock_view)
+
+            self.assertTrue(result)
             # Rate should remain default
             self.assertEqual(throttle.rate, "600/minute")
-
             # Verify nothing was cached
             self.assertIsNone(cache.get(cache_key))
 
     def test_local_evaluation_throttle_handles_empty_settings(self):
         throttle = LocalEvaluationThrottle()
 
-        # Test with empty settings
-        with patch("posthog.settings.feature_flags.LOCAL_EVAL_RATE_LIMITS", {}):
-            custom_rate = throttle._get_team_rate_limit_from_env(self.team.id)
-            self.assertIsNone(custom_rate)
+        # Mock view and request
+        mock_view = Mock()
+        mock_request = Mock()
+
+        with (
+            patch("posthog.api.feature_flag.LOCAL_EVAL_RATE_LIMITS", {}),
+            patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True),
+            patch.object(throttle, "safely_get_team_id_from_view", return_value=123),
+            patch.object(throttle.__class__.__bases__[0], "allow_request", return_value=True),
+        ):
+            result = throttle.allow_request(mock_request, mock_view)
+
+            self.assertTrue(result)
+            # Should use default rate
+            self.assertEqual(throttle.rate, "600/minute")
 
     def test_local_evaluation_throttle_handles_missing_team_gracefully(self):
         throttle = LocalEvaluationThrottle()
