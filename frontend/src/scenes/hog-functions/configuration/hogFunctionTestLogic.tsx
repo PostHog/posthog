@@ -102,7 +102,7 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
         receiveExampleGlobals: (globals: CyclotronJobInvocationGlobals | null) => ({ globals }),
         setJsonError: (error: string | null) => ({ error }),
         validateJson: (value: string, editor: editor.IStandaloneCodeEditor, decorations: string[]) =>
-            ({ value, editor, decorations } as CodeEditorValidation),
+            ({ value, editor, decorations }) as CodeEditorValidation,
         setDecorationIds: (decorationIds: string[]) => ({ decorationIds }),
         cancelSampleGlobalsLoading: true,
     }),

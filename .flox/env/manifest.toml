@@ -71,7 +71,7 @@ UV_PROJECT_ENVIRONMENT = "$FLOX_ENV_CACHE/venv"
 on-activate = '''
 # Guide through installing and configuring direnv if it's not present (optionally)
 
-if [[ -t 0 ]] && [[ -z "${DIRENV_DIR:-}" ]] && [ ! -f "$FLOX_ENV_CACHE/.hush-direnv" ]; then
+if [[ -t 0 ]] && ! command -v direnv >/dev/null 2>&1 && [ ! -f "$FLOX_ENV_CACHE/.hush-direnv" ]; then
   read -p "👉 For auto-activation of the environment, we recommend direnv (https://direnv.net).
 ❓ Would you like direnv to be set up in $(basename "$SHELL") now? (Y/n)" -n 1 -r
   echo
