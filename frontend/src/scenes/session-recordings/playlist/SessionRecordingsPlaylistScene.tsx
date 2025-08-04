@@ -10,10 +10,15 @@ import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { SceneExport } from 'scenes/sceneTypes'
 import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 
-import { isUniversalFilters } from '../utils'
-import { SessionRecordingsPlaylist } from './SessionRecordingsPlaylist'
-import { convertLegacyFiltersToUniversalFilters } from './sessionRecordingsPlaylistLogic'
-import { sessionRecordingsPlaylistSceneLogic } from './sessionRecordingsPlaylistSceneLogic'
+import { SceneCommonButtons } from 'lib/components/Scenes/SceneCommonButtons'
+import { SceneFile } from 'lib/components/Scenes/SceneFile'
+import { SceneMetalyticsSummaryButton } from 'lib/components/Scenes/SceneMetalyticsSummaryButton'
+import { SceneTextarea } from 'lib/components/Scenes/SceneTextarea'
+import { SceneTextInput } from 'lib/components/Scenes/SceneTextInput'
+import { SceneActivityIndicator } from 'lib/components/Scenes/SceneUpdateActivityInfo'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import {
     ScenePanel,
     ScenePanelActions,
@@ -21,15 +26,10 @@ import {
     ScenePanelDivider,
     ScenePanelMetaInfo,
 } from '~/layout/scenes/SceneLayout'
-import { SceneCommonButtons } from 'lib/components/Scenes/SceneCommonButtons'
-import { SceneFile } from 'lib/components/Scenes/SceneFile'
-import { SceneActivityIndicator } from 'lib/components/Scenes/SceneUpdateActivityInfo'
-import { SceneMetalyticsSummaryButton } from 'lib/components/Scenes/SceneMetalyticsSummaryButton'
-import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
-import { SceneDescription } from 'lib/components/Scenes/SceneDescription'
-import { SceneName } from 'lib/components/Scenes/SceneName'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { isUniversalFilters } from '../utils'
+import { SessionRecordingsPlaylist } from './SessionRecordingsPlaylist'
+import { convertLegacyFiltersToUniversalFilters } from './sessionRecordingsPlaylistLogic'
+import { sessionRecordingsPlaylistSceneLogic } from './sessionRecordingsPlaylistSceneLogic'
 
 const RESOURCE_TYPE = 'replay-collection'
 export const scene: SceneExport = {
@@ -174,13 +174,15 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
                     />
                 </ScenePanelCommonActions>
                 <ScenePanelMetaInfo>
-                    <SceneName
+                    <SceneTextInput
+                        name="name"
                         defaultValue={playlist.name || ''}
                         onSave={(value) => updatePlaylist({ name: value })}
                         dataAttrKey={RESOURCE_TYPE}
                     />
 
-                    <SceneDescription
+                    <SceneTextarea
+                        name="description"
                         defaultValue={playlist.description || ''}
                         onSave={(value) => updatePlaylist({ description: value })}
                         dataAttrKey={RESOURCE_TYPE}

@@ -19,7 +19,21 @@ export type SceneNameProps = {
 }
 
 // Common props for all scene inputs
+export type SceneTextInputProps = SceneCanEditProps &
+    SceneDataAttrKeyProps &
+    SceneNameProps &
+    SceneLoadingProps & {
+        defaultValue?: string
+        onSave: (value: string) => void
+        optional?: boolean
+    }
+
+export type SceneTextareaProps = SceneTextInputProps & {
+    markdown?: boolean
+}
+
 export type SceneInputProps = SceneCanEditProps &
+    SceneDataAttrKeyProps &
     SceneDataAttrKeyProps &
     SceneLoadingProps & {
         defaultValue?: string

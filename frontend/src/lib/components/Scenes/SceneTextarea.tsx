@@ -3,14 +3,10 @@ import { TextareaPrimitive } from 'lib/ui/TextareaPrimitive/TextareaPrimitive'
 import { useEffect, useState } from 'react'
 import { ScenePanelLabel } from '~/layout/scenes/SceneLayout'
 import { SceneLoadingSkeleton } from './SceneLoadingSkeleton'
-import { SceneInputProps, SceneSaveCancelButtons } from './utils'
-import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown/LemonMarkdown'
+import { SceneSaveCancelButtons, SceneTextareaProps } from './utils'
+import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 
-type SceneDescriptionProps = SceneInputProps & {
-    markdown?: boolean
-}
-
-export function SceneDescription({
+export function SceneTextarea({
     defaultValue = '',
     onSave,
     dataAttrKey,
@@ -18,11 +14,14 @@ export function SceneDescription({
     canEdit = true,
     isLoading = false,
     markdown = false,
-}: SceneDescriptionProps): JSX.Element {
+    name,
+}: SceneTextareaProps): JSX.Element {
     const [localValue, setLocalValue] = useState(defaultValue)
     const [localIsEditing, setLocalIsEditing] = useState(false)
     const [hasChanged, setHasChanged] = useState(false)
     const [error, setError] = useState<string | null>(null)
+
+    const nameCapitalized = name.charAt(0).toUpperCase() + name.slice(1)
 
     const handleSubmit = (e: React.FormEvent<HTMLFormElement>): void => {
         e.preventDefault()
@@ -34,11 +33,11 @@ export function SceneDescription({
     useEffect(() => {
         setHasChanged(localValue !== defaultValue)
         if (localValue.length === 0 && !optional) {
-            setError('Description is required')
+            setError(`${nameCapitalized} is required`)
         } else {
             setError(null)
         }
-    }, [localValue, defaultValue, optional])
+    }, [localValue, defaultValue, optional, nameCapitalized])
 
     useEffect(() => {
         if (!isLoading && !localIsEditing) {
@@ -51,16 +50,16 @@ export function SceneDescription({
     }
 
     return localIsEditing ? (
-        <form onSubmit={handleSubmit} name="page-description-form" className="flex flex-col gap-1">
-            <ScenePanelLabel htmlFor="page-description-input" title="Description">
+        <form onSubmit={handleSubmit} name={`page-${name}-form`} className="flex flex-col gap-1">
+            <ScenePanelLabel htmlFor={`page-${name}-input`} title={nameCapitalized}>
                 <TextareaPrimitive
                     value={localValue}
                     onChange={(e) => {
                         setLocalValue(e.target.value)
                     }}
-                    placeholder={optional ? 'Description (optional)' : 'Description'}
-                    id="page-description-input"
-                    data-attr={`${dataAttrKey}-description-input`}
+                    placeholder={optional ? `${nameCapitalized} (optional)` : nameCapitalized}
+                    id={`page-${name}-input`}
+                    data-attr={`${dataAttrKey}-${name}-input`}
                     autoFocus
                     error={!!error}
                     markdown={markdown}
@@ -68,7 +67,7 @@ export function SceneDescription({
             </ScenePanelLabel>
 
             <SceneSaveCancelButtons
-                name="description"
+                name={name}
                 onCancel={() => {
                     setLocalValue(defaultValue)
                     setLocalIsEditing(false)
@@ -80,11 +79,11 @@ export function SceneDescription({
             />
         </form>
     ) : (
-        <ScenePanelLabel title="Description">
+        <ScenePanelLabel title={nameCapitalized}>
             <ButtonPrimitive
                 className="flex gap-1 items-center break-words line-clamp-5"
                 onClick={() => setLocalIsEditing(true)}
-                tooltip={canEdit ? 'Edit description' : 'Description is read-only'}
+                tooltip={canEdit ? `Edit ${name}` : `${nameCapitalized} is read-only`}
                 autoHeight
                 menuItem
                 inert={!canEdit}
@@ -96,7 +95,9 @@ export function SceneDescription({
                         defaultValue
                     )
                 ) : (
-                    <span className="text-tertiary font-normal">No description {optional ? '(optional)' : ''}</span>
+                    <span className="text-tertiary font-normal">
+                        No {name} {optional ? '(optional)' : ''}
+                    </span>
                 )}
             </ButtonPrimitive>
         </ScenePanelLabel>

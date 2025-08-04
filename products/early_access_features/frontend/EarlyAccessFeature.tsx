@@ -46,16 +46,16 @@ import {
 
 import { SceneFile } from 'lib/components/Scenes/SceneFile'
 
+import { SceneMetalyticsSummaryButton } from 'lib/components/Scenes/SceneMetalyticsSummaryButton'
+import { SceneSelect } from 'lib/components/Scenes/SceneSelect'
+import { SceneTextarea } from 'lib/components/Scenes/SceneTextarea'
+import { SceneTextInput } from 'lib/components/Scenes/SceneTextInput'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { ScenePanel, ScenePanelActions, ScenePanelDivider, ScenePanelMetaInfo } from '~/layout/scenes/SceneLayout'
 import { earlyAccessFeatureLogic } from './earlyAccessFeatureLogic'
 import { InstructionsModal } from './InstructionsModal'
-import { SceneMetalyticsSummaryButton } from 'lib/components/Scenes/SceneMetalyticsSummaryButton'
-import { SceneName } from 'lib/components/Scenes/SceneName'
-import { SceneDescription } from 'lib/components/Scenes/SceneDescription'
-import { SceneSelect } from 'lib/components/Scenes/SceneSelect'
 
 const RESOURCE_TYPE = 'early-access-feature'
 
@@ -259,14 +259,16 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
 
             <ScenePanel>
                 <ScenePanelMetaInfo>
-                    <SceneName
+                    <SceneTextInput
+                        name="name"
                         defaultValue={earlyAccessFeature.name}
                         onSave={(value) => {
                             setEarlyAccessFeatureValue('name', value)
                         }}
                         dataAttrKey={RESOURCE_TYPE}
                     />
-                    <SceneDescription
+                    <SceneTextarea
+                        name="description"
                         defaultValue={earlyAccessFeature.description || ''}
                         onSave={(value) => {
                             setEarlyAccessFeatureValue('description', value)

@@ -3,22 +3,23 @@ import { TextareaPrimitive } from 'lib/ui/TextareaPrimitive/TextareaPrimitive'
 import { useEffect, useState } from 'react'
 import { ScenePanelLabel } from '~/layout/scenes/SceneLayout'
 import { SceneLoadingSkeleton } from './SceneLoadingSkeleton'
-import { SceneInputProps, SceneSaveCancelButtons } from './utils'
+import { SceneTextInputProps, SceneSaveCancelButtons } from './utils'
 
-type SceneNameProps = SceneInputProps
-
-export function SceneName({
+export function SceneTextInput({
     defaultValue = '',
     onSave,
     dataAttrKey,
     optional = false,
     canEdit = true,
     isLoading = false,
-}: SceneNameProps): JSX.Element {
+    name,
+}: SceneTextInputProps): JSX.Element {
     const [localValue, setLocalValue] = useState(defaultValue)
     const [localIsEditing, setLocalIsEditing] = useState(false)
     const [hasChanged, setHasChanged] = useState(false)
     const [error, setError] = useState<string | null>(null)
+
+    const nameCapitalized = name.charAt(0).toUpperCase() + name.slice(1)
 
     const handleSubmit = (e: React.FormEvent<HTMLFormElement>): void => {
         e.preventDefault()
@@ -30,11 +31,11 @@ export function SceneName({
     useEffect(() => {
         setHasChanged(localValue !== defaultValue)
         if (localValue.length === 0 && !optional) {
-            setError('Name is required')
+            setError(`${nameCapitalized} is required`)
         } else {
             setError(null)
         }
-    }, [localValue, defaultValue, optional])
+    }, [localValue, defaultValue, optional, nameCapitalized])
 
     useEffect(() => {
         if (!isLoading && !localIsEditing) {
@@ -47,23 +48,23 @@ export function SceneName({
     }
 
     return localIsEditing ? (
-        <form onSubmit={handleSubmit} name="page-name-form" className="flex flex-col gap-1">
-            <ScenePanelLabel htmlFor="page-name-input" title="Name">
+        <form onSubmit={handleSubmit} name={`page-${name}-form`} className="flex flex-col gap-1">
+            <ScenePanelLabel htmlFor={`page-${name}-input`} title={nameCapitalized}>
                 <TextareaPrimitive
                     value={localValue}
                     onChange={(e) => {
                         setLocalValue(e.target.value)
                     }}
-                    placeholder={`Name ${optional ? '(optional)' : ''}`}
-                    id="page-name-input"
-                    data-attr={`${dataAttrKey}-name-input`}
+                    placeholder={`${nameCapitalized} ${optional ? '(optional)' : ''}`}
+                    id={`page-${name}-input`}
+                    data-attr={`${dataAttrKey}-${name}-input`}
                     autoFocus
                     error={!!error}
                 />
             </ScenePanelLabel>
 
             <SceneSaveCancelButtons
-                name="name"
+                name={name}
                 onCancel={() => {
                     setLocalValue(defaultValue)
                     setLocalIsEditing(false)
@@ -75,12 +76,12 @@ export function SceneName({
             />
         </form>
     ) : (
-        <ScenePanelLabel title="Name">
+        <ScenePanelLabel title={nameCapitalized}>
             <ButtonPrimitive
                 className="hyphens-auto flex gap-1 items-center"
                 lang="en"
                 onClick={() => setLocalIsEditing(true)}
-                tooltip={canEdit ? 'Edit name' : 'Name is read-only'}
+                tooltip={canEdit ? `Edit ${name}` : `${nameCapitalized} is read-only`}
                 autoHeight
                 menuItem
                 inert={!canEdit}
@@ -88,7 +89,9 @@ export function SceneName({
                 {localValue !== '' ? (
                     localValue
                 ) : (
-                    <span className="text-tertiary font-normal">No name {optional ? '(optional)' : ''}</span>
+                    <span className="text-tertiary font-normal">
+                        No {name} {optional ? '(optional)' : ''}
+                    </span>
                 )}
             </ButtonPrimitive>
         </ScenePanelLabel>

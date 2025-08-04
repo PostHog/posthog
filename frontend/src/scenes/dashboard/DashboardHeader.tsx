@@ -41,12 +41,12 @@ import { IconGridMasonry, IconNotebook, IconPalette, IconScreen, IconTrash } fro
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { SceneExportDropdownMenu } from 'lib/components/Scenes/InsightOrDashboard/SceneExportDropdownMenu'
 import { SceneCommonButtons } from 'lib/components/Scenes/SceneCommonButtons'
-import { SceneDescription } from 'lib/components/Scenes/SceneDescription'
 import { SceneFile } from 'lib/components/Scenes/SceneFile'
 import { SceneMetalyticsSummaryButton } from 'lib/components/Scenes/SceneMetalyticsSummaryButton'
-import { SceneName } from 'lib/components/Scenes/SceneName'
 import { SceneSubscribeButton } from 'lib/components/Scenes/SceneSubscribeButton'
 import { SceneTags } from 'lib/components/Scenes/SceneTags'
+import { SceneTextarea } from 'lib/components/Scenes/SceneTextarea'
+import { SceneTextInput } from 'lib/components/Scenes/SceneTextInput'
 import { SceneActivityIndicator } from 'lib/components/Scenes/SceneUpdateActivityInfo'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
@@ -492,7 +492,8 @@ export function DashboardHeader(): JSX.Element | null {
                     />
                 </ScenePanelCommonActions>
                 <ScenePanelMetaInfo>
-                    <SceneName
+                    <SceneTextInput
+                        name="name"
                         defaultValue={dashboard?.name || ''}
                         onSave={(value) => updateDashboard({ id: dashboard?.id, name: value, allowUndo: true })}
                         dataAttrKey={RESOURCE_TYPE}
@@ -500,7 +501,8 @@ export function DashboardHeader(): JSX.Element | null {
                         isLoading={dashboardLoading}
                     />
 
-                    <SceneDescription
+                    <SceneTextarea
+                        name="description"
                         defaultValue={dashboard?.description || ''}
                         onSave={(value) => updateDashboard({ id: dashboard?.id, description: value, allowUndo: true })}
                         dataAttrKey={RESOURCE_TYPE}
