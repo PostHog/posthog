@@ -1644,10 +1644,10 @@ HOGQL_AGGREGATIONS: dict[str, HogQLFunctionMeta] = {
     "countDistinctIf": HogQLFunctionMeta("countDistinctIf", 1, 2, aggregate=True),
     "countMapIf": HogQLFunctionMeta("countMapIf", 2, 3, aggregate=True),
     "min": HogQLFunctionMeta(
-        "min", 
-        1, 
-        1, 
-        aggregate=True, 
+        "min",
+        1,
+        1,
+        aggregate=True,
         case_sensitive=False,
         signatures=[
             ((DateTimeType(),), DateTimeType()),  # MIN(DateTime) return DateTime
@@ -1659,17 +1659,17 @@ HOGQL_AGGREGATIONS: dict[str, HogQLFunctionMeta] = {
     ),
     "minIf": HogQLFunctionMeta("minIf", 2, 2, aggregate=True),
     "max": HogQLFunctionMeta(
-        "max", 
-        1, 
-        1, 
-        aggregate=True, 
+        "max",
+        1,
+        1,
+        aggregate=True,
         case_sensitive=False,
         signatures=[
-            ((DateTimeType(),), DateTimeType()),  # MIN(DateTime) return DateTime
-            ((DateType(),), DateType()),          # MIN(Date) return Date
-            ((IntegerType(),), IntegerType()),    # MIN(Integer) return Integer
-            ((FloatType(),), FloatType()),        # MIN(Float) return Float
-            ((StringType(),), StringType()),      # MIN(String) return String
+            ((DateTimeType(),), DateTimeType()),  # MAX(DateTime) return DateTime
+            ((DateType(),), DateType()),          # MAX(Date) return Date
+            ((IntegerType(),), IntegerType()),    # MAX(Integer) return Integer
+            ((FloatType(),), FloatType()),        # MAX(Float) return Float
+            ((StringType(),), StringType()),      # MAX(String) return String
         ]
     ),
     "maxIf": HogQLFunctionMeta("maxIf", 2, 2, aggregate=True),
