@@ -312,8 +312,9 @@ export class HogExecutorService {
         const addLog = createAddLogFunction(result.logs)
 
         if (
-            invocation.state.globals.inputs.oauth.refreshed_at + invocation.state.globals.inputs.oauth.expires_in / 2 <
-            Date.now()
+            invocation.state.globals.inputs?.oauth?.refreshed_at +
+                invocation.state.globals.inputs?.oauth?.expires_in / 2 <
+            Math.floor(Date.now() / 1000)
         ) {
             // If we have a high lag in the hog-workers, OAuth tokens will expire before they are used
             // If the OAuth token is about to expire, we should refresh it
