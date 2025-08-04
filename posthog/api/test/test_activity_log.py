@@ -196,8 +196,6 @@ class TestActivityLog(APIBaseTest, QueryMatchingTest):
 
 class TestActivityLogTransactions(TransactionTestCase):
     def setUp(self):
-        from posthog.models import User
-
         self.organization = Organization.objects.create(name="Test Organization")
         self.team = Team.objects.create(
             organization=self.organization,
