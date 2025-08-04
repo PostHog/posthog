@@ -92,11 +92,18 @@ export const sceneLogic = kea<sceneLogicType>([
             method,
         }),
         // 3. Set the `scene` reducer
-        setScene: (scene: string, sceneKey: string | null, params: SceneParams, scrollToTop: boolean = false) => ({
+        setScene: (
+            scene: string,
+            sceneKey: string | null,
+            params: SceneParams,
+            scrollToTop: boolean = false,
+            loadedScene?: LoadedScene
+        ) => ({
             scene,
             sceneKey,
             params,
             scrollToTop,
+            loadedScene,
         }),
         setLoadedScene: (loadedScene: LoadedScene) => ({
             loadedScene,
@@ -337,12 +344,12 @@ export const sceneLogic = kea<sceneLogicType>([
         loadScene: async ({ scene, sceneKey, params, method }, breakpoint) => {
             const clickedLink = method === 'PUSH'
             if (values.scene === scene) {
-                actions.setScene(scene, sceneKey, params, clickedLink)
+                actions.setScene(scene, sceneKey, params, clickedLink, values.loadedScenes[scene])
                 return
             }
 
             if (!props.scenes?.[scene]) {
-                actions.setScene(Scene.Error404, null, emptySceneParams, clickedLink)
+                actions.setScene(Scene.Error404, null, emptySceneParams, clickedLink, values.loadedScenes[scene])
                 return
             }
 
@@ -420,7 +427,7 @@ export const sceneLogic = kea<sceneLogicType>([
                     }
                 }
             }
-            actions.setScene(scene, sceneKey, params, clickedLink || wasNotLoaded)
+            actions.setScene(scene, sceneKey, params, clickedLink || wasNotLoaded, loadedScene)
         },
         reloadBrowserDueToImportError: () => {
             window.location.reload()
