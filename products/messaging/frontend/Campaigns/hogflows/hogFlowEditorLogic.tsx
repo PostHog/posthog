@@ -165,8 +165,8 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                             label: isOnlyEdgeForNode
                                 ? undefined
                                 : edge.type === 'continue'
-                                ? `No match`
-                                : `If condition #${(edge.index || 0) + 1} matches`,
+                                  ? `No match`
+                                  : `If condition #${(edge.index || 0) + 1} matches`,
                         },
                         labelShowBg: false,
                         targetHandle: `target_${edge.to}`,
