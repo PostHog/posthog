@@ -272,7 +272,11 @@ export const sceneTabsLogic = kea<sceneTabsLogicType>([
                 if (!tabIds[id]) {
                     const mountedTabLogic = cache.mountedTabLogic[id]
                     if (mountedTabLogic) {
-                        mountedTabLogic.unmount()
+                        try {
+                            mountedTabLogic.unmount()
+                        } catch (error) {
+                            console.error('Error unmounting tab logic:', error)
+                        }
                     }
                     delete cache.mountedTabLogic[id]
                 }
