@@ -23,6 +23,7 @@ import {
 import { billingLogic } from './billingLogic'
 import type { billingUsageLogicType } from './billingUsageLogicType'
 import type { BillingFilters } from './types'
+import type { BillingPeriodMarker } from './BillingLineGraph'
 
 // These date filters return correct data but there's an issue with filter label after selecting it, showing 'No date range override' instead
 const TEMPORARILY_EXCLUDED_DATE_FILTER_OPTIONS = ['This month', 'Year to date', 'All time']
@@ -190,6 +191,40 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
                     (o) => o.defaultInterval !== 'hour' && !TEMPORARILY_EXCLUDED_DATE_FILTER_OPTIONS.includes(o.key)
                 )
                 return [currentBillingPeriodOption, previousBillingPeriodOption, ...dayAndMonthOptions]
+            },
+        ],
+        billingPeriodMarkers: [
+            (s) => [s.billing, s.dateFrom, s.dateTo],
+            (billing: BillingType | null, dateFrom: string, dateTo: string): BillingPeriodMarker[] => {
+                if (!billing?.billing_period?.current_period_start || !billing?.billing_period?.interval) {
+                    return []
+                }
+
+                const markers = []
+                const from = dayjs(dateFrom)
+                const to = dayjs(dateTo)
+                const interval = billing.billing_period.interval
+
+                // Calculate all billing period starts within the date range
+                let periodStart = billing.billing_period.current_period_start
+
+                // Go back to find the first period that might be visible
+                while (periodStart.isAfter(from)) {
+                    periodStart = periodStart.subtract(1, interval)
+                }
+
+                // Now go forward and collect all period starts that fall within the range
+                while (periodStart.isBefore(to) || periodStart.isSame(to)) {
+                    if (periodStart.isAfter(from) || periodStart.isSame(from)) {
+                        markers.push({
+                            date: periodStart,
+                            label: 'New billing period - usage tiers reset',
+                        })
+                    }
+                    periodStart = periodStart.add(1, interval)
+                }
+
+                return markers
             },
         ],
         series: [

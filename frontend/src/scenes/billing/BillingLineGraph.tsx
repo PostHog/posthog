@@ -1,16 +1,23 @@
 import 'chartjs-adapter-dayjs-3'
 
+import annotationPlugin from 'chartjs-plugin-annotation'
 import { useValues } from 'kea'
 import { Chart, ChartDataset, ChartOptions, TooltipModel } from 'lib/Chart'
 import { getSeriesColor } from 'lib/colors'
 import { getGraphColors } from 'lib/colors'
-import { useCallback, useEffect, useRef } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { createRoot, Root } from 'react-dom/client'
+import { Dayjs } from 'lib/dayjs'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { IconInfo } from '@posthog/icons'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
 import { BillingLineGraphTooltip } from './BillingLineGraphTooltip'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+
+// Register the annotation plugin
+Chart.register(annotationPlugin)
 
 export interface BillingSeriesType {
     id: number
@@ -21,6 +28,11 @@ export interface BillingSeriesType {
     showLegend?: boolean
 }
 
+export interface BillingPeriodMarker {
+    date: Dayjs
+    label?: string
+}
+
 export interface BillingLineGraphProps {
     series: BillingSeriesType[]
     dates: string[]
@@ -29,6 +41,7 @@ export interface BillingLineGraphProps {
     valueFormatter?: (value: number) => string
     showLegend?: boolean
     interval?: 'day' | 'week' | 'month'
+    billingPeriodMarkers?: BillingPeriodMarker[]
 }
 
 const defaultFormatter = (value: number): string => value.toLocaleString()
@@ -85,9 +98,11 @@ export function BillingLineGraph({
     valueFormatter = defaultFormatter,
     showLegend = true,
     interval = 'day',
+    billingPeriodMarkers = [],
 }: BillingLineGraphProps): JSX.Element {
     const canvasRef = useRef<HTMLCanvasElement>(null)
     const chartRef = useRef<Chart | null>(null)
+    const [chartReady, setChartReady] = useState(false)
     const { ensureBillingTooltip, hideBillingTooltip } = useBillingTooltip()
     const { isDarkModeOn } = useValues(themeLogic)
     const graphColors = getGraphColors()
@@ -239,6 +254,19 @@ export function BillingLineGraph({
                         boxWidth: 6,
                     },
                 },
+                annotation: {
+                    annotations: billingPeriodMarkers.reduce((acc: Record<string, any>, marker, idx) => {
+                        acc[`billing-period-${idx}`] = {
+                            type: 'line',
+                            xMin: marker.date.format('YYYY-MM-DD'),
+                            xMax: marker.date.format('YYYY-MM-DD'),
+                            borderColor: isDarkModeOn ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.6)',
+                            borderWidth: 2,
+                            borderDash: [8, 4],
+                        }
+                        return acc
+                    }, {}),
+                },
             },
         }
 
@@ -252,11 +280,14 @@ export function BillingLineGraph({
                 },
                 options,
             })
+            setChartReady(true)
         }
 
         return () => {
             if (chartRef.current) {
                 chartRef.current.destroy()
+                chartRef.current = null
+                setChartReady(false)
             }
         }
     }, [
@@ -270,6 +301,7 @@ export function BillingLineGraph({
         hideBillingTooltip,
         isDarkModeOn,
         graphColors,
+        billingPeriodMarkers,
     ])
 
     return (
@@ -280,6 +312,61 @@ export function BillingLineGraph({
                 </div>
             )}
             <canvas ref={canvasRef} />
+            {/* Billing period marker overlays with tooltips */}
+            {chartReady && chartRef.current && billingPeriodMarkers.length > 0 && (
+                <div className="absolute inset-0 pointer-events-none">
+                    {billingPeriodMarkers.map((marker, idx) => {
+                        const chart = chartRef.current
+                        if (!chart) {
+                            return null
+                        }
+
+                        // Calculate x position for the marker
+                        const xScale = chart.scales.x
+                        const xPos = xScale?.getPixelForValue(marker.date.valueOf())
+
+                        if (xPos === undefined || xPos < xScale.left || xPos > xScale.right) {
+                            return null
+                        }
+
+                        return (
+                            <div
+                                key={`marker-${idx}`}
+                                className="absolute pointer-events-auto"
+                                style={{
+                                    left: `${xPos}px`,
+                                    top: '10px',
+                                    transform: 'translateX(-50%)', // Center the label on the line
+                                }}
+                            >
+                                <Tooltip
+                                    title={
+                                        <div className="p-2">
+                                            <strong>New billing period started</strong>
+                                            <p className="mt-2 text-xs">
+                                                When a new billing period begins, usage-based pricing tiers reset. This
+                                                can cause temporary spikes or drops in spend as customers move between
+                                                pricing tiers.
+                                            </p>
+                                            <p className="mt-2 text-xs">
+                                                For example, a customer on the free tier at the start of the period may
+                                                show zero spend, while heavy users may temporarily show higher costs
+                                                before reaching volume discounts.
+                                            </p>
+                                        </div>
+                                    }
+                                    placement="bottom"
+                                >
+                                    <div className="bg-black text-white px-2 py-1 rounded text-xs font-bold cursor-help flex items-center gap-1 whitespace-nowrap">
+                                        New billing period
+                                        <IconInfo className="w-3 h-3" />
+                                    </div>
+                                </Tooltip>
+                            </div>
+                        )
+                    })}
+                </div>
+            )}
         </div>
     )
 }

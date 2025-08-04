@@ -41,6 +41,7 @@ export function BillingSpendView(): JSX.Element {
         showSeries,
         showEmptyState,
         teamOptions,
+        billingPeriodMarkers,
     } = useValues(logic)
     const {
         setFilters,
@@ -177,6 +178,7 @@ export function BillingSpendView(): JSX.Element {
                         valueFormatter={currencyFormatter}
                         showLegend={false}
                         interval={filters.interval}
+                        billingPeriodMarkers={billingPeriodMarkers}
                     />
                 )}
                 {showEmptyState && (
