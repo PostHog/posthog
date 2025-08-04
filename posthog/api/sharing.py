@@ -390,7 +390,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                     recording.save()  # This ensures it exists in PostgreSQL
 
                 # Now create sharing configuration
-                sharing_config, created = SharingConfiguration.objects.get_or_create(
+                sharing_config, _ = SharingConfiguration.objects.get_or_create(
                     team=resource.team,
                     recording=recording,
                     defaults={
