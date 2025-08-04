@@ -357,10 +357,10 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
                     access_type: key?.scoped_organizations?.length
                         ? 'organizations'
                         : key?.scoped_teams?.length
-                        ? 'teams'
-                        : id !== 'new'
-                        ? 'all'
-                        : undefined,
+                          ? 'teams'
+                          : id !== 'new'
+                            ? 'all'
+                            : undefined,
                 }
 
                 actions.resetEditingKey(formValues)

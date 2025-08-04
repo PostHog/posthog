@@ -1219,9 +1219,8 @@ describe('PostgresPersonRepository', () => {
             const personUpdate2 = createPersonUpdate(person2, 'test-assert-2')
 
             const [actualVersion1, messages1] = await repositoryWithCalculation.updatePersonAssertVersion(personUpdate1)
-            const [actualVersion2, messages2] = await repositoryWithoutCalculation.updatePersonAssertVersion(
-                personUpdate2
-            )
+            const [actualVersion2, messages2] =
+                await repositoryWithoutCalculation.updatePersonAssertVersion(personUpdate2)
 
             expect(actualVersion1).toBeDefined()
             expect(actualVersion2).toBeDefined()

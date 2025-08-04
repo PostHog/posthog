@@ -81,7 +81,10 @@ export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
         if (hub.WRITE_BEHAVIOURAL_COUNTERS_TO_CASSANDRA) {
             this.cassandra = new CassandraClient({
                 contactPoints: [hub.CASSANDRA_HOST],
-                localDataCenter: 'datacenter1',
+                protocolOptions: {
+                    port: hub.CASSANDRA_PORT,
+                },
+                localDataCenter: hub.CASSANDRA_LOCAL_DATACENTER,
                 keyspace: hub.CASSANDRA_KEYSPACE,
                 credentials:
                     hub.CASSANDRA_USER && hub.CASSANDRA_PASSWORD

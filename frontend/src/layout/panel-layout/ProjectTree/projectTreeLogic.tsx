@@ -608,12 +608,12 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                                 ? folderLoading
                                 : searchTreeItems
                             : sortMethod === 'recent'
-                            ? recentResultsLoading && recentTreeItems.length === 0
+                              ? recentResultsLoading && recentTreeItems.length === 0
+                                  ? folderLoading
+                                  : recentTreeItems
+                              : loadingPaths[''] && projectTree.length === 0
                                 ? folderLoading
-                                : recentTreeItems
-                            : loadingPaths[''] && projectTree.length === 0
-                            ? folderLoading
-                            : projectTree,
+                                : projectTree,
                     } as TreeDataItem,
                     ...getStaticTreeItems(searchTerm, onlyFolders),
                 ]
@@ -691,7 +691,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                         const children = node.children ? filterTree(node.children) : undefined
                         const path =
                             typeof node.record === 'object' && node.record && 'path' in node.record
-                                ? (node.record as { path?: string }).path ?? ''
+                                ? ((node.record as { path?: string }).path ?? '')
                                 : ''
                         const matches = path.toLowerCase().includes(term)
 
@@ -918,8 +918,8 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             const shownItems = isSearching
                 ? searchResults.results
                 : sortMethod === 'recent'
-                ? recentResults.results
-                : sortedItems
+                  ? recentResults.results
+                  : sortedItems
 
             const checkedItems = { ...prevChecked }
 

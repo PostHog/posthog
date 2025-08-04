@@ -120,8 +120,8 @@ export const htmlElementsDisplayLogic = kea<htmlElementsDisplayLogicType>([
                 return chosenSelectorMatchCount === null
                     ? 'info'
                     : chosenSelectorMatchCount === 1
-                    ? 'success'
-                    : 'warning'
+                      ? 'success'
+                      : 'warning'
             },
         ],
     })),

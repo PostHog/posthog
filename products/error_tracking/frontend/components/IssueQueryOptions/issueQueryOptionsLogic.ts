@@ -66,7 +66,7 @@ export const issueQueryOptionsLogic = kea<issueQueryOptionsLogicType>([
             Record<string, any>,
             {
                 replace: boolean
-            }
+            },
         ] => {
             return syncSearchParams(router, (params: Params) => {
                 updateSearchParams(params, 'assignee', values.assignee, DEFAULT_ASSIGNEE)

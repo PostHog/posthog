@@ -686,8 +686,8 @@ export const experimentLogic = kea<experimentLogicType>([
                     const name = originalMetric.name
                         ? `${originalMetric.name} (copy)`
                         : originalMetric.kind === NodeKind.ExperimentMetric
-                        ? `${getDefaultMetricTitle(originalMetric)} (copy)`
-                        : undefined
+                          ? `${getDefaultMetricTitle(originalMetric)} (copy)`
+                          : undefined
 
                     const newMetric = { ...originalMetric, uuid: uuid(), name }
                     metrics.splice(metricIndex + 1, 0, newMetric)
