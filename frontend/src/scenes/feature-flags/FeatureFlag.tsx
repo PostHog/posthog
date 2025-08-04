@@ -80,8 +80,10 @@ import {
 } from '~/types'
 
 import { AnalysisTab } from './FeatureFlagAnalysisTab'
+import { FeatureFlagSubscribeTab } from './FeatureFlagSubscribeTab'
 import { FeatureFlagAutoRollback } from './FeatureFlagAutoRollout'
 import { FeatureFlagCodeExample } from './FeatureFlagCodeExample'
+import { EditableWebhookForm } from './EditableWebhookForm'
 import { featureFlagLogic, getRecordingFilterForFlagVariant } from './featureFlagLogic'
 
 import FeatureFlagProjects from './FeatureFlagProjects'
@@ -232,6 +234,12 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
             content: <FeatureFlagSchedule />,
         })
     }
+
+    tabs.push({
+        label: 'Subscribe',
+        key: FeatureFlagsTab.SUBSCRIBE,
+        content: <FeatureFlagSubscribeTab featureFlag={featureFlag} />,
+    })
 
     if (featureFlags[FEATURE_FLAGS.FF_DASHBOARD_TEMPLATES] && featureFlag.key && id) {
         tabs.push({
@@ -448,6 +456,8 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
 
                         <FeatureFlagCodeExample featureFlag={featureFlag} />
                         <LemonDivider />
+                        <EditableWebhookForm />
+                        <LemonDivider />
                         {isNewFeatureFlag && (
                             <>
                                 <div>
@@ -646,8 +656,8 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                                 !featureFlag.can_edit
                                                     ? "You have only 'View' access for this feature flag. To make changes, please contact the flag's creator."
                                                     : featureFlag.deleted
-                                                      ? 'This feature flag has been deleted. Restore it to edit.'
-                                                      : null
+                                                    ? 'This feature flag has been deleted. Restore it to edit.'
+                                                    : null
                                             }
                                             onClick={() => {
                                                 editFeatureFlag(true)

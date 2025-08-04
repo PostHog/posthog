@@ -25,6 +25,7 @@ export enum FeatureFlagsTab {
     PERMISSIONS = 'permissions',
     PROJECTS = 'projects',
     SCHEDULE = 'schedule',
+    SUBSCRIBE = 'subscribe',
 }
 
 export interface FeatureFlagsResult extends CountedPaginatedResponse<FeatureFlagType> {
@@ -198,7 +199,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
                   Record<string, any>,
                   {
                       replace: boolean
-                  },
+                  }
               ]
             | void => {
             const searchParams: Record<string, string | number> = {

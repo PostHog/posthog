@@ -61,6 +61,7 @@ import {
     ScheduledChangeType,
     Survey,
     SurveyQuestionType,
+    WebhookSubscription,
 } from '~/types'
 
 import { organizationLogic } from '../organizationLogic'
@@ -111,6 +112,7 @@ export const NEW_FLAG: FeatureFlagType = {
     tags: [],
     is_remote_configuration: false,
     has_encrypted_payloads: false,
+    webhook_subscriptions: [],
     status: 'ACTIVE',
     version: 0,
     last_modified_by: null,
@@ -136,10 +138,10 @@ export function validateFeatureFlagKey(key: string): string | undefined {
     return !key
         ? 'Please set a key'
         : key.length > 400
-          ? 'Key must be 400 characters or less.'
-          : !key.match?.(/^[a-zA-Z0-9_-]+$/)
-            ? 'Only letters, numbers, hyphens (-) & underscores (_) are allowed.'
-            : undefined
+        ? 'Key must be 400 characters or less.'
+        : !key.match?.(/^[a-zA-Z0-9_-]+$/)
+        ? 'Only letters, numbers, hyphens (-) & underscores (_) are allowed.'
+        : undefined
 }
 
 function validatePayloadRequired(is_remote_configuration: boolean, payload?: JsonType): string | undefined {
@@ -338,6 +340,9 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         ) => ({ filters, active, errors }),
         setScheduledChangeOperation: (changeType: ScheduledChangeOperationType) => ({ changeType }),
         setAccessDeniedToFeatureFlag: true,
+        addWebhookSubscription: (subscription: WebhookSubscription) => ({ subscription }),
+        updateWebhookSubscription: (index: number, subscription: WebhookSubscription) => ({ index, subscription }),
+        removeWebhookSubscription: (index: number) => ({ index }),
     }),
     forms(({ actions, values }) => ({
         featureFlag: {
@@ -477,6 +482,43 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                             payloads: { true: '' },
                         },
                         has_encrypted_payloads: false,
+                    }
+                },
+                addWebhookSubscription: (state, { subscription }) => {
+                    if (!state) {
+                        return state
+                    }
+                    const currentSubs = state.webhook_subscriptions || []
+                    if (currentSubs.some((sub) => sub.url === subscription.url)) {
+                        return state // Don't add duplicates
+                    }
+                    return {
+                        ...state,
+                        webhook_subscriptions: [...currentSubs, subscription],
+                    }
+                },
+                updateWebhookSubscription: (state, { index, subscription }) => {
+                    if (!state) {
+                        return state
+                    }
+                    const subscriptions = [...(state.webhook_subscriptions || [])]
+                    if (index >= 0 && index < subscriptions.length) {
+                        subscriptions[index] = subscription
+                    }
+                    return {
+                        ...state,
+                        webhook_subscriptions: subscriptions,
+                    }
+                },
+                removeWebhookSubscription: (state, { index }) => {
+                    if (!state) {
+                        return state
+                    }
+                    const subscriptions = [...(state.webhook_subscriptions || [])]
+                    subscriptions.splice(index, 1)
+                    return {
+                        ...state,
+                        webhook_subscriptions: subscriptions,
                     }
                 },
                 addVariant: (state) => {
@@ -1195,8 +1237,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 featureFlag?.is_remote_configuration
                     ? 'remote_config'
                     : featureFlag?.filters.multivariate
-                      ? 'multivariate'
-                      : 'boolean',
+                    ? 'multivariate'
+                    : 'boolean',
         ],
         flagTypeString: [
             (s) => [s.featureFlag],
@@ -1204,8 +1246,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 featureFlag?.is_remote_configuration
                     ? 'Remote configuration (single payload)'
                     : featureFlag?.filters.multivariate
-                      ? 'Multiple variants with rollout percentages (A/B/n test)'
-                      : 'Release toggle (boolean)',
+                    ? 'Multiple variants with rollout percentages (A/B/n test)'
+                    : 'Release toggle (boolean)',
         ],
         roleBasedAccessEnabled: [
             (s) => [s.hasAvailableFeature],
