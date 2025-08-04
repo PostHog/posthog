@@ -131,7 +131,7 @@ workflow_id = str(uuid.uuid4())
 
 schedule = Schedule(
     action=ScheduleActionStartWorkflow(
-        wokrflow=my_workflow,
+        workflow=my_workflow,
         args=my_inputs,
         id=workflow_id,
         task_queue=my_task_queue,
