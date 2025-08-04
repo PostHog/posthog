@@ -78,10 +78,9 @@ class ErrorTrackingIssueCorrelationQueryRunner(QueryRunner):
                 if not (both > 0 and success_only > 0 and exception_only > 0 and neither > 0):
                     continue
 
-                issue_ids.update(issue_uuids)
-                odds_ratio = both * neither / success_only * exception_only
+                issue_ids.add(uuid)
+                odds_ratio = (both * neither) / (success_only * exception_only)
 
-                correlations[str(uuid)].append()
                 issue_correlation = correlations.setdefault(uuid, {})
                 issue_correlation[event] = {"correlation_score": odds_ratio, "correlation_event": event}
 
