@@ -23,6 +23,10 @@ const config = {
     protocolOptions: {
         port: process.env.CASSANDRA_PORT || 9042,
     },
+    // Counter-updates in Cassandra are not atomic, so we need to use localQuorum to ensure consistency.
+    queryOptions: {
+        consistency: cassandra.types.consistencies.localQuorum,
+    },
 }
 
 const client = new cassandra.Client(config)

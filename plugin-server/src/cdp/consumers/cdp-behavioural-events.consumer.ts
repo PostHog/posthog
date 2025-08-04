@@ -1,4 +1,4 @@
-import { auth, Client as CassandraClient } from 'cassandra-driver'
+import { auth, Client as CassandraClient, types } from 'cassandra-driver'
 import { createHash } from 'crypto'
 import * as fs from 'fs'
 import { Message } from 'node-rdkafka'
@@ -99,6 +99,9 @@ export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
                     hub.CASSANDRA_USER || 'cassandra',
                     hub.CASSANDRA_PASSWORD || 'cassandra'
                 ),
+                queryOptions: {
+                    consistency: types.consistencies.localQuorum,
+                },
             })
             this.behavioralCounterRepository = new BehavioralCounterRepository(this.cassandra)
         } else {
