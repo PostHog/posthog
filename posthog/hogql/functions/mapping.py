@@ -1655,7 +1655,7 @@ HOGQL_AGGREGATIONS: dict[str, HogQLFunctionMeta] = {
             ((IntegerType(),), IntegerType()),    # MIN(Integer) return Integer
             ((FloatType(),), FloatType()),        # MIN(Float) return Float
             ((StringType(),), StringType()),      # MIN(String) return String
-        ]
+        ],
     ),
     "minIf": HogQLFunctionMeta("minIf", 2, 2, aggregate=True),
     "max": HogQLFunctionMeta(
@@ -1670,7 +1670,7 @@ HOGQL_AGGREGATIONS: dict[str, HogQLFunctionMeta] = {
             ((IntegerType(),), IntegerType()),    # MAX(Integer) return Integer
             ((FloatType(),), FloatType()),        # MAX(Float) return Float
             ((StringType(),), StringType()),      # MAX(String) return String
-        ]
+        ],
     ),
     "maxIf": HogQLFunctionMeta("maxIf", 2, 2, aggregate=True),
     "sum": HogQLFunctionMeta("sum", 1, 1, aggregate=True, case_sensitive=False),
