@@ -51,6 +51,9 @@ impl SingleTopicConsumer {
             .set("bootstrap.servers", &common_config.kafka_hosts)
             .set("statistics.interval.ms", "10000")
             .set("group.id", consumer_config.kafka_consumer_group)
+            // For debugging SSL issues with broker in production
+            .set("debug", "security,ssl,broker,protocol")
+            .set("log_level", "7")
             .set(
                 "auto.offset.reset",
                 &consumer_config.kafka_consumer_offset_reset,
