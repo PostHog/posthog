@@ -12,7 +12,12 @@ from posthog.hogql.printer import print_ast
 from posthog.sync import database_sync_to_async
 
 from ..schema_generator.parsers import PydanticOutputParserException
-from .prompts import HOGQL_GENERATOR_SYSTEM_PROMPT
+from .prompts import (
+    HOGQL_GENERATOR_SYSTEM_PROMPT,
+    SQL_EXPRESSIONS_DOCS,
+    SQL_SUPPORTED_FUNCTIONS_DOCS,
+    SQL_SUPPORTED_AGGREGATIONS_DOCS,
+)
 
 
 class HogQLGeneratorMixin(AssistantContextMixin):
@@ -42,7 +47,13 @@ class HogQLGeneratorMixin(AssistantContextMixin):
                 ("system", HOGQL_GENERATOR_SYSTEM_PROMPT),
             ],
             template_format="mustache",
-        ).partial(schema_description=schema_description, core_memory=core_memory)
+        ).partial(
+            sql_expressions_docs=SQL_EXPRESSIONS_DOCS,
+            sql_supported_functions_docs=SQL_SUPPORTED_FUNCTIONS_DOCS,
+            sql_supported_aggregations_docs=SQL_SUPPORTED_AGGREGATIONS_DOCS,
+            schema_description=schema_description,
+            core_memory=core_memory,
+        )
 
         return prompt
 
@@ -56,9 +67,7 @@ class HogQLGeneratorMixin(AssistantContextMixin):
             err_msg = str(err)
             if err_msg.startswith("no viable alternative"):
                 # The "no viable alternative" ANTLR error is horribly unhelpful, both for humans and LLMs
-                err_msg = (
-                    f'This is not valid parsable SQL! The last 5 characters where we tripped up were "{query[-5:]}".'
-                )
+                err_msg = 'ANTLR parsing error: "no viable alternative at input". This means that the query isn\'t valid HogQL.'
             raise PydanticOutputParserException(llm_output=query, validation_message=err_msg)
         except Exception as e:
             raise PydanticOutputParserException(llm_output=query, validation_message=str(e))

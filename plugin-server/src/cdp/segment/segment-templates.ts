@@ -510,7 +510,7 @@ export const SEGMENT_DESTINATIONS = Object.entries(destinations)
                     },
                 ],
                 code_language: 'javascript',
-                hog: 'return event',
+                code: 'return event',
                 mapping_templates: (destination.presets ?? [])
                     .filter((preset) => preset.type === 'automatic' && preset.subscribe)
                     .filter((preset) => preset.partnerAction in destination.actions)
@@ -545,7 +545,10 @@ export const SEGMENT_DESTINATIONS = Object.entries(destinations)
         } as SegmentDestination
     })
 
-export const SEGMENT_DESTINATIONS_BY_ID = SEGMENT_DESTINATIONS.reduce((acc, plugin) => {
-    acc[plugin.template.id] = plugin
-    return acc
-}, {} as Record<string, SegmentDestination>)
+export const SEGMENT_DESTINATIONS_BY_ID = SEGMENT_DESTINATIONS.reduce(
+    (acc, plugin) => {
+        acc[plugin.template.id] = plugin
+        return acc
+    },
+    {} as Record<string, SegmentDestination>
+)

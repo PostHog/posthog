@@ -46,6 +46,7 @@ PropertyType = Literal[
     "error_tracking_issue",
     "log",
     "revenue_analytics",
+    "flag",
 ]
 
 PropertyName = str
@@ -105,6 +106,7 @@ VALIDATE_PROP_TYPES = {
     "recording": ["key", "value"],
     "log_entry": ["key", "value"],
     "log": ["key", "value"],
+    "flag": ["key", "value"],
     "revenue_analytics": ["key", "value"],
     "behavioral": ["key", "value"],
     "session": ["key", "value"],

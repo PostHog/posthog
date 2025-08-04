@@ -2,7 +2,10 @@ use std::num::NonZeroU32;
 use std::time::Duration as StdDuration;
 use time::Duration;
 
-use crate::common::*;
+#[path = "common/utils.rs"]
+mod utils;
+use utils::*;
+
 use anyhow::Result;
 use assert_json_diff::assert_json_include;
 use chrono::Utc;
@@ -10,7 +13,6 @@ use limiters::redis::QuotaResource;
 use reqwest::StatusCode;
 use serde_json::json;
 use uuid::Uuid;
-mod common;
 
 #[tokio::test]
 async fn it_captures_one_event() -> Result<()> {

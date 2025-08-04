@@ -8,7 +8,6 @@ import { useMemo } from 'react'
 import { urls } from 'scenes/urls'
 
 import { SidePanelPaneHeader } from '~/layout/navigation-3000/sidepanel/components/SidePanelPaneHeader'
-import { NotebookTarget } from '~/types'
 
 import { Notebook } from '../Notebook/Notebook'
 import { NotebookListMini } from '../Notebook/NotebookListMini'
@@ -17,6 +16,7 @@ import { NotebookExpandButton, NotebookSyncInfo } from '../Notebook/NotebookMeta
 import { NotebookMenu } from '../NotebookMenu'
 import { NotebookPanelDropzone } from './NotebookPanelDropzone'
 import { notebookPanelLogic } from './notebookPanelLogic'
+import { NotebookTarget } from '../types'
 
 export function NotebookPanel(): JSX.Element | null {
     const { selectedNotebook, initialAutofocus, droppedResource, dropProperties } = useValues(notebookPanelLogic)

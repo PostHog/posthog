@@ -88,7 +88,7 @@ const JoinsMoreMenu = ({ tableName, fieldName }: { tableName: string; fieldName:
                     </LemonButton>
                 </>
             ),
-        [joinsLoading, join]
+        [joinsLoading, join] // oxlint-disable-line react-hooks/exhaustive-deps
     )
 
     return <More overlay={overlay()} />

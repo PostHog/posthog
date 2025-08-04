@@ -28,8 +28,8 @@ export const SidePanelStatusIcon = (props: { className?: string }): JSX.Element 
                         status.includes('outage')
                             ? 'danger'
                             : status.includes('degraded') || status.includes('monitoring')
-                            ? 'warning'
-                            : 'success'
+                              ? 'warning'
+                              : 'success'
                     }
                 >
                     <IconCloud />
