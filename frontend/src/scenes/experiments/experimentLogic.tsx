@@ -1952,18 +1952,6 @@ export const experimentLogic = kea<experimentLogicType>([
             },
         },
     })),
-    listeners(() => ({
-        createSurveySuccess: ({ newSurvey }) => {
-            if (newSurvey) {
-                lemonToast.success('Survey created successfully', {
-                    button: {
-                        label: 'View survey',
-                        action: () => router.actions.push(urls.survey(newSurvey.id)),
-                    },
-                })
-            }
-        },
-    })),
     urlToAction(({ actions, values }) => ({
         '/experiments/:id': ({ id }, query, __, currentLocation, previousLocation) => {
             const didPathChange = currentLocation.initial || currentLocation.pathname !== previousLocation?.pathname
