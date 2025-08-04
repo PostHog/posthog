@@ -583,15 +583,37 @@ export class HogExecutorService {
         if (!fetchResponse || (fetchResponse?.status && fetchResponse.status >= 400)) {
             const backoffMs = Math.min(
                 this.hub.CDP_FETCH_BACKOFF_BASE_MS * result.invocation.state.attempts +
-                    Math.floor(Math.random() * this.hub.CDP_FETCH_BACKOFF_BASE_MS),
+                Math.floor(Math.random() * this.hub.CDP_FETCH_BACKOFF_BASE_MS),
                 this.hub.CDP_FETCH_BACKOFF_MAX_MS
             )
 
-            const canRetry = isFetchResponseRetriable(fetchResponse, fetchError)
+            let canRetry = isFetchResponseRetriable(fetchResponse, fetchError)
 
-            let message = `HTTP fetch failed on attempt ${result.invocation.state.attempts} with status code ${
-                fetchResponse?.status ?? '(none)'
-            }.`
+            if (
+                invocation.state.globals.inputs.oauth.refreshed_at +
+                (invocation.state.globals.inputs.oauth.expires_in / 2) * 1000 <
+                Date.now()
+            ) {
+                // If the OAuth token is about to expire, we should refresh it
+                logger.warn('🦔', `[HogExecutor] OAuth token is about to expire, refreshing it`, {
+                    hogFunctionId: invocation.hogFunction.id,
+                    hogFunctionName: invocation.hogFunction.name,
+                    teamId: invocation.teamId,
+                    eventId: invocation.state.globals.event.url,
+                })
+
+                const integrationInputs = await this.hogInputsService.loadIntegrationInputs(invocation.hogFunction)
+
+                result.invocation.state.globals.inputs = {
+                    ...result.invocation.state.globals.inputs,
+                    ...integrationInputs,
+                }
+
+                canRetry = true
+            }
+
+            let message = `HTTP fetch failed on attempt ${result.invocation.state.attempts} with status code ${fetchResponse?.status ?? '(none)'
+                }.`
 
             if (fetchError) {
                 message += ` Error: ${fetchError.message}.`
