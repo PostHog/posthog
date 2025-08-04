@@ -264,6 +264,10 @@ function processSingleChoiceQuestion(
     results: SurveyRawResults
 ): ChoiceQuestionProcessedResponses {
     const counts: { [key: string]: number } = {}
+    // Track person data for unique responses
+    const uniqueResponsePersonData: {
+        [key: string]: { distinctId: string; personProperties?: Record<string, any>; timestamp: string }
+    } = {}
     let total = 0
 
     // Zero-fill predefined choices (excluding open choice)
@@ -277,17 +281,54 @@ function processSingleChoiceQuestion(
     results?.forEach((row: SurveyResponseRow) => {
         const value = row[questionIndex] as string
         if (!isEmptyOrUndefined(value)) {
-            counts[value] = (counts[value] || 0) + 1
+            const previousCount = counts[value] || 0
+            counts[value] = previousCount + 1
             total += 1
+
+            // Store person data only for the first occurrence (unique responses)
+            if (previousCount === 0) {
+                const distinctId = row.at(-2) as string
+                const timestamp = row.at(-1) as string
+                const unparsedPersonProperties = row.at(-3)
+                let personProperties: Record<string, any> | undefined
+
+                if (unparsedPersonProperties && unparsedPersonProperties !== null) {
+                    try {
+                        personProperties = JSON.parse(unparsedPersonProperties as string)
+                    } catch {
+                        // Ignore parsing errors for person properties
+                    }
+                }
+
+                uniqueResponsePersonData[value] = {
+                    distinctId,
+                    personProperties,
+                    timestamp,
+                }
+            }
         }
     })
 
     const data = Object.entries(counts)
-        .map(([label, value]) => ({
-            label,
-            value,
-            isPredefined: question.choices?.includes(label) ?? false,
-        }))
+        .map(([label, value]) => {
+            const baseData = {
+                label,
+                value,
+                isPredefined: question.choices?.includes(label) ?? false,
+            }
+
+            // Add person data for unique responses
+            if (value === 1 && uniqueResponsePersonData[label]) {
+                return {
+                    ...baseData,
+                    distinctId: uniqueResponsePersonData[label].distinctId,
+                    personProperties: uniqueResponsePersonData[label].personProperties,
+                    timestamp: uniqueResponsePersonData[label].timestamp,
+                }
+            }
+
+            return baseData
+        })
         .sort((a, b) => b.value - a.value)
 
     return {
