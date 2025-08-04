@@ -336,10 +336,24 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                         return null
                     }
 
+                    const skipToEarliestEvent = (matchingEvents: MatchedRecordingEvent[]): void => {
+                        if (values.skipToFirstMatchingEvent) {
+                            const earliestMatchingEvent = matchingEvents
+                                .toReversed()
+                                .reduce((previous, current) =>
+                                    previous.timestamp < current.timestamp ? previous : current
+                                )
+                            const { timeInRecording } = timeRelativeToStart(earliestMatchingEvent, values.start)
+                            const seekTime = ceilMsToClosestSecond(timeInRecording) - 1000
+                            actions.seekToTime(seekTime)
+                        }
+                    }
+
                     if (matchType === 'uuid') {
                         if (!matchingEventsMatchType?.matchedEvents) {
                             console.error('UUID matching events type must include array of matched events')
                         }
+                        skipToEarliestEvent(matchingEventsMatchType.matchedEvents)
                         return matchingEventsMatchType.matchedEvents
                     }
 
@@ -354,19 +368,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                     }
 
                     const response = await api.recordings.getMatchingEvents(toParams(params))
-
-                    // Check if player has flag set, then skip forward based on response
-                    if (values.skipToFirstMatchingEvent) {
-                        const earliestMatchingEvent = response.results
-                            .toReversed()
-                            .reduce((previous, current) =>
-                                previous.timestamp < current.timestamp ? previous : current
-                            )
-                        const { timeInRecording } = timeRelativeToStart(earliestMatchingEvent, values.start)
-                        const seekTime = ceilMsToClosestSecond(timeInRecording) - 1000
-                        actions.seekToTime(seekTime)
-                    }
-
+                    skipToEarliestEvent(response.results)
                     return response.results
                 },
             },
