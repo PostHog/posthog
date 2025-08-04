@@ -99,21 +99,13 @@ class LocalEvaluationThrottle(BurstRateThrottle):
 
     def allow_request(self, request, view):
         logger = logging.getLogger(__name__)
-        # Check for team-specific rate limits
+
         try:
             team_id = self.safely_get_team_id_from_view(view)
-            if team_id is not None:
-                rate_limit_cache_key = f"team_local_eval_ratelimit_{team_id}"
-                cached_rate_limit = self.cache.get(rate_limit_cache_key, None)
-
-                if cached_rate_limit is None:
-                    custom_rate = LOCAL_EVAL_RATE_LIMITS.get(str(team_id))
-                    if custom_rate:
-                        cached_rate_limit = custom_rate
-                        self.cache.set(rate_limit_cache_key, cached_rate_limit, 300)  # Cache for 5 minutes
-
-                if cached_rate_limit:
-                    self.rate = cached_rate_limit
+            if team_id:
+                custom_rate = LOCAL_EVAL_RATE_LIMITS.get(str(team_id))
+                if custom_rate:
+                    self.rate = custom_rate
                     self.num_requests, self.duration = self.parse_rate(self.rate)
         except Exception:
             logger.exception(f"Error getting team-specific rate limit for team {team_id}")

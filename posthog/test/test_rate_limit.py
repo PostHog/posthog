@@ -521,26 +521,8 @@ class TestUserAPI(APIBaseTest):
             # Should call report_user_action with correct parameters
             mock_report_user_action.assert_called_once_with(self.user, "ai sustained rate limited")
 
-    def test_local_evaluation_throttle_loads_custom_rate_from_cache(self):
-        throttle = LocalEvaluationThrottle()
-
-        cache_key = f"team_local_eval_ratelimit_{self.team.id}"
-        cache.set(cache_key, "1200/minute")
-
-        if cached_rate_limit := cache.get(cache_key, None):
-            throttle.rate = cached_rate_limit
-            throttle.num_requests, throttle.duration = throttle.parse_rate(throttle.rate)
-
-        self.assertEqual(throttle.rate, "1200/minute")
-        self.assertEqual(throttle.num_requests, 1200)
-        self.assertEqual(throttle.duration, 60)
-
     def test_local_evaluation_throttle_uses_default_rate_when_no_custom_limit(self):
         throttle = LocalEvaluationThrottle()
-
-        # Clear cache
-        cache_key = "team_local_eval_ratelimit_123"
-        cache.delete(cache_key)
 
         # Mock view and request
         mock_view = Mock()
@@ -548,7 +530,6 @@ class TestUserAPI(APIBaseTest):
 
         with (
             patch("posthog.api.feature_flag.LOCAL_EVAL_RATE_LIMITS", {}),
-            patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True),
             patch.object(throttle, "safely_get_team_id_from_view", return_value=123),
             patch.object(throttle.__class__.__bases__[0], "allow_request", return_value=True),
         ):
@@ -557,8 +538,6 @@ class TestUserAPI(APIBaseTest):
             self.assertTrue(result)
             # Rate should remain default
             self.assertEqual(throttle.rate, "600/minute")
-            # Verify nothing was cached
-            self.assertIsNone(cache.get(cache_key))
 
     def test_local_evaluation_throttle_handles_empty_settings(self):
         throttle = LocalEvaluationThrottle()
