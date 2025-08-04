@@ -1,4 +1,3 @@
-// dataWarehouseSettingsLogic.ts NEW
 import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
