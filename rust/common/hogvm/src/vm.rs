@@ -819,7 +819,7 @@ impl<'a> HogVM<'a> {
     // This is a function on the VM, rather than being standalone, because hog values don't really
     // exist outside of the context of a VM (and specifically a heap). It could be a function on the
     // heap itself, though.
-    pub fn json_to_hog(&mut self, json: JsonValue) -> Result<HogValue, VmError> {
+    fn json_to_hog(&mut self, json: JsonValue) -> Result<HogValue, VmError> {
         self.json_to_hog_impl(json, 0)
     }
 
@@ -858,7 +858,7 @@ impl<'a> HogVM<'a> {
 
     // Convert back from an arbitrary HogValue to a json Value. Again, this function exists on
     // the VM, because HogValues don't really exist in any other context.
-    pub fn hog_to_json(&self, value: &HogValue) -> Result<JsonValue, VmError> {
+    fn hog_to_json(&self, value: &HogValue) -> Result<JsonValue, VmError> {
         self.hog_to_json_impl(value, 0)
     }
 

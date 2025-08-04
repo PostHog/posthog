@@ -2,10 +2,10 @@
 const plugin = require('tailwindcss/plugin')
 
 const commonColors = {
-    inherit: 'inherit',
-    current: 'currentColor',
-    transparent: 'transparent',
-    accent: 'var(--accent)',
+    'inherit': 'inherit',
+    'current': 'currentColor',
+    'transparent': 'transparent',
+    'accent': 'var(--accent)',
     'accent-inverted': 'var(--accent-inverted)',
     'accent-hover': 'var(--accent-hover)',
     'accent-active': 'var(--accent-active)',
@@ -96,8 +96,8 @@ const deprecatedColors = {
     // --color-primary-alt: var(--primary-alt);
 
     // 'primary': 'var(--primary-3000)',
-    muted: 'var(--muted-3000)',
-    default: 'var(--text-3000)',
+    'muted': 'var(--muted-3000)',
+    'default': 'var(--text-3000)',
     'muted-alt': 'var(--muted-3000)',
     'primary-alt': 'var(--text-3000)',
 
@@ -118,10 +118,10 @@ const deprecatedColors = {
     'font-mono': 'var(--font-mono)',
 
     // Dashboard item colors
-    blue: 'var(--blue)',
-    purple: 'var(--purple)',
-    green: 'var(--green)',
-    black: 'var(--black)',
+    'blue': 'var(--blue)',
+    'purple': 'var(--purple)',
+    'green': 'var(--green)',
+    'black': 'var(--black)',
 
     //// Data colors (e.g. insight series). Note: colors.ts relies on these values being hexadecimal
     'data-color-1': 'var(--data-color-1)',
@@ -233,16 +233,16 @@ const deprecatedColors = {
     'notebook-column-right-width': 'var(--notebook-column-right-width)',
 
     // Light mode
-    danger: 'var(--danger)',
+    'danger': 'var(--danger)',
     'danger-light': 'var(--danger-light)',
     'danger-lighter': 'var(--danger-lighter)',
     'danger-dark': 'var(--danger-dark)',
     'danger-highlight': 'var(--danger-highlight)',
-    warning: 'var(--warning)',
+    'warning': 'var(--warning)',
     'warning-highlight': 'var(--warning-highlight)',
     'warning-dark': 'var(--warning-dark)',
-    highlight: 'var(--highlight)',
-    success: 'var(--success)',
+    'highlight': 'var(--highlight)',
+    'success': 'var(--success)',
     'success-light': 'var(--success-light)',
     'success-lighter': 'var(--success-lighter)',
     'success-dark': 'var(--success-dark)',
@@ -251,22 +251,22 @@ const deprecatedColors = {
     // --color-muted: var(--text-secondary);
     // --color-muted-alt: var(--text-secondary);
     // --color-primary-alt: var(--primary-alt);
-    mark: 'var(--mark)',
-    white: 'var(--white)',
+    'mark': 'var(--mark)',
+    'white': 'var(--white)',
 
     // --color-bg-light: var(--bg-surface-primary);
-    side: 'var(--side)',
-    mid: 'var(--mid)',
-    border: 'var(--border)',
+    'side': 'var(--side)',
+    'mid': 'var(--mid)',
+    'border': 'var(--border)',
     'border-light': 'var(--border-light)',
     'border-bold': 'var(--border-bold)',
-    transparent: 'var(--transparent)',
-    link: 'var(--link)',
+    'transparent': 'var(--transparent)',
+    'link': 'var(--link)',
     'brand-blue': 'var(--brand-blue)',
     'brand-red': 'var(--brand-red)',
     'brand-yellow': 'var(--brand-yellow)',
     'brand-key': 'var(--brand-key)',
-    accent: 'var(--accent)',
+    'accent': 'var(--accent)',
     'text-3000': 'var(--text-3000)',
     'text-secondary-3000': 'var(--text-secondary-3000)',
     'muted-3000': 'var(--muted-3000)',
@@ -605,6 +605,7 @@ const config = {
             },
             black: 'var(--color-black)',
             white: 'var(--color-white)',
+
         },
         extend: {
             colors: {
@@ -618,7 +619,7 @@ const config = {
             },
             backgroundColor: {
                 ...commonColors,
-                primary: 'var(--bg-primary)',
+                'primary': 'var(--bg-primary)',
 
                 'surface-primary': 'var(--bg-surface-primary)',
                 'surface-secondary': 'var(--bg-surface-secondary)',
@@ -666,14 +667,14 @@ const config = {
             textColor: {
                 ...commonColors,
 
-                primary: 'var(--text-primary)',
+                'primary': 'var(--text-primary)',
                 'primary-inverse': 'var(--text-primary-inverse)',
-                secondary: 'var(--text-secondary)',
-                quaternary: 'var(--text-quaternary)',
-                tertiary: 'var(--text-tertiary)',
-                success: 'var(--text-success)',
-                warning: 'var(--text-warning)',
-                error: 'var(--text-error)',
+                'secondary': 'var(--text-secondary)',
+                'quaternary': 'var(--text-quaternary)',
+                'tertiary': 'var(--text-tertiary)',
+                'success': 'var(--text-success)',
+                'warning': 'var(--text-warning)',
+                'error': 'var(--text-error)',
                 'info-on-fill': 'var(--text-info-on-fill)',
                 'warning-on-fill': 'var(--text-warning-on-fill)',
                 'error-on-fill': 'var(--text-error-on-fill)',
@@ -682,22 +683,22 @@ const config = {
             borderColor: {
                 ...commonColors,
 
-                primary: 'var(--border-primary)',
-                secondary: 'var(--border-secondary)',
-                info: 'var(--border-info)',
-                warning: 'var(--border-warning)',
-                error: 'var(--border-error)',
-                success: 'var(--border-success)',
+                'primary': 'var(--border-primary)',
+                'secondary': 'var(--border-secondary)',
+                'info': 'var(--border-info)',
+                'warning': 'var(--border-warning)',
+                'error': 'var(--border-error)',
+                'success': 'var(--border-success)',
             },
             ringColor: {
                 ...commonColors,
 
-                primary: 'var(--border-primary)',
-                secondary: 'var(--border-secondary)',
-                info: 'var(--border-info)',
-                warning: 'var(--border-warning)',
-                error: 'var(--border-error)',
-                success: 'var(--border-success)',
+                'primary': 'var(--border-primary)',
+                'secondary': 'var(--border-secondary)',
+                'info': 'var(--border-info)',
+                'warning': 'var(--border-warning)',
+                'error': 'var(--border-error)',
+                'success': 'var(--border-success)',
             },
             fontFamily: {
                 sans: [
@@ -797,15 +798,15 @@ const config = {
                 3: '3 3 0%',
             },
             zIndex: {
-                top: 'var(--z-top)',
+                'top': 'var(--z-top)',
             },
         },
     },
     plugins: [
         require('@tailwindcss/container-queries'),
         plugin(({ addUtilities, theme }) => {
-            const spacing = theme('spacing')
-            const newUtilities = {}
+            const spacing = theme("spacing");
+            const newUtilities = {};
 
             // Standard spacing utilities for backwards compatibility
             for (const [key, value] of Object.entries(spacing)) {
@@ -814,16 +815,16 @@ const config = {
                         '--tw-space-y-reverse': '0',
                         'margin-top': `calc(${value} * calc(1 - var(--tw-space-y-reverse)))`,
                         'margin-bottom': `calc(${value} * var(--tw-space-y-reverse))`,
-                    }
+                    };
                     newUtilities[`.deprecated-space-x-${key} > :not([hidden]) ~ :not([hidden])`] = {
                         '--tw-space-x-reverse': '0',
                         'margin-right': `calc(${value} * var(--tw-space-x-reverse))`,
                         'margin-left': `calc(${value} * calc(1 - var(--tw-space-x-reverse)))`,
-                    }
+                    };
                 }
             }
 
-            addUtilities(newUtilities)
+            addUtilities(newUtilities);
         }),
     ],
 }

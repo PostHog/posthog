@@ -30,7 +30,6 @@ import {
     SessionSegmentKeyActions,
     SessionSegmentOutcome,
 } from '../player-meta/types'
-import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 function formatEventMetaInfo(event: SessionKeyAction): JSX.Element {
     return (
@@ -81,14 +80,13 @@ function LoadingTimer({ operation }: { operation?: string }): JSX.Element {
         }
     }, [operation])
 
-    // Run on mount only to avoid resetting interval
-    useOnMountEffect(() => {
+    useEffect(() => {
         const interval = setInterval(() => {
             setElapsedSeconds((prev) => prev + 1)
         }, 1000)
 
         return () => clearInterval(interval)
-    })
+    }, []) // Keep this dependency array empty to avoid resetting interval
 
     return <span className="font-mono text-xs text-muted">{elapsedSeconds}s</span>
 }

@@ -97,7 +97,7 @@ export function Sparkline({
                 values: timeseries ? [timeseries] : [],
             }
         })
-    }, [data]) // oxlint-disable-line react-hooks/exhaustive-deps
+    }, [data])
 
     useEffect(() => {
         // data should always be provided but React can render this without it,

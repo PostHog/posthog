@@ -14,24 +14,7 @@ import { isUniversalFilters } from '../utils'
 import { SessionRecordingsPlaylist } from './SessionRecordingsPlaylist'
 import { convertLegacyFiltersToUniversalFilters } from './sessionRecordingsPlaylistLogic'
 import { sessionRecordingsPlaylistSceneLogic } from './sessionRecordingsPlaylistSceneLogic'
-import {
-    ScenePanel,
-    ScenePanelActions,
-    ScenePanelCommonActions,
-    ScenePanelDivider,
-    ScenePanelMetaInfo,
-} from '~/layout/scenes/SceneLayout'
-import { SceneCommonButtons } from 'lib/components/Scenes/SceneCommonButtons'
-import { SceneFile } from 'lib/components/Scenes/SceneFile'
-import { SceneActivityIndicator } from 'lib/components/Scenes/SceneUpdateActivityInfo'
-import { SceneMetalyticsSummaryButton } from 'lib/components/Scenes/SceneMetalyticsSummaryButton'
-import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
-import { SceneDescription } from 'lib/components/Scenes/SceneDescription'
-import { SceneName } from 'lib/components/Scenes/SceneName'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 
-const RESOURCE_TYPE = 'replay-collection'
 export const scene: SceneExport = {
     component: SessionRecordingsPlaylistScene,
     logic: sessionRecordingsPlaylistSceneLogic,
@@ -49,8 +32,6 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
 
     const { showFilters } = useValues(playerSettingsLogic)
     const { setShowFilters } = useActions(playerSettingsLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
-    const newSceneLayout = featureFlags[FEATURE_FLAGS.NEW_SCENE_LAYOUT]
 
     if (playlistLoading) {
         return (
@@ -87,42 +68,37 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
             <PageHeader
                 buttons={
                     <div className="flex justify-between items-center gap-2">
-                        {!newSceneLayout && (
-                            <>
-                                <More
-                                    overlay={
-                                        <>
-                                            <LemonButton
-                                                onClick={() => duplicatePlaylist()}
-                                                fullWidth
-                                                data-attr="duplicate-playlist"
-                                            >
-                                                Duplicate
-                                            </LemonButton>
-                                            <LemonButton
-                                                onClick={() =>
-                                                    updatePlaylist({
-                                                        short_id: playlist.short_id,
-                                                        pinned: !playlist.pinned,
-                                                    })
-                                                }
-                                                fullWidth
-                                            >
-                                                {playlist.pinned ? 'Unpin collection' : 'Pin collection'}
-                                            </LemonButton>
-                                            <LemonDivider />
+                        <More
+                            overlay={
+                                <>
+                                    <LemonButton
+                                        onClick={() => duplicatePlaylist()}
+                                        fullWidth
+                                        data-attr="duplicate-playlist"
+                                    >
+                                        Duplicate
+                                    </LemonButton>
+                                    <LemonButton
+                                        onClick={() =>
+                                            updatePlaylist({
+                                                short_id: playlist.short_id,
+                                                pinned: !playlist.pinned,
+                                            })
+                                        }
+                                        fullWidth
+                                    >
+                                        {playlist.pinned ? 'Unpin collection' : 'Pin collection'}
+                                    </LemonButton>
+                                    <LemonDivider />
 
-                                            <LemonButton status="danger" onClick={() => deletePlaylist()} fullWidth>
-                                                Delete collection
-                                            </LemonButton>
-                                        </>
-                                    }
-                                />
+                                    <LemonButton status="danger" onClick={() => deletePlaylist()} fullWidth>
+                                        Delete collection
+                                    </LemonButton>
+                                </>
+                            }
+                        />
 
-                                <LemonDivider vertical />
-                            </>
-                        )}
-
+                        <LemonDivider vertical />
                         <LemonButton
                             type="primary"
                             disabledReason={showFilters && !hasChanges ? 'No changes to save' : undefined}
@@ -136,72 +112,27 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
                     </div>
                 }
                 caption={
-                    !newSceneLayout && (
-                        <>
-                            <EditableField
-                                multiline
-                                name="description"
-                                markdown
-                                value={playlist.description || ''}
-                                placeholder="Description (optional)"
-                                onSave={(value) => updatePlaylist({ description: value })}
-                                saveOnBlur={true}
-                                maxLength={400}
-                                data-attr="playlist-description"
-                                compactButtons
-                            />
-                            <UserActivityIndicator
-                                at={playlist.last_modified_at}
-                                by={playlist.last_modified_by}
-                                className="mt-2"
-                            />
-                        </>
-                    )
+                    <>
+                        <EditableField
+                            multiline
+                            name="description"
+                            markdown
+                            value={playlist.description || ''}
+                            placeholder="Description (optional)"
+                            onSave={(value) => updatePlaylist({ description: value })}
+                            saveOnBlur={true}
+                            maxLength={400}
+                            data-attr="playlist-description"
+                            compactButtons
+                        />
+                        <UserActivityIndicator
+                            at={playlist.last_modified_at}
+                            by={playlist.last_modified_by}
+                            className="mt-2"
+                        />
+                    </>
                 }
             />
-
-            <ScenePanel>
-                <ScenePanelCommonActions>
-                    <SceneCommonButtons
-                        dataAttrKey={RESOURCE_TYPE}
-                        duplicate={{
-                            onClick: () => duplicatePlaylist(),
-                        }}
-                        pinned={{
-                            active: playlist.pinned,
-                            onClick: () => updatePlaylist({ pinned: !playlist.pinned }),
-                        }}
-                    />
-                </ScenePanelCommonActions>
-                <ScenePanelMetaInfo>
-                    <SceneName
-                        defaultValue={playlist.name || ''}
-                        onSave={(value) => updatePlaylist({ name: value })}
-                        dataAttrKey={RESOURCE_TYPE}
-                    />
-
-                    <SceneDescription
-                        defaultValue={playlist.description || ''}
-                        onSave={(value) => updatePlaylist({ description: value })}
-                        dataAttrKey={RESOURCE_TYPE}
-                        optional
-                        markdown
-                    />
-                    <SceneFile dataAttrKey={RESOURCE_TYPE} />
-                    <SceneActivityIndicator
-                        at={playlist.last_modified_at}
-                        by={playlist.last_modified_by}
-                        prefix="Last modified"
-                    />
-                </ScenePanelMetaInfo>
-                <ScenePanelDivider />
-                <ScenePanelActions>
-                    <SceneMetalyticsSummaryButton dataAttrKey={RESOURCE_TYPE} />
-                    <ButtonPrimitive variant="danger" onClick={() => deletePlaylist()} menuItem>
-                        Delete collection
-                    </ButtonPrimitive>
-                </ScenePanelActions>
-            </ScenePanel>
 
             <div className="SessionRecordingPlaylistHeightWrapper">
                 <SessionRecordingsPlaylist

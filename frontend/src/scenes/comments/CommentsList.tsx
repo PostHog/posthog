@@ -10,10 +10,10 @@ export const CommentsList = (props: CommentsLogicProps): JSX.Element => {
     const { key, commentsWithReplies, commentsLoading } = useValues(commentsLogic(props))
     const { loadComments } = useActions(commentsLogic(props))
 
-    // If the comment list focus changes we should load the comments
     useEffect(() => {
+        // If the comment list focus changes we should load the comments
         loadComments()
-    }, [key]) // oxlint-disable-line react-hooks/exhaustive-deps
+    }, [key])
 
     return (
         <BindLogic logic={commentsLogic} props={props}>

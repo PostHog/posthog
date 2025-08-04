@@ -159,7 +159,7 @@ const InnerListBox = forwardRef<ListBoxHandle, ListBoxProps>(function ListBox(
 
     useEffect(() => {
         recalculateFocusableElements()
-    }, [children]) // oxlint-disable-line react-hooks/exhaustive-deps
+    }, [children])
 
     useEffect(() => {
         if (focusedElement) {

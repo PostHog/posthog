@@ -6,10 +6,10 @@ labels: bug
 
 ## Bug description
 
-_Please describe._  
-_If this affects the front-end, screenshots would be of great help._
+*Please describe.*  
+*If this affects the front-end, screenshots would be of great help.*  
 
-_If you are on PostHog Cloud it would be really valuable if you can share any links where the problem occurs. This speeds up our ability to troubleshoot tremendously._
+*If you are on PostHog Cloud it would be really valuable if you can share any links where the problem occurs. This speeds up our ability to troubleshoot tremendously.* 
 
 ## How to reproduce
 
@@ -26,4 +26,6 @@ _If you are on PostHog Cloud it would be really valuable if you can share any li
 
 ## Additional context
 
-#### _Thank you_ for your bug report – we love squashing them!
+
+
+#### *Thank you* for your bug report – we love squashing them!

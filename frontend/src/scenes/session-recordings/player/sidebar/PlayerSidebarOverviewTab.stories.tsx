@@ -11,7 +11,7 @@ import { PlayerSidebarOverviewTab } from 'scenes/session-recordings/player/sideb
 import { mswDecorator } from '~/mocks/browser'
 
 const meta: Meta = {
-    title: 'Replay/Overview Tab',
+    title: 'Replay/OverviewTab',
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',

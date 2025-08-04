@@ -238,7 +238,7 @@ export function NodeCanvas<T extends Node>({ nodes, renderNode }: NodeCanvasProp
 
         window.addEventListener('resize', handleResize)
         return () => window.removeEventListener('resize', handleResize)
-    }, [offset, nodePositions]) // oxlint-disable-line react-hooks/exhaustive-deps
+    }, [offset, nodePositions])
 
     const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>): void => {
         setIsDragging(true)

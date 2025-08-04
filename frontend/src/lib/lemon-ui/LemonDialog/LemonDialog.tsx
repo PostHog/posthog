@@ -97,7 +97,7 @@ export function LemonDialog({
             setIsOpen(false)
         }
         lastLocation.current = currentLocation.pathname
-    }, [currentLocation]) // oxlint-disable-line react-hooks/exhaustive-deps
+    }, [currentLocation])
 
     return (
         <LemonModal
@@ -158,7 +158,7 @@ export const LemonFormDialog = ({
 
     useEffect(() => {
         setFormValues(initialValues)
-    }, [setFormValues, initialValues])
+    }, [])
 
     return (
         <Form

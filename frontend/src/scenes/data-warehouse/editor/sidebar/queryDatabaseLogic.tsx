@@ -1,8 +1,8 @@
-import { IconDatabase, IconDocument, IconPlug, IconPlus } from '@posthog/icons'
+import { IconDatabase, IconDocument, IconPlug } from '@posthog/icons'
 import { LemonMenuItem, lemonToast } from '@posthog/lemon-ui'
 import { Spinner } from '@posthog/lemon-ui'
 import Fuse from 'fuse.js'
-import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
 import { TreeItem } from 'lib/components/DatabaseTableTree/DatabaseTableTree'
@@ -18,15 +18,12 @@ import {
     DatabaseSchemaManagedViewTable,
     DatabaseSchemaTable,
 } from '~/queries/schema/schema-general'
-import { DataWarehouseSavedQuery, DataWarehouseSavedQueryDraft, DataWarehouseViewLink } from '~/types'
+import { DataWarehouseSavedQuery, DataWarehouseViewLink } from '~/types'
 
 import { dataWarehouseJoinsLogic } from '../../external/dataWarehouseJoinsLogic'
 import { dataWarehouseViewsLogic } from '../../saved_queries/dataWarehouseViewsLogic'
 import { viewLinkLogic } from '../../viewLinkLogic'
 import type { queryDatabaseLogicType } from './queryDatabaseLogicType'
-import { draftsLogic } from '../draftsLogic'
-import { featureFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 
 export type EditorSidebarTreeRef = React.RefObject<LemonTreeRef> | null
 
@@ -69,7 +66,7 @@ const posthogTablesFuse = new Fuse<DatabaseSchemaTable>([], FUSE_OPTIONS)
 const dataWarehouseTablesFuse = new Fuse<DatabaseSchemaDataWarehouseTable>([], FUSE_OPTIONS)
 const savedQueriesFuse = new Fuse<DataWarehouseSavedQuery>([], FUSE_OPTIONS)
 const managedViewsFuse = new Fuse<DatabaseSchemaManagedViewTable>([], FUSE_OPTIONS)
-const draftsFuse = new Fuse<DataWarehouseSavedQueryDraft>([], FUSE_OPTIONS)
+
 // Factory functions for creating tree nodes
 const createColumnNode = (tableName: string, field: DatabaseSchemaField, isSearch = false): TreeDataItem => ({
     id: `${isSearch ? 'search-' : ''}col-${tableName}-${field.name}`,
@@ -111,25 +108,6 @@ const createTableNode = (
             ...(matches && { searchMatches: matches }),
         },
         children: tableChildren,
-    }
-}
-
-const createDraftNode = (
-    draft: DataWarehouseSavedQueryDraft,
-    matches: FuseSearchMatch[] | null = null,
-    isSearch = false
-): TreeDataItem => {
-    return {
-        id: `${isSearch ? 'search-' : ''}draft-${draft.id}`,
-        name: draft.name,
-        type: 'node',
-        icon: <IconDocument />,
-        record: {
-            id: draft.id,
-            type: 'draft',
-            draft: draft,
-            ...(matches && { searchMatches: matches }),
-        },
     }
 }
 
@@ -240,7 +218,7 @@ const createSourceFolderNode = (
 }
 
 const createTopLevelFolderNode = (
-    type: 'sources' | 'views' | 'managed-views' | 'drafts',
+    type: 'sources' | 'views' | 'managed-views',
     children: TreeDataItem[],
     isSearch = false,
     icon?: JSX.Element
@@ -252,19 +230,6 @@ const createTopLevelFolderNode = (
         finalChildren = [
             {
                 id: `${isSearch ? 'search-' : ''}views-folder-empty/`,
-                name: 'Empty folder',
-                type: 'empty-folder',
-                record: {
-                    type: 'empty-folder',
-                },
-            },
-        ]
-    }
-
-    if (type === 'drafts' && children.length === 0) {
-        finalChildren = [
-            {
-                id: `${isSearch ? 'search-' : ''}drafts-folder-empty/`,
                 name: 'Empty folder',
                 type: 'empty-folder',
                 record: {
@@ -289,14 +254,7 @@ const createTopLevelFolderNode = (
 
     return {
         id: isSearch ? `search-${type}` : type,
-        name:
-            type === 'sources'
-                ? 'Sources'
-                : type === 'views'
-                ? 'Views'
-                : type === 'drafts'
-                ? 'Drafts'
-                : 'Managed Views',
+        name: type === 'sources' ? 'Sources' : type === 'views' ? 'Views' : 'Managed views',
         type: 'node',
         icon: icon,
         record: {
@@ -320,7 +278,6 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
         clearSearch: true,
         selectSourceTable: (tableName: string) => ({ tableName }),
         setSyncMoreNoticeDismissed: (dismissed: boolean) => ({ dismissed }),
-        setEditingDraft: (draftId: string) => ({ draftId }),
     }),
     connect(() => ({
         values: [
@@ -338,10 +295,6 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
             ],
             dataWarehouseViewsLogic,
             ['dataWarehouseSavedQueries', 'dataWarehouseSavedQueryMapById', 'dataWarehouseSavedQueriesLoading'],
-            draftsLogic,
-            ['drafts', 'draftsResponseLoading', 'hasMoreDrafts'],
-            featureFlagLogic,
-            ['featureFlags'],
         ],
         actions: [
             viewLinkLogic,
@@ -350,17 +303,9 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
             ['loadDatabase'],
             dataWarehouseJoinsLogic,
             ['loadJoins'],
-            draftsLogic,
-            ['loadDrafts', 'renameDraft', 'loadMoreDrafts'],
         ],
     })),
     reducers({
-        editingDraftId: [
-            null as string | null,
-            {
-                setEditingDraft: (_, { draftId }) => draftId,
-            },
-        ],
         selectedSchema: [
             null as DatabaseSchemaDataWarehouseTable | DatabaseSchemaTable | DataWarehouseSavedQuery | null,
             {
@@ -472,38 +417,20 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 return managedViews.map((view) => [view, null])
             },
         ],
-        relevantDrafts: [
-            (s) => [s.drafts, s.searchTerm],
-            (
-                drafts: DataWarehouseSavedQueryDraft[],
-                searchTerm: string
-            ): [DataWarehouseSavedQueryDraft, FuseSearchMatch[] | null][] => {
-                if (searchTerm) {
-                    return draftsFuse
-                        .search(searchTerm)
-                        .map((result) => [result.item, result.matches as FuseSearchMatch[]])
-                }
-                return drafts.map((draft) => [draft, null])
-            },
-        ],
         searchTreeData: [
             (s) => [
                 s.relevantPosthogTables,
                 s.relevantDataWarehouseTables,
                 s.relevantSavedQueries,
                 s.relevantManagedViews,
-                s.relevantDrafts,
                 s.searchTerm,
-                s.featureFlags,
             ],
             (
                 relevantPosthogTables: [DatabaseSchemaTable, FuseSearchMatch[] | null][],
                 relevantDataWarehouseTables: [DatabaseSchemaDataWarehouseTable, FuseSearchMatch[] | null][],
                 relevantSavedQueries: [DataWarehouseSavedQuery, FuseSearchMatch[] | null][],
                 relevantManagedViews: [DatabaseSchemaManagedViewTable, FuseSearchMatch[] | null][],
-                relevantDrafts: [DataWarehouseSavedQueryDraft, FuseSearchMatch[] | null][],
-                searchTerm: string,
-                featureFlags: FeatureFlagsSet
+                searchTerm: string
             ): TreeDataItem[] => {
                 if (!searchTerm) {
                     return []
@@ -542,7 +469,6 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 // Create views children
                 const viewsChildren: TreeDataItem[] = []
                 const managedViewsChildren: TreeDataItem[] = []
-                const draftsChildren: TreeDataItem[] = []
 
                 // Add saved queries
                 relevantSavedQueries.forEach(([view, matches]) => {
@@ -553,13 +479,6 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 relevantManagedViews.forEach(([view, matches]) => {
                     managedViewsChildren.push(createManagedViewNode(view, matches, true))
                 })
-
-                // Add drafts
-                if (featureFlags[FEATURE_FLAGS.EDITOR_DRAFTS]) {
-                    relevantDrafts.forEach(([draft, matches]) => {
-                        draftsChildren.push(createDraftNode(draft, matches, true))
-                    })
-                }
 
                 const searchResults: TreeDataItem[] = []
 
@@ -578,12 +497,6 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                     searchResults.push(createTopLevelFolderNode('managed-views', managedViewsChildren, true))
                 }
 
-                // TODO: this needs to moved to the backend
-                if (draftsChildren.length > 0) {
-                    expandedIds.push('search-drafts')
-                    searchResults.push(createTopLevelFolderNode('drafts', draftsChildren, true))
-                }
-
                 // Auto-expand only parent folders, not the matching nodes themselves
                 setTimeout(() => {
                     actions.setExpandedSearchFolders(expandedIds)
@@ -598,25 +511,25 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 s.dataWarehouseTables,
                 s.dataWarehouseSavedQueries,
                 s.managedViews,
+                s.searchTerm,
+                s.searchTreeData,
                 s.databaseLoading,
                 s.dataWarehouseSavedQueriesLoading,
-                s.drafts,
-                s.draftsResponseLoading,
-                s.hasMoreDrafts,
-                s.featureFlags,
             ],
             (
                 posthogTables: DatabaseSchemaTable[],
                 dataWarehouseTables: DatabaseSchemaDataWarehouseTable[],
                 dataWarehouseSavedQueries: DataWarehouseSavedQuery[],
                 managedViews: DatabaseSchemaManagedViewTable[],
+                searchTerm: string,
+                searchTreeData: TreeDataItem[],
                 databaseLoading: boolean,
-                dataWarehouseSavedQueriesLoading: boolean,
-                drafts: DataWarehouseSavedQueryDraft[],
-                draftsResponseLoading: boolean,
-                hasMoreDrafts: boolean,
-                featureFlags: FeatureFlagsSet
+                dataWarehouseSavedQueriesLoading: boolean
             ): TreeDataItem[] => {
+                if (searchTerm) {
+                    return searchTreeData
+                }
+
                 const sourcesChildren: TreeDataItem[] = []
 
                 // Add loading indicator for sources if still loading
@@ -692,51 +605,8 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                     })
                 }
 
-                const draftsChildren: TreeDataItem[] = []
-
-                if (featureFlags[FEATURE_FLAGS.EDITOR_DRAFTS]) {
-                    if (draftsResponseLoading && drafts.length === 0) {
-                        draftsChildren.push({
-                            id: 'drafts-loading/',
-                            name: 'Loading...',
-                            displayName: <>Loading...</>,
-                            icon: <Spinner />,
-                            disableSelect: true,
-                            type: 'loading-indicator',
-                        })
-                    } else {
-                        drafts.forEach((draft) => {
-                            draftsChildren.push(createDraftNode(draft))
-                        })
-
-                        if (drafts.length > 0 && draftsResponseLoading) {
-                            draftsChildren.push({
-                                id: 'drafts-loading/',
-                                name: 'Loading...',
-                                displayName: <>Loading...</>,
-                                icon: <Spinner />,
-                                disableSelect: true,
-                                type: 'loading-indicator',
-                            })
-                        } else if (hasMoreDrafts) {
-                            draftsChildren.push({
-                                id: 'drafts-load-more/',
-                                name: 'Load more...',
-                                displayName: <>Load more...</>,
-                                icon: <IconPlus />,
-                                onClick: () => {
-                                    actions.loadMoreDrafts()
-                                },
-                            })
-                        }
-                    }
-                }
-
                 return [
                     createTopLevelFolderNode('sources', sourcesChildren, false, <IconPlug />),
-                    ...(featureFlags[FEATURE_FLAGS.EDITOR_DRAFTS]
-                        ? [createTopLevelFolderNode('drafts', draftsChildren, false)]
-                        : []),
                     createTopLevelFolderNode('views', viewsChildren),
                     createTopLevelFolderNode('managed-views', managedViewsChildren),
                 ]
@@ -871,15 +741,5 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
         managedViews: (managedViews: DatabaseSchemaManagedViewTable[]) => {
             managedViewsFuse.setCollection(managedViews)
         },
-        drafts: (drafts: DataWarehouseSavedQueryDraft[]) => {
-            draftsFuse.setCollection(drafts)
-        },
     }),
-    events(({ actions, values }) => ({
-        afterMount: () => {
-            if (values.featureFlags[FEATURE_FLAGS.EDITOR_DRAFTS]) {
-                actions.loadDrafts()
-            }
-        },
-    })),
 ])

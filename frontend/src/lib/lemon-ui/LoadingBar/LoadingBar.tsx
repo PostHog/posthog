@@ -24,7 +24,7 @@ export function LoadingBar({ className, loadId, setProgress, progress, wrapperCl
         } else {
             _setProgress(0)
         }
-    }, [loadId]) // oxlint-disable-line react-hooks/exhaustive-deps
+    }, [loadId])
 
     useEffect(() => {
         if (setProgress && loadId) {

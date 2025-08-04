@@ -230,7 +230,6 @@ const YSeriesFormattingTab = ({ ySeriesLogicProps }: { ySeriesLogicProps: YSerie
 const YSeriesDisplayTab = ({ ySeriesLogicProps }: { ySeriesLogicProps: YSeriesLogicProps }): JSX.Element => {
     const { showTableSettings, dataVisualizationProps } = useValues(dataVisualizationLogic)
     const { selectedSeriesBreakdownColumn } = useValues(seriesBreakdownLogic({ key: dataVisualizationProps.key }))
-    const { updateSeriesIndex } = useActions(dataVisualizationLogic)
 
     const showColorPicker = !showTableSettings && !selectedSeriesBreakdownColumn
     const showLabelInput = showTableSettings || !selectedSeriesBreakdownColumn
@@ -244,46 +243,18 @@ const YSeriesDisplayTab = ({ ySeriesLogicProps }: { ySeriesLogicProps: YSeriesLo
                             {({ value, onChange }) => (
                                 <LemonColorPicker
                                     selectedColor={value}
-                                    onSelectColor={(color) => {
-                                        onChange(color)
-                                        updateSeriesIndex(
-                                            ySeriesLogicProps.seriesIndex,
-                                            ySeriesLogicProps.series.column.name,
-                                            {
-                                                display: {
-                                                    color: color,
-                                                },
-                                            }
-                                        )
-                                    }}
+                                    onSelectColor={onChange}
                                     colors={getSeriesColorPalette()}
                                     showCustomColor
                                     hideDropdown
                                     preventPopoverClose
-                                    customColorValue={value}
                                 />
                             )}
                         </LemonField>
                     )}
                     {showLabelInput && (
                         <LemonField name="label" label="Label">
-                            {({ value, onChange }) => (
-                                <LemonInput
-                                    value={value}
-                                    onChange={(label) => {
-                                        onChange(label)
-                                        updateSeriesIndex(
-                                            ySeriesLogicProps.seriesIndex,
-                                            ySeriesLogicProps.series.column.name,
-                                            {
-                                                display: {
-                                                    label: label,
-                                                },
-                                            }
-                                        )
-                                    }}
-                                />
-                            )}
+                            <LemonInput />
                         </LemonField>
                     )}
                 </div>
@@ -293,21 +264,7 @@ const YSeriesDisplayTab = ({ ySeriesLogicProps }: { ySeriesLogicProps: YSeriesLo
                     {!selectedSeriesBreakdownColumn && (
                         <LemonField name="trendLine" label="Trend line">
                             {({ value, onChange }) => (
-                                <LemonSwitch
-                                    checked={value}
-                                    onChange={(newValue) => {
-                                        onChange(newValue)
-                                        updateSeriesIndex(
-                                            ySeriesLogicProps.seriesIndex,
-                                            ySeriesLogicProps.series.column.name,
-                                            {
-                                                display: {
-                                                    trendLine: newValue,
-                                                },
-                                            }
-                                        )
-                                    }}
-                                />
+                                <LemonSwitch checked={value} onChange={(newValue) => onChange(newValue)} />
                             )}
                         </LemonField>
                     )}
@@ -326,18 +283,7 @@ const YSeriesDisplayTab = ({ ySeriesLogicProps }: { ySeriesLogicProps: YSeriesLo
                                         value: 'right',
                                     },
                                 ]}
-                                onChange={(newValue) => {
-                                    onChange(newValue)
-                                    updateSeriesIndex(
-                                        ySeriesLogicProps.seriesIndex,
-                                        ySeriesLogicProps.series.column.name,
-                                        {
-                                            display: {
-                                                yAxisPosition: newValue as 'left' | 'right',
-                                            },
-                                        }
-                                    )
-                                }}
+                                onChange={(newValue) => onChange(newValue)}
                             />
                         )}
                     </LemonField>
@@ -360,18 +306,7 @@ const YSeriesDisplayTab = ({ ySeriesLogicProps }: { ySeriesLogicProps: YSeriesLo
                                         value: 'bar',
                                     },
                                 ]}
-                                onChange={(newValue) => {
-                                    onChange(newValue)
-                                    updateSeriesIndex(
-                                        ySeriesLogicProps.seriesIndex,
-                                        ySeriesLogicProps.series.column.name,
-                                        {
-                                            display: {
-                                                displayType: newValue as 'auto' | 'line' | 'bar',
-                                            },
-                                        }
-                                    )
-                                }}
+                                onChange={(newValue) => onChange(newValue)}
                             />
                         )}
                     </LemonField>

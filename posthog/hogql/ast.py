@@ -915,9 +915,10 @@ class HogQLXAttribute(AST):
 
 
 @dataclass(kw_only=True)
-class HogQLXTag(Expr):
+class HogQLXTag(AST):
     kind: str
     attributes: list[HogQLXAttribute]
+    type: Optional[Type] = None
 
     def to_dict(self):
         return {

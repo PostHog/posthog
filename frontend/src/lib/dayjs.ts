@@ -1,4 +1,4 @@
-// oxlint-disable-next-line no-restricted-imports
+// eslint-disable-next-line no-restricted-imports
 import dayjs, { Dayjs as DayjsOriginal, isDayjs } from 'dayjs'
 import duration from 'dayjs/plugin/duration'
 import isSameOrAfter from 'dayjs/plugin/isSameOrAfter'

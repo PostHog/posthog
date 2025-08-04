@@ -2,11 +2,10 @@ import { useDraggable, useDroppable } from '@dnd-kit/core'
 import { IconChevronRight, IconCircleDashed, IconDocument, IconFolder, IconFolderOpenFilled } from '@posthog/icons'
 import { buttonPrimitiveVariants } from 'lib/ui/Button/ButtonPrimitives'
 import { cn } from 'lib/utils/css-classes'
-import { CSSProperties, useRef } from 'react'
+import { CSSProperties, useEffect, useRef } from 'react'
 
 import { LemonCheckbox } from '../LemonCheckbox'
 import { TreeDataItem } from './LemonTree'
-import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 export const ICON_CLASSES = 'text-tertiary size-5 flex items-center justify-center relative'
 
@@ -236,16 +235,15 @@ export const InlineEditField = ({
 }): JSX.Element => {
     const inputRef = useRef<HTMLInputElement>(null)
 
-    useOnMountEffect(() => {
+    useEffect(() => {
         const timeout = setTimeout(() => {
             if (inputRef.current) {
                 inputRef.current.focus()
                 inputRef.current.select()
             }
         }, 100)
-
         return () => clearTimeout(timeout)
-    })
+    }, [])
 
     function onSubmit(e: React.FormEvent<HTMLFormElement>): void {
         e.preventDefault()

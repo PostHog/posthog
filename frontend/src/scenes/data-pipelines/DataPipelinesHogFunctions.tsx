@@ -57,7 +57,7 @@ export function DataPipelinesHogFunctions({ kind, additionalKinds }: DataPipelin
         if (kind === 'site_app') {
             loadHogFunctionPluginsSiteApps()
         }
-    }, [kind]) // oxlint-disable-line react-hooks/exhaustive-deps
+    }, [kind])
 
     const newButton = (
         <LemonButton to={urls.dataPipelinesNew(kind)} type="primary" icon={<IconPlusSmall />} size="small">

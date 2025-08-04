@@ -83,7 +83,6 @@ export enum ColumnFeature {
     canEdit = 'canEdit',
     canAddColumns = 'canAddColumns',
     canRemove = 'canRemove',
-    canPin = 'canPin',
 }
 
 interface DataTableProps {
@@ -520,29 +519,6 @@ export function DataTable({
                                     </LemonButton>
                                 </>
                             )}
-                        {columnFeatures.includes(ColumnFeature.canPin) && (
-                            <>
-                                <LemonDivider />
-                                <LemonButton
-                                    fullWidth
-                                    data-attr="datatable-pin-column"
-                                    onClick={() => {
-                                        let newPinnedColumns = new Set(query.pinnedColumns ?? [])
-                                        if (newPinnedColumns.has(key)) {
-                                            newPinnedColumns.delete(key)
-                                        } else {
-                                            newPinnedColumns.add(key)
-                                        }
-                                        setQuery?.({
-                                            ...query,
-                                            pinnedColumns: Array.from(newPinnedColumns),
-                                        })
-                                    }}
-                                >
-                                    {query.pinnedColumns?.includes(key) ? 'Unpin' : 'Pin column'}
-                                </LemonButton>
-                            </>
-                        )}
                     </>
                 ) : undefined,
         })),
@@ -805,7 +781,6 @@ export function DataTable({
                                         result &&
                                         result[0] &&
                                         result[0]['event'] === '$exception',
-                                    DataTable__has_pinned_columns: (query.pinnedColumns ?? []).length > 0,
                                 })
                             }
                             footer={
@@ -815,7 +790,6 @@ export function DataTable({
                                 ) : null
                             }
                             onRow={onRow}
-                            pinnedColumns={query.pinnedColumns}
                         />
                     )}
                     {/* TODO: this doesn't seem like the right solution... */}

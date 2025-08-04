@@ -230,7 +230,6 @@ export function ActionEdit({ action: loadedAction, id }: ActionEditLogicProps): 
                             dataAttrKey={RESOURCE_TYPE}
                             optional
                             isLoading={actionLoading}
-                            markdown
                         />
 
                         <SceneTags

@@ -23,7 +23,6 @@ import { MetricsViewLegacy } from '../MetricsView/legacy/MetricsViewLegacy'
 import { VariantDeltaTimeseries } from '../MetricsView/legacy/VariantDeltaTimeseries'
 import { Metrics } from '../MetricsView/new/Metrics'
 import { RunningTimeCalculatorModal } from '../RunningTimeCalculator/RunningTimeCalculatorModal'
-import { isLegacyExperiment, isLegacyExperimentQuery } from '../utils'
 import {
     EditConclusionModal,
     LegacyExploreButton,
@@ -40,6 +39,7 @@ import { LegacyExperimentHeader } from './LegacyExperimentHeader'
 import { Overview } from './Overview'
 import { ReleaseConditionsModal, ReleaseConditionsTable } from './ReleaseConditionsTable'
 import { SummaryTable } from './SummaryTable'
+import { isLegacyExperiment, isLegacyExperimentQuery } from '../utils'
 
 const ResultsTab = (): JSX.Element => {
     const {
@@ -124,13 +124,7 @@ const ResultsTab = (): JSX.Element => {
                                         metricIndex={0}
                                         isPrimary={true}
                                     >
-                                        {({
-                                            query,
-                                            breakdownResults,
-                                            breakdownResultsLoading,
-                                            exposureDifference,
-                                            breakdownLastRefresh,
-                                        }) => (
+                                        {({ query, breakdownResults, breakdownResultsLoading, exposureDifference }) => (
                                             <div>
                                                 {breakdownResultsLoading && <ResultsBreakdownSkeleton />}
                                                 {query && breakdownResults && (
@@ -145,7 +139,6 @@ const ResultsTab = (): JSX.Element => {
                                                             <ResultsQuery
                                                                 query={query}
                                                                 breakdownResults={breakdownResults}
-                                                                breakdownLastRefresh={breakdownLastRefresh}
                                                             />
                                                         </div>
                                                     </div>

@@ -992,29 +992,27 @@ export const dashboardLogic = kea<dashboardLogicType>([
                           dashboard_description: dashboard.description,
                           dashboard_filters: dashboard.filters,
                           tags: dashboard.tags || [],
-                          tiles: dashboard.tiles
-                              .filter((tile) => !tile.error) // Skip error tiles when creating templates
-                              .map((tile) => {
-                                  if (tile.text) {
-                                      return {
-                                          type: 'TEXT',
-                                          body: tile.text.body,
-                                          layouts: tile.layouts,
-                                          color: tile.color,
-                                      }
+                          tiles: dashboard.tiles.map((tile) => {
+                              if (tile.text) {
+                                  return {
+                                      type: 'TEXT',
+                                      body: tile.text.body,
+                                      layouts: tile.layouts,
+                                      color: tile.color,
                                   }
-                                  if (tile.insight) {
-                                      return {
-                                          type: 'INSIGHT',
-                                          name: tile.insight.name,
-                                          description: tile.insight.description || '',
-                                          query: tile.insight.query,
-                                          layouts: tile.layouts,
-                                          color: tile.color,
-                                      }
+                              }
+                              if (tile.insight) {
+                                  return {
+                                      type: 'INSIGHT',
+                                      name: tile.insight.name,
+                                      description: tile.insight.description || '',
+                                      query: tile.insight.query,
+                                      layouts: tile.layouts,
+                                      color: tile.color,
                                   }
-                                  throw new Error('Unknown tile type')
-                              }),
+                              }
+                              throw new Error('Unknown tile type')
+                          }),
                           variables: [],
                       }
                     : undefined

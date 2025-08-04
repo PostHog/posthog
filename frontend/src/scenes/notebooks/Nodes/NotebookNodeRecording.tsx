@@ -25,7 +25,6 @@ import { IconComment, IconPerson } from '@posthog/icons'
 import { UUID_REGEX_MATCH_GROUPS } from './utils'
 import { JSONContent } from 'lib/components/RichContentEditor/types'
 import { NotebookNodeAttributeProperties, NotebookNodeProps, NotebookNodeType } from '../types'
-import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 const HEIGHT = 500
 const MIN_HEIGHT = '20rem'
@@ -57,8 +56,11 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeRecordingAttrib
     const { loadRecordingMeta } = useActions(sessionRecordingDataLogic(recordingLogicProps))
     const { seekToTime, setPlay } = useActions(sessionRecordingPlayerLogic(recordingLogicProps))
 
+    useEffect(() => {
+        loadRecordingMeta()
+        // oxlint-disable-next-line exhaustive-deps
+    }, [])
     // TODO Only load data when in view...
-    useOnMountEffect(loadRecordingMeta)
 
     useEffect(() => {
         const person = sessionPlayerMetaData?.person
@@ -87,9 +89,10 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeRecordingAttrib
                   }
                 : undefined,
         ])
-    }, [sessionPlayerMetaData?.person?.id]) // oxlint-disable-line exhaustive-deps
+        // oxlint-disable-next-line exhaustive-deps
+    }, [sessionPlayerMetaData?.person?.id])
 
-    useOnMountEffect(() => {
+    useEffect(() => {
         setMessageListeners({
             'play-replay': ({ time }) => {
                 if (!expanded) {
@@ -101,7 +104,8 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeRecordingAttrib
                 scrollIntoView()
             },
         })
-    })
+        // oxlint-disable-next-line exhaustive-deps
+    }, [])
 
     if (!sessionPlayerMetaData && !sessionPlayerMetaDataLoading) {
         return <NotFound object="replay" />

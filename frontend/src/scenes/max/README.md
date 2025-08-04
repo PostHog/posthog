@@ -44,10 +44,10 @@ Use the helper functions to ensure type safety and consistency.
 
 Currently, these context entities are supported:
 
-- Dashboards
-- Insights
-- Events
-- Actions
+-   Dashboards
+-   Insights
+-   Events
+-   Actions
 
 If you want to add new entities, you need to extend `maxContextLogic.ts`, slightly more difficult, but doable, check how other entities are supported and start from there.
 

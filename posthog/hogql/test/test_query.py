@@ -18,7 +18,7 @@ from posthog.models import Cohort
 from posthog.models.exchange_rate.currencies import SUPPORTED_CURRENCY_CODES
 from posthog.models.cohort.util import recalculate_cohortpeople
 from posthog.models.utils import UUIDT, uuid7
-from posthog.session_recordings.queries.test.session_replay_sql import (
+from posthog.session_recordings.queries_to_replace.test.session_replay_sql import (
     produce_replay_summary,
 )
 from posthog.schema import HogQLFilters, EventPropertyFilter, DateRange, QueryTiming, SessionPropertyFilter
@@ -32,6 +32,7 @@ from posthog.test.base import (
 )
 from unittest.mock import patch
 from decimal import Decimal
+from posthog.hogql.errors import ExposedHogQLError
 
 
 class TestQuery(ClickhouseTestMixin, APIBaseTest):
@@ -1428,7 +1429,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
     def test_hogql_query_filters_double_error(self):
         query = "SELECT event from events where {filters}"
-        with self.assertRaises(ValueError) as e:
+        with self.assertRaises(ExposedHogQLError) as e:
             execute_hogql_query(
                 query,
                 team=self.team,
@@ -1437,7 +1438,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             )
         self.assertEqual(
             str(e.exception),
-            "Query contains 'filters' both as placeholder and as a query parameter.",
+            "Query contains 'filters' placeholder, yet filters are also provided as a standalone query parameter.",
         )
 
     def test_hogql_query_filters_alias(self):

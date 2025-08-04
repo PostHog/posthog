@@ -322,24 +322,14 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
             "JSONExtract",
             native_func(err_to_null(|vm, args| {
                 assert(
-                    args.len() > 1,
-                    "JSONExtract requires at least two arguments",
+                    !args.is_empty(),
+                    "JSONExtract requires at least one argument",
                 )?;
-                let val = args[0].deref(&vm.heap)?;
-                let json = match val {
-                    // Parse strings as json, if a string was passed
-                    HogLiteral::String(s) => serde_json::from_str(s)
-                        .map_err(|e| VmError::NativeCallFailed(e.to_string()))?,
-                    // Otherwise just convert the hog to a json object
-                    _ => vm.hog_to_json(&args[0])?,
-                };
-                // JSONExtract must be provided a return type as the final argument (as per the clickhouse implementation). We
-                // ignore this return type, and treat any arguments between the first and last as path components
-                let path = if args.len() > 2 {
-                    &args[1..args.len() - 1]
-                } else {
-                    &[]
-                };
+                let json = args[0].deref(&vm.heap)?.try_as::<str>()?;
+                // Technically JSONExtract can be used simply to parse a string as json
+                let path = if args.len() > 1 { &args[1..] } else { &[] };
+                let json: JsonValue = serde_json::from_str(json)
+                    .map_err(|e| VmError::NativeCallFailed(e.to_string()))?;
                 let res = get_json_nested(&json, path, vm)?;
                 let Some(res) = res else {
                     return Ok(HogLiteral::Null.into());

@@ -65,7 +65,7 @@ export function PlayerInspectorList(): JSX.Element {
                 listRef.current.scrollToRow(playbackIndicatorIndex)
             }
         }
-    }, [playbackIndicatorIndex]) // oxlint-disable-line react-hooks/exhaustive-deps
+    }, [playbackIndicatorIndex])
 
     const renderRow: ListRowRenderer = ({ index, key, parent, style }) => {
         return (

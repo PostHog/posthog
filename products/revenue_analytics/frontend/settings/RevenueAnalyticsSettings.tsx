@@ -95,10 +95,10 @@ export function RevenueAnalyticsSettings(): JSX.Element {
 
             {featureFlags[FEATURE_FLAGS.REVENUE_ANALYTICS] && <GoalsConfiguration />}
 
+            <EventConfiguration buttonRef={eventsButtonRef} />
             {featureFlags[FEATURE_FLAGS.REVENUE_ANALYTICS] && (
                 <ExternalDataSourceConfiguration buttonRef={dataWarehouseTablesButtonRef} />
             )}
-            <EventConfiguration buttonRef={eventsButtonRef} />
 
             {featureFlags[FEATURE_FLAGS.REVENUE_ANALYTICS] ? (
                 <LemonTabs
@@ -106,14 +106,14 @@ export function RevenueAnalyticsSettings(): JSX.Element {
                     onChange={(key) => setActiveTab(key as Tab)}
                     tabs={[
                         {
-                            key: 'data-warehouse',
-                            label: 'Data Warehouse revenue events',
-                            content: <RevenueExampleDataWarehouseTablesData />,
-                        },
-                        {
                             key: 'events',
                             label: 'Revenue events',
                             content: <RevenueExampleEventsTable />,
+                        },
+                        {
+                            key: 'data-warehouse',
+                            label: 'Data Warehouse tables',
+                            content: <RevenueExampleDataWarehouseTablesData />,
                         },
                     ]}
                 />

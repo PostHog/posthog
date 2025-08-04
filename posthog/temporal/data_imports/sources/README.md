@@ -96,9 +96,9 @@ We have a bunch of examples already in the sources directory of how we build up 
 
 `items`: This is what the pipeline iterates over to pull items from your source. Some rules for the iterator:
 
-- It should return items as either `dict`, `list[dict]`, or a `pyarrow.Table` object. For sources with a defined schema that we can pull, such as a database table, we prefer the source returned a `pyarrow.Table` object with a well defined schema
-- It's okay to yield items one at a time if that's how the source logic is handled (excluding pyarrow tables). The pipeline will buffer the incoming items until it has a reasonable amount before running the pipeline over the dataset
-- If you are returning a `pyarrow.Table` object, then please make sure that there is a reasonable limit on how many rows that get held in memory. For most of our sources, we limit this to either 200 MiB or 5,000 rows.
+-   It should return items as either `dict`, `list[dict]`, or a `pyarrow.Table` object. For sources with a defined schema that we can pull, such as a database table, we prefer the source returned a `pyarrow.Table` object with a well defined schema
+-   It's okay to yield items one at a time if that's how the source logic is handled (excluding pyarrow tables). The pipeline will buffer the incoming items until it has a reasonable amount before running the pipeline over the dataset
+-   If you are returning a `pyarrow.Table` object, then please make sure that there is a reasonable limit on how many rows that get held in memory. For most of our sources, we limit this to either 200 MiB or 5,000 rows.
 
 We have some helper methods for returning a `pyarrow.Table` from the source, such as `table_from_iterator()` and `table_from_py_list()` from `posthog/temporal/data_imports/pipelines/pipeline/utils.py`. The pipeline will ultimately convert everything to a `pyarrow.Table` using these methods
 
@@ -134,8 +134,8 @@ We have several partitioning modes - `md5`, `numerical`, and `datetime`:
 
 For database sources, we recommend setting `partition_count` and `partition_size`. For API backed sources, we recommend setting `partition_keys`, `partition_mode`, and `partition_format`.
 
-- `partition_count` refers to how many partitions there should exist for the `md5` mode
-- `partition_size` refers to how many rows should be bucketed together in a single partition for the `numerical` mode
+-   `partition_count` refers to how many partitions there should exist for the `md5` mode
+-   `partition_size` refers to how many rows should be bucketed together in a single partition for the `numerical` mode
 
 ## Mixins
 

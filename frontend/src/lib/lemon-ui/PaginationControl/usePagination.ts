@@ -17,7 +17,7 @@ export function usePagination<T>(
 
     const setCurrentPage = useCallback(
         (newPage: number) => push(location.pathname, { ...searchParams, [currentPageParam]: newPage }, hashParams),
-        [location, searchParams, hashParams, push] // oxlint-disable-line react-hooks/exhaustive-deps
+        [location, searchParams, hashParams, push]
     )
 
     const entryCount: number | null = pagination?.controlled ? pagination.entryCount || null : dataSource.length

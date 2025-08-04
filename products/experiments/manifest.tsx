@@ -2,7 +2,7 @@ import { IconFlask } from '@posthog/icons'
 import { toParams } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
-import { ExperimentMetric } from '~/queries/schema/schema-general'
+import { ExperimentFunnelsQuery, ExperimentTrendsQuery } from '~/queries/schema/schema-general'
 
 import { ProductManifest } from '../../frontend/src/types'
 
@@ -13,7 +13,7 @@ export const manifest: ProductManifest = {
             id: string | number,
             formMode?: string | null,
             options?: {
-                metric?: ExperimentMetric
+                metric?: ExperimentTrendsQuery | ExperimentFunnelsQuery
                 name?: string
             }
         ): string => {

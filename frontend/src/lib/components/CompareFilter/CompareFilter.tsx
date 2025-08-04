@@ -29,7 +29,7 @@ export function CompareFilter({
         if (!!newCompareTo && tentativeCompareTo !== newCompareTo) {
             setTentativeCompareTo(newCompareTo)
         }
-    }, [compareFilter?.compare_to]) // oxlint-disable-line react-hooks/exhaustive-deps
+    }, [compareFilter?.compare_to]) // eslint-disable-line react-hooks/exhaustive-deps
 
     // Hide compare filter control when disabled to avoid states where control is "disabled but checked"
     if (disabled) {

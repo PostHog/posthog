@@ -40,7 +40,7 @@ export function CreateEnvironmentModal({
     // Anytime the team changes close the modal as it indicates we have created a new team
     useEffect(() => {
         closeModal()
-    }, [currentProject]) // oxlint-disable-line react-hooks/exhaustive-deps
+    }, [currentProject])
 
     return (
         <LemonModal

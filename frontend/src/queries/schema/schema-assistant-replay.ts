@@ -17,7 +17,6 @@ export interface MaxRecordingUniversalFilters {
     filter_test_accounts?: boolean
     filter_group: MaxOuterUniversalFiltersGroup
     order?: RecordingsQuery['order']
-    order_direction?: RecordingsQuery['order_direction']
 }
 
 export type MaxOuterUniversalFiltersGroup = {

@@ -70,6 +70,7 @@ export function HogFunctionFilters({
 
     const isLegacyPlugin = configuration?.template?.id?.startsWith('plugin-')
     const isTransformation = type === 'transformation'
+    const aiFiltersCreation = useFeatureFlag('AI_HOG_FUNCTION_CREATION')
     const cdpPersonUpdatesEnabled = useFeatureFlag('CDP_PERSON_UPDATES')
 
     const taxonomicGroupTypes = useMemo(() => {
@@ -400,30 +401,34 @@ export function HogFunctionFilters({
         </div>
     )
 
-    return (
-        <MaxTool
-            name="create_hog_function_filters"
-            displayName="Set up filters with AI"
-            description="Max can set up filters for your function"
-            context={{
-                current_filters: JSON.stringify(configuration?.filters ?? {}),
-                function_type: type,
-            }}
-            callback={(toolOutput: string) => {
-                const parsedFilters = JSON.parse(toolOutput)
-                setOldFilters(configuration?.filters ?? {})
-                setNewFilters(parsedFilters)
-                reportAIFiltersPrompted()
-            }}
-            onMaxOpen={() => {
-                reportAIFiltersPromptOpen()
-            }}
-            introOverride={{
-                headline: 'What events and properties should trigger this function?',
-                description: 'Let me help you set up the right filters for your function.',
-            }}
-        >
-            {mainContent}
-        </MaxTool>
-    )
+    if (aiFiltersCreation) {
+        return (
+            <MaxTool
+                name="create_hog_function_filters"
+                displayName="Set up filters with AI"
+                description="Max can set up filters for your function"
+                context={{
+                    current_filters: JSON.stringify(configuration?.filters ?? {}),
+                    function_type: type,
+                }}
+                callback={(toolOutput: string) => {
+                    const parsedFilters = JSON.parse(toolOutput)
+                    setOldFilters(configuration?.filters ?? {})
+                    setNewFilters(parsedFilters)
+                    reportAIFiltersPrompted()
+                }}
+                onMaxOpen={() => {
+                    reportAIFiltersPromptOpen()
+                }}
+                introOverride={{
+                    headline: 'What events and properties should trigger this function?',
+                    description: 'Let me help you set up the right filters for your function.',
+                }}
+            >
+                {mainContent}
+            </MaxTool>
+        )
+    }
+
+    return mainContent
 }

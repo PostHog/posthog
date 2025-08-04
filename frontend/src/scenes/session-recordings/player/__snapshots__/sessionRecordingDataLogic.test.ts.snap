@@ -2089,7 +2089,7 @@ exports[`sessionRecordingDataLogic loading session events load events after meta
       "query": {
         "kind": "HogQLQuery",
         "query": "
-SELECT uuid, event, timestamp, elements_chain, properties.$window_id, properties.$current_url, properties.$event_type, properties.$viewport_width, properties.$viewport_height, properties.$screen_name, distinct_id
+SELECT uuid, event, timestamp, elements_chain, properties.$window_id, properties.$current_url, properties.$event_type, properties.$viewport_width, properties.$viewport_height, properties.$screen_name
 FROM events
 WHERE timestamp > '2023-04-30 14:46:20'
 AND timestamp < '2023-05-02 14:46:32'
@@ -2107,7 +2107,7 @@ LIMIT 1000000",
         "query": {
           "kind": "HogQLQuery",
           "query": "
-SELECT uuid, event, timestamp, elements_chain, properties.$window_id, properties.$current_url, properties.$event_type, properties.$viewport_width, properties.$viewport_height, properties.$screen_name, distinct_id
+SELECT uuid, event, timestamp, elements_chain, properties.$window_id, properties.$current_url, properties.$event_type, properties.$viewport_width, properties.$viewport_height, properties.$screen_name
 FROM events
 WHERE timestamp > '2023-04-30 14:46:20'
 AND timestamp < '2023-05-02 14:46:32'
@@ -2128,7 +2128,7 @@ LIMIT 1000000",
       "query": {
         "kind": "HogQLQuery",
         "query": "
-SELECT uuid, event, timestamp, elements_chain, properties.$window_id, properties.$current_url, properties.$event_type, distinct_id
+SELECT uuid, event, timestamp, elements_chain, properties.$window_id, properties.$current_url, properties.$event_type
 FROM events
 WHERE timestamp > '2023-05-01 14:41:20'
 AND timestamp < '2023-05-01 14:51:32'
@@ -2148,7 +2148,7 @@ LIMIT 1000000",
         "query": {
           "kind": "HogQLQuery",
           "query": "
-SELECT uuid, event, timestamp, elements_chain, properties.$window_id, properties.$current_url, properties.$event_type, distinct_id
+SELECT uuid, event, timestamp, elements_chain, properties.$window_id, properties.$current_url, properties.$event_type
 FROM events
 WHERE timestamp > '2023-05-01 14:41:20'
 AND timestamp < '2023-05-01 14:51:32'

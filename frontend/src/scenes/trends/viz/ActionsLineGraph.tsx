@@ -15,7 +15,7 @@ import { LineGraph } from '../../insights/views/LineGraph/LineGraph'
 import { openPersonsModal } from '../persons-modal/PersonsModal'
 import { trendsDataLogic } from '../trendsDataLogic'
 import { teamLogic } from 'scenes/teamLogic'
-import { ciRanges, trendLine, movingAverage } from 'lib/statistics'
+import { ciRanges } from 'lib/statistics'
 
 export function ActionsLineGraph({
     inSharedMode = false,
@@ -47,9 +47,6 @@ export function ActionsLineGraph({
         insightData,
         showConfidenceIntervals,
         confidenceLevel,
-        showTrendLines,
-        showMovingAverage,
-        movingAverageIntervals,
         getTrendsColor,
     } = useValues(trendsDataLogic(insightProps))
     const { weekStartDay, timezone } = useValues(teamLogic)
@@ -93,18 +90,17 @@ export function ActionsLineGraph({
     const finalDatasets = indexedResults.flatMap((originalDataset, index) => {
         const yAxisID = showMultipleYAxes && index > 0 ? `y${index}` : 'y'
         const mainSeries = { ...originalDataset, yAxisID }
-        const datasets = [mainSeries]
-        const color = getTrendsColor(originalDataset)
 
-        if (showConfidenceIntervals) {
+        if (showConfidenceIntervals && yAxisScaleType !== 'log10') {
+            const color = getTrendsColor(originalDataset)
             const [lower, upper] = ciRanges(originalDataset.data, confidenceLevel / 100)
 
             const lowerCIBound = {
                 ...originalDataset,
-                label: `${originalDataset.label} (CI lower)`,
+                label: `${originalDataset.label} (CI Lower)`,
                 action: {
                     ...originalDataset.action,
-                    name: `${originalDataset.label} (CI lower)`,
+                    name: `${originalDataset.label} (CI Lower)`,
                 },
                 data: lower,
                 borderColor: color,
@@ -116,10 +112,10 @@ export function ActionsLineGraph({
             }
             const upperCIBound = {
                 ...originalDataset,
-                label: `${originalDataset.label} (CI upper)`,
+                label: `${originalDataset.label} (CI Upper)`,
                 action: {
                     ...originalDataset.action,
-                    name: `${originalDataset.label} (CI upper)`,
+                    name: `${originalDataset.label} (CI Upper)`,
                 },
                 data: upper,
                 borderColor: color,
@@ -130,51 +126,10 @@ export function ActionsLineGraph({
                 hideTooltip: true,
                 yAxisID,
             }
-            datasets.push(lowerCIBound, upperCIBound)
-        }
 
-        if (showTrendLines) {
-            const trendData = trendLine(originalDataset.data)
-            const trendDataset = {
-                ...originalDataset,
-                label: `${originalDataset.label} (Trend line)`,
-                action: {
-                    ...originalDataset.action,
-                    name: `${originalDataset.label} (Trend line)`,
-                },
-                data: trendData,
-                borderColor: color,
-                backgroundColor: 'transparent',
-                pointRadius: 0,
-                borderWidth: 2,
-                borderDash: [5, 5],
-                hideTooltip: true,
-                yAxisID,
-            }
-            datasets.push(trendDataset)
+            return [lowerCIBound, upperCIBound, mainSeries]
         }
-
-        if (showMovingAverage) {
-            const movingAverageData = movingAverage(originalDataset.data, movingAverageIntervals)
-            const movingAverageDataset = {
-                ...originalDataset,
-                label: `${originalDataset.label} (Moving avg)`,
-                action: {
-                    ...originalDataset.action,
-                    name: `${originalDataset.label} (Moving avg)`,
-                },
-                data: movingAverageData,
-                borderColor: color,
-                backgroundColor: 'transparent',
-                pointRadius: 0,
-                borderWidth: 2,
-                borderDash: [10, 3],
-                hideTooltip: true,
-                yAxisID,
-            }
-            datasets.push(movingAverageDataset)
-        }
-        return datasets
+        return [mainSeries]
     })
 
     return (

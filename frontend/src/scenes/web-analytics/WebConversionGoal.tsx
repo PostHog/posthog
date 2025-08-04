@@ -4,10 +4,9 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 import { useWindowSize } from 'lib/hooks/useWindowSize'
 import { useState } from 'react'
-import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
+import { ProductTab, webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 
 import { actionsModel } from '~/models/actionsModel'
-import { ProductTab } from './common'
 
 export const WebConversionGoal = (): JSX.Element | null => {
     const { isWindowLessThan } = useWindowSize()

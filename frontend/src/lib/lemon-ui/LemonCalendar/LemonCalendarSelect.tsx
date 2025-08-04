@@ -7,11 +7,10 @@ import {
     LemonCalendar,
     LemonCalendarProps,
 } from 'lib/lemon-ui/LemonCalendar/LemonCalendar'
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { LemonSwitch } from '../LemonSwitch'
 import { Popover } from '../Popover'
-import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 function timeDataAttr({ unit, value }: GetLemonButtonTimePropsOpts): string {
     return `${value}-${unit}`
@@ -141,11 +140,11 @@ export function LemonCalendarSelect({
         setSelectValue(date)
     }
 
-    useOnMountEffect(() => {
+    useEffect(() => {
         if (selectValue) {
             scrollToTime(selectValue, true)
         }
-    })
+    }, [])
 
     const onTimeClick = (props: GetLemonButtonTimePropsOpts): void => {
         const date = proposedDate(selectValue, props)

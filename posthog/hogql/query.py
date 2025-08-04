@@ -85,19 +85,33 @@ class HogQLQueryExecutor:
 
     def _process_placeholders(self):
         with self.timings.measure("replace_placeholders"):
-            if not self.placeholders:
-                self.placeholders = {}
-            finder = find_placeholders(self.select_query)
+            placeholders_in_query = find_placeholders(self.select_query)
+            self.placeholders = self.placeholders or {}
 
-            # Need to use the "filters" system to replace a few special placeholders
-            if finder.has_filters:
-                if "filters" in self.placeholders and self.filters is not None:
-                    raise ValueError(f"Query contains 'filters' both as placeholder and as a query parameter.")
+            if "filters" in self.placeholders and self.filters is not None:
+                raise ExposedHogQLError(
+                    f"Query contains 'filters' placeholder, yet filters are also provided as a standalone query parameter."
+                )
+
+            if "filters" in placeholders_in_query or any(
+                placeholder and placeholder.startswith("filters.") for placeholder in placeholders_in_query
+            ):
                 self.select_query = replace_filters(self.select_query, self.filters, self.team)
 
-            # If there are placeholders remaining
-            if finder.placeholder_fields or finder.placeholder_expressions:
-                self.select_query = cast(ast.SelectQuery, replace_placeholders(self.select_query, self.placeholders))
+                leftover_placeholders: list[str] = []
+                for placeholder in placeholders_in_query:
+                    if placeholder is None:
+                        raise ValueError("Placeholder expressions are not yet supported")
+                    if placeholder != "filters" and not placeholder.startswith("filters."):
+                        leftover_placeholders.append(placeholder)
+                placeholders_in_query = leftover_placeholders
+
+            if len(placeholders_in_query) > 0:
+                if len(self.placeholders) == 0:
+                    raise ExposedHogQLError(
+                        f"Query contains placeholders, but none were provided. Placeholders in query: {', '.join(s for s in placeholders_in_query if s is not None)}"
+                    )
+                self.select_query = replace_placeholders(self.select_query, self.placeholders)
 
     def _apply_limit(self):
         if self.limit_context in (LimitContext.COHORT_CALCULATION, LimitContext.SAVED_QUERY):

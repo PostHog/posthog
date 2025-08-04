@@ -5,6 +5,7 @@ import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { pluralize } from 'lib/utils'
+import { useEffect } from 'react'
 import { EnvironmentConfigOption, preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { InstanceSetting } from '~/types'
@@ -13,7 +14,6 @@ import { InstanceConfigSaveModal } from './InstanceConfigSaveModal'
 import { MetricValue, RenderMetricValue } from './RenderMetricValue'
 import { RenderMetricValueEdit } from './RenderMetricValueEdit'
 import { ConfigMode, systemStatusLogic } from './systemStatusLogic'
-import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 export function InstanceConfigTab(): JSX.Element {
     const { configOptions, preflightLoading } = useValues(preflightLogic)
@@ -22,7 +22,9 @@ export function InstanceConfigTab(): JSX.Element {
     const { loadInstanceSettings, setInstanceConfigMode, updateInstanceConfigValue, clearInstanceConfigEditing } =
         useActions(systemStatusLogic)
 
-    useOnMountEffect(loadInstanceSettings)
+    useEffect(() => {
+        loadInstanceSettings()
+    }, [])
 
     useKeyboardHotkeys({
         e: {

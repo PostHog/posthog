@@ -54,7 +54,7 @@ export function MemberSelect({
         if (showPopover) {
             ensureAllMembersLoaded()
         }
-    }, [showPopover]) // oxlint-disable-line react-hooks/exhaustive-deps
+    }, [showPopover])
 
     const selectableMembers = filteredMembers.filter((m) => !excludedMembers.includes(m.user[propToCompare]))
 

@@ -5,8 +5,6 @@ import json
 from django.core.cache import cache
 from django.http import JsonResponse, StreamingHttpResponse
 from drf_spectacular.utils import OpenApiResponse
-
-from common.hogvm.python.utils import HogVMException
 from posthog.schema_migrations.upgrade import upgrade
 from pydantic import BaseModel
 from rest_framework import status, viewsets
@@ -171,7 +169,7 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
                 else status.HTTP_200_OK
             )
             return Response(result, status=response_status)
-        except (ExposedHogQLError, ExposedCHQueryError, HogVMException) as e:
+        except (ExposedHogQLError, ExposedCHQueryError) as e:
             raise ValidationError(str(e), getattr(e, "code_name", None))
         except ResolutionError as e:
             raise ValidationError(str(e))

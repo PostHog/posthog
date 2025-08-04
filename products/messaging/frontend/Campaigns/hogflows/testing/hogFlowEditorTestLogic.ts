@@ -242,6 +242,7 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
                 }
                 return errors
             },
+            // eslint-disable-next-line @typescript-eslint/no-unused-vars
             submit: async (testInvocation: HogflowTestInvocation) => {
                 try {
                     const apiResponse = await api.hogFlows.createTestInvocation(values.campaign.id, {

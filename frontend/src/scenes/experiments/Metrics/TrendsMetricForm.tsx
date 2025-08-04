@@ -1,4 +1,7 @@
-import { LemonInput, LemonLabel, LemonTabs, LemonTag } from '@posthog/lemon-ui'
+import './TrendsMetricForm.scss'
+
+import { IconCheckCircle } from '@posthog/icons'
+import { LemonButton, LemonInput, LemonLabel, LemonTabs, LemonTag } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
 import { EXPERIMENT_DEFAULT_DURATION } from 'lib/constants'
@@ -17,7 +20,6 @@ import { BaseMathType, ChartDisplayType, FilterType } from '~/types'
 
 import { LEGACY_EXPERIMENT_ALLOWED_MATH_TYPES } from '../constants'
 import { experimentLogic } from '../experimentLogic'
-import { SelectableCard } from '../components/SelectableCard'
 import { commonActionFilterProps } from './Selectors'
 
 export function TrendsMetricForm({ isSecondary = false }: { isSecondary?: boolean }): JSX.Element {
@@ -140,17 +142,12 @@ export function TrendsMetricForm({ isSecondary = false }: { isSecondary?: boolea
                         content: (
                             <>
                                 <div className="flex gap-4 mb-4">
-                                    <SelectableCard
-                                        title="Default"
-                                        description={
-                                            <>
-                                                Uses the number of unique users who trigger the{' '}
-                                                <LemonTag>$feature_flag_called</LemonTag> event as your exposure count.
-                                                This is the recommended setting for most experiments, as it accurately
-                                                tracks variant exposure.
-                                            </>
-                                        }
-                                        selected={!currentMetric.exposure_query}
+                                    <LemonButton
+                                        className={`trends-metric-form__exposure-button flex-1 cursor-pointer p-4 rounded border ${
+                                            !currentMetric.exposure_query
+                                                ? 'border-accent bg-accent-highlight-secondary'
+                                                : 'border-primary'
+                                        }`}
                                         onClick={() => {
                                             const metricsField = isSecondary ? 'metrics_secondary' : 'metrics'
                                             setExperiment({
@@ -162,18 +159,31 @@ export function TrendsMetricForm({ isSecondary = false }: { isSecondary?: boolea
                                                 ),
                                             })
                                         }}
-                                    />
-                                    <SelectableCard
-                                        title="Custom"
-                                        description="Define your own exposure metric for specific use cases, such as counting by sessions instead of users. This gives you full control but requires careful configuration."
-                                        selected={!!currentMetric.exposure_query}
-                                        {...(isDataWarehouseMetric
-                                            ? {
-                                                  disabled: true,
-                                                  disabledReason:
-                                                      'Custom exposure events are not supported for data warehouse metrics. Please contact support if you need this feature.',
-                                              }
-                                            : { disabled: false })}
+                                    >
+                                        <div className="font-semibold flex justify-between items-center">
+                                            <span>Default</span>
+                                            {!currentMetric.exposure_query && (
+                                                <IconCheckCircle fontSize={18} color="var(--accent)" />
+                                            )}
+                                        </div>
+                                        <div className="text-secondary text-sm leading-relaxed mt-1">
+                                            Uses the number of unique users who trigger the{' '}
+                                            <LemonTag>$feature_flag_called</LemonTag> event as your exposure count. This
+                                            is the recommended setting for most experiments, as it accurately tracks
+                                            variant exposure.
+                                        </div>
+                                    </LemonButton>
+                                    <LemonButton
+                                        className={`trends-metric-form__exposure-button flex-1 cursor-pointer p-4 rounded border ${
+                                            currentMetric.exposure_query
+                                                ? 'border-accent bg-accent-highlight-secondary'
+                                                : 'border-primary'
+                                        }`}
+                                        disabledReason={
+                                            isDataWarehouseMetric
+                                                ? 'Custom exposure events are not supported for data warehouse metrics. Please contact support if you need this feature.'
+                                                : undefined
+                                        }
                                         onClick={() => {
                                             const metricsField = isSecondary ? 'metrics_secondary' : 'metrics'
                                             setExperiment({
@@ -212,7 +222,19 @@ export function TrendsMetricForm({ isSecondary = false }: { isSecondary?: boolea
                                                 ),
                                             })
                                         }}
-                                    />
+                                    >
+                                        <div className="font-semibold flex justify-between items-center">
+                                            <span>Custom</span>
+                                            {currentMetric.exposure_query && (
+                                                <IconCheckCircle fontSize={18} color="var(--accent)" />
+                                            )}
+                                        </div>
+                                        <div className="text-secondary text-sm leading-relaxed mt-1">
+                                            Define your own exposure metric for specific use cases, such as counting by
+                                            sessions instead of users. This gives you full control but requires careful
+                                            configuration.
+                                        </div>
+                                    </LemonButton>
                                 </div>
                                 {currentMetric.exposure_query && (
                                     <>

@@ -22,41 +22,24 @@ def _block_for_asset(asset: ExportedAsset) -> dict:
     return {"type": "image", "image_url": image_url, "alt_text": alt_text}
 
 
-def get_slack_integration_for_team(team_id: int) -> Integration | None:
-    """Get Slack integration for a team. Returns None if not found."""
-    return Integration.objects.filter(team_id=team_id, kind="slack").first()
-
-
 def send_slack_subscription_report(
     subscription: Subscription,
     assets: list[ExportedAsset],
     total_asset_count: int,
     is_new_subscription: bool = False,
 ) -> None:
-    """Send Slack subscription report."""
-    integration = get_slack_integration_for_team(subscription.team_id)
-
-    if not integration:
-        # TODO: Write error to subscription...
-        logger.error("No Slack integration found for team...")
-        return
-
-    send_slack_message_with_integration(integration, subscription, assets, total_asset_count, is_new_subscription)
-
-
-def send_slack_message_with_integration(
-    integration: Integration,
-    subscription: Subscription,
-    assets: list[ExportedAsset],
-    total_asset_count: int,
-    is_new_subscription: bool = False,
-) -> None:
-    """Send Slack message using provided integration. Pure function - no database operations."""
     utm_tags = f"{UTM_TAGS_BASE}&utm_medium=slack"
 
     resource_info = subscription.resource_info
     if not resource_info:
         raise NotImplementedError("This type of subscription resource is not supported")
+
+    integration = Integration.objects.filter(team=subscription.team, kind="slack").first()
+
+    if not integration:
+        # TODO: Write error to subscription...
+        logger.error("No Slack integration found for team...")
+        return
 
     slack_integration = SlackIntegration(integration)
 

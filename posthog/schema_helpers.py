@@ -101,11 +101,6 @@ def to_dict(query: BaseModel) -> dict:
                                 "resultCustomizationBy",
                                 "goalLines",
                                 "dashboardDisplay",
-                                "showConfidenceIntervals",
-                                "confidenceLevel",
-                                "showTrendLines",
-                                "showMovingAverage",
-                                "movingAverageIntervals",
                             ]
                         }
 

@@ -14,7 +14,7 @@ export function PersonCohorts(): JSX.Element {
 
     useEffect(() => {
         loadCohorts()
-    }, [person, loadCohorts])
+    }, [person])
 
     const columns: LemonTableColumns<CohortType> = [
         {

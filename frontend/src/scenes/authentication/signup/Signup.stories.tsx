@@ -1,11 +1,12 @@
+// Signup.stories.tsx
 import { Meta } from '@storybook/react'
+import { useEffect } from 'react'
 import { userLogic } from 'scenes/userLogic'
 
 import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
 
 import { SignupContainer } from './SignupContainer'
-import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 const meta: Meta = {
     title: 'Scenes-Other/Signup',
@@ -21,7 +22,6 @@ const meta: Meta = {
     ],
 }
 export default meta
-
 export const SelfHosted = (): JSX.Element => {
     useStorybookMocks({
         get: {
@@ -33,9 +33,9 @@ export const SelfHosted = (): JSX.Element => {
             },
         },
     })
-
-    useOnMountEffect(() => userLogic.actions.loadUserSuccess(null))
-
+    useEffect(() => {
+        userLogic.actions.loadUserSuccess(null)
+    }, [])
     return <SignupContainer />
 }
 
@@ -50,9 +50,9 @@ export const SelfHostedSSO = (): JSX.Element => {
             },
         },
     })
-
-    useOnMountEffect(() => userLogic.actions.loadUserSuccess(null))
-
+    useEffect(() => {
+        userLogic.actions.loadUserSuccess(null)
+    }, [])
     return <SignupContainer />
 }
 
@@ -67,8 +67,8 @@ export const Cloud = (): JSX.Element => {
             },
         },
     })
-
-    useOnMountEffect(() => userLogic.actions.loadUserSuccess(null))
-
+    useEffect(() => {
+        userLogic.actions.loadUserSuccess(null)
+    }, [])
     return <SignupContainer />
 }

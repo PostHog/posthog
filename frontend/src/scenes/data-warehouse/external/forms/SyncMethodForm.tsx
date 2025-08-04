@@ -91,7 +91,7 @@ export const SyncMethodForm = ({ schema, onClose, onSave, saveButtonIsLoading }:
         setRadioValue(schema.sync_type ?? (incrementalSyncSupported.disabled ? 'append' : 'incremental'))
         setIncrementalFieldValue(schema.incremental_field ?? null)
         setAppendFieldValue(schema.incremental_field ?? null)
-    }, [schema.table]) // oxlint-disable-line react-hooks/exhaustive-deps
+    }, [schema.table])
 
     return (
         <>

@@ -32,7 +32,7 @@ export function useSliderPositioning<C extends HTMLElement, S extends HTMLElemen
             }
             hasRenderedInitiallyRef.current = true
         }
-    }, [currentValue, containerWidth]) // oxlint-disable-line react-hooks/exhaustive-deps
+    }, [currentValue, containerWidth])
 
     return {
         containerRef,

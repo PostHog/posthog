@@ -105,7 +105,7 @@ const OnboardingWrapper = ({
         steps = steps.filter(Boolean)
 
         setAllSteps(steps)
-    }, [children, billingLoading, minAdminRestrictionReason, currentOrganization]) // oxlint-disable-line react-hooks/exhaustive-deps
+    }, [children, billingLoading, minAdminRestrictionReason, currentOrganization])
 
     useEffect(() => {
         if (!allSteps.length || (billingLoading && waitForBilling)) {
@@ -113,7 +113,7 @@ const OnboardingWrapper = ({
         }
 
         setAllOnboardingSteps(allSteps)
-    }, [allSteps]) // oxlint-disable-line react-hooks/exhaustive-deps
+    }, [allSteps])
 
     if (!product || !children) {
         return <></>

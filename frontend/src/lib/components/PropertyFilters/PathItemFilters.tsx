@@ -36,7 +36,7 @@ export function PathItemFilters({
         if (propertyFilters && !objectsEqual(propertyFilters, filtersWithNew)) {
             setFilters([...propertyFilters, {} as EmptyPropertyFilter])
         }
-    }, [propertyFilters]) // oxlint-disable-line react-hooks/exhaustive-deps
+    }, [propertyFilters])
 
     return (
         <BindLogic logic={propertyFilterLogic} props={logicProps}>

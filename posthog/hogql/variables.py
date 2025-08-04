@@ -27,7 +27,7 @@ class ReplaceVariables(CloningVisitor):
         self.team = team
 
     def visit_placeholder(self, node):
-        if node.chain and node.chain[0] == "variables":
+        if node.chain[0] == "variables":
             variable_code_name = node.chain[1]
             if not self.variables:
                 raise QueryError(f"Variable {variable_code_name} is missing from query")

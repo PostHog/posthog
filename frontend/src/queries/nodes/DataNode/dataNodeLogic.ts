@@ -170,9 +170,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         if (oldProps.query?.kind && props.query.kind !== oldProps.query.kind) {
             actions.clearResponse()
         }
-        const hasQueryChanged = !compareDataNodeQuery(props.query, oldProps.query, {
-            ignoreVisualizationOnlyChanges: true,
-        })
+        const hasQueryChanged = !compareDataNodeQuery(props.query, oldProps.query)
         const queryVarsHaveChanged = haveVariablesOrFiltersChanged(props.query, oldProps.query)
 
         const queryStatus = (props.cachedResults?.query_status || null) as QueryStatus | null
@@ -558,9 +556,10 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     }
                     return error ?? 'Error loading data'
                 },
-                loadDataSuccess: (_, { response }) => (response && 'error' in response ? response.error ?? null : null),
+                loadDataSuccess: (_, { response }) =>
+                    response && 'error' in response ? response?.error ?? null : null,
                 loadNewDataSuccess: (_, { response }) =>
-                    response && 'error' in response ? response.error ?? null : null,
+                    response && 'error' in response ? response?.error ?? null : null,
             },
         ],
         elapsedTime: [

@@ -16,7 +16,7 @@ We currently use [Braintrust](https://braintrust.dev) as our evaluation platform
     ```
 
     The key bit is specifying the `ee/hogai/eval` directory – that activates our eval-specific config, `ee/hogai/eval/pytest.ini`!
-
+    
     As always with pytest, you can also run a specific file, e.g. `pytest ee/hogai/eval/eval_root.py`.
 
 3. Voila! Max ran, evals executed, and results and traces uploaded to the Braintrust platform + summarized in the terminal.

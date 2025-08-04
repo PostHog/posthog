@@ -16,7 +16,7 @@ export function AppMetricSparkLine({ pipelineNode }: { pipelineNode: PipelineNod
         if (inView && !appMetricsResponse && !appMetricsResponseLoading) {
             loadMetrics()
         }
-    }, [inView]) // oxlint-disable-line react-hooks/exhaustive-deps
+    }, [inView])
 
     // The metrics response has last 7 days time wise, we're showing the
     // sparkline graph by day, so ignore the potential 8th day

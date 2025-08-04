@@ -13,7 +13,7 @@ import { maxGlobalLogic } from '../maxGlobalLogic'
 import { maxLogic } from '../maxLogic'
 import { maxThreadLogic } from '../maxThreadLogic'
 import { ContextDisplay } from '../Context'
-import { MAX_SLASH_COMMANDS, SlashCommandAutocomplete } from './SlashCommandAutocomplete'
+import { SlashCommandAutocomplete } from './SlashCommandAutocomplete'
 import posthog from 'posthog-js'
 
 interface QuestionInputProps {
@@ -108,15 +108,10 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
 
                         <SlashCommandAutocomplete
                             onActivate={(command) => {
-                                if (command.arg) {
-                                    setQuestion(command.name + ' ') // Rest must be filled in by the user
-                                } else {
-                                    askMax(command.name)
-                                }
+                                setShowAutocomplete(false)
+                                askMax(command.name)
                             }}
-                            onSelect={(command) =>
-                                command.arg ? setQuestion(command.name + ' ') : setQuestion(command.name)
-                            }
+                            onSelect={(command) => setQuestion(command.name)}
                             visible={showAutocomplete}
                             onClose={() => setShowAutocomplete(false)}
                             searchText={question}
@@ -188,14 +183,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                                         : submissionDisabledReason
                                 }
                                 size="small"
-                                icon={
-                                    threadLoading ? (
-                                        <IconStopFilled />
-                                    ) : (
-                                        MAX_SLASH_COMMANDS.find((cmd) => cmd.name === question.split(' ', 1)[0])
-                                            ?.icon || <IconArrowRight />
-                                    )
-                                }
+                                icon={threadLoading ? <IconStopFilled /> : <IconArrowRight />}
                             />
                         </AIConsentPopoverWrapper>
                     </div>

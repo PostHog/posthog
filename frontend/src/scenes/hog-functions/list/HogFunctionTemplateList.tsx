@@ -25,7 +25,7 @@ export function HogFunctionTemplateList({
     )
     const { openFeedbackDialog } = useActions(hogFunctionRequestModalLogic)
 
-    useEffect(() => loadHogFunctionTemplates(), [props.type]) // oxlint-disable-line exhaustive-deps
+    useEffect(() => loadHogFunctionTemplates(), [props.type])
 
     return (
         <>
@@ -118,7 +118,7 @@ export function HogFunctionTemplateList({
                         'No results found'
                     ) : (
                         <>
-                            Nothing found matching filters. <Link onClick={() => resetFilters()}>Clear filters</Link>
+                            Nothing found matching filters. <Link onClick={() => resetFilters()}>Clear filters</Link>{' '}
                         </>
                     )
                 }

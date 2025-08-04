@@ -15,7 +15,6 @@ import { AnyPropertyFilter, FilterLogicalOperator } from '~/types'
 
 import { FilterRow } from './components/FilterRow'
 import { propertyFilterLogic } from './propertyFilterLogic'
-import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 export interface PropertyFiltersProps {
     endpoint?: string | null
@@ -94,7 +93,9 @@ export function PropertyFilters({
     }, [propertyFilters, setFilters])
 
     // do not open on initial render, only open if newly inserted
-    useOnMountEffect(() => setAllowOpenOnInsert(true))
+    useEffect(() => {
+        setAllowOpenOnInsert(true)
+    }, [])
 
     return (
         <div className="PropertyFilters">

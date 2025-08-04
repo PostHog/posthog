@@ -81,12 +81,9 @@ export function ActionsPie({ inSharedMode, showPersonsModal = true, context }: C
 
     useEffect(() => {
         if (indexedResults) {
-            // adding updateData to dependencies causes a infinite recursion,
-            // which causes legend tooltips not to show up on pie charts
-            // oxlint-disable-next-line exhaustive-deps
             updateData()
         }
-    }, [indexedResults, hiddenLegendIndexes])
+    }, [indexedResults, hiddenLegendIndexes, updateData])
 
     let onClick: ((payload: GraphPointPayload) => void) | undefined = undefined
     if (onDataPointClick) {

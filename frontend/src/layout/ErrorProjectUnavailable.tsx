@@ -1,13 +1,12 @@
 import { Link } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { CreateOrganizationModal } from 'scenes/organization/CreateOrganizationModal'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { organizationLogic } from '../scenes/organizationLogic'
-import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 export function ErrorProjectUnavailable(): JSX.Element {
     const { projectCreationForbiddenReason } = useValues(organizationLogic)
@@ -15,7 +14,7 @@ export function ErrorProjectUnavailable(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const [options, setOptions] = useState<JSX.Element[]>([])
 
-    useOnMountEffect(() => {
+    useEffect(() => {
         const options: JSX.Element[] = []
         if (!projectCreationForbiddenReason) {
             options.push(
@@ -29,7 +28,7 @@ export function ErrorProjectUnavailable(): JSX.Element {
         }
         options.push(<>reach out to your administrator for access</>)
         setOptions(options)
-    })
+    }, [])
 
     const listOptions = (): JSX.Element => (
         <>

@@ -17,7 +17,7 @@ export const actionsLogic = kea<actionsLogicType>([
         allActions: [
             [] as ActionType[],
             {
-                // oxlint-disable-next-line @typescript-eslint/no-unused-vars
+                // eslint-disable-next-line @typescript-eslint/no-unused-vars
                 getActions: async (_ = null, breakpoint: () => void) => {
                     const response = await toolbarFetch('/api/projects/@current/actions/')
                     const results = await response.json()

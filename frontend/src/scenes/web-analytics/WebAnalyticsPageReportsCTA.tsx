@@ -3,8 +3,7 @@ import { router } from 'kea-router'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import posthog from 'posthog-js'
 
-import { webAnalyticsLogic } from './webAnalyticsLogic'
-import { ProductTab } from './common'
+import { ProductTab, webAnalyticsLogic } from './webAnalyticsLogic'
 
 export const WebAnalyticsPageReportsCTA = (): JSX.Element | null => {
     const { webAnalyticsFilters, productTab, domainFilter, authorizedDomains } = useValues(webAnalyticsLogic)

@@ -14,8 +14,7 @@ Uses `"@storybook/test-runner"` see: https://storybook.js.org/docs/writing-tests
 
 before you do this... 🤷
 
-in one terminal
-
+in one terminal 
 ```bash
 pnpm --filter=@posthog/frontend storybook
 ```

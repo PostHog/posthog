@@ -22,7 +22,8 @@ import { revenueAnalyticsSettingsLogic } from './settings/revenueAnalyticsSettin
 export enum RevenueAnalyticsQuery {
     OVERVIEW,
     REVENUE,
-    METRICS,
+    ARPU,
+    CUSTOMER_COUNT,
     GROWTH_RATE,
     TOP_CUSTOMERS,
 }
@@ -246,8 +247,15 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
                         interval,
                         dateRange,
                     },
-                    [RevenueAnalyticsQuery.METRICS]: {
-                        kind: NodeKind.RevenueAnalyticsMetricsQuery,
+                    [RevenueAnalyticsQuery.CUSTOMER_COUNT]: {
+                        kind: NodeKind.RevenueAnalyticsCustomerCountQuery,
+                        properties: revenueAnalyticsFilter,
+                        groupBy,
+                        interval,
+                        dateRange,
+                    },
+                    [RevenueAnalyticsQuery.ARPU]: {
+                        kind: NodeKind.RevenueAnalyticsArpuQuery,
                         properties: revenueAnalyticsFilter,
                         groupBy,
                         interval,

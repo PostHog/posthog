@@ -15,8 +15,7 @@ import { AvailableFeature, PropertyMathType } from '~/types'
 
 import { TableSortingIndicator } from './TableSortingIndicator'
 import { WebAnalyticsLiveUserCount } from './WebAnalyticsLiveUserCount'
-import { webAnalyticsLogic } from './webAnalyticsLogic'
-import { ProductTab } from './common'
+import { ProductTab, webAnalyticsLogic } from './webAnalyticsLogic'
 import { WebConversionGoal } from './WebConversionGoal'
 import { WebPropertyFilters } from './WebPropertyFilters'
 

@@ -13,7 +13,7 @@ import { dataThemeLogic } from 'scenes/dataThemeLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { InsightsTable } from 'scenes/insights/views/InsightsTable/InsightsTable'
 
-import { SharingConfigurationSettings } from '~/queries/schema/schema-general'
+import { ExportOptions } from '~/exporter/types'
 import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
 import { Query } from '~/queries/Query/Query'
 import { isDataTableNode, isInsightVizNode, isTrendsQuery } from '~/queries/utils'
@@ -27,7 +27,7 @@ export function ExportedInsight({
 }: {
     insight: InsightModel
     themes: DataColorThemeModel[]
-    exportOptions: SharingConfigurationSettings
+    exportOptions: ExportOptions
 }): JSX.Element {
     useMountedLogic(dataThemeLogic({ themes }))
 

@@ -10,13 +10,14 @@ export const modalInterruptionTrackingLogic = kea<modalInterruptionTrackingLogic
     connect(() => {
         try {
             // Use lazy require to avoid circular dependencies
-            const { globalModalsLogic } = require('~/layout/GlobalModals')
+            const { globalModalsLogic } = require('~/layout/GlobalModals') // eslint-disable-line @typescript-eslint/no-var-requires
 
             return {
                 values: [globalModalsLogic, ['isCreateOrganizationModalShown', 'isCreateProjectModalShown']],
                 actions: [organizationLogic, ['createOrganization'], projectLogic, ['createProject']],
             }
-        } catch {
+            // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        } catch (e) {
             // Safe fallback for tests
             return {}
         }

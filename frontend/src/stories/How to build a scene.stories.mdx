@@ -1,4 +1,4 @@
-import { Meta } from '@storybook/addon-docs'
+import { Meta } from '@storybook/addon-docs';
 
 <Meta title=" How to build a scene?" />
 
@@ -240,7 +240,6 @@ import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
 import { App } from 'scenes/App'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
-import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 export default {
     title: 'Scenes-App/Dashboard',
@@ -258,19 +257,17 @@ export default {
     parameters: { layout: 'fullscreen', options: { showPanel: false }, viewMode: 'story' }, // scene mode
 } as Meta
 
-export function NewDashboard(): JSX.Element {
+export function NewDashboard (): JSX.Element {
     // mocks used only in this story
     useStorybookMocks({
         get: { '/api/projects/dashboard/2/': require('./__mocks__/dashboard2.json') },
     })
-
-    useOnMountEffect(() => {
+    useEffect(() => {
         // change the URL
         router.actions.push(urls.dashboard(2))
         // call various other actions to set the initial state
         newDashboardLogic.actions.showNewDashboardModal()
-    })
-
+    }, [])
     return <App />
 }
 ```
@@ -278,7 +275,6 @@ export function NewDashboard(): JSX.Element {
 ## 7. Add some components
 
 Read next:
-
 - [How to use components](/docs/how-to-use-components--page)
 - [How to build a form](/docs/how-to-build-a-form--page)
 - [How to add tabs to a scene](/docs/how-to-add-tabs-to-a-scene--page)

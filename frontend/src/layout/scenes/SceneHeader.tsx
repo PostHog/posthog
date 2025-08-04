@@ -28,11 +28,10 @@ export function SceneHeader({ className }: { className?: string }): JSX.Element 
     const { showLayoutNavBar } = useActions(panelLayoutLogic)
     const { isLayoutNavbarVisibleForMobile } = useValues(panelLayoutLogic)
     const { projectTreeRefEntry } = useValues(projectTreeDataLogic)
-    const { scenePanelOpen, scenePanelIsPresent, useSceneTabs } = useValues(sceneLayoutLogic)
+    const { scenePanelOpen, scenePanelIsPresent } = useValues(sceneLayoutLogic)
     const { setScenePanelOpen } = useActions(sceneLayoutLogic)
 
-    const effectiveBreadcrumbs = useSceneTabs ? breadcrumbs.slice(1) : breadcrumbs
-    return effectiveBreadcrumbs.length || projectTreeRefEntry ? (
+    return breadcrumbs.length || projectTreeRefEntry ? (
         <>
             <div
                 className={cn(
@@ -49,19 +48,16 @@ export function SceneHeader({ className }: { className?: string }): JSX.Element 
                     />
                 )}
                 <div className="flex gap-1 justify-between w-full items-center overflow-x-hidden py-1">
-                    {effectiveBreadcrumbs.length > 0 && (
+                    {breadcrumbs.length > 0 && (
                         <ScrollableShadows
                             direction="horizontal"
                             styledScrollbars
                             className="h-[var(--scene-layout-header-height)] pr-2 flex-1"
                             innerClassName="flex gap-0 flex-1 items-center overflow-x-auto show-scrollbar-on-hover h-full"
                         >
-                            {effectiveBreadcrumbs.map((breadcrumb, index) => (
+                            {breadcrumbs.map((breadcrumb, index) => (
                                 <React.Fragment key={joinBreadcrumbKey(breadcrumb.key)}>
-                                    <Breadcrumb
-                                        breadcrumb={breadcrumb}
-                                        here={index === effectiveBreadcrumbs.length - 1}
-                                    />
+                                    <Breadcrumb breadcrumb={breadcrumb} here={index === breadcrumbs.length - 1} />
                                     {index < breadcrumbs.length - 1 && (
                                         <span className="flex items-center shrink-0 opacity-50">
                                             <IconSlash fontSize="1rem" />
@@ -105,7 +101,7 @@ function Breadcrumb({ breadcrumb, here, isOnboarding }: BreadcrumbProps): JSX.El
 
     const { assureVisibility } = useActions(projectTreeLogic({ key: PROJECT_TREE_KEY }))
     const { showLayoutPanel, setActivePanelIdentifier } = useActions(panelLayoutLogic)
-    const { scenePanelOpen, scenePanelIsPresent, useSceneTabs } = useValues(sceneLayoutLogic)
+    const { scenePanelOpen, scenePanelIsPresent } = useValues(sceneLayoutLogic)
     const { setScenePanelOpen } = useActions(sceneLayoutLogic)
     const { renameState } = useValues(breadcrumbsLogic)
     const { tentativelyRename, finishRenaming } = useActions(breadcrumbsLogic)
@@ -152,7 +148,7 @@ function Breadcrumb({ breadcrumb, here, isOnboarding }: BreadcrumbProps): JSX.El
         </Component>
     )
 
-    if (breadcrumb.isPopoverProject && !useSceneTabs) {
+    if (breadcrumb.isPopoverProject) {
         return (
             <ProjectDropdownMenu
                 buttonProps={{

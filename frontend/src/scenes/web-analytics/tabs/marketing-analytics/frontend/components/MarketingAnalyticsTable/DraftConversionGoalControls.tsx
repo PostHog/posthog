@@ -29,7 +29,7 @@ export const DraftConversionGoalControls = (): JSX.Element => {
                     conversionGoalInput?.conversion_goal_name || filter.custom_name || filter.name || 'No name',
             })
         },
-        [conversionGoalInput?.conversion_goal_name] // oxlint-disable-line react-hooks/exhaustive-deps
+        [conversionGoalInput?.conversion_goal_name]
     )
 
     const handleApplyConversionGoal = useCallback((): void => {

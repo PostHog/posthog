@@ -62,10 +62,6 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.ErrorProjectUnavailable]: {
         name: 'Project unavailable',
     },
-    [Scene.NewTab]: {
-        projectBased: true,
-        name: 'New tab',
-    },
     // Project-based routes
     [Scene.Dashboards]: {
         projectBased: true,
@@ -510,7 +506,6 @@ export const redirects: Record<
     string,
     string | ((params: Params, searchParams: Params, hashParams: Params) => string)
 > = {
-    '/new': urls.newTab(),
     '/home': urls.projectHomepage(),
     '/saved_insights': urls.savedInsights(),
     '/dashboards': urls.dashboards(),
@@ -584,7 +579,6 @@ export const redirects: Record<
 }
 
 export const routes: Record<string, [Scene | string, string]> = {
-    [urls.newTab()]: [Scene.NewTab, 'newTab'],
     [urls.dashboards()]: [Scene.Dashboards, 'dashboards'],
     [urls.dashboard(':id')]: [Scene.Dashboard, 'dashboard'],
     [urls.dashboardTextTile(':id', ':textTileId')]: [Scene.Dashboard, 'dashboardTextTile'],

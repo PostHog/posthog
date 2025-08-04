@@ -51,5 +51,5 @@ export function useOutsideClickHandler(
                 document.removeEventListener('touchend', handleClick)
             }
         }
-    }, [...refs, ...extraDeps]) // oxlint-disable-line react-hooks/exhaustive-deps
+    }, [...refs, ...extraDeps])
 }

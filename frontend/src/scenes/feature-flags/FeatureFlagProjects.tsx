@@ -6,6 +6,7 @@ import { IconSync } from 'lib/lemon-ui/icons'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
+import { useEffect } from 'react'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -16,7 +17,6 @@ import { CohortType, FeatureFlagType, OrganizationFeatureFlag, OrganizationType 
 import { organizationLogic } from '../organizationLogic'
 import { featureFlagLogic } from './featureFlagLogic'
 import { groupFilters } from './FeatureFlags'
-import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 function checkHasStaticCohort(featureFlag: FeatureFlagType, cohorts: CohortType[]): boolean {
     const staticCohorts = new Set()
@@ -207,7 +207,9 @@ export default function FeatureFlagProjects(): JSX.Element {
     const { currentOrganization } = useValues(organizationLogic)
     const { aggregationLabel } = useValues(groupsModel)
 
-    useOnMountEffect(loadProjectsWithCurrentFlag)
+    useEffect(() => {
+        loadProjectsWithCurrentFlag()
+    }, [])
 
     return (
         <div>

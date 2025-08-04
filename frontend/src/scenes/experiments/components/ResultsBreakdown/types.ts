@@ -6,5 +6,4 @@ export type ResultBreakdownRenderProps = {
     breakdownResultsLoading: boolean
     breakdownResults: FunnelStep[] | FunnelStep[][] | TrendResult[] | null
     exposureDifference: number
-    breakdownLastRefresh: string | null
 }

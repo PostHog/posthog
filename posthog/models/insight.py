@@ -265,16 +265,6 @@ class Insight(RootTeamMixin, FileSystemSyncMixin, models.Model):
     def url(self):
         return absolute_uri(f"/insights/{self.short_id}")
 
-    def generate_query_metadata(self):
-        from posthog.hogql_queries.query_metadata import extract_query_metadata
-
-        query_metadata = extract_query_metadata(
-            query=self.query,
-            team=self.team,
-        )
-
-        self.query_metadata = query_metadata.model_dump(exclude_none=True, mode="json")
-
 
 class InsightViewed(models.Model):
     # To track views from shared insights, team and user can be null

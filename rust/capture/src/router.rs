@@ -158,13 +158,13 @@ pub fn router<
             .route(
                 "/batch",
                 post(v0_endpoint::event_legacy)
-                    .get(v0_endpoint::event_legacy)
+                    .get(v0_endpoint::event)
                     .options(v0_endpoint::options),
             )
             .route(
                 "/batch/",
                 post(v0_endpoint::event_legacy)
-                    .get(v0_endpoint::event_legacy)
+                    .get(v0_endpoint::event)
                     .options(v0_endpoint::options),
             )
     } else {
@@ -233,7 +233,8 @@ pub fn router<
             post(v0_endpoint::event_legacy)
                 .get(v0_endpoint::event_legacy)
                 .options(v0_endpoint::options),
-        );
+        )
+        .layer(DefaultBodyLimit::max(EVENT_BODY_SIZE));
 
     // conditionally allow legacy event handler to process /i/v0/e/
     // (modern capture) events for observation in mirror deploy
@@ -266,7 +267,6 @@ pub fn router<
                     .options(v0_endpoint::options),
             )
     };
-    event_router = event_router.layer(DefaultBodyLimit::max(EVENT_BODY_SIZE));
 
     let status_router = Router::new()
         .route("/", get(index))

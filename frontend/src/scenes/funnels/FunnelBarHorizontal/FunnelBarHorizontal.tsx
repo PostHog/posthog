@@ -4,6 +4,7 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { SeriesGlyph } from 'lib/components/SeriesGlyph'
+import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { IconInfinity, IconTrendingFlat, IconTrendingFlatDown } from 'lib/lemon-ui/icons'
 import { humanFriendlyDuration, percentage, pluralize } from 'lib/utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -31,6 +32,8 @@ export function FunnelBarHorizontal({
     const { canOpenPersonModal } = useValues(funnelPersonsModalLogic(insightProps))
     const { openPersonsModalForStep, openPersonsModalForSeries } = useActions(funnelPersonsModalLogic(insightProps))
 
+    const { ref: graphRef, width } = useResizeObserver()
+
     const steps = visibleStepsWithConversionMetrics
     const stepReference = funnelsFilter?.funnelStepReference || FunnelStepReference.total
 
@@ -38,7 +41,7 @@ export function FunnelBarHorizontal({
 
     // Everything rendered after is a funnel in top-to-bottom mode.
     return (
-        <div data-attr="funnel-bar-horizontal" className={clsx('FunnelBarHorizontal')}>
+        <div data-attr="funnel-bar-horizontal" className={clsx('FunnelBarHorizontal')} ref={graphRef}>
             {steps.map((step, stepIndex) => {
                 const basisStep = getReferenceStep(steps, stepReference, stepIndex)
                 const showLineBefore = stepIndex > 0
@@ -92,8 +95,8 @@ export function FunnelBarHorizontal({
                                 </div>
                             ) : null}
                         </header>
-                        <div className={clsx('funnel-bar-wrapper', { breakdown: isBreakdown })}>
-                            {isBreakdown ? (
+                        <div className={clsx('funnel-bar-wrapper', { breakdown: isBreakdown })} aria-busy={!width}>
+                            {!width ? null : isBreakdown ? (
                                 <>
                                     {step?.nested_breakdown?.map((breakdown, index) => {
                                         return (
@@ -104,6 +107,11 @@ export function FunnelBarHorizontal({
                                                 isBreakdown={true}
                                                 breakdownIndex={index}
                                                 breakdownMaxIndex={breakdownMaxIndex}
+                                                breakdownSumPercentage={
+                                                    index === breakdownMaxIndex && breakdownSum
+                                                        ? breakdownSum / basisStep.count
+                                                        : undefined
+                                                }
                                                 onBarClick={() =>
                                                     openPersonsModalForSeries({
                                                         step,
@@ -116,6 +124,7 @@ export function FunnelBarHorizontal({
                                                 breakdownFilter={breakdownFilter}
                                                 disabled={!showPersonsModal}
                                                 aggregationTargetLabel={aggregationTargetLabel}
+                                                wrapperWidth={width}
                                             />
                                         )
                                     })}
@@ -127,13 +136,7 @@ export function FunnelBarHorizontal({
                                             flex: `${1 - breakdownSum / basisStep.count} 1 0`,
                                             cursor: `${!inCardView ? 'pointer' : ''}`,
                                         }}
-                                    >
-                                        {isBreakdown && (
-                                            <div className="funnel-bar-percentage">
-                                                {percentage(breakdownSum / basisStep.count, 1, true)}
-                                            </div>
-                                        )}
-                                    </div>
+                                    />
                                 </>
                             ) : (
                                 <>
@@ -146,6 +149,7 @@ export function FunnelBarHorizontal({
                                         breakdownFilter={breakdownFilter}
                                         disabled={!showPersonsModal}
                                         aggregationTargetLabel={aggregationTargetLabel}
+                                        wrapperWidth={width}
                                     />
                                     <div
                                         className="funnel-bar-empty-space"

@@ -67,7 +67,7 @@ export function LemonCalendarRangeInline({
         ) {
             setLeftmostMonth(leftmostMonthForRange)
         }
-    }, [rangeStart, rangeEnd]) // oxlint-disable-line react-hooks/exhaustive-deps
+    }, [rangeStart, rangeEnd])
 
     return (
         <LemonCalendar

@@ -771,7 +771,6 @@ class FeatureFlagSerializer(
                 ],
                 params=[str(flag_to_delete.id)],
             )
-            .order_by("key")
         )
 
     def _update_filters(self, validated_data):

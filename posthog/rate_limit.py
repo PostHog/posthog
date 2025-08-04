@@ -317,7 +317,7 @@ class ClickHouseBurstRateThrottle(PersonalApiKeyRateThrottle):
 
 
 class ClickHouseSustainedRateThrottle(PersonalApiKeyRateThrottle):
-    # Throttle class that's a bit more aggressive and is used specifically on endpoints that hit ClickHouse
+    # Throttle class that's a bit more aggressive and is used specifically on endpoints that hit OpenAI
     # Intended to block slower but sustained bursts of requests, per project
     scope = "clickhouse_sustained"
     rate = "1200/hour"
@@ -437,15 +437,3 @@ class SetupWizardQueryRateThrottle(SimpleRateThrottle):
         if not hash:
             return self.get_ident(request)
         return f"throttle_wizard_query_{hash}"
-
-
-class BreakGlassBurstThrottle(UserOrEmailRateThrottle):
-    # Throttle class that can be applied when a bug is causing too many requests to hit and an endpoint, e.g. a bug in the frontend hitting an endpoint in a loop.
-    # Prefer making a subclass of this for specific endpoints, and setting a scope
-    rate = "15/minute"
-
-
-class BreakGlassSustainedThrottle(UserOrEmailRateThrottle):
-    # Throttle class that can be applied when a bug is causing too many requests to hit and an endpoint, e.g. a bug in the frontend hitting an endpoint in a loop
-    # Prefer making a subclass of this for specific endpoints, and setting a scope
-    rate = "75/hour"

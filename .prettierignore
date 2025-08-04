@@ -20,4 +20,3 @@ common/hogvm/typescript/src/stl/bytecode.ts
 common/hogvm/__tests__/__snapshots__/*
 rust/
 livestream/
-cli/target/

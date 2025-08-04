@@ -100,6 +100,7 @@ export const WindowTitlePlugin = (cb: (windowId: string, title: string) => void)
     }
 
     return {
+        // eslint-disable-next-line @typescript-eslint/no-misused-promises
         handler: async (e: eventWithTime, isSync) => {
             if ('windowId' in e && e.windowId && isSync) {
                 const windowId = e.windowId as string

@@ -35,7 +35,7 @@ function makeItem(
         id: '',
         playerTime: 0,
 
-        timestamp: now().toISOString(),
+        timestamp: '',
         ...dataOverrides,
         // this is last so that it overrides data overrides sensibly 🙃
         properties: {

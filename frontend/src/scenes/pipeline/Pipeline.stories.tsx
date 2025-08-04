@@ -1,5 +1,6 @@
 import { Meta, StoryObj } from '@storybook/react'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useEffect } from 'react'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
@@ -14,7 +15,6 @@ import pluginConfigs from './__mocks__/pluginConfigs.json'
 import plugins from './__mocks__/plugins.json'
 import { appsManagementLogic } from './appsManagementLogic'
 import { pipelineNodeMetricsLogic } from './pipelineNodeMetricsLogic'
-import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 const pluginRetrieveMock: MockSignature = (req, res, ctx) => {
     const plugin = plugins.results.find((conf) => conf.id === Number(req.params.id))
@@ -207,7 +207,9 @@ export const PipelineNodeConfiguration404: Story = {
 }
 
 export function PipelineNodeMetrics(): JSX.Element {
-    useOnMountEffect(() => pipelineNodeMetricsLogic({ id: geoIpConfigId }).mount())
+    useEffect(() => {
+        pipelineNodeMetricsLogic({ id: geoIpConfigId }).mount()
+    }, [])
 
     return <App />
 }
@@ -216,11 +218,11 @@ PipelineNodeMetrics.parameters = {
 }
 
 export function PipelineNodeMetricsErrorModal(): JSX.Element {
-    useOnMountEffect(() => {
+    useEffect(() => {
         const logic = pipelineNodeMetricsLogic({ id: geoIpConfigId })
         logic.mount()
         logic.actions.openErrorDetailsModal('Error')
-    })
+    }, [])
 
     return <App />
 }
@@ -253,7 +255,9 @@ export const PipelineNodeLogsBatchExport: Story = {
 }
 
 export function PipelineNodesManagementPage(): JSX.Element {
-    useOnMountEffect(() => appsManagementLogic.mount())
+    useEffect(() => {
+        appsManagementLogic.mount()
+    }, [])
 
     return <App />
 }

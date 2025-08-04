@@ -52,7 +52,7 @@ export function CreateProjectModal({
     // Anytime the project changes close the modal as it indicates we have created a new project
     useEffect(() => {
         closeModal()
-    }, [currentProject]) // oxlint-disable-line react-hooks/exhaustive-deps
+    }, [currentProject])
 
     return (
         <LemonModal

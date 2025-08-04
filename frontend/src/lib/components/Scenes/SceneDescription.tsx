@@ -4,11 +4,8 @@ import { useEffect, useState } from 'react'
 import { ScenePanelLabel } from '~/layout/scenes/SceneLayout'
 import { SceneLoadingSkeleton } from './SceneLoadingSkeleton'
 import { SceneInputProps, SceneSaveCancelButtons } from './utils'
-import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown/LemonMarkdown'
 
-type SceneDescriptionProps = SceneInputProps & {
-    markdown?: boolean
-}
+type SceneDescriptionProps = SceneInputProps
 
 export function SceneDescription({
     defaultValue,
@@ -17,7 +14,6 @@ export function SceneDescription({
     optional = false,
     canEdit = true,
     isLoading = false,
-    markdown = false,
 }: SceneDescriptionProps): JSX.Element {
     const [localValue, setLocalValue] = useState(defaultValue)
     const [localIsEditing, setLocalIsEditing] = useState(false)
@@ -63,7 +59,6 @@ export function SceneDescription({
                     data-attr={`${dataAttrKey}-description-input`}
                     autoFocus
                     error={!!error}
-                    markdown={markdown}
                 />
             </ScenePanelLabel>
 
@@ -82,7 +77,8 @@ export function SceneDescription({
     ) : (
         <ScenePanelLabel title="Description">
             <ButtonPrimitive
-                className="flex gap-1 items-center break-words line-clamp-5"
+                className="hyphens-auto flex gap-1 items-center"
+                lang="en"
                 onClick={() => setLocalIsEditing(true)}
                 tooltip={canEdit ? 'Edit description' : 'Description is read-only'}
                 autoHeight
@@ -90,11 +86,7 @@ export function SceneDescription({
                 inert={!canEdit}
             >
                 {defaultValue !== '' ? (
-                    markdown ? (
-                        <LemonMarkdown lowKeyHeadings>{defaultValue}</LemonMarkdown>
-                    ) : (
-                        defaultValue
-                    )
+                    defaultValue
                 ) : (
                     <span className="text-tertiary font-normal">No description {optional ? '(optional)' : ''}</span>
                 )}

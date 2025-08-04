@@ -536,7 +536,7 @@ export const LineGraph = (): JSX.Element => {
             plugins: [dataLabelsPlugin],
         })
         return () => newChart.destroy()
-    }, [xData, yData, seriesBreakdownData, visualizationType, goalLines, chartSettings]) // oxlint-disable-line react-hooks/exhaustive-deps
+    }, [xData, yData, seriesBreakdownData, visualizationType, goalLines, chartSettings])
 
     return (
         <div

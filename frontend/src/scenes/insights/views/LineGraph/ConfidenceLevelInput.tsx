@@ -29,7 +29,7 @@ export function ConfidenceLevelInput(): JSX.Element {
     }, 500)
 
     return (
-        <div className="flex items-center justify-between w-full px-2 pb-2 pl-4">
+        <div className="flex items-center justify-between w-full px-2 pb-2">
             <Tooltip title="A 95% confidence level means that for each data point, we are 95% confident that the true value is within the confidence interval.">
                 <span>Confidence level</span>
             </Tooltip>

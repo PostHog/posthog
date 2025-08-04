@@ -48,7 +48,7 @@ export function SceneCommonButtons({
     const { openSidePanel } = useActions(sidePanelLogic)
 
     return (
-        <div className="flex gap-1 flex-wrap">
+        <div className="flex gap-1">
             {favorite && (
                 <ButtonPrimitive
                     onClick={favorite.onClick}
@@ -58,7 +58,6 @@ export function SceneCommonButtons({
                     menuItem
                 >
                     {favorite.active ? <IconStarFilled className="text-warning" /> : <IconStar />}
-                    Favorite
                 </ButtonPrimitive>
             )}
 
@@ -76,27 +75,24 @@ export function SceneCommonButtons({
                     menuItem
                 >
                     <IconComment />
-                    Comment
                 </ButtonPrimitive>
             )}
 
             {share && (
                 <ButtonPrimitive onClick={share.onClick} tooltip="Share" fullWidth className="justify-center" menuItem>
                     <IconShare />
-                    Share
                 </ButtonPrimitive>
             )}
 
             {duplicate && (
                 <ButtonPrimitive
                     onClick={duplicate.onClick}
-                    tooltip="Duplicate this resource"
+                    tooltip="Duplicate"
                     className="justify-center flex-1"
                     menuItem
                     data-attr={`${dataAttrKey}-duplicate`}
                 >
                     <IconCopy />
-                    Duplicate
                 </ButtonPrimitive>
             )}
 
@@ -110,7 +106,6 @@ export function SceneCommonButtons({
                     data-attr={`${dataAttrKey}-pin`}
                 >
                     {pinned.active ? <IconPinFilled className="text-warning" /> : <IconPin />}
-                    Pin
                 </ButtonPrimitive>
             )}
 
@@ -124,7 +119,6 @@ export function SceneCommonButtons({
                     data-attr={`${dataAttrKey}-fullscreen`}
                 >
                     <IconExpand45 />
-                    Fullscreen
                 </ButtonPrimitive>
             )}
 
@@ -140,7 +134,6 @@ export function SceneCommonButtons({
                     data-attr={`${dataAttrKey}-view-recordings`}
                 >
                     <IconRewindPlay />
-                    View recordings
                 </Link>
             )}
         </div>

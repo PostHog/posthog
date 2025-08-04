@@ -9,8 +9,7 @@ import { RecordingRow } from 'scenes/session-recordings/components/RecordingRow'
 import { sessionRecordingsPlaylistLogic } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
-import { ReplayTile } from 'scenes/web-analytics/common'
-import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
+import { ReplayTile, webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 
 import { ProductKey, ReplayTabs } from '~/types'
 

@@ -3,12 +3,12 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { PageHeader } from 'lib/components/PageHeader'
 import { CodeEditor } from 'lib/monaco/CodeEditor'
+import { useEffect } from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
 import { urls } from '../urls'
-import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 export const scene: SceneExport = {
     component: CustomCssScene,
@@ -82,9 +82,9 @@ export function CustomCssScene(): JSX.Element {
     const { persistedCustomCss, previewingCustomCss } = useValues(themeLogic)
     const { saveCustomCss, setPreviewingCustomCss } = useActions(themeLogic)
 
-    useOnMountEffect(() => {
+    useEffect(() => {
         setPreviewingCustomCss(previewingCustomCss || persistedCustomCss || '')
-    })
+    }, [])
 
     const onPreview = (): void => {
         router.actions.push(urls.projectHomepage())

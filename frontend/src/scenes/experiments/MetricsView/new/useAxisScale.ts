@@ -6,12 +6,12 @@ import { valueToXCoordinate } from '../shared/utils'
  * Encapsulates the logic for converting data values to SVG x coordinates.
  */
 export function useAxisScale(
-    axisRange: number,
+    chartRadius: number,
     viewBoxWidth: number = 800,
     edgeMargin: number = 20
 ): (value: number) => number {
     return useCallback(
-        (value: number) => valueToXCoordinate(value, axisRange, viewBoxWidth, edgeMargin),
-        [axisRange, viewBoxWidth, edgeMargin]
+        (value: number) => valueToXCoordinate(value, chartRadius, viewBoxWidth, edgeMargin),
+        [chartRadius, viewBoxWidth, edgeMargin]
     )
 }

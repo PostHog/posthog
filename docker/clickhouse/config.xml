@@ -7,7 +7,7 @@
 -->
 <clickhouse>
     <logger>
-        <level>warning</level>
+        <level>trace</level>
         <log>/var/log/clickhouse-server/clickhouse-server.log</log>
         <errorlog>/var/log/clickhouse-server/clickhouse-server.err.log</errorlog>
         <size>1000M</size>
@@ -72,7 +72,6 @@
     of the time, in which case a higher number of threads might be required.
     -->
 
-    <background_message_broker_schedule_pool_size>8</background_message_broker_schedule_pool_size>
     <max_thread_pool_size>10000</max_thread_pool_size>
 
     <!-- Number of workers to recycle connections in background (see also drain_timeout).

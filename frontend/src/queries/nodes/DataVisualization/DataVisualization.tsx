@@ -161,7 +161,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
 
     const setQuerySource = useCallback(
         (source: HogQLQuery) => props.setQuery?.({ ...props.query, source }),
-        [props.setQuery, props.query] // oxlint-disable-line react-hooks/exhaustive-deps
+        [props.setQuery, props.query]
     )
 
     let component: JSX.Element | null = null

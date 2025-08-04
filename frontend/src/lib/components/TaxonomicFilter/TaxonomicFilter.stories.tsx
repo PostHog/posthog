@@ -2,6 +2,7 @@ import { Meta, StoryFn } from '@storybook/react'
 import { useActions, useMountedLogic } from 'kea'
 import { taxonomicFilterMocksDecorator } from 'lib/components/TaxonomicFilter/__mocks__/taxonomicFilterMocksDecorator'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { useEffect } from 'react'
 
 import { useAvailableFeatures } from '~/mocks/features'
 import { actionsModel } from '~/models/actionsModel'
@@ -9,7 +10,6 @@ import { AvailableFeature } from '~/types'
 
 import { infiniteListLogic } from './infiniteListLogic'
 import { TaxonomicFilter } from './TaxonomicFilter'
-import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 const meta: Meta<typeof TaxonomicFilter> = {
     title: 'Filters/Taxonomic Filter',
@@ -30,7 +30,6 @@ export default meta
 
 export const EventsFree: StoryFn<typeof TaxonomicFilter> = (args) => {
     useMountedLogic(actionsModel)
-
     const { setIndex } = useActions(
         infiniteListLogic({
             ...args,
@@ -38,11 +37,11 @@ export const EventsFree: StoryFn<typeof TaxonomicFilter> = (args) => {
             listGroupType: TaxonomicFilterGroupType.Events,
         })
     )
-
-    // Highlight the second item, as the first one is "All events", which doesn't have a definition to show
-    // - we do want to show the definition popover here too
-    useOnMountEffect(() => setIndex(1))
-
+    useEffect(() => {
+        // Highlight the second item, as the first one is "All events", which doesn't have a definition to show
+        // - we do want to show the definition popover here too
+        setIndex(1)
+    }, [])
     return (
         <div className="w-fit border rounded p-2 bg-surface-primary">
             <TaxonomicFilter {...args} />
@@ -79,7 +78,6 @@ EventsPremium.parameters = {
 
 export const Actions: StoryFn<typeof TaxonomicFilter> = (args) => {
     useMountedLogic(actionsModel)
-
     const { setIndex } = useActions(
         infiniteListLogic({
             ...args,
@@ -87,11 +85,11 @@ export const Actions: StoryFn<typeof TaxonomicFilter> = (args) => {
             listGroupType: TaxonomicFilterGroupType.Actions,
         })
     )
-
-    // Highlight the second item, as the first one is "All events", which doesn't have a definition to show
-    // - we do want to show the definition popover here too
-    useOnMountEffect(() => setIndex(0))
-
+    useEffect(() => {
+        // Highlight the second item, as the first one is "All events", which doesn't have a definition to show
+        // - we do want to show the definition popover here too
+        setIndex(0)
+    }, [])
     return (
         <div className="w-fit border rounded p-2">
             <TaxonomicFilter {...args} />
@@ -135,7 +133,6 @@ Properties.parameters = {
  */
 export const Columnar: StoryFn<typeof TaxonomicFilter> = (args) => {
     useMountedLogic(actionsModel)
-
     const { setIndex } = useActions(
         infiniteListLogic({
             ...args,
@@ -143,9 +140,9 @@ export const Columnar: StoryFn<typeof TaxonomicFilter> = (args) => {
             listGroupType: TaxonomicFilterGroupType.Events,
         })
     )
-
-    useOnMountEffect(() => setIndex(1))
-
+    useEffect(() => {
+        setIndex(1)
+    }, [])
     return (
         <div className="w-fit border rounded p-2 bg-surface-primary">
             <TaxonomicFilter {...args} />
@@ -176,7 +173,6 @@ Columnar.parameters = {
  */
 export const ForceColumnar: StoryFn<typeof TaxonomicFilter> = (args) => {
     useMountedLogic(actionsModel)
-
     const { setIndex } = useActions(
         infiniteListLogic({
             ...args,
@@ -184,9 +180,9 @@ export const ForceColumnar: StoryFn<typeof TaxonomicFilter> = (args) => {
             listGroupType: TaxonomicFilterGroupType.Events,
         })
     )
-
-    useOnMountEffect(() => setIndex(1))
-
+    useEffect(() => {
+        setIndex(1)
+    }, [])
     return (
         <div className="w-fit border rounded p-2 bg-surface-primary">
             <TaxonomicFilter {...args} />
@@ -216,7 +212,6 @@ ForceColumnar.parameters = {
  */
 export const ForceNonColumnar: StoryFn<typeof TaxonomicFilter> = (args) => {
     useMountedLogic(actionsModel)
-
     const { setIndex } = useActions(
         infiniteListLogic({
             ...args,
@@ -224,9 +219,9 @@ export const ForceNonColumnar: StoryFn<typeof TaxonomicFilter> = (args) => {
             listGroupType: TaxonomicFilterGroupType.Events,
         })
     )
-
-    useOnMountEffect(() => setIndex(1))
-
+    useEffect(() => {
+        setIndex(1)
+    }, [])
     return (
         <div className="w-fit border rounded p-2 bg-surface-primary">
             <TaxonomicFilter {...args} />

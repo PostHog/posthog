@@ -95,7 +95,7 @@ export function Histogram({
                 config.margin.right
         )
         setConfig(getConfig(layout, isDashboardItem ? width : minWidth, height))
-    }, [data.length, layout, width, height]) // oxlint-disable-line react-hooks/exhaustive-deps
+    }, [data.length, layout, width, height])
 
     const ref = useD3(
         (container) => {

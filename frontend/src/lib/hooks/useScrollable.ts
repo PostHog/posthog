@@ -44,7 +44,7 @@ export function useScrollable(): { ref: React.MutableRefObject<HTMLDivElement | 
     }
 
     useLayoutEffect(() => {
-        // oxlint-disable-next-line @typescript-eslint/no-unused-vars
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
         function handler(this: HTMLElement, _: Event): void {
             updateIsScrollable(this)
         }

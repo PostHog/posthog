@@ -16,7 +16,7 @@ export function HedgehogBuddyWithLogic(): JSX.Element {
     const { members } = useValues(membersLogic)
     const { ensureAllMembersLoaded } = useActions(membersLogic)
 
-    useEffect(() => ensureAllMembersLoaded(), [hedgehogConfig.enabled, ensureAllMembersLoaded])
+    useEffect(() => ensureAllMembersLoaded(), [hedgehogConfig.enabled])
 
     return hedgehogConfig.enabled ? (
         <>

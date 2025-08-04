@@ -10,11 +10,12 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.warehouse.models import ExternalDataSource, ExternalDataSchema
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.schema import (
+    RevenueAnalyticsArpuQuery,
     RevenueAnalyticsGrowthRateQuery,
-    RevenueAnalyticsMetricsQuery,
     RevenueAnalyticsOverviewQuery,
     RevenueAnalyticsRevenueQuery,
     RevenueAnalyticsTopCustomersQuery,
+    RevenueAnalyticsCustomerCountQuery,
     RevenueAnalyticsGroupBy,
 )
 from products.revenue_analytics.backend.utils import (
@@ -67,7 +68,8 @@ class RevenueSubqueries:
 # Base class, empty for now but might include some helpers in the future
 class RevenueAnalyticsQueryRunner(QueryRunnerWithHogQLContext):
     query: Union[
-        RevenueAnalyticsMetricsQuery,
+        RevenueAnalyticsArpuQuery,
+        RevenueAnalyticsCustomerCountQuery,
         RevenueAnalyticsGrowthRateQuery,
         RevenueAnalyticsOverviewQuery,
         RevenueAnalyticsRevenueQuery,
@@ -402,23 +404,16 @@ class RevenueAnalyticsQueryRunner(QueryRunnerWithHogQLContext):
             and isinstance(query.select[0], ast.Alias)
             and query.select[0].alias == "breakdown_by"
         ):
-            field_expr = ast.Field(chain=[join_to.get_generic_view_alias(), field_name])
             query.select[0].expr = ast.Call(
                 name="concat",
                 args=[
                     query.select[0].expr,
                     ast.Constant(value=" - "),
                     ast.Call(
-                        name="if",
+                        name="coalesce",
                         args=[
-                            ast.Or(
-                                exprs=[
-                                    ast.Call(name="isNull", args=[field_expr]),
-                                    ast.Call(name="empty", args=[field_expr]),
-                                ]
-                            ),
+                            ast.Field(chain=[join_to.get_generic_view_alias(), field_name]),
                             ast.Constant(value=NO_BREAKDOWN_PLACEHOLDER),
-                            field_expr,
                         ],
                     ),
                 ],
@@ -428,8 +423,8 @@ class RevenueAnalyticsQueryRunner(QueryRunnerWithHogQLContext):
 
         # We wanna include a join with the subquery to get the coalesced field
         # and also change the `breakdown_by` to include that
-        # However, because we're already possibly joining with the subquery because
-        # we might be filtering on that item, we need to be extra safe here and guarantee
+        # However, because we're already likely joining with the subquery because
+        # we might be filtering on item, we need to be extra safe here and guarantee
         # there's no join with the subquery before adding this one
         subquery = self._subquery_for_view(join_to)
         if subquery is not None and query.select_from is not None:

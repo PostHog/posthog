@@ -18,7 +18,6 @@ import { urls } from 'scenes/urls'
 import { HogQLQuery } from '~/queries/schema/schema-general'
 
 import { hogQLQueryEditorLogic } from './hogQLQueryEditorLogic'
-import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 export interface HogQLQueryEditorProps {
     query: HogQLQuery
@@ -83,11 +82,11 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
     )
     // Using useRef, not useState, as we don't want to reload the component when this changes.
     const monacoDisposables = useRef([] as IDisposable[])
-    useOnMountEffect(() => {
+    useEffect(() => {
         return () => {
             monacoDisposables.current.forEach((d) => d?.dispose())
         }
-    })
+    }, [])
 
     return (
         <div className="flex items-start gap-2">

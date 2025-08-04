@@ -7,7 +7,6 @@ import { ProductKey, OnboardingStepKey } from '~/types'
 
 import { onboardingProductConfigurationLogic, ProductConfigOption } from './onboardingProductConfigurationLogic'
 import { OnboardingStep } from './OnboardingStep'
-import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 type ConfigType = 'toggle' | 'select'
 type PluginType = 'plugin'
@@ -49,9 +48,9 @@ export const OnboardingProductConfiguration = ({
         configOptionsRef.current = configOptions
     }, [configOptions])
 
-    useOnMountEffect(() => {
+    useEffect(() => {
         setConfigOptions(options.filter((option): option is ProductConfigOption => !!option))
-    })
+    }, [])
 
     const combinedList: ConfigOption[] = [
         ...configOptions

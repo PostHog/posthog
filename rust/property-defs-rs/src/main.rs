@@ -60,7 +60,7 @@ fn start_server(config: &Config, context: Arc<AppContext>) -> JoinHandle<()> {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     setup_tracing();
-    info!("Starting up property definitions service...");
+    info!("Starting up...");
 
     let config = Config::init_with_defaults()?;
 

@@ -1,3 +1,4 @@
+import { IconCheckCircle } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 import { LemonModal } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
@@ -6,7 +7,6 @@ import { ExperimentStatsMethod } from '~/types'
 
 import { experimentLogic } from '../experimentLogic'
 import { modalsLogic } from '../modalsLogic'
-import { SelectableCard } from '../components/SelectableCard'
 
 export function StatsMethodModal(): JSX.Element {
     const { experiment, statsMethod } = useValues(experimentLogic)
@@ -43,10 +43,12 @@ export function StatsMethodModal(): JSX.Element {
             }
         >
             <div className="flex gap-4 mb-4">
-                <SelectableCard
-                    title="Bayesian"
-                    description="This approach gives you a probability-based view of results, showing how likely one variant is to be better than another, based on the observed data."
-                    selected={statsMethod === ExperimentStatsMethod.Bayesian}
+                <LemonButton
+                    className={`trends-metric-form__exposure-button flex-1 cursor-pointer p-4 rounded border ${
+                        statsMethod === ExperimentStatsMethod.Bayesian
+                            ? 'border-accent bg-accent-highlight-secondary'
+                            : 'border-primary'
+                    }`}
                     onClick={() => {
                         setExperiment({
                             stats_config: {
@@ -55,11 +57,24 @@ export function StatsMethodModal(): JSX.Element {
                             },
                         })
                     }}
-                />
-                <SelectableCard
-                    title="Frequentist"
-                    description="This approach uses statistical tests to determine whether observed differences are significant. It's based on p-values and is widely used in traditional A/B testing and scientific research."
-                    selected={statsMethod === ExperimentStatsMethod.Frequentist}
+                >
+                    <div className="font-semibold flex justify-between items-center">
+                        <span>Bayesian</span>
+                        {statsMethod === ExperimentStatsMethod.Bayesian && (
+                            <IconCheckCircle fontSize={18} color="var(--accent)" />
+                        )}
+                    </div>
+                    <div className="text-secondary text-sm leading-relaxed mt-1">
+                        This approach gives you a probability-based view of results, showing how likely one variant is
+                        to be better than another, based on the observed data.
+                    </div>
+                </LemonButton>
+                <LemonButton
+                    className={`trends-metric-form__exposure-button flex-1 cursor-pointer p-4 rounded border ${
+                        statsMethod === ExperimentStatsMethod.Frequentist
+                            ? 'border-accent bg-accent-highlight-secondary'
+                            : 'border-primary'
+                    }`}
                     onClick={() => {
                         setExperiment({
                             stats_config: {
@@ -68,7 +83,18 @@ export function StatsMethodModal(): JSX.Element {
                             },
                         })
                     }}
-                />
+                >
+                    <div className="font-semibold flex justify-between items-center">
+                        <span>Frequentist</span>
+                        {statsMethod === ExperimentStatsMethod.Frequentist && (
+                            <IconCheckCircle fontSize={18} color="var(--accent)" />
+                        )}
+                    </div>
+                    <div className="text-secondary text-sm leading-relaxed mt-1">
+                        This approach uses statistical tests to determine whether observed differences are significant.
+                        It's based on p-values and is widely used in traditional A/B testing and scientific research.
+                    </div>
+                </LemonButton>
             </div>
         </LemonModal>
     )

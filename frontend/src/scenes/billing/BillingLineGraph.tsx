@@ -10,7 +10,6 @@ import { createRoot, Root } from 'react-dom/client'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
 import { BillingLineGraphTooltip } from './BillingLineGraphTooltip'
-import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 export interface BillingSeriesType {
     id: number
@@ -61,14 +60,15 @@ function useBillingTooltip(): {
         }
     }, [])
 
-    useOnMountEffect(() => {
-        return () => {
+    useEffect(
+        () => () => {
             if (tooltipRootRef.current) {
                 setTimeout(() => tooltipRootRef.current?.unmount(), 0)
             }
             tooltipElRef.current?.remove()
-        }
-    })
+        },
+        []
+    )
 
     return { ensureBillingTooltip, hideBillingTooltip }
 }

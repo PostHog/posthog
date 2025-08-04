@@ -59,7 +59,7 @@ const PlayerSeekbarPreviewFrame = ({
         if (isVisible) {
             debouncedSeekToTime(minMs + (maxMs - minMs) * percentage)
         }
-    }, [percentage, minMs, maxMs, isVisible]) // oxlint-disable-line react-hooks/exhaustive-deps
+    }, [percentage, minMs, maxMs, isVisible])
 
     return (
         <BindLogic logic={sessionRecordingPlayerLogic} props={seekPlayerLogicProps}>
@@ -120,7 +120,7 @@ export const PlayerSeekbarPreview = memo(function PlayerSeekbarPreview({
         // fixes react-hooks/exhaustive-deps warning about stale ref elements
         const { current } = ref
         return () => current?.removeEventListener('mousemove', handleMouseMove)
-    }, [seekBarRef, percentage])
+    }, [seekBarRef])
 
     return (
         <div className="PlayerSeekBarPreview" ref={ref}>

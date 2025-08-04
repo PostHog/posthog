@@ -1,4 +1,4 @@
-import { IconPlus, IconTrash } from '@posthog/icons'
+import { IconInfo, IconPlus, IconTrash } from '@posthog/icons'
 import { LemonTag } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { dayjs } from 'lib/dayjs'
@@ -6,6 +6,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonCalendarSelectInput } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { humanFriendlyNumber, inStorybook, inStorybookTestRunner } from 'lib/utils'
 import { getCurrencySymbol } from 'lib/utils/geography/currency'
 import { useState } from 'react'
@@ -242,8 +243,14 @@ export function GoalsConfiguration(): JSX.Element {
         },
         {
             key: 'due_date',
-            title: 'Due Date',
-            tooltip: 'Date when this goal should be achieved',
+            title: (
+                <span>
+                    Due Date
+                    <Tooltip title="Date when this goal should be achieved">
+                        <IconInfo className="ml-1" />
+                    </Tooltip>
+                </span>
+            ),
             render: (_, goal, index) => {
                 const isEditingRow = editingIndex === index
                 const isAddingRow = index === goals.length && isAdding
@@ -261,8 +268,14 @@ export function GoalsConfiguration(): JSX.Element {
         },
         {
             key: 'goal',
-            title: `Target Amount (${baseCurrency})`,
-            tooltip: 'The revenue target amount for this goal',
+            title: (
+                <span>
+                    Target Amount ({baseCurrency})
+                    <Tooltip title="The revenue target amount for this goal">
+                        <IconInfo className="ml-1" />
+                    </Tooltip>
+                </span>
+            ),
             render: (_, goal, index) => {
                 const isEditingRow = editingIndex === index
                 const isAddingRow = index === goals.length && isAdding
@@ -282,6 +295,25 @@ export function GoalsConfiguration(): JSX.Element {
         {
             key: 'actions',
             fullWidth: true,
+            title: (
+                <div className="flex flex-row w-full justify-end my-2">
+                    <LemonButton
+                        type="primary"
+                        icon={<IconPlus />}
+                        size="small"
+                        onClick={() => setIsAdding(true)}
+                        disabledReason={
+                            isAdding
+                                ? 'Finish adding current goal first'
+                                : editingIndex !== null
+                                ? 'Finish editing current goal first'
+                                : undefined
+                        }
+                    >
+                        Add Goal
+                    </LemonButton>
+                </div>
+            ),
             render: (_, __, index) => {
                 const isEditingRow = editingIndex === index
                 const isAddingRow = index === goals.length && isAdding
@@ -314,23 +346,6 @@ export function GoalsConfiguration(): JSX.Element {
                 Revenue analytics dashboard.
             </p>
 
-            <div className="flex flex-col mb-1 items-end w-full">
-                <LemonButton
-                    type="primary"
-                    icon={<IconPlus />}
-                    size="small"
-                    onClick={() => setIsAdding(true)}
-                    disabledReason={
-                        isAdding
-                            ? 'Finish adding current goal first'
-                            : editingIndex !== null
-                            ? 'Finish editing current goal first'
-                            : undefined
-                    }
-                >
-                    Add Goal
-                </LemonButton>
-            </div>
             <LemonTable<RevenueAnalyticsGoal>
                 columns={columns}
                 dataSource={dataSource}

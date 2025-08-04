@@ -18,7 +18,6 @@ import { PostHogErrorBoundary } from 'posthog-js/react'
 import { IconComment } from '@posthog/icons'
 import { JSONContent } from 'lib/components/RichContentEditor/types'
 import { NotebookNodeAttributeProperties, NotebookNodeProps, NotebookNodeType } from '../types'
-import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 const Component = ({
     attributes,
@@ -95,7 +94,7 @@ const Component = ({
         // oxlint-disable-next-line exhaustive-deps
     }, [activeSessionRecording])
 
-    useOnMountEffect(() => {
+    useEffect(() => {
         setMessageListeners({
             'play-replay': ({ sessionRecordingId, time }) => {
                 // IDEA: We could add the desired start time here as a param, which is picked up by the player...
@@ -108,7 +107,8 @@ const Component = ({
                 }, 100)
             },
         })
-    })
+        // oxlint-disable-next-line exhaustive-deps
+    }, [])
 
     return <SessionRecordingsPlaylist {...recordingPlaylistLogicProps} />
 }

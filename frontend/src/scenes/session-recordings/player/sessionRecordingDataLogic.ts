@@ -303,7 +303,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     }
 
                     const sessionEventsQuery = hogql`
-SELECT uuid, event, timestamp, elements_chain, properties.$window_id, properties.$current_url, properties.$event_type, properties.$viewport_width, properties.$viewport_height, properties.$screen_name, distinct_id
+SELECT uuid, event, timestamp, elements_chain, properties.$window_id, properties.$current_url, properties.$event_type, properties.$viewport_width, properties.$viewport_height, properties.$screen_name
 FROM events
 WHERE timestamp > ${start.subtract(TWENTY_FOUR_HOURS_IN_MS, 'ms')}
 AND timestamp < ${end.add(TWENTY_FOUR_HOURS_IN_MS, 'ms')}
@@ -312,7 +312,7 @@ ORDER BY timestamp ASC
 LIMIT 1000000`
 
                     let relatedEventsQuery = hogql`
-SELECT uuid, event, timestamp, elements_chain, properties.$window_id, properties.$current_url, properties.$event_type, distinct_id
+SELECT uuid, event, timestamp, elements_chain, properties.$window_id, properties.$current_url, properties.$event_type
 FROM events
 WHERE timestamp > ${start.subtract(FIVE_MINUTES_IN_MS, 'ms')}
 AND timestamp < ${end.add(FIVE_MINUTES_IN_MS, 'ms')}
@@ -374,7 +374,6 @@ AND properties.$lib != 'web'`
                                 },
                                 playerTime: +dayjs(event[2]) - +start,
                                 fullyLoaded: false,
-                                distinct_id: event[event.length - 1] || values.sessionPlayerMetaData?.distinct_id,
                             }
                         }
                     )
@@ -882,7 +881,7 @@ AND properties.$lib != 'web'`
                 sources,
                 viewportForTimestamp,
                 sessionRecordingId,
-                // oxlint-disable-next-line @typescript-eslint/no-unused-vars
+                // eslint-disable-next-line @typescript-eslint/no-unused-vars
                 _snapshotsBySourceSuccessCount
             ): RecordingSnapshot[] => {
                 if (!sources || !cache.snapshotsBySource) {
@@ -902,7 +901,7 @@ AND properties.$lib != 'web'`
             (s) => [s.snapshotSources, s.viewportForTimestamp],
             (
                 sources,
-                // oxlint-disable-next-line @typescript-eslint/no-unused-vars
+                // eslint-disable-next-line @typescript-eslint/no-unused-vars
                 _snapshotsBySourceSuccessCount
             ): RecordingSnapshot[] => {
                 if (!sources || !cache.snapshotsBySource) {

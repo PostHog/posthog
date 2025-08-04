@@ -14,7 +14,6 @@ from posthog.hogql.parser import (
     parse_select,
     parse_string_template,
 )
-from posthog.hogql.placeholders import find_placeholders, replace_placeholders
 from posthog.hogql.printer import print_ast
 from posthog.hogql.query import create_default_modifiers_for_team
 from posthog.hogql.variables import replace_variables
@@ -69,13 +68,10 @@ def get_hogql_metadata(
                 process_expr_on_table(node, context=context)
         elif query.language == HogLanguage.HOG_QL:
             select_ast = parse_select(query.query)
-            finder = find_placeholders(select_ast)
-            if finder.has_filters:
+            if query.filters:
                 select_ast = replace_filters(select_ast, query.filters, team)
             if query.variables:
                 select_ast = replace_variables(select_ast, list(query.variables.values()), team)
-            if finder.placeholder_fields or finder.placeholder_expressions:
-                select_ast = cast(ast.SelectQuery, replace_placeholders(select_ast, query.globals))
 
             table_names = get_table_names(select_ast)
             response.table_names = table_names

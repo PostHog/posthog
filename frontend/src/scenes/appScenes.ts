@@ -8,7 +8,6 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.ErrorNetwork]: () => ({ default: preloadedScenes[Scene.ErrorNetwork].component }),
     [Scene.ErrorProjectUnavailable]: () => ({ default: preloadedScenes[Scene.ErrorProjectUnavailable].component }),
     ...productScenes,
-    [Scene.NewTab]: () => import('./new-tab/NewTabScene'),
     [Scene.Dashboards]: () => import('./dashboard/dashboards/Dashboards'),
     [Scene.Dashboard]: () => import('./dashboard/Dashboard'),
     [Scene.Insight]: () => import('./insights/InsightScene'),

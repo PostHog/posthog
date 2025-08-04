@@ -1,4 +1,3 @@
-import { apiHostOrigin } from 'lib/utils/apiHost'
 import { actions, connect, kea, key, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { tryJsonParse } from 'lib/utils'
@@ -69,7 +68,7 @@ export const hogFunctionSourceWebhookTestLogic = kea<hogFunctionSourceWebhookTes
             submit: async (data) => {
                 actions.setTestResult(null)
 
-                const response = await fetch(`${apiHostOrigin()}/public/webhooks/${props.id ?? 'unknown'}`, {
+                const response = await fetch(`${window.location.origin}/public/webhooks/${props.id ?? 'unknown'}`, {
                     method: 'POST',
                     headers: tryJsonParse(data.headers),
                     body: data.body,
@@ -96,7 +95,7 @@ export const hogFunctionSourceWebhookTestLogic = kea<hogFunctionSourceWebhookTes
 
                 return `curl -X POST ${headers} \\
   -d '${testInvocation.body}' \\
-  ${apiHostOrigin()}/public/webhooks/${props.id ?? 'unknown'}`
+  ${window.location.origin}/public/webhooks/${props.id ?? 'unknown'}`
             },
         ],
     }),

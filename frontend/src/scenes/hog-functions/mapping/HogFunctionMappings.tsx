@@ -27,7 +27,6 @@ import { hogFunctionConfigurationLogic } from '../configuration/hogFunctionConfi
 
 const humanize = (value: string): string => {
     const fallback = typeof value === 'string' ? value ?? '' : ''
-
     // Simple replacement from something like MY_STRING-here to My string here
     return fallback
         .toLowerCase()

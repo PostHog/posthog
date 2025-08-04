@@ -81,7 +81,7 @@ export function SharingModalContent({
         iframeProperties,
         shareLink,
     } = useValues(sharingLogic(logicProps))
-    const { setIsEnabled, togglePreview, setSharingSettingsValue } = useActions(sharingLogic(logicProps))
+    const { setIsEnabled, togglePreview, setEmbedConfigValue } = useActions(sharingLogic(logicProps))
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
     const { preflight } = useValues(preflightLogic)
     const siteUrl = preflight?.site_url || window.location.origin
@@ -94,7 +94,7 @@ export function SharingModalContent({
 
     useEffect(() => {
         setIframeLoaded(false)
-    }, [iframeProperties.src, iframeProperties.key, sharingConfiguration?.enabled, showPreview])
+    }, [iframeProperties.src, sharingConfiguration?.enabled, showPreview])
 
     return (
         <div className="deprecated-space-y-4">
@@ -174,7 +174,7 @@ export function SharingModalContent({
                                 <Form
                                     logic={sharingLogic}
                                     props={logicProps}
-                                    formKey="sharingSettings"
+                                    formKey="embedConfig"
                                     className="deprecated-space-y-2"
                                 >
                                     <div className="grid grid-cols-2 gap-2 grid-flow *:odd:last:col-span-2">
@@ -208,8 +208,8 @@ export function SharingModalContent({
                                                     }
                                                     onChange={() =>
                                                         guardAvailableFeature(AvailableFeature.WHITE_LABELLING, () => {
-                                                            // setSharingSettingsValue is used to update the form state and report the event
-                                                            setSharingSettingsValue('whitelabel', !value)
+                                                            // setEmbedConfigValue is used to update the form state and report the event
+                                                            setEmbedConfigValue('whitelabel', !value)
                                                         })
                                                     }
                                                     checked={!value}
@@ -234,27 +234,6 @@ export function SharingModalContent({
                                                         label={<div>Show inspector panel</div>}
                                                         onChange={onChange}
                                                         checked={value}
-                                                    />
-                                                )}
-                                            </LemonField>
-                                        )}
-
-                                        {dashboardId && (
-                                            <LemonField name="hideExtraDetails">
-                                                {({ value, onChange }) => (
-                                                    <LemonSwitch
-                                                        fullWidth
-                                                        bordered
-                                                        label={
-                                                            <div className="flex items-center">
-                                                                <span>Show insight details</span>
-                                                                <Tooltip title="When disabled, viewers won't see the extra insights details like the who created the insight and the applied filters.">
-                                                                    <IconInfo className="ml-1.5 text-secondary text-lg" />
-                                                                </Tooltip>
-                                                            </div>
-                                                        }
-                                                        onChange={() => onChange(!value)}
-                                                        checked={!value}
                                                     />
                                                 )}
                                             </LemonField>

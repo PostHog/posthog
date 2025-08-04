@@ -3,8 +3,7 @@ import { Link, Tooltip } from '@posthog/lemon-ui'
 import { IconBranch } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
-import { useState } from 'react'
-import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { useEffect, useState } from 'react'
 
 export interface DebugNoticeProps {
     isCollapsed?: boolean
@@ -14,7 +13,7 @@ export function DebugNotice({ isCollapsed }: DebugNoticeProps): JSX.Element | nu
     const [debugInfo, setDebugInfo] = useState<{ branch: string; revision: string } | undefined>()
     const [noticeHidden, setNoticeHidden] = useState(false)
 
-    useOnMountEffect(() => {
+    useEffect(() => {
         const bottomNotice = document.getElementById('bottom-notice')
         const bottomNoticeRevision = document.getElementById('bottom-notice-revision')?.textContent
         const bottomNoticeBranch = document.getElementById('bottom-notice-branch')?.textContent
@@ -27,7 +26,9 @@ export function DebugNotice({ isCollapsed }: DebugNoticeProps): JSX.Element | nu
 
             bottomNotice.remove()
         }
-    })
+
+        return () => {}
+    }, [])
 
     if (!debugInfo || noticeHidden) {
         return null

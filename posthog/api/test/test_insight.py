@@ -384,7 +384,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 team=self.team,
                 user=mock.ANY,
                 filters_override=None,
-                variables_override={},
+                variables_override=None,
             )
 
         with patch(
@@ -398,7 +398,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 team=self.team,
                 user=mock.ANY,
                 filters_override=None,
-                variables_override={},
+                variables_override=None,
             )
 
     def test_get_insight_by_short_id(self) -> None:
@@ -1591,10 +1591,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
             response = self.client.get(f"/api/projects/{self.team.id}/insights/{insight_id}/?refresh=true").json()
             self.assertNotIn("code", response)
-
-            # extra query because of the metadata update task: posthog.tasks.insight_query_metadata.extract_insight_query_metadata
-            self.assertEqual(spy_execute_hogql_query.call_count, 2)
-
+            self.assertEqual(spy_execute_hogql_query.call_count, 1)
             self.assertEqual(response["result"][0]["data"], [0, 0, 0, 0, 0, 0, 2, 0])
             self.assertEqual(response["last_refresh"], "2012-01-15T04:01:34Z")
             self.assertEqual(response["last_modified_at"], "2012-01-15T04:01:34Z")
@@ -1604,10 +1601,9 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             update_cache(InsightCachingState.objects.get(insight_id=insight_id).id)
 
         with freeze_time("2012-01-17T06:01:34.000Z"):
-            call_count_before = spy_execute_hogql_query.call_count
             response = self.client.get(f"/api/projects/{self.team.id}/insights/{insight_id}/?refresh=false").json()
             self.assertNotIn("code", response)
-            self.assertEqual(spy_execute_hogql_query.call_count, call_count_before)
+            self.assertEqual(spy_execute_hogql_query.call_count, 1)
             self.assertEqual(response["result"][0]["data"], [0, 0, 0, 0, 2, 0, 0, 0])
             self.assertEqual(response["last_refresh"], "2012-01-17T05:01:34Z")  # Got refreshed with `update_cache`!
             self.assertEqual(response["last_modified_at"], "2012-01-15T04:01:34Z")

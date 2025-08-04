@@ -58,7 +58,7 @@ export const LemonFileInput = ({
         if (value && value !== files) {
             setFiles(value)
         }
-    }, [value]) // oxlint-disable-line react-hooks/exhaustive-deps
+    }, [value])
 
     const handleCallToActionClick = (): void => {
         if (disabledReason === undefined && fileInputRef.current) {
@@ -130,7 +130,7 @@ export const LemonFileInput = ({
             div?.removeEventListener('dragover', handleDrag)
             div?.removeEventListener('drop', handleDrop)
         }
-    }, [value, handleDrop, handleDragOut, alternativeDropTargetRef, dropRef, handleDragIn])
+    }, [value])
 
     useEffect(() => {
         const extraDragTarget = alternativeDropTargetRef?.current

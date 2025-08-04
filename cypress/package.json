@@ -10,7 +10,7 @@
         "cypress-axe": "^1.5.0",
         "cypress-network-idle": "^1.14.2",
         "cypress-terminal-report": "^6.1.0",
-        "posthog-js": "1.258.5",
+        "posthog-js": "1.258.3",
         "typescript": "5.2.2"
     },
     "devDependencies": {

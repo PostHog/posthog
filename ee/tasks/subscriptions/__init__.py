@@ -9,17 +9,12 @@ from celery import shared_task
 from prometheus_client import Counter
 
 from ee.tasks.subscriptions.email_subscriptions import send_email_subscription_report
-from ee.tasks.subscriptions.slack_subscriptions import (
-    send_slack_subscription_report,
-    send_slack_message_with_integration,
-    get_slack_integration_for_team,
-)
+from ee.tasks.subscriptions.slack_subscriptions import send_slack_subscription_report
 from ee.tasks.subscriptions.subscription_utils import generate_assets
 from posthog import settings
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 from posthog.models.subscription import Subscription
-from posthog.sync import database_sync_to_async
 from posthog.tasks.utils import CeleryQueue
 
 logger = structlog.get_logger(__name__)
@@ -41,108 +36,11 @@ SUBSCRIPTION_FAILURE = Counter(
 )
 
 
-async def deliver_subscription_report_async(
+def _deliver_subscription_report(
     subscription_id: int,
     previous_value: Optional[str] = None,
     invite_message: Optional[str] = None,
 ) -> None:
-    """Async function for delivering subscription reports."""
-    # Fetch subscription asynchronously
-    subscription = await database_sync_to_async(
-        Subscription.objects.prefetch_related("dashboard__insights")
-        .select_related("created_by", "insight", "dashboard")
-        .get
-    )(pk=subscription_id)
-
-    is_new_subscription_target = False
-    if previous_value is not None:
-        # If previous_value is set we are triggering a "new" or "invite" message
-        is_new_subscription_target = subscription.target_value != previous_value
-
-        if not is_new_subscription_target:
-            # Same value as before so nothing to do
-            return
-
-    insights, assets = await database_sync_to_async(generate_assets)(subscription, use_celery=False)
-
-    if not assets:
-        capture_exception(Exception("No assets are in this subscription"), {"subscription_id": subscription.id})
-        return
-
-    if subscription.target_type == "email":
-        SUBSCRIPTION_QUEUED.labels(destination="email").inc()
-
-        # Send emails
-        emails = subscription.target_value.split(",")
-        if is_new_subscription_target:
-            previous_emails = previous_value.split(",") if previous_value else []
-            emails = list(set(emails) - set(previous_emails))
-
-        for email in emails:
-            try:
-                await database_sync_to_async(send_email_subscription_report)(
-                    email,
-                    subscription,
-                    assets,
-                    invite_message=invite_message or "" if is_new_subscription_target else None,
-                    total_asset_count=len(insights),
-                    send_async=False,
-                )
-                SUBSCRIPTION_SUCCESS.labels(destination="email").inc()
-            except Exception as e:
-                SUBSCRIPTION_FAILURE.labels(destination="email").inc()
-                logger.error(
-                    "sending subscription failed",
-                    subscription_id=subscription.id,
-                    next_delivery_date=subscription.next_delivery_date,
-                    destination=subscription.target_type,
-                    exc_info=True,
-                )
-                capture_exception(e)
-
-    elif subscription.target_type == "slack":
-        SUBSCRIPTION_QUEUED.labels(destination="slack").inc()
-
-        try:
-            integration = await database_sync_to_async(get_slack_integration_for_team)(subscription.team_id)
-
-            if not integration:
-                logger.error("No Slack integration found for team...")
-                SUBSCRIPTION_FAILURE.labels(destination="slack").inc()
-                return
-
-            send_slack_message_with_integration(
-                integration,
-                subscription,
-                assets,
-                total_asset_count=len(insights),
-                is_new_subscription=is_new_subscription_target,
-            )
-            SUBSCRIPTION_SUCCESS.labels(destination="slack").inc()
-        except Exception as e:
-            SUBSCRIPTION_FAILURE.labels(destination="slack").inc()
-            logger.error(
-                "sending subscription failed",
-                subscription_id=subscription.id,
-                next_delivery_date=subscription.next_delivery_date,
-                destination=subscription.target_type,
-                exc_info=True,
-            )
-            capture_exception(e)
-    else:
-        raise NotImplementedError(f"{subscription.target_type} is not supported")
-
-    if not is_new_subscription_target:
-        subscription.set_next_delivery_date(subscription.next_delivery_date)
-        await database_sync_to_async(subscription.save)(update_fields=["next_delivery_date"])
-
-
-def deliver_subscription_report_sync(
-    subscription_id: int,
-    previous_value: Optional[str] = None,
-    invite_message: Optional[str] = None,
-) -> None:
-    """Sync function for delivering subscription reports."""
     subscription = (
         Subscription.objects.prefetch_related("dashboard__insights")
         .select_related("created_by", "insight", "dashboard")
@@ -182,7 +80,6 @@ def deliver_subscription_report_sync(
                     invite_message=invite_message or "" if is_new_subscription_target else None,
                     total_asset_count=len(insights),
                 )
-                SUBSCRIPTION_SUCCESS.labels(destination="email").inc()
             except Exception as e:
                 SUBSCRIPTION_FAILURE.labels(destination="email").inc()
                 logger.error(
@@ -193,6 +90,8 @@ def deliver_subscription_report_sync(
                     exc_info=True,
                 )
                 capture_exception(e)
+
+        SUBSCRIPTION_SUCCESS.labels(destination="email").inc()
 
     elif subscription.target_type == "slack":
         SUBSCRIPTION_QUEUED.labels(destination="slack").inc()
@@ -261,7 +160,7 @@ report_timeout_seconds = settings.PARALLEL_ASSET_GENERATION_MAX_TIMEOUT_MINUTES 
     queue=CeleryQueue.SUBSCRIPTION_DELIVERY.value,
 )
 def deliver_subscription_report(subscription_id: int) -> None:
-    return deliver_subscription_report_sync(subscription_id)
+    return _deliver_subscription_report(subscription_id)
 
 
 @shared_task(
@@ -272,7 +171,7 @@ def deliver_subscription_report(subscription_id: int) -> None:
 def handle_subscription_value_change(
     subscription_id: int, previous_value: str, invite_message: Optional[str] = None
 ) -> None:
-    return deliver_subscription_report_sync(subscription_id, previous_value, invite_message)
+    return _deliver_subscription_report(subscription_id, previous_value, invite_message)
 
 
 def team_use_temporal_flag(team: Team) -> bool:

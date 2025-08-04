@@ -47,11 +47,6 @@ class MaxChatOpenAI(ChatOpenAI):
             "user_email": self._user.email,
         }
 
-    def _get_project_org_system_message(self, project_org_user_variables: dict[str, Any]) -> BaseMessage:
-        return SystemMessagePromptTemplate.from_template(
-            PROJECT_ORG_USER_CONTEXT_PROMPT, template_format="mustache"
-        ).format(**project_org_user_variables)
-
     def _enrich_messages(self, messages: list[list[BaseMessage]], project_org_user_variables: dict[str, Any]):
         for message_sublist in messages:
             # In every sublist (which becomes a separate generation) insert our shared prompt at the very end
@@ -61,24 +56,13 @@ class MaxChatOpenAI(ChatOpenAI):
                     continue  # Keep going
                 else:
                     # Here's our end of the system messages block
-                    message_sublist.insert(msg_index, self._get_project_org_system_message(project_org_user_variables))
+                    message_sublist.insert(
+                        msg_index,
+                        SystemMessagePromptTemplate.from_template(
+                            PROJECT_ORG_USER_CONTEXT_PROMPT, template_format="mustache"
+                        ).format(**project_org_user_variables),
+                    )
                     break
-
-    def _enrich_responses_api_model_kwargs(self, project_org_user_variables: dict[str, Any]) -> None:
-        """Mutate the provided model_kwargs dict in-place, ensuring the project/org/user context is present.
-
-        If the caller has already supplied ``instructions`` we append our context; otherwise we set ``instructions``
-        from scratch. This function is intentionally side-effectful and returns ``None``.
-        """
-
-        system_msg_content = str(self._get_project_org_system_message(project_org_user_variables).content)
-
-        if self.model_kwargs.get("instructions"):
-            # Append to existing instructions
-            self.model_kwargs["instructions"] = f"{system_msg_content}\n\n{self.model_kwargs['instructions']}"
-        else:
-            # Initialise instructions if absent or falsy
-            self.model_kwargs["instructions"] = system_msg_content
 
     def generate(
         self,
@@ -87,10 +71,7 @@ class MaxChatOpenAI(ChatOpenAI):
         **kwargs,
     ) -> LLMResult:
         project_org_user_variables = self._get_project_org_user_variables()
-        if self.use_responses_api:
-            self._enrich_responses_api_model_kwargs(project_org_user_variables)
-        else:
-            self._enrich_messages(messages, project_org_user_variables)
+        self._enrich_messages(messages, project_org_user_variables)
         return super().generate(messages, *args, **kwargs)
 
     async def agenerate(
@@ -100,8 +81,5 @@ class MaxChatOpenAI(ChatOpenAI):
         **kwargs,
     ) -> LLMResult:
         project_org_user_variables = await sync_to_async(self._get_project_org_user_variables)()
-        if self.use_responses_api:
-            self._enrich_responses_api_model_kwargs(project_org_user_variables)
-        else:
-            self._enrich_messages(messages, project_org_user_variables)
+        self._enrich_messages(messages, project_org_user_variables)
         return await super().agenerate(messages, *args, **kwargs)

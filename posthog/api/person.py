@@ -231,10 +231,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     queryset = Person.objects.all()
     serializer_class = PersonSerializer
     pagination_class = PersonLimitOffsetPagination
-    throttle_classes = [
-        ClickHouseBurstRateThrottle,
-        PersonsThrottle,
-    ]
+    throttle_classes = [ClickHouseBurstRateThrottle, PersonsThrottle]
     lifecycle_class = Lifecycle
     stickiness_class = Stickiness
 

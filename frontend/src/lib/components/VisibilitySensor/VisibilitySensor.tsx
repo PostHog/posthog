@@ -18,7 +18,7 @@ export function VisibilitySensor({ id, offset, children }: VisibilityProps): JSX
         const element = ref.current
         document.addEventListener('scroll', () => element && scrolling(element))
         return () => document.removeEventListener('scroll', () => element && scrolling(element))
-    }, [ref.current]) // oxlint-disable-line react-hooks/exhaustive-deps
+    }, [ref.current])
 
     return <div ref={ref}>{children}</div>
 }

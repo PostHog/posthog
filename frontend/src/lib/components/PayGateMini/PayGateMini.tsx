@@ -69,7 +69,7 @@ export function PayGateMini({
                 gate_variant: gateVariant,
             })
         }
-    }, [gateVariant]) // oxlint-disable-line react-hooks/exhaustive-deps
+    }, [gateVariant])
 
     const handleCtaClick = (): void => {
         if (handleSubmit) {

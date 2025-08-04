@@ -139,9 +139,9 @@ describe('sessionRecordingDataLogic performance', () => {
             const averageDuration = durations.reduce((a, b) => a + b, 0) / iterations
             const variance = durations.reduce((a, b) => a + Math.pow(b - averageDuration, 2), 0) / iterations
             const stdDev = Math.sqrt(variance)
-            // oxlint-disable-next-line no-console
+            // eslint-disable-next-line no-console
             console.log(`Average duration: ${averageDuration}ms`)
-            // oxlint-disable-next-line no-console
+            // eslint-disable-next-line no-console
             console.log(`Standard deviation: ${stdDev}ms`)
 
             expect(averageDuration).toBeLessThan(100)

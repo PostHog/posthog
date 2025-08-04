@@ -7,8 +7,6 @@ from django.urls import reverse
 from django.http import HttpResponseRedirect
 from django.contrib import messages
 from django.core.exceptions import ValidationError
-from django.contrib.sessions.models import Session
-from django.utils import timezone
 
 from posthog.admin.inlines.organization_member_inline import OrganizationMemberInline
 from posthog.admin.inlines.totp_device_inline import TOTPDeviceInline
@@ -46,7 +44,7 @@ class UserAdmin(DjangoUserAdmin):
 
     form = UserChangeForm
     change_password_form = None  # This view is not exposed in our subclass of UserChangeForm
-    change_form_template = "admin/posthog/user/change_form.html"
+    change_form_template = "loginas/change_form.html"
 
     inlines = [OrganizationMemberInline, TOTPDeviceInline]
     fieldsets = (
@@ -62,7 +60,6 @@ class UserAdmin(DjangoUserAdmin):
                     "email_verification_status",
                     "pending_email",
                     "strapi_id",
-                    "revoke_sessions_link",
                 )
             },
         ),
@@ -85,13 +82,7 @@ class UserAdmin(DjangoUserAdmin):
     list_filter = ("is_staff", "is_active", "groups")
     list_select_related = ("current_team", "current_organization")
     search_fields = ("email", "first_name", "last_name")
-    readonly_fields = [
-        "id",
-        "current_team",
-        "current_organization",
-        "email_verification_status",
-        "revoke_sessions_link",
-    ]
+    readonly_fields = ["id", "current_team", "current_organization", "email_verification_status"]
     ordering = ("email",)
 
     @admin.display(description="Current Team")
@@ -116,10 +107,6 @@ class UserAdmin(DjangoUserAdmin):
             user.organization.name,
         )
 
-    @admin.display(description="Web sessions")
-    def revoke_sessions_link(self, user: User):
-        return format_html('<a href="{}" class="button" id="revoke_sessions_button">{}</a>', "#", "Revoke all")
-
     @admin.display(description="Email Verification")
     def email_verification_status(self, user: User):
         if user.is_email_verified:
@@ -127,17 +114,16 @@ class UserAdmin(DjangoUserAdmin):
         else:
             return format_html(
                 '<p style="color: red;">✗ Not verified</p><br>'
-                '<a href="#" class="button" id="send_verification_email_button">Send verification email</a>'
+                '<a href="?send_verification=1" class="button">Send verification email</a>'
             )
 
     def change_view(self, request, object_id, form_url="", extra_context=None):
         """Override change view to handle email verification button."""
-        if request.POST.get("send_verification") == "1":
+        if request.GET.get("send_verification") == "1":
             try:
                 user = self.get_object(request, object_id)
                 if user and not user.is_email_verified:
                     EmailVerifier.create_token_and_send_email_verification(user)
-                    self.log_change(request, user, f"Sent verification email.")
                     messages.success(request, f"Verification email sent to {user.email}")
                 else:
                     messages.warning(request, "User is already verified or not found.")
@@ -147,31 +133,4 @@ class UserAdmin(DjangoUserAdmin):
             # Redirect back to the change form
             return HttpResponseRedirect(request.path)
 
-        if request.POST.get("revoke_sessions") == "1":
-            try:
-                user = self.get_object(request, object_id)
-                if user:
-                    num_revoked = self.delete_user_sessions(user)
-                    self.log_change(request, user, f"Revoked {num_revoked} web session(s).")
-                    messages.success(request, f"Revoked {num_revoked} session(s)")
-                else:
-                    messages.warning(request, "User not found.")
-            except Exception as e:
-                messages.error(request, f"Failed to revoke sessions: {str(e)}")
-
-            # Redirect back to the change form
-            return HttpResponseRedirect(request.path)
-
         return super().change_view(request, object_id, form_url, extra_context)
-
-    def _user_sessions(self, user):
-        """Fetch user's active sessions. Uses an iterator due to large table size and lack of effective indexing."""
-        user_pk = str(user.pk)
-        sessions = Session.objects.filter(expire_date__gt=timezone.now()).only("session_data")
-        for s in sessions.iterator():
-            data = s.get_decoded()
-            if data.get("_auth_user_id") == user_pk:
-                yield s
-
-    def delete_user_sessions(self, user):
-        return sum(1 for s in self._user_sessions(user) if s.delete())

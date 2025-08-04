@@ -1,4 +1,4 @@
-import { IconEye, IconHide, IconPin, IconPinFilled } from '@posthog/icons'
+import { IconEye, IconHide } from '@posthog/icons'
 import { IconArrowUp, IconArrowDown } from 'lib/lemon-ui/icons'
 import { LemonButton, LemonCheckbox, LemonModal, LemonSelect } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
@@ -152,42 +152,42 @@ export function MarketingAnalyticsColumnConfigModal({ query: rawQuery }: { query
         [hiddenColumns, marketingQuery, rawQuery, setQuery, sortedColumns, pinnedColumns]
     )
 
-    const toggleColumnPinning = useCallback(
-        (columnName: string) => {
-            const newPinnedColumns = [...pinnedColumns]
-            const isCurrentlyPinned = newPinnedColumns.includes(columnName)
+    // const toggleColumnPinning = useCallback(
+    //     (columnName: string) => {
+    //         const newPinnedColumns = [...pinnedColumns]
+    //         const isCurrentlyPinned = newPinnedColumns.includes(columnName)
 
-            if (isCurrentlyPinned) {
-                // Unpinning - just remove from pinned columns
-                newPinnedColumns.splice(newPinnedColumns.indexOf(columnName), 1)
-            } else {
-                // Pinning - add to pinned columns and show if hidden
-                newPinnedColumns.push(columnName)
-            }
+    //         if (isCurrentlyPinned) {
+    //             // Unpinning - just remove from pinned columns
+    //             newPinnedColumns.splice(newPinnedColumns.indexOf(columnName), 1)
+    //         } else {
+    //             // Pinning - add to pinned columns and show if hidden
+    //             newPinnedColumns.push(columnName)
+    //         }
 
-            let newSelect = marketingQuery?.select || []
+    //         let newSelect = marketingQuery?.select || []
 
-            // If we're pinning a hidden column, show it
-            if (!isCurrentlyPinned && hiddenColumns.includes(columnName)) {
-                newSelect = []
-                for (const column of sortedColumns) {
-                    if (column === columnName || !hiddenColumns.includes(column)) {
-                        newSelect.push(column)
-                    }
-                }
-            }
+    //         // If we're pinning a hidden column, show it
+    //         if (!isCurrentlyPinned && hiddenColumns.includes(columnName)) {
+    //             newSelect = []
+    //             for (const column of sortedColumns) {
+    //                 if (column === columnName || !hiddenColumns.includes(column)) {
+    //                     newSelect.push(column)
+    //                 }
+    //             }
+    //         }
 
-            setQuery({
-                ...rawQuery,
-                source: {
-                    ...marketingQuery,
-                    select: newSelect,
-                },
-                pinnedColumns: newPinnedColumns,
-            } as DataTableNode)
-        },
-        [pinnedColumns, rawQuery, setQuery, marketingQuery, hiddenColumns, sortedColumns]
-    )
+    //         setQuery({
+    //             ...rawQuery,
+    //             source: {
+    //                 ...marketingQuery,
+    //                 select: newSelect,
+    //             },
+    //             pinnedColumns: newPinnedColumns,
+    //         } as DataTableNode)
+    //     },
+    //     [pinnedColumns, rawQuery, setQuery, marketingQuery, hiddenColumns, sortedColumns]
+    // )
 
     const resetColumnConfigToDefaults = useCallback(() => {
         setQuery({
@@ -213,7 +213,7 @@ export function MarketingAnalyticsColumnConfigModal({ query: rawQuery }: { query
                         type="secondary"
                         onClick={resetColumnConfigToDefaults}
                         disabledReason={
-                            pinnedColumns.length === 0 &&
+                            // pinnedColumns.length === 0 &&
                             !marketingQuery?.orderBy &&
                             hiddenColumns.length === 0 &&
                             marketingQuery?.select?.length === sortedColumns.length
@@ -257,7 +257,7 @@ export function MarketingAnalyticsColumnConfigModal({ query: rawQuery }: { query
                         ) : (
                             <div className="text-sm text-muted italic">No hidden columns</div>
                         )}
-                        {pinnedColumns.length > 0 ? (
+                        {/* {pinnedColumns.length > 0 ? (
                             <div className="flex items-center gap-1 text-sm">
                                 <IconPinFilled className="text-xs text-primary" />
                                 <span className="text-muted">
@@ -266,7 +266,7 @@ export function MarketingAnalyticsColumnConfigModal({ query: rawQuery }: { query
                             </div>
                         ) : (
                             <div className="text-sm text-muted italic">No pinned columns</div>
-                        )}
+                        )} */}
                     </div>
                 </div>
 
@@ -330,7 +330,7 @@ export function MarketingAnalyticsColumnConfigModal({ query: rawQuery }: { query
                     <div className="space-y-2">
                         {staticSortedColumns.current.map((columnName: string) => {
                             const isHidden = hiddenColumns.includes(columnName)
-                            const isPinned = pinnedColumns.includes(columnName)
+                            // const isPinned = pinnedColumns.includes(columnName)
                             const isSortedByThisColumn = currentSortColumn === columnName
                             const isAscending = currentSortDirection === 'ASC'
 
@@ -368,13 +368,13 @@ export function MarketingAnalyticsColumnConfigModal({ query: rawQuery }: { query
                                             type={isSortedByThisColumn && !isAscending ? 'primary' : 'secondary'}
                                         />
                                         {/* Pin button */}
-                                        <LemonButton
+                                        {/* <LemonButton
                                             size="small"
                                             icon={isPinned ? <IconPinFilled /> : <IconPin />}
                                             onClick={() => toggleColumnPinning(columnName)}
                                             tooltip={isPinned ? 'Unpin column' : 'Pin column'}
                                             type={isPinned ? 'primary' : 'secondary'}
-                                        />
+                                        /> */}
                                         {/* Visibility button */}
                                         <LemonButton
                                             size="small"

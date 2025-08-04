@@ -192,7 +192,7 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
         if (referenceElement) {
             setReference(referenceElement)
         }
-    }, [referenceElement]) // oxlint-disable-line react-hooks/exhaustive-deps
+    }, [referenceElement])
 
     useEventListener(
         'keydown',
@@ -222,7 +222,7 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
         if (visible && referenceRef?.current && floatingElement) {
             return autoUpdate(referenceRef.current, floatingElement, update)
         }
-    }, [visible, placement, referenceRef?.current, floatingElement, ...additionalRefs]) // oxlint-disable-line react-hooks/exhaustive-deps
+    }, [visible, placement, referenceRef?.current, floatingElement, ...additionalRefs])
 
     const floatingContainer = useFloatingContainer()
 

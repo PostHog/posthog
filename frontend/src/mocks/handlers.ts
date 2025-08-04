@@ -98,7 +98,6 @@ export const defaultMocks: Mocks = {
             enabled: false,
             access_token: 'foo',
             created_at: '2020-11-11T00:00:00Z',
-            settings: {},
         } as SharingConfigurationType,
         '/api/projects/': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/property_definitions/': EMPTY_PAGINATED_RESPONSE,

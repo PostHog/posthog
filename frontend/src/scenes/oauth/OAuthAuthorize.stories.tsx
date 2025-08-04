@@ -1,6 +1,6 @@
 import { Meta, StoryFn } from '@storybook/react'
 import { router } from 'kea-router'
-import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { useEffect } from 'react'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
@@ -62,7 +62,7 @@ const meta: Meta = {
 export default meta
 
 export const DefaultScopes: StoryFn = () => {
-    useOnMountEffect(() => {
+    useEffect(() => {
         const params = new URLSearchParams({
             client_id: 'test-client-id',
             redirect_uri: 'https://example.com/callback',
@@ -70,13 +70,13 @@ export const DefaultScopes: StoryFn = () => {
             state: 'test-state',
         })
         router.actions.push(`${urls.oauthAuthorize()}?${params.toString()}`)
-    })
+    }, [])
 
     return <App />
 }
 
 export const WithScopes: StoryFn = () => {
-    useOnMountEffect(() => {
+    useEffect(() => {
         const params = new URLSearchParams({
             client_id: 'test-client-id',
             redirect_uri: 'https://app.example.com/oauth/callback',
@@ -85,7 +85,7 @@ export const WithScopes: StoryFn = () => {
             scope: 'experiment:read experiment:write query:read feature_flag:write',
         })
         router.actions.push(`${urls.oauthAuthorize()}?${params.toString()}`)
-    })
+    }, [])
 
     return <App />
 }

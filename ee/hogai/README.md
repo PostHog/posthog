@@ -35,14 +35,14 @@ You'll need to set [env vars](https://posthog.slack.com/docs/TSS5W8YQZ/F08UU1LJF
         name: str = "your_tool_name"  # Must match a value in AssistantContextualTool enum
         description: str = "What this tool does"
         thinking_message: str = "What to show while tool is working"
-        root_system_prompt_template: str = "Context about the tool state: {context_var}"
+        root_system_prompt_template: str = "Context about the tool state: {context_var}" 
         args_schema: type[BaseModel] = YourToolArgs
 
         async def _arun_impl(self, parameter_name: str) -> tuple[str, Any]:
             # Implement tool logic here
             # Access context with self.context (must have context_var from template)
             # If you use Django's ORM, ensure you utilize its asynchronous capabilities.
-
+            
             # Optional: Use LLM to process inputs or generate structured outputs
             model = (
                 MaxChatOpenAI(model="gpt-4o", temperature=0.2)
@@ -51,7 +51,7 @@ You'll need to set [env vars](https://posthog.slack.com/docs/TSS5W8YQZ/F08UU1LJF
             )
 
             response = model.ainvoke({"question": "What is PostHog?"})
-
+            
             # Process and return results as (message, structured_data)
             return "Tool execution completed", result_data
     ```
@@ -70,7 +70,7 @@ import { MaxTool } from 'scenes/max/MaxTool'
 function YourComponent() {
     return (
         <MaxTool
-            name="your_tool_name" // Must match backend tool name - enforced by the AssistantContextualTool enum
+            name="your_tool_name"  // Must match backend tool name - enforced by the AssistantContextualTool enum
             displayName="Human-friendly name"
             context={{
                 // Context data passed to backend - can be empty if there truly is no context
@@ -78,7 +78,7 @@ function YourComponent() {
             }}
             callback={(toolOutput) => {
                 // Handle structured output from tool
-                updateUIWithToolResults(toolOutput)
+                updateUIWithToolResults(toolOutput);
             }}
             initialMaxPrompt="Optional initial prompt for Max"
             onMaxOpen={() => {
@@ -120,69 +120,69 @@ NOTE: this won't extend query types generation. For that, talk to the Max AI tea
 ### Adding a new query type
 
 1. **Update the query executor** (`@ee/hogai/graph/query_executor/`):
-    - Add your new query type to the `SupportedQueryTypes` union in `query_executor.py:33`:
 
-        ```python
-        SupportedQueryTypes = (
-            AssistantTrendsQuery
-            | TrendsQuery
-            | AssistantFunnelsQuery
-            | FunnelsQuery
-            | AssistantRetentionQuery
-            | RetentionQuery
-            | AssistantHogQLQuery
-            | HogQLQuery
-            | YourNewQuery           # Add your query type
-        )
-        ```
+   - Add your new query type to the `SupportedQueryTypes` union in `query_executor.py:33`:
+     ```python
+     SupportedQueryTypes = (
+         AssistantTrendsQuery
+         | TrendsQuery
+         | AssistantFunnelsQuery
+         | FunnelsQuery
+         | AssistantRetentionQuery
+         | RetentionQuery
+         | AssistantHogQLQuery
+         | HogQLQuery
+         | YourNewQuery           # Add your query type
+     )
+     ```
 
-    - Add a new formatter class in `query_executor/format.py` that implements query result formatting for AI consumption (see below, point 3)
-    - Add formatting logic to `_compress_results()` method in `query_executor/query_executor.py`:
-        ```python
-        elif isinstance(query, YourNewAssistantQuery | YourNewQuery):
-            return YourNewResultsFormatter(query, response["results"]).format()
-        ```
-    - Add example prompts for your query type in `query_executor/prompts.py`, this explains to the LLM the query results formatting
-    - Update `_get_example_prompt()` method in `query_executor/nodes.py` to handle your new query type:
-        ```python
-        if isinstance(viz_message.answer, YourNewAssistantQuery):
-            return YOUR_NEW_EXAMPLE_PROMPT
-        ```
+   - Add a new formatter class in `query_executor/format.py` that implements query result formatting for AI consumption (see below, point 3)
+   - Add formatting logic to `_compress_results()` method in `query_executor/query_executor.py`:
+     ```python
+     elif isinstance(query, YourNewAssistantQuery | YourNewQuery):
+         return YourNewResultsFormatter(query, response["results"]).format()
+     ```
+   - Add example prompts for your query type in `query_executor/prompts.py`, this explains to the LLM the query results formatting
+   - Update `_get_example_prompt()` method in `query_executor/nodes.py` to handle your new query type:
+     ```python
+     if isinstance(viz_message.answer, YourNewAssistantQuery):
+         return YOUR_NEW_EXAMPLE_PROMPT
+     ```
 
 2. **Update the root node** (`@ee/hogai/graph/root/`):
-    - Add your new query type to the `MAX_SUPPORTED_QUERY_KIND_TO_MODEL` mapping in `nodes.py:57`:
-        ```python
-        MAX_SUPPORTED_QUERY_KIND_TO_MODEL: dict[str, type[SupportedQueryTypes]] = {
-            "TrendsQuery": TrendsQuery,
-            "FunnelsQuery": FunnelsQuery,
-            "RetentionQuery": RetentionQuery,
-            "HogQLQuery": HogQLQuery,
-            "YourNewQuery": YourNewQuery,  # Add your query mapping
-        }
-        ```
+
+   - Add your new query type to the `MAX_SUPPORTED_QUERY_KIND_TO_MODEL` mapping in `nodes.py:57`:
+     ```python
+     MAX_SUPPORTED_QUERY_KIND_TO_MODEL: dict[str, type[SupportedQueryTypes]] = {
+         "TrendsQuery": TrendsQuery,
+         "FunnelsQuery": FunnelsQuery,
+         "RetentionQuery": RetentionQuery,
+         "HogQLQuery": HogQLQuery,
+         "YourNewQuery": YourNewQuery,  # Add your query mapping
+     }
+     ```
 
 3. **Create the formatter class**:
+   
+   Create a new formatter in `format.py` following the pattern of existing formatters:
+   ```python
+   class YourNewResultsFormatter:
+       def __init__(self, query: YourNewQuery, results: dict, team: Optional[Team] = None, utc_now_datetime: Optional[datetime] = None):
+           self._query = query
+           self._results = results
+           self._team = team
+           self._utc_now_datetime = utc_now_datetime
 
-    Create a new formatter in `format.py` following the pattern of existing formatters:
-
-    ```python
-    class YourNewResultsFormatter:
-        def __init__(self, query: YourNewQuery, results: dict, team: Optional[Team] = None, utc_now_datetime: Optional[datetime] = None):
-            self._query = query
-            self._results = results
-            self._team = team
-            self._utc_now_datetime = utc_now_datetime
-
-        def format(self) -> str:
-            # Format your query results for AI consumption
-            # Return a string representation optimized for LLM understanding
-            pass
-    ```
+       def format(self) -> str:
+           # Format your query results for AI consumption
+           # Return a string representation optimized for LLM understanding
+           pass
+   ```
 
 4. **Add tests**:
-    - Add test cases in `test/test_query_executor.py` for your new query type
-    - Add test cases in `test/test_format.py` for your new formatter
-    - Ensure tests cover both successful execution and error handling
+   - Add test cases in `test/test_query_executor.py` for your new query type
+   - Add test cases in `test/test_format.py` for your new formatter
+   - Ensure tests cover both successful execution and error handling
 
 ### Key considerations
 

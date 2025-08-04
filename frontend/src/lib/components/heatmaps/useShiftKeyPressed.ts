@@ -1,10 +1,9 @@
-import { useState } from 'react'
-import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { useEffect, useState } from 'react'
 
 export function useShiftKeyPressed(): boolean {
     const [isShiftPressed, setIsShiftPressed] = useState(false)
 
-    useOnMountEffect(() => {
+    useEffect(() => {
         const handleKeyDown = (event: KeyboardEvent): void => {
             if (event.key === 'Shift') {
                 setIsShiftPressed(true)
@@ -24,7 +23,7 @@ export function useShiftKeyPressed(): boolean {
             window.removeEventListener('keydown', handleKeyDown)
             window.removeEventListener('keyup', handleKeyUp)
         }
-    })
+    }, [])
 
     return isShiftPressed
 }

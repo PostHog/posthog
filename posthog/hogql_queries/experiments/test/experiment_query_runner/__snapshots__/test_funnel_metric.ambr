@@ -910,46 +910,10 @@
   SELECT DISTINCT person_id
   FROM events
   WHERE team_id = 99999
-    AND distinct_id = 'person_id_0_distinct_id_2'
-  '''
-# ---
-# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_0_person_id_override_properties_on_events_no_filter.1
-  '''
-  
-  SELECT DISTINCT person_id
-  FROM events
-  WHERE team_id = 99999
     AND distinct_id = 'person_id_1_distinct_id_2'
   '''
 # ---
-# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_0_person_id_override_properties_on_events_no_filter.10
-  '''
-  
-  SELECT DISTINCT person_id
-  FROM events
-  WHERE team_id = 99999
-    AND distinct_id = 'person_id_10_distinct_id_2'
-  '''
-# ---
-# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_0_person_id_override_properties_on_events_no_filter.11
-  '''
-  
-  SELECT DISTINCT person_id
-  FROM events
-  WHERE team_id = 99999
-    AND distinct_id = 'person_id_11_distinct_id_2'
-  '''
-# ---
-# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_0_person_id_override_properties_on_events_no_filter.12
-  '''
-  
-  SELECT DISTINCT person_id
-  FROM events
-  WHERE team_id = 99999
-    AND distinct_id = 'person_id_12_distinct_id_2'
-  '''
-# ---
-# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_0_person_id_override_properties_on_events_no_filter.13
+# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_0_person_id_override_properties_on_events_no_filter.1
   '''
   SELECT metric_events.variant AS variant,
          count(metric_events.entity_id) AS num_users,
@@ -1019,88 +983,7 @@
                      allow_experimental_join_condition=1
   '''
 # ---
-# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_0_person_id_override_properties_on_events_no_filter.2
-  '''
-  
-  SELECT DISTINCT person_id
-  FROM events
-  WHERE team_id = 99999
-    AND distinct_id = 'person_id_2_distinct_id_2'
-  '''
-# ---
-# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_0_person_id_override_properties_on_events_no_filter.3
-  '''
-  
-  SELECT DISTINCT person_id
-  FROM events
-  WHERE team_id = 99999
-    AND distinct_id = 'person_id_3_distinct_id_2'
-  '''
-# ---
-# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_0_person_id_override_properties_on_events_no_filter.4
-  '''
-  
-  SELECT DISTINCT person_id
-  FROM events
-  WHERE team_id = 99999
-    AND distinct_id = 'person_id_4_distinct_id_2'
-  '''
-# ---
-# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_0_person_id_override_properties_on_events_no_filter.5
-  '''
-  
-  SELECT DISTINCT person_id
-  FROM events
-  WHERE team_id = 99999
-    AND distinct_id = 'person_id_5_distinct_id_2'
-  '''
-# ---
-# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_0_person_id_override_properties_on_events_no_filter.6
-  '''
-  
-  SELECT DISTINCT person_id
-  FROM events
-  WHERE team_id = 99999
-    AND distinct_id = 'person_id_6_distinct_id_2'
-  '''
-# ---
-# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_0_person_id_override_properties_on_events_no_filter.7
-  '''
-  
-  SELECT DISTINCT person_id
-  FROM events
-  WHERE team_id = 99999
-    AND distinct_id = 'person_id_7_distinct_id_2'
-  '''
-# ---
-# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_0_person_id_override_properties_on_events_no_filter.8
-  '''
-  
-  SELECT DISTINCT person_id
-  FROM events
-  WHERE team_id = 99999
-    AND distinct_id = 'person_id_8_distinct_id_2'
-  '''
-# ---
-# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_0_person_id_override_properties_on_events_no_filter.9
-  '''
-  
-  SELECT DISTINCT person_id
-  FROM events
-  WHERE team_id = 99999
-    AND distinct_id = 'person_id_9_distinct_id_2'
-  '''
-# ---
 # name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_1_person_id_override_properties_on_events_filter_earlierevent
-  '''
-  
-  SELECT DISTINCT person_id
-  FROM events
-  WHERE team_id = 99999
-    AND distinct_id = 'person_id_0_distinct_id_2'
-  '''
-# ---
-# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_1_person_id_override_properties_on_events_filter_earlierevent.1
   '''
   
   SELECT DISTINCT person_id
@@ -1109,34 +992,7 @@
     AND distinct_id = 'person_id_1_distinct_id_2'
   '''
 # ---
-# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_1_person_id_override_properties_on_events_filter_earlierevent.10
-  '''
-  
-  SELECT DISTINCT person_id
-  FROM events
-  WHERE team_id = 99999
-    AND distinct_id = 'person_id_10_distinct_id_2'
-  '''
-# ---
-# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_1_person_id_override_properties_on_events_filter_earlierevent.11
-  '''
-  
-  SELECT DISTINCT person_id
-  FROM events
-  WHERE team_id = 99999
-    AND distinct_id = 'person_id_11_distinct_id_2'
-  '''
-# ---
-# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_1_person_id_override_properties_on_events_filter_earlierevent.12
-  '''
-  
-  SELECT DISTINCT person_id
-  FROM events
-  WHERE team_id = 99999
-    AND distinct_id = 'person_id_12_distinct_id_2'
-  '''
-# ---
-# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_1_person_id_override_properties_on_events_filter_earlierevent.13
+# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_1_person_id_override_properties_on_events_filter_earlierevent.1
   '''
   SELECT metric_events.variant AS variant,
          count(metric_events.entity_id) AS num_users,
@@ -1206,88 +1062,7 @@
                      allow_experimental_join_condition=1
   '''
 # ---
-# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_1_person_id_override_properties_on_events_filter_earlierevent.2
-  '''
-  
-  SELECT DISTINCT person_id
-  FROM events
-  WHERE team_id = 99999
-    AND distinct_id = 'person_id_2_distinct_id_2'
-  '''
-# ---
-# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_1_person_id_override_properties_on_events_filter_earlierevent.3
-  '''
-  
-  SELECT DISTINCT person_id
-  FROM events
-  WHERE team_id = 99999
-    AND distinct_id = 'person_id_3_distinct_id_2'
-  '''
-# ---
-# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_1_person_id_override_properties_on_events_filter_earlierevent.4
-  '''
-  
-  SELECT DISTINCT person_id
-  FROM events
-  WHERE team_id = 99999
-    AND distinct_id = 'person_id_4_distinct_id_2'
-  '''
-# ---
-# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_1_person_id_override_properties_on_events_filter_earlierevent.5
-  '''
-  
-  SELECT DISTINCT person_id
-  FROM events
-  WHERE team_id = 99999
-    AND distinct_id = 'person_id_5_distinct_id_2'
-  '''
-# ---
-# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_1_person_id_override_properties_on_events_filter_earlierevent.6
-  '''
-  
-  SELECT DISTINCT person_id
-  FROM events
-  WHERE team_id = 99999
-    AND distinct_id = 'person_id_6_distinct_id_2'
-  '''
-# ---
-# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_1_person_id_override_properties_on_events_filter_earlierevent.7
-  '''
-  
-  SELECT DISTINCT person_id
-  FROM events
-  WHERE team_id = 99999
-    AND distinct_id = 'person_id_7_distinct_id_2'
-  '''
-# ---
-# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_1_person_id_override_properties_on_events_filter_earlierevent.8
-  '''
-  
-  SELECT DISTINCT person_id
-  FROM events
-  WHERE team_id = 99999
-    AND distinct_id = 'person_id_8_distinct_id_2'
-  '''
-# ---
-# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_1_person_id_override_properties_on_events_filter_earlierevent.9
-  '''
-  
-  SELECT DISTINCT person_id
-  FROM events
-  WHERE team_id = 99999
-    AND distinct_id = 'person_id_9_distinct_id_2'
-  '''
-# ---
 # name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_2_person_id_override_properties_on_events_filter_laterevent
-  '''
-  
-  SELECT DISTINCT person_id
-  FROM events
-  WHERE team_id = 99999
-    AND distinct_id = 'person_id_0_distinct_id_2'
-  '''
-# ---
-# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_2_person_id_override_properties_on_events_filter_laterevent.1
   '''
   
   SELECT DISTINCT person_id
@@ -1296,34 +1071,7 @@
     AND distinct_id = 'person_id_1_distinct_id_2'
   '''
 # ---
-# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_2_person_id_override_properties_on_events_filter_laterevent.10
-  '''
-  
-  SELECT DISTINCT person_id
-  FROM events
-  WHERE team_id = 99999
-    AND distinct_id = 'person_id_10_distinct_id_2'
-  '''
-# ---
-# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_2_person_id_override_properties_on_events_filter_laterevent.11
-  '''
-  
-  SELECT DISTINCT person_id
-  FROM events
-  WHERE team_id = 99999
-    AND distinct_id = 'person_id_11_distinct_id_2'
-  '''
-# ---
-# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_2_person_id_override_properties_on_events_filter_laterevent.12
-  '''
-  
-  SELECT DISTINCT person_id
-  FROM events
-  WHERE team_id = 99999
-    AND distinct_id = 'person_id_12_distinct_id_2'
-  '''
-# ---
-# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_2_person_id_override_properties_on_events_filter_laterevent.13
+# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_2_person_id_override_properties_on_events_filter_laterevent.1
   '''
   SELECT metric_events.variant AS variant,
          count(metric_events.entity_id) AS num_users,
@@ -1393,88 +1141,7 @@
                      allow_experimental_join_condition=1
   '''
 # ---
-# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_2_person_id_override_properties_on_events_filter_laterevent.2
-  '''
-  
-  SELECT DISTINCT person_id
-  FROM events
-  WHERE team_id = 99999
-    AND distinct_id = 'person_id_2_distinct_id_2'
-  '''
-# ---
-# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_2_person_id_override_properties_on_events_filter_laterevent.3
-  '''
-  
-  SELECT DISTINCT person_id
-  FROM events
-  WHERE team_id = 99999
-    AND distinct_id = 'person_id_3_distinct_id_2'
-  '''
-# ---
-# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_2_person_id_override_properties_on_events_filter_laterevent.4
-  '''
-  
-  SELECT DISTINCT person_id
-  FROM events
-  WHERE team_id = 99999
-    AND distinct_id = 'person_id_4_distinct_id_2'
-  '''
-# ---
-# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_2_person_id_override_properties_on_events_filter_laterevent.5
-  '''
-  
-  SELECT DISTINCT person_id
-  FROM events
-  WHERE team_id = 99999
-    AND distinct_id = 'person_id_5_distinct_id_2'
-  '''
-# ---
-# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_2_person_id_override_properties_on_events_filter_laterevent.6
-  '''
-  
-  SELECT DISTINCT person_id
-  FROM events
-  WHERE team_id = 99999
-    AND distinct_id = 'person_id_6_distinct_id_2'
-  '''
-# ---
-# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_2_person_id_override_properties_on_events_filter_laterevent.7
-  '''
-  
-  SELECT DISTINCT person_id
-  FROM events
-  WHERE team_id = 99999
-    AND distinct_id = 'person_id_7_distinct_id_2'
-  '''
-# ---
-# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_2_person_id_override_properties_on_events_filter_laterevent.8
-  '''
-  
-  SELECT DISTINCT person_id
-  FROM events
-  WHERE team_id = 99999
-    AND distinct_id = 'person_id_8_distinct_id_2'
-  '''
-# ---
-# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_2_person_id_override_properties_on_events_filter_laterevent.9
-  '''
-  
-  SELECT DISTINCT person_id
-  FROM events
-  WHERE team_id = 99999
-    AND distinct_id = 'person_id_9_distinct_id_2'
-  '''
-# ---
 # name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_3_person_id_override_properties_joined_no_filter
-  '''
-  
-  SELECT DISTINCT person_id
-  FROM events
-  WHERE team_id = 99999
-    AND distinct_id = 'person_id_0_distinct_id_2'
-  '''
-# ---
-# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_3_person_id_override_properties_joined_no_filter.1
   '''
   
   SELECT DISTINCT person_id
@@ -1483,34 +1150,7 @@
     AND distinct_id = 'person_id_1_distinct_id_2'
   '''
 # ---
-# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_3_person_id_override_properties_joined_no_filter.10
-  '''
-  
-  SELECT DISTINCT person_id
-  FROM events
-  WHERE team_id = 99999
-    AND distinct_id = 'person_id_10_distinct_id_2'
-  '''
-# ---
-# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_3_person_id_override_properties_joined_no_filter.11
-  '''
-  
-  SELECT DISTINCT person_id
-  FROM events
-  WHERE team_id = 99999
-    AND distinct_id = 'person_id_11_distinct_id_2'
-  '''
-# ---
-# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_3_person_id_override_properties_joined_no_filter.12
-  '''
-  
-  SELECT DISTINCT person_id
-  FROM events
-  WHERE team_id = 99999
-    AND distinct_id = 'person_id_12_distinct_id_2'
-  '''
-# ---
-# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_3_person_id_override_properties_joined_no_filter.13
+# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_3_person_id_override_properties_joined_no_filter.1
   '''
   SELECT metric_events.variant AS variant,
          count(metric_events.entity_id) AS num_users,
@@ -1610,88 +1250,7 @@
                      allow_experimental_join_condition=1
   '''
 # ---
-# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_3_person_id_override_properties_joined_no_filter.2
-  '''
-  
-  SELECT DISTINCT person_id
-  FROM events
-  WHERE team_id = 99999
-    AND distinct_id = 'person_id_2_distinct_id_2'
-  '''
-# ---
-# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_3_person_id_override_properties_joined_no_filter.3
-  '''
-  
-  SELECT DISTINCT person_id
-  FROM events
-  WHERE team_id = 99999
-    AND distinct_id = 'person_id_3_distinct_id_2'
-  '''
-# ---
-# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_3_person_id_override_properties_joined_no_filter.4
-  '''
-  
-  SELECT DISTINCT person_id
-  FROM events
-  WHERE team_id = 99999
-    AND distinct_id = 'person_id_4_distinct_id_2'
-  '''
-# ---
-# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_3_person_id_override_properties_joined_no_filter.5
-  '''
-  
-  SELECT DISTINCT person_id
-  FROM events
-  WHERE team_id = 99999
-    AND distinct_id = 'person_id_5_distinct_id_2'
-  '''
-# ---
-# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_3_person_id_override_properties_joined_no_filter.6
-  '''
-  
-  SELECT DISTINCT person_id
-  FROM events
-  WHERE team_id = 99999
-    AND distinct_id = 'person_id_6_distinct_id_2'
-  '''
-# ---
-# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_3_person_id_override_properties_joined_no_filter.7
-  '''
-  
-  SELECT DISTINCT person_id
-  FROM events
-  WHERE team_id = 99999
-    AND distinct_id = 'person_id_7_distinct_id_2'
-  '''
-# ---
-# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_3_person_id_override_properties_joined_no_filter.8
-  '''
-  
-  SELECT DISTINCT person_id
-  FROM events
-  WHERE team_id = 99999
-    AND distinct_id = 'person_id_8_distinct_id_2'
-  '''
-# ---
-# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_3_person_id_override_properties_joined_no_filter.9
-  '''
-  
-  SELECT DISTINCT person_id
-  FROM events
-  WHERE team_id = 99999
-    AND distinct_id = 'person_id_9_distinct_id_2'
-  '''
-# ---
 # name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_4_person_id_override_properties_joined_filter_earlierevent
-  '''
-  
-  SELECT DISTINCT person_id
-  FROM events
-  WHERE team_id = 99999
-    AND distinct_id = 'person_id_0_distinct_id_2'
-  '''
-# ---
-# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_4_person_id_override_properties_joined_filter_earlierevent.1
   '''
   
   SELECT DISTINCT person_id
@@ -1700,34 +1259,7 @@
     AND distinct_id = 'person_id_1_distinct_id_2'
   '''
 # ---
-# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_4_person_id_override_properties_joined_filter_earlierevent.10
-  '''
-  
-  SELECT DISTINCT person_id
-  FROM events
-  WHERE team_id = 99999
-    AND distinct_id = 'person_id_10_distinct_id_2'
-  '''
-# ---
-# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_4_person_id_override_properties_joined_filter_earlierevent.11
-  '''
-  
-  SELECT DISTINCT person_id
-  FROM events
-  WHERE team_id = 99999
-    AND distinct_id = 'person_id_11_distinct_id_2'
-  '''
-# ---
-# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_4_person_id_override_properties_joined_filter_earlierevent.12
-  '''
-  
-  SELECT DISTINCT person_id
-  FROM events
-  WHERE team_id = 99999
-    AND distinct_id = 'person_id_12_distinct_id_2'
-  '''
-# ---
-# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_4_person_id_override_properties_joined_filter_earlierevent.13
+# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_4_person_id_override_properties_joined_filter_earlierevent.1
   '''
   SELECT metric_events.variant AS variant,
          count(metric_events.entity_id) AS num_users,
@@ -1827,88 +1359,7 @@
                      allow_experimental_join_condition=1
   '''
 # ---
-# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_4_person_id_override_properties_joined_filter_earlierevent.2
-  '''
-  
-  SELECT DISTINCT person_id
-  FROM events
-  WHERE team_id = 99999
-    AND distinct_id = 'person_id_2_distinct_id_2'
-  '''
-# ---
-# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_4_person_id_override_properties_joined_filter_earlierevent.3
-  '''
-  
-  SELECT DISTINCT person_id
-  FROM events
-  WHERE team_id = 99999
-    AND distinct_id = 'person_id_3_distinct_id_2'
-  '''
-# ---
-# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_4_person_id_override_properties_joined_filter_earlierevent.4
-  '''
-  
-  SELECT DISTINCT person_id
-  FROM events
-  WHERE team_id = 99999
-    AND distinct_id = 'person_id_4_distinct_id_2'
-  '''
-# ---
-# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_4_person_id_override_properties_joined_filter_earlierevent.5
-  '''
-  
-  SELECT DISTINCT person_id
-  FROM events
-  WHERE team_id = 99999
-    AND distinct_id = 'person_id_5_distinct_id_2'
-  '''
-# ---
-# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_4_person_id_override_properties_joined_filter_earlierevent.6
-  '''
-  
-  SELECT DISTINCT person_id
-  FROM events
-  WHERE team_id = 99999
-    AND distinct_id = 'person_id_6_distinct_id_2'
-  '''
-# ---
-# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_4_person_id_override_properties_joined_filter_earlierevent.7
-  '''
-  
-  SELECT DISTINCT person_id
-  FROM events
-  WHERE team_id = 99999
-    AND distinct_id = 'person_id_7_distinct_id_2'
-  '''
-# ---
-# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_4_person_id_override_properties_joined_filter_earlierevent.8
-  '''
-  
-  SELECT DISTINCT person_id
-  FROM events
-  WHERE team_id = 99999
-    AND distinct_id = 'person_id_8_distinct_id_2'
-  '''
-# ---
-# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_4_person_id_override_properties_joined_filter_earlierevent.9
-  '''
-  
-  SELECT DISTINCT person_id
-  FROM events
-  WHERE team_id = 99999
-    AND distinct_id = 'person_id_9_distinct_id_2'
-  '''
-# ---
 # name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_5_person_id_override_properties_joined_filter_laterevent
-  '''
-  
-  SELECT DISTINCT person_id
-  FROM events
-  WHERE team_id = 99999
-    AND distinct_id = 'person_id_0_distinct_id_2'
-  '''
-# ---
-# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_5_person_id_override_properties_joined_filter_laterevent.1
   '''
   
   SELECT DISTINCT person_id
@@ -1917,34 +1368,7 @@
     AND distinct_id = 'person_id_1_distinct_id_2'
   '''
 # ---
-# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_5_person_id_override_properties_joined_filter_laterevent.10
-  '''
-  
-  SELECT DISTINCT person_id
-  FROM events
-  WHERE team_id = 99999
-    AND distinct_id = 'person_id_10_distinct_id_2'
-  '''
-# ---
-# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_5_person_id_override_properties_joined_filter_laterevent.11
-  '''
-  
-  SELECT DISTINCT person_id
-  FROM events
-  WHERE team_id = 99999
-    AND distinct_id = 'person_id_11_distinct_id_2'
-  '''
-# ---
-# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_5_person_id_override_properties_joined_filter_laterevent.12
-  '''
-  
-  SELECT DISTINCT person_id
-  FROM events
-  WHERE team_id = 99999
-    AND distinct_id = 'person_id_12_distinct_id_2'
-  '''
-# ---
-# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_5_person_id_override_properties_joined_filter_laterevent.13
+# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_5_person_id_override_properties_joined_filter_laterevent.1
   '''
   SELECT metric_events.variant AS variant,
          count(metric_events.entity_id) AS num_users,
@@ -2044,88 +1468,7 @@
                      allow_experimental_join_condition=1
   '''
 # ---
-# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_5_person_id_override_properties_joined_filter_laterevent.2
-  '''
-  
-  SELECT DISTINCT person_id
-  FROM events
-  WHERE team_id = 99999
-    AND distinct_id = 'person_id_2_distinct_id_2'
-  '''
-# ---
-# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_5_person_id_override_properties_joined_filter_laterevent.3
-  '''
-  
-  SELECT DISTINCT person_id
-  FROM events
-  WHERE team_id = 99999
-    AND distinct_id = 'person_id_3_distinct_id_2'
-  '''
-# ---
-# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_5_person_id_override_properties_joined_filter_laterevent.4
-  '''
-  
-  SELECT DISTINCT person_id
-  FROM events
-  WHERE team_id = 99999
-    AND distinct_id = 'person_id_4_distinct_id_2'
-  '''
-# ---
-# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_5_person_id_override_properties_joined_filter_laterevent.5
-  '''
-  
-  SELECT DISTINCT person_id
-  FROM events
-  WHERE team_id = 99999
-    AND distinct_id = 'person_id_5_distinct_id_2'
-  '''
-# ---
-# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_5_person_id_override_properties_joined_filter_laterevent.6
-  '''
-  
-  SELECT DISTINCT person_id
-  FROM events
-  WHERE team_id = 99999
-    AND distinct_id = 'person_id_6_distinct_id_2'
-  '''
-# ---
-# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_5_person_id_override_properties_joined_filter_laterevent.7
-  '''
-  
-  SELECT DISTINCT person_id
-  FROM events
-  WHERE team_id = 99999
-    AND distinct_id = 'person_id_7_distinct_id_2'
-  '''
-# ---
-# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_5_person_id_override_properties_joined_filter_laterevent.8
-  '''
-  
-  SELECT DISTINCT person_id
-  FROM events
-  WHERE team_id = 99999
-    AND distinct_id = 'person_id_8_distinct_id_2'
-  '''
-# ---
-# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_5_person_id_override_properties_joined_filter_laterevent.9
-  '''
-  
-  SELECT DISTINCT person_id
-  FROM events
-  WHERE team_id = 99999
-    AND distinct_id = 'person_id_9_distinct_id_2'
-  '''
-# ---
 # name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_6_person_id_no_override_properties_on_events_no_filter
-  '''
-  
-  SELECT DISTINCT person_id
-  FROM events
-  WHERE team_id = 99999
-    AND distinct_id = 'person_id_0_distinct_id_2'
-  '''
-# ---
-# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_6_person_id_no_override_properties_on_events_no_filter.1
   '''
   
   SELECT DISTINCT person_id
@@ -2134,34 +1477,7 @@
     AND distinct_id = 'person_id_1_distinct_id_2'
   '''
 # ---
-# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_6_person_id_no_override_properties_on_events_no_filter.10
-  '''
-  
-  SELECT DISTINCT person_id
-  FROM events
-  WHERE team_id = 99999
-    AND distinct_id = 'person_id_10_distinct_id_2'
-  '''
-# ---
-# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_6_person_id_no_override_properties_on_events_no_filter.11
-  '''
-  
-  SELECT DISTINCT person_id
-  FROM events
-  WHERE team_id = 99999
-    AND distinct_id = 'person_id_11_distinct_id_2'
-  '''
-# ---
-# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_6_person_id_no_override_properties_on_events_no_filter.12
-  '''
-  
-  SELECT DISTINCT person_id
-  FROM events
-  WHERE team_id = 99999
-    AND distinct_id = 'person_id_12_distinct_id_2'
-  '''
-# ---
-# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_6_person_id_no_override_properties_on_events_no_filter.13
+# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_6_person_id_no_override_properties_on_events_no_filter.1
   '''
   SELECT metric_events.variant AS variant,
          count(metric_events.entity_id) AS num_users,
@@ -2210,88 +1526,7 @@
                      allow_experimental_join_condition=1
   '''
 # ---
-# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_6_person_id_no_override_properties_on_events_no_filter.2
-  '''
-  
-  SELECT DISTINCT person_id
-  FROM events
-  WHERE team_id = 99999
-    AND distinct_id = 'person_id_2_distinct_id_2'
-  '''
-# ---
-# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_6_person_id_no_override_properties_on_events_no_filter.3
-  '''
-  
-  SELECT DISTINCT person_id
-  FROM events
-  WHERE team_id = 99999
-    AND distinct_id = 'person_id_3_distinct_id_2'
-  '''
-# ---
-# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_6_person_id_no_override_properties_on_events_no_filter.4
-  '''
-  
-  SELECT DISTINCT person_id
-  FROM events
-  WHERE team_id = 99999
-    AND distinct_id = 'person_id_4_distinct_id_2'
-  '''
-# ---
-# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_6_person_id_no_override_properties_on_events_no_filter.5
-  '''
-  
-  SELECT DISTINCT person_id
-  FROM events
-  WHERE team_id = 99999
-    AND distinct_id = 'person_id_5_distinct_id_2'
-  '''
-# ---
-# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_6_person_id_no_override_properties_on_events_no_filter.6
-  '''
-  
-  SELECT DISTINCT person_id
-  FROM events
-  WHERE team_id = 99999
-    AND distinct_id = 'person_id_6_distinct_id_2'
-  '''
-# ---
-# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_6_person_id_no_override_properties_on_events_no_filter.7
-  '''
-  
-  SELECT DISTINCT person_id
-  FROM events
-  WHERE team_id = 99999
-    AND distinct_id = 'person_id_7_distinct_id_2'
-  '''
-# ---
-# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_6_person_id_no_override_properties_on_events_no_filter.8
-  '''
-  
-  SELECT DISTINCT person_id
-  FROM events
-  WHERE team_id = 99999
-    AND distinct_id = 'person_id_8_distinct_id_2'
-  '''
-# ---
-# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_6_person_id_no_override_properties_on_events_no_filter.9
-  '''
-  
-  SELECT DISTINCT person_id
-  FROM events
-  WHERE team_id = 99999
-    AND distinct_id = 'person_id_9_distinct_id_2'
-  '''
-# ---
 # name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_7_person_id_no_override_properties_on_events_filter_earlierevent
-  '''
-  
-  SELECT DISTINCT person_id
-  FROM events
-  WHERE team_id = 99999
-    AND distinct_id = 'person_id_0_distinct_id_2'
-  '''
-# ---
-# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_7_person_id_no_override_properties_on_events_filter_earlierevent.1
   '''
   
   SELECT DISTINCT person_id
@@ -2300,34 +1535,7 @@
     AND distinct_id = 'person_id_1_distinct_id_2'
   '''
 # ---
-# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_7_person_id_no_override_properties_on_events_filter_earlierevent.10
-  '''
-  
-  SELECT DISTINCT person_id
-  FROM events
-  WHERE team_id = 99999
-    AND distinct_id = 'person_id_10_distinct_id_2'
-  '''
-# ---
-# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_7_person_id_no_override_properties_on_events_filter_earlierevent.11
-  '''
-  
-  SELECT DISTINCT person_id
-  FROM events
-  WHERE team_id = 99999
-    AND distinct_id = 'person_id_11_distinct_id_2'
-  '''
-# ---
-# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_7_person_id_no_override_properties_on_events_filter_earlierevent.12
-  '''
-  
-  SELECT DISTINCT person_id
-  FROM events
-  WHERE team_id = 99999
-    AND distinct_id = 'person_id_12_distinct_id_2'
-  '''
-# ---
-# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_7_person_id_no_override_properties_on_events_filter_earlierevent.13
+# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_7_person_id_no_override_properties_on_events_filter_earlierevent.1
   '''
   SELECT metric_events.variant AS variant,
          count(metric_events.entity_id) AS num_users,
@@ -2376,88 +1584,7 @@
                      allow_experimental_join_condition=1
   '''
 # ---
-# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_7_person_id_no_override_properties_on_events_filter_earlierevent.2
-  '''
-  
-  SELECT DISTINCT person_id
-  FROM events
-  WHERE team_id = 99999
-    AND distinct_id = 'person_id_2_distinct_id_2'
-  '''
-# ---
-# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_7_person_id_no_override_properties_on_events_filter_earlierevent.3
-  '''
-  
-  SELECT DISTINCT person_id
-  FROM events
-  WHERE team_id = 99999
-    AND distinct_id = 'person_id_3_distinct_id_2'
-  '''
-# ---
-# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_7_person_id_no_override_properties_on_events_filter_earlierevent.4
-  '''
-  
-  SELECT DISTINCT person_id
-  FROM events
-  WHERE team_id = 99999
-    AND distinct_id = 'person_id_4_distinct_id_2'
-  '''
-# ---
-# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_7_person_id_no_override_properties_on_events_filter_earlierevent.5
-  '''
-  
-  SELECT DISTINCT person_id
-  FROM events
-  WHERE team_id = 99999
-    AND distinct_id = 'person_id_5_distinct_id_2'
-  '''
-# ---
-# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_7_person_id_no_override_properties_on_events_filter_earlierevent.6
-  '''
-  
-  SELECT DISTINCT person_id
-  FROM events
-  WHERE team_id = 99999
-    AND distinct_id = 'person_id_6_distinct_id_2'
-  '''
-# ---
-# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_7_person_id_no_override_properties_on_events_filter_earlierevent.7
-  '''
-  
-  SELECT DISTINCT person_id
-  FROM events
-  WHERE team_id = 99999
-    AND distinct_id = 'person_id_7_distinct_id_2'
-  '''
-# ---
-# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_7_person_id_no_override_properties_on_events_filter_earlierevent.8
-  '''
-  
-  SELECT DISTINCT person_id
-  FROM events
-  WHERE team_id = 99999
-    AND distinct_id = 'person_id_8_distinct_id_2'
-  '''
-# ---
-# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_7_person_id_no_override_properties_on_events_filter_earlierevent.9
-  '''
-  
-  SELECT DISTINCT person_id
-  FROM events
-  WHERE team_id = 99999
-    AND distinct_id = 'person_id_9_distinct_id_2'
-  '''
-# ---
 # name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_8_person_id_no_override_properties_on_events_filter_laterevent
-  '''
-  
-  SELECT DISTINCT person_id
-  FROM events
-  WHERE team_id = 99999
-    AND distinct_id = 'person_id_0_distinct_id_2'
-  '''
-# ---
-# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_8_person_id_no_override_properties_on_events_filter_laterevent.1
   '''
   
   SELECT DISTINCT person_id
@@ -2466,34 +1593,7 @@
     AND distinct_id = 'person_id_1_distinct_id_2'
   '''
 # ---
-# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_8_person_id_no_override_properties_on_events_filter_laterevent.10
-  '''
-  
-  SELECT DISTINCT person_id
-  FROM events
-  WHERE team_id = 99999
-    AND distinct_id = 'person_id_10_distinct_id_2'
-  '''
-# ---
-# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_8_person_id_no_override_properties_on_events_filter_laterevent.11
-  '''
-  
-  SELECT DISTINCT person_id
-  FROM events
-  WHERE team_id = 99999
-    AND distinct_id = 'person_id_11_distinct_id_2'
-  '''
-# ---
-# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_8_person_id_no_override_properties_on_events_filter_laterevent.12
-  '''
-  
-  SELECT DISTINCT person_id
-  FROM events
-  WHERE team_id = 99999
-    AND distinct_id = 'person_id_12_distinct_id_2'
-  '''
-# ---
-# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_8_person_id_no_override_properties_on_events_filter_laterevent.13
+# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_8_person_id_no_override_properties_on_events_filter_laterevent.1
   '''
   SELECT metric_events.variant AS variant,
          count(metric_events.entity_id) AS num_users,
@@ -2540,77 +1640,5 @@
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1
-  '''
-# ---
-# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_8_person_id_no_override_properties_on_events_filter_laterevent.2
-  '''
-  
-  SELECT DISTINCT person_id
-  FROM events
-  WHERE team_id = 99999
-    AND distinct_id = 'person_id_2_distinct_id_2'
-  '''
-# ---
-# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_8_person_id_no_override_properties_on_events_filter_laterevent.3
-  '''
-  
-  SELECT DISTINCT person_id
-  FROM events
-  WHERE team_id = 99999
-    AND distinct_id = 'person_id_3_distinct_id_2'
-  '''
-# ---
-# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_8_person_id_no_override_properties_on_events_filter_laterevent.4
-  '''
-  
-  SELECT DISTINCT person_id
-  FROM events
-  WHERE team_id = 99999
-    AND distinct_id = 'person_id_4_distinct_id_2'
-  '''
-# ---
-# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_8_person_id_no_override_properties_on_events_filter_laterevent.5
-  '''
-  
-  SELECT DISTINCT person_id
-  FROM events
-  WHERE team_id = 99999
-    AND distinct_id = 'person_id_5_distinct_id_2'
-  '''
-# ---
-# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_8_person_id_no_override_properties_on_events_filter_laterevent.6
-  '''
-  
-  SELECT DISTINCT person_id
-  FROM events
-  WHERE team_id = 99999
-    AND distinct_id = 'person_id_6_distinct_id_2'
-  '''
-# ---
-# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_8_person_id_no_override_properties_on_events_filter_laterevent.7
-  '''
-  
-  SELECT DISTINCT person_id
-  FROM events
-  WHERE team_id = 99999
-    AND distinct_id = 'person_id_7_distinct_id_2'
-  '''
-# ---
-# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_8_person_id_no_override_properties_on_events_filter_laterevent.8
-  '''
-  
-  SELECT DISTINCT person_id
-  FROM events
-  WHERE team_id = 99999
-    AND distinct_id = 'person_id_8_distinct_id_2'
-  '''
-# ---
-# name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_8_person_id_no_override_properties_on_events_filter_laterevent.9
-  '''
-  
-  SELECT DISTINCT person_id
-  FROM events
-  WHERE team_id = 99999
-    AND distinct_id = 'person_id_9_distinct_id_2'
   '''
 # ---

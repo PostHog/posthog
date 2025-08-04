@@ -337,6 +337,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
         checkIfFinishedCalculating: async ({ cohort }, breakpoint) => {
             if (cohort.is_calculating) {
                 actions.setPollTimeout(
+                    // eslint-disable-next-line @typescript-eslint/no-misused-promises
                     window.setTimeout(async () => {
                         const newCohort = await api.cohorts.get(cohort.id)
                         breakpoint()

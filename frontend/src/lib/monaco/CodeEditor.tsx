@@ -2,7 +2,6 @@ import './CodeEditor.scss'
 
 import MonacoEditor, { DiffEditor as MonacoDiffEditor, type EditorProps, loader, Monaco } from '@monaco-editor/react'
 import { BuiltLogic, useMountedLogic, useValues } from 'kea'
-import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { codeEditorLogic } from 'lib/monaco/codeEditorLogic'
 import { codeEditorLogicType } from 'lib/monaco/codeEditorLogicType'
@@ -167,10 +166,11 @@ export function CodeEditor({
         body?.appendChild(monacoRoot)
         return monacoRoot
     }, [])
-
-    useOnMountEffect(() => {
-        return () => monacoRoot?.remove()
-    })
+    useEffect(() => {
+        return () => {
+            monacoRoot?.remove()
+        }
+    }, [])
 
     useEffect(() => {
         if (!monaco) {
@@ -204,11 +204,11 @@ export function CodeEditor({
 
     // Using useRef, not useState, as we don't want to reload the component when this changes.
     const monacoDisposables = useRef([] as IDisposable[])
-    useOnMountEffect(() => {
+    useEffect(() => {
         return () => {
             monacoDisposables.current.forEach((d) => d?.dispose())
         }
-    })
+    }, [])
 
     const editorOptions: editor.IStandaloneEditorConstructionOptions = {
         minimap: {

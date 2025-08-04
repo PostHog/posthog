@@ -17,7 +17,7 @@ export function HogFunctionMetricSparkLine({ id }: HogFunctionMetricsLogicProps)
         if (inStorybookTestRunner() || (inView && !appMetrics && !appMetricsLoading)) {
             loadMetrics()
         }
-    }, [inView]) // oxlint-disable-line react-hooks/exhaustive-deps
+    }, [inView])
 
     const displayData: SparklineTimeSeries[] = [
         {

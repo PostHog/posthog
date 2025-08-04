@@ -10,14 +10,13 @@ import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { LemonTree, LemonTreeRef, TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { ButtonPrimitive, ButtonPrimitiveProps } from 'lib/ui/Button/ButtonPrimitives'
 import { cn } from 'lib/utils/css-classes'
-import { ReactNode, useRef, useState } from 'react'
+import { ReactNode, useEffect, useRef, useState } from 'react'
 
 import { projectTreeLogic, ProjectTreeLogicProps } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { ScrollableShadows } from '~/lib/components/ScrollableShadows/ScrollableShadows'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 
 import { itemSelectModalLogic } from './itemSelectModalLogic'
-import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 export interface ItemSelectModalProps {
     /** Class name for the component */
@@ -85,15 +84,16 @@ export function ItemSelectModal({ className, includeProtocol, includeRoot }: Ite
 
     const treeRef = useRef<LemonTreeRef>(null)
 
-    useOnMountEffect(() => {
+    useEffect(() => {
         const timeout = setTimeout(() => {
             if (inputRef.current) {
                 inputRef.current?.focus()
             }
         }, 50)
-
-        return () => clearTimeout(timeout)
-    })
+        return () => {
+            clearTimeout(timeout)
+        }
+    }, [])
 
     function handleSelectItem(item: TreeDataItem): void {
         setSelectedItem(item)

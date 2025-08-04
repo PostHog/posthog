@@ -4,6 +4,7 @@ import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { PROPERTY_DEFINITIONS_PER_EVENT } from 'lib/constants'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { useEffect } from 'react'
 import { eventDefinitionsTableLogic } from 'scenes/data-management/events/eventDefinitionsTableLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { urls } from 'scenes/urls'
@@ -11,14 +12,15 @@ import { urls } from 'scenes/urls'
 import { EventDefinition, PropertyDefinition } from '~/types'
 
 import { DefinitionHeader } from './DefinitionHeader'
-import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 export function EventDefinitionProperties({ definition }: { definition: EventDefinition }): JSX.Element {
     const { loadPropertiesForEvent } = useActions(eventDefinitionsTableLogic)
     const { eventPropertiesCacheMap, eventDefinitionPropertiesLoading } = useValues(eventDefinitionsTableLogic)
     const { hasTagging } = useValues(organizationLogic)
 
-    useOnMountEffect(() => loadPropertiesForEvent(definition))
+    useEffect(() => {
+        loadPropertiesForEvent(definition)
+    }, [])
 
     const columns: LemonTableColumns<PropertyDefinition> = [
         {

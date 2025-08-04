@@ -136,7 +136,7 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
         if (selectedItemMeta && definition.name == selectedItemMeta.id) {
             setLocalDefinition(selectedItemMeta)
         }
-    }, [definition]) // oxlint-disable-line react-hooks/exhaustive-deps
+    }, [definition])
 
     const hasSentAsLabel = useMemo(() => {
         const _definition = definition as PropertyDefinition
@@ -620,7 +620,7 @@ export function ControlledDefinitionPopover({
     // independently by `infiniteListLogic`
     useEffect(() => {
         setDefinition(item)
-    }, [item, setDefinition])
+    }, [item])
 
     // Supports all types specified in selectedItemHasPopover
     const value = group.getValue?.(item)

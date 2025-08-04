@@ -1321,12 +1321,7 @@ class _Printer(Visitor[str]):
                         and (len(node.args) == 0 or (has_tz_override and len(node.args) == 1))
                     ) or (
                         relevant_clickhouse_name
-                        in (
-                            "parseDateTime64BestEffortOrNull",
-                            "parseDateTime64BestEffortUSOrNull",
-                            "parseDateTime64BestEffort",
-                            "toDateTime64",
-                        )
+                        in ("parseDateTime64BestEffortOrNull", "parseDateTime64BestEffort", "toDateTime64")
                         and (len(node.args) == 1 or (has_tz_override and len(node.args) == 2))
                     ):
                         # These two CH functions require a precision argument before timezone
@@ -1398,7 +1393,7 @@ class _Printer(Visitor[str]):
 
     def visit_placeholder(self, node: ast.Placeholder):
         if node.field is None:
-            raise QueryError("You can not use placeholders here")
+            raise QueryError("You can not use expressions inside placeholders")
         raise QueryError(f"Unresolved placeholder: {{{node.field}}}")
 
     def visit_alias(self, node: ast.Alias):

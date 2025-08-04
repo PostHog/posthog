@@ -303,7 +303,7 @@ export function InsightsTable({
             sorter: (a: IndexedTrendResult, b: IndexedTrendResult) => dataSorter(a, b, index),
             align: 'right',
         }))
-    }, [indexedResults, trendsFilter, isStickiness, compareFilter?.compare, interval]) // oxlint-disable-line react-hooks/exhaustive-deps
+    }, [indexedResults, trendsFilter, isStickiness, compareFilter?.compare, interval])
 
     columns.push(...valueColumns)
 

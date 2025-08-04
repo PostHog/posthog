@@ -27,7 +27,6 @@ import {
 import type { Transform } from '@dnd-kit/utilities'
 import { CSS } from '@dnd-kit/utilities'
 import { IconTrash } from '@posthog/icons'
-import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { IconDragHandle } from 'lib/lemon-ui/icons'
 import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 import debounce from 'lodash.debounce'
@@ -605,11 +604,11 @@ function SortableItem<Item extends VDNDChildItem>({
 function useMountStatus(): boolean {
     const [isMounted, setIsMounted] = useState(false)
 
-    useOnMountEffect(() => {
+    useEffect(() => {
         const timeout = setTimeout(() => setIsMounted(true), 500)
 
         return () => clearTimeout(timeout)
-    })
+    }, [])
 
     return isMounted
 }
@@ -790,7 +789,7 @@ export const ChildItem = React.memo(
             ...props
         },
         ref
-    ): JSX.Element {
+    ) {
         const handle = true
         useEffect(() => {
             if (!dragOverlay) {

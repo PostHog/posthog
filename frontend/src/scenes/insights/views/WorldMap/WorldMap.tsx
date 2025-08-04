@@ -79,7 +79,7 @@ function useWorldMapTooltip(showPersonsModal: boolean): React.RefObject<SVGSVGEl
             tooltipEl.style.left = 'revert'
             tooltipEl.style.top = 'revert'
         }
-    }, [isTooltipShown, tooltipCoordinates, currentTooltip]) // oxlint-disable-line react-hooks/exhaustive-deps
+    }, [isTooltipShown, tooltipCoordinates, currentTooltip])
 
     useEffect(() => {
         if (tooltipCoordinates) {
@@ -98,7 +98,7 @@ function useWorldMapTooltip(showPersonsModal: boolean): React.RefObject<SVGSVGEl
             tooltipEl.style.left = `${window.pageXOffset + tooltipCoordinates[0] + xOffset}px`
             tooltipEl.style.top = `${window.pageYOffset + tooltipCoordinates[1] + WORLD_MAP_TOOLTIP_OFFSET_PX}px`
         }
-    }, [currentTooltip, tooltipEl]) // oxlint-disable-line react-hooks/exhaustive-deps
+    }, [currentTooltip, tooltipEl])
 
     return svgRef
 }

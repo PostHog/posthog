@@ -65,7 +65,6 @@ MAX_SUPPORTED_QUERY_KIND_TO_MODEL: dict[str, type[SupportedQueryTypes]] = {
 }
 
 SLASH_COMMAND_INIT = "/init"
-SLASH_COMMAND_REMEMBER = "/remember"
 
 RouteName = Literal["insights", "root", "end", "search_documentation", "insights_search", "billing"]
 
@@ -305,8 +304,7 @@ class RootNode(RootNodeUIContextMixin):
                         "system",
                         CORE_MEMORY_PROMPT
                         + "\nNew memories will automatically be added to the core memory as the conversation progresses. "
-                        + " If users ask to save, update, or delete the core memory, say you have done it."
-                        + " If the '/remember [information]' command is used, the information gets appended verbatim to core memory.",
+                        + " If users ask to save, update, or delete the core memory, say you have done it.",
                     ),
                     *[
                         (

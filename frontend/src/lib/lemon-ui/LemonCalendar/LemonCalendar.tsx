@@ -51,13 +51,12 @@ export const LemonCalendar = forwardRef(function LemonCalendar(
     const months = Math.max(props.months ?? 1, 1)
     const weekStartDay = props.weekStartDay ?? teamWeekStartDay
     const today = dayjs().startOf('day')
-
     const [leftmostMonth, setLeftmostMonth] = useState<dayjs.Dayjs>((props.leftmostMonth ?? today).startOf('month'))
     useEffect(() => {
         if (props.leftmostMonth && props.leftmostMonth.isSame(leftmostMonth, 'd')) {
             setLeftmostMonth(props.leftmostMonth)
         }
-    }, [props.leftmostMonth]) // oxlint-disable-line react-hooks/exhaustive-deps
+    }, [props.leftmostMonth])
 
     return (
         <div

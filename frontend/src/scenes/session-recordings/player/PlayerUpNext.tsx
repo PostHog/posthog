@@ -60,7 +60,7 @@ export function PlayerUpNext({ playlistLogic }: PlayerUpNextProps): JSX.Element 
         }
 
         return () => clearTimeout(timeoutRef.current)
-    }, [endReached, !!nextSessionRecording, similarRecordingsCount]) // oxlint-disable-line react-hooks/exhaustive-deps
+    }, [endReached, !!nextSessionRecording, similarRecordingsCount])
 
     useEffect(() => {
         if (playNextAnimationInterrupted) {

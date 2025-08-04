@@ -1,5 +1,4 @@
 import { DashboardType, DataColorThemeModel, InsightModel, SessionRecordingType } from '~/types'
-import { SharingConfigurationSettings } from '~/queries/schema/schema-general'
 
 export enum ExportType {
     Image = 'image',
@@ -7,7 +6,16 @@ export enum ExportType {
     Scene = 'scene',
 }
 
-export interface ExportedData extends SharingConfigurationSettings {
+export interface ExportOptions {
+    whitelabel?: boolean
+    noHeader?: boolean
+    legend?: boolean
+    detailed?: boolean
+    // Recording options
+    showInspector?: boolean
+}
+
+export interface ExportedData extends ExportOptions {
     accessToken?: string
     type: ExportType
     dashboard?: DashboardType

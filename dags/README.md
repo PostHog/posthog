@@ -6,19 +6,19 @@ This directory contains [Dagster](https://dagster.io/) data pipelines (DAGs) for
 
 Dagster is an open-source data orchestration tool designed to help you define and execute data pipelines. Key concepts include:
 
-- **Assets**: Data artifacts that your pipelines produce and consume (e.g., tables, files)
-- **Ops**: Individual units of computation (functions)
-- **Jobs**: Collections of ops that are executed together
-- **Resources**: Shared infrastructure and connections (e.g. database connections)
-- **Schedules**: Time-based triggers for jobs
-- **Sensors**: Event-based triggers for jobs
+-   **Assets**: Data artifacts that your pipelines produce and consume (e.g., tables, files)
+-   **Ops**: Individual units of computation (functions)
+-   **Jobs**: Collections of ops that are executed together
+-   **Resources**: Shared infrastructure and connections (e.g. database connections)
+-   **Schedules**: Time-based triggers for jobs
+-   **Sensors**: Event-based triggers for jobs
 
 ## Project Structure
 
-- `locations/`: Main Dagster definition files (split by team) that defines assets, jobs, schedules, sensors, and resources
-- `common.py`: Shared utilities and resources
-- Individual DAG files (e.g., `exchange_rate.py`, `deletes.py`, `person_overrides.py`)
-- `tests/`: Tests for the DAGs
+-   `locations/`: Main Dagster definition files (split by team) that defines assets, jobs, schedules, sensors, and resources
+-   `common.py`: Shared utilities and resources
+-   Individual DAG files (e.g., `exchange_rate.py`, `deletes.py`, `person_overrides.py`)
+-   `tests/`: Tests for the DAGs
 
 ## Local Development
 
@@ -50,10 +50,10 @@ dagster dev --workspace $DAGSTER_HOME/workspace.yaml
 
 The Dagster UI will be available at http://localhost:3000 by default, where you can:
 
-- Browse assets, jobs, and schedules
-- Manually trigger job runs
-- View execution logs and status
-- Debug pipeline issues
+-   Browse assets, jobs, and schedules
+-   Manually trigger job runs
+-   View execution logs and status
+-   Debug pipeline issues
 
 ## Adding New DAGs
 
@@ -117,42 +117,43 @@ mkdir -p .dagster_home
 
 ```yaml
 run_coordinator:
-    module: dagster._core.run_coordinator.queued_run_coordinator
-    class: QueuedRunCoordinator
-    config:
-        dequeue_interval_seconds: 5
+  module: dagster._core.run_coordinator.queued_run_coordinator
+  class: QueuedRunCoordinator
+  config:
+    dequeue_interval_seconds: 5
 
 run_launcher:
-    module: dagster._core.launcher.default_run_launcher
-    class: DefaultRunLauncher
+  module: dagster._core.launcher.default_run_launcher
+  class: DefaultRunLauncher
 
 concurrency:
-    runs:
-        max_concurrent_runs: 10 # Overall instance limit
-        tag_concurrency_limits:
-            # Limit specific job types
-            - key: 'dagster/job_name'
-              value: 'web_analytics_daily_job'
-              limit: 1
+  runs:
+    max_concurrent_runs: 10  # Overall instance limit
+    tag_concurrency_limits:
+      # Limit specific job types
+      - key: 'dagster/job_name'
+        value: 'web_analytics_daily_job'
+        limit: 1
+
 ```
 
 3. Run Dagster with the configuration:
 
-````bash
+```bash
 DAGSTER_WEB_PREAGGREGATED_MAX_PARTITIONS_PER_RUN=1  # Force small partitions per run to create multiple runs
 
 ```bash
 export DAGSTER_HOME=$(pwd)/.dagster_home && DAGSTER_WEB_PREAGGREGATED_MAX_PARTITIONS_PER_RUN=1 DEBUG=1 dagster dev -m dags.definitions
-````
+```
 
 #### Testing
 
 1. In the Dagster UI, navigate to your assets (e.g., web analytics assets)
 2. Start a backfill for several days (e.g., 3-5 days)
 3. Check the "Runs" page - you should observe:
-    - Only 1 run in `STARTED`/`STARTING` status at a time for the same concurrency group
-    - Other runs waiting in `QUEUED` status
-    - Runs progressing sequentially: `QUEUED` → `STARTED` → `SUCCESS`
+   - Only 1 run in `STARTED`/`STARTING` status at a time for the same concurrency group
+   - Other runs waiting in `QUEUED` status
+   - Runs progressing sequentially: `QUEUED` → `STARTED` → `SUCCESS`
 
 #### Production Configuration
 
@@ -161,5 +162,5 @@ For posthog employees, it is on our charts repo: https://github.com/PostHog/char
 
 ## Additional Resources
 
-- [Dagster Documentation](https://docs.dagster.io/)
-- [PostHog Documentation](https://posthog.com/docs)
+-   [Dagster Documentation](https://docs.dagster.io/)
+-   [PostHog Documentation](https://posthog.com/docs)

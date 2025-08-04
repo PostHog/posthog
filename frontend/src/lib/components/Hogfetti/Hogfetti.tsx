@@ -23,8 +23,7 @@ import {
     XRayHog,
     XRayHog2,
 } from 'lib/components/hedgehogs'
-import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
-import React, { useCallback, useState } from 'react'
+import React, { useCallback, useEffect, useState } from 'react'
 
 export type HogComponent = React.ComponentType<{ width: number; height: number }>
 
@@ -80,14 +79,14 @@ export const useHogfetti = (options: HogfettiOptions = {}): HogfettiHook => {
     const [particleSets, setParticleSets] = useState<Particle[][]>([])
     const [dimensions, setDimensions] = useState({ width: window.innerWidth, height: window.innerHeight })
 
-    useOnMountEffect(() => {
+    useEffect(() => {
         const handleResize = (): void => {
             setDimensions({ width: window.innerWidth, height: window.innerHeight })
         }
 
         window.addEventListener('resize', handleResize)
         return () => window.removeEventListener('resize', handleResize)
-    })
+    }, [])
 
     const { count = 50, power = 5, duration = 2000, maxSize = 60 } = options
 
@@ -134,7 +133,7 @@ export const useHogfetti = (options: HogfettiOptions = {}): HogfettiHook => {
             }
         }
         requestAnimationFrame(animationFrame)
-    }, [count, power, duration, maxSize, dimensions]) // oxlint-disable-line react-hooks/exhaustive-deps
+    }, [count, power, duration, maxSize, dimensions])
 
     const HogfettiComponent: React.FC = () =>
         particleSets.length === 0 ? null : (

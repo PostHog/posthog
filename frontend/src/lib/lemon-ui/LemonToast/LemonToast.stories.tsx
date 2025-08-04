@@ -53,7 +53,7 @@ export const ToastTypes: Story = {
                 const { type, message, ...rest } = toast
                 lemonToast[type](message, rest)
             })
-        }, [isDarkModeOn]) // oxlint-disable-line react-hooks/exhaustive-deps
+        }, [isDarkModeOn])
 
         return (
             <ToastContainer

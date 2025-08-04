@@ -7,15 +7,14 @@ import { InsightType } from '~/types'
 import { getDefaultMetricTitle } from './utils'
 
 export const MetricTitle = ({ metric, metricType }: { metric: any; metricType?: InsightType }): JSX.Element => {
-    const shouldShowTooltip = (text: string): boolean => {
-        // Show tooltip for longer text that might be clamped
-        return text.length > 50
+    const getTextClassName = (text: string): string => {
+        // If text contains spaces, allow word breaks; otherwise truncate
+        return text.includes(' ') ? 'break-words' : 'truncate'
     }
 
-    const getTextClassName = (text: string): string => {
-        // Use break-words for text with spaces, break-all for underscore-separated text
-        const breakClass = text.includes(' ') ? 'break-words' : 'break-all'
-        return `line-clamp-3 ${breakClass}`
+    const shouldShowTooltip = (text: string): boolean => {
+        // Only show tooltip when we're truncating (single long words without spaces)
+        return !text.includes(' ') && text.length > 15
     }
 
     const wrapWithTooltip = (text: string, element: JSX.Element): JSX.Element => {
@@ -27,7 +26,7 @@ export const MetricTitle = ({ metric, metricType }: { metric: any; metricType?: 
 
     if (metric.kind === NodeKind.ExperimentMetric) {
         const title = metric.name || getDefaultMetricTitle(metric)
-        const element = <span className={getTextClassName(title)}>{title}</span>
+        const element = <span className={`max-h-[34px] overflow-hidden ${getTextClassName(title)}`}>{title}</span>
         return wrapWithTooltip(title, element)
     }
 
@@ -58,5 +57,5 @@ export const MetricTitle = ({ metric, metricType }: { metric: any; metricType?: 
         }
     }
 
-    return <span className={`text-secondary ${getTextClassName('Untitled metric')}`}>Untitled metric</span>
+    return <span className="text-secondary break-words">Untitled metric</span>
 }

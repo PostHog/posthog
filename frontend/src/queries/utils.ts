@@ -40,8 +40,9 @@ import {
     QueryStatusResponse,
     ResultCustomizationBy,
     RetentionQuery,
+    RevenueAnalyticsArpuQuery,
+    RevenueAnalyticsCustomerCountQuery,
     RevenueAnalyticsGrowthRateQuery,
-    RevenueAnalyticsMetricsQuery,
     RevenueAnalyticsOverviewQuery,
     RevenueAnalyticsRevenueQuery,
     RevenueAnalyticsTopCustomersQuery,
@@ -153,16 +154,20 @@ export function isHogQLMetadata(node?: Record<string, any> | null): node is HogQ
     return node?.kind === NodeKind.HogQLMetadata
 }
 
+export function isRevenueAnalyticsArpuQuery(node?: Record<string, any> | null): node is RevenueAnalyticsArpuQuery {
+    return node?.kind === NodeKind.RevenueAnalyticsArpuQuery
+}
+
+export function isRevenueAnalyticsCustomerCountQuery(
+    node?: Record<string, any> | null
+): node is RevenueAnalyticsCustomerCountQuery {
+    return node?.kind === NodeKind.RevenueAnalyticsCustomerCountQuery
+}
+
 export function isRevenueAnalyticsGrowthRateQuery(
     node?: Record<string, any> | null
 ): node is RevenueAnalyticsGrowthRateQuery {
     return node?.kind === NodeKind.RevenueAnalyticsGrowthRateQuery
-}
-
-export function isRevenueAnalyticsMetricsQuery(
-    node?: Record<string, any> | null
-): node is RevenueAnalyticsMetricsQuery {
-    return node?.kind === NodeKind.RevenueAnalyticsMetricsQuery
 }
 
 export function isRevenueAnalyticsOverviewQuery(

@@ -1,10 +1,6 @@
 import { ExecOptions } from '../types'
 
-export function sha256(
-    data: string | null,
-    encoding: 'hex' | 'base64' | 'base64url' | 'binary' = 'hex',
-    options?: ExecOptions
-): string | null {
+export function sha256(data: string | null, encoding: 'hex' | 'base64' | 'base64url' | 'binary' = 'hex', options?: ExecOptions): string | null {
     if (data === null) {
         return null
     }
@@ -15,11 +11,7 @@ export function sha256(
     return crypto.createHash('sha256').update(data).digest(encoding)
 }
 
-export function md5(
-    data: string | null,
-    encoding: 'hex' | 'base64' | 'base64url' | 'binary' = 'hex',
-    options?: ExecOptions
-): string | null {
+export function md5(data: string | null, encoding: 'hex' | 'base64' | 'base64url' | 'binary' = 'hex', options?: ExecOptions): string | null {
     if (data === null) {
         return null
     }
@@ -30,11 +22,7 @@ export function md5(
     return crypto.createHash('md5').update(data).digest(encoding)
 }
 
-export function sha256HmacChain(
-    data: string[],
-    encoding: 'hex' | 'base64' | 'base64url' | 'binary' = 'hex',
-    options?: ExecOptions
-): string {
+export function sha256HmacChain(data: string[], encoding: 'hex' | 'base64' | 'base64url' | 'binary' = 'hex', options?: ExecOptions): string {
     const crypto = options?.external?.crypto
     if (!crypto) {
         throw new Error('The crypto module is required for "sha256HmacChainHex" to work.')

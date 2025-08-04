@@ -13,7 +13,7 @@ import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { updatedAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
-import { useCallback, useMemo } from 'react'
+import { useCallback, useEffect, useMemo } from 'react'
 import { HogFunctionMetricSparkLine } from 'scenes/hog-functions/metrics/HogFunctionMetricsSparkline'
 import { urls } from 'scenes/urls'
 
@@ -25,7 +25,6 @@ import { HogFunctionStatusIndicator } from '../misc/HogFunctionStatusIndicator'
 import { HogFunctionOrderModal } from './HogFunctionOrderModal'
 import { hogFunctionRequestModalLogic } from './hogFunctionRequestModalLogic'
 import { HogFunctionListLogicProps, hogFunctionsListLogic } from './hogFunctionsListLogic'
-import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 const urlForHogFunction = (hogFunction: HogFunctionType): string => {
     if (hogFunction.id.startsWith('plugin-')) {
@@ -51,7 +50,7 @@ export function HogFunctionList({
 
     const humanizedType = humanizeHogFunctionType(props.type)
 
-    useOnMountEffect(loadHogFunctions)
+    useEffect(() => loadHogFunctions(), [])
 
     const isManualFunction = useCallback(
         (hogFunction: HogFunctionType): boolean => {
@@ -178,7 +177,7 @@ export function HogFunctionList({
         }
 
         return columns
-    }, [props.type, canEnableHogFunction, humanizedType, toggleEnabled, deleteHogFunction, isManualFunction]) // oxlint-disable-line react-hooks/exhaustive-deps
+    }, [props.type, canEnableHogFunction, humanizedType, toggleEnabled, deleteHogFunction, isManualFunction])
 
     return (
         <>

@@ -2,7 +2,7 @@ import { urls } from 'scenes/urls'
 
 import { NodeKind, QuerySchema } from '~/queries/schema/schema-general'
 
-import { TileId, WebAnalyticsTile } from './common'
+import { TileId, WebAnalyticsTile } from './webAnalyticsLogic'
 
 export const getDashboardItemId = (section: TileId, tab: string | undefined, isModal?: boolean): `new-${string}` => {
     return `new-AdHoc.web-analytics.${section}.${tab || 'default'}.${isModal ? 'modal' : 'default'}`

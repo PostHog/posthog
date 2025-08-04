@@ -71,7 +71,7 @@ export const ResultsBreakdownContent = ({
     result: CachedExperimentQueryResponse
     children?: (props: ResultBreakdownRenderProps) => JSX.Element | null
 }): JSX.Element | null => {
-    const { query, breakdownResults, breakdownResultsLoading, breakdownLastRefresh } = useValues(resultsBreakdownLogic)
+    const { query, breakdownResults, breakdownResultsLoading } = useValues(resultsBreakdownLogic)
 
     const exposureDifference = calculateExposureDifference(result, breakdownResults as FunnelStep[][])
 
@@ -84,6 +84,6 @@ export const ResultsBreakdownContent = ({
      * we should use a shared context with props.
      */
     return children && typeof children === 'function'
-        ? children({ query, breakdownResults, breakdownResultsLoading, exposureDifference, breakdownLastRefresh })
+        ? children({ query, breakdownResults, breakdownResultsLoading, exposureDifference })
         : null
 }

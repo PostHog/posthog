@@ -265,6 +265,13 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
                                       },
                                   },
                                   {
+                                      label: 'Add join',
+                                      onClick: () => {
+                                          actions.selectSourceTable(view.name)
+                                          actions.toggleJoinTableModal()
+                                      },
+                                  },
+                                  {
                                       label: 'Delete',
                                       status: 'danger',
                                       onClick: () => {
@@ -309,13 +316,6 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
                                     label: 'Open schema',
                                     onClick: () => {
                                         actions.selectSchema(view)
-                                    },
-                                },
-                                {
-                                    label: 'Add join',
-                                    onClick: () => {
-                                        actions.selectSourceTable(view.name)
-                                        actions.toggleJoinTableModal()
                                     },
                                 },
                                 ...savedViewMenuItems,

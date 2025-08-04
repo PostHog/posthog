@@ -18,7 +18,6 @@ def send_email_subscription_report(
     assets: list[ExportedAsset],
     invite_message: Optional[str] = None,
     total_asset_count: Optional[int] = None,
-    send_async: bool = True,
 ) -> None:
     utm_tags = f"{UTM_TAGS_BASE}&utm_medium=email"
 
@@ -65,4 +64,4 @@ def send_email_subscription_report(
         },
     )
     message.add_recipient(email=email)
-    message.send(send_async=send_async)
+    message.send()

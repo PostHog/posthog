@@ -80,7 +80,7 @@ describe('relatedFeatureFlagsLogic', () => {
                 }
             }
 
-            // oxlint-disable-next-line react-hooks/rules-of-hooks
+            // eslint-disable-next-line react-hooks/rules-of-hooks
             useMocks({
                 get: {
                     [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/${queryParams}`]: {

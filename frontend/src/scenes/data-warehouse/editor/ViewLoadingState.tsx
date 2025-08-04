@@ -1,5 +1,4 @@
-import { useState } from 'react'
-import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { useEffect, useState } from 'react'
 
 const VIEW_EMPTY_STATE_COPY = [
     'Resolving joins between your tables…',
@@ -13,7 +12,7 @@ export function ViewEmptyState(): JSX.Element {
     const [messageIndex, setMessageIndex] = useState(0)
     const [isMessageVisible, setIsMessageVisible] = useState(true)
 
-    useOnMountEffect(() => {
+    useEffect(() => {
         const TOGGLE_INTERVAL = 3000
         const FADE_OUT_DURATION = 300
 
@@ -32,7 +31,7 @@ export function ViewEmptyState(): JSX.Element {
         }, TOGGLE_INTERVAL)
 
         return () => clearInterval(interval)
-    })
+    }, [])
 
     return (
         <div data-attr="view-empty-state" className="flex flex-col flex-1 items-center justify-center">
