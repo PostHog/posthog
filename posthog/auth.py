@@ -32,7 +32,7 @@ from zxcvbn import zxcvbn
 PERSONAL_API_KEY_QUERY_PARAM_COUNTER = Counter(
     "api_auth_personal_api_key_query_param",
     "Requests where the personal api key is specified in a query parameter",
-    labelnames=["user_uuid", "extra_data"],
+    labelnames=["user_uuid"],
 )
 
 PROJECT_SECRET_API_KEY_QUERY_PARAM_COUNTER = Counter(
@@ -108,9 +108,6 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
             return data["personal_api_key"], "body"
         if "personal_api_key" in request.GET:
             return request.GET["personal_api_key"], "query string"
-        if extra_data and "personal_api_key" in extra_data:
-            # compatibility with /capture endpoint
-            return extra_data["personal_api_key"], "query string data"
         return None
 
     @classmethod
@@ -157,9 +154,7 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
             key_to_update.save(update_fields=["secure_value"])
 
         if source == "query string":
-            PERSONAL_API_KEY_QUERY_PARAM_COUNTER.labels(personal_api_key_object.user.uuid, False).inc()
-        elif source == "query string data":
-            PERSONAL_API_KEY_QUERY_PARAM_COUNTER.labels(personal_api_key_object.user.uuid, True).inc()
+            PERSONAL_API_KEY_QUERY_PARAM_COUNTER.labels(personal_api_key_object.user.uuid).inc()
 
         return personal_api_key_object
 
