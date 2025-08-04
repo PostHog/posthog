@@ -206,7 +206,6 @@ class ProjectSecretAPIKeyAuthentication(authentication.BaseAuthentication):
     Only the first key candidate found in the request is tried, and the order is:
     1. Request Authorization header of type Bearer.
     2. Request body.
-    3. Request query string.
     """
 
     keyword = "Bearer"
@@ -230,9 +229,6 @@ class ProjectSecretAPIKeyAuthentication(authentication.BaseAuthentication):
 
         if data and "secret_api_key" in data:
             return data["secret_api_key"], "body"
-
-        if "secret_api_key" in request.GET:
-            return request.GET["secret_api_key"], "query"
 
         return None
 
