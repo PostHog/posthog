@@ -32,7 +32,7 @@ class TestTitleGenerator(BaseTest):
             self.assertEqual(self.conversation.title, "Test Title")
 
     def test_saves_a_long_title_truncated(self):
-        """Test that if a title over our legnth is generated, it is truncated on save, without error."""
+        """Test that if a title over our length is generated, it is truncated on save, without error."""
         with patch(
             "ee.hogai.graph.title_generator.nodes.TitleGeneratorNode._model",
             return_value=FakeChatOpenAI(responses=[LangchainAIMessage(content=("Long " * 100).strip())]),
