@@ -988,8 +988,8 @@ AND properties.$lib != 'web'`
 
         createExportJSON: [
             (s) => [s.sessionPlayerMetaData, s.snapshots],
-            (sessionPlayerMetaData, snapshots): (() => ExportedSessionRecordingFileV2 | RecordingSnapshot[]) => {
-                return () => {
+            (sessionPlayerMetaData, snapshots): (() => ExportedSessionRecordingFileV2) => {
+                return (): ExportedSessionRecordingFileV2 => {
                     return {
                         version: '2023-04-28',
                         data: {
