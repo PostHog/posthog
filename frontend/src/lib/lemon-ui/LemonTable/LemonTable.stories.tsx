@@ -1,9 +1,9 @@
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
-import { useEffect } from 'react'
 
 import { LemonButton } from '../LemonButton'
 import { LemonTable, LemonTableProps } from './LemonTable'
 import { LemonTableLink } from './LemonTableLink'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 type Story = StoryObj<typeof LemonTable>
 const meta: Meta<typeof LemonTable> = {
@@ -235,10 +235,10 @@ WithColorCodedRows.args = {
         occupation === 'Engineer'
             ? 'var(--success)'
             : occupation === 'Retired'
-            ? 'var(--warning)'
-            : occupation === 'Body-builder'
-            ? 'var(--danger)'
-            : null,
+              ? 'var(--warning)'
+              : occupation === 'Body-builder'
+                ? 'var(--danger)'
+                : null,
 }
 
 export const WithHighlightedRows: Story = BasicTemplate.bind({})
@@ -250,14 +250,14 @@ export const WithMandatorySorting: Story = BasicTemplate.bind({})
 WithMandatorySorting.args = { defaultSorting: { columnKey: 'name', order: 1 }, noSortingCancellation: true }
 
 export const WithStickyFirstColumn = (): JSX.Element => {
-    useEffect(() => {
+    useOnMountEffect(() => {
         const scrollableInner = document.querySelector(
             '#story--lemon-ui-lemon-table--with-sticky-first-column .scrollable__inner'
         )
         if (scrollableInner) {
             scrollableInner.scrollLeft = 20
         }
-    }, [])
+    })
 
     return (
         <LemonTable

@@ -199,7 +199,7 @@ export const llmObservabilityTraceDataLogic = kea<llmObservabilityTraceDataLogic
             (metricEvents, feedbackEvents): { metric: string; value: any }[] =>
                 [...(metricEvents ?? []), ...(feedbackEvents ?? [])].map((event) => ({
                     metric:
-                        event.event === '$ai_metric' ? event.properties.$ai_metric_name ?? 'Metric' : 'User feedback',
+                        event.event === '$ai_metric' ? (event.properties.$ai_metric_name ?? 'Metric') : 'User feedback',
                     value: event.properties.$ai_metric_value ?? event.properties.$ai_feedback_text,
                 })),
         ],

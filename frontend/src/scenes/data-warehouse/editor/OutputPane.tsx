@@ -153,8 +153,8 @@ function RowDetailsModal({ isOpen, onClose, row, columns }: RowDetailsModalProps
                 value === null
                     ? 'null'
                     : typeof value === 'object' || isStringifiedJson
-                    ? JSON.stringify(value, null, 2)
-                    : String(value),
+                      ? JSON.stringify(value, null, 2)
+                      : String(value),
             value:
                 value === null ? (
                     <span className="text-muted">null</span>
@@ -324,8 +324,8 @@ export function OutputPane(): JSX.Element {
                         return typeof content === 'string'
                             ? content.length
                             : content === null
-                            ? 0
-                            : content.toString().length
+                              ? 0
+                              : content.toString().length
                     })
                 )
                 const isLongContent = maxContentLength > 100
@@ -684,8 +684,8 @@ const ErrorState = ({ responseError, sourceQuery, queryCancelled, response }: an
     const error = queryCancelled
         ? 'The query was cancelled'
         : response && 'error' in response && !!response.error
-        ? response.error
-        : responseError
+          ? response.error
+          : responseError
 
     return (
         <div className={clsx('flex-1 absolute top-0 left-0 right-0 bottom-0 overflow-auto')}>

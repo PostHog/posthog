@@ -55,8 +55,8 @@ export const CampaignSceneHeader = (props: CampaignSceneLogicProps = {}): JSX.El
                             !isCampaignValid
                                 ? 'Fill in all required fields'
                                 : campaignChanged
-                                ? undefined
-                                : 'No changes to save'
+                                  ? undefined
+                                  : 'No changes to save'
                         }
                     >
                         {props.id === 'new' ? 'Create' : 'Save'}
