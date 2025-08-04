@@ -28,20 +28,16 @@ export function MultipleChoiceQuestionViz({ responseData }: Props): JSX.Element 
         const predefinedResponses = responseData.filter((d) => d.isPredefined)
         const nonPredefinedResponses = responseData.filter((d) => !d.isPredefined)
 
-        // Separate popular vs unique non-predefined responses
-        const popularNonPredefined = nonPredefinedResponses.filter((d) => d.value >= 2)
-        const uniqueNonPredefined = nonPredefinedResponses.filter((d) => d.value === 1)
+        // Chart shows predefined responses + total count for "Other" if it exists
+        const chartData = [...predefinedResponses]
 
-        // Chart shows: predefined + popular open-ended responses (2+)
-        const chartData = [...predefinedResponses, ...popularNonPredefined]
-
-        // Only group truly unique responses (count = 1) into "Other (open-ended)"
-        if (uniqueNonPredefined.length > 0) {
-            const totalOtherCount = uniqueNonPredefined.reduce((sum, d) => sum + d.value, 0)
+        // If there are open-ended responses, add a summary count for the predefined "Other" option
+        if (nonPredefinedResponses.length > 0) {
+            const totalOpenEndedCount = nonPredefinedResponses.reduce((sum, d) => sum + d.value, 0)
             chartData.push({
                 label: 'Other (open-ended)',
-                value: totalOtherCount,
-                isPredefined: false,
+                value: totalOpenEndedCount,
+                isPredefined: true, // This represents the predefined "Other" option
             })
         }
 
@@ -50,7 +46,7 @@ export function MultipleChoiceQuestionViz({ responseData }: Props): JSX.Element 
 
         return {
             chartData,
-            openEndedResponses: uniqueNonPredefined, // Only show unique responses in the grid
+            openEndedResponses: nonPredefinedResponses, // Show all open-ended responses
         }
     }, [responseData])
 
@@ -92,7 +88,7 @@ export function MultipleChoiceQuestionViz({ responseData }: Props): JSX.Element 
 
             {openEndedResponses.length > 0 && (
                 <div className="border rounded p-4">
-                    <h4 className="font-semibold mb-3 text-sm text-muted-foreground">Unique open-ended responses:</h4>
+                    <h4 className="font-semibold mb-3 text-sm text-muted-foreground">Open-ended responses:</h4>
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
                         {openEndedResponses.slice(0, 20).map((response, i) => (
                             <ResponseCard
