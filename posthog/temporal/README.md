@@ -141,7 +141,7 @@ schedule = Schedule(
         intervals=[ScheduleIntervalSpec(every=...)],
         jitter=...,
     ),
-    state=state,
+    state=ScheduleState(),
     policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.ALLOW_ALL),
 )
 ```
