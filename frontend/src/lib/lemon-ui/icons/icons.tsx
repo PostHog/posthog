@@ -227,7 +227,7 @@ export function IconRust(props: LemonIconProps): JSX.Element {
                 fill="currentColor"
                 stroke="currentColor"
                 stroke-width="0.218631"
-                stroke-linejoin="round"
+                strokeLinejoin="round"
             />
             <path
                 d="M12.005 21.4061C17.1971 21.4061 21.4061 17.1971 21.4061 12.005C21.4061 6.81291 17.1971 2.60388 12.005 2.60388C6.81291 2.60388 2.60388 6.81291 2.60388 12.005C2.60388 17.1971 6.81291 21.4061 12.005 21.4061Z"
