@@ -13,6 +13,15 @@ interface WebhookSubscriptionCardProps {
     onRemove: (index: number) => void
 }
 
+function isValidUrl(url: string): boolean {
+    try {
+        const urlObj = new URL(url)
+        return urlObj.protocol === 'http:' || urlObj.protocol === 'https:'
+    } catch {
+        return false
+    }
+}
+
 function WebhookSubscriptionCard({
     subscription,
     index,
@@ -38,15 +47,6 @@ function WebhookSubscriptionCard({
         setEditUrl(subscription.url)
         setEditHeaders(subscription.headers || {})
         setIsEditing(false)
-    }
-
-    const isValidUrl = (url: string): boolean => {
-        try {
-            const urlObj = new URL(url)
-            return urlObj.protocol === 'http:' || urlObj.protocol === 'https:'
-        } catch {
-            return false
-        }
     }
 
     const addHeader = (): void => {
@@ -88,8 +88,8 @@ function WebhookSubscriptionCard({
                             Add Header
                         </LemonButton>
                     </div>
-                    {Object.entries(editHeaders).map(([key, value], headerIndex) => (
-                        <div key={headerIndex} className="flex gap-2 items-center">
+                    {Object.entries(editHeaders).map(([key, value]) => (
+                        <div key={key} className="flex gap-2 items-center">
                             <LemonInput
                                 placeholder="Header name"
                                 value={key}
@@ -180,15 +180,6 @@ export function EditableWebhookForm(): JSX.Element {
     const [newUrl, setNewUrl] = useState('')
     const [newHeaders, setNewHeaders] = useState<Record<string, string>>({})
     const [showHeadersForm, setShowHeadersForm] = useState(false)
-
-    const isValidUrl = (url: string): boolean => {
-        try {
-            const urlObj = new URL(url)
-            return urlObj.protocol === 'http:' || urlObj.protocol === 'https:'
-        } catch {
-            return false
-        }
-    }
 
     const addHeader = (): void => {
         setNewHeaders({ ...newHeaders, '': '' })
@@ -288,8 +279,8 @@ export function EditableWebhookForm(): JSX.Element {
                                                     Add Header
                                                 </LemonButton>
                                             </div>
-                                            {Object.entries(newHeaders).map(([key, value], index) => (
-                                                <div key={index} className="flex gap-2 items-center">
+                                            {Object.entries(newHeaders).map(([key, value]) => (
+                                                <div key={key} className="flex gap-2 items-center">
                                                     <LemonInput
                                                         placeholder="Header name"
                                                         value={key}
@@ -327,7 +318,7 @@ export function EditableWebhookForm(): JSX.Element {
                                             {webhookSubscriptions.map(
                                                 (subscription: WebhookSubscription, index: number) => (
                                                     <WebhookSubscriptionCard
-                                                        key={index}
+                                                        key={subscription.url}
                                                         subscription={subscription}
                                                         index={index}
                                                         onUpdate={handleUpdateSubscription}

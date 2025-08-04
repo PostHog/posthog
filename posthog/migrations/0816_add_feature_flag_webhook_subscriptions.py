@@ -12,6 +12,6 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name="featureflag",
             name="webhook_subscriptions",
-            field=models.JSONField(blank=True, null=True),
+            field=models.JSONField(blank=True, null=True, default=None),
         ),
     ]

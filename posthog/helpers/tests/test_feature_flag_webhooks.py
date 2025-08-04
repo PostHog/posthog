@@ -2,7 +2,8 @@ import json
 from freezegun import freeze_time
 from django.conf import settings
 
-from posthog.helpers.feature_flag_webhooks import create_feature_flag_webhook_payload, decrypt_webhook_headers
+from posthog.helpers.feature_flag_webhooks import create_feature_flag_webhook_payload
+from posthog.helpers.encrypted_flag_payloads import decrypt_webhook_headers
 from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.cohort import Cohort
 from posthog.temporal.common.codec import EncryptionCodec
@@ -50,7 +51,7 @@ class TestFeatureFlagWebhooks(BaseTest):
         team_data = payload["team"]
         assert team_data["id"] == self.team.id
         assert team_data["name"] == self.team.name
-        assert team_data["organization_id"] == self.team.organization_id
+        assert team_data["organization_id"] == str(self.team.organization_id)
 
         # Check metadata
         metadata = payload["metadata"]

@@ -44,10 +44,10 @@ from posthog.helpers.dashboard_templates import (
 from posthog.helpers.encrypted_flag_payloads import (
     encrypt_flag_payloads,
     encrypt_webhook_payloads,
+    decrypt_webhook_headers,
     get_decrypted_flag_payloads,
     REDACTED_PAYLOAD_VALUE,
 )
-from posthog.helpers.feature_flag_webhooks import decrypt_webhook_headers
 from posthog.models import FeatureFlag
 from posthog.models.activity_logging.activity_log import (
     Detail,
@@ -895,8 +895,6 @@ class FeatureFlagSerializer(
                     # Check if the value looks redacted (starts with 3 chars + asterisks)
                     if isinstance(header_value, str) and len(header_value) > 3:
                         # Pattern: 3 chars followed by asterisks, or all asterisks for short values
-                        import re
-
                         if re.match(r"^.{1,3}\*+$", header_value) or re.match(r"^\*+$", header_value):
                             # This looks like a redacted value, preserve the original encrypted value
                             new_headers[header_name] = existing_headers[header_name]

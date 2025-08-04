@@ -1,8 +1,12 @@
+from typing import Any, Optional
 from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.temporal.common.codec import EncryptionCodec
 from django.conf import settings
+from structlog import get_logger
 
 REDACTED_PAYLOAD_VALUE = '"********* (encrypted)"'
+
+logger = get_logger(__name__)
 
 
 def get_decrypted_flag_payloads(request, encrypted_payloads: dict) -> dict:
@@ -72,10 +76,9 @@ def encrypt_webhook_payloads(validated_data: dict):
         if not isinstance(subscription, dict):
             continue
 
-        # Encrypt headers values
-        for key, value in subscription.items():
-            if key == "headers" and isinstance(value, dict):
-                _encrypt_dict_values(value, codec)
+        headers = subscription.get("headers")
+        if isinstance(headers, dict):
+            _encrypt_dict_values(headers, codec)
 
 
 def _encrypt_dict_values(data: dict, codec: EncryptionCodec):
@@ -86,3 +89,47 @@ def _encrypt_dict_values(data: dict, codec: EncryptionCodec):
                 data[key] = codec.encrypt(value.encode("utf-8")).decode("utf-8")
             except Exception as e:
                 raise ValueError(f"Failed to encrypt dict field '{key}'") from e
+
+
+def _redact_value(value: str) -> str:
+    if not value or len(value) <= 3:
+        return "*" * len(value) if value else ""
+
+    return value[:3] + "*" * (len(value) - 3)
+
+
+def decrypt_webhook_headers(encrypted_headers: Optional[dict[str, Any]], redact: bool = False) -> dict[str, Any]:
+    """
+    Decrypt webhook headers that were encrypted during storage.
+
+    Args:
+        encrypted_headers: Dictionary of encrypted header values
+
+    Returns:
+        Dictionary of decrypted header values
+    """
+    if not encrypted_headers or not isinstance(encrypted_headers, dict):
+        return {}
+
+    codec = EncryptionCodec(settings)
+    decrypted_headers = {}
+
+    for key, value in encrypted_headers.items():
+        if isinstance(value, str):
+            try:
+                # Try to decrypt the value
+                decrypted_value = codec.decrypt(value.encode("utf-8")).decode("utf-8")
+                decrypted_headers[key] = decrypted_value if redact is False else _redact_value(decrypted_value)
+            except Exception as e:
+                logger.warning(
+                    "Failed to decrypt webhook header, using as-is",
+                    header_key=key,
+                    error=str(e),
+                )
+                # If decryption fails, use the value as-is (might not be encrypted)
+                decrypted_headers[key] = value
+        else:
+            # Non-string values are not encrypted, use as-is
+            decrypted_headers[key] = value
+
+    return decrypted_headers
