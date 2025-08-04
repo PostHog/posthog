@@ -21,7 +21,11 @@ resources_by_env = {
         "cluster": ClickhouseClusterResource.configure_at_launch(),
         "io_manager": dagster.fs_io_manager,
         "slack": dagster.ResourceDefinition.none_resource(description="Dummy Slack resource for local development"),
-        "s3": S3Resource(),
+        "s3": S3Resource(
+            endpoint_url=settings.OBJECT_STORAGE_ENDPOINT,
+            aws_access_key_id=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            aws_secret_access_key=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+        ),
     },
 }
 
