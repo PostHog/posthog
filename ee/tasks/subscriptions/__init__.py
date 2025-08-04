@@ -66,7 +66,6 @@ async def deliver_subscription_report_async(
     insights, assets = await database_sync_to_async(generate_assets)(subscription, use_celery=False)
 
     if not assets:
-        # Log this as a warning instead of creating an exception
         logger.warning("subscription_has_no_assets", subscription_id=subscription.id)
         return
 
