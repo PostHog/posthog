@@ -70,8 +70,8 @@ export function LemonSegmentedButton<T extends React.Key>({
                         value === options[0].value
                             ? 'LemonSegmentedButton__slider--first'
                             : value === options[options.length - 1].value
-                            ? 'LemonSegmentedButton__slider--last'
-                            : null
+                              ? 'LemonSegmentedButton__slider--last'
+                              : null
                     )}
                 />
             )}

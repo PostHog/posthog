@@ -3,6 +3,7 @@ import { SEGMENT_DESTINATIONS } from '../segment/segment-templates'
 import { HogFunctionTemplate, NativeTemplate } from '../types'
 import { allComingSoonTemplates } from './_destinations/coming-soon/coming-soon-destinations.template'
 import { template as googleAdsTemplate } from './_destinations/google_ads/google.template'
+import { template as googleTagManagerTemplate } from './_destinations/google-tag-manager/google-tag-manager.template'
 import { template as linearTemplate } from './_destinations/linear/linear.template'
 import { template as nativeEmailTemplate } from './_destinations/native_email/email.template'
 import { template as nativeWebhookTemplate } from './_destinations/native_webhook/webhook.template'
@@ -34,6 +35,7 @@ export const HOG_FUNCTION_TEMPLATES_DESTINATIONS: HogFunctionTemplate[] = [
     googleAdsTemplate,
     redditAdsTemplate,
     twilioTemplate,
+    googleTagManagerTemplate,
 ]
 
 export const HOG_FUNCTION_TEMPLATES_TRANSFORMATIONS: HogFunctionTemplate[] = [
@@ -83,10 +85,13 @@ export const HOG_FUNCTION_TEMPLATES_TRANSFORMATIONS_DEPRECATED: HogFunctionTempl
     (x) => x.template
 )
 
-export const NATIVE_HOG_FUNCTIONS_BY_ID = NATIVE_HOG_FUNCTIONS.reduce((acc, plugin) => {
-    acc[plugin.id] = plugin
-    return acc
-}, {} as Record<string, NativeTemplate>)
+export const NATIVE_HOG_FUNCTIONS_BY_ID = NATIVE_HOG_FUNCTIONS.reduce(
+    (acc, plugin) => {
+        acc[plugin.id] = plugin
+        return acc
+    },
+    {} as Record<string, NativeTemplate>
+)
 
 export const HOG_FUNCTION_TEMPLATES: HogFunctionTemplate[] = [
     ...HOG_FUNCTION_TEMPLATES_DESTINATIONS,
