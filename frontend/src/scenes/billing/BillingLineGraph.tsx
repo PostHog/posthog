@@ -1,3 +1,4 @@
+import './BillingLineGraph.scss'
 import 'chartjs-adapter-dayjs-3'
 
 import annotationPlugin from 'chartjs-plugin-annotation'
@@ -15,6 +16,7 @@ import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
 import { BillingLineGraphTooltip } from './BillingLineGraphTooltip'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { useBillingMarkersPositioning } from './useBillingMarkersPositioning'
 
 // Register the annotation plugin
 Chart.register(annotationPlugin)
@@ -103,9 +105,15 @@ export function BillingLineGraph({
     const canvasRef = useRef<HTMLCanvasElement>(null)
     const chartRef = useRef<Chart | null>(null)
     const [chartReady, setChartReady] = useState(false)
+    const [chartDimensions, setChartDimensions] = useState({ width: 0, height: 0 })
     const { ensureBillingTooltip, hideBillingTooltip } = useBillingTooltip()
     const { isDarkModeOn } = useValues(themeLogic)
     const graphColors = getGraphColors()
+    const { chartAreaLeft, chartAreaTop, getMarkerPosition } = useBillingMarkersPositioning(
+        chartRef.current || undefined,
+        chartDimensions.width,
+        chartDimensions.height
+    )
 
     useEffect(() => {
         if (!canvasRef.current) {
@@ -280,6 +288,13 @@ export function BillingLineGraph({
                 },
                 options,
             })
+
+            // Track chart dimensions for positioning
+            const chartInstance = chartRef.current
+            setChartDimensions({
+                width: chartInstance.width,
+                height: chartInstance.height,
+            })
             setChartReady(true)
         }
 
@@ -305,7 +320,7 @@ export function BillingLineGraph({
     ])
 
     return (
-        <div className="relative h-96">
+        <div className="relative h-96" onMouseLeave={hideBillingTooltip}>
             {isLoading && (
                 <div className="absolute inset-0 flex items-center justify-center bg-bg-light bg-opacity-75 z-10">
                     <div className="text-muted">Loading...</div>
@@ -313,31 +328,36 @@ export function BillingLineGraph({
             )}
             <canvas ref={canvasRef} />
             {/* Billing period marker overlays with tooltips */}
-            {chartReady && chartRef.current && billingPeriodMarkers.length > 0 && (
-                <div className="absolute inset-0 pointer-events-none">
+            {chartReady && billingPeriodMarkers.length > 0 && (
+                <div
+                    className="BillingMarkersOverlay"
+                    style={
+                        {
+                            '--billing-markers-chart-area-left': `${chartAreaLeft}px`,
+                            '--billing-markers-chart-area-top': `${chartAreaTop}px`,
+                            '--billing-marker-text-color': graphColors.axisLabel || '#666666',
+                            '--billing-marker-bg-color': isDarkModeOn ? 'var(--bg-light)' : 'white',
+                            '--billing-marker-border-color': graphColors.axisLine || 'rgba(0, 0, 0, 0.1)',
+                        } as React.CSSProperties & Record<string, string>
+                    }
+                >
                     {billingPeriodMarkers.map((marker, idx) => {
-                        const chart = chartRef.current
-                        if (!chart) {
-                            return null
-                        }
+                        const position = getMarkerPosition(marker.date)
 
-                        // Calculate x position for the marker
-                        const xScale = chart.scales.x
-                        const xPos = xScale?.getPixelForValue(marker.date.valueOf())
-
-                        if (xPos === undefined || xPos < xScale.left || xPos > xScale.right) {
+                        if (!position.visible) {
                             return null
                         }
 
                         return (
                             <div
                                 key={`marker-${idx}`}
-                                className="absolute pointer-events-auto"
-                                style={{
-                                    left: `${xPos}px`,
-                                    top: `${chart.scales.y.top - 20}px`, // Position above the chart area
-                                    transform: 'translateX(-50%)', // Center the label on the line
-                                }}
+                                className="BillingMarker"
+                                style={
+                                    {
+                                        '--billing-marker-left': `${position.left}px`,
+                                    } as React.CSSProperties & Record<string, string>
+                                }
+                                onMouseEnter={hideBillingTooltip} // Hide chart tooltip when hovering over marker
                             >
                                 <Tooltip
                                     title={
@@ -357,16 +377,7 @@ export function BillingLineGraph({
                                     }
                                     placement="bottom"
                                 >
-                                    <div
-                                        className="text-xs cursor-help flex items-center gap-1 whitespace-nowrap px-2 py-1 rounded border"
-                                        style={{
-                                            color: graphColors.axisLabel || '#666666',
-                                            backgroundColor: isDarkModeOn ? 'var(--bg-light)' : 'white',
-                                            borderColor: graphColors.axisLine || 'rgba(0, 0, 0, 0.1)',
-                                            fontWeight: 'normal',
-                                            fontSize: '12px',
-                                        }}
-                                    >
+                                    <div className="BillingMarkerLabel">
                                         New billing period
                                         <IconInfo className="w-3 h-3" />
                                     </div>
