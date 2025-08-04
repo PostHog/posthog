@@ -13,9 +13,9 @@ export function CopySurveyLink({ surveyId, className }: { surveyId: string; clas
             }}
             className={className}
             size="small"
-            tooltip="Responses are anonymous. Add the distinct_id query parameter to identify the response."
+            tooltip="Responses are anonymous. Add the distinct_id query parameter to identify respondents."
         >
-            Copy hosted survey link
+            Copy URL
         </LemonButton>
     )
 }

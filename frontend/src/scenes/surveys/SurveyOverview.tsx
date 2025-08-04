@@ -67,9 +67,9 @@ export function SurveyOverview(): JSX.Element {
                         </div>
                         {isExternalSurvey && (
                             <span>
-                                Track responses to users by adding{' '}
-                                <code className="bg-surface-tertiary px-1 rounded">?distinct_id=user@email.com</code> to
-                                the URL. Otherwise responses are anonymous.
+                                To identify respondents, add the{' '}
+                                <code className="bg-surface-tertiary px-1 rounded">?distinct_id=user123</code> to the
+                                URL. Otherwise responses are anonymous.
                             </span>
                         )}
                     </div>

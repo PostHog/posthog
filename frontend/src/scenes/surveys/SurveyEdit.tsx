@@ -364,7 +364,7 @@ export default function SurveyEdit(): JSX.Element {
                                                                 the URL with your customers
                                                             </li>
                                                             <li>
-                                                                • To identify responses, add the{' '}
+                                                                • To identify respondents, add the{' '}
                                                                 <code className="bg-surface-tertiary px-1 rounded">
                                                                     distinct_id
                                                                 </code>{' '}
