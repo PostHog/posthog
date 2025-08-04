@@ -73,6 +73,7 @@ export const hogFunctionSourceWebhookTestLogic = kea<hogFunctionSourceWebhookTes
                     method: 'POST',
                     headers: tryJsonParse(data.headers),
                     body: data.body,
+                    credentials: 'omit',
                 })
 
                 actions.setTestResult({
