@@ -4,7 +4,7 @@ import { Handler, viewportResizeDimension } from '@posthog/rrweb-types'
 import useSize from '@react-hook/size'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { useEffect, useRef } from 'react'
+import { useCallback, useEffect, useRef } from 'react'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
 export const PlayerFrame = (): JSX.Element => {
@@ -13,15 +13,53 @@ export const PlayerFrame = (): JSX.Element => {
     const { setScale, setRootFrame } = useActions(sessionRecordingPlayerLogic)
 
     const frameRef = useRef<HTMLDivElement | null>(null)
+    const containerRef = useRef<HTMLDivElement | null>(null)
+    const containerDimensions = useSize(containerRef)
+
+    // Define callbacks before they're used in effects
+    const updatePlayerDimensions = useCallback(
+        (replayDimensions: viewportResizeDimension | undefined): void => {
+            if (!replayDimensions || !frameRef?.current?.parentElement || !player?.replayer) {
+                return
+            }
+
+            replayDimensionRef.current = replayDimensions
+
+            const parentDimensions = frameRef.current.parentElement.getBoundingClientRect()
+
+            const scale = Math.min(
+                parentDimensions.width / replayDimensions.width,
+                parentDimensions.height / replayDimensions.height,
+                1
+            )
+
+            // Check if player still exists before updating (defensive check)
+            if (player?.replayer?.wrapper) {
+                player.replayer.wrapper.style.transform = `scale(${scale})`
+            }
+
+            setScale(scale)
+        },
+        [player, setScale]
+    )
+
+    const windowResize = useCallback((): void => {
+        updatePlayerDimensions(replayDimensionRef.current)
+    }, [updatePlayerDimensions])
+
     // Need useEffect to populate replayer on component paint
     useEffect(() => {
         if (frameRef.current) {
             setRootFrame(frameRef.current)
         }
-    }, [frameRef, sessionRecordingId]) // oxlint-disable-line react-hooks/exhaustive-deps
+    }, [frameRef, sessionRecordingId, setRootFrame])
 
-    const containerRef = useRef<HTMLDivElement | null>(null)
-    const containerDimensions = useSize(containerRef)
+    // Cleanup ref on unmount
+    useEffect(() => {
+        return () => {
+            replayDimensionRef.current = undefined
+        }
+    }, [])
 
     // Recalculate the player size when the recording changes dimensions
     useEffect(() => {
@@ -36,36 +74,12 @@ export const PlayerFrame = (): JSX.Element => {
             player.replayer.off('resize', updatePlayerDimensions as Handler)
             window.removeEventListener('resize', windowResize)
         }
-    }, [player?.replayer]) // oxlint-disable-line react-hooks/exhaustive-deps
+    }, [player, updatePlayerDimensions, windowResize])
 
     // Recalculate the player size when the player changes dimensions
     useEffect(() => {
         windowResize()
-    }, [containerDimensions]) // oxlint-disable-line react-hooks/exhaustive-deps
-
-    const windowResize = (): void => {
-        updatePlayerDimensions(replayDimensionRef.current)
-    }
-
-    const updatePlayerDimensions = (replayDimensions: viewportResizeDimension | undefined): void => {
-        if (!replayDimensions || !frameRef?.current?.parentElement || !player?.replayer) {
-            return
-        }
-
-        replayDimensionRef.current = replayDimensions
-
-        const parentDimensions = frameRef.current.parentElement.getBoundingClientRect()
-
-        const scale = Math.min(
-            parentDimensions.width / replayDimensions.width,
-            parentDimensions.height / replayDimensions.height,
-            1
-        )
-
-        player.replayer.wrapper.style.transform = `scale(${scale})`
-
-        setScale(scale)
-    }
+    }, [containerDimensions, windowResize])
 
     return (
         <div ref={containerRef} className="PlayerFrame ph-no-capture">
