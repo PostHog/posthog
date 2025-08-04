@@ -389,9 +389,9 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                                                 earlyAccessFeature.stage === EarlyAccessFeatureStage.Beta
                                                     ? 'warning'
                                                     : earlyAccessFeature.stage ===
-                                                      EarlyAccessFeatureStage.GeneralAvailability
-                                                    ? 'success'
-                                                    : 'default'
+                                                        EarlyAccessFeatureStage.GeneralAvailability
+                                                      ? 'success'
+                                                      : 'default'
                                             }
                                             className="mt-2 uppercase"
                                         >

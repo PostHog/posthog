@@ -208,10 +208,13 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
             (s) => [s.dataWarehouseSavedQueries],
             (dataWarehouseSavedQueries) => {
                 return (
-                    dataWarehouseSavedQueries?.reduce((acc, cur) => {
-                        acc[cur.id] = cur
-                        return acc
-                    }, {} as Record<string, DataWarehouseSavedQuery>) ?? {}
+                    dataWarehouseSavedQueries?.reduce(
+                        (acc, cur) => {
+                            acc[cur.id] = cur
+                            return acc
+                        },
+                        {} as Record<string, DataWarehouseSavedQuery>
+                    ) ?? {}
                 )
             },
         ],
@@ -220,10 +223,13 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
             (s) => [s.dataWarehouseSavedQueries],
             (dataWarehouseSavedQueries) => {
                 return (
-                    dataWarehouseSavedQueries?.reduce((acc, cur) => {
-                        acc[cur.id.replace(/-/g, '')] = cur
-                        return acc
-                    }, {} as Record<string, DataWarehouseSavedQuery>) ?? {}
+                    dataWarehouseSavedQueries?.reduce(
+                        (acc, cur) => {
+                            acc[cur.id.replace(/-/g, '')] = cur
+                            return acc
+                        },
+                        {} as Record<string, DataWarehouseSavedQuery>
+                    ) ?? {}
                 )
             },
         ],
@@ -231,10 +237,13 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
             (s) => [s.dataWarehouseSavedQueries],
             (dataWarehouseSavedQueries) => {
                 return (
-                    dataWarehouseSavedQueries?.reduce((acc, cur) => {
-                        acc[cur.name] = cur
-                        return acc
-                    }, {} as Record<string, DataWarehouseSavedQuery>) ?? {}
+                    dataWarehouseSavedQueries?.reduce(
+                        (acc, cur) => {
+                            acc[cur.name] = cur
+                            return acc
+                        },
+                        {} as Record<string, DataWarehouseSavedQuery>
+                    ) ?? {}
                 )
             },
         ],
