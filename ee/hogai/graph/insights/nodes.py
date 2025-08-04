@@ -94,7 +94,7 @@ class InsightSearchNode(AssistantNode):
 
             selected_insights = self._search_insights_iteratively(search_query or "")
 
-            evaluation_result = self._evaluate_insights_for_creation(selected_insights, search_query)
+            evaluation_result = self._evaluate_insights_for_creation(selected_insights, search_query or "")
 
             if evaluation_result["should_use_existing"]:
                 # Create visualization messages for the insights to show actual charts
@@ -479,7 +479,7 @@ class InsightSearchNode(AssistantNode):
                 return None
 
             AssistantQueryModel = assistant_query_type_map[query_kind]
-            query_obj = AssistantQueryModel.model_validate(query_dict)
+            query_obj = AssistantQueryModel.model_validate(query_dict)  # type: ignore[attr-defined]
 
             insight_name = insight.get("insight__name") or insight.get("insight__derived_name", "Unnamed Insight")
             viz_message = VisualizationMessage(

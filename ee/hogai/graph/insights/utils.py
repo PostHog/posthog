@@ -41,12 +41,12 @@ def convert_filters_to_query(filters: str | dict) -> Optional[dict[str, Any]]:
         }
         _add_optional_fields(query_dict, filters_dict, base_fields)
 
-        date_range = {}
+        date_range: dict[str, Any] = {}
         for field in ["date_from", "date_to"]:
             if filters_dict.get(field):
                 date_range[field] = filters_dict[field]
         if date_range:
-            query_dict["dateRange"] = date_range
+            query_dict["dateRange"] = date_range  # type: ignore[assignment]
 
         # Insight-specific conversions
         if query_kind == "TrendsQuery":
@@ -111,11 +111,15 @@ def _create_series_item(item: dict, kind: str, math_support: bool = True) -> dic
     series_item = {"kind": kind}
 
     if kind == "EventsNode":
-        series_item["event"] = item.get("id")
+        event_id = item.get("id")
+        if event_id is not None:
+            series_item["event"] = str(event_id)
         if math_support:
             series_item["math"] = item.get("math", "total")
     else:  # ActionsNode
-        series_item["id"] = item.get("id")
+        action_id = item.get("id")
+        if action_id is not None:
+            series_item["id"] = str(action_id)
         if math_support:
             series_item["math"] = item.get("math", "total")
 
@@ -142,7 +146,7 @@ def _convert_trends_filters(filters_dict: dict[str, Any], query_dict: dict[str, 
         query_dict["series"] = series
 
     # Trends filter
-    trends_filter = {}
+    trends_filter: dict[str, Any] = {}
     trends_fields = {
         "display": "display",
         "formula": "formula",
@@ -158,7 +162,7 @@ def _convert_trends_filters(filters_dict: dict[str, Any], query_dict: dict[str, 
         query_dict["compareFilter"] = {"compare": filters_dict["compare"]}
 
     # Breakdown filter
-    breakdown_filter = {}
+    breakdown_filter: dict[str, Any] = {}
     breakdown_fields = {
         "breakdown": "breakdown",
         "breakdown_type": "breakdown_type",
@@ -182,7 +186,7 @@ def _convert_funnels_filters(filters_dict: dict[str, Any], query_dict: dict[str,
         query_dict["series"] = series
 
     # Funnels filter
-    funnels_filter = {}
+    funnels_filter: dict[str, Any] = {}
     funnels_fields = {
         "funnel_window_interval": "funnelWindowInterval",
         "funnel_window_interval_unit": "funnelWindowIntervalUnit",
@@ -196,7 +200,7 @@ def _convert_funnels_filters(filters_dict: dict[str, Any], query_dict: dict[str,
 
 def _convert_retention_filters(filters_dict: dict[str, Any], query_dict: dict[str, Any]) -> None:
     """Convert retention-specific filters to query format."""
-    retention_filter = {}
+    retention_filter: dict[str, Any] = {}
     retention_fields = {
         "retention_type": "retentionType",
         "returning_entity": "returningEntity",
