@@ -88,21 +88,21 @@ class MarketingAnalyticsTableQueryRunner(QueryRunner):
             logger.exception("Error getting marketing source adapters", error=str(e))
             return []
 
-    def to_query(self, date_range: QueryDateRange) -> ast.SelectQuery | ast.SelectSetQuery:
+    def to_query(self) -> ast.SelectQuery:
         """Generate the HogQL query using the new adapter architecture"""
         with self.timings.measure("marketing_analytics_table_query"):
             # Get marketing source adapters
-            adapters = self._get_marketing_source_adapters(date_range=date_range)
+            adapters = self._get_marketing_source_adapters(date_range=self.query_date_range)
 
             # Build the union query using the factory
-            union_query_string = self._factory(date_range=date_range).build_union_query(adapters)
+            union_query_string = self._factory(date_range=self.query_date_range).build_union_query(adapters)
 
             # Get conversion goals and create processors
             conversion_goals = self._get_team_conversion_goals()
             processors = self._create_conversion_goal_processors(conversion_goals) if conversion_goals else []
 
             # Build the complete query with CTEs using AST
-            return self._build_complete_query_ast(union_query_string, processors, date_range)
+            return self._build_complete_query_ast(union_query_string, processors, self.query_date_range)
 
     def _build_complete_query_ast(
         self, union_query_string: str, processors: list, date_range: QueryDateRange
@@ -193,7 +193,7 @@ class MarketingAnalyticsTableQueryRunner(QueryRunner):
         """Extract and filter select columns based on self.query.select"""
         if self.query.select:
             # Create a mapping of column names to their AST expressions
-            column_mapping = {}
+            column_mapping: dict[str, ast.Expr] = {}
             for col in query.select:
                 if isinstance(col, ast.Alias):
                     column_mapping[col.alias] = col
@@ -201,7 +201,7 @@ class MarketingAnalyticsTableQueryRunner(QueryRunner):
                     column_mapping[str(col)] = col
 
             # Filter to only include requested columns
-            filtered_select = []
+            filtered_select: list[ast.Expr] = []
             for requested_col in self.query.select:
                 if requested_col in column_mapping:
                     filtered_select.append(column_mapping[requested_col])
@@ -246,7 +246,7 @@ class MarketingAnalyticsTableQueryRunner(QueryRunner):
         )
 
     def _build_paginated_query(
-        self, select_columns: list[ast.Expr], select_from: ast.Expr, ctes=None
+        self, select_columns: list[ast.Expr], select_from: ast.JoinExpr | None, ctes=None
     ) -> ast.SelectQuery:
         """Build a paginated SelectQuery with common logic"""
         # Extract column names for order by
@@ -269,7 +269,7 @@ class MarketingAnalyticsTableQueryRunner(QueryRunner):
 
     def calculate_without_compare(self) -> ast.SelectQuery:
         """Execute the query and return results with pagination support"""
-        query = self.to_query(date_range=self.query_date_range)
+        query = self.to_query()
         filtered_select = self._get_filtered_select_columns(query)
         return self._build_paginated_query(filtered_select, query.select_from, query.ctes)
 
@@ -287,9 +287,26 @@ class MarketingAnalyticsTableQueryRunner(QueryRunner):
 
     def calculate_with_compare(self) -> ast.SelectQuery:
         """Execute the query and return results with pagination support"""
+        # For compare queries, we need to create a new query runner for the previous period
+        from copy import deepcopy
+        previous_query = deepcopy(self.query)
         previous_date_range = self._create_previous_period_date_range()
-        previous_period_query = self.to_query(date_range=previous_date_range)
-        current_period_query = self.to_query(date_range=self.query_date_range)
+        previous_query.dateRange = DateRange(
+            date_from=previous_date_range.date_from().isoformat(),
+            date_to=previous_date_range.date_to().isoformat(),
+        )
+        
+        # Create a new runner for the previous period
+        previous_runner = MarketingAnalyticsTableQueryRunner(
+            query=previous_query,
+            team=self.team,
+            timings=self.timings,
+            modifiers=self.modifiers,
+            limit_context=self.limit_context,
+        )
+        
+        previous_period_query = previous_runner.to_query()
+        current_period_query = self.to_query()
 
         # Create the join manually with proper AST structure
         join_expr = self._build_compare_join(current_period_query, previous_period_query)
@@ -298,7 +315,7 @@ class MarketingAnalyticsTableQueryRunner(QueryRunner):
         select_columns = self._get_filtered_select_columns(current_period_query)
 
         # Create tuple columns for comparison
-        tuple_columns = [
+        tuple_columns: list[ast.Expr] = [
             ast.Alias(
                 alias=col.alias if isinstance(col, ast.Alias) else str(col),
                 expr=ast.Call(
@@ -347,8 +364,8 @@ class MarketingAnalyticsTableQueryRunner(QueryRunner):
         # Build the CTE SELECT query
         return ast.SelectQuery(select=select_columns, select_from=union_join_expr, group_by=group_by_exprs)
 
-    def _build_select_columns_mapping(self, processors: list[ConversionGoalProcessor]) -> dict[str, ast.Alias]:
-        all_columns: dict[str, ast.Alias] = {str(k): v for k, v in BASE_COLUMN_MAPPING.items()}
+    def _build_select_columns_mapping(self, processors: list[ConversionGoalProcessor]) -> dict[str, ast.Expr]:
+        all_columns: dict[str, ast.Expr] = {str(k): v for k, v in BASE_COLUMN_MAPPING.items()}
         for processor in processors:
             conversion_goal_expr, cost_per_goal_expr = processor.generate_select_columns()
             all_columns.update(
@@ -374,7 +391,7 @@ class MarketingAnalyticsTableQueryRunner(QueryRunner):
             from_clause = self._append_joins(from_clause, conversion_joins)
 
         return ast.SelectQuery(
-            select=cast(list[ast.Expr], list(conversion_columns_mapping.values())),
+            select=list(conversion_columns_mapping.values()),
             select_from=from_clause,
         )
 
