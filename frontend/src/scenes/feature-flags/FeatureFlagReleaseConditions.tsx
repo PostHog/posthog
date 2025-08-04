@@ -318,8 +318,8 @@ export function FeatureFlagReleaseConditions({
                                     ? group.rollout_percentage == null || group.rollout_percentage == 100
                                         ? 'highlight'
                                         : group.rollout_percentage == 0
-                                        ? 'caution'
-                                        : 'none'
+                                          ? 'caution'
+                                          : 'none'
                                     : 'none'
                             }
                         >

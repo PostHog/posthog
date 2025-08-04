@@ -125,8 +125,8 @@ export const Table = (props: TableProps): JSX.Element => {
                             queryCancelled
                                 ? 'The query was cancelled'
                                 : response && 'error' in response
-                                ? (response as any).error
-                                : responseError
+                                  ? (response as any).error
+                                  : responseError
                         }
                     />
                 ) : (

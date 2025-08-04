@@ -65,8 +65,8 @@ export function DashboardReloadAction(): JSX.Element {
                     blockRefresh
                         ? `Next bulk refresh possible ${dayjs(nextAllowedDashboardRefresh).fromNow()}`
                         : itemsLoading
-                        ? 'Loading...'
-                        : ''
+                          ? 'Loading...'
+                          : ''
                 }
                 sideAction={{
                     'data-attr': 'dashboard-items-action-refresh-dropdown',

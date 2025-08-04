@@ -53,6 +53,7 @@ import { getExperimentStatusColor } from '../experimentsLogic'
 import { getIndexForVariant } from '../legacyExperimentCalculations'
 import { modalsLogic } from '../modalsLogic'
 import { getExperimentInsightColour } from '../utils'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 export function VariantTag({
     experimentId,
@@ -252,7 +253,7 @@ export function ResultsHeader(): JSX.Element {
 export function EllipsisAnimation(): JSX.Element {
     const [ellipsis, setEllipsis] = useState('.')
 
-    useEffect(() => {
+    useOnMountEffect(() => {
         let count = 1
         let direction = 1
 
@@ -266,7 +267,7 @@ export function EllipsisAnimation(): JSX.Element {
         }, 300)
 
         return () => clearInterval(interval)
-    }, [])
+    })
 
     return <span>{ellipsis}</span>
 }

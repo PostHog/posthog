@@ -753,7 +753,10 @@ export function IconCalculate(props: LemonIconProps): JSX.Element {
 export function IconSubdirectoryArrowRight(props: LemonIconProps): JSX.Element {
     return (
         <LemonIconBase {...props}>
-            <path d="m19 15-6 6-1.42-1.42 3.59-3.58h-11.17v-12h2v10h9.17l-3.59-3.58 1.42-1.42z" fill="currentColor" />{' '}
+            <path
+                d="m19 15-6 6-1.42-1.42 3.59-3.58h-11.17v-12h2v10h9.17l-3.59-3.58 1.42-1.42z"
+                fill="currentColor"
+            />{' '}
         </LemonIconBase>
     )
 }

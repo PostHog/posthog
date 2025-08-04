@@ -20,9 +20,9 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
     protected cyclotronJobQueue: CyclotronJobQueue
     protected queue: CyclotronJobQueueKind
 
-    constructor(hub: Hub) {
+    constructor(hub: Hub, queue?: CyclotronJobQueueKind) {
         super(hub)
-        this.queue = hub.CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_KIND
+        this.queue = queue ?? hub.CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_KIND
 
         if (!CYCLOTRON_INVOCATION_JOB_QUEUES.includes(this.queue)) {
             throw new Error(`Invalid cyclotron job queue kind: ${this.queue}`)
@@ -98,6 +98,10 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
             return { backgroundTask: Promise.resolve(), invocationResults: [] }
         }
 
+        logger.info('🔁', `${this.name} - handling batch`, {
+            size: invocations.length,
+        })
+
         const invocationResults = await this.runInstrumented(
             'handleEachBatch.executeInvocations',
             async () => await this.processInvocations(invocations)
@@ -114,7 +118,7 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
                         captureException(err)
                         logger.error('Error processing invocation results', { err })
                     }),
-                this.hogWatcher.observeResults(invocationResults).catch((err) => {
+                this.hogWatcher.observeResults(invocationResults).catch((err: any) => {
                     captureException(err)
                     logger.error('Error observing results', { err })
                 }),

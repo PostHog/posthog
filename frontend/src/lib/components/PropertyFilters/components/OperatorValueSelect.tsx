@@ -143,7 +143,7 @@ export function OperatorValueSelect({
             }
             setCurrentOperator(defaultProperty)
         }
-    }, [propertyDefinition, propertyKey, operator])
+    }, [propertyDefinition, propertyKey, operator]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     return (
         <>

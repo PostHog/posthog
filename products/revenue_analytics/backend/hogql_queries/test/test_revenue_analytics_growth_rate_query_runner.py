@@ -311,7 +311,7 @@ class TestRevenueAnalyticsGrowthRateQueryRunner(ClickhouseTestMixin, APIBaseTest
                 RevenueAnalyticsPropertyFilter(
                     key="source",
                     operator=PropertyOperator.EXACT,
-                    value=["revenue_analytics.purchase"],
+                    value=["revenue_analytics.events.purchase"],
                 )
             ],
         ).results
@@ -351,7 +351,7 @@ class TestRevenueAnalyticsGrowthRateQueryRunner(ClickhouseTestMixin, APIBaseTest
                 RevenueAnalyticsPropertyFilter(
                     key="source",
                     operator=PropertyOperator.EXACT,
-                    value=["revenue_analytics.purchase"],
+                    value=["revenue_analytics.events.purchase"],
                 )
             ],
         ).results

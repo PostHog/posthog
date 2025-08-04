@@ -2,7 +2,12 @@
     "name": "@posthog/products-error-tracking",
     "scripts": {},
     "dependencies": {
-        "posthog-js": "1.258.3"
+        "kea": "^3.1.5",
+        "kea-forms": "^3.2.0",
+        "kea-loaders": "^3.1.1",
+        "kea-router": "^3.4.0",
+        "kea-subscriptions": "^3.0.1",
+        "posthog-js": "1.258.5"
     },
     "peerDependencies": {
         "@dnd-kit/core": "*",
@@ -20,11 +25,6 @@
         "cva": "npm:class-variance-authority@*",
         "fast-deep-equal": "*",
         "fuse.js": "*",
-        "kea": "*",
-        "kea-forms": "*",
-        "kea-loaders": "*",
-        "kea-router": "*",
-        "kea-subscriptions": "*",
         "react": "*",
         "react-transition-group": "*",
         "ts-pattern": "*",
