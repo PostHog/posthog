@@ -1,9 +1,11 @@
-import { Client as CassandraClient } from 'cassandra-driver'
+import { auth, Client as CassandraClient } from 'cassandra-driver'
 import { createHash } from 'crypto'
 import { Message } from 'node-rdkafka'
 import { join } from 'path'
 import Piscina from 'piscina'
 import { Counter, Histogram } from 'prom-client'
+
+import { isCloud } from '~/utils/env-utils'
 
 import { KAFKA_EVENTS_JSON } from '../../config/kafka-topics'
 import { KafkaConsumer } from '../../kafka/consumer'
@@ -77,6 +79,8 @@ export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
             },
         })
 
+        const isCloudDeployment = isCloud()
+
         // Only initialize Cassandra client if the feature is enabled
         if (hub.WRITE_BEHAVIOURAL_COUNTERS_TO_CASSANDRA) {
             this.cassandra = new CassandraClient({
@@ -86,10 +90,15 @@ export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
                 },
                 localDataCenter: hub.CASSANDRA_LOCAL_DATACENTER,
                 keyspace: hub.CASSANDRA_KEYSPACE,
-                credentials:
-                    hub.CASSANDRA_USER && hub.CASSANDRA_PASSWORD
-                        ? { username: hub.CASSANDRA_USER, password: hub.CASSANDRA_PASSWORD }
-                        : undefined,
+                authProvider: new auth.PlainTextAuthProvider(
+                    hub.CASSANDRA_USER || 'cassandra',
+                    hub.CASSANDRA_PASSWORD || 'cassandra'
+                ),
+                sslOptions: isCloudDeployment
+                    ? {
+                          rejectUnauthorized: true,
+                      }
+                    : undefined,
             })
             this.behavioralCounterRepository = new BehavioralCounterRepository(this.cassandra)
         } else {

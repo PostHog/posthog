@@ -9,10 +9,15 @@ const config = {
     contactPoints: [process.env.CASSANDRA_HOST || 'localhost'],
     localDataCenter: process.env.CASSANDRA_LOCAL_DATACENTER || 'datacenter1',
     keyspace: process.env.CASSANDRA_KEYSPACE || 'posthog',
-    credentials:
-        process.env.CASSANDRA_USER && process.env.CASSANDRA_PASSWORD
-            ? { username: process.env.CASSANDRA_USER, password: process.env.CASSANDRA_PASSWORD }
-            : undefined,
+    authProvider: new cassandra.auth.PlainTextAuthProvider(
+        process.env.CASSANDRA_USER || 'cassandra',
+        process.env.CASSANDRA_PASSWORD || 'cassandra'
+    ),
+    sslOptions: process.env.CLOUD_DEPLOYMENT
+        ? {
+              rejectUnauthorized: true,
+          }
+        : undefined,
     protocolOptions: {
         port: process.env.CASSANDRA_PORT || 9042,
     },
