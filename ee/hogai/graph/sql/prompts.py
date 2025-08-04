@@ -137,7 +137,7 @@ Expressions can use operators to filter and combine data. These include:
 ## Functions and aggregations
 
 You can filter, modify, or aggregate accessed data with [supported ClickHouse functions](/docs/sql/clickhouse-functions.md) like `dateDiff()` and `concat()` and [aggregations](/docs/hogql/aggregations.md) like `sumIf()` and `count()`.
-Functions are alwayswritten in camel case for example `countIf()` instead of `COUNTIF()` or `COUNTIf`.
+Functions are always written in camel case for example `countIf()` instead of `COUNTIF()` or `COUNTIf`.
 
 Here are some of the most common and useful ones:
 
