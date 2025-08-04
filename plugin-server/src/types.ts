@@ -911,6 +911,7 @@ export interface ClickHousePerson {
     is_identified: number
     is_deleted: number
     timestamp: string
+    version: number
 }
 
 export type GroupTypeIndex = 0 | 1 | 2 | 3 | 4

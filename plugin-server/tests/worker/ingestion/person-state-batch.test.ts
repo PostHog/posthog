@@ -1,3 +1,6 @@
+// eslint-disable-next-line simple-import-sort/imports
+import { KafkaProducerObserver } from '~/tests/helpers/mocks/producer.spy'
+
 import { PluginEvent, Properties } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 
@@ -7,6 +10,7 @@ import { fromInternalPerson } from '~/worker/ingestion/persons/person-update-bat
 import { TopicMessage } from '../../../src/kafka/producer'
 import {
     ClickHousePerson,
+    ClickHousePersonDistinctId2,
     Hub,
     InternalPerson,
     PropertiesLastOperation,
@@ -38,6 +42,7 @@ import {
     getTeam,
     insertRow,
 } from '../../helpers/sql'
+import { KAFKA_PERSON, KAFKA_PERSON_DISTINCT_ID } from '~/config/kafka-topics'
 
 jest.setTimeout(30000)
 
@@ -84,6 +89,7 @@ describe('PersonState.processEvent()', () => {
     let hub: Hub
     let clickhouse: Clickhouse
     let personRepository: PostgresPersonRepository
+    let mockProducerObserver: KafkaProducerObserver
 
     let teamId: number
     let mainTeam: Team
@@ -105,6 +111,9 @@ describe('PersonState.processEvent()', () => {
 
     beforeAll(async () => {
         hub = await createHub({})
+        mockProducerObserver = new KafkaProducerObserver(hub.kafkaProducer)
+        mockProducerObserver.resetKafkaProducer()
+
         clickhouse = Clickhouse.create()
         await clickhouse.exec('SYSTEM STOP MERGES')
 
@@ -274,6 +283,18 @@ describe('PersonState.processEvent()', () => {
     async function fetchDistinctIdsClickhouseVersion1() {
         const query = `SELECT distinct_id FROM person_distinct_id2 FINAL WHERE team_id = ${teamId} AND version = 1`
         return await clickhouse.query(query)
+    }
+
+    const getPersonEventsFromKafka = (): ClickHousePerson[] => {
+        return mockProducerObserver
+            .getProducedKafkaMessagesForTopic(KAFKA_PERSON)
+            .map((x) => x.value as unknown as ClickHousePerson)
+    }
+
+    const getDistinctIdEventsFromKafka = (): ClickHousePersonDistinctId2[] => {
+        return mockProducerObserver
+            .getProducedKafkaMessagesForTopic(KAFKA_PERSON_DISTINCT_ID)
+            .map((x) => x.value as unknown as ClickHousePersonDistinctId2)
     }
 
     describe('on person creation', () => {
@@ -1449,32 +1470,34 @@ describe('PersonState.processEvent()', () => {
             const distinctIds = await hub.db.fetchDistinctIdValues(persons[0])
             expect(distinctIds).toEqual(expect.arrayContaining([oldUserDistinctId, newUserDistinctId]))
 
+            expect(getPersonEventsFromKafka().filter((x) => x.version >= 1).length).toEqual(2)
             // verify ClickHouse persons
-            await clickhouse.delayUntilEventIngested(() => fetchPersonsRowsWithVersionHigerEqualThan(), 2) // wait until merge and delete processed
-            const clickhousePersons = await fetchPersonsRows() // but verify full state
+            const clickhousePersons = getPersonEventsFromKafka()
+                .filter((x) => x.version >= 1)
+                .sort((a, b) => a.version - b.version) // but verify full state
             expect(clickhousePersons.length).toEqual(2)
             expect(clickhousePersons).toEqual(
                 expect.arrayContaining([
                     expect.objectContaining({
                         id: expect.any(String),
-                        properties: '{}',
-                        created_at: timestampch,
-                        version: '1',
+                        version: 1,
                         is_identified: 1,
                     }),
                     expect.objectContaining({
                         id: expect.any(String),
                         is_deleted: 1,
-                        version: '100',
+                        version: 100,
                     }),
                 ])
             )
             expect(new Set(clickhousePersons.map((p) => p.id))).toEqual(new Set([newUserUuid, oldUserUuid]))
 
             // verify ClickHouse distinct_ids
-            await clickhouse.delayUntilEventIngested(() => fetchDistinctIdsClickhouseVersion1())
-            const clickHouseDistinctIds = await fetchDistinctIdsClickhouse(persons[0])
-            expect(clickHouseDistinctIds).toEqual(expect.arrayContaining([oldUserDistinctId, newUserDistinctId]))
+            const clickhouseDistinctIds = getDistinctIdEventsFromKafka()
+                .filter((x) => x.person_id === persons[0].uuid)
+                .map((x) => x.distinct_id)
+
+            expect(clickhouseDistinctIds).toEqual(expect.arrayContaining([oldUserDistinctId, newUserDistinctId]))
         })
 
         it(`merge into distinct_id person and marks user as is_identified when distinct_id user is identified and $anon_distinct_id user is not`, async () => {
