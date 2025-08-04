@@ -13,6 +13,11 @@ const config = {
         process.env.CASSANDRA_USER || 'cassandra',
         process.env.CASSANDRA_PASSWORD || 'cassandra'
     ),
+    sslOptions: process.env.CLOUD_DEPLOYMENT
+        ? {
+              rejectUnauthorized: true,
+          }
+        : undefined,
     protocolOptions: {
         port: process.env.CASSANDRA_PORT || 9042,
     },

@@ -5,6 +5,8 @@ import { join } from 'path'
 import Piscina from 'piscina'
 import { Counter, Histogram } from 'prom-client'
 
+import { isCloud } from '~/utils/env-utils'
+
 import { KAFKA_EVENTS_JSON } from '../../config/kafka-topics'
 import { KafkaConsumer } from '../../kafka/consumer'
 import { runInstrumentedFunction } from '../../main/utils'
@@ -84,6 +86,11 @@ export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
                 protocolOptions: {
                     port: hub.CASSANDRA_PORT,
                 },
+                sslOptions: isCloud()
+                    ? {
+                          rejectUnauthorized: true,
+                      }
+                    : undefined,
                 localDataCenter: hub.CASSANDRA_LOCAL_DATACENTER,
                 keyspace: hub.CASSANDRA_KEYSPACE,
                 authProvider: new auth.PlainTextAuthProvider(
