@@ -4962,7 +4962,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             assert result[1]["average_conversion_time"] == 86400
 
         @snapshot_clickhouse_queries
-        def test_funnel_aggregation_with_groups_global_filtering(self):
+        def test_funnel_aggregation_with_groups_across_persons(self):
             self._create_groups()
 
             events_by_person = {
@@ -4970,13 +4970,13 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                     {
                         "event": "user signed up",
                         "timestamp": datetime(2020, 1, 2, 14),
-                        "properties": {"$group_0": "org:5"},
+                        "properties": {"$group_0": "org:5"},  # industry finance
                     },
                     {
                         "event": "paid",
                         "timestamp": datetime(2020, 1, 3, 14),
                         "properties": {
-                            "$group_0": "org:6"
+                            "$group_0": "org:6"  # industry technology
                         },  # second event belongs to different group, so shouldn't complete funnel
                     },
                 ],
@@ -4989,7 +4989,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                     {
                         "event": "paid",
                         "timestamp": datetime(2020, 1, 3, 14),
-                        "properties": {"$group_0": "org:5"},  # same group, but different person, so not in funnel
+                        "properties": {"$group_0": "org:5"},  # same group, so should complete funnel
                     },
                 ],
             }
@@ -5018,7 +5018,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             result = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
 
             assert result[0]["count"] == 1
-            assert result[1]["count"] == 0
+            assert result[1]["count"] == 1
 
     return TestGetFunnel
 
