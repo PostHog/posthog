@@ -107,8 +107,8 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                 return funnelsFilter === null
                     ? null
                     : funnelsFilter === undefined
-                    ? true
-                    : funnelsFilter.funnelVizType === FunnelVizType.Steps
+                      ? true
+                      : funnelsFilter.funnelVizType === FunnelVizType.Steps
             },
         ],
         isTimeToConvertFunnel: [
@@ -192,7 +192,7 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                     if (isBreakdownFunnelResults(results)) {
                         const breakdownProperty = breakdownFilter?.breakdowns
                             ? breakdownFilter?.breakdowns.map((b) => b.property).join('::')
-                            : breakdownFilter?.breakdown ?? undefined
+                            : (breakdownFilter?.breakdown ?? undefined)
                         return aggregateBreakdownResult(results, breakdownProperty).sort((a, b) => a.order - b.order)
                     }
                     return results.sort((a, b) => a.order - b.order)

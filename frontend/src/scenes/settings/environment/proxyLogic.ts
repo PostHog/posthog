@@ -98,10 +98,10 @@ export const proxyLogic = kea<proxyLogicType>([
                 domain: domain.includes('*')
                     ? 'Domains cannot include wildcards'
                     : !isDomain('http://' + domain)
-                    ? 'Do not include the protocol e.g. https://'
-                    : !domain.match(/^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/)
-                    ? "Invalid domain. Please provide a lowercase RFC 1123 subdomain. It must consist of lower case alphanumeric characters, '-' or '.', and must start and end with an alphanumeric character"
-                    : undefined,
+                      ? 'Do not include the protocol e.g. https://'
+                      : !domain.match(/^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/)
+                        ? "Invalid domain. Please provide a lowercase RFC 1123 subdomain. It must consist of lower case alphanumeric characters, '-' or '.', and must start and end with an alphanumeric character"
+                        : undefined,
             }),
             submit: ({ domain }) => {
                 actions.createRecord({ domain })

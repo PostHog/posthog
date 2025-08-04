@@ -11,6 +11,8 @@ import { SceneConfig } from 'scenes/sceneTypes'
 import { SceneHeader } from './SceneHeader'
 import './SceneLayout.css'
 import { sceneLayoutLogic } from './sceneLayoutLogic'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { SceneTabs } from '~/layout/scenes/SceneTabs'
 
 type SceneLayoutProps = {
     children: React.ReactNode
@@ -88,11 +90,11 @@ export function ScenePanelLabel({ children, title, ...props }: PropsWithChildren
 
 export function SceneLayout({ children, className, layoutConfig }: SceneLayoutProps): JSX.Element {
     const { registerScenePanelElement, setScenePanelOpen } = useActions(sceneLayoutLogic)
-    const { scenePanelIsPresent, scenePanelOpen } = useValues(sceneLayoutLogic)
+    const { scenePanelIsPresent, scenePanelOpen, useSceneTabs } = useValues(sceneLayoutLogic)
     const sceneLayoutContainer = useRef<HTMLDivElement>(null)
     const [outerRight, setOuterRight] = useState<number>(0)
 
-    useEffect(() => {
+    useOnMountEffect(() => {
         const updateOuterRight = (): void => {
             if (sceneLayoutContainer.current) {
                 setOuterRight(sceneLayoutContainer.current.getBoundingClientRect().right)
@@ -106,7 +108,7 @@ export function SceneLayout({ children, className, layoutConfig }: SceneLayoutPr
         return () => {
             window.removeEventListener('resize', updateOuterRight)
         }
-    }, [])
+    })
 
     return (
         <div
@@ -123,6 +125,7 @@ export function SceneLayout({ children, className, layoutConfig }: SceneLayoutPr
                     block: layoutConfig?.layout === 'app-raw-no-header',
                 })}
             >
+                {useSceneTabs ? <SceneTabs /> : null}
                 {layoutConfig?.layout !== 'app-raw-no-header' && (
                     <SceneHeader className="row-span-1 col-span-1 min-w-0" />
                 )}

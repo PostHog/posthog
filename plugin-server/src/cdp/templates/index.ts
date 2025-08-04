@@ -79,10 +79,13 @@ export const HOG_FUNCTION_TEMPLATES_TRANSFORMATIONS_DEPRECATED: HogFunctionTempl
     (x) => x.template
 )
 
-export const NATIVE_HOG_FUNCTIONS_BY_ID = NATIVE_HOG_FUNCTIONS.reduce((acc, plugin) => {
-    acc[plugin.id] = plugin
-    return acc
-}, {} as Record<string, NativeTemplate>)
+export const NATIVE_HOG_FUNCTIONS_BY_ID = NATIVE_HOG_FUNCTIONS.reduce(
+    (acc, plugin) => {
+        acc[plugin.id] = plugin
+        return acc
+    },
+    {} as Record<string, NativeTemplate>
+)
 
 export const HOG_FUNCTION_TEMPLATES: HogFunctionTemplate[] = [
     ...HOG_FUNCTION_TEMPLATES_DESTINATIONS,

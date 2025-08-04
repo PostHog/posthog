@@ -149,8 +149,8 @@ const selectedItemHasPopover = (
     listGroupType?: TaxonomicFilterGroupType,
     group?: TaxonomicFilterGroup
 ): boolean => {
+    // NB: also update "renderItemContents" above
     return (
-        // NB: also update "renderItemContents" above
         TaxonomicFilterGroupType.EventMetadata,
         !!item &&
             !!group?.getValue?.(item) &&

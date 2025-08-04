@@ -136,10 +136,10 @@ export function validateFeatureFlagKey(key: string): string | undefined {
     return !key
         ? 'Please set a key'
         : key.length > 400
-        ? 'Key must be 400 characters or less.'
-        : !key.match?.(/^[a-zA-Z0-9_-]+$/)
-        ? 'Only letters, numbers, hyphens (-) & underscores (_) are allowed.'
-        : undefined
+          ? 'Key must be 400 characters or less.'
+          : !key.match?.(/^[a-zA-Z0-9_-]+$/)
+            ? 'Only letters, numbers, hyphens (-) & underscores (_) are allowed.'
+            : undefined
 }
 
 function validatePayloadRequired(is_remote_configuration: boolean, payload?: JsonType): string | undefined {
@@ -1184,8 +1184,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 featureFlag?.is_remote_configuration
                     ? 'remote_config'
                     : featureFlag?.filters.multivariate
-                    ? 'multivariate'
-                    : 'boolean',
+                      ? 'multivariate'
+                      : 'boolean',
         ],
         flagTypeString: [
             (s) => [s.featureFlag],
@@ -1193,8 +1193,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 featureFlag?.is_remote_configuration
                     ? 'Remote configuration (single payload)'
                     : featureFlag?.filters.multivariate
-                    ? 'Multiple variants with rollout percentages (A/B/n test)'
-                    : 'Release toggle (boolean)',
+                      ? 'Multiple variants with rollout percentages (A/B/n test)'
+                      : 'Release toggle (boolean)',
         ],
         roleBasedAccessEnabled: [
             (s) => [s.hasAvailableFeature],

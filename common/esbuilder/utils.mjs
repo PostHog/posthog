@@ -310,12 +310,12 @@ export async function buildOrWatch(config) {
                     ? 'Building'
                     : 'Rebuilding'
                 : logOpts.success
-                ? buildCount === 1
-                    ? 'Built'
-                    : 'Rebuilt'
-                : buildCount === 1
-                ? 'Building failed'
-                : 'Rebuilding failed '
+                  ? buildCount === 1
+                      ? 'Built'
+                      : 'Rebuilt'
+                  : buildCount === 1
+                    ? 'Building failed'
+                    : 'Rebuilding failed '
 
         console.info(`${icon} ${name ? `"${name}": ` : ''}${message}${timingSuffix}`)
     }

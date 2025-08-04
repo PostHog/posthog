@@ -288,8 +288,8 @@ export function ManagedMigrations(): JSX.Element {
                                         {migration.status === 'completed'
                                             ? 'Complete'
                                             : migration.status === 'paused'
-                                            ? 'Paused'
-                                            : `${completed}/${total}`}
+                                              ? 'Paused'
+                                              : `${completed}/${total}`}
                                     </span>
                                 </div>
                             )

@@ -13,6 +13,7 @@ posthog/tasks/stop_surveys_reached_target.py @PostHog/team-surveys
 posthog/tasks/update_survey_adaptive_sampling @PostHog/team-surveys
 posthog/tasks/update_survey_iteration @PostHog/team-surveys
 posthog/tasks/test/test_stop_surveys_reached_target.py @PostHog/team-surveys
+posthog/templates/surveys @PostHog/team-surveys
 
 # plugin server ownership is split between ingestion and messaging teams
 plugin-server/src/ @PostHog/team-ingestion @PostHog/team-messaging
@@ -31,7 +32,8 @@ posthog/hogql/database/schema/sessions_v1.py @PostHog/web-analytics
 posthog/hogql/database/schema/sessions_v2.py @PostHog/web-analytics
 
 # Revenue Analytics team owns revenue analytics stuff
-products/revenue_analytics/** @PostHog/team-revenue-analytics
+# This is a single-person team - allow reviews from other teams
+# products/revenue_analytics/** @PostHog/team-revenue-analytics
 
 # Replay team...
 posthog/session_recordings/ @PostHog/team-replay
