@@ -14,7 +14,7 @@ unlayer.registerTool({
             options: {
                 unsubscribe_link_content: {
                     label: 'Content',
-                    defaultValue: \`<div>Don't want to receive these emails? <a href="{{ unsubscribe_link }}">Unsubscribe</a></div>\`,
+                    defaultValue: \`<div>Don't want to receive these emails? <a href="{{ unsubscribe_url }}">Unsubscribe</a></div>\`,
                     widget: 'rich_text',
                 },
             },
