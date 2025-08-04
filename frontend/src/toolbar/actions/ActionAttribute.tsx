@@ -66,8 +66,8 @@ export function ActionAttribute({
                             ? addAutomaticCreationIncludedPropertyKey(attribute)
                             : removeAutomaticCreationIncludedPropertyKey(attribute)
                     }
-                    sliderColorOverrideChecked="primary-3000-light"
-                    sliderColorOverrideUnchecked="muted-3000-light"
+                    sliderColorOverrideChecked="color-accent"
+                    sliderColorOverrideUnchecked="color-secondary-foreground"
                 />
             )}
             <div className="text-secondary-foreground text-xl">{icon}</div>

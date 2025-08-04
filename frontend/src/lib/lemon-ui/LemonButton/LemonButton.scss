@@ -365,7 +365,7 @@
         &.LemonButton--status-danger {
             &:not([aria-disabled='true']):hover,
             &.LemonButton--active {
-                background-color: var(--danger-highlight);
+                background-color: var(--color-error);
             }
         }
     }

@@ -107,7 +107,7 @@ const threeThousand = [
     ['bg-primary-light', 'bg-red-500'],
     ['bg-border-3000-light', 'bg-red-500'],
     ['bg-border-bold-3000-light', 'bg-red-500'],
-    ['bg-glass-bg-3000-light', 'bg-red-500'],
+    ['bg-color-glass-light', 'bg-red-500'],
     ['bg-glass-border-3000-light', 'bg-red-500'],
 
     ['bg-link-3000-light', 'bg-red-500'],
@@ -134,7 +134,7 @@ const threeThousand = [
     ['bg-secondary-3000-hover-dark', 'bg-red-500'],
     ['bg-border-3000-dark', 'bg-red-500'],
     ['bg-border-bold-3000-dark', 'bg-red-500'],
-    ['bg-glass-bg-3000-dark', 'bg-red-500'],
+    ['bg-color-glass-dark', 'bg-red-500'],
     ['bg-glass-border-3000-dark', 'bg-red-500'],
     ['bg-link-3000-dark', 'bg-red-500'],
 

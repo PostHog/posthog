@@ -23,7 +23,7 @@ body[theme=dark] {
     --link: #00FF01;
     --border-bold: #00FF01;
     --color-bg-3000: #111;
-    --glass-bg-3000: #111;
+    --color-glass: #111;
     --color-bg-light: #222;
     --color-bg-table: #222;
     --muted-3000: #0EA70E;
@@ -55,7 +55,7 @@ body[theme=light] {
     --link: #E306AD;
     --border-bold: rgba(255, 105, 180, 0.8);
     --color-bg-3000: #FED9E9;
-    --glass-bg-3000: rgba(255, 192, 203, 0.8);
+    --color-glass: rgba(255, 192, 203, 0.8);
     --color-bg-light: #FFF0F5;
     --color-bg-table: #F8BBD0;
     --muted-3000: #E306AD;

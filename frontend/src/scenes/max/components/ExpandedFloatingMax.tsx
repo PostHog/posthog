@@ -50,7 +50,7 @@ export function ExpandedFloatingMax({ onCollapse, onDismiss }: ExpandedFloatingM
             ref={expandedContainerRef}
             className={
                 isDragging || isAnimating
-                    ? 'flex flex-col rounded-lg w-80 border backdrop-blur-sm bg-[var(--glass-bg-3000)] mb-2'
+                    ? 'flex flex-col rounded-lg w-80 border backdrop-blur-sm bg-[var(--color-glass)] mb-2'
                     : 'relative flex flex-col'
             }
             style={isDragging || isAnimating ? containerStyle : {}}

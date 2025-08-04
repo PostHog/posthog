@@ -55,7 +55,7 @@ export function MaxFloatingInput(): JSX.Element | null {
                         ? ''
                         : clsx(
                               'fixed bottom-0 z-[var(--z-hedgehog-buddy)] max-w-sm',
-                              'border backdrop-blur-sm bg-[var(--glass-bg-3000)] mb-2',
+                              'border backdrop-blur-sm bg-[var(--color-glass)] mb-2',
                               isFloatingMaxExpanded ? 'rounded-lg w-80' : 'rounded-full'
                           )
                 }

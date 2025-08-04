@@ -23,6 +23,8 @@
     --color-card-secondary-foreground: var(--color-card-secondary-foreground);
     --color-card-tertiary: var(--color-card-tertiary);
     --color-card-tertiary-foreground: var(--color-card-tertiary-foreground);
+    --color-glass: var(--color-glass);
+    --color-glass-foreground: var(--color-glass-foreground);
     --color-tooltip: var(--color-tooltip);
     --color-tooltip-foreground: var(--color-tooltip-foreground);
     --color-popover: var(--color-popover);

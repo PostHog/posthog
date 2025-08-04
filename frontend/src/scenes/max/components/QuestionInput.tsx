@@ -77,7 +77,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                 className={clsx(
                     'flex flex-col items-center',
                     isSticky &&
-                        'mb-2 border border-[var(--color-border)] rounded-lg backdrop-blur-sm bg-[var(--glass-bg-3000)]'
+                        'mb-2 border border-[var(--color-border)] rounded-lg backdrop-blur-sm bg-[var(--color-glass)]'
                 )}
             >
                 <div className="relative w-full flex flex-col">
@@ -194,7 +194,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                             className={clsx(
                                 'flex flex-wrap gap-x-1 gap-y-0.5 text-xs font-medium cursor-default px-1.5 whitespace-nowrap',
                                 !isFloating
-                                    ? 'w-[calc(100%-1rem)] py-1 border-x border-b rounded-b backdrop-blur-sm bg-[var(--glass-bg-3000)]'
+                                    ? 'w-[calc(100%-1rem)] py-1 border-x border-b rounded-b backdrop-blur-sm bg-[var(--color-glass)]'
                                     : `w-full pb-1`
                             )}
                         >
