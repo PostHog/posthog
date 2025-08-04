@@ -324,8 +324,8 @@ export function GoalsConfiguration(): JSX.Element {
                         isAdding
                             ? 'Finish adding current goal first'
                             : editingIndex !== null
-                            ? 'Finish editing current goal first'
-                            : undefined
+                              ? 'Finish editing current goal first'
+                              : undefined
                     }
                 >
                     Add Goal

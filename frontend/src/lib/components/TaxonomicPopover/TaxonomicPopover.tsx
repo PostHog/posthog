@@ -50,7 +50,7 @@ export function TaxonomicStringPopover(props: TaxonomicPopoverProps<string>): JS
 }
 
 export const TaxonomicPopover = forwardRef(function TaxonomicPopover_<
-    ValueType extends TaxonomicFilterValue = TaxonomicFilterValue
+    ValueType extends TaxonomicFilterValue = TaxonomicFilterValue,
 >(
     {
         groupType,
@@ -94,7 +94,7 @@ export const TaxonomicPopover = forwardRef(function TaxonomicPopover_<
         if (!buttonPropsFinal.loading) {
             setLocalValue(value || ('' as ValueType))
         }
-    }, [value])
+    }, [value]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     return (
         <LemonDropdown
