@@ -46,6 +46,7 @@ import { groupsModel } from '~/models/groupsModel'
 import { GoalLine, TrendsFilter } from '~/queries/schema/schema-general'
 import { isInsightVizNode } from '~/queries/utils'
 import { GraphDataset, GraphPoint, GraphPointPayload, GraphType } from '~/types'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 let tooltipRoot: Root
 
@@ -373,15 +374,15 @@ export function LineGraph_({
     }, [hideTooltipOnScroll])
 
     // Remove tooltip element on unmount
-    useEffect(() => {
+    useOnMountEffect(() => {
         return () => {
             const tooltipEl = document.getElementById('InsightTooltipWrapper')
             tooltipEl?.remove()
         }
-    }, [])
+    })
 
     // Add event listeners to canvas
-    useEffect(() => {
+    useOnMountEffect(() => {
         const canvas = canvasRef.current
 
         if (canvas) {
@@ -412,7 +413,7 @@ export function LineGraph_({
                 canvas.removeEventListener('webglcontextlost', handleEvent)
             }
         }
-    }, [])
+    })
 
     function processDataset(dataset: ChartDataset<any>, index: number): ChartDataset<any> {
         const isPrevious = !!dataset.compare && dataset.compare_label === 'previous'
@@ -1046,7 +1047,7 @@ export function LineGraph_({
         showMultipleYAxes,
         _goalLines,
         theme,
-    ])
+    ]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     return (
         <div className={clsx('LineGraph w-full grow relative overflow-hidden')} data-attr={dataAttr}>

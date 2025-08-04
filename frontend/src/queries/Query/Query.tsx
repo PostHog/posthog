@@ -92,7 +92,7 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
         if (propsQuery !== localQuery) {
             localSetQuery(propsQuery)
         }
-    }, [propsQuery]) // eslint-disable-line react-hooks/exhaustive-deps
+    }, [propsQuery]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     const query = readOnly ? propsQuery : localQuery
     const setQuery = propsSetQuery ?? localSetQuery

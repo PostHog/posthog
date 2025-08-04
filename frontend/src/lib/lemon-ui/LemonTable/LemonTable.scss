@@ -309,10 +309,17 @@
     background: var(--lemon-table-background-color);
 }
 
+.LemonTable__cell--pinned,
+.LemonTable__header--pinned {
+    background: var(--lemon-table-background-color);
+}
+
 // Stickiness is disabled in snapshots due to flakiness
 body:not(.storybook-test-runner) {
     .LemonTable__header--sticky,
-    .LemonTable__cell--sticky {
+    .LemonTable__cell--sticky,
+    .LemonTable__header--pinned,
+    .LemonTable__cell--pinned {
         position: sticky !important; // Important to override .LemonTable--with-ribbon's rule, which has more specificity
         left: 0;
         z-index: 1;
@@ -332,7 +339,9 @@ body:not(.storybook-test-runner) {
 
     .ScrollableShadows--left {
         .LemonTable__cell--sticky::before,
-        .LemonTable__header--sticky::before {
+        .LemonTable__header--sticky::before,
+        .LemonTable__cell--pinned::before,
+        .LemonTable__header--pinned::before {
             box-shadow: -16px 0 16px 16px rgb(0 0 0 / 25%);
         }
     }
