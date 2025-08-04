@@ -120,8 +120,8 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                         ? itemId === 'new'
                             ? 'new'
                             : Number.isInteger(+itemId)
-                            ? parseInt(itemId, 10)
-                            : itemId
+                              ? parseInt(itemId, 10)
+                              : itemId
                         : null,
             },
         ],
@@ -230,6 +230,11 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                     ? {
                           activity_scope: ActivityScope.INSIGHT,
                           activity_item_id: `${insight.id}`,
+                          // when e.g. constructing URLs for an insight we don't use the id,
+                          // so we also store the short id
+                          activity_item_context: {
+                              short_id: `${insight.short_id}`,
+                          },
                           access_control_resource: 'insight',
                           access_control_resource_id: `${insight.id}`,
                       }
@@ -325,20 +330,25 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                 mode === 'subscriptions'
                     ? ItemMode.Subscriptions
                     : mode === 'alerts'
-                    ? ItemMode.Alerts
-                    : mode === 'sharing'
-                    ? ItemMode.Sharing
-                    : mode === 'edit' || shortId === 'new'
-                    ? ItemMode.Edit
-                    : ItemMode.View
+                      ? ItemMode.Alerts
+                      : mode === 'sharing'
+                        ? ItemMode.Sharing
+                        : mode === 'edit' || shortId === 'new'
+                          ? ItemMode.Edit
+                          : ItemMode.View
             const insightId = String(shortId) as InsightShortId
 
             const currentScene = sceneLogic.findMounted()?.values
 
+            const alertChanged = alert_id !== values.alertId
+
             if (
                 currentScene?.activeScene === Scene.Insight &&
-                currentScene.activeSceneLogic?.values.insightId === insightId &&
-                currentScene.activeSceneLogic?.values.mode === insightMode
+                currentScene.activeSceneLogic &&
+                (currentScene.activeSceneLogic as BuiltLogic<insightSceneLogicType>).values.insightId === insightId &&
+                (currentScene.activeSceneLogic as BuiltLogic<insightSceneLogicType>).values.insightMode ===
+                    insightMode &&
+                !alertChanged
             ) {
                 // If nothing about the scene has changed, don't do anything
                 return
@@ -357,7 +367,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                 insightId !== values.insightId ||
                 insightMode !== values.insightMode ||
                 itemId !== values.itemId ||
-                alert_id !== values.alertId ||
+                alertChanged ||
                 !objectsEqual(variablesOverride, values.variablesOverride) ||
                 !objectsEqual(filtersOverride, values.filtersOverride) ||
                 dashboard !== values.dashboardId ||

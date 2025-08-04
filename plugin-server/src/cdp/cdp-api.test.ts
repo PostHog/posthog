@@ -2,7 +2,7 @@
 import '../../tests/helpers/mocks/producer.mock'
 import { mockFetch } from '../../tests/helpers/mocks/request.mock'
 
-import express from 'express'
+import express from 'ultimate-express'
 import supertest from 'supertest'
 
 import { forSnapshot } from '../../tests/helpers/snapshots'
@@ -14,12 +14,14 @@ import { createHogFunction, insertHogFunction as _insertHogFunction } from './_t
 import { CdpApi } from './cdp-api'
 import { posthogFilterOutPlugin } from './legacy-plugins/_transformations/posthog-filter-out-plugin/template'
 import { HogFunctionInvocationGlobals, HogFunctionType } from './types'
+import { Server } from 'http'
 import { setupExpressApp } from '~/router'
 
 describe('CDP API', () => {
     let hub: Hub
     let team: Team
     let app: express.Application
+    let server: Server
     let api: CdpApi
     let hogFunction: HogFunctionType
     let hogFunctionMultiFetch: HogFunctionType
@@ -54,8 +56,7 @@ describe('CDP API', () => {
         return item
     }
 
-    beforeEach(async () => {
-        await resetTestDatabase()
+    beforeAll(async () => {
         hub = await createHub({
             SITE_URL: 'http://localhost:8000',
         })
@@ -65,6 +66,11 @@ describe('CDP API', () => {
         api = new CdpApi(hub)
         app = setupExpressApp()
         app.use('/', api.router())
+        server = app.listen(0, () => {})
+    })
+
+    beforeEach(async () => {
+        await resetTestDatabase()
 
         mockFetch.mockClear()
 
@@ -81,13 +87,9 @@ describe('CDP API', () => {
         })
     })
 
-    afterEach(async () => {
-        jest.setTimeout(10000)
+    afterAll(async () => {
+        server.close()
         await closeHub(hub)
-    })
-
-    afterAll(() => {
-        jest.useRealTimers()
     })
 
     it('errors if missing hog function or team', async () => {
@@ -430,7 +432,7 @@ describe('CDP API', () => {
                 },
                 team_id: team.id,
                 enabled: true,
-                hog: posthogFilterOutPlugin.template.hog,
+                hog: posthogFilterOutPlugin.template.code,
                 inputs_schema: posthogFilterOutPlugin.template.inputs_schema,
             })
         })

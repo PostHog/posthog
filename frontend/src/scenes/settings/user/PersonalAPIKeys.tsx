@@ -21,7 +21,7 @@ import { IconErrorOutline } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { API_KEY_SCOPE_PRESETS, API_SCOPES, MAX_API_KEYS_PER_USER } from 'lib/scopes'
-import { capitalizeFirstLetter, humanFriendlyDetailedTime } from 'lib/utils'
+import { capitalizeFirstLetter, detailedTime, humanFriendlyDetailedTime } from 'lib/utils'
 import { Fragment, useEffect } from 'react'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
@@ -157,8 +157,8 @@ function EditKeyModal(): JSX.Element {
                                                                         )
                                                                             ? 'Does not apply to this resource'
                                                                             : disabledDueToProjectScope
-                                                                            ? 'Not available for project scoped keys'
-                                                                            : undefined,
+                                                                              ? 'Not available for project scoped keys'
+                                                                              : undefined,
                                                                     },
                                                                     {
                                                                         label: 'Write',
@@ -168,8 +168,8 @@ function EditKeyModal(): JSX.Element {
                                                                         )
                                                                             ? 'Does not apply to this resource'
                                                                             : disabledDueToProjectScope
-                                                                            ? 'Not available for project scoped keys'
-                                                                            : undefined,
+                                                                              ? 'Not available for project scoped keys'
+                                                                              : undefined,
                                                                     },
                                                                 ]}
                                                                 size="xsmall"
@@ -252,9 +252,9 @@ function PersonalAPIKeysTable(): JSX.Element {
         getRestrictedOrganizationsForKey,
         getRestrictedTeamsForKey,
     } = useValues(personalAPIKeysLogic)
-    const { deleteKey, loadKeys, setEditingKeyId } = useActions(personalAPIKeysLogic)
+    const { deleteKey, loadKeys, setEditingKeyId, rollKey } = useActions(personalAPIKeysLogic)
 
-    useEffect(() => loadKeys(), [])
+    useEffect(() => loadKeys(), [loadKeys])
 
     return (
         <LemonTable
@@ -452,13 +452,37 @@ function PersonalAPIKeysTable(): JSX.Element {
                     title: 'Last Used',
                     dataIndex: 'last_used_at',
                     key: 'lastUsedAt',
-                    render: (_, key) => humanFriendlyDetailedTime(key.last_used_at, 'MMMM DD, YYYY', 'h A'),
+                    render: (_, key) => {
+                        return (
+                            <Tooltip title={detailedTime(key.last_used_at)} placement="bottom">
+                                {humanFriendlyDetailedTime(key.last_used_at, 'MMMM DD, YYYY', 'h A')}
+                            </Tooltip>
+                        )
+                    },
                 },
                 {
                     title: 'Created',
                     dataIndex: 'created_at',
                     key: 'createdAt',
-                    render: (_, key) => humanFriendlyDetailedTime(key.created_at),
+                    render: (_, key) => {
+                        return (
+                            <Tooltip title={detailedTime(key.created_at)} placement="bottom">
+                                {humanFriendlyDetailedTime(key.created_at)}
+                            </Tooltip>
+                        )
+                    },
+                },
+                {
+                    title: 'Last Rolled',
+                    dataIndex: 'last_rolled_at',
+                    key: 'lastRolledAt',
+                    render: (_, key) => {
+                        return (
+                            <Tooltip title={detailedTime(key.last_rolled_at)} placement="bottom">
+                                {humanFriendlyDetailedTime(key.last_rolled_at, 'MMMM DD, YYYY', 'h A')}
+                            </Tooltip>
+                        )
+                    },
                 },
                 {
                     title: '',
@@ -472,6 +496,26 @@ function PersonalAPIKeysTable(): JSX.Element {
                                     {
                                         label: 'Edit',
                                         onClick: () => setEditingKeyId(key.id),
+                                    },
+                                    {
+                                        label: 'Roll',
+                                        onClick: () => {
+                                            LemonDialog.open({
+                                                title: `Roll key "${key.label}"?`,
+                                                description:
+                                                    'This will generate a new key. The old key will immediately stop working.',
+                                                primaryButton: {
+                                                    status: 'danger',
+                                                    children: 'Roll',
+                                                    type: 'primary',
+                                                    onClick: () => rollKey(key.id),
+                                                },
+                                                secondaryButton: {
+                                                    children: 'Cancel',
+                                                    type: 'secondary',
+                                                },
+                                            })
+                                        },
                                     },
                                     {
                                         label: 'Delete',
@@ -527,8 +571,8 @@ export function PersonalAPIKeys(): JSX.Element {
                     !canUsePersonalApiKeys
                         ? 'Your organization does not allow members using personal API keys.'
                         : keys.length >= MAX_API_KEYS_PER_USER
-                        ? `You can only have ${MAX_API_KEYS_PER_USER} personal API keys. Remove an existing key before creating a new one.`
-                        : false
+                          ? `You can only have ${MAX_API_KEYS_PER_USER} personal API keys. Remove an existing key before creating a new one.`
+                          : false
                 }
             >
                 Create personal API key

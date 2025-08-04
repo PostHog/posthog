@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, UTC
 import re
 from typing import Any, cast, TypedDict
 from urllib.parse import urlparse
-import json
+import orjson
 
 import nh3
 import posthoganalytics
@@ -1197,9 +1197,6 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if not environment_is_allowed or not has_openai_api_key:
             raise exceptions.ValidationError("session summary is only supported in PostHog Cloud")
 
-        if not posthoganalytics.feature_enabled("ai-survey-response-summary", str(user.distinct_id)):
-            raise exceptions.ValidationError("survey response summary is not enabled for this user")
-
         end_date: datetime = (survey.end_date or datetime.now()).replace(
             hour=0, minute=0, second=0, microsecond=0
         ) + timedelta(days=1)
@@ -1400,11 +1397,7 @@ def public_survey_page(request, survey_id: str):
 
     # Database query with minimal fields and timeout protection
     try:
-        survey = (
-            Survey.objects.select_related("team")
-            .only("id", "name", "appearance", "archived", "type", "team__id", "team__api_token")
-            .get(id=survey_id)
-        )
+        survey = Survey.objects.select_related("team").get(id=survey_id)
     except Survey.DoesNotExist:
         logger.info("survey_page_not_found", survey_id=survey_id)
         # Use generic error message to prevent survey ID enumeration
@@ -1461,11 +1454,12 @@ def public_survey_page(request, survey_id: str):
     if hasattr(survey.team, "ui_host") and survey.team.ui_host:
         project_config["ui_host"] = survey.team.ui_host
 
+    serializer = SurveyAPISerializer(survey)
+    survey_data = serializer.data
     context = {
         "name": survey.name,
-        "id": survey.id,
-        "appearance": json.dumps(survey.appearance),
-        "project_config_json": json.dumps(project_config),
+        "survey_data": orjson.dumps(survey_data).decode("utf-8"),
+        "project_config_json": orjson.dumps(project_config).decode("utf-8"),
         "debug": settings.DEBUG,
     }
 

@@ -13,7 +13,7 @@ import { maxGlobalLogic } from '../maxGlobalLogic'
 import { maxLogic } from '../maxLogic'
 import { maxThreadLogic } from '../maxThreadLogic'
 import { ContextDisplay } from '../Context'
-import { SlashCommandAutocomplete } from './SlashCommandAutocomplete'
+import { MAX_SLASH_COMMANDS, SlashCommandAutocomplete } from './SlashCommandAutocomplete'
 import posthog from 'posthog-js'
 
 interface QuestionInputProps {
@@ -108,10 +108,15 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
 
                         <SlashCommandAutocomplete
                             onActivate={(command) => {
-                                setShowAutocomplete(false)
-                                askMax(command.name)
+                                if (command.arg) {
+                                    setQuestion(command.name + ' ') // Rest must be filled in by the user
+                                } else {
+                                    askMax(command.name)
+                                }
                             }}
-                            onSelect={(command) => setQuestion(command.name)}
+                            onSelect={(command) =>
+                                command.arg ? setQuestion(command.name + ' ') : setQuestion(command.name)
+                            }
                             visible={showAutocomplete}
                             onClose={() => setShowAutocomplete(false)}
                             searchText={question}
@@ -124,8 +129,8 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                                     threadLoading
                                         ? 'Thinking…'
                                         : isFloating
-                                        ? placeholder || 'Ask follow-up (/ for commands)'
-                                        : 'Ask away (/ for commands)'
+                                          ? placeholder || 'Ask follow-up (/ for commands)'
+                                          : 'Ask away (/ for commands)'
                                 }
                                 onPressEnter={() => {
                                     if (question && !submissionDisabledReason && !threadLoading) {
@@ -183,7 +188,14 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                                         : submissionDisabledReason
                                 }
                                 size="small"
-                                icon={threadLoading ? <IconStopFilled /> : <IconArrowRight />}
+                                icon={
+                                    threadLoading ? (
+                                        <IconStopFilled />
+                                    ) : (
+                                        MAX_SLASH_COMMANDS.find((cmd) => cmd.name === question.split(' ', 1)[0])
+                                            ?.icon || <IconArrowRight />
+                                    )
+                                }
                             />
                         </AIConsentPopoverWrapper>
                     </div>

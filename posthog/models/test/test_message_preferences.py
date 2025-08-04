@@ -1,11 +1,11 @@
-from posthog.models.message_preferences import MessageCategory, MessageRecipientPreference
+from posthog.models.message_preferences import MessageRecipientPreference, PreferenceStatus
+from posthog.models.message_category import MessageCategory
+
+
 from posthog.test.base import BaseTest
 from django.test import Client
-from django.urls import reverse
 from django.db import IntegrityError
 import uuid
-import json
-from posthog.models.message_preferences import PreferenceStatus
 
 
 class TestMessagePreferences(BaseTest):
@@ -85,9 +85,45 @@ class TestMessagePreferences(BaseTest):
         recipient.set_preference(self.category.id, PreferenceStatus.OPTED_IN)
         recipient.set_preference(category2.id, PreferenceStatus.OPTED_OUT)
 
+        # Test get_all_preferences method (returns dict of UUID to PreferenceStatus)
         preferences = recipient.get_all_preferences()
         self.assertEqual(preferences[self.category.id], PreferenceStatus.OPTED_IN)
         self.assertEqual(preferences[category2.id], PreferenceStatus.OPTED_OUT)
+
+        # Test get_all_preference method (also returns dict of UUID to PreferenceStatus)
+        all_preferences = recipient.get_all_preferences()
+        self.assertEqual(all_preferences[self.category.id], PreferenceStatus.OPTED_IN)
+        self.assertEqual(all_preferences[category2.id], PreferenceStatus.OPTED_OUT)
+
+    def test_get_or_create_for_identifier(self):
+        # Test creating a new recipient
+        defaults = {self.category.id: PreferenceStatus.OPTED_IN}
+        recipient = MessageRecipientPreference.get_or_create_for_identifier(
+            team_id=self.team.id, identifier="new@example.com", defaults=defaults
+        )
+
+        self.assertEqual(recipient.identifier, "new@example.com")
+        self.assertEqual(recipient.team_id, self.team.id)
+        # Check that the preference was set correctly
+        self.assertEqual(recipient.get_preference(self.category.id), PreferenceStatus.OPTED_IN)
+
+        # Test getting an existing recipient
+        existing_recipient = MessageRecipientPreference.get_or_create_for_identifier(
+            team_id=self.team.id, identifier="new@example.com"
+        )
+
+        # Should be the same instance
+        self.assertEqual(existing_recipient.id, recipient.id)
+        self.assertEqual(existing_recipient.get_preference(self.category.id), PreferenceStatus.OPTED_IN)
+
+    def test_set_preference_validation(self):
+        recipient = MessageRecipientPreference.objects.create(
+            team=self.team, identifier="test_validation@example.com", preferences={}
+        )
+
+        # Test that only PreferenceStatus enum values are accepted
+        with self.assertRaises(ValueError):
+            recipient.set_preference(self.category.id, "INVALID_STATUS")  # type: ignore[arg-type]
 
     def test_token_generation_and_validation(self):
         recipient = MessageRecipientPreference.objects.create(
@@ -110,55 +146,3 @@ class TestMessagePreferences(BaseTest):
         invalid_recipient, error = MessageRecipientPreference.validate_preferences_token("invalid-token")
         self.assertIsNone(invalid_recipient)
         self.assertNotEqual(error, "")
-
-    def test_preferences_page_valid_token(self):
-        response = self.client.get(reverse("message_preferences", kwargs={"token": self.token}))
-        self.assertEqual(response.status_code, 200)
-        self.assertTemplateUsed(response, "message_preferences/preferences.html")
-
-        # Check context
-        self.assertEqual(response.context["recipient"], self.recipient)
-        self.assertEqual(len(response.context["categories"]), 2)
-        self.assertEqual(response.context["token"], self.token)
-
-        # Verify categories are ordered by name
-        categories = response.context["categories"]
-        self.assertEqual(categories[0]["name"], "Newsletter Updates")
-        self.assertEqual(categories[1]["name"], "Product Updates")
-
-    def test_preferences_page_invalid_token(self):
-        response = self.client.get(reverse("message_preferences", kwargs={"token": "invalid-token"}))
-        self.assertEqual(response.status_code, 400)
-        self.assertTemplateUsed(response, "message_preferences/error.html")
-
-    def test_update_preferences_valid(self):
-        data = {"token": self.token, "preferences[]": [f"{self.category.id}:true", f"{self.category2.id}:false"]}
-        response = self.client.post(reverse("message_preferences_update"), data)
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(json.loads(response.content), {"success": True})
-
-        # Verify preferences were updated
-        self.recipient.refresh_from_db()
-        prefs = self.recipient.get_all_preferences()
-        self.assertEqual(prefs[self.category.id], PreferenceStatus.OPTED_IN)
-        self.assertEqual(prefs[self.category2.id], PreferenceStatus.OPTED_OUT)
-
-    def test_update_preferences_missing_token(self):
-        response = self.client.post(
-            reverse("message_preferences_update"),
-            {"preferences[]": [f"{self.category.id}:true"]},
-        )
-        self.assertEqual(response.status_code, 400)
-        self.assertEqual(json.loads(response.content), {"error": "Missing token"})
-
-    def test_update_preferences_invalid_token(self):
-        data = {"token": "invalid-token", "preferences[]": [f"{self.category.id}:true"]}
-        response = self.client.post(reverse("message_preferences_update"), data)
-        self.assertEqual(response.status_code, 400)
-        self.assertIn("error", json.loads(response.content))
-
-    def test_update_preferences_invalid_preference_format(self):
-        data = {"token": self.token, "preferences[]": ["invalid:format"]}
-        response = self.client.post(reverse("message_preferences_update"), data)
-        self.assertEqual(response.status_code, 400)
-        self.assertEqual(json.loads(response.content), {"error": "Failed to update preferences"})

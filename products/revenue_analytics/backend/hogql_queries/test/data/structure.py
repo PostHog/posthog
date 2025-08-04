@@ -3,6 +3,8 @@ from posthog.schema import RevenueAnalyticsEventItem, RevenueCurrencyPropertyCon
 REVENUE_ANALYTICS_CONFIG_SAMPLE_EVENT = RevenueAnalyticsEventItem(
     eventName="purchase",
     revenueProperty="revenue",
+    productProperty="product",
+    couponProperty="coupon",
     revenueCurrencyProperty=RevenueCurrencyPropertyConfig(property="currency"),
 )
 

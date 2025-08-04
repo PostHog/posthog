@@ -12,7 +12,7 @@ import { deleteKeysWithPrefix } from '../../_tests/redis'
 import { CdpRedis, createCdpRedisPool } from '../../redis'
 import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult } from '../../types'
 import { createInvocationResult } from '../../utils/invocation-utils'
-import { BASE_REDIS_KEY, CELERY_TASK_ID, HogWatcherService, HogWatcherState } from './hog-watcher.service'
+import { BASE_REDIS_KEY, HogWatcherService, HogWatcherState } from './hog-watcher.service'
 
 const mockNow: jest.SpyInstance = jest.spyOn(Date, 'now')
 const mockCaptureTeamEvent: jest.Mock = require('~/utils/posthog').captureTeamEvent as any
@@ -46,20 +46,26 @@ describe('HogWatcher', () => {
     let now: number
     let hub: Hub
     let watcher: HogWatcherService
-    let mockCeleryApplyAsync: jest.Mock
+    let onStateChangeSpy: jest.SpyInstance
     let redis: CdpRedis
 
-    beforeEach(async () => {
+    beforeAll(async () => {
         hub = await createHub()
-        hub.celery.applyAsync = mockCeleryApplyAsync = jest.fn()
+        redis = createCdpRedisPool(hub)
+    })
 
+    beforeEach(async () => {
         now = 1720000000000
         mockNow.mockReturnValue(now)
-
-        redis = createCdpRedisPool(hub)
         await deleteKeysWithPrefix(redis, BASE_REDIS_KEY)
+        hub.CDP_WATCHER_AUTOMATICALLY_DISABLE_FUNCTIONS = true
 
         watcher = new HogWatcherService(hub, redis)
+        onStateChangeSpy = jest.spyOn(watcher as any, 'onStateChange') as jest.SpyInstance
+    })
+
+    afterAll(async () => {
+        await closeHub(hub)
     })
 
     const advanceTime = (ms: number) => {
@@ -106,12 +112,6 @@ describe('HogWatcher', () => {
         return hub.CDP_WATCHER_BUCKET_SIZE - tokens
     }
 
-    afterEach(async () => {
-        jest.useRealTimers()
-        await closeHub(hub)
-        jest.clearAllMocks()
-    })
-
     it('should validate the bounds configuration', () => {
         expect(() => {
             const _badWatcher = new HogWatcherService(
@@ -151,7 +151,7 @@ describe('HogWatcher', () => {
 
     const cases: [
         { name: string; cost: number; state: number },
-        CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>[]
+        CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>[],
     ][] = [
         [
             { name: 'should calculate cost and state for single default result', cost: 0, state: 1 },
@@ -278,8 +278,8 @@ describe('HogWatcher', () => {
 
         await watcher.observeResults(badResults)
 
-        expect(mockCeleryApplyAsync).toHaveBeenCalledTimes(1)
-        expect(mockCeleryApplyAsync).toHaveBeenCalledWith(CELERY_TASK_ID, ['id1', HogWatcherState.disabledForPeriod])
+        expect(onStateChangeSpy).toHaveBeenCalledTimes(1)
+        expect(onStateChangeSpy).toHaveBeenCalledWith(expect.any(Object), HogWatcherState.disabledForPeriod)
 
         expect(await watcher.getState('id1')).toMatchInlineSnapshot(`
                 {
@@ -318,6 +318,7 @@ describe('HogWatcher', () => {
         })
 
         const hogFunction = createResult({ id: 'id1' }).invocation.hogFunction
+
         it('should force healthy', async () => {
             await watcher.forceStateChange(hogFunction, HogWatcherState.healthy)
             expect(await watcher.getState('id1')).toMatchInlineSnapshot(`
@@ -327,7 +328,7 @@ describe('HogWatcher', () => {
                       "tokens": 10000,
                     }
                 `)
-            expect(mockCeleryApplyAsync).toHaveBeenCalledWith(CELERY_TASK_ID, ['id1', HogWatcherState.healthy])
+            expect(onStateChangeSpy).toHaveBeenCalledWith(hogFunction, HogWatcherState.healthy)
             expect(mockCaptureTeamEvent).toHaveBeenCalledWith(expect.any(Object), 'hog_function_state_change', {
                 hog_function_id: hogFunction.id,
                 hog_function_type: hogFunction.type,
@@ -345,7 +346,7 @@ describe('HogWatcher', () => {
                       "tokens": 8000,
                     }
                 `)
-            expect(mockCeleryApplyAsync).toHaveBeenCalledWith(CELERY_TASK_ID, ['id1', HogWatcherState.degraded])
+            expect(onStateChangeSpy).toHaveBeenCalledWith(hogFunction, HogWatcherState.degraded)
             expect(mockCaptureTeamEvent).toHaveBeenCalledWith(expect.any(Object), 'hog_function_state_change', {
                 hog_function_id: hogFunction.id,
                 hog_function_type: hogFunction.type,
@@ -363,10 +364,7 @@ describe('HogWatcher', () => {
                       "tokens": 0,
                     }
                 `)
-            expect(mockCeleryApplyAsync).toHaveBeenCalledWith(CELERY_TASK_ID, [
-                'id1',
-                HogWatcherState.disabledForPeriod,
-            ])
+            expect(onStateChangeSpy).toHaveBeenCalledWith(hogFunction, HogWatcherState.disabledForPeriod)
             expect(mockCaptureTeamEvent).toHaveBeenCalledWith(expect.any(Object), 'hog_function_state_change', {
                 hog_function_id: hogFunction.id,
                 hog_function_type: hogFunction.type,
@@ -384,10 +382,7 @@ describe('HogWatcher', () => {
                       "tokens": 0,
                     }
                 `)
-            expect(mockCeleryApplyAsync).toHaveBeenCalledWith(CELERY_TASK_ID, [
-                'id1',
-                HogWatcherState.disabledIndefinitely,
-            ])
+            expect(onStateChangeSpy).toHaveBeenCalledWith(hogFunction, HogWatcherState.disabledIndefinitely)
             expect(mockCaptureTeamEvent).toHaveBeenCalledWith(expect.any(Object), 'hog_function_state_change', {
                 hog_function_id: hogFunction.id,
                 hog_function_type: hogFunction.type,
@@ -399,7 +394,7 @@ describe('HogWatcher', () => {
     })
 
     describe('disable logic', () => {
-        jest.retryTimes(3) // Timings are flakey and hard to test but we don't need it to be perfect
+        // jest.retryTimes(3) // Timings are flakey and hard to test but we don't need it to be perfect
         beforeEach(() => {
             hub.CDP_WATCHER_BUCKET_SIZE = 100
             hub.CDP_WATCHER_DISABLED_TEMPORARY_TTL = 1 // Shorter ttl to help with testing
@@ -415,26 +410,31 @@ describe('HogWatcher', () => {
                 expect((await watcher.getState('id1')).state).toEqual(HogWatcherState.degraded)
             }
 
-            expect(mockCeleryApplyAsync).toHaveBeenCalledTimes(2)
-            expect(mockCeleryApplyAsync.mock.calls[0]).toEqual([
-                CELERY_TASK_ID,
-                ['id1', HogWatcherState.disabledForPeriod],
-            ])
-            expect(mockCeleryApplyAsync.mock.calls[1]).toEqual([
-                CELERY_TASK_ID,
-                ['id1', HogWatcherState.disabledForPeriod],
-            ])
+            expect(onStateChangeSpy).toHaveBeenCalledTimes(2)
+            expect(onStateChangeSpy.mock.calls[0]).toEqual([expect.any(Object), HogWatcherState.disabledForPeriod])
+            expect(onStateChangeSpy.mock.calls[1]).toEqual([expect.any(Object), HogWatcherState.disabledForPeriod])
 
             await watcher.observeResults([createResult({ id: 'id1', duration: 50000, kind: 'async_function' })])
             expect((await watcher.getState('id1')).state).toEqual(HogWatcherState.disabledIndefinitely)
             await reallyAdvanceTime(1000)
             expect((await watcher.getState('id1')).state).toEqual(HogWatcherState.disabledIndefinitely)
 
-            expect(mockCeleryApplyAsync).toHaveBeenCalledTimes(3)
-            expect(mockCeleryApplyAsync.mock.calls[2]).toEqual([
-                CELERY_TASK_ID,
-                ['id1', HogWatcherState.disabledIndefinitely],
-            ])
+            expect(onStateChangeSpy).toHaveBeenCalledTimes(3)
+            expect(onStateChangeSpy.mock.calls[2]).toEqual([expect.any(Object), HogWatcherState.disabledIndefinitely])
+        })
+
+        it('should never automatically disable if the setting is off', async () => {
+            hub.CDP_WATCHER_AUTOMATICALLY_DISABLE_FUNCTIONS = false
+
+            // Trigger the temporary disabled state 3 times
+            for (let i = 0; i < 2; i++) {
+                await watcher.observeResults([createResult({ id: 'id1', duration: 25000, kind: 'async_function' })])
+                expect((await watcher.getState('id1')).state).toEqual(HogWatcherState.degraded)
+                await reallyAdvanceTime(1000)
+                expect((await watcher.getState('id1')).state).toEqual(HogWatcherState.degraded)
+            }
+
+            expect(onStateChangeSpy).toHaveBeenCalledTimes(0)
         })
     })
 
@@ -504,6 +504,70 @@ describe('HogWatcher', () => {
             const expectedTotalCost = timings.reduce((acc, t) => acc + calculateCost(t.duration_ms, t.kind), 0)
 
             expect(await tokensUsed(id)).toBe(expectedTotalCost)
+        })
+    })
+
+    describe('zero cost timing configuration', () => {
+        it('should handle zero cost timing for hog functions without crashing', async () => {
+            const zeroHogCostHub = {
+                ...hub,
+                CDP_WATCHER_HOG_COST_TIMING: 0,
+            }
+            const watcherWithZeroHogCost = new HogWatcherService(zeroHogCostHub, redis)
+
+            await watcherWithZeroHogCost.observeResults([
+                createResult({ id: 'zero_hog_cost', duration: 1000, kind: 'hog' }),
+                createResult({ id: 'zero_hog_cost', duration: 5000, kind: 'hog' }),
+            ])
+
+            const state = await watcherWithZeroHogCost.getState('zero_hog_cost')
+
+            expect(state.tokens).toBe(hub.CDP_WATCHER_BUCKET_SIZE)
+            expect(state.state).toBe(HogWatcherState.healthy)
+            expect(state.rating).toBe(1)
+        })
+
+        it('should handle zero cost timing for async functions without crashing', async () => {
+            const zeroAsyncCostHub = {
+                ...hub,
+                CDP_WATCHER_ASYNC_COST_TIMING: 0,
+            }
+            const watcherWithZeroAsyncCost = new HogWatcherService(zeroAsyncCostHub, redis)
+
+            await watcherWithZeroAsyncCost.observeResults([
+                createResult({ id: 'zero_async_cost', duration: 1000, kind: 'async_function' }),
+                createResult({ id: 'zero_async_cost', duration: 10000, kind: 'async_function' }),
+            ])
+
+            const state = await watcherWithZeroAsyncCost.getState('zero_async_cost')
+
+            expect(state.tokens).toBe(hub.CDP_WATCHER_BUCKET_SIZE)
+            expect(state.state).toBe(HogWatcherState.healthy)
+            expect(state.rating).toBe(1)
+        })
+
+        it('should handle both zero cost timings without crashing', async () => {
+            const zeroCostHub = {
+                ...hub,
+                CDP_WATCHER_HOG_COST_TIMING: 0,
+                CDP_WATCHER_ASYNC_COST_TIMING: 0,
+            }
+            const watcherWithZeroCosts = new HogWatcherService(zeroCostHub, redis)
+
+            const result = createResult({ id: 'zero_all_costs', duration: 1000, kind: 'hog' })
+            result.invocation.state.timings = [
+                { kind: 'hog', duration_ms: 2000 },
+                { kind: 'async_function', duration_ms: 5000 },
+                { kind: 'hog', duration_ms: 1000 },
+            ]
+
+            await watcherWithZeroCosts.observeResults([result])
+
+            const state = await watcherWithZeroCosts.getState('zero_all_costs')
+
+            expect(state.tokens).toBe(hub.CDP_WATCHER_BUCKET_SIZE)
+            expect(state.state).toBe(HogWatcherState.healthy)
+            expect(state.rating).toBe(1)
         })
     })
 })

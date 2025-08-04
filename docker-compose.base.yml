@@ -20,26 +20,34 @@ services:
                 ${CADDY_HOST} {
                     @replay-capture {
                         path /s
+                        path /s/
                         path /s/*
                     }
 
                     @capture {
                         path /e
+                        path /e/
                         path /e/*
+                        path /i/v0
+                        path /i/v0/
                         path /i/v0/*
                         path /batch
-                        path /batch*
+                        path /batch/
+                        path /batch/*
                         path /capture
-                        path /capture*
+                        path /capture/
+                        path /capture/*
                     }
 
                     @flags {
                         path /flags
-                        path /flags*
+                        path /flags/
+                        path /flags/*
                     }
 
                     @webhooks {
                         path /public/webhooks
+                        path /public/webhooks/
                         path /public/webhooks/*
                     }
 
@@ -113,17 +121,30 @@ services:
         restart: on-failure
 
     kafka:
-        image: ghcr.io/posthog/kafka-container:v2.8.2
+        image: docker.redpanda.com/redpandadata/redpanda:v25.1.9
         restart: on-failure
+        command:
+            - redpanda
+            - start
+            - --kafka-addr internal://0.0.0.0:9092,external://0.0.0.0:19092
+            - --advertise-kafka-addr internal://kafka:9092,external://localhost:19092
+            - --pandaproxy-addr internal://0.0.0.0:8082,external://0.0.0.0:18082
+            - --advertise-pandaproxy-addr internal://kafka:8082,external://localhost:18082
+            - --schema-registry-addr internal://0.0.0.0:8081,external://0.0.0.0:18081
+            - --rpc-addr kafka:33145
+            - --advertise-rpc-addr kafka:33145
+            - --mode dev-container
+            - --smp 1
+            - --memory 1G
+            - --reserve-memory 200M
+            - --overprovisioned
+            - --set redpanda.empty_seed_starts_cluster=false
+            - --seeds kafka:33145
+            - --set redpanda.auto_create_topics_enabled=true
         environment:
-            KAFKA_BROKER_ID: 1001
-            KAFKA_CFG_RESERVED_BROKER_MAX_ID: 1001
-            KAFKA_CFG_LISTENERS: PLAINTEXT://:9092
-            KAFKA_CFG_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
-            KAFKA_CFG_ZOOKEEPER_CONNECT: zookeeper:2181
             ALLOW_PLAINTEXT_LISTENER: 'true'
         healthcheck:
-            test: kafka-cluster.sh cluster-id --bootstrap-server localhost:9092 || exit 1
+            test: curl -f http://localhost:9644/v1/status/ready || exit 1
             interval: 3s
             timeout: 10s
             retries: 10
@@ -134,6 +155,7 @@ services:
         environment:
             KAFKA_CLUSTERS_0_NAME: local
             KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+            KAFKA_CLUSTERS_0_SCHEMAREGISTRY: http://kafka:8081
             DYNAMIC_CONFIG_ENABLED: 'true'
 
     objectstorage:

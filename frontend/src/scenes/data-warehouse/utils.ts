@@ -82,8 +82,8 @@ const typeSizes = {
         !item
             ? 0
             : Array.isArray(item)
-            ? item.reduce((total, element) => sizeOfInBytes(element) + total, 0)
-            : Object.keys(item).reduce((total, key) => sizeOfInBytes(key) + sizeOfInBytes(item[key]) + total, 0),
+              ? item.reduce((total, element) => sizeOfInBytes(element) + total, 0)
+              : Object.keys(item).reduce((total, key) => sizeOfInBytes(key) + sizeOfInBytes(item[key]) + total, 0),
     function: () => 0,
     symbol: () => 0,
     bigint: () => 0,
