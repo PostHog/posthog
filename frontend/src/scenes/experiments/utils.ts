@@ -19,6 +19,7 @@ import {
     ExperimentMetricTypeProps,
     ExperimentTrendsQuery,
     NodeKind,
+    TrendsQuery,
 } from '~/queries/schema/schema-general'
 import { isFunnelsQuery, isNodeWithSource, isTrendsQuery, isValidQueryForExperiment } from '~/queries/utils'
 import {
@@ -521,7 +522,7 @@ export function filterToMetricConfig(
                         event: event.id,
                         properties: event.properties,
                         order: event.order,
-                    } as EventsNode & { order: number })
+                    }) as EventsNode & { order: number }
             ) || []
 
         const actionSteps =
@@ -533,7 +534,7 @@ export function filterToMetricConfig(
                         name: action.name,
                         properties: action.properties,
                         order: action.order,
-                    } as ActionsNode & { order: number })
+                    }) as ActionsNode & { order: number }
             ) || []
 
         const combinedSteps = [...eventSteps, ...actionSteps].sort((a, b) => a.order - b.order)
@@ -677,3 +678,96 @@ export const isLegacyExperiment = ({ metrics, metrics_secondary, saved_metrics }
 }
 
 export const isLegacySharedMetric = ({ query }: SharedMetric): boolean => isLegacyExperimentQuery(query)
+
+/**
+ * Builds a TrendsQuery for counting events in the last 14 days for experiment metric preview
+ */
+export function getEventCountQuery(metric: ExperimentMetric, filterTestAccounts: boolean): TrendsQuery | null {
+    let series: AnyEntityNode[] = []
+
+    if (metric.metric_type === ExperimentMetricType.MEAN) {
+        const source = metric.source
+        if (source.kind === NodeKind.EventsNode) {
+            series = [
+                {
+                    kind: NodeKind.EventsNode,
+                    name: source.event || undefined,
+                    event: source.event || undefined,
+                    math: ExperimentMetricMathType.TotalCount,
+                    ...(source.properties && source.properties.length > 0 && { properties: source.properties }),
+                },
+            ]
+        } else if (source.kind === NodeKind.ActionsNode) {
+            series = [
+                {
+                    kind: NodeKind.ActionsNode,
+                    id: source.id,
+                    name: source.name,
+                    math: ExperimentMetricMathType.TotalCount,
+                    ...(source.properties && source.properties.length > 0 && { properties: source.properties }),
+                },
+            ]
+        } else if (source.kind === NodeKind.ExperimentDataWarehouseNode) {
+            series = [
+                {
+                    kind: NodeKind.DataWarehouseNode,
+                    id: source.table_name,
+                    id_field: source.data_warehouse_join_key,
+                    table_name: source.table_name,
+                    timestamp_field: source.timestamp_field,
+                    distinct_id_field: source.events_join_key,
+                    name: source.name,
+                    math: ExperimentMetricMathType.TotalCount,
+                    ...(source.properties && source.properties.length > 0 && { properties: source.properties }),
+                },
+            ]
+        }
+    } else if (metric.metric_type === ExperimentMetricType.FUNNEL) {
+        const lastStep = metric.series[metric.series.length - 1]
+        if (lastStep) {
+            if (lastStep.kind === NodeKind.EventsNode) {
+                series = [
+                    {
+                        kind: NodeKind.EventsNode,
+                        name: lastStep.event || undefined,
+                        event: lastStep.event,
+                        math: ExperimentMetricMathType.TotalCount,
+                        ...(lastStep.properties &&
+                            lastStep.properties.length > 0 && { properties: lastStep.properties }),
+                    },
+                ]
+            } else if (lastStep.kind === NodeKind.ActionsNode) {
+                series = [
+                    {
+                        kind: NodeKind.ActionsNode,
+                        id: lastStep.id,
+                        name: lastStep.name,
+                        math: ExperimentMetricMathType.TotalCount,
+                        ...(lastStep.properties &&
+                            lastStep.properties.length > 0 && { properties: lastStep.properties }),
+                    },
+                ]
+            }
+        }
+    }
+
+    if (series.length === 0) {
+        return null
+    }
+
+    return {
+        kind: NodeKind.TrendsQuery,
+        series,
+        trendsFilter: {
+            formulaNodes: [],
+            display: ChartDisplayType.BoldNumber,
+        },
+        dateRange: {
+            date_from: '-14d',
+            date_to: null,
+            explicitDate: false,
+        },
+        interval: 'day',
+        filterTestAccounts,
+    }
+}

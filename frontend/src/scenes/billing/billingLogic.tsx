@@ -567,9 +567,9 @@ export const billingLogic = kea<billingLogicType>([
                 creditInput: !creditInput
                     ? 'Please enter the amount of credits you want to purchase'
                     : // This value is used because 3333 - 10% = 3000
-                    +creditInput < 3333
-                    ? 'Please enter a credit amount of at least $3,333'
-                    : undefined,
+                      +creditInput < 3333
+                      ? 'Please enter a credit amount of at least $3,333'
+                      : undefined,
                 collectionMethod: !collectionMethod ? 'Please select a collection method' : undefined,
             }),
         },
@@ -700,8 +700,8 @@ export const billingLogic = kea<billingLogicType>([
                             productOverLimit.name === 'Data warehouse'
                                 ? 'data will not be synced'
                                 : productOverLimit.name === 'Feature flags & Experiments'
-                                ? 'feature flags will not evaluate'
-                                : 'data loss may occur'
+                                  ? 'feature flags will not evaluate'
+                                  : 'data loss may occur'
                         }.`,
                     dismissKey: 'usage-limit-exceeded',
                 })

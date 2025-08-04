@@ -18,8 +18,8 @@ export function Attribution({ insightProps }: EditorFilterProps): JSX.Element {
         !breakdownAttributionType
             ? BreakdownAttributionType.FirstTouch
             : breakdownAttributionType === BreakdownAttributionType.Step
-            ? `${breakdownAttributionType}/${breakdownAttributionValue || 0}`
-            : breakdownAttributionType
+              ? `${breakdownAttributionType}/${breakdownAttributionValue || 0}`
+              : breakdownAttributionType
 
     return (
         <LemonSelect

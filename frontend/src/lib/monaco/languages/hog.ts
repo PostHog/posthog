@@ -1,5 +1,4 @@
-// eslint-disable-next-line eslint-comments/disable-enable-pair
-/* eslint-disable no-useless-escape */
+/* oxlint-disable no-useless-escape */
 
 // Adapted from: https://raw.githubusercontent.com/microsoft/monaco-editor/main/src/basic-languages/typescript/typescript.ts
 
@@ -259,3 +258,5 @@ export function initHogLanguage(monaco: Monaco): void {
         monaco.languages.registerCodeActionProvider('hog', hogQLMetadataProvider())
     }
 }
+
+/* oxlint-enable no-useless-escape */

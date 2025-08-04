@@ -22,15 +22,15 @@ export function getDefaultConfig(): PluginsServerConfig {
         DATABASE_URL: isTestEnv()
             ? 'postgres://posthog:posthog@localhost:5432/test_posthog'
             : isDevEnv()
-            ? 'postgres://posthog:posthog@localhost:5432/posthog'
-            : '',
+              ? 'postgres://posthog:posthog@localhost:5432/posthog'
+              : '',
         DATABASE_READONLY_URL: '',
         PLUGIN_STORAGE_DATABASE_URL: '',
         PERSONS_DATABASE_URL: isTestEnv()
             ? 'postgres://posthog:posthog@localhost:5432/test_posthog'
             : isDevEnv()
-            ? 'postgres://posthog:posthog@localhost:5432/posthog'
-            : '',
+              ? 'postgres://posthog:posthog@localhost:5432/posthog'
+              : '',
         PERSONS_READONLY_DATABASE_URL: '',
         POSTGRES_CONNECTION_POOL_SIZE: 10,
         POSTHOG_DB_NAME: null,
@@ -41,6 +41,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         CASSANDRA_HOST: 'localhost',
         CASSANDRA_PORT: 9042,
         CASSANDRA_KEYSPACE: isTestEnv() ? 'test_posthog' : 'posthog',
+        CASSANDRA_LOCAL_DATACENTER: 'datacenter1',
         CASSANDRA_USER: null,
         CASSANDRA_PASSWORD: null,
         WRITE_BEHAVIOURAL_COUNTERS_TO_CASSANDRA: false,

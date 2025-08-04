@@ -5,7 +5,6 @@ import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { PageHeader } from 'lib/components/PageHeader'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonMenu, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
-import { useEffect } from 'react'
 import { DataWarehouseManagedSourcesTable } from 'scenes/data-warehouse/settings/DataWarehouseManagedSourcesTable'
 import { DataWarehouseSelfManagedSourcesTable } from 'scenes/data-warehouse/settings/DataWarehouseSelfManagedSourcesTable'
 import { HogFunctionList } from 'scenes/hog-functions/list/HogFunctionsList'
@@ -14,6 +13,7 @@ import { urls } from 'scenes/urls'
 import { PipelineTab } from '~/types'
 
 import { nonHogFunctionsLogic } from './utils/nonHogFunctionsLogic'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 function Section({
     title,
@@ -49,10 +49,10 @@ export function DataPipelinesOverview(): JSX.Element {
     const { hogFunctionPluginsDestinations, hogFunctionBatchExports } = useValues(nonHogFunctionsLogic)
     const { loadHogFunctionPluginsDestinations, loadHogFunctionBatchExports } = useActions(nonHogFunctionsLogic)
 
-    useEffect(() => {
+    useOnMountEffect(() => {
         loadHogFunctionPluginsDestinations()
         loadHogFunctionBatchExports()
-    }, [])
+    })
 
     return (
         <>

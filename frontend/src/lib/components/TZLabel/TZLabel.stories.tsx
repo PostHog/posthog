@@ -1,8 +1,9 @@
 import { Meta } from '@storybook/react'
 import { TZLabel } from 'lib/components/TZLabel/index'
 import { now } from 'lib/dayjs'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 
 import { mswDecorator } from '~/mocks/browser'
 
@@ -37,11 +38,11 @@ export function WithMoreThanOne(): JSX.Element {
 
     const [portalCount, setPortalCount] = useState(0)
 
-    useEffect(() => {
-        // Run this effect after the component has mounted
+    // Run this effect only once the component has mounted
+    useOnMountEffect(() => {
         const count = document.querySelectorAll('[data-floating-ui-portal]').length
         setPortalCount(count)
-    }, [])
+    })
 
     return (
         <div className="flex flex-col gap-2">

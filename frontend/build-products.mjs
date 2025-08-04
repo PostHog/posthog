@@ -74,10 +74,10 @@ export function buildProductManifests() {
                     node.name.text === 'treeItemsNew'
                         ? treeItemsNew
                         : node.name.text === 'treeItemsProducts'
-                        ? treeItemsProducts
-                        : node.name.text === 'treeItemsMetadata'
-                        ? treeItemsMetadata
-                        : treeItemsGames
+                          ? treeItemsProducts
+                          : node.name.text === 'treeItemsMetadata'
+                            ? treeItemsMetadata
+                            : treeItemsGames
                 node.initializer.elements.forEach((el) => {
                     if (!ts.isObjectLiteralExpression(el)) {
                         return
@@ -149,10 +149,10 @@ export function buildProductManifests() {
             kind === 'default'
                 ? spec
                 : kind === 'namespace'
-                ? spec
-                : spec.includes(' as ')
-                ? spec.split(' as ').pop()
-                : spec
+                  ? spec
+                  : spec.includes(' as ')
+                    ? spec.split(' as ').pop()
+                    : spec
         if (globalNames.has(localName)) {
             return
         }
