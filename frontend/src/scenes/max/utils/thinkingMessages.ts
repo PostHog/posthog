@@ -88,7 +88,9 @@ export const THINKING_MESSAGES = [
 ]
 
 export const getRandomThinkingMessage = (): string => {
-    if (inStorybookTestRunner()) return 'Thinking'
+    if (inStorybookTestRunner()) {
+        return 'Thinking'
+    }
     const randomIndex = Math.floor(Math.random() * THINKING_MESSAGES.length)
     return THINKING_MESSAGES[randomIndex]
 }
