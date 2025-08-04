@@ -261,8 +261,12 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
                                                 {...elementProps}
                                             >
                                                 <PlayerFrame />
-                                                {!isScreenshotMode ? <PlayerFrameOverlay /> : null}
-                                                {!isScreenshotMode ? <PlayerFrameCommentOverlay /> : null}
+                                                {!isScreenshotMode ? (
+                                                    <>
+                                                        <PlayerFrameOverlay />
+                                                        <PlayerFrameCommentOverlay />
+                                                    </>
+                                                ) : null}
                                             </div>
                                             {!isScreenshotMode ? <PlayerController /> : null}
                                         </div>
