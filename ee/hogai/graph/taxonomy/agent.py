@@ -6,9 +6,10 @@ from langgraph.graph import StateGraph
 from .types import TaxonomyNodeName
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
 from ee.hogai.utils.types import StateType, PartialStateType
+from ee.hogai.graph.graph import BaseAssistantGraph
 
 
-class TaxonomyAgent(Generic[StateType, PartialStateType]):
+class TaxonomyAgent(Generic[StateType, PartialStateType], BaseAssistantGraph):
     """Taxonomy agent that can be configured with different node classes."""
 
     def __init__(
@@ -46,25 +47,6 @@ class TaxonomyAgent(Generic[StateType, PartialStateType]):
             "Make sure to inherit from TaxonomyAgent with a specific state type, "
             "e.g., TaxonomyAgent[TaxonomyAgentState]"
         )
-
-    def add_edge(self, from_node: str, to_node: str):
-        if from_node == "START":
-            self._has_start_node = True
-        self._graph.add_edge(from_node, to_node)
-        return self
-
-    def add_node(self, node: str, action):
-        self._graph.add_node(node, action)
-        return self
-
-    def add_conditional_edges(self, node: str, router, path_map: dict):
-        self._graph.add_conditional_edges(node, router, path_map)
-        return self
-
-    def compile(self, checkpointer=None):
-        if not self._has_start_node:
-            raise ValueError("Start node not added to the graph")
-        return self._graph.compile(checkpointer=checkpointer)
 
     def compile_full_graph(self, checkpointer: DjangoCheckpointer | None = None):
         """Compile a complete taxonomy graph."""
