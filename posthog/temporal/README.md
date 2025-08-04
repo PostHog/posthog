@@ -28,6 +28,8 @@ Here is a very simple workflow:
 ```python
 import asyncio
 from temporalio import activity, workflow
+from temporalio.client import Client
+
 
 @activity.defn
 async def hello_world_activity() -> str:
