@@ -66,7 +66,7 @@ async def deliver_subscription_report_async(
     insights, assets = await database_sync_to_async(generate_assets)(subscription, use_celery=False)
 
     if not assets:
-        logger.warning("subscription_has_no_assets", subscription_id=subscription.id)
+        capture_exception(Exception("No assets are in this subscription"), {"subscription_id": subscription.id})
         return
 
     if subscription.target_type == "email":
@@ -161,8 +161,7 @@ def deliver_subscription_report_sync(
     insights, assets = generate_assets(subscription)
 
     if not assets:
-        # Log this as a warning instead of creating an exception
-        logger.warning("subscription_has_no_assets", subscription_id=subscription.id)
+        capture_exception(Exception("No assets are in this subscription"), {"subscription_id": subscription.id})
         return
 
     if subscription.target_type == "email":
