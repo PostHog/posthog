@@ -311,6 +311,28 @@ export class HogExecutorService {
         const result = createInvocationResult<CyclotronJobInvocationHogFunction>(invocation)
         const addLog = createAddLogFunction(result.logs)
 
+        if (
+            invocation.state.globals.inputs.oauth.refreshed_at + invocation.state.globals.inputs.oauth.expires_in / 2 <
+            Date.now()
+        ) {
+            // If we have a high lag in the hog-workers, OAuth tokens will expire before they are used
+            // If the OAuth token is about to expire, we should refresh it
+            logger.warn('🦔', `[HogExecutor] OAuth token probably expired. Refreshing...`, {
+                hogFunctionId: invocation.hogFunction.id,
+                hogFunctionName: invocation.hogFunction.name,
+                teamId: invocation.teamId,
+                eventId: invocation.state.globals.event.url,
+            })
+            addLog('warn', `OAuth token probably expired. Refreshing...`)
+
+            const integrationInputs = await this.hogInputsService.loadIntegrationInputs(invocation.hogFunction)
+
+            result.invocation.state.globals.inputs = {
+                ...result.invocation.state.globals.inputs,
+                ...{ oauth: integrationInputs.oauth.value },
+            }
+        }
+
         try {
             let globals: HogFunctionInvocationGlobalsWithInputs
             let execRes: ExecResult | undefined = undefined
@@ -583,37 +605,15 @@ export class HogExecutorService {
         if (!fetchResponse || (fetchResponse?.status && fetchResponse.status >= 400)) {
             const backoffMs = Math.min(
                 this.hub.CDP_FETCH_BACKOFF_BASE_MS * result.invocation.state.attempts +
-                Math.floor(Math.random() * this.hub.CDP_FETCH_BACKOFF_BASE_MS),
+                    Math.floor(Math.random() * this.hub.CDP_FETCH_BACKOFF_BASE_MS),
                 this.hub.CDP_FETCH_BACKOFF_MAX_MS
             )
 
-            let canRetry = isFetchResponseRetriable(fetchResponse, fetchError)
+            const canRetry = isFetchResponseRetriable(fetchResponse, fetchError)
 
-            if (
-                invocation.state.globals.inputs.oauth.refreshed_at +
-                (invocation.state.globals.inputs.oauth.expires_in / 2) * 1000 <
-                Date.now()
-            ) {
-                // If the OAuth token is about to expire, we should refresh it
-                logger.warn('🦔', `[HogExecutor] OAuth token is about to expire, refreshing it`, {
-                    hogFunctionId: invocation.hogFunction.id,
-                    hogFunctionName: invocation.hogFunction.name,
-                    teamId: invocation.teamId,
-                    eventId: invocation.state.globals.event.url,
-                })
-
-                const integrationInputs = await this.hogInputsService.loadIntegrationInputs(invocation.hogFunction)
-
-                result.invocation.state.globals.inputs = {
-                    ...result.invocation.state.globals.inputs,
-                    ...integrationInputs,
-                }
-
-                canRetry = true
-            }
-
-            let message = `HTTP fetch failed on attempt ${result.invocation.state.attempts} with status code ${fetchResponse?.status ?? '(none)'
-                }.`
+            let message = `HTTP fetch failed on attempt ${result.invocation.state.attempts} with status code ${
+                fetchResponse?.status ?? '(none)'
+            }.`
 
             if (fetchError) {
                 message += ` Error: ${fetchError.message}.`
