@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 import structlog
 
+from uuid import UUID
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
@@ -11,6 +12,7 @@ from posthog.schema import (
     CachedErrorTrackingIssueCorrelationQueryResponse,
     DateRange,
 )
+from django.db.models import QuerySet
 from posthog.models.error_tracking import ErrorTrackingIssue
 from posthog.api.error_tracking import ErrorTrackingIssueSerializer
 from posthog.hogql.parser import parse_select
@@ -64,9 +66,9 @@ class ErrorTrackingIssueCorrelationQueryRunner(QueryRunner):
             **self.paginator.response_params(),
         )
 
-    def results(self, rows):
-        issue_ids = set()
-        correlations = {}
+    def results(self, rows: list[tuple[str, list[UUID], list[int], list[int], list[int], list[int]]]) -> list[dict]:
+        issue_ids: set[str] = set()
+        correlations: dict[str, dict[str, float]] = {}
 
         for row in rows:
             event, issue_uuids, issue_both, issue_success_only, issue_exception_only, issue_neither = row
@@ -78,31 +80,31 @@ class ErrorTrackingIssueCorrelationQueryRunner(QueryRunner):
                 if not (both > 0 and success_only > 0 and exception_only > 0 and neither > 0):
                     continue
 
-                issue_ids.add(uuid)
+                issue_ids.add(str(uuid))
                 odds_ratio = (both * neither) / (success_only * exception_only)
 
-                issue_correlation = correlations.setdefault(uuid, {})
-                issue_correlation[event] = {"correlation_score": odds_ratio, "correlation_event": event}
+                issue_correlation = correlations.setdefault(str(uuid), {})
+                issue_correlation[event] = odds_ratio
 
-        issues = self.fetch_issues(issue_ids)
+        issues = self.fetch_issues(list(issue_ids))
 
         results = []
         for issue in issues:
-            issue_correlations = correlations.get(issue["id"]).values()
-            for correlation in issue_correlations:
-                results.append({**issue, **correlation})
+            issue_correlations = correlations.get(issue["id"], {})  # type: ignore
+            for event, odds_ratio in issue_correlations.items():
+                results.append({**issue, "correlation_score": odds_ratio, "correlation_event": event})  # type: ignore
 
         return sorted(results, key=lambda r: r["correlation_score"], reverse=True)
 
-    def fetch_issues(self, ids):
-        queryset = (
+    def fetch_issues(self, ids: list[str]):
+        queryset: QuerySet[ErrorTrackingIssue] = (
             ErrorTrackingIssue.objects.with_first_seen()
             .select_related("assignment")
             .filter(id__in=ids, team=self.team, status=ErrorTrackingIssue.Status.ACTIVE)
         )
         return ErrorTrackingIssueSerializer(queryset, many=True).data
 
-    def to_query(self) -> ast.SelectQuery:
+    def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         return parse_select(
             """SELECT
     '$pageview',
@@ -134,37 +136,37 @@ FROM(
 )"""
         )
 
-        return parse_select(
-            """SELECT
-                    event,
-                    any(issue_ids),
-                    sumForEach(both) as both,
-                    sumForEach(success_only) as success_only,
-                    sumForEach(exception_only) as exception_only,
-                    sumForEach(neither) as neither
-                FROM(
-                    WITH issue_list AS (
-                        SELECT groupUniqArray(issue_id) as value
-                        FROM events
-                        WHERE timestamp > now() - INTERVAL 6 HOUR AND notEmpty(events.$session_id) AND issue_id IS NOT NULL AND event = '$exception'
-                    )
-                    select
-                        event,
-                        $session_id,
-                        (SELECT * FROM issue_list) AS issue_ids,
-                        minIf(toNullable(timestamp), event != '$exception') as earliest_success_event,
-                        minForEach(arrayMap(x -> (if(x = issue_id, toNullable(timestamp), NULL)), issue_ids)) as earliest_exceptions,
-                        arrayMap(x -> if(x IS NOT NULL AND earliest_success_event IS NOT NULL AND x < earliest_success_event, 1, 0), earliest_exceptions) AS both,
-                        arrayMap(x -> if(x IS NULL AND earliest_success_event IS NOT NULL, 1, 0), earliest_exceptions) AS success_only,
-                        arrayMap(x -> if(x IS NOT NULL AND earliest_success_event IS NULL, 1, 0), earliest_exceptions) AS exception_only,
-                        arrayMap(x -> if(x IS NULL AND earliest_success_event IS NULL, 1, 0), earliest_exceptions) AS neither
-                    from events
-                    where
-                        timestamp > now() - INTERVAL 6 HOUR AND
-                        notEmpty(events.$session_id) AND
-                        event in ('$pageview', '$pageleave')
-                    group by $session_id, event
-                )
-                group by event
-            """
-        )
+        # return parse_select(
+        #     """SELECT
+        #             event,
+        #             any(issue_ids),
+        #             sumForEach(both) as both,
+        #             sumForEach(success_only) as success_only,
+        #             sumForEach(exception_only) as exception_only,
+        #             sumForEach(neither) as neither
+        #         FROM(
+        #             WITH issue_list AS (
+        #                 SELECT groupUniqArray(issue_id) as value
+        #                 FROM events
+        #                 WHERE timestamp > now() - INTERVAL 6 HOUR AND notEmpty(events.$session_id) AND issue_id IS NOT NULL AND event = '$exception'
+        #             )
+        #             select
+        #                 event,
+        #                 $session_id,
+        #                 (SELECT * FROM issue_list) AS issue_ids,
+        #                 minIf(toNullable(timestamp), event != '$exception') as earliest_success_event,
+        #                 minForEach(arrayMap(x -> (if(x = issue_id, toNullable(timestamp), NULL)), issue_ids)) as earliest_exceptions,
+        #                 arrayMap(x -> if(x IS NOT NULL AND earliest_success_event IS NOT NULL AND x < earliest_success_event, 1, 0), earliest_exceptions) AS both,
+        #                 arrayMap(x -> if(x IS NULL AND earliest_success_event IS NOT NULL, 1, 0), earliest_exceptions) AS success_only,
+        #                 arrayMap(x -> if(x IS NOT NULL AND earliest_success_event IS NULL, 1, 0), earliest_exceptions) AS exception_only,
+        #                 arrayMap(x -> if(x IS NULL AND earliest_success_event IS NULL, 1, 0), earliest_exceptions) AS neither
+        #             from events
+        #             where
+        #                 timestamp > now() - INTERVAL 6 HOUR AND
+        #                 notEmpty(events.$session_id) AND
+        #                 event in ('$pageview', '$pageleave')
+        #             group by $session_id, event
+        #         )
+        #         group by event
+        #     """
+        # )
