@@ -23,7 +23,7 @@ export function AIEventExpanded({ event }: { event: Record<string, any> }): JSX.
                     outputNormalized={normalizeMessages(
                         event.properties.$ai_is_error
                             ? event.properties.$ai_error
-                            : event.properties.$ai_output_choices ?? event.properties.$ai_output,
+                            : (event.properties.$ai_output_choices ?? event.properties.$ai_output),
                         'assistant'
                     )}
                     output={
