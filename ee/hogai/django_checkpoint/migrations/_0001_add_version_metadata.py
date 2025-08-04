@@ -116,13 +116,13 @@ class Migration0001(BaseMigration):
                     f"({type(state_obj).__name__}): {e}, using dict fallback"
                 )
                 state_dict = state_obj.__dict__.copy()
-                state_dict["version_metadata"] = version_meta.model_dump()
+                state_dict["version_metadata"] = version_meta.model_dump(mode="json")
                 return state_dict
 
         # Handle dict-based state data
         elif isinstance(state_obj, dict):
             migrated_dict = state_obj.copy()
-            migrated_dict["version_metadata"] = version_meta.model_dump()
+            migrated_dict["version_metadata"] = version_meta.model_dump(mode="json")
 
             return migrated_dict
 

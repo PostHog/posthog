@@ -179,7 +179,7 @@ class BaseMigration(ABC):
                 migrated_at=datetime.now(UTC).isoformat(),
                 graph_type=graph_type,
                 context=context,
-            ).model_dump()
+            ).model_dump(mode="json")
 
             checkpoint.metadata = updated_metadata
             await checkpoint.asave(update_fields=["metadata"])

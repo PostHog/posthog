@@ -96,7 +96,7 @@ class DjangoCheckpointer(BaseCheckpointSaver[str]):
         return (
             ConversationCheckpoint.objects.filter(query)
             .order_by("-id")
-            .select_related("parent_checkpoint")
+            .select_related("parent_checkpoint", "thread")
             .prefetch_related(
                 Prefetch("writes", queryset=ConversationCheckpointWrite.objects.order_by("idx", "task_id")),
                 Prefetch(
@@ -171,13 +171,17 @@ class DjangoCheckpointer(BaseCheckpointSaver[str]):
         if not registry._migrations:
             return state
 
+        # In test mode without graph metadata, don't add version metadata
+        if not self._graph_metadata["graph_type"] or not self._graph_metadata["context"]:
+            return state
+
         version_metadata = VersionMetadata(
             schema_version=registry.current_version,
             migrated_at=datetime.now(UTC).isoformat(),
             graph_type=GraphType(self._graph_metadata["graph_type"]),
             context=GraphContext(self._graph_metadata["context"]),
         )
-        return {**state, "version_metadata": version_metadata.model_dump()}
+        return {**state, "version_metadata": version_metadata.model_dump(mode="json")}
 
     async def alist(
         self,

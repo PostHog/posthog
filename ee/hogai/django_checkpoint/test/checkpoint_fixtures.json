@@ -1,0 +1,1511 @@
+{
+    "metadata": {
+        "contexts": [
+            {
+                "context": "Filter options conversation (root_tools context)",
+                "thread_id": "e246432b-e60f-4784-82d7-ddecf0f92e18",
+                "checkpoint_count": 3
+            },
+            {
+                "context": "Insights subgraph conversation",
+                "thread_id": "1f8865c8-14c1-410b-b97c-31f0ca4368a2",
+                "checkpoint_count": 3
+            },
+            {
+                "context": "Main assistant conversation",
+                "thread_id": "019769ac-31bf-0000-c237-7736e44f40b7",
+                "checkpoint_count": 1
+            }
+        ]
+    },
+    "checkpoints": [
+        {
+            "thread_id": "e246432b-e60f-4784-82d7-ddecf0f92e18",
+            "description": "Filter options conversation (root_tools context)",
+            "context_type": "filter_options",
+            "checkpoints": [
+                {
+                    "id": "1f0709be-d61e-66c6-bfff-9b357e9358e6",
+                    "thread_id": "e246432b-e60f-4784-82d7-ddecf0f92e18",
+                    "checkpoint_ns": "",
+                    "checkpoint": {
+                        "v": 3,
+                        "id": "1f0709be-d61e-66c6-bfff-9b357e9358e6",
+                        "ts": "2025-08-03T18:59:05.334334+00:00",
+                        "pending_sends": [],
+                        "versions_seen": {
+                            "__input__": {}
+                        },
+                        "channel_versions": {
+                            "__start__": "00000000000000000000000000000001.0.7595940548721555"
+                        }
+                    },
+                    "metadata": {
+                        "step": -1,
+                        "source": "input",
+                        "writes": {
+                            "__start__": {
+                                "id": ["ee", "hogai", "utils", "types", "AssistantState"],
+                                "lc": 2,
+                                "type": "constructor",
+                                "kwargs": {
+                                    "plan": null,
+                                    "messages": [
+                                        {
+                                            "id": "d573e73b-b27b-4319-8ede-58ab0c657e7f",
+                                            "type": "human",
+                                            "content": "change the filters to show only recordings in the last month",
+                                            "ui_context": null
+                                        }
+                                    ],
+                                    "start_id": "d573e73b-b27b-4319-8ede-58ab0c657e7f",
+                                    "rag_context": null,
+                                    "graph_status": null,
+                                    "root_tool_call_id": null,
+                                    "intermediate_steps": null,
+                                    "onboarding_question": null,
+                                    "root_tool_calls_count": null,
+                                    "search_insights_query": null,
+                                    "root_tool_insight_plan": null,
+                                    "root_tool_insight_type": null,
+                                    "memory_collection_messages": null,
+                                    "root_conversation_start_id": null,
+                                    "query_generation_retry_count": 0,
+                                    "query_planner_previous_response_id": null
+                                },
+                                "method": [null, "model_construct"]
+                            }
+                        },
+                        "parents": {},
+                        "trace_id": "30e47589-9523-4914-a619-a9d62ba5d2e1",
+                        "session_id": "0198714c-eaf5-7098-b9b5-7c3f3b148ca3",
+                        "distinct_id": "pUlRqKVN1qbHy1rYipG2uw651Ls1m8HwVo3kWh5ikHK"
+                    },
+                    "parent_checkpoint_id": null,
+                    "blobs": [
+                        {
+                            "id": "0198714d-420c-0000-9c8d-216e4f3adf73",
+                            "channel": "__start__",
+                            "type": "msgpack",
+                            "data": {
+                                "encoded_type": "msgpack",
+                                "encoded_blob": "b'\\xc8\\x022\\x05\\x94\\xb4ee.hogai.utils.types\\xaeAssistantState\\xde\\x00\\x10\\xa8start_id\\xd9$d573e73b-b27b-4319-8ede-58ab0c657e7f\\xacgraph_status\\xc0\\xb2intermediate_steps\\xc0\\xa4plan\\xc0\\xb3onboarding_question\\xc0\\xbamemory_collection_messages\\xc0\\xbaroot_conversation_start_id\\xc0\\xb1root_tool_call_id\\xc0\\xb6root_tool_insight_plan\\xc0\\xb6root_tool_insight_type\\xc0\\xb5root_tool_calls_count\\xc0\\xd9\"query_planner_previous_response_id\\xc0\\xabrag_context\\xc0\\xbcquery_generation_retry_count\\x00\\xb5search_insights_query\\xc0\\xa8messages\\x91\\x84\\xa7content\\xd9<change the filters to show only recordings in the last month\\xa2id\\xd9$d573e73b-b27b-4319-8ede-58ab0c657e7f\\xa4type\\xa5human\\xaaui_context\\xc0\\xb3model_validate_json'",
+                                "decoded_data": {
+                                    "version_metadata": null,
+                                    "start_id": "d573e73b-b27b-4319-8ede-58ab0c657e7f",
+                                    "graph_status": null,
+                                    "intermediate_steps": null,
+                                    "plan": null,
+                                    "onboarding_question": null,
+                                    "memory_collection_messages": null,
+                                    "root_conversation_start_id": null,
+                                    "root_tool_call_id": null,
+                                    "root_tool_insight_plan": null,
+                                    "root_tool_insight_type": null,
+                                    "root_tool_calls_count": null,
+                                    "query_planner_previous_response_id": null,
+                                    "rag_context": null,
+                                    "query_generation_retry_count": 0,
+                                    "search_insights_query": null,
+                                    "messages": [
+                                        {
+                                            "content": "change the filters to show only recordings in the last month",
+                                            "id": "d573e73b-b27b-4319-8ede-58ab0c657e7f",
+                                            "type": "human",
+                                            "ui_context": null
+                                        }
+                                    ]
+                                },
+                                "decoded_type": "AssistantState"
+                            }
+                        }
+                    ],
+                    "writes": [
+                        {
+                            "id": "0198714d-4245-0000-e27a-601c28e18090",
+                            "channel": "start_id",
+                            "type": "msgpack",
+                            "idx": 0,
+                            "data": {
+                                "encoded_type": "msgpack",
+                                "encoded_blob": "b'\\xd9$d573e73b-b27b-4319-8ede-58ab0c657e7f'",
+                                "decoded_data": "d573e73b-b27b-4319-8ede-58ab0c657e7f",
+                                "decoded_type": "str"
+                            }
+                        },
+                        {
+                            "id": "0198714d-4245-0001-be6f-35af70d826bc",
+                            "channel": "graph_status",
+                            "type": "null",
+                            "idx": 1,
+                            "data": null
+                        },
+                        {
+                            "id": "0198714d-4245-0002-df02-302201ee957f",
+                            "channel": "rag_context",
+                            "type": "null",
+                            "idx": 2,
+                            "data": null
+                        },
+                        {
+                            "id": "0198714d-4245-0003-85bb-2e419971e5cd",
+                            "channel": "query_generation_retry_count",
+                            "type": "msgpack",
+                            "idx": 3,
+                            "data": {
+                                "encoded_type": "msgpack",
+                                "encoded_blob": "b'\\x00'",
+                                "decoded_data": 0,
+                                "decoded_type": "int"
+                            }
+                        },
+                        {
+                            "id": "0198714d-4245-0004-de2c-62414590f3df",
+                            "channel": "messages",
+                            "type": "msgpack",
+                            "idx": 4,
+                            "data": {
+                                "encoded_type": "msgpack",
+                                "encoded_blob": "b'\\x91\\xc7\\xb8\\x05\\x94\\xaeposthog.schema\\xacHumanMessage\\x84\\xa7content\\xd9<change the filters to show only recordings in the last month\\xa2id\\xd9$d573e73b-b27b-4319-8ede-58ab0c657e7f\\xa4type\\xa5human\\xaaui_context\\xc0\\xb3model_validate_json'",
+                                "decoded_data": [
+                                    {
+                                        "content": "change the filters to show only recordings in the last month",
+                                        "id": "d573e73b-b27b-4319-8ede-58ab0c657e7f",
+                                        "type": "human",
+                                        "ui_context": null
+                                    }
+                                ],
+                                "decoded_type": "list"
+                            }
+                        },
+                        {
+                            "id": "0198714d-4245-0005-e409-dbb79188bc21",
+                            "channel": "branch:to:title_generator",
+                            "type": "null",
+                            "idx": 5,
+                            "data": null
+                        },
+                        {
+                            "id": "0198714d-4245-0006-936a-92fa74f9fa86",
+                            "channel": "branch:to:memory_collector",
+                            "type": "null",
+                            "idx": 6,
+                            "data": null
+                        },
+                        {
+                            "id": "0198714d-4245-0007-dcfa-9e600015ba6e",
+                            "channel": "branch:to:root",
+                            "type": "null",
+                            "idx": 7,
+                            "data": null
+                        }
+                    ]
+                },
+                {
+                    "id": "1f0709be-d655-61b2-8000-5273cf643914",
+                    "thread_id": "e246432b-e60f-4784-82d7-ddecf0f92e18",
+                    "checkpoint_ns": "",
+                    "checkpoint": {
+                        "v": 3,
+                        "id": "1f0709be-d655-61b2-8000-5273cf643914",
+                        "ts": "2025-08-03T18:59:05.356731+00:00",
+                        "pending_sends": [],
+                        "versions_seen": {
+                            "__input__": {},
+                            "__start__": {
+                                "__start__": "00000000000000000000000000000001.0.7595940548721555"
+                            }
+                        },
+                        "channel_versions": {
+                            "messages": "00000000000000000000000000000002.0.6002975782023784",
+                            "start_id": "00000000000000000000000000000002.0.8817929450481911",
+                            "__start__": "00000000000000000000000000000002.0.04415881467095484",
+                            "rag_context": "00000000000000000000000000000002.0.5084729692810446",
+                            "graph_status": "00000000000000000000000000000002.0.3742834351935471",
+                            "branch:to:root": "00000000000000000000000000000002.0.6309925660621887",
+                            "branch:to:title_generator": "00000000000000000000000000000002.0.8423937307805581",
+                            "branch:to:memory_collector": "00000000000000000000000000000002.0.45045100741225397",
+                            "query_generation_retry_count": "00000000000000000000000000000002.0.06419001443446704"
+                        }
+                    },
+                    "metadata": {
+                        "step": 0,
+                        "source": "loop",
+                        "writes": null,
+                        "parents": {},
+                        "trace_id": "30e47589-9523-4914-a619-a9d62ba5d2e1",
+                        "session_id": "0198714c-eaf5-7098-b9b5-7c3f3b148ca3",
+                        "distinct_id": "pUlRqKVN1qbHy1rYipG2uw651Ls1m8HwVo3kWh5ikHK"
+                    },
+                    "parent_checkpoint_id": "1f0709be-d61e-66c6-bfff-9b357e9358e6",
+                    "blobs": [
+                        {
+                            "id": "0198714d-42a9-0000-bc69-fdb5052e70d4",
+                            "channel": "__start__",
+                            "type": "empty",
+                            "data": null
+                        },
+                        {
+                            "id": "0198714d-42aa-0000-95ba-667b200de928",
+                            "channel": "start_id",
+                            "type": "msgpack",
+                            "data": {
+                                "encoded_type": "msgpack",
+                                "encoded_blob": "b'\\xd9$d573e73b-b27b-4319-8ede-58ab0c657e7f'",
+                                "decoded_data": "d573e73b-b27b-4319-8ede-58ab0c657e7f",
+                                "decoded_type": "str"
+                            }
+                        },
+                        {
+                            "id": "0198714d-42aa-0001-2607-6bc64d20783c",
+                            "channel": "graph_status",
+                            "type": "null",
+                            "data": null
+                        },
+                        {
+                            "id": "0198714d-42aa-0002-e675-ec1290f8688d",
+                            "channel": "rag_context",
+                            "type": "null",
+                            "data": null
+                        },
+                        {
+                            "id": "0198714d-42aa-0003-333f-1f0e17675f97",
+                            "channel": "query_generation_retry_count",
+                            "type": "msgpack",
+                            "data": {
+                                "encoded_type": "msgpack",
+                                "encoded_blob": "b'\\x00'",
+                                "decoded_data": 0,
+                                "decoded_type": "int"
+                            }
+                        },
+                        {
+                            "id": "0198714d-42aa-0004-ca67-61be37695e58",
+                            "channel": "messages",
+                            "type": "msgpack",
+                            "data": {
+                                "encoded_type": "msgpack",
+                                "encoded_blob": "b'\\x91\\xc7\\xb8\\x05\\x94\\xaeposthog.schema\\xacHumanMessage\\x84\\xa7content\\xd9<change the filters to show only recordings in the last month\\xa2id\\xd9$d573e73b-b27b-4319-8ede-58ab0c657e7f\\xa4type\\xa5human\\xaaui_context\\xc0\\xb3model_validate_json'",
+                                "decoded_data": [
+                                    {
+                                        "content": "change the filters to show only recordings in the last month",
+                                        "id": "d573e73b-b27b-4319-8ede-58ab0c657e7f",
+                                        "type": "human",
+                                        "ui_context": null
+                                    }
+                                ],
+                                "decoded_type": "list"
+                            }
+                        },
+                        {
+                            "id": "0198714d-42aa-0005-f167-db48271de413",
+                            "channel": "branch:to:title_generator",
+                            "type": "null",
+                            "data": null
+                        },
+                        {
+                            "id": "0198714d-42aa-0006-a9e0-c2c7a6bff43f",
+                            "channel": "branch:to:memory_collector",
+                            "type": "null",
+                            "data": null
+                        },
+                        {
+                            "id": "0198714d-42aa-0007-c333-f13f78fe43c1",
+                            "channel": "branch:to:root",
+                            "type": "null",
+                            "data": null
+                        }
+                    ],
+                    "writes": [
+                        {
+                            "id": "0198714d-485f-0000-8d26-e53215b7e4a1",
+                            "channel": "__no_writes__",
+                            "type": "null",
+                            "idx": 0,
+                            "data": null
+                        },
+                        {
+                            "id": "0198714d-49b7-0000-eb7a-c9d56acc0e9e",
+                            "channel": "memory_collection_messages",
+                            "type": "null",
+                            "idx": 0,
+                            "data": null
+                        },
+                        {
+                            "id": "0198714d-49b7-0001-34e8-2eda480156bb",
+                            "channel": "query_generation_retry_count",
+                            "type": "msgpack",
+                            "idx": 1,
+                            "data": {
+                                "encoded_type": "msgpack",
+                                "encoded_blob": "b'\\x00'",
+                                "decoded_data": 0,
+                                "decoded_type": "int"
+                            }
+                        },
+                        {
+                            "id": "0198714d-49b7-0002-4991-69650a15821d",
+                            "channel": "messages",
+                            "type": "msgpack",
+                            "idx": 2,
+                            "data": {
+                                "encoded_type": "msgpack",
+                                "encoded_blob": "b'\\x90'",
+                                "decoded_data": [],
+                                "decoded_type": "list"
+                            }
+                        },
+                        {
+                            "id": "0198714d-564b-0000-e63c-cef5b9068bf7",
+                            "channel": "root_conversation_start_id",
+                            "type": "null",
+                            "idx": 0,
+                            "data": null
+                        },
+                        {
+                            "id": "0198714d-564b-0001-181d-495fa5fcbba7",
+                            "channel": "query_generation_retry_count",
+                            "type": "msgpack",
+                            "idx": 1,
+                            "data": {
+                                "encoded_type": "msgpack",
+                                "encoded_blob": "b'\\x00'",
+                                "decoded_data": 0,
+                                "decoded_type": "int"
+                            }
+                        },
+                        {
+                            "id": "0198714d-564b-0002-1ade-410073c4ffd1",
+                            "channel": "messages",
+                            "type": "msgpack",
+                            "idx": 2,
+                            "data": {
+                                "encoded_type": "msgpack",
+                                "encoded_blob": "b'\\x91\\xc8\\x01\\x8c\\x05\\x94\\xaeposthog.schema\\xb0AssistantMessage\\x85\\xa7content\\xd9ZI\\xe2\\x80\\x99m updating the session recordings filters to show only recordings from the last month.\\xa2id\\xd9$9e8c8917-a84f-4e01-a5d8-d08130669aa0\\xa4meta\\xc0\\xaatool_calls\\x91\\x84\\xa4args\\x81\\xa6change\\xd9PUpdate the date filter to include only session recordings from the last 30 days.\\xa2id\\xbdcall_SEc7REL2Tl5V2x64X3CF1rrS\\xa4name\\xb9search_session_recordings\\xa4type\\xa9tool_call\\xa4type\\xa2ai\\xb3model_validate_json'",
+                                "decoded_data": [
+                                    {
+                                        "content": "I\u2019m updating the session recordings filters to show only recordings from the last month.",
+                                        "id": "9e8c8917-a84f-4e01-a5d8-d08130669aa0",
+                                        "meta": null,
+                                        "tool_calls": [
+                                            {
+                                                "args": {
+                                                    "change": "Update the date filter to include only session recordings from the last 30 days."
+                                                },
+                                                "id": "call_SEc7REL2Tl5V2x64X3CF1rrS",
+                                                "name": "search_session_recordings",
+                                                "type": "tool_call"
+                                            }
+                                        ],
+                                        "type": "ai"
+                                    }
+                                ],
+                                "decoded_type": "list"
+                            }
+                        },
+                        {
+                            "id": "0198714d-564b-0003-2b5e-7b4ce954e1d0",
+                            "channel": "branch:to:root_tools",
+                            "type": "null",
+                            "idx": 3,
+                            "data": null
+                        }
+                    ]
+                },
+                {
+                    "id": "1f0709bf-07b3-6722-8001-974eacc04107",
+                    "thread_id": "e246432b-e60f-4784-82d7-ddecf0f92e18",
+                    "checkpoint_ns": "",
+                    "checkpoint": {
+                        "v": 3,
+                        "id": "1f0709bf-07b3-6722-8001-974eacc04107",
+                        "ts": "2025-08-03T18:59:10.533396+00:00",
+                        "pending_sends": [],
+                        "versions_seen": {
+                            "root": {
+                                "branch:to:root": "00000000000000000000000000000002.0.6309925660621887"
+                            },
+                            "__input__": {},
+                            "__start__": {
+                                "__start__": "00000000000000000000000000000001.0.7595940548721555"
+                            },
+                            "title_generator": {
+                                "branch:to:title_generator": "00000000000000000000000000000002.0.8423937307805581"
+                            },
+                            "memory_collector": {
+                                "branch:to:memory_collector": "00000000000000000000000000000002.0.45045100741225397"
+                            }
+                        },
+                        "channel_versions": {
+                            "messages": "00000000000000000000000000000003.0.769289833816923",
+                            "start_id": "00000000000000000000000000000002.0.8817929450481911",
+                            "__start__": "00000000000000000000000000000002.0.04415881467095484",
+                            "rag_context": "00000000000000000000000000000002.0.5084729692810446",
+                            "graph_status": "00000000000000000000000000000002.0.3742834351935471",
+                            "branch:to:root": "00000000000000000000000000000003.0.6154473862105257",
+                            "branch:to:root_tools": "00000000000000000000000000000003.0.07327246698282963",
+                            "branch:to:title_generator": "00000000000000000000000000000003.0.03816544552044998",
+                            "branch:to:memory_collector": "00000000000000000000000000000003.0.22090208414544343",
+                            "memory_collection_messages": "00000000000000000000000000000003.0.8294864053824481",
+                            "root_conversation_start_id": "00000000000000000000000000000003.0.7852901469930522",
+                            "query_generation_retry_count": "00000000000000000000000000000003.0.5186244524807935"
+                        }
+                    },
+                    "metadata": {
+                        "step": 1,
+                        "source": "loop",
+                        "writes": {
+                            "root": {
+                                "messages": [
+                                    {
+                                        "id": ["posthog", "schema", "AssistantMessage"],
+                                        "lc": 2,
+                                        "type": "constructor",
+                                        "kwargs": {
+                                            "id": "9e8c8917-a84f-4e01-a5d8-d08130669aa0",
+                                            "meta": null,
+                                            "type": "ai",
+                                            "content": "I\u2019m updating the session recordings filters to show only recordings from the last month.",
+                                            "tool_calls": [
+                                                {
+                                                    "id": "call_SEc7REL2Tl5V2x64X3CF1rrS",
+                                                    "args": {
+                                                        "change": "Update the date filter to include only session recordings from the last 30 days."
+                                                    },
+                                                    "name": "search_session_recordings",
+                                                    "type": "tool_call"
+                                                }
+                                            ]
+                                        },
+                                        "method": [null, "model_construct"]
+                                    }
+                                ],
+                                "root_conversation_start_id": null,
+                                "query_generation_retry_count": 0
+                            },
+                            "title_generator": null,
+                            "memory_collector": {
+                                "messages": [],
+                                "memory_collection_messages": null,
+                                "query_generation_retry_count": 0
+                            }
+                        },
+                        "parents": {},
+                        "trace_id": "30e47589-9523-4914-a619-a9d62ba5d2e1",
+                        "session_id": "0198714c-eaf5-7098-b9b5-7c3f3b148ca3",
+                        "distinct_id": "pUlRqKVN1qbHy1rYipG2uw651Ls1m8HwVo3kWh5ikHK"
+                    },
+                    "parent_checkpoint_id": "1f0709be-d655-61b2-8000-5273cf643914",
+                    "blobs": [
+                        {
+                            "id": "0198714d-565c-0000-560b-946ee275d666",
+                            "channel": "query_generation_retry_count",
+                            "type": "msgpack",
+                            "data": {
+                                "encoded_type": "msgpack",
+                                "encoded_blob": "b'\\x00'",
+                                "decoded_data": 0,
+                                "decoded_type": "int"
+                            }
+                        },
+                        {
+                            "id": "0198714d-565c-0001-dfc6-1d4857dae2c1",
+                            "channel": "messages",
+                            "type": "msgpack",
+                            "data": {
+                                "encoded_type": "msgpack",
+                                "encoded_blob": "b'\\x92\\xc7\\xb8\\x05\\x94\\xaeposthog.schema\\xacHumanMessage\\x84\\xa7content\\xd9<change the filters to show only recordings in the last month\\xa2id\\xd9$d573e73b-b27b-4319-8ede-58ab0c657e7f\\xa4type\\xa5human\\xaaui_context\\xc0\\xb3model_validate_json\\xc8\\x01\\x8c\\x05\\x94\\xaeposthog.schema\\xb0AssistantMessage\\x85\\xa7content\\xd9ZI\\xe2\\x80\\x99m updating the session recordings filters to show only recordings from the last month.\\xa2id\\xd9$9e8c8917-a84f-4e01-a5d8-d08130669aa0\\xa4meta\\xc0\\xaatool_calls\\x91\\x84\\xa4args\\x81\\xa6change\\xd9PUpdate the date filter to include only session recordings from the last 30 days.\\xa2id\\xbdcall_SEc7REL2Tl5V2x64X3CF1rrS\\xa4name\\xb9search_session_recordings\\xa4type\\xa9tool_call\\xa4type\\xa2ai\\xb3model_validate_json'",
+                                "decoded_data": [
+                                    {
+                                        "content": "change the filters to show only recordings in the last month",
+                                        "id": "d573e73b-b27b-4319-8ede-58ab0c657e7f",
+                                        "type": "human",
+                                        "ui_context": null
+                                    },
+                                    {
+                                        "content": "I\u2019m updating the session recordings filters to show only recordings from the last month.",
+                                        "id": "9e8c8917-a84f-4e01-a5d8-d08130669aa0",
+                                        "meta": null,
+                                        "tool_calls": [
+                                            {
+                                                "args": {
+                                                    "change": "Update the date filter to include only session recordings from the last 30 days."
+                                                },
+                                                "id": "call_SEc7REL2Tl5V2x64X3CF1rrS",
+                                                "name": "search_session_recordings",
+                                                "type": "tool_call"
+                                            }
+                                        ],
+                                        "type": "ai"
+                                    }
+                                ],
+                                "decoded_type": "list"
+                            }
+                        },
+                        {
+                            "id": "0198714d-565c-0002-501d-b304bed9ffb5",
+                            "channel": "branch:to:title_generator",
+                            "type": "empty",
+                            "data": null
+                        },
+                        {
+                            "id": "0198714d-565c-0003-9bc3-493fd923b380",
+                            "channel": "branch:to:memory_collector",
+                            "type": "empty",
+                            "data": null
+                        },
+                        {
+                            "id": "0198714d-565c-0004-33b3-4d6400548d92",
+                            "channel": "branch:to:root",
+                            "type": "empty",
+                            "data": null
+                        },
+                        {
+                            "id": "0198714d-565c-0005-23e8-e9cb9a83c908",
+                            "channel": "memory_collection_messages",
+                            "type": "null",
+                            "data": null
+                        },
+                        {
+                            "id": "0198714d-565c-0006-ed2a-6c31eabd930d",
+                            "channel": "root_conversation_start_id",
+                            "type": "null",
+                            "data": null
+                        },
+                        {
+                            "id": "0198714d-565c-0007-a980-060b4ca97a7d",
+                            "channel": "branch:to:root_tools",
+                            "type": "null",
+                            "data": null
+                        }
+                    ],
+                    "writes": [
+                        {
+                            "id": "0198714d-5c79-0000-20dd-2a8ffe69865a",
+                            "channel": "root_tool_calls_count",
+                            "type": "msgpack",
+                            "idx": 0,
+                            "data": {
+                                "encoded_type": "msgpack",
+                                "encoded_blob": "b'\\x01'",
+                                "decoded_data": 1,
+                                "decoded_type": "int"
+                            }
+                        },
+                        {
+                            "id": "0198714d-5c79-0001-3a24-2feb01c548a6",
+                            "channel": "query_generation_retry_count",
+                            "type": "msgpack",
+                            "idx": 1,
+                            "data": {
+                                "encoded_type": "msgpack",
+                                "encoded_blob": "b'\\x00'",
+                                "decoded_data": 0,
+                                "decoded_type": "int"
+                            }
+                        },
+                        {
+                            "id": "0198714d-5c79-0002-dcdf-c686834ef80b",
+                            "channel": "messages",
+                            "type": "msgpack",
+                            "idx": 2,
+                            "data": {
+                                "encoded_type": "msgpack",
+                                "encoded_blob": "b\"\\x91\\xc8\\x02\\xb4\\x05\\x94\\xaeposthog.schema\\xb8AssistantToolCallMessage\\x86\\xa7content\\xd9'\\xe2\\x9c\\x85 Updated session recordings filters.\\xa2id\\xd9$73784f13-c7c8-4fb9-b4e6-6b90291ccbba\\xactool_call_id\\xbdcall_SEc7REL2Tl5V2x64X3CF1rrS\\xa4type\\xa4tool\\xaaui_payload\\x81\\xb9search_session_recordings\\x87\\xa9date_from\\xa4-30d\\xa7date_to\\xc0\\xa8duration\\x91\\x85\\xa3key\\xc7,\\x00\\x93\\xaeposthog.schema\\xacDurationType\\xaeactive_seconds\\xa5label\\xc0\\xa8operator\\xc7$\\x00\\x93\\xaeposthog.schema\\xb0PropertyOperator\\xa2gt\\xa4type\\xa9recording\\xa5value\\xcb@\\x14\\x00\\x00\\x00\\x00\\x00\\x00\\xacfilter_group\\x82\\xa4type\\xc7*\\x00\\x93\\xaeposthog.schema\\xb5FilterLogicalOperator\\xa3AND\\xa6values\\x91\\x82\\xa4type\\xc7*\\x00\\x93\\xaeposthog.schema\\xb5FilterLogicalOperator\\xa3AND\\xa6values\\x90\\xb4filter_test_accounts\\xc2\\xa5order\\xc7*\\x00\\x93\\xaeposthog.schema\\xaeRecordingOrder\\xaastart_time\\xaforder_direction\\xc7-\\x00\\x93\\xaeposthog.schema\\xb7RecordingOrderDirection\\xa4DESC\\xa7visible\\xc3\\xb3model_validate_json\"",
+                                "decoded_data": [
+                                    {
+                                        "content": "\u2705 Updated session recordings filters.",
+                                        "id": "73784f13-c7c8-4fb9-b4e6-6b90291ccbba",
+                                        "tool_call_id": "call_SEc7REL2Tl5V2x64X3CF1rrS",
+                                        "type": "tool",
+                                        "ui_payload": {
+                                            "search_session_recordings": {
+                                                "date_from": "-30d",
+                                                "date_to": null,
+                                                "duration": [
+                                                    {
+                                                        "key": "active_seconds",
+                                                        "label": null,
+                                                        "operator": "gt",
+                                                        "type": "recording",
+                                                        "value": 5.0
+                                                    }
+                                                ],
+                                                "filter_group": {
+                                                    "type": "AND",
+                                                    "values": [
+                                                        {
+                                                            "type": "AND",
+                                                            "values": []
+                                                        }
+                                                    ]
+                                                },
+                                                "filter_test_accounts": false,
+                                                "order": "start_time",
+                                                "order_direction": "DESC"
+                                            }
+                                        },
+                                        "visible": true
+                                    }
+                                ],
+                                "decoded_type": "list"
+                            }
+                        },
+                        {
+                            "id": "0198714d-5c79-0003-0018-98b7c637c826",
+                            "channel": "branch:to:root",
+                            "type": "null",
+                            "idx": 3,
+                            "data": null
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "thread_id": "1f8865c8-14c1-410b-b97c-31f0ca4368a2",
+            "description": "Insights subgraph conversation",
+            "context_type": "insights",
+            "checkpoints": [
+                {
+                    "id": "1f0709f1-4c0e-63a4-bfff-45271d14014a",
+                    "thread_id": "1f8865c8-14c1-410b-b97c-31f0ca4368a2",
+                    "checkpoint_ns": "",
+                    "checkpoint": {
+                        "v": 3,
+                        "id": "1f0709f1-4c0e-63a4-bfff-45271d14014a",
+                        "ts": "2025-08-03T19:21:39.878178+00:00",
+                        "pending_sends": [],
+                        "versions_seen": {
+                            "__input__": {}
+                        },
+                        "channel_versions": {
+                            "__start__": "00000000000000000000000000000001.0.8953740483787697"
+                        }
+                    },
+                    "metadata": {
+                        "step": -1,
+                        "source": "input",
+                        "writes": {
+                            "__start__": {
+                                "id": ["ee", "hogai", "utils", "types", "AssistantState"],
+                                "lc": 2,
+                                "type": "constructor",
+                                "kwargs": {
+                                    "plan": null,
+                                    "messages": [
+                                        {
+                                            "id": "c3a30824-901a-496a-aff7-f58fb483a597",
+                                            "type": "human",
+                                            "content": "create a daily active users trend",
+                                            "ui_context": null
+                                        }
+                                    ],
+                                    "start_id": "c3a30824-901a-496a-aff7-f58fb483a597",
+                                    "rag_context": null,
+                                    "graph_status": null,
+                                    "root_tool_call_id": null,
+                                    "intermediate_steps": null,
+                                    "onboarding_question": null,
+                                    "root_tool_calls_count": null,
+                                    "search_insights_query": null,
+                                    "root_tool_insight_plan": null,
+                                    "root_tool_insight_type": null,
+                                    "memory_collection_messages": null,
+                                    "root_conversation_start_id": null,
+                                    "query_generation_retry_count": 0,
+                                    "query_planner_previous_response_id": null
+                                },
+                                "method": [null, "model_construct"]
+                            }
+                        },
+                        "parents": {},
+                        "trace_id": "75d8381b-bcb1-49ad-8420-cd113b4b6b8b",
+                        "session_id": "0198714c-eaf5-7098-b9b5-7c3f3b148ca3",
+                        "distinct_id": "pUlRqKVN1qbHy1rYipG2uw651Ls1m8HwVo3kWh5ikHK"
+                    },
+                    "parent_checkpoint_id": null,
+                    "blobs": [
+                        {
+                            "id": "01987161-ed46-0000-2d70-de91526d71de",
+                            "channel": "__start__",
+                            "type": "msgpack",
+                            "data": {
+                                "encoded_type": "msgpack",
+                                "encoded_blob": "b'\\xc8\\x02\\x17\\x05\\x94\\xb4ee.hogai.utils.types\\xaeAssistantState\\xde\\x00\\x10\\xa8start_id\\xd9$c3a30824-901a-496a-aff7-f58fb483a597\\xacgraph_status\\xc0\\xb2intermediate_steps\\xc0\\xa4plan\\xc0\\xb3onboarding_question\\xc0\\xbamemory_collection_messages\\xc0\\xbaroot_conversation_start_id\\xc0\\xb1root_tool_call_id\\xc0\\xb6root_tool_insight_plan\\xc0\\xb6root_tool_insight_type\\xc0\\xb5root_tool_calls_count\\xc0\\xd9\"query_planner_previous_response_id\\xc0\\xabrag_context\\xc0\\xbcquery_generation_retry_count\\x00\\xb5search_insights_query\\xc0\\xa8messages\\x91\\x84\\xa7content\\xd9!create a daily active users trend\\xa2id\\xd9$c3a30824-901a-496a-aff7-f58fb483a597\\xa4type\\xa5human\\xaaui_context\\xc0\\xb3model_validate_json'",
+                                "decoded_data": {
+                                    "version_metadata": null,
+                                    "start_id": "c3a30824-901a-496a-aff7-f58fb483a597",
+                                    "graph_status": null,
+                                    "intermediate_steps": null,
+                                    "plan": null,
+                                    "onboarding_question": null,
+                                    "memory_collection_messages": null,
+                                    "root_conversation_start_id": null,
+                                    "root_tool_call_id": null,
+                                    "root_tool_insight_plan": null,
+                                    "root_tool_insight_type": null,
+                                    "root_tool_calls_count": null,
+                                    "query_planner_previous_response_id": null,
+                                    "rag_context": null,
+                                    "query_generation_retry_count": 0,
+                                    "search_insights_query": null,
+                                    "messages": [
+                                        {
+                                            "content": "create a daily active users trend",
+                                            "id": "c3a30824-901a-496a-aff7-f58fb483a597",
+                                            "type": "human",
+                                            "ui_context": null
+                                        }
+                                    ]
+                                },
+                                "decoded_type": "AssistantState"
+                            }
+                        }
+                    ],
+                    "writes": [
+                        {
+                            "id": "01987161-ed53-0000-7dae-190c836aa749",
+                            "channel": "start_id",
+                            "type": "msgpack",
+                            "idx": 0,
+                            "data": {
+                                "encoded_type": "msgpack",
+                                "encoded_blob": "b'\\xd9$c3a30824-901a-496a-aff7-f58fb483a597'",
+                                "decoded_data": "c3a30824-901a-496a-aff7-f58fb483a597",
+                                "decoded_type": "str"
+                            }
+                        },
+                        {
+                            "id": "01987161-ed53-0001-a197-b8589a4fe771",
+                            "channel": "graph_status",
+                            "type": "null",
+                            "idx": 1,
+                            "data": null
+                        },
+                        {
+                            "id": "01987161-ed53-0002-f5ca-989591c3bc96",
+                            "channel": "rag_context",
+                            "type": "null",
+                            "idx": 2,
+                            "data": null
+                        },
+                        {
+                            "id": "01987161-ed53-0003-f506-fa8b4a49ae2b",
+                            "channel": "query_generation_retry_count",
+                            "type": "msgpack",
+                            "idx": 3,
+                            "data": {
+                                "encoded_type": "msgpack",
+                                "encoded_blob": "b'\\x00'",
+                                "decoded_data": 0,
+                                "decoded_type": "int"
+                            }
+                        },
+                        {
+                            "id": "01987161-ed53-0004-f39a-2ccadf554d2e",
+                            "channel": "messages",
+                            "type": "msgpack",
+                            "idx": 4,
+                            "data": {
+                                "encoded_type": "msgpack",
+                                "encoded_blob": "b'\\x91\\xc7\\x9d\\x05\\x94\\xaeposthog.schema\\xacHumanMessage\\x84\\xa7content\\xd9!create a daily active users trend\\xa2id\\xd9$c3a30824-901a-496a-aff7-f58fb483a597\\xa4type\\xa5human\\xaaui_context\\xc0\\xb3model_validate_json'",
+                                "decoded_data": [
+                                    {
+                                        "content": "create a daily active users trend",
+                                        "id": "c3a30824-901a-496a-aff7-f58fb483a597",
+                                        "type": "human",
+                                        "ui_context": null
+                                    }
+                                ],
+                                "decoded_type": "list"
+                            }
+                        },
+                        {
+                            "id": "01987161-ed53-0005-c45c-0e718ba34fbf",
+                            "channel": "branch:to:memory_collector",
+                            "type": "null",
+                            "idx": 5,
+                            "data": null
+                        },
+                        {
+                            "id": "01987161-ed53-0006-9e16-570eff4bac12",
+                            "channel": "branch:to:title_generator",
+                            "type": "null",
+                            "idx": 6,
+                            "data": null
+                        },
+                        {
+                            "id": "01987161-ed53-0007-2d5a-d27306d7953a",
+                            "channel": "branch:to:root",
+                            "type": "null",
+                            "idx": 7,
+                            "data": null
+                        }
+                    ]
+                },
+                {
+                    "id": "1f0709f1-4c5f-6a60-8000-6df4a9b30ff9",
+                    "thread_id": "1f8865c8-14c1-410b-b97c-31f0ca4368a2",
+                    "checkpoint_ns": "",
+                    "checkpoint": {
+                        "v": 3,
+                        "id": "1f0709f1-4c5f-6a60-8000-6df4a9b30ff9",
+                        "ts": "2025-08-03T19:21:39.911529+00:00",
+                        "pending_sends": [],
+                        "versions_seen": {
+                            "__input__": {},
+                            "__start__": {
+                                "__start__": "00000000000000000000000000000001.0.8953740483787697"
+                            }
+                        },
+                        "channel_versions": {
+                            "messages": "00000000000000000000000000000002.0.8049185483393959",
+                            "start_id": "00000000000000000000000000000002.0.9178456072762606",
+                            "__start__": "00000000000000000000000000000002.0.9576091369709228",
+                            "rag_context": "00000000000000000000000000000002.0.692917757429117",
+                            "graph_status": "00000000000000000000000000000002.0.829382272238105",
+                            "branch:to:root": "00000000000000000000000000000002.0.010839681160242698",
+                            "branch:to:title_generator": "00000000000000000000000000000002.0.88731702408604",
+                            "branch:to:memory_collector": "00000000000000000000000000000002.0.3312750081810133",
+                            "query_generation_retry_count": "00000000000000000000000000000002.0.7137725217976926"
+                        }
+                    },
+                    "metadata": {
+                        "step": 0,
+                        "source": "loop",
+                        "writes": null,
+                        "parents": {},
+                        "trace_id": "75d8381b-bcb1-49ad-8420-cd113b4b6b8b",
+                        "session_id": "0198714c-eaf5-7098-b9b5-7c3f3b148ca3",
+                        "distinct_id": "pUlRqKVN1qbHy1rYipG2uw651Ls1m8HwVo3kWh5ikHK"
+                    },
+                    "parent_checkpoint_id": "1f0709f1-4c0e-63a4-bfff-45271d14014a",
+                    "blobs": [
+                        {
+                            "id": "01987161-ed6a-0000-e2ea-e8d27a56884d",
+                            "channel": "__start__",
+                            "type": "empty",
+                            "data": null
+                        },
+                        {
+                            "id": "01987161-ed6a-0001-6307-abbc18c9707b",
+                            "channel": "start_id",
+                            "type": "msgpack",
+                            "data": {
+                                "encoded_type": "msgpack",
+                                "encoded_blob": "b'\\xd9$c3a30824-901a-496a-aff7-f58fb483a597'",
+                                "decoded_data": "c3a30824-901a-496a-aff7-f58fb483a597",
+                                "decoded_type": "str"
+                            }
+                        },
+                        {
+                            "id": "01987161-ed6a-0002-2817-56d48e3c4583",
+                            "channel": "graph_status",
+                            "type": "null",
+                            "data": null
+                        },
+                        {
+                            "id": "01987161-ed6a-0003-306f-535c44f6f0b9",
+                            "channel": "rag_context",
+                            "type": "null",
+                            "data": null
+                        },
+                        {
+                            "id": "01987161-ed6a-0004-f468-3b1d8086f504",
+                            "channel": "query_generation_retry_count",
+                            "type": "msgpack",
+                            "data": {
+                                "encoded_type": "msgpack",
+                                "encoded_blob": "b'\\x00'",
+                                "decoded_data": 0,
+                                "decoded_type": "int"
+                            }
+                        },
+                        {
+                            "id": "01987161-ed6a-0005-0984-c29420d9368a",
+                            "channel": "messages",
+                            "type": "msgpack",
+                            "data": {
+                                "encoded_type": "msgpack",
+                                "encoded_blob": "b'\\x91\\xc7\\x9d\\x05\\x94\\xaeposthog.schema\\xacHumanMessage\\x84\\xa7content\\xd9!create a daily active users trend\\xa2id\\xd9$c3a30824-901a-496a-aff7-f58fb483a597\\xa4type\\xa5human\\xaaui_context\\xc0\\xb3model_validate_json'",
+                                "decoded_data": [
+                                    {
+                                        "content": "create a daily active users trend",
+                                        "id": "c3a30824-901a-496a-aff7-f58fb483a597",
+                                        "type": "human",
+                                        "ui_context": null
+                                    }
+                                ],
+                                "decoded_type": "list"
+                            }
+                        },
+                        {
+                            "id": "01987161-ed6a-0006-ab37-bb33a7937b40",
+                            "channel": "branch:to:memory_collector",
+                            "type": "null",
+                            "data": null
+                        },
+                        {
+                            "id": "01987161-ed6a-0007-8318-6cb42c93091c",
+                            "channel": "branch:to:title_generator",
+                            "type": "null",
+                            "data": null
+                        },
+                        {
+                            "id": "01987161-ed6a-0008-5bb8-7d6d1d85dfb7",
+                            "channel": "branch:to:root",
+                            "type": "null",
+                            "data": null
+                        }
+                    ],
+                    "writes": [
+                        {
+                            "id": "01987161-ef7a-0000-d1a6-00e7bf8210f3",
+                            "channel": "__no_writes__",
+                            "type": "null",
+                            "idx": 0,
+                            "data": null
+                        },
+                        {
+                            "id": "01987161-ef4f-0000-0ab5-1d72d749e536",
+                            "channel": "memory_collection_messages",
+                            "type": "null",
+                            "idx": 0,
+                            "data": null
+                        },
+                        {
+                            "id": "01987161-ef4f-0001-9268-99fc50500d4c",
+                            "channel": "query_generation_retry_count",
+                            "type": "msgpack",
+                            "idx": 1,
+                            "data": {
+                                "encoded_type": "msgpack",
+                                "encoded_blob": "b'\\x00'",
+                                "decoded_data": 0,
+                                "decoded_type": "int"
+                            }
+                        },
+                        {
+                            "id": "01987161-ef4f-0002-90c6-be29a8928d19",
+                            "channel": "messages",
+                            "type": "msgpack",
+                            "idx": 2,
+                            "data": {
+                                "encoded_type": "msgpack",
+                                "encoded_blob": "b'\\x90'",
+                                "decoded_data": [],
+                                "decoded_type": "list"
+                            }
+                        },
+                        {
+                            "id": "01987161-f704-0000-5dca-8d286976c5b5",
+                            "channel": "root_conversation_start_id",
+                            "type": "null",
+                            "idx": 0,
+                            "data": null
+                        },
+                        {
+                            "id": "01987161-f704-0001-ae09-544ffbc724dc",
+                            "channel": "query_generation_retry_count",
+                            "type": "msgpack",
+                            "idx": 1,
+                            "data": {
+                                "encoded_type": "msgpack",
+                                "encoded_blob": "b'\\x00'",
+                                "decoded_data": 0,
+                                "decoded_type": "int"
+                            }
+                        },
+                        {
+                            "id": "01987161-f704-0002-b619-999fb4787009",
+                            "channel": "messages",
+                            "type": "msgpack",
+                            "idx": 2,
+                            "data": {
+                                "encoded_type": "msgpack",
+                                "encoded_blob": "b'\\x91\\xc8\\x01\\xaf\\x05\\x94\\xaeposthog.schema\\xb0AssistantMessage\\x85\\xa7content\\xd9CI\\xe2\\x80\\x99m going to create a trend showing daily active users over time.\\xa2id\\xd9$e17882a7-5738-4e70-9500-2bd7b9ba7489\\xa4meta\\xc0\\xaatool_calls\\x91\\x84\\xa4args\\x81\\xb1query_description\\xd9\\x80Show a trend of daily active users for the past 30 days. Group by day. Display the total number of unique users active each day.\\xa2id\\xbdcall_QAmWBehom04scBWCW1K3srrY\\xa4name\\xb8create_and_query_insight\\xa4type\\xa9tool_call\\xa4type\\xa2ai\\xb3model_validate_json'",
+                                "decoded_data": [
+                                    {
+                                        "content": "I\u2019m going to create a trend showing daily active users over time.",
+                                        "id": "e17882a7-5738-4e70-9500-2bd7b9ba7489",
+                                        "meta": null,
+                                        "tool_calls": [
+                                            {
+                                                "args": {
+                                                    "query_description": "Show a trend of daily active users for the past 30 days. Group by day. Display the total number of unique users active each day."
+                                                },
+                                                "id": "call_QAmWBehom04scBWCW1K3srrY",
+                                                "name": "create_and_query_insight",
+                                                "type": "tool_call"
+                                            }
+                                        ],
+                                        "type": "ai"
+                                    }
+                                ],
+                                "decoded_type": "list"
+                            }
+                        },
+                        {
+                            "id": "01987161-f704-0003-2cf9-3a2df8c304bb",
+                            "channel": "branch:to:root_tools",
+                            "type": "null",
+                            "idx": 3,
+                            "data": null
+                        }
+                    ]
+                },
+                {
+                    "id": "1f0709f1-6418-6a3a-8001-ef794b6d44ec",
+                    "thread_id": "1f8865c8-14c1-410b-b97c-31f0ca4368a2",
+                    "checkpoint_ns": "",
+                    "checkpoint": {
+                        "v": 3,
+                        "id": "1f0709f1-6418-6a3a-8001-ef794b6d44ec",
+                        "ts": "2025-08-03T19:21:42.399025+00:00",
+                        "pending_sends": [],
+                        "versions_seen": {
+                            "root": {
+                                "branch:to:root": "00000000000000000000000000000002.0.010839681160242698"
+                            },
+                            "__input__": {},
+                            "__start__": {
+                                "__start__": "00000000000000000000000000000001.0.8953740483787697"
+                            },
+                            "title_generator": {
+                                "branch:to:title_generator": "00000000000000000000000000000002.0.88731702408604"
+                            },
+                            "memory_collector": {
+                                "branch:to:memory_collector": "00000000000000000000000000000002.0.3312750081810133"
+                            }
+                        },
+                        "channel_versions": {
+                            "messages": "00000000000000000000000000000003.0.7727048498733956",
+                            "start_id": "00000000000000000000000000000002.0.9178456072762606",
+                            "__start__": "00000000000000000000000000000002.0.9576091369709228",
+                            "rag_context": "00000000000000000000000000000002.0.692917757429117",
+                            "graph_status": "00000000000000000000000000000002.0.829382272238105",
+                            "branch:to:root": "00000000000000000000000000000003.0.9567704533144157",
+                            "branch:to:root_tools": "00000000000000000000000000000003.0.5571588190717619",
+                            "branch:to:title_generator": "00000000000000000000000000000003.0.6363092014008072",
+                            "branch:to:memory_collector": "00000000000000000000000000000003.0.5129914401605172",
+                            "memory_collection_messages": "00000000000000000000000000000003.0.7477350874115296",
+                            "root_conversation_start_id": "00000000000000000000000000000003.0.8514909474172535",
+                            "query_generation_retry_count": "00000000000000000000000000000003.0.32927994549858997"
+                        }
+                    },
+                    "metadata": {
+                        "step": 1,
+                        "source": "loop",
+                        "writes": {
+                            "root": {
+                                "messages": [
+                                    {
+                                        "id": ["posthog", "schema", "AssistantMessage"],
+                                        "lc": 2,
+                                        "type": "constructor",
+                                        "kwargs": {
+                                            "id": "e17882a7-5738-4e70-9500-2bd7b9ba7489",
+                                            "meta": null,
+                                            "type": "ai",
+                                            "content": "I\u2019m going to create a trend showing daily active users over time.",
+                                            "tool_calls": [
+                                                {
+                                                    "id": "call_QAmWBehom04scBWCW1K3srrY",
+                                                    "args": {
+                                                        "query_description": "Show a trend of daily active users for the past 30 days. Group by day. Display the total number of unique users active each day."
+                                                    },
+                                                    "name": "create_and_query_insight",
+                                                    "type": "tool_call"
+                                                }
+                                            ]
+                                        },
+                                        "method": [null, "model_construct"]
+                                    }
+                                ],
+                                "root_conversation_start_id": null,
+                                "query_generation_retry_count": 0
+                            },
+                            "title_generator": null,
+                            "memory_collector": {
+                                "messages": [],
+                                "memory_collection_messages": null,
+                                "query_generation_retry_count": 0
+                            }
+                        },
+                        "parents": {},
+                        "trace_id": "75d8381b-bcb1-49ad-8420-cd113b4b6b8b",
+                        "session_id": "0198714c-eaf5-7098-b9b5-7c3f3b148ca3",
+                        "distinct_id": "pUlRqKVN1qbHy1rYipG2uw651Ls1m8HwVo3kWh5ikHK"
+                    },
+                    "parent_checkpoint_id": "1f0709f1-4c5f-6a60-8000-6df4a9b30ff9",
+                    "blobs": [
+                        {
+                            "id": "01987161-f713-0000-72d5-7c795442bfc4",
+                            "channel": "query_generation_retry_count",
+                            "type": "msgpack",
+                            "data": {
+                                "encoded_type": "msgpack",
+                                "encoded_blob": "b'\\x00'",
+                                "decoded_data": 0,
+                                "decoded_type": "int"
+                            }
+                        },
+                        {
+                            "id": "01987161-f713-0001-76c8-73e3c549c870",
+                            "channel": "messages",
+                            "type": "msgpack",
+                            "data": {
+                                "encoded_type": "msgpack",
+                                "encoded_blob": "b'\\x92\\xc7\\x9d\\x05\\x94\\xaeposthog.schema\\xacHumanMessage\\x84\\xa7content\\xd9!create a daily active users trend\\xa2id\\xd9$c3a30824-901a-496a-aff7-f58fb483a597\\xa4type\\xa5human\\xaaui_context\\xc0\\xb3model_validate_json\\xc8\\x01\\xaf\\x05\\x94\\xaeposthog.schema\\xb0AssistantMessage\\x85\\xa7content\\xd9CI\\xe2\\x80\\x99m going to create a trend showing daily active users over time.\\xa2id\\xd9$e17882a7-5738-4e70-9500-2bd7b9ba7489\\xa4meta\\xc0\\xaatool_calls\\x91\\x84\\xa4args\\x81\\xb1query_description\\xd9\\x80Show a trend of daily active users for the past 30 days. Group by day. Display the total number of unique users active each day.\\xa2id\\xbdcall_QAmWBehom04scBWCW1K3srrY\\xa4name\\xb8create_and_query_insight\\xa4type\\xa9tool_call\\xa4type\\xa2ai\\xb3model_validate_json'",
+                                "decoded_data": [
+                                    {
+                                        "content": "create a daily active users trend",
+                                        "id": "c3a30824-901a-496a-aff7-f58fb483a597",
+                                        "type": "human",
+                                        "ui_context": null
+                                    },
+                                    {
+                                        "content": "I\u2019m going to create a trend showing daily active users over time.",
+                                        "id": "e17882a7-5738-4e70-9500-2bd7b9ba7489",
+                                        "meta": null,
+                                        "tool_calls": [
+                                            {
+                                                "args": {
+                                                    "query_description": "Show a trend of daily active users for the past 30 days. Group by day. Display the total number of unique users active each day."
+                                                },
+                                                "id": "call_QAmWBehom04scBWCW1K3srrY",
+                                                "name": "create_and_query_insight",
+                                                "type": "tool_call"
+                                            }
+                                        ],
+                                        "type": "ai"
+                                    }
+                                ],
+                                "decoded_type": "list"
+                            }
+                        },
+                        {
+                            "id": "01987161-f713-0002-137c-290acd46d574",
+                            "channel": "branch:to:memory_collector",
+                            "type": "empty",
+                            "data": null
+                        },
+                        {
+                            "id": "01987161-f713-0003-5164-735012cf7007",
+                            "channel": "branch:to:title_generator",
+                            "type": "empty",
+                            "data": null
+                        },
+                        {
+                            "id": "01987161-f713-0004-3740-7c1b27f20b42",
+                            "channel": "branch:to:root",
+                            "type": "empty",
+                            "data": null
+                        },
+                        {
+                            "id": "01987161-f713-0005-d435-693c9177e397",
+                            "channel": "memory_collection_messages",
+                            "type": "null",
+                            "data": null
+                        },
+                        {
+                            "id": "01987161-f713-0006-0b89-41581e2a8344",
+                            "channel": "root_conversation_start_id",
+                            "type": "null",
+                            "data": null
+                        },
+                        {
+                            "id": "01987161-f713-0007-86bc-c9add9b4caa9",
+                            "channel": "branch:to:root_tools",
+                            "type": "null",
+                            "data": null
+                        }
+                    ],
+                    "writes": [
+                        {
+                            "id": "01987161-f724-0000-8d11-72e9f554e49f",
+                            "channel": "root_tool_call_id",
+                            "type": "msgpack",
+                            "idx": 0,
+                            "data": {
+                                "encoded_type": "msgpack",
+                                "encoded_blob": "b'\\xbdcall_QAmWBehom04scBWCW1K3srrY'",
+                                "decoded_data": "call_QAmWBehom04scBWCW1K3srrY",
+                                "decoded_type": "str"
+                            }
+                        },
+                        {
+                            "id": "01987161-f725-0000-6936-9c7a008fe68b",
+                            "channel": "root_tool_insight_plan",
+                            "type": "msgpack",
+                            "idx": 1,
+                            "data": {
+                                "encoded_type": "msgpack",
+                                "encoded_blob": "b'\\xd9\\x80Show a trend of daily active users for the past 30 days. Group by day. Display the total number of unique users active each day.'",
+                                "decoded_data": "Show a trend of daily active users for the past 30 days. Group by day. Display the total number of unique users active each day.",
+                                "decoded_type": "str"
+                            }
+                        },
+                        {
+                            "id": "01987161-f725-0001-0636-6c531d9cc144",
+                            "channel": "root_tool_calls_count",
+                            "type": "msgpack",
+                            "idx": 2,
+                            "data": {
+                                "encoded_type": "msgpack",
+                                "encoded_blob": "b'\\x01'",
+                                "decoded_data": 1,
+                                "decoded_type": "int"
+                            }
+                        },
+                        {
+                            "id": "01987161-f725-0002-4d2d-1862b1746bef",
+                            "channel": "query_generation_retry_count",
+                            "type": "msgpack",
+                            "idx": 3,
+                            "data": {
+                                "encoded_type": "msgpack",
+                                "encoded_blob": "b'\\x00'",
+                                "decoded_data": 0,
+                                "decoded_type": "int"
+                            }
+                        },
+                        {
+                            "id": "01987161-f725-0003-42c5-f93571181f1d",
+                            "channel": "messages",
+                            "type": "msgpack",
+                            "idx": 4,
+                            "data": {
+                                "encoded_type": "msgpack",
+                                "encoded_blob": "b'\\x90'",
+                                "decoded_data": [],
+                                "decoded_type": "list"
+                            }
+                        },
+                        {
+                            "id": "01987161-f725-0004-eabe-7ce425d9bf49",
+                            "channel": "branch:to:insights_subgraph",
+                            "type": "null",
+                            "idx": 5,
+                            "data": null
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "thread_id": "019769ac-31bf-0000-c237-7736e44f40b7",
+            "description": "Main assistant conversation (empty namespace)",
+            "context_type": "main_assistant",
+            "checkpoints": [
+                {
+                    "id": "1f04861e-9eb6-6b1e-bfff-8029ba17f1de",
+                    "thread_id": "019769ac-31bf-0000-c237-7736e44f40b7",
+                    "checkpoint_ns": "",
+                    "checkpoint": {
+                        "v": 3,
+                        "id": "1f04861e-9eb6-6b1e-bfff-8029ba17f1de",
+                        "ts": "2025-06-13T14:23:02.203255+00:00",
+                        "pending_sends": [],
+                        "versions_seen": {
+                            "__input__": {}
+                        },
+                        "channel_versions": {
+                            "__start__": "00000000000000000000000000000001.0.4468886014593034"
+                        }
+                    },
+                    "metadata": {
+                        "step": -1,
+                        "source": "input",
+                        "writes": {
+                            "__start__": {
+                                "id": ["ee", "hogai", "utils", "types", "AssistantState"],
+                                "lc": 2,
+                                "type": "constructor",
+                                "kwargs": {
+                                    "plan": null,
+                                    "messages": [
+                                        {
+                                            "id": "c9292b15-8200-42f2-b3d6-a5fcb8fdeca3",
+                                            "type": "human",
+                                            "content": "create a funnel",
+                                            "ui_context": {
+                                                "events": [
+                                                    {
+                                                        "id": "01976999-9a38-0007-543f-41f5ac40112e",
+                                                        "name": "signed_up",
+                                                        "description": null
+                                                    },
+                                                    {
+                                                        "id": "01976999-9a38-0009-8443-fbef712b92b2",
+                                                        "name": "paid_bill",
+                                                        "description": null
+                                                    }
+                                                ],
+                                                "actions": null,
+                                                "insights": null,
+                                                "dashboards": null,
+                                                "filters_override": null,
+                                                "variables_override": null
+                                            }
+                                        }
+                                    ],
+                                    "start_id": "c9292b15-8200-42f2-b3d6-a5fcb8fdeca3",
+                                    "rag_context": null,
+                                    "graph_status": null,
+                                    "memory_updated": null,
+                                    "root_tool_call_id": null,
+                                    "intermediate_steps": null,
+                                    "onboarding_question": null,
+                                    "root_tool_calls_count": null,
+                                    "root_tool_insight_plan": null,
+                                    "root_tool_insight_type": null,
+                                    "memory_collection_messages": null,
+                                    "root_conversation_start_id": null
+                                },
+                                "method": [null, "model_construct"]
+                            }
+                        },
+                        "parents": {},
+                        "team_id": 1,
+                        "distinct_id": "pUlRqKVN1qbHy1rYipG2uw651Ls1m8HwVo3kWh5ikHK"
+                    },
+                    "parent_checkpoint_id": null,
+                    "blobs": [
+                        {
+                            "id": "019769ac-327d-0000-de19-1fa4edefbe18",
+                            "channel": "__start__",
+                            "type": "msgpack",
+                            "data": {
+                                "encoded_type": "msgpack",
+                                "encoded_blob": "b'\\xc8\\x02\\x91\\x05\\x94\\xb4ee.hogai.utils.types\\xaeAssistantState\\x8e\\xa8start_id\\xd9$c9292b15-8200-42f2-b3d6-a5fcb8fdeca3\\xacgraph_status\\xc0\\xb2intermediate_steps\\xc0\\xa4plan\\xc0\\xb3onboarding_question\\xc0\\xaememory_updated\\xc0\\xbamemory_collection_messages\\xc0\\xbaroot_conversation_start_id\\xc0\\xb1root_tool_call_id\\xc0\\xb6root_tool_insight_plan\\xc0\\xb6root_tool_insight_type\\xc0\\xb5root_tool_calls_count\\xc0\\xabrag_context\\xc0\\xa8messages\\x91\\x84\\xa7content\\xafcreate a funnel\\xa2id\\xd9$c9292b15-8200-42f2-b3d6-a5fcb8fdeca3\\xa4type\\xa5human\\xaaui_context\\x86\\xa7actions\\xc0\\xaadashboards\\xc0\\xa6events\\x92\\x83\\xabdescription\\xc0\\xa2id\\xd9$01976999-9a38-0007-543f-41f5ac40112e\\xa4name\\xa9signed_up\\x83\\xabdescription\\xc0\\xa2id\\xd9$01976999-9a38-0009-8443-fbef712b92b2\\xa4name\\xa9paid_bill\\xb0filters_override\\xc0\\xa8insights\\xc0\\xb2variables_override\\xc0\\xb3model_validate_json'",
+                                "decoded_data": {
+                                    "version_metadata": null,
+                                    "start_id": "c9292b15-8200-42f2-b3d6-a5fcb8fdeca3",
+                                    "graph_status": null,
+                                    "intermediate_steps": null,
+                                    "plan": null,
+                                    "onboarding_question": null,
+                                    "memory_collection_messages": null,
+                                    "root_conversation_start_id": null,
+                                    "root_tool_call_id": null,
+                                    "root_tool_insight_plan": null,
+                                    "root_tool_insight_type": null,
+                                    "root_tool_calls_count": null,
+                                    "query_planner_previous_response_id": null,
+                                    "rag_context": null,
+                                    "query_generation_retry_count": 0,
+                                    "search_insights_query": null,
+                                    "messages": [
+                                        {
+                                            "content": "create a funnel",
+                                            "id": "c9292b15-8200-42f2-b3d6-a5fcb8fdeca3",
+                                            "type": "human",
+                                            "ui_context": {
+                                                "actions": null,
+                                                "dashboards": null,
+                                                "events": [
+                                                    {
+                                                        "description": null,
+                                                        "id": "01976999-9a38-0007-543f-41f5ac40112e",
+                                                        "name": "signed_up",
+                                                        "type": "event"
+                                                    },
+                                                    {
+                                                        "description": null,
+                                                        "id": "01976999-9a38-0009-8443-fbef712b92b2",
+                                                        "name": "paid_bill",
+                                                        "type": "event"
+                                                    }
+                                                ],
+                                                "filters_override": null,
+                                                "insights": null,
+                                                "variables_override": null
+                                            }
+                                        }
+                                    ]
+                                },
+                                "decoded_type": "AssistantState"
+                            }
+                        }
+                    ],
+                    "writes": [
+                        {
+                            "id": "019769ac-3294-0000-a543-fed2959be67d",
+                            "channel": "start_id",
+                            "type": "msgpack",
+                            "idx": 0,
+                            "data": {
+                                "encoded_type": "msgpack",
+                                "encoded_blob": "b'\\xd9$c9292b15-8200-42f2-b3d6-a5fcb8fdeca3'",
+                                "decoded_data": "c9292b15-8200-42f2-b3d6-a5fcb8fdeca3",
+                                "decoded_type": "str"
+                            }
+                        },
+                        {
+                            "id": "019769ac-3294-0001-98cf-240ce385332c",
+                            "channel": "messages",
+                            "type": "msgpack",
+                            "idx": 1,
+                            "data": {
+                                "encoded_type": "msgpack",
+                                "encoded_blob": "b'\\x91\\xc8\\x01c\\x05\\x94\\xaeposthog.schema\\xacHumanMessage\\x84\\xa7content\\xafcreate a funnel\\xa2id\\xd9$c9292b15-8200-42f2-b3d6-a5fcb8fdeca3\\xa4type\\xa5human\\xaaui_context\\x86\\xa7actions\\xc0\\xaadashboards\\xc0\\xa6events\\x92\\x83\\xabdescription\\xc0\\xa2id\\xd9$01976999-9a38-0007-543f-41f5ac40112e\\xa4name\\xa9signed_up\\x83\\xabdescription\\xc0\\xa2id\\xd9$01976999-9a38-0009-8443-fbef712b92b2\\xa4name\\xa9paid_bill\\xb0filters_override\\xc0\\xa8insights\\xc0\\xb2variables_override\\xc0\\xb3model_validate_json'",
+                                "decoded_data": [
+                                    {
+                                        "content": "create a funnel",
+                                        "id": "c9292b15-8200-42f2-b3d6-a5fcb8fdeca3",
+                                        "type": "human",
+                                        "ui_context": {
+                                            "actions": null,
+                                            "dashboards": null,
+                                            "events": [
+                                                {
+                                                    "description": null,
+                                                    "id": "01976999-9a38-0007-543f-41f5ac40112e",
+                                                    "name": "signed_up",
+                                                    "type": "event"
+                                                },
+                                                {
+                                                    "description": null,
+                                                    "id": "01976999-9a38-0009-8443-fbef712b92b2",
+                                                    "name": "paid_bill",
+                                                    "type": "event"
+                                                }
+                                            ],
+                                            "filters_override": null,
+                                            "insights": null,
+                                            "variables_override": null
+                                        }
+                                    }
+                                ],
+                                "decoded_type": "list"
+                            }
+                        },
+                        {
+                            "id": "019769ac-3294-0002-182d-28e6740fe487",
+                            "channel": "branch:to:memory_collector",
+                            "type": "null",
+                            "idx": 2,
+                            "data": null
+                        },
+                        {
+                            "id": "019769ac-3294-0003-5155-cd77bc8aa157",
+                            "channel": "branch:to:title_generator",
+                            "type": "null",
+                            "idx": 3,
+                            "data": null
+                        },
+                        {
+                            "id": "019769ac-3294-0004-4035-77c5a55a15f5",
+                            "channel": "branch:to:root",
+                            "type": "null",
+                            "idx": 4,
+                            "data": null
+                        }
+                    ]
+                }
+            ]
+        }
+    ]
+}
