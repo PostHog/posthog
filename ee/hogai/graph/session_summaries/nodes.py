@@ -2,7 +2,7 @@ import asyncio
 import time
 from typing import cast, Literal, Any
 from uuid import uuid4
-
+from langgraph.types import StreamWriter
 import structlog
 from langchain_core.runnables import RunnableConfig
 
@@ -24,6 +24,35 @@ class SessionSummarizationNode(AssistantNode):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.writer = self._get_stream_writer()
+
+    def _get_stream_writer(self) -> StreamWriter | None:
+        """Get the stream writer for custom events"""
+        try:
+            return get_stream_writer()
+        except Exception as err:
+            self.logger.warning(
+                "Failed to get stream writer for session summarization",
+                extra={"node": "SessionSummarizationNode", "error": str(err)},
+            )
+            # Fallback if stream writer is not available
+            return None
+
+    def _stream_progress(self, progress_message: str) -> None:
+        """Push summarization progress as reasoning messages"""
+        if not self.writer:
+            self.logger.warning(
+                "Stream writer is not available, cannot stream progress",
+                extra={"node": "SessionSummarizationNode", "message": progress_message},
+            )
+            return
+        message_chunk = AIMessageChunk(
+            content="",
+            additional_kwargs={"reasoning": {"summary": [{"text": f"**{progress_message}**"}]}},
+        )
+        message = (message_chunk, {"langgraph_node": AssistantNodeName.SESSION_SUMMARIZATION})
+        self.writer(("session_summarization_node", "messages", message))
+        return
 
     async def _generate_replay_filters(self, plain_text_query: str) -> MaxRecordingUniversalFilters | None:
         """Generates replay filters to get session ids by querying a compiled Universal filters graph."""
@@ -104,19 +133,10 @@ class SessionSummarizationNode(AssistantNode):
         session_ids = [recording["session_id"] for recording in results.results]
         return session_ids if session_ids else None
 
-    async def _summarize_sessions_individually_with_progress(
-        self, session_ids: list[str], config: RunnableConfig
-    ) -> str:
+    async def _summarize_sessions_individually_with_progress(self, session_ids: list[str]) -> str:
         """Summarize sessions individually with progress updates."""
         total = len(session_ids)
         completed = 0
-
-        # Get the stream writer for custom events
-        try:
-            writer = get_stream_writer()
-        except Exception:
-            # Fallback if stream writer is not available
-            writer = None
 
         async def summarize_with_progress(session_id: str) -> str:
             nonlocal completed
@@ -127,34 +147,13 @@ class SessionSummarizationNode(AssistantNode):
                 model_to_use=SESSION_SUMMARIES_STREAMING_MODEL,
             )
             completed += 1
-
-            # Emit progress as a message update that will be processed by _process_message_update
-            if writer:
-                # Emit as a message chunk that appears to come from SESSION_SUMMARIZATION node
-                writer(
-                    (
-                        "session_summarization_node",
-                        "messages",
-                        (
-                            AIMessageChunk(
-                                content="",
-                                additional_kwargs={
-                                    "reasoning": {
-                                        "summary": [{"text": f"**Summarizing sessions ({completed} out of {total})**"}]
-                                    }
-                                },
-                            ),
-                            {"langgraph_node": AssistantNodeName.SESSION_SUMMARIZATION},
-                        ),
-                    )
-                )
-
+            # Update the user on the progress
+            self._stream_progress(progress_message=f"Watching sessions ({completed}/{total})")
             return result
 
         # Run all tasks concurrently
         tasks = [summarize_with_progress(sid) for sid in session_ids]
         summaries = await asyncio.gather(*tasks)
-
         # TODO: Add layer to convert JSON into more readable text for Max to returns to user
         return "\n".join(summaries)
 
@@ -204,18 +203,14 @@ class SessionSummarizationNode(AssistantNode):
                     f"No session ids found for the provided filters: {replay_filters}", conversation_id, start_time
                 )
                 return self._create_error_response(self._base_error_instructions, state.root_tool_call_id)
-
             # Process sessions based on count
             if len(session_ids) <= GROUP_SUMMARIES_MIN_SESSIONS:
-                # Process with progress updates
+                # If small amount of sessions - there are no patterns to extract, so summarize them individually and return as is
                 summaries_content = await self._summarize_sessions_individually_with_progress(session_ids, config)
             else:
-                raise Exception("Temp")
-            # TODO: Temporarily disable
-            # else:
-            #     # For large groups, process as before
-            #     summaries_content = await self._summarize_sessions_as_group(session_ids)
-
+                # For large groups, process in detail, searching for patterns
+                # TODO: Allow users to define the pattern themselves
+                summaries_content = await self._summarize_sessions_as_group(session_ids)
             return PartialAssistantState(
                 messages=[
                     AssistantToolCallMessage(
