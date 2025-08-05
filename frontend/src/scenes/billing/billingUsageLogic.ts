@@ -196,7 +196,7 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
         billingPeriodMarkers: [
             (s) => [s.billingPeriodUTC, s.dateFrom, s.dateTo],
             (currentPeriod, dateFrom: string, dateTo: string): BillingPeriodMarker[] => {
-                if (!currentPeriod.start || !currentPeriod.interval) {
+                if (!currentPeriod?.start || !currentPeriod?.interval) {
                     return []
                 }
 
