@@ -123,7 +123,7 @@ FROM(
         $session_id,
         (SELECT * FROM issue_list) AS issue_ids,
         minIf(toNullable(timestamp), event='{self.query.events[0]}') as earliest_success_event,
-        minForEach(arrayMap(x -> (if(x = issue_id, toNullable(timestamp), NULL)), issue_ids)) as earliest_exceptions,
+        minForEach(arrayMap(x -> (if(x = issue_id, toNullable(timestamp), NULL)), (SELECT * FROM issue_list))) as earliest_exceptions,
         arrayMap(x -> if(x IS NOT NULL AND earliest_success_event IS NOT NULL AND x < earliest_success_event, 1, 0), earliest_exceptions) AS both,
         arrayMap(x -> if(x IS NULL AND earliest_success_event IS NOT NULL, 1, 0), earliest_exceptions) AS success_only,
         arrayMap(x -> if(x IS NOT NULL AND earliest_success_event IS NULL, 1, 0), earliest_exceptions) AS exception_only,
