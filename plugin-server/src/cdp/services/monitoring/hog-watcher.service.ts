@@ -1,9 +1,9 @@
 import { Counter } from 'prom-client'
 
+import { logger } from '~/utils/logger'
 import { captureTeamEvent } from '~/utils/posthog'
 
 import { Hub } from '../../../types'
-import { UUIDT } from '../../../utils/utils'
 import { CdpRedis } from '../../redis'
 import {
     CyclotronJobInvocation,
@@ -13,26 +13,24 @@ import {
     HogFunctionType,
 } from '../../types'
 
-export const BASE_REDIS_KEY = process.env.NODE_ENV == 'test' ? '@posthog-test/hog-watcher' : '@posthog/hog-watcher'
+export const BASE_REDIS_KEY = process.env.NODE_ENV == 'test' ? '@posthog-test/hog-watcher-2' : '@posthog/hog-watcher-2'
 const REDIS_KEY_TOKENS = `${BASE_REDIS_KEY}/tokens`
-const REDIS_KEY_DISABLED = `${BASE_REDIS_KEY}/disabled`
-const REDIS_KEY_DISABLED_HISTORY = `${BASE_REDIS_KEY}/disabled_history`
+const REDIS_KEY_STATE = `${BASE_REDIS_KEY}/state`
+const REDIS_KEY_STATE_LOCK = `${BASE_REDIS_KEY}/state-lock`
 
 export enum HogWatcherState {
     healthy = 1,
     degraded = 2,
-    disabledForPeriod = 3,
-    disabledIndefinitely = 4,
+    disabled = 3,
 }
 
 export type HogWatcherFunctionState = {
-    state: HogWatcherState
     tokens: number
-    rating: number
+    state: HogWatcherState
 }
 
 export const hogFunctionStateChange = new Counter({
-    name: 'hog_function_state_change',
+    name: 'cdp_hog_function_state_change',
     help: 'Number of times a transformation state changed',
     labelNames: ['state', 'kind'],
 })
@@ -45,10 +43,6 @@ type HogFunctionTimingCost = {
 
 type HogFunctionTimingCosts = Partial<Record<HogFunctionTiming['kind'], HogFunctionTimingCost>>
 
-// TODO: Future follow up - we should swap this to an API call or something.
-// Having it as a celery task ID based on a file path is brittle and hard to test.
-export const CELERY_TASK_ID = 'posthog.tasks.plugin_server.hog_function_state_transition'
-
 // Check if the result is of type CyclotronJobInvocationHogFunction
 export const isHogFunctionResult = (
     result: CyclotronJobInvocationResult
@@ -56,10 +50,20 @@ export const isHogFunctionResult = (
     return 'hogFunction' in result.invocation
 }
 
+type PipelineResults = [Error | null, any][]
+
+const getPipelineResults = (res: PipelineResults, index: number, numOperations: number) => {
+    // pipeline results are just a big array of operation results so we need to slice out the correct parts
+    return res.slice(index * numOperations, index * numOperations + numOperations)
+}
+
 export class HogWatcherService {
     private costsMapping: HogFunctionTimingCosts
 
-    constructor(private hub: Hub, private redis: CdpRedis) {
+    constructor(
+        private hub: Hub,
+        private redis: CdpRedis
+    ) {
         this.costsMapping = {
             hog: {
                 lowerBound: this.hub.CDP_WATCHER_HOG_COST_TIMING_LOWER_MS,
@@ -82,22 +86,39 @@ export class HogWatcherService {
         }
     }
 
-    private async onStateChange(hogFunction: HogFunctionType, state: HogWatcherState) {
+    private async onStateChange({
+        hogFunction,
+        state,
+        previousState,
+    }: {
+        hogFunction: HogFunctionType
+        state: HogWatcherState
+        previousState: HogWatcherState
+    }) {
         const team = await this.hub.teamManager.getTeam(hogFunction.team_id)
-        if (team) {
+
+        logger.info('[HogWatcherService] onStateChange', {
+            hogFunctionId: hogFunction.id,
+            hogFunctionName: hogFunction.name,
+            state,
+            previousState,
+        })
+
+        if (team && this.hub.CDP_WATCHER_SEND_EVENTS) {
             captureTeamEvent(team, 'hog_function_state_change', {
                 hog_function_id: hogFunction.id,
                 hog_function_type: hogFunction.type,
                 hog_function_name: hogFunction.name,
                 hog_function_template_id: hogFunction.template_id,
                 state: HogWatcherState[state], // Convert numeric state to readable string
+                previous_state: HogWatcherState[previousState], // Convert numeric state to readable string
             })
         }
-        await this.hub.celery.applyAsync(CELERY_TASK_ID, [hogFunction.id, state])
     }
 
     private rateLimitArgs(id: HogFunctionType['id'], cost: number) {
         const nowSeconds = Math.round(Date.now() / 1000)
+
         return [
             `${REDIS_KEY_TOKENS}/${id}`,
             nowSeconds,
@@ -108,30 +129,20 @@ export class HogWatcherService {
         ] as const
     }
 
-    public tokensToFunctionState(tokens?: number | null, stateOverride?: HogWatcherState): HogWatcherFunctionState {
-        tokens = tokens ?? this.hub.CDP_WATCHER_BUCKET_SIZE
+    public calculateNewState(tokens: number): HogWatcherState {
         const rating = tokens / this.hub.CDP_WATCHER_BUCKET_SIZE
 
-        let state: HogWatcherState
-
-        if (stateOverride) {
-            state = stateOverride
-        } else if (rating >= this.hub.CDP_WATCHER_THRESHOLD_DEGRADED) {
-            state = HogWatcherState.healthy
-        } else if (rating > 0) {
-            state = HogWatcherState.degraded
-        } else {
-            if (this.hub.CDP_WATCHER_AUTOMATICALLY_DISABLE_FUNCTIONS) {
-                state = HogWatcherState.disabledForPeriod
-            } else {
-                state = HogWatcherState.degraded
-            }
+        if (rating < 0 && this.hub.CDP_WATCHER_AUTOMATICALLY_DISABLE_FUNCTIONS) {
+            return HogWatcherState.disabled
+        }
+        if (rating <= this.hub.CDP_WATCHER_THRESHOLD_DEGRADED) {
+            return HogWatcherState.degraded
         }
 
-        return { state, tokens, rating }
+        return HogWatcherState.healthy
     }
 
-    public async getStates(
+    public async getPersistedStates(
         ids: HogFunctionType['id'][]
     ): Promise<Record<HogFunctionType['id'], HogWatcherFunctionState>> {
         const idsSet = new Set(ids)
@@ -139,180 +150,189 @@ export class HogWatcherService {
         const res = await this.redis.usePipeline({ name: 'getStates' }, (pipeline) => {
             for (const id of idsSet) {
                 pipeline.checkRateLimit(...this.rateLimitArgs(id, 0))
-                pipeline.get(`${REDIS_KEY_DISABLED}/${id}`)
-                pipeline.ttl(`${REDIS_KEY_DISABLED}/${id}`)
+                pipeline.get(`${REDIS_KEY_STATE}/${id}`)
             }
         })
 
-        return Array.from(idsSet).reduce((acc, id, index) => {
-            const resIndex = index * 3
-            const tokens = res ? res[resIndex][1] : undefined
-            const disabled = res ? res[resIndex + 1][1] : false
-            const disabledTemporarily = disabled && res ? res[resIndex + 2][1] !== -1 : false
-            const stateOverride = disabled
-                ? disabledTemporarily
-                    ? HogWatcherState.disabledForPeriod
-                    : HogWatcherState.disabledIndefinitely
-                : undefined
+        return Array.from(idsSet).reduce(
+            (acc, id, index) => {
+                const resIndex = index * 2
+                const tokens = res ? res[resIndex][1] : undefined
+                const state = res ? res[resIndex + 1][1] : undefined
 
-            acc[id] = this.tokensToFunctionState(tokens, stateOverride)
+                acc[id] = {
+                    state: state ? Number(state) : HogWatcherState.healthy,
+                    tokens: tokens ?? this.hub.CDP_WATCHER_BUCKET_SIZE,
+                }
 
-            return acc
-        }, {} as Record<HogFunctionType['id'], HogWatcherFunctionState>)
+                return acc
+            },
+            {} as Record<HogFunctionType['id'], HogWatcherFunctionState>
+        )
     }
 
-    public async getState(id: HogFunctionType['id']): Promise<HogWatcherFunctionState> {
-        const res = await this.getStates([id])
+    public async getPersistedState(id: HogFunctionType['id']): Promise<HogWatcherFunctionState> {
+        const res = await this.getPersistedStates([id])
         return res[id]
     }
 
-    public async forceStateChange(hogFunction: HogFunctionType, state: HogWatcherState): Promise<void> {
-        const id = hogFunction.id
-        await this.redis.usePipeline({ name: 'forceStateChange' }, (pipeline) => {
-            const newScore =
-                state === HogWatcherState.healthy
-                    ? this.hub.CDP_WATCHER_BUCKET_SIZE
-                    : state === HogWatcherState.degraded
-                    ? this.hub.CDP_WATCHER_BUCKET_SIZE * this.hub.CDP_WATCHER_THRESHOLD_DEGRADED
-                    : 0
+    public async getAllFunctionStates(): Promise<Record<HogFunctionType['id'], HogWatcherFunctionState>> {
+        // Scan all state keys in Redis
+        const stateKeys = await this.redis.useClient({ name: 'scanStates' }, async (client) => {
+            const keys: string[] = []
+            let cursor = '0'
 
-            const nowSeconds = Math.round(Date.now() / 1000)
+            do {
+                const [newCursor, batch] = await client.scan(cursor, 'MATCH', `${REDIS_KEY_STATE}/*`, 'COUNT', 500)
+                cursor = newCursor
+                keys.push(...batch)
+            } while (cursor !== '0')
 
-            pipeline.hset(`${REDIS_KEY_TOKENS}/${id}`, 'pool', newScore)
-            pipeline.hset(`${REDIS_KEY_TOKENS}/${id}`, 'ts', nowSeconds)
+            return keys
+        })
 
-            if (state === HogWatcherState.disabledForPeriod) {
-                pipeline.set(`${REDIS_KEY_DISABLED}/${id}`, '1', 'EX', this.hub.CDP_WATCHER_DISABLED_TEMPORARY_TTL)
-            } else if (state === HogWatcherState.disabledIndefinitely) {
-                pipeline.set(`${REDIS_KEY_DISABLED}/${id}`, '1')
-            } else {
-                pipeline.del(`${REDIS_KEY_DISABLED}/${id}`)
+        if (!stateKeys || stateKeys.length === 0) {
+            return {}
+        }
+
+        // Extract function IDs from the keys
+        const functionIds = stateKeys.map((key: string) => key.replace(`${REDIS_KEY_STATE}/`, ''))
+
+        // Get states for all found function IDs
+        return await this.getPersistedStates(functionIds)
+    }
+
+    public async clearLock(id: HogFunctionType['id']): Promise<void> {
+        await this.redis.usePipeline({ name: 'clearLock' }, (pipeline) => {
+            pipeline.del(`${REDIS_KEY_STATE_LOCK}/${id}`)
+        })
+    }
+
+    public async doStageChanges(
+        changes: [HogFunctionType, HogWatcherState][],
+        forceReset: boolean = false
+    ): Promise<void> {
+        logger.info('[HogWatcherService] Performing state changes', { changes, forceReset })
+        const res = await this.redis.usePipeline({ name: 'forceStateChange' }, (pipeline) => {
+            for (const [hogFunction, state] of changes) {
+                const id = hogFunction.id
+                const newScore =
+                    state === HogWatcherState.healthy
+                        ? this.hub.CDP_WATCHER_BUCKET_SIZE
+                        : state === HogWatcherState.degraded
+                          ? this.hub.CDP_WATCHER_BUCKET_SIZE * this.hub.CDP_WATCHER_THRESHOLD_DEGRADED
+                          : 0
+
+                const nowSeconds = Math.round(Date.now() / 1000)
+
+                pipeline.getset(`${REDIS_KEY_STATE}/${id}`, state) // Set the state
+                pipeline.setex(`${REDIS_KEY_STATE_LOCK}/${id}`, this.hub.CDP_WATCHER_STATE_LOCK_TTL, '1') // Set the lock
+                if (forceReset) {
+                    pipeline.hset(`${REDIS_KEY_TOKENS}/${id}`, 'pool', newScore)
+                    pipeline.hset(`${REDIS_KEY_TOKENS}/${id}`, 'ts', nowSeconds)
+                }
             }
         })
-        await this.onStateChange(hogFunction, state)
+
+        if (!res) {
+            return
+        }
+
+        const numOperations = forceReset ? 4 : 2
+
+        await Promise.all(
+            changes.map(async ([hogFunction, state], index) => {
+                const [stateResult] = getPipelineResults(res, index, numOperations)
+                const previousState = Number(stateResult[1] ?? HogWatcherState.healthy)
+                if (previousState !== state) {
+                    await this.onStateChange({
+                        hogFunction,
+                        state,
+                        previousState,
+                    })
+                }
+            })
+        )
+    }
+
+    public async forceStateChange(hogFunction: HogFunctionType, state: HogWatcherState): Promise<void> {
+        await this.doStageChanges([[hogFunction, state]])
     }
 
     public async observeResults(results: CyclotronJobInvocationResult[]): Promise<void> {
-        // NOTE: Currently we only monitor hog code timings. We will have a separate config for async functions
-
-        const costs: Record<CyclotronJobInvocation['functionId'], number> = {}
-        // Create a map to store the function types
-        const hogFunctionsById: Record<CyclotronJobInvocation['functionId'], HogFunctionType> = {}
+        const functionCosts: Record<
+            CyclotronJobInvocation['functionId'],
+            {
+                hogFunction?: HogFunctionType
+                functionId: CyclotronJobInvocation['functionId']
+                cost: number
+            }
+        > = {}
 
         results.forEach((result) => {
             if (!isHogFunctionResult(result)) {
                 return
             }
 
-            let cost = (costs[result.invocation.functionId] = costs[result.invocation.functionId] || 0)
-            hogFunctionsById[result.invocation.functionId] = result.invocation.hogFunction
+            const functionCost = functionCosts[result.invocation.functionId] ?? {
+                functionId: result.invocation.functionId,
+                cost: 0,
+                hogFunction: result.invocation.hogFunction,
+            }
 
             if (result.finished) {
                 // Process each timing entry individually instead of totaling them
                 for (const timing of result.invocation.state.timings) {
-                    // Record metrics for this timing entry
-
                     const costConfig = this.costsMapping[timing.kind]
                     if (costConfig) {
                         const ratio =
                             Math.max(timing.duration_ms - costConfig.lowerBound, 0) /
                             (costConfig.upperBound - costConfig.lowerBound)
-                        cost += Math.round(costConfig.cost * ratio)
+                        functionCost.cost += Math.round(costConfig.cost * ratio)
                     }
                 }
             }
 
-            costs[result.invocation.hogFunction.id] = cost
+            functionCosts[result.invocation.functionId] = functionCost
         })
 
-        const res = await this.redis.usePipeline({ name: 'checkRateLimits' }, (pipeline) => {
-            Object.entries(costs).forEach(([id, change]) => {
-                pipeline.checkRateLimit(...this.rateLimitArgs(id, change))
-            })
+        // We apply the costs and return the existing states so we can calculate those that need a state change
+        const res = await this.redis.usePipeline({ name: 'updateRateLimits' }, (pipeline) => {
+            for (const functionCost of Object.values(functionCosts)) {
+                pipeline.get(`${REDIS_KEY_STATE}/${functionCost.functionId}`)
+                pipeline.get(`${REDIS_KEY_STATE_LOCK}/${functionCost.functionId}`)
+                pipeline.checkRateLimit(...this.rateLimitArgs(functionCost.functionId, functionCost.cost))
+            }
         })
 
-        // TRICKY: the above part is straight forward - below is more complex as we do multiple calls to ensure
-        // that we disable the function temporarily and eventually permanently. As this is only called when the function
-        // transitions to a disabled state, it is not a performance concern.
-
-        if (!this.hub.CDP_WATCHER_AUTOMATICALLY_DISABLE_FUNCTIONS) {
+        if (!res) {
             return
         }
 
-        const disabledFunctionIds = Object.entries(costs)
-            .filter((_, index) => (res ? res[index][1] <= 0 : false))
-            .map(([id]) => id)
+        await Promise.all(
+            Object.values(functionCosts).map(async (functionCost, index) => {
+                const [stateResult, lockResult, tokenResult] = getPipelineResults(res, index, 3)
 
-        if (disabledFunctionIds.length) {
-            // Mark them all as disabled in redis
+                const currentState: HogWatcherState = Number(stateResult[1] ?? HogWatcherState.healthy)
+                const tokens = Number(tokenResult[1] ?? this.hub.CDP_WATCHER_BUCKET_SIZE)
+                const newState = this.calculateNewState(tokens)
 
-            const results = await this.redis.usePipeline({ name: 'markDisabled' }, (pipeline) => {
-                disabledFunctionIds.forEach((id) => {
-                    pipeline.set(
-                        `${REDIS_KEY_DISABLED}/${id}`,
-                        '1',
-                        'EX',
-                        this.hub.CDP_WATCHER_DISABLED_TEMPORARY_TTL,
-                        'NX'
-                    )
-                })
-            })
+                if (currentState !== newState) {
+                    if (lockResult[1]) {
+                        // We don't want to change the state of a function that is being locked (i.e. recently changed state)
+                        return
+                    }
 
-            const functionsTempDisabled = disabledFunctionIds.filter((_, index) =>
-                results ? results[index][1] : false
-            )
+                    if (currentState === HogWatcherState.disabled) {
+                        // We never modify the state of a disabled function automatically
+                        return
+                    }
 
-            if (!functionsTempDisabled.length) {
-                return
-            }
-
-            // We store the history as a zset - we can then use it to determine if we should disable indefinitely
-            const historyResults = await this.redis.usePipeline({ name: 'addTempDisabled' }, (pipeline) => {
-                functionsTempDisabled.forEach((id) => {
-                    const key = `${REDIS_KEY_DISABLED_HISTORY}/${id}`
-                    pipeline.zadd(key, Date.now(), new UUIDT().toString())
-                    pipeline.zrange(key, 0, -1)
-                    pipeline.expire(key, this.hub.CDP_WATCHER_TTL)
-                })
-            })
-
-            const functionsToDisablePermanently = functionsTempDisabled.filter((_, index) => {
-                const history = historyResults ? historyResults[index * 3 + 1][1] : []
-                return history.length >= this.hub.CDP_WATCHER_DISABLED_TEMPORARY_MAX_COUNT
-            })
-
-            if (functionsToDisablePermanently.length) {
-                await this.redis.usePipeline({ name: 'disablePermanently' }, (pipeline) => {
-                    functionsToDisablePermanently.forEach((id) => {
-                        const key = `${REDIS_KEY_DISABLED}/${id}`
-                        pipeline.set(key, '1')
-                        pipeline.del(`${REDIS_KEY_DISABLED_HISTORY}/${id}`)
-                    })
-                })
-            }
-
-            // Finally track the results
-            for (const id of functionsToDisablePermanently) {
-                hogFunctionStateChange
-                    .labels({
-                        state: 'disabled_indefinitely',
-                        kind: hogFunctionsById[id].type,
-                    })
-                    .inc()
-                await this.onStateChange(hogFunctionsById[id], HogWatcherState.disabledIndefinitely)
-            }
-
-            for (const id of functionsTempDisabled) {
-                if (!functionsToDisablePermanently.includes(id)) {
-                    hogFunctionStateChange
-                        .labels({
-                            state: 'disabled_for_period',
-                            kind: hogFunctionsById[id].type,
-                        })
-                        .inc()
-                    await this.onStateChange(hogFunctionsById[id], HogWatcherState.disabledForPeriod)
+                    if (functionCost.hogFunction) {
+                        await this.forceStateChange(functionCost.hogFunction, newState)
+                    }
                 }
-            }
-        }
+            })
+        )
     }
 }

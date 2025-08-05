@@ -22,15 +22,15 @@ export function getDefaultConfig(): PluginsServerConfig {
         DATABASE_URL: isTestEnv()
             ? 'postgres://posthog:posthog@localhost:5432/test_posthog'
             : isDevEnv()
-            ? 'postgres://posthog:posthog@localhost:5432/posthog'
-            : '',
+              ? 'postgres://posthog:posthog@localhost:5432/posthog'
+              : '',
         DATABASE_READONLY_URL: '',
         PLUGIN_STORAGE_DATABASE_URL: '',
         PERSONS_DATABASE_URL: isTestEnv()
             ? 'postgres://posthog:posthog@localhost:5432/test_posthog'
             : isDevEnv()
-            ? 'postgres://posthog:posthog@localhost:5432/posthog'
-            : '',
+              ? 'postgres://posthog:posthog@localhost:5432/posthog'
+              : '',
         PERSONS_READONLY_DATABASE_URL: '',
         POSTGRES_CONNECTION_POOL_SIZE: 10,
         POSTHOG_DB_NAME: null,
@@ -169,6 +169,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         CDP_WATCHER_REFILL_RATE: 10,
         CDP_WATCHER_STATE_LOCK_TTL: 60, // 1 minute
         CDP_WATCHER_DISABLED_TEMPORARY_MAX_COUNT: 3,
+        CDP_WATCHER_SEND_EVENTS: isProdEnv() ? false : true,
         CDP_HOG_FILTERS_TELEMETRY_TEAMS: '',
         CDP_REDIS_PASSWORD: '',
         CDP_EVENT_PROCESSOR_EXECUTE_FIRST_STEP: true,

@@ -227,7 +227,7 @@ export function ToolbarInfoMenu(): JSX.Element | null {
     useEffect(() => {
         setMenu(ref.current)
         return () => setMenu(null)
-    }, [ref.current])
+    }, [ref.current]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     if (!isAuthenticated) {
         return null
@@ -274,7 +274,7 @@ export function Toolbar(): JSX.Element | null {
     useEffect(() => {
         setElement(ref.current)
         return () => setElement(null)
-    }, [ref.current])
+    }, [ref.current]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     useKeyboardHotkeys(
         {
@@ -295,7 +295,7 @@ export function Toolbar(): JSX.Element | null {
         if (userIntent === 'heatmaps') {
             setVisibleMenu('heatmap')
         }
-    }, [userIntent])
+    }, [userIntent]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     if (isEmbeddedInApp) {
         return null

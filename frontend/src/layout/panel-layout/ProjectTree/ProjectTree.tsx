@@ -449,8 +449,8 @@ export function ProjectTree({
                 const folder = newItem
                     ? newItem.path || ''
                     : newId && String(newId).startsWith('project://')
-                    ? String(newId).substring(10)
-                    : ''
+                      ? String(newId).substring(10)
+                      : ''
 
                 if (checkedItems[oldId]) {
                     moveCheckedItems(folder)
@@ -622,8 +622,8 @@ export function ProjectTree({
                                             {header.formatComponent
                                                 ? header.formatComponent(value, item)
                                                 : header.formatString
-                                                ? header.formatString(value, item)
-                                                : value}
+                                                  ? header.formatString(value, item)
+                                                  : value}
                                         </span>
                                     </Tooltip>
                                 </span>
