@@ -3300,6 +3300,268 @@
       
   '''
 # ---
+# name: test_create_table_query[web_pre_aggregated_bounces]
+  '''
+  
+      CREATE TABLE IF NOT EXISTS web_pre_aggregated_bounces ON CLUSTER 'posthog'
+      (
+          period_bucket DateTime,
+          team_id UInt64,
+          host String,
+          device_type String,
+          
+      entry_pathname String,
+  end_pathname String,
+  browser String,
+  os String,
+  viewport_width Int64,
+  viewport_height Int64,
+  referring_domain String,
+  utm_source String,
+  utm_medium String,
+  utm_campaign String,
+  utm_term String,
+  utm_content String,
+  country_code String,
+  city_name String,
+  region_code String,
+  region_name String,
+  has_gclid Bool,
+  has_gad_source_paid_search Bool,
+  has_fbclid Bool,
+      persons_uniq_state AggregateFunction(uniq, UUID),
+      sessions_uniq_state AggregateFunction(uniq, String),
+      pageviews_count_state AggregateFunction(sum, UInt64),
+      bounces_count_state AggregateFunction(sum, UInt64),
+      total_session_duration_state AggregateFunction(sum, Int64),
+      total_session_count_state AggregateFunction(sum, UInt64)
+  
+      ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.web_pre_aggregated_bounces', '{replica}-{shard}')
+      PARTITION BY toYYYYMMDD(period_bucket)
+      ORDER BY (
+      team_id,
+      period_bucket,
+      host,
+      device_type,
+      entry_pathname,
+      end_pathname,
+      browser,
+      os,
+      viewport_width,
+      viewport_height,
+      referring_domain,
+      utm_source,
+      utm_medium,
+      utm_campaign,
+      utm_term,
+      utm_content,
+      country_code,
+      city_name,
+      region_code,
+      region_name,
+      has_gclid,
+      has_gad_source_paid_search,
+      has_fbclid
+  )
+      
+  '''
+# ---
+# name: test_create_table_query[web_pre_aggregated_bounces_staging]
+  '''
+  
+      CREATE TABLE IF NOT EXISTS web_pre_aggregated_bounces_staging ON CLUSTER 'posthog'
+      (
+          period_bucket DateTime,
+          team_id UInt64,
+          host String,
+          device_type String,
+          
+      entry_pathname String,
+  end_pathname String,
+  browser String,
+  os String,
+  viewport_width Int64,
+  viewport_height Int64,
+  referring_domain String,
+  utm_source String,
+  utm_medium String,
+  utm_campaign String,
+  utm_term String,
+  utm_content String,
+  country_code String,
+  city_name String,
+  region_code String,
+  region_name String,
+  has_gclid Bool,
+  has_gad_source_paid_search Bool,
+  has_fbclid Bool,
+      persons_uniq_state AggregateFunction(uniq, UUID),
+      sessions_uniq_state AggregateFunction(uniq, String),
+      pageviews_count_state AggregateFunction(sum, UInt64),
+      bounces_count_state AggregateFunction(sum, UInt64),
+      total_session_duration_state AggregateFunction(sum, Int64),
+      total_session_count_state AggregateFunction(sum, UInt64)
+  
+      ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/5c928ef6-2194-4843-988a-2ffb931c4ca6_noshard/posthog.web_pre_aggregated_bounces_staging', '{replica}-{shard}')
+      PARTITION BY toYYYYMMDD(period_bucket)
+      ORDER BY (
+      team_id,
+      period_bucket,
+      host,
+      device_type,
+      entry_pathname,
+      end_pathname,
+      browser,
+      os,
+      viewport_width,
+      viewport_height,
+      referring_domain,
+      utm_source,
+      utm_medium,
+      utm_campaign,
+      utm_term,
+      utm_content,
+      country_code,
+      city_name,
+      region_code,
+      region_name,
+      has_gclid,
+      has_gad_source_paid_search,
+      has_fbclid
+  )
+      
+  '''
+# ---
+# name: test_create_table_query[web_pre_aggregated_stats]
+  '''
+  
+      CREATE TABLE IF NOT EXISTS web_pre_aggregated_stats ON CLUSTER 'posthog'
+      (
+          period_bucket DateTime,
+          team_id UInt64,
+          host String,
+          device_type String,
+          
+      pathname String,
+  entry_pathname String,
+  end_pathname String,
+  browser String,
+  os String,
+  viewport_width Int64,
+  viewport_height Int64,
+  referring_domain String,
+  utm_source String,
+  utm_medium String,
+  utm_campaign String,
+  utm_term String,
+  utm_content String,
+  country_code String,
+  city_name String,
+  region_code String,
+  region_name String,
+  has_gclid Bool,
+  has_gad_source_paid_search Bool,
+  has_fbclid Bool,
+      persons_uniq_state AggregateFunction(uniq, UUID),
+      sessions_uniq_state AggregateFunction(uniq, String),
+      pageviews_count_state AggregateFunction(sum, UInt64),
+  
+      ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.web_pre_aggregated_stats', '{replica}-{shard}')
+      PARTITION BY toYYYYMMDD(period_bucket)
+      ORDER BY (
+      team_id,
+      period_bucket,
+      host,
+      device_type,
+      pathname,
+      entry_pathname,
+      end_pathname,
+      browser,
+      os,
+      viewport_width,
+      viewport_height,
+      referring_domain,
+      utm_source,
+      utm_medium,
+      utm_campaign,
+      utm_term,
+      utm_content,
+      country_code,
+      city_name,
+      region_code,
+      region_name,
+      has_gclid,
+      has_gad_source_paid_search,
+      has_fbclid
+  )
+      
+  '''
+# ---
+# name: test_create_table_query[web_pre_aggregated_stats_staging]
+  '''
+  
+      CREATE TABLE IF NOT EXISTS web_pre_aggregated_stats_staging ON CLUSTER 'posthog'
+      (
+          period_bucket DateTime,
+          team_id UInt64,
+          host String,
+          device_type String,
+          
+      pathname String,
+  entry_pathname String,
+  end_pathname String,
+  browser String,
+  os String,
+  viewport_width Int64,
+  viewport_height Int64,
+  referring_domain String,
+  utm_source String,
+  utm_medium String,
+  utm_campaign String,
+  utm_term String,
+  utm_content String,
+  country_code String,
+  city_name String,
+  region_code String,
+  region_name String,
+  has_gclid Bool,
+  has_gad_source_paid_search Bool,
+  has_fbclid Bool,
+      persons_uniq_state AggregateFunction(uniq, UUID),
+      sessions_uniq_state AggregateFunction(uniq, String),
+      pageviews_count_state AggregateFunction(sum, UInt64),
+  
+      ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/70780557-5ea4-44f0-9b88-40c3d92b8b25_noshard/posthog.web_pre_aggregated_stats_staging', '{replica}-{shard}')
+      PARTITION BY toYYYYMMDD(period_bucket)
+      ORDER BY (
+      team_id,
+      period_bucket,
+      host,
+      device_type,
+      pathname,
+      entry_pathname,
+      end_pathname,
+      browser,
+      os,
+      viewport_width,
+      viewport_height,
+      referring_domain,
+      utm_source,
+      utm_medium,
+      utm_campaign,
+      utm_term,
+      utm_content,
+      country_code,
+      city_name,
+      region_code,
+      region_name,
+      has_gclid,
+      has_gad_source_paid_search,
+      has_fbclid
+  )
+      
+  '''
+# ---
 # name: test_create_table_query[web_stats_daily]
   '''
   
@@ -4854,6 +5116,268 @@
   )
       PARTITION BY formatDateTime(period_bucket, '%Y%m%d%H')
       TTL period_bucket + INTERVAL 24 HOUR DELETE
+      
+  '''
+# ---
+# name: test_create_table_query_replicated_and_storage[web_pre_aggregated_bounces]
+  '''
+  
+      CREATE TABLE IF NOT EXISTS web_pre_aggregated_bounces ON CLUSTER 'posthog'
+      (
+          period_bucket DateTime,
+          team_id UInt64,
+          host String,
+          device_type String,
+          
+      entry_pathname String,
+  end_pathname String,
+  browser String,
+  os String,
+  viewport_width Int64,
+  viewport_height Int64,
+  referring_domain String,
+  utm_source String,
+  utm_medium String,
+  utm_campaign String,
+  utm_term String,
+  utm_content String,
+  country_code String,
+  city_name String,
+  region_code String,
+  region_name String,
+  has_gclid Bool,
+  has_gad_source_paid_search Bool,
+  has_fbclid Bool,
+      persons_uniq_state AggregateFunction(uniq, UUID),
+      sessions_uniq_state AggregateFunction(uniq, String),
+      pageviews_count_state AggregateFunction(sum, UInt64),
+      bounces_count_state AggregateFunction(sum, UInt64),
+      total_session_duration_state AggregateFunction(sum, Int64),
+      total_session_count_state AggregateFunction(sum, UInt64)
+  
+      ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.web_pre_aggregated_bounces', '{replica}-{shard}')
+      PARTITION BY toYYYYMMDD(period_bucket)
+      ORDER BY (
+      team_id,
+      period_bucket,
+      host,
+      device_type,
+      entry_pathname,
+      end_pathname,
+      browser,
+      os,
+      viewport_width,
+      viewport_height,
+      referring_domain,
+      utm_source,
+      utm_medium,
+      utm_campaign,
+      utm_term,
+      utm_content,
+      country_code,
+      city_name,
+      region_code,
+      region_name,
+      has_gclid,
+      has_gad_source_paid_search,
+      has_fbclid
+  )
+      
+  '''
+# ---
+# name: test_create_table_query_replicated_and_storage[web_pre_aggregated_bounces_staging]
+  '''
+  
+      CREATE TABLE IF NOT EXISTS web_pre_aggregated_bounces_staging ON CLUSTER 'posthog'
+      (
+          period_bucket DateTime,
+          team_id UInt64,
+          host String,
+          device_type String,
+          
+      entry_pathname String,
+  end_pathname String,
+  browser String,
+  os String,
+  viewport_width Int64,
+  viewport_height Int64,
+  referring_domain String,
+  utm_source String,
+  utm_medium String,
+  utm_campaign String,
+  utm_term String,
+  utm_content String,
+  country_code String,
+  city_name String,
+  region_code String,
+  region_name String,
+  has_gclid Bool,
+  has_gad_source_paid_search Bool,
+  has_fbclid Bool,
+      persons_uniq_state AggregateFunction(uniq, UUID),
+      sessions_uniq_state AggregateFunction(uniq, String),
+      pageviews_count_state AggregateFunction(sum, UInt64),
+      bounces_count_state AggregateFunction(sum, UInt64),
+      total_session_duration_state AggregateFunction(sum, Int64),
+      total_session_count_state AggregateFunction(sum, UInt64)
+  
+      ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/5c928ef6-2194-4843-988a-2ffb931c4ca6_noshard/posthog.web_pre_aggregated_bounces_staging', '{replica}-{shard}')
+      PARTITION BY toYYYYMMDD(period_bucket)
+      ORDER BY (
+      team_id,
+      period_bucket,
+      host,
+      device_type,
+      entry_pathname,
+      end_pathname,
+      browser,
+      os,
+      viewport_width,
+      viewport_height,
+      referring_domain,
+      utm_source,
+      utm_medium,
+      utm_campaign,
+      utm_term,
+      utm_content,
+      country_code,
+      city_name,
+      region_code,
+      region_name,
+      has_gclid,
+      has_gad_source_paid_search,
+      has_fbclid
+  )
+      
+  '''
+# ---
+# name: test_create_table_query_replicated_and_storage[web_pre_aggregated_stats]
+  '''
+  
+      CREATE TABLE IF NOT EXISTS web_pre_aggregated_stats ON CLUSTER 'posthog'
+      (
+          period_bucket DateTime,
+          team_id UInt64,
+          host String,
+          device_type String,
+          
+      pathname String,
+  entry_pathname String,
+  end_pathname String,
+  browser String,
+  os String,
+  viewport_width Int64,
+  viewport_height Int64,
+  referring_domain String,
+  utm_source String,
+  utm_medium String,
+  utm_campaign String,
+  utm_term String,
+  utm_content String,
+  country_code String,
+  city_name String,
+  region_code String,
+  region_name String,
+  has_gclid Bool,
+  has_gad_source_paid_search Bool,
+  has_fbclid Bool,
+      persons_uniq_state AggregateFunction(uniq, UUID),
+      sessions_uniq_state AggregateFunction(uniq, String),
+      pageviews_count_state AggregateFunction(sum, UInt64),
+  
+      ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.web_pre_aggregated_stats', '{replica}-{shard}')
+      PARTITION BY toYYYYMMDD(period_bucket)
+      ORDER BY (
+      team_id,
+      period_bucket,
+      host,
+      device_type,
+      pathname,
+      entry_pathname,
+      end_pathname,
+      browser,
+      os,
+      viewport_width,
+      viewport_height,
+      referring_domain,
+      utm_source,
+      utm_medium,
+      utm_campaign,
+      utm_term,
+      utm_content,
+      country_code,
+      city_name,
+      region_code,
+      region_name,
+      has_gclid,
+      has_gad_source_paid_search,
+      has_fbclid
+  )
+      
+  '''
+# ---
+# name: test_create_table_query_replicated_and_storage[web_pre_aggregated_stats_staging]
+  '''
+  
+      CREATE TABLE IF NOT EXISTS web_pre_aggregated_stats_staging ON CLUSTER 'posthog'
+      (
+          period_bucket DateTime,
+          team_id UInt64,
+          host String,
+          device_type String,
+          
+      pathname String,
+  entry_pathname String,
+  end_pathname String,
+  browser String,
+  os String,
+  viewport_width Int64,
+  viewport_height Int64,
+  referring_domain String,
+  utm_source String,
+  utm_medium String,
+  utm_campaign String,
+  utm_term String,
+  utm_content String,
+  country_code String,
+  city_name String,
+  region_code String,
+  region_name String,
+  has_gclid Bool,
+  has_gad_source_paid_search Bool,
+  has_fbclid Bool,
+      persons_uniq_state AggregateFunction(uniq, UUID),
+      sessions_uniq_state AggregateFunction(uniq, String),
+      pageviews_count_state AggregateFunction(sum, UInt64),
+  
+      ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/70780557-5ea4-44f0-9b88-40c3d92b8b25_noshard/posthog.web_pre_aggregated_stats_staging', '{replica}-{shard}')
+      PARTITION BY toYYYYMMDD(period_bucket)
+      ORDER BY (
+      team_id,
+      period_bucket,
+      host,
+      device_type,
+      pathname,
+      entry_pathname,
+      end_pathname,
+      browser,
+      os,
+      viewport_width,
+      viewport_height,
+      referring_domain,
+      utm_source,
+      utm_medium,
+      utm_campaign,
+      utm_term,
+      utm_content,
+      country_code,
+      city_name,
+      region_code,
+      region_name,
+      has_gclid,
+      has_gad_source_paid_search,
+      has_fbclid
+  )
       
   '''
 # ---
