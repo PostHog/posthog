@@ -3,6 +3,7 @@ from django.utils import timezone
 
 
 from ee.hogai.graph.insights.nodes import InsightSearchNode
+from ee.hogai.graph.insights.utils import get_basic_query_info
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from ee.models.assistant import Conversation
 from posthog.models import Insight, InsightViewed
@@ -162,11 +163,12 @@ class TestInsightSearchNode(BaseTest):
         search_query = "test query"
         insight_plan = "test plan"
 
-        # Mock the _evaluate_insights_for_creation method to return positive result
-        with patch.object(self.node, "_evaluate_insights_for_creation") as mock_evaluate:
+        # Mock the _evaluate_insights_with_tools method to return positive result
+        with patch.object(self.node, "_evaluate_insights_with_tools") as mock_evaluate:
             mock_evaluate.return_value = {
                 "should_use_existing": True,
-                "explanation": "YES: This insight is perfect for your needs.",
+                "selected_insights": [self.insight1.id],  # Now only selects one insight by default
+                "explanation": "Found 1 relevant insight:\n- Daily Pageviews: This insight is perfect for your needs.",
                 "visualization_messages": [],
             }
 
@@ -205,7 +207,8 @@ class TestInsightSearchNode(BaseTest):
                         first_message = result.messages[0]
                         self.assertIsInstance(first_message, AssistantToolCallMessage)
                         self.assertIn("Evaluation Result", first_message.content)
-                        self.assertIn("YES: This insight is perfect for your needs.", first_message.content)
+                        self.assertIn("Found 1 relevant insight", first_message.content)
+                        self.assertIn("Daily Pageviews: This insight is perfect for your needs.", first_message.content)
 
                 # Note: Additional visualization messages depend on query type support in test data
 
@@ -307,11 +310,12 @@ class TestInsightSearchNode(BaseTest):
         search_query = "test query"
         insight_plan = "test plan"
 
-        # Mock the _evaluate_insights_for_creation method to return NO result
-        with patch.object(self.node, "_evaluate_insights_for_creation") as mock_evaluate:
+        # Mock the _evaluate_insights_with_tools method to return NO result
+        with patch.object(self.node, "_evaluate_insights_with_tools") as mock_evaluate:
             mock_evaluate.return_value = {
                 "should_use_existing": False,  # This should trigger creation flow
-                "explanation": "NO: These insights don't match your requirements.",
+                "selected_insights": [],
+                "explanation": "These insights don't match your requirements.",
                 "visualization_messages": [],
             }
 
@@ -364,8 +368,8 @@ class TestInsightSearchNode(BaseTest):
                             "Router should direct to insights creation when evaluation says NO",
                         )
 
-                        # Verify that _evaluate_insights_for_creation was called with the search_query (current implementation)
-                        mock_evaluate.assert_called_once_with(selected_insights, search_query)
+                        # Verify that _evaluate_insights_with_tools was called with the search_query
+                        mock_evaluate.assert_called_once_with(selected_insights, search_query, max_selections=1)
 
     def test_evaluation_always_called_with_search_query(self):
         """Test that evaluation is always called with search_query in current implementation."""
@@ -375,17 +379,18 @@ class TestInsightSearchNode(BaseTest):
         # Mock the search and evaluation methods
         with patch.object(self.node, "_search_insights_iteratively") as mock_search:
             with patch.object(self.node, "_get_total_insights_count") as mock_count:
-                with patch.object(self.node, "_evaluate_insights_for_creation") as mock_evaluate:
+                with patch.object(self.node, "_evaluate_insights_with_tools") as mock_evaluate:
                     with patch.object(self.node, "_load_insights_page") as mock_load_page:
                         mock_search.return_value = selected_insights
                         mock_count.return_value = 1  # Simulate that we have insights
                         # Mock the insights page data
                         mock_load_page.return_value = [{"insight_id": self.insight1.id}]
 
-                        # Mock evaluation to return "use existing" to avoid format_search_results call
+                        # Mock evaluation to return "use existing"
                         mock_evaluate.return_value = {
                             "should_use_existing": True,
-                            "explanation": "YES: Found matching insights",
+                            "selected_insights": [self.insight1.id],
+                            "explanation": "Found 1 relevant insight:\n- Daily Pageviews: Found matching insights",
                             "visualization_messages": [],
                         }
 
@@ -400,7 +405,7 @@ class TestInsightSearchNode(BaseTest):
                         result = self.node.run(state, config)
 
                         # Verify that evaluation was called with search_query (current implementation behavior)
-                        mock_evaluate.assert_called_once_with(selected_insights, search_query)
+                        mock_evaluate.assert_called_once_with(selected_insights, search_query, max_selections=1)
 
                         # Verify that we get the evaluation response
                         self.assertIsNotNone(result)
@@ -482,3 +487,248 @@ class TestInsightSearchNode(BaseTest):
         result = tool.invoke({"page_number": 10})
 
         self.assertEqual(result, "No more insights available.")
+
+    def test_evaluation_tools_select_insight(self):
+        """Test the select_insight tool function."""
+        # Load insights first
+        self.node._load_insights_page(0)
+
+        # Get the tools
+        tools = self.node._create_insight_evaluation_tools()
+        select_insight_tool = next(t for t in tools if t.name == "select_insight")
+
+        # Test selecting a valid insight
+        result = select_insight_tool.invoke(
+            {"insight_id": self.insight1.id, "explanation": "Perfect match for pageviews"}
+        )
+
+        self.assertIn(f"Selected insight {self.insight1.id}", result)
+        self.assertIn("Daily Pageviews", result)
+        self.assertEqual(len(self.node._evaluation_selections), 1)
+        self.assertIn(self.insight1.id, self.node._evaluation_selections)
+        self.assertEqual(
+            self.node._evaluation_selections[self.insight1.id]["explanation"], "Perfect match for pageviews"
+        )
+
+    def test_evaluation_tools_select_invalid_insight(self):
+        """Test the select_insight tool with invalid insight ID."""
+        tools = self.node._create_insight_evaluation_tools()
+        select_insight_tool = next(t for t in tools if t.name == "select_insight")
+
+        result = select_insight_tool.invoke({"insight_id": 99999, "explanation": "Test"})
+
+        self.assertEqual(result, "Insight 99999 not found")
+        self.assertEqual(len(self.node._evaluation_selections), 0)
+
+    def test_evaluation_tools_get_insight_details(self):
+        """Test the get_insight_details tool function."""
+        # Load insights first
+        self.node._load_insights_page(0)
+
+        # Get the tools
+        tools = self.node._create_insight_evaluation_tools()
+        get_details_tool = next(t for t in tools if t.name == "get_insight_details")
+
+        # Test getting details for a valid insight
+        result = get_details_tool.invoke({"insight_id": self.insight1.id})
+
+        self.assertIn(f"Insight: Daily Pageviews (ID: {self.insight1.id})", result)
+        self.assertIn("Description: Track daily website traffic", result)
+        self.assertIn("Query:", result)
+        self.assertIn("Current Results:", result)
+
+    def test_evaluation_tools_reject_all_insights(self):
+        """Test the reject_all_insights tool function."""
+        # Set up some selections first
+        self.node._evaluation_selections = {self.insight1.id: {"insight": {}, "explanation": "test"}}
+
+        tools = self.node._create_insight_evaluation_tools()
+        reject_tool = next(t for t in tools if t.name == "reject_all_insights")
+
+        result = reject_tool.invoke({"reason": "None of these match the user's needs"})
+
+        self.assertEqual(result, "All insights rejected. Will create new insight.")
+        self.assertEqual(len(self.node._evaluation_selections), 0)
+        self.assertEqual(self.node._rejection_reason, "None of these match the user's needs")
+
+    @patch("ee.hogai.graph.insights.nodes.ChatOpenAI")
+    def test_evaluate_insights_with_tools_selection(self, mock_openai):
+        """Test the new tool-based evaluation with insight selection."""
+        # Load insights
+        self.node._load_insights_page(0)
+
+        # Mock LLM response with tool calls
+        mock_tool_response = MagicMock()
+        mock_tool_response.tool_calls = [
+            {
+                "name": "select_insight",
+                "args": {"insight_id": self.insight1.id, "explanation": "Matches pageview tracking needs"},
+                "id": "call_1",
+            },
+            {
+                "name": "select_insight",
+                "args": {"insight_id": self.insight2.id, "explanation": "Also relevant for conversion tracking"},
+                "id": "call_2",
+            },
+        ]
+
+        mock_final_response = MagicMock()
+        mock_final_response.tool_calls = None
+
+        mock_llm = MagicMock()
+        mock_llm.invoke.side_effect = [mock_tool_response, mock_final_response]
+        mock_openai.return_value.bind_tools.return_value = mock_llm
+
+        result = self.node._evaluate_insights_with_tools(
+            [self.insight1.id, self.insight2.id], "track pageviews and conversions"
+        )
+
+        self.assertTrue(result["should_use_existing"])
+        self.assertEqual(len(result["selected_insights"]), 2)
+        self.assertIn(self.insight1.id, result["selected_insights"])
+        self.assertIn(self.insight2.id, result["selected_insights"])
+        self.assertIn("Found 2 relevant insights", result["explanation"])
+
+    def test_create_enhanced_insight_summary(self):
+        """Test the enhanced insight summary with metadata."""
+        # Load insights first
+        self.node._load_insights_page(0)
+
+        # Get the insight dict from loaded pages
+        insight_dict = self.node._find_insight_by_id(self.insight1.id)
+
+        # Test enhanced summary for a valid insight
+        summary = self.node._create_enhanced_insight_summary(insight_dict)
+
+        self.assertIn(f"ID: {self.insight1.id}", summary)
+        self.assertIn("Daily Pageviews", summary)
+        self.assertIn("Type: TRENDS", summary)  # Should detect TRENDS type from filters
+        self.assertIn("✓ Executable", summary)  # Should be executable
+        self.assertIn("Description: Track daily website traffic", summary)
+
+    def test_get_basic_query_info(self):
+        """Test extracting basic query information."""
+        # Load insights first
+        self.node._load_insights_page(0)
+
+        # Get the insight dict from loaded pages
+        insight_dict = self.node._find_insight_by_id(self.insight1.id)
+
+        # Test basic query info extraction
+        query_info = get_basic_query_info(insight_dict)
+
+        self.assertIsNotNone(query_info)
+        self.assertIn("Events:", query_info)
+        self.assertIn("$pageview", query_info)
+        self.assertIn("Period:", query_info)
+
+        # Test with insight that has no query or filters
+        empty_insight = {
+            "insight_id": 99999,
+            "insight__name": "Empty Insight",
+            "insight__query": None,
+            "insight__filters": None,
+        }
+
+        query_info_empty = get_basic_query_info(empty_insight)
+        self.assertIsNone(query_info_empty)
+
+    def test_non_executable_insights_handling(self):
+        """Test that non-executable insights are presented to LLM but rejected."""
+        # Create a mock insight that can't be visualized
+        mock_insight = {
+            "insight_id": 99999,
+            "insight__name": "Broken Insight",
+            "insight__description": "This insight cannot be executed",
+            "insight__query": None,
+            "insight__filters": None,
+        }
+
+        # Mock _find_insight_by_id to return our mock insight
+        original_find = self.node._find_insight_by_id
+
+        def mock_find(insight_id):
+            if insight_id == 99999:
+                return mock_insight
+            return original_find(insight_id)
+
+        self.node._find_insight_by_id = mock_find
+
+        # Test evaluation with non-executable insight
+        result = self.node._evaluate_insights_with_tools([99999], "test query", max_selections=1)
+
+        # Should return no insights found (LLM should reject non-executable insights)
+        self.assertFalse(result["should_use_existing"])
+        self.assertEqual(len(result["selected_insights"]), 0)
+        # The explanation should indicate why the insight was rejected
+        self.assertTrue(len(result["explanation"]) > 0)
+
+        # Restore original method
+        self.node._find_insight_by_id = original_find
+
+    @patch("ee.hogai.graph.insights.nodes.ChatOpenAI")
+    def test_evaluate_insights_with_tools_rejection(self, mock_openai):
+        """Test the new tool-based evaluation with rejection."""
+        # Load insights
+        self.node._load_insights_page(0)
+
+        # Mock LLM response with rejection tool call
+        mock_response = MagicMock()
+        mock_response.tool_calls = [
+            {
+                "name": "reject_all_insights",
+                "args": {"reason": "User is looking for retention analysis, but these are trends and funnels"},
+                "id": "call_1",
+            }
+        ]
+
+        mock_llm = MagicMock()
+        mock_llm.invoke.return_value = mock_response
+        mock_openai.return_value.bind_tools.return_value = mock_llm
+
+        result = self.node._evaluate_insights_with_tools([self.insight1.id, self.insight2.id], "retention analysis")
+
+        self.assertFalse(result["should_use_existing"])
+        self.assertEqual(len(result["selected_insights"]), 0)
+        self.assertEqual(
+            result["explanation"], "User is looking for retention analysis, but these are trends and funnels"
+        )
+
+    @patch("ee.hogai.graph.insights.nodes.ChatOpenAI")
+    def test_evaluate_insights_with_tools_multiple_selection(self, mock_openai):
+        """Test the evaluation with multiple selection mode."""
+        # Load insights
+        self.node._load_insights_page(0)
+
+        # Mock LLM response with multiple tool calls
+        mock_tool_response = MagicMock()
+        mock_tool_response.tool_calls = [
+            {
+                "name": "select_insight",
+                "args": {"insight_id": self.insight1.id, "explanation": "Best match for pageview tracking"},
+                "id": "call_1",
+            },
+            {
+                "name": "select_insight",
+                "args": {"insight_id": self.insight2.id, "explanation": "Also useful for conversion tracking"},
+                "id": "call_2",
+            },
+        ]
+
+        mock_final_response = MagicMock()
+        mock_final_response.tool_calls = None
+
+        mock_llm = MagicMock()
+        mock_llm.invoke.side_effect = [mock_tool_response, mock_final_response]
+        mock_openai.return_value.bind_tools.return_value = mock_llm
+
+        # Test with max_selections=2
+        result = self.node._evaluate_insights_with_tools(
+            [self.insight1.id, self.insight2.id], "track pageviews and conversions", max_selections=2
+        )
+
+        self.assertTrue(result["should_use_existing"])
+        self.assertEqual(len(result["selected_insights"]), 2)
+        self.assertIn(self.insight1.id, result["selected_insights"])
+        self.assertIn(self.insight2.id, result["selected_insights"])
+        self.assertIn("Found 2 relevant insights", result["explanation"])

@@ -22,12 +22,11 @@ from posthog.schema import (
 )
 from ee.hogai.graph.base import AssistantNode
 from .prompts import (
-    INSIGHT_EVALUATION_SYSTEM_PROMPT,
     ITERATIVE_SEARCH_SYSTEM_PROMPT,
     ITERATIVE_SEARCH_USER_PROMPT,
     PAGINATION_INSTRUCTIONS_TEMPLATE,
 )
-from .utils import convert_filters_to_query
+from .utils import convert_filters_to_query, can_visualize_insight, get_insight_type_from_filters, get_basic_query_info
 
 from posthog.models import InsightViewed
 
@@ -42,6 +41,9 @@ class InsightSearchNode(AssistantNode):
         self._loaded_pages = {}
         self._total_insights_count = None
         self._max_insights = 3
+        self._max_insights_evaluation_iterations = 3
+        self._evaluation_selections = {}
+        self._rejection_reason = None
 
     def _create_read_insights_tool(self):
         """Create tool for reading insights pages during agentic RAG loop."""
@@ -76,6 +78,46 @@ class InsightSearchNode(AssistantNode):
 
         return read_insights_page
 
+    def _create_insight_evaluation_tools(self):
+        """Create tools for insight evaluation."""
+
+        @tool
+        def select_insight(insight_id: int, explanation: str) -> str:
+            """Select an insight as useful for the user's query."""
+            insight = self._find_insight_by_id(insight_id)
+            if not insight:
+                return f"Insight {insight_id} not found"
+
+            self._evaluation_selections[insight_id] = {"insight": insight, "explanation": explanation}
+
+            name = insight.get("insight__name") or insight.get("insight__derived_name", "Unnamed")
+            return f"Selected insight {insight_id}: {name}"
+
+        @tool
+        def get_insight_details(insight_id: int) -> str:
+            """Get detailed information (with query execution)about an insight including its current results."""
+            insight = self._find_insight_by_id(insight_id)
+            if not insight:
+                return f"Insight {insight_id} not found"
+
+            insight_info = self._process_insight_for_evaluation(
+                insight, AssistantQueryExecutor(self._team, self._utc_now_datetime)
+            )
+
+            return f"""Insight: {insight_info['name']} (ID: {insight_info['insight_id']})
+Description: {insight_info['description'] or 'No description'}
+Query: {insight_info['query']}
+Current Results: {insight_info['results']}"""
+
+        @tool
+        def reject_all_insights(reason: str) -> str:
+            """Indicate that none of the insights are suitable."""
+            self._evaluation_selections = {}
+            self._rejection_reason = reason
+            return "All insights rejected. Will create new insight."
+
+        return [select_insight, get_insight_details, reject_all_insights]
+
     def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
         search_query = state.search_insights_query
 
@@ -89,7 +131,9 @@ class InsightSearchNode(AssistantNode):
 
             selected_insights = self._search_insights_iteratively(search_query or "")
 
-            evaluation_result = self._evaluate_insights_for_creation(selected_insights, search_query or "")
+            evaluation_result = self._evaluate_insights_with_tools(
+                selected_insights, search_query or "", max_selections=1
+            )
 
             if evaluation_result["should_use_existing"]:
                 # Create visualization messages for the insights to show actual charts
@@ -298,6 +342,42 @@ class InsightSearchNode(AssistantNode):
 
         return valid_ids
 
+    def _create_enhanced_insight_summary(self, insight: dict) -> str:
+        """Create enhanced summary with metadata and basic execution info."""
+        insight_id = insight.get("insight_id")
+        name = insight.get("insight__name") or insight.get("insight__derived_name", "Unnamed")
+        description = insight.get("insight__description", "")
+
+        insight_type = "Unknown"
+        if insight.get("insight__filters"):
+            insight_type = get_insight_type_from_filters(insight["insight__filters"]) or "Unknown"
+        elif insight.get("insight__query"):
+            try:
+                query_dict = (
+                    json.loads(insight["insight__query"])
+                    if isinstance(insight["insight__query"], str)
+                    else insight["insight__query"]
+                )
+                insight_type = query_dict.get("kind", "Unknown").replace("Query", "")
+            except Exception:
+                insight_type = "Unknown"
+
+        can_viz = can_visualize_insight(insight)
+        viz_status = "✓ Executable" if can_viz else "✗ Not executable"
+
+        # Get basic query info without executing
+        query_info = get_basic_query_info(insight)
+
+        summary_parts = [f"ID: {insight_id} | {name}", f"Type: {insight_type} | {viz_status}"]
+
+        if description:
+            summary_parts.append(f"Description: {description}")
+
+        if query_info:
+            summary_parts.append(f"Query: {query_info}")
+
+        return " | ".join(summary_parts)
+
     def _convert_insight_to_query(self, insight: dict) -> tuple[dict | None, str | None]:
         """
         Convert an insight (with query or legacy filters) to a modern query format.
@@ -435,88 +515,103 @@ class InsightSearchNode(AssistantNode):
             root_tool_call_id=None,
         )
 
-    def _evaluate_insights_for_creation(self, selected_insights: list[int], user_query: str) -> dict:
-        """
-        Evaluate whether found insights can be used as a starting point for the user's query.
-        Executes the insights and provides results to LLM for evaluation.
+    def _evaluate_insights_with_tools(
+        self, selected_insights: list[int], user_query: str, max_selections: int = 1
+    ) -> dict:
+        """Evaluate insights using tool calls for fine-grained selection.
 
-        Returns:
-            dict with keys:
-            - should_use_existing: bool
-            - explanation: str
-            - visualization_messages: list[VisualizationMessage]
+        Args:
+            selected_insights: List of insight IDs to evaluate
+            user_query: The user's search query
+            max_selections: Maximum number of insights to select (default: 1, best possible match)
         """
-        if not selected_insights:
-            return {
-                "should_use_existing": False,
-                "explanation": "No insights found to evaluate.",
-                "visualization_messages": [],
-            }
+        self._evaluation_selections = {}
+        self._rejection_reason = None
 
-        insights_with_results = []
-        visualization_messages = []
+        tools = self._create_insight_evaluation_tools()
+        llm_with_tools = self._model.bind_tools(tools)
+
+        insights_summary = []
+        final_selected_insights = []
 
         for insight_id in selected_insights:
             insight = self._find_insight_by_id(insight_id)
-            if not insight:
-                continue
+            if insight:
+                enhanced_summary = self._create_enhanced_insight_summary(insight)
+                insights_summary.append(enhanced_summary)
+                final_selected_insights.append(insight_id)
 
-            insight_info = self._process_insight_for_evaluation(
-                insight, AssistantQueryExecutor(self._team, self._utc_now_datetime)
-            )
-
-            # Add to results (removing the visualization_message key since LLM doesn't need to see this + smaller token print)
-            eval_insight_info = {k: v for k, v in insight_info.items() if k != "visualization_message"}
-            insights_with_results.append(eval_insight_info)
-
-            if insight_info["visualization_message"]:
-                visualization_messages.append(insight_info["visualization_message"])
-
-        if not insights_with_results:
+        if not final_selected_insights:
             return {
                 "should_use_existing": False,
-                "explanation": "Could not evaluate any insights.",
+                "selected_insights": [],
+                "explanation": "No insights found matching the user's query.",
                 "visualization_messages": [],
             }
 
-        formatted_insights = []
+        selection_instruction = f"Select ONLY the {max_selections} BEST insight{'s' if max_selections > 1 else ''} that match{'es' if max_selections == 1 else ''} the user's query."
 
-        for _, insight in enumerate(insights_with_results, 1):
-            formatted_insight = f"""
-**Insight: {insight['name']} (ID: {insight['insight_id']})**
-- Description: {insight['description'] or 'No description'}
-- Query: {insight['query']}
-- Results: {insight['results']}
-- Filters: {insight['filters']}
-"""
-            formatted_insights.append(formatted_insight)
+        system_prompt = f"""You are evaluating existing insights to determine which ones (if any) match the user's query.
 
-        insights_text = "\n".join(formatted_insights)
+User Query: {user_query}
 
-        # Use LLM to evaluate
-        evaluation_prompt = INSIGHT_EVALUATION_SYSTEM_PROMPT.format(
-            user_query=user_query, insights_with_results=insights_text
-        )
+Available Insights:
+{chr(10).join(insights_summary)}
 
-        try:
-            messages = [SystemMessage(content=evaluation_prompt)]
-            response = self._model.invoke(messages)
-            response_text = response.content if isinstance(response.content, str) else str(response.content)
+Instructions:
+1. {selection_instruction}
+2. Use get_insight_details if you need more information about an insight before deciding
+3. If you find suitable insights, use select_insight for each one with a clear explanation of why it matches
+4. If none of the insights are suitable, use reject_all_insights with a reason
+5. Be selective - only choose insights that truly match the user's needs
+6. When multiple insights could work, prioritize:
+   - Exact matches over partial matches
+   - More specific insights over generic ones
+   - Insights with clear descriptions over vague ones"""
 
-            # Parse response to determine if we should use existing insights, not great but works for now
-            should_use_existing = response_text.upper().startswith("YES")
+        messages = [SystemMessage(content=system_prompt)]
+
+        for _ in range(self._max_insights_evaluation_iterations):
+            response = llm_with_tools.invoke(messages)
+
+            if hasattr(response, "tool_calls") and response.tool_calls:
+                messages.append(response)
+
+                for tool_call in response.tool_calls:
+                    if tool_call["name"] in ["select_insight", "get_insight_details", "reject_all_insights"]:
+                        tool_fn = next(t for t in tools if t.name == tool_call["name"])
+                        result = tool_fn.invoke(tool_call["args"])
+                        messages.append(ToolMessage(content=result, tool_call_id=tool_call["id"]))
+            else:
+                break
+
+        if self._evaluation_selections:
+            # Create visualization messages for selected insights
+            visualization_messages = []
+            explanations = []
+
+            for _insight_id, selection in self._evaluation_selections.items():
+                viz_message = self._create_visualization_message_for_insight(selection["insight"])
+                if viz_message:
+                    visualization_messages.append(viz_message)
+                insight_name = selection["insight"].get("insight__name") or selection["insight"].get(
+                    "insight__derived_name", "Unnamed"
+                )
+                explanations.append(f"- {insight_name}: {selection['explanation']}")
 
             return {
-                "should_use_existing": should_use_existing,
-                "explanation": response_text,
+                "should_use_existing": True,
+                "selected_insights": list(self._evaluation_selections.keys()),
+                "explanation": f"Found {len(self._evaluation_selections)} relevant insight{'s' if len(self._evaluation_selections) != 1 else ''}:\n"
+                + "\n".join(explanations),
                 "visualization_messages": visualization_messages,
             }
-
-        except Exception:
+        else:
             return {
                 "should_use_existing": False,
-                "explanation": "Could not evaluate insights due to an error.",
-                "visualization_messages": visualization_messages,
+                "selected_insights": [],
+                "explanation": self._rejection_reason or "No suitable insights found.",
+                "visualization_messages": [],
             }
 
     def router(self, state: AssistantState) -> Literal["root", "insights"]:

@@ -198,6 +198,47 @@ def _convert_funnels_filters(filters_dict: dict[str, Any], query_dict: dict[str,
         query_dict["funnelsFilter"] = funnels_filter
 
 
+def get_basic_query_info(insight: dict[str, Any]) -> str | None:
+    """Extract basic query information without execution."""
+    try:
+        insight_query: Any = insight.get("insight__query")
+        insight_filters: Any = insight.get("insight__filters")
+
+        query_dict: dict[str, Any] | None = None
+
+        # Parse query or convert from filters
+        if insight_query:
+            if isinstance(insight_query, str):
+                query_dict = json.loads(insight_query)
+            elif isinstance(insight_query, dict):
+                query_dict = insight_query
+        elif insight_filters:
+            query_dict = convert_filters_to_query(insight_filters)
+
+        if not query_dict:
+            return None
+
+        info_parts: list[str] = []
+
+        # Extract events/actions from series
+        series: list[dict[str, Any]] = query_dict.get("series", [])
+        if series:
+            events: list[str] = [s.get("event") or s.get("name", "Unknown") for s in series[:3]]
+            info_parts.append(f"Events: {', '.join(events)}")
+            if len(series) > 3:
+                info_parts[-1] += f" (+{len(series)-3} more)"
+
+        # Extract date range
+        date_range: dict[str, Any] = query_dict.get("dateRange", {})
+        if date_range.get("date_from"):
+            info_parts.append(f"Period: {date_range['date_from']}")
+
+        return " | ".join(info_parts) if info_parts else "Basic query"
+
+    except Exception:
+        return "Query error"
+
+
 def _convert_retention_filters(filters_dict: dict[str, Any], query_dict: dict[str, Any]) -> None:
     """Convert retention-specific filters to query format."""
     retention_filter: dict[str, Any] = {}
