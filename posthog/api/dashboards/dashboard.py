@@ -15,6 +15,7 @@ from rest_framework.utils.serializer_helpers import ReturnDict
 from posthog.api.dashboards.dashboard_template_json_schema_parser import (
     DashboardTemplateCreationJSONSchemaParser,
 )
+from posthog.constants import GENERATED_DASHBOARD_PREFIX
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.insight_variable import InsightVariable
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
@@ -590,6 +591,10 @@ class DashboardsViewSet(
 
         # Add access level filtering for list actions
         queryset = self._filter_queryset_by_access_level(queryset)
+
+        # Filter out generated dashboards if requested (for list action only)
+        if self.action == "list" and self.request.query_params.get("exclude_generated") == "true":
+            queryset = queryset.exclude(name__startswith=GENERATED_DASHBOARD_PREFIX)
 
         return queryset
 
