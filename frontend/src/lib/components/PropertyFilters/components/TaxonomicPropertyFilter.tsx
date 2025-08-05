@@ -191,15 +191,15 @@ export function TaxonomicPropertyFilter({
             : filter?.type === PropertyFilterType.EventMetadata && filter?.key?.startsWith('$group_')
               ? filter.label || `Group ${filter?.value}`
               : filter?.type === PropertyFilterType.Flag && filter?.label
-              ? filter.label  
-              : filter?.key && (
-                    <PropertyKeyInfo
-                        value={filter.key}
-                        disablePopover
-                        ellipsis
-                        type={PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE[filter.type]}
-                    />
-                )
+                ? filter.label
+                : filter?.key && (
+                      <PropertyKeyInfo
+                          value={filter.key}
+                          disablePopover
+                          ellipsis
+                          type={PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE[filter.type]}
+                      />
+                  )
 
     return (
         <div
