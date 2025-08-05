@@ -27,12 +27,6 @@ const Section = ({ title, children }: { title: string; children: React.ReactNode
     )
 }
 
-// Helper function to convert numbers to words (for 1-10)
-const numberToWord = (num: number): string => {
-    const words = ['Zero', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten']
-    return num >= 0 && num <= 10 ? words[num] : num.toString()
-}
-
 export const SidePanelSdkDoctorIcon = (props: { className?: string }): JSX.Element => {
     const { sdkHealth, multipleInitSdks, featureFlagMisconfiguration, outdatedSdkCount } =
         useValues(sidePanelSdkDoctorLogic)
@@ -43,10 +37,10 @@ export const SidePanelSdkDoctorIcon = (props: { className?: string }): JSX.Eleme
     const title = hasFlagMisconfiguration
         ? 'Feature flag misconfiguration detected!'
         : hasMultipleInits
-        ? 'SDK initialization issue detected!'
-        : outdatedSdkCount > 0
-        ? 'Outdated SDKs found'
-        : 'SDK health is good'
+          ? 'SDK initialization issue detected!'
+          : outdatedSdkCount > 0
+            ? 'Outdated SDKs found'
+            : 'SDK health is good'
 
     return (
         <Tooltip title={title} placement="left">
@@ -57,10 +51,10 @@ export const SidePanelSdkDoctorIcon = (props: { className?: string }): JSX.Eleme
                         hasFlagMisconfiguration || hasMultipleInits
                             ? 'danger'
                             : sdkHealth === 'critical'
-                            ? 'danger'
-                            : sdkHealth === 'warning'
-                            ? 'warning'
-                            : 'success'
+                              ? 'danger'
+                              : sdkHealth === 'warning'
+                                ? 'warning'
+                                : 'success'
                     }
                 >
                     <IconStethoscope />
@@ -88,7 +82,7 @@ const sdkTypeMapping: Record<SdkType, { name: string; color: LemonTagProps['type
 // SDK documentation links mapping
 const sdkDocsLinks: Record<SdkType, { releases: string; docs: string }> = {
     web: {
-        releases: 'https://github.com/PostHog/posthog-js/releases',
+        releases: 'https://github.com/PostHog/posthog-js/blob/main/packages/browser/CHANGELOG.md',
         docs: 'https://posthog.com/docs/libraries/js',
     },
     ios: {
@@ -141,7 +135,7 @@ const SdkLinks = ({ sdkType }: { sdkType: SdkType }): JSX.Element => {
     return (
         <div className="flex justify-between items-center py-2 text-sm border-t border-border mt-2">
             <Link to={links.releases} target="_blank" targetBlankIcon>
-                {sdkName} SDK Releases
+                {sdkName} SDK {sdkType === 'web' ? 'Changelog' : 'Releases'}
             </Link>
             <Link to={links.docs} target="_blank" targetBlankIcon>
                 {sdkName} SDK docs
@@ -156,16 +150,19 @@ export function SidePanelSdkDoctor(): JSX.Element {
     const { loadRecentEvents } = useActions(sidePanelSdkDoctorLogic)
 
     // Group the versions by SDK type (each SDK type gets its own table)
-    const groupedVersions = sdkVersions.reduce((acc, sdk) => {
-        const sdkType = sdk.type
-        const sdkName = sdkTypeMapping[sdkType]?.name || 'Other'
+    const groupedVersions = sdkVersions.reduce(
+        (acc, sdk) => {
+            const sdkType = sdk.type
+            const sdkName = sdkTypeMapping[sdkType]?.name || 'Other'
 
-        if (!acc[sdkName]) {
-            acc[sdkName] = []
-        }
-        acc[sdkName].push(sdk)
-        return acc
-    }, {} as Record<string, SdkVersionInfo[]>)
+            if (!acc[sdkName]) {
+                acc[sdkName] = []
+            }
+            acc[sdkName].push(sdk)
+            return acc
+        },
+        {} as Record<string, SdkVersionInfo[]>
+    )
 
     // Create table columns - used for all tables
     const createColumns = (): LemonTableColumns<SdkVersionInfo> => [
@@ -212,7 +209,7 @@ export function SidePanelSdkDoctor(): JSX.Element {
                                         : 'Upgrade recommended'
                                 }
                             >
-                                <LemonTag type="warning" className="shrink-0">
+                                <LemonTag type="danger" className="shrink-0">
                                     Outdated
                                 </LemonTag>
                             </Tooltip>
@@ -265,20 +262,26 @@ export function SidePanelSdkDoctor(): JSX.Element {
                                 <IconWarning className="text-danger text-xl mt-0.5 mr-2 flex-shrink-0" />
                                 <div>
                                     <p className="font-semibold">
-                                        Whoops! You're initializing the JS SDK multiple times
+                                        Whoops!
+                                        <br />
+                                        It looks like you're initializing the Web SDK multiple times
                                     </p>
                                     <p className="text-sm mt-1">
-                                        This can create duplicate events, and cause incorrect results in insights, among
-                                        other problems.
+                                        This could be the same version being initialized where it already has been,
+                                        and/or initializing different versions of `posthog-js` from different places in
+                                        your code (or via third-party tools like Google Tag Manager, Shopify, etc.)
                                     </p>
                                     <p className="text-sm mt-1">
-                                        It's likely you've installed the library to more than one directory. You'll want
-                                        to make sure you only have it installed in one location, and that your code is
-                                        updated to use that single instance of the library.
-                                    </p>
-                                    <p className="text-sm mt-1">
-                                        Initialize the SDK only once, at the top of your script or in your entry point
-                                        file.
+                                        This can cause problems; some obvious, some harder to notice. So, you'll want to
+                                        remove the duplicate inits, and initialize `posthog-js` just once (preferably{' '}
+                                        <Link
+                                            to="https://github.com/PostHog/posthog-js/blob/main/packages/browser/CHANGELOG.md"
+                                            target="_blank"
+                                            targetBlankIcon
+                                        >
+                                            the latest version
+                                        </Link>
+                                        )
                                     </p>
                                     <div className="mt-2 flex gap-3">
                                         <Link
@@ -308,7 +311,7 @@ export function SidePanelSdkDoctor(): JSX.Element {
 
                         {/* Table showing the URLs/screens where multiple initializations happen */}
                         <div className="mt-3">
-                            <h4 className="text-sm font-semibold mb-2">Sources of multiple initialization</h4>
+                            <h4 className="text-sm font-semibold mb-2">Source(s) of multiple initialization</h4>
                             <LemonTable
                                 dataSource={
                                     // Use persistent detection data if available, otherwise fall back to current events
@@ -422,19 +425,29 @@ export function SidePanelSdkDoctor(): JSX.Element {
                                 <div>
                                     <p className="font-semibold">
                                         <>{outdatedSdkCount === 1 ? 'Your SDK is' : 'Your SDKs are'}</> falling behind!
-                                        Time for an upgrade.
+                                        <br />
+                                        Time for an upgrade...
                                     </p>
                                     <p className="text-sm mt-1">
                                         <>
-                                            {outdatedSdkCount === 1
-                                                ? sdkVersions.length > 1
-                                                    ? `One of your SDKs is outdated, which means you may have bugs we've fixed in later versions, and you may be missing out on new enhancements and features.`
-                                                    : `${numberToWord(
-                                                          outdatedSdkCount
-                                                      )} outdated SDK means you may have bugs we've fixed in later versions, and you may be missing out on new enhancements and features.`
-                                                : `${numberToWord(
-                                                      outdatedSdkCount
-                                                  )} outdated SDKs mean you may have bugs we've fixed in later versions, and you may be missing out on new enhancements and features.`}
+                                            An outdated SDK means you're missing out on bug fixes and enhancements.
+                                            <br />
+                                            {sdkVersions.some((sdk) => sdk.type === 'web' && sdk.isOutdated) && (
+                                                <>
+                                                    {' '}
+                                                    (If using our{' '}
+                                                    <Link
+                                                        to="https://app.posthog.com/settings/project#snippet"
+                                                        target="_blank"
+                                                        targetBlankIcon
+                                                        className="inline"
+                                                    >
+                                                        web snippet
+                                                    </Link>{' '}
+                                                    is an option for you, it will automatically keep you on the
+                                                    latest/current version of `posthog-js`.)
+                                                </>
+                                            )}
                                         </>
                                     </p>
                                     <p className="text-sm mt-1">Check the links below to get caught up.</p>

@@ -628,54 +628,80 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                         }
                     }
 
-                    // If we had a previous detection but see sustained normal behavior, consider clearing it
+                    // If we had a previous detection but no new detection, check if enough time has passed
                     if (state.detected && !newDetection) {
-                        // Check if we have recent normal web events (single session across multiple events)
-                        const recentWebEvents = customerEvents
-                            .filter((e) => e.properties?.$lib === 'web' && e.properties?.$session_id)
-                            .slice(0, 10) // Look at the 10 most recent web events
+                        // Improved auto-resolution: Clear the warning only if no multiple-init problems for 15+ minutes
+                        const fifteenMinutesAgo = Date.now() - 15 * 60 * 1000
 
-                        // More lenient clearing: 3+ events in same session OR auto-update pattern
-                        if (recentWebEvents.length >= 3) {
-                            const sessionIds = new Set(recentWebEvents.map((e) => e.properties?.$session_id))
-
-                            // Clear if all recent events are from same session (normal behavior)
-                            if (sessionIds.size === 1) {
-                                console.info(
-                                    '[SDK Doctor] Multiple init issue appears resolved - clearing detection state'
+                        // Look for any multiple-init patterns in recent events (not just the current batch)
+                        const recentProblematicEvents = customerEvents
+                            .filter((event) => {
+                                const eventTime = new Date(event.timestamp).getTime()
+                                return (
+                                    eventTime > fifteenMinutesAgo &&
+                                    event.properties?.$lib === 'web' &&
+                                    event.properties?.$session_id
                                 )
-                                return {
-                                    detected: false,
-                                    detectedAt: '',
-                                    affectedUrls: [],
-                                    sessionCount: 0,
+                            })
+                            .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
+
+                        // Group by user and check for multiple-init patterns in the last 15 minutes
+                        const userGroups: Record<string, typeof recentProblematicEvents> = {}
+                        recentProblematicEvents.forEach((event) => {
+                            const distinctId = event.properties?.distinct_id || 'unknown'
+                            if (!userGroups[distinctId]) {
+                                userGroups[distinctId] = []
+                            }
+                            userGroups[distinctId].push(event)
+                        })
+
+                        let foundRecentMultipleInits = false
+
+                        // Check each user's recent events for multiple init patterns
+                        Object.values(userGroups).forEach((userEvents) => {
+                            for (let i = 1; i < userEvents.length; i++) {
+                                const prevEvent = userEvents[i - 1]
+                                const currEvent = userEvents[i]
+
+                                const prevSessionId = prevEvent.properties?.$session_id
+                                const currSessionId = currEvent.properties?.$session_id
+                                const prevUrl = prevEvent.properties?.$current_url
+                                const currUrl = currEvent.properties?.$current_url
+                                const prevTime = new Date(prevEvent.timestamp).getTime()
+                                const currTime = new Date(currEvent.timestamp).getTime()
+                                const timeDiffSeconds = (currTime - prevTime) / 1000
+
+                                // Same detection logic: new session + same URL + short time gap
+                                if (
+                                    prevSessionId !== currSessionId &&
+                                    prevUrl === currUrl &&
+                                    timeDiffSeconds < 30 &&
+                                    timeDiffSeconds > 0
+                                ) {
+                                    foundRecentMultipleInits = true
+                                    break
                                 }
                             }
+                            if (foundRecentMultipleInits) {
+                                return
+                            } // Early exit
+                        })
 
-                            // Also clear if we see clear auto-update pattern (same session, version changes)
-                            if (recentWebEvents.length >= 3) {
-                                const mostRecentEvents = recentWebEvents.slice(0, 4) // Look at last 4 events
-                                const uniqueSessions = new Set(mostRecentEvents.map((e) => e.properties?.$session_id))
-                                const uniqueVersions = new Set(mostRecentEvents.map((e) => e.properties?.$lib_version))
-
-                                // Auto-update pattern: single session with version changes
-                                if (uniqueSessions.size === 1 && uniqueVersions.size >= 2) {
-                                    const versions = Array.from(uniqueVersions)
-                                    // Check if versions are close (auto-update, not multiple inits)
-                                    if (versions.length === 2 && !isSignificantVersionGap(versions[0], versions[1])) {
-                                        console.info(
-                                            '[SDK Doctor] Auto-update pattern detected - clearing multiple init detection'
-                                        )
-                                        return {
-                                            detected: false,
-                                            detectedAt: '',
-                                            affectedUrls: [],
-                                            sessionCount: 0,
-                                        }
-                                    }
-                                }
+                        // Clear the warning only if NO multiple-init patterns found in last 15 minutes
+                        if (!foundRecentMultipleInits) {
+                            console.info(
+                                '[SDK Doctor] No multiple init problems for 15+ minutes - clearing detection state'
+                            )
+                            return {
+                                detected: false,
+                                detectedAt: '',
+                                affectedUrls: [],
+                                sessionCount: 0,
                             }
                         }
+                        console.info(
+                            '[SDK Doctor] Still seeing multiple init patterns in last 15 minutes - keeping detection active'
+                        )
                     }
 
                     // Keep existing state (either detected with no new evidence, or not detected)
