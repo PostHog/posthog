@@ -29,7 +29,7 @@ export type HogWatcherFunctionState = {
     state: HogWatcherState
 }
 
-export const hogFunctionStateChange = new Counter({
+const hogFunctionStateChange = new Counter({
     name: 'cdp_hog_function_state_change',
     help: 'Number of times a transformation state changed',
     labelNames: ['state', 'kind'],
@@ -213,8 +213,14 @@ export class HogWatcherService {
         forceReset: boolean = false
     ): Promise<void> {
         logger.info('[HogWatcherService] Performing state changes', { changes, forceReset })
+
         const res = await this.redis.usePipeline({ name: 'forceStateChange' }, (pipeline) => {
             for (const [hogFunction, state] of changes) {
+                hogFunctionStateChange.inc({
+                    state: HogWatcherState[state],
+                    kind: hogFunction.type,
+                })
+
                 const id = hogFunction.id
                 const newScore =
                     state === HogWatcherState.healthy
@@ -309,30 +315,33 @@ export class HogWatcherService {
             return
         }
 
-        await Promise.all(
-            Object.values(functionCosts).map(async (functionCost, index) => {
-                const [stateResult, lockResult, tokenResult] = getPipelineResults(res, index, 3)
+        const changes: [HogFunctionType, HogWatcherState][] = []
 
-                const currentState: HogWatcherState = Number(stateResult[1] ?? HogWatcherState.healthy)
-                const tokens = Number(tokenResult[1] ?? this.hub.CDP_WATCHER_BUCKET_SIZE)
-                const newState = this.calculateNewState(tokens)
+        // Calculate all those that have changed state
+        Object.values(functionCosts).map((functionCost, index) => {
+            const [stateResult, lockResult, tokenResult] = getPipelineResults(res, index, 3)
 
-                if (currentState !== newState) {
-                    if (lockResult[1]) {
-                        // We don't want to change the state of a function that is being locked (i.e. recently changed state)
-                        return
-                    }
+            const currentState: HogWatcherState = Number(stateResult[1] ?? HogWatcherState.healthy)
+            const tokens = Number(tokenResult[1] ?? this.hub.CDP_WATCHER_BUCKET_SIZE)
+            const newState = this.calculateNewState(tokens)
 
-                    if (currentState === HogWatcherState.disabled) {
-                        // We never modify the state of a disabled function automatically
-                        return
-                    }
-
-                    if (functionCost.hogFunction) {
-                        await this.forceStateChange(functionCost.hogFunction, newState)
-                    }
+            if (currentState !== newState) {
+                if (lockResult[1]) {
+                    // We don't want to change the state of a function that is being locked (i.e. recently changed state)
+                    return
                 }
-            })
-        )
+
+                if (currentState === HogWatcherState.disabled) {
+                    // We never modify the state of a disabled function automatically
+                    return
+                }
+
+                if (functionCost.hogFunction) {
+                    changes.push([functionCost.hogFunction, newState])
+                }
+            }
+        })
+
+        await this.doStageChanges(changes)
     }
 }
