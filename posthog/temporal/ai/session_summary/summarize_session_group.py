@@ -212,16 +212,15 @@ async def fetch_session_batch_events_activity(
 class SummarizeSessionGroupWorkflow(PostHogWorkflow):
     def __init__(self) -> None:
         super().__init__()
-        self._total_single_summaries = 0
+        self._total_sessions = 0
         self._processed_single_summaries = 0
+        self._processed_patterns_extraction = 0
+        self._current_status = ""
 
     @temporalio.workflow.query
-    def get_progress(self) -> dict[str, int]:
+    def get_current_status(self) -> str:
         """Query handler to get the current progress of summary processing."""
-        return {
-            "total_single_summaries": self._total_single_summaries,
-            "total_single_summaries": self._total_single_summaries,
-        }
+        return self._current_status
 
     @staticmethod
     def parse_inputs(inputs: list[str]) -> SessionGroupSummaryInputs:
@@ -310,11 +309,6 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
         """
         if not inputs:
             raise ApplicationError("No sessions to summarize for group summary")
-
-        # Track summarization process to keep the user informed
-        self._total_single_summaries = len(inputs)
-        self._processed_single_summaries = 0
-
         # Summarize all sessions
         tasks = {}
         async with asyncio.TaskGroup() as tg:
@@ -324,10 +318,10 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
                     single_session_input,
                 )
         session_inputs: list[SingleSessionSummaryInputs] = []
+
         # Check summary generation results
         for session_id, (task, single_session_input) in tasks.items():
             res = task.result()
-            self._processed_single_summaries += 1  # Keep track of finished summaries
             if isinstance(res, Exception):
                 temporalio.workflow.logger.warning(
                     f"Session summary failed for group summary for session {session_id} "
@@ -336,6 +330,10 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
             else:
                 # Store only successful generations
                 session_inputs.append(single_session_input)
+            # Keep track of processed summaries
+            self._processed_single_summaries += 1
+            self._current_status = f"Watching sessions ({self._processed_single_summaries}/{self._total_sessions})"
+
         # Fail the workflow if too many sessions failed to summarize
         if len(session_inputs) < len(inputs) * FAILED_SESSION_SUMMARIES_MIN_RATIO:
             session_ids = [s.session_id for s in inputs]
@@ -371,7 +369,7 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
     ) -> list[str] | None:
         """Extract patterns from session summaries using chunking if needed."""
         # Execute chunking activity to split sessions based on token count
-        chunks = await temporalio.workflow.execute_activity(
+        chunks: list[list[str]] = await temporalio.workflow.execute_activity(
             split_session_summaries_into_chunks_for_patterns_extraction_activity,
             inputs,
             start_to_close_timeout=timedelta(minutes=5),
@@ -380,6 +378,10 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
         # If a single chunk is returned, use the activity directly, as it should cover all the sessions, so combination step is not needed
         if len(chunks) == 1:
             result = await self._run_patterns_extraction_chunk(inputs)
+            self._processed_patterns_extraction += len(inputs.single_session_summaries_inputs)
+            self._current_status = (
+                f"Searching for patterns in sessions ({self._processed_patterns_extraction}/{self._total_sessions})"
+            )
             if isinstance(result, Exception):
                 raise result
             return None
@@ -415,6 +417,8 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
         session_ids_with_patterns_extracted = []
         for chunk_redis_key, (task, chunk_session_ids) in chunk_tasks.items():
             res = task.result()
+            self._processed_patterns_extraction += len(chunk_session_ids)
+            self._current_status = f"Searching for behavior patterns in sessions ({self._processed_patterns_extraction}/{self._total_sessions})"
             if isinstance(res, Exception):
                 temporalio.workflow.logger.warning(
                     f"Pattern extraction failed for chunk {chunk_redis_key} containing sessions {chunk_session_ids}: {res}"
@@ -430,6 +434,8 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
                 f"{len(chunks) - len(redis_keys_of_chunks_to_combine)}/{len(chunks)} chunks failed"
             )
         # If enough chunks succeeded - combine patterns extracted from chunks in a single list
+        # TODO: Define proper text
+        self._current_status = "Combining similar behavior patterns into groups"
         await temporalio.workflow.execute_activity(
             combine_patterns_from_chunks_activity,
             SessionGroupSummaryPatternsExtractionChunksInputs(
@@ -446,9 +452,15 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
 
     @temporalio.workflow.run
     async def run(self, inputs: SessionGroupSummaryInputs) -> EnrichedSessionGroupSummaryPatternsList:
+        self._total_sessions = len(inputs.session_ids)
+        # Get events data from the DB (or cache)
+        self._current_status = "Fetching session data from the database"
         db_session_inputs = await self._fetch_session_group_data(inputs)
+        # Generate single-session summaries for each session
+        self._current_status = f"Watching sessions"
         summaries_session_inputs = await self._run_summaries(db_session_inputs)
         # Extract patterns from session summaries (with chunking if needed)
+        self._current_status = "Searching for behavior patterns in sessions"
         session_ids_to_process = await self._run_patterns_extraction(
             SessionGroupSummaryOfSummariesInputs(
                 single_session_summaries_inputs=summaries_session_inputs,
@@ -470,6 +482,7 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
                 x for x in summaries_session_inputs if x.session_id in session_ids_to_process
             ]
         # Assign events to patterns
+        self._current_status = "Generating a report from analyzed sessions. Almost there"
         patterns_assignments = await temporalio.workflow.execute_activity(
             assign_events_to_patterns_activity,
             SessionGroupSummaryOfSummariesInputs(
