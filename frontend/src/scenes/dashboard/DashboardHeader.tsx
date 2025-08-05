@@ -148,6 +148,7 @@ export function DashboardHeader(): JSX.Element | null {
                         isOpen={dashboardMode === DashboardMode.Sharing}
                         closeModal={() => push(urls.dashboard(dashboard.id))}
                         dashboardId={dashboard.id}
+                        userAccessLevel={dashboard.user_access_level}
                     />
                     {canEditDashboard && (
                         <TextCardModal
@@ -188,8 +189,8 @@ export function DashboardHeader(): JSX.Element | null {
                                     dashboardLoading
                                         ? 'Wait for dashboard to finish loading'
                                         : canEditDashboard
-                                          ? undefined
-                                          : 'Not privileged to edit this dashboard'
+                                        ? undefined
+                                        : 'Not privileged to edit this dashboard'
                                 }
                             >
                                 Save

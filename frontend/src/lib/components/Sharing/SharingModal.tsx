@@ -29,9 +29,16 @@ import { urls } from 'scenes/urls'
 
 import { AccessControlPopoutCTA } from '~/layout/navigation-3000/sidepanel/panels/access_control/AccessControlPopoutCTA'
 import { isInsightVizNode } from '~/queries/utils'
-import { AccessControlResourceType, AvailableFeature, InsightShortId, QueryBasedInsightModel } from '~/types'
+import {
+    AccessControlResourceType,
+    AvailableFeature,
+    InsightShortId,
+    QueryBasedInsightModel,
+    AccessControlLevel,
+} from '~/types'
 
 import { upgradeModalLogic } from '../UpgradeModal/upgradeModalLogic'
+import { AccessControlAction } from '../AccessControlAction'
 import { sharingLogic } from './sharingLogic'
 
 export const SHARING_MODAL_WIDTH = 600
@@ -49,6 +56,7 @@ export interface SharingModalBaseProps {
      * When generating a link to a recording, this form can be used to allow the user to specify a timestamp
      */
     recordingLinkTimeForm?: ReactNode
+    userAccessLevel?: AccessControlLevel
 }
 
 export interface SharingModalProps extends SharingModalBaseProps {
@@ -65,6 +73,7 @@ export function SharingModalContent({
     additionalParams,
     previewIframe = false,
     recordingLinkTimeForm = undefined,
+    userAccessLevel,
 }: SharingModalBaseProps): JSX.Element {
     const logicProps = {
         dashboardId,
