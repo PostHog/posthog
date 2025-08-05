@@ -367,19 +367,20 @@ export function BillingLineGraph({
                                         <div className="p-2">
                                             <strong>New billing period started</strong>
                                             <p className="mt-2 text-xs">
-                                                When a new billing period begins, usage-based pricing tiers reset. This
-                                                can cause temporary spikes or drops in spend as customers move between
-                                                pricing tiers.
+                                                Pricing tiers reset when billing periods begin, which can cause
+                                                temporary usage and spend changes:
                                             </p>
-                                            <p className="mt-2 text-xs">
-                                                For example, a customer on the free tier at the start of the period may
-                                                show zero spend, while heavy users may temporarily show higher costs
-                                                before reaching volume discounts.
-                                            </p>
-                                            <p className="mt-2 text-xs">
-                                                In days before a new period starts, some products' usage or spend might
-                                                drop to 0. This typically means reaching monthly billing limits.
-                                            </p>
+                                            <ul className="mt-1 text-xs list-disc list-inside">
+                                                <li>
+                                                    Usage may drop to zero in last days of the billing period after
+                                                    billing limits are reached
+                                                </li>
+                                                <li>Zero spend in first days due to free tier allowance</li>
+                                                <li>
+                                                    Higher daily spend in first days due to higher rates at lower volume
+                                                    tiers
+                                                </li>
+                                            </ul>
                                         </div>
                                     }
                                     placement="bottom"
