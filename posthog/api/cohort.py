@@ -775,14 +775,22 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
         cohort: Cohort = self.get_object()
         if not cohort.is_static:
             raise ValidationError("Can only add users to static cohorts")
-        distinct_ids = request.data.get("distinct_ids", None)
-        if not isinstance(distinct_ids, list):
+        person_ids = request.data.get("person_ids", None)
+        if not isinstance(person_ids, list):
             raise ValidationError("distinct_ids need to be a list")
-        if len(distinct_ids) == 0:
+        if len(person_ids) == 0:
             raise ValidationError("Cannot have empty distinct ids")
-        if len(distinct_ids) >= DEFAULT_COHORT_INSERT_BATCH_SIZE:
+        if len(person_ids) >= DEFAULT_COHORT_INSERT_BATCH_SIZE:
             raise ValidationError("List size exceeds limit")
-        cohort.insert_users_by_list(distinct_ids, team_id=self.team_id)
+        uuids = [
+            str(uuid)
+            for uuid in Person.objects.db_manager(READ_DB_FOR_PERSONS)
+            .filter(team_id=self.team_id, uuid__in=person_ids)
+            .values_list("uuid", flat=True)
+        ]
+        if len(uuids) == 0:
+            raise ValidationError("No valid users to add to cohort")
+        cohort.insert_users_list_by_uuid(uuids, team_id=self.team_id, insert_in_clickhouse=True)
         return Response({"success": True}, status=200)
 
     @action(methods=["GET"], url_path="activity", detail=False, required_scopes=["activity_log:read"])

@@ -7,12 +7,13 @@ import { IconMinusSmall, IconPlusSmall } from '@posthog/icons'
 
 export function AddPersonToChortModalBody(): JSX.Element {
     const { query } = useValues(addPersonToCohortModalLogic)
-    const { setQuery } = useActions(addPersonToCohortModalLogic)
+    const { setQuery, addPersonToCohort } = useActions(addPersonToCohortModalLogic)
     const context: QueryContext = {
         columns: {
             id: {
                 renderTitle: () => null,
-                render: () => {
+                render: (props) => {
+                    const id = props.value as string
                     const isInCohort = false
                     return (
                         <LemonButton
@@ -22,9 +23,7 @@ export function AddPersonToChortModalBody(): JSX.Element {
                             onClick={(e) => {
                                 e.preventDefault()
 
-                                // isInCohort
-                                //     ? removeInsightFromDashboard(insight, dashboard?.id || 0)
-                                //     : addInsightToDashboard(insight, dashboard?.id || 0)
+                                isInCohort ? null : addPersonToCohort(id)
                             }}
                         >
                             {isInCohort ? <IconMinusSmall /> : <IconPlusSmall />}

@@ -2137,10 +2137,8 @@ const api = {
         async getCohortPersons(cohortId: CohortType['id']): Promise<PaginatedResponse<PersonType>> {
             return await new ApiRequest().cohortsDetailPersons(cohortId).get()
         },
-        async addPersonsToStaticCohort(cohortId: CohortType['id'], distinctIds: string[]) {
-            return await new ApiRequest()
-                .cohortsAddPersonsToStatic(cohortId)
-                .update({ data: { distinct_ids: distinctIds } })
+        async addPersonsToStaticCohort(cohortId: CohortType['id'], ids: string[]) {
+            return await new ApiRequest().cohortsAddPersonsToStatic(cohortId).update({ data: { person_ids: ids } })
         },
     },
 
