@@ -269,6 +269,7 @@ def enabled_default_hog_functions_for_new_team(sender, instance: Team, created: 
     template = HogFunctionTemplate.get_template("template-geoip")
     if template:
         from posthog.api.hog_function import HogFunctionSerializer
+        from types import SimpleNamespace
 
         serializer_data = {
             "template_id": template.template_id,
@@ -283,8 +284,6 @@ def enabled_default_hog_functions_for_new_team(sender, instance: Team, created: 
         }
 
         # Create a mock request context for the serializer since it expects a request object
-        from types import SimpleNamespace
-
         mock_request = SimpleNamespace(user=kwargs.get("initiating_user"))
 
         serializer = HogFunctionSerializer(
