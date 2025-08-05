@@ -25,6 +25,7 @@ from posthog.batch_exports.service import (
     BatchExportField,
     BatchExportInsertInputs,
     BatchExportModel,
+    BatchExportSchema,
     SnowflakeBatchExportInputs,
 )
 from posthog.temporal.common.base import PostHogWorkflow
@@ -745,12 +746,72 @@ class SnowflakeConsumer(Consumer):
         self.heartbeat_details.track_done_range(last_date_range, self.data_interval_start)
 
 
+def _get_snowflake_table_settings(
+    model: BatchExportModel | BatchExportSchema | None, record_batch_schema: pa.Schema
+) -> tuple[list[SnowflakeField], pa.Schema, list[str]]:
+    record_batch_schema = pa.schema(
+        [field.with_nullable(True) for field in record_batch_schema if field.name != "_inserted_at"]
+    )
+
+    known_variant_columns = ["properties", "people_set", "people_set_once", "person_properties"]
+
+    if model is None or (isinstance(model, BatchExportModel) and model.name == "events"):
+        table_fields = [
+            ("uuid", "STRING"),
+            ("event", "STRING"),
+            ("properties", "VARIANT"),
+            ("elements", "VARIANT"),
+            ("people_set", "VARIANT"),
+            ("people_set_once", "VARIANT"),
+            ("distinct_id", "STRING"),
+            ("team_id", "INTEGER"),
+            ("ip", "STRING"),
+            ("site_url", "STRING"),
+            ("timestamp", "TIMESTAMP"),
+        ]
+
+    else:
+        table_fields = get_snowflake_fields_from_record_schema(
+            record_batch_schema,
+            known_variant_columns=known_variant_columns,
+        )
+
+    return table_fields, record_batch_schema, known_variant_columns
+
+
+def _get_snowflake_merge_config(
+    model: BatchExportModel | BatchExportSchema | None,
+) -> tuple[bool, list[SnowflakeField], list[str]]:
+    requires_merge = False
+    merge_key = []
+    update_key = []
+    if isinstance(model, BatchExportModel):
+        if model.name == "persons":
+            requires_merge = True
+            merge_key = [
+                ("team_id", "INT64"),
+                ("distinct_id", "STRING"),
+            ]
+            update_key = ["person_version", "person_distinct_id_version"]
+
+        elif model.name == "sessions":
+            requires_merge = True
+            merge_key = [("team_id", "INT64"), ("session_id", "STRING")]
+            update_key = [
+                "end_timestamp",
+            ]
+
+    return requires_merge, merge_key, update_key
+
+
 class SnowflakeConsumerFromStage(ConsumerFromStage):
     """A consumer that uploads data to Snowflake from the internal stage.
 
     This is a simpler version that works like the existing SnowflakeConsumer,
     without concurrent uploads, just using the new pipeline interface.
     """
+
+    # TODO - handle multiple_files
 
     def __init__(
         self,
@@ -1107,6 +1168,10 @@ async def insert_into_snowflake_activity_from_stage(inputs: SnowflakeInsertInput
     )
 
     async with Heartbeater():
+        model, _, _, _, _, _ = resolve_batch_exports_model(
+            inputs.team_id, inputs.batch_export_model, inputs.batch_export_schema
+        )
+
         data_interval_start = (
             dt.datetime.fromisoformat(inputs.data_interval_start) if inputs.data_interval_start else None
         )
@@ -1133,52 +1198,11 @@ async def insert_into_snowflake_activity_from_stage(inputs: SnowflakeInsertInput
 
             return BatchExportResult(records_completed=0, bytes_exported=0)
 
-        record_batch_schema = pa.schema(
-            [field.with_nullable(True) for field in record_batch_schema if field.name != "_inserted_at"]
+        table_fields, record_batch_schema, known_variant_columns = _get_snowflake_table_settings(
+            model=model, record_batch_schema=record_batch_schema
         )
 
-        known_variant_columns = ["properties", "people_set", "people_set_once", "person_properties"]
-
-        if inputs.batch_export_model is None or (
-            isinstance(inputs.batch_export_model, BatchExportModel) and inputs.batch_export_model.name == "events"
-        ):
-            table_fields = [
-                ("uuid", "STRING"),
-                ("event", "STRING"),
-                ("properties", "VARIANT"),
-                ("elements", "VARIANT"),
-                ("people_set", "VARIANT"),
-                ("people_set_once", "VARIANT"),
-                ("distinct_id", "STRING"),
-                ("team_id", "INTEGER"),
-                ("ip", "STRING"),
-                ("site_url", "STRING"),
-                ("timestamp", "TIMESTAMP"),
-            ]
-        else:
-            table_fields = get_snowflake_fields_from_record_schema(
-                record_batch_schema,
-                known_variant_columns=known_variant_columns,
-            )
-
-        requires_merge = False
-        merge_key = []
-        update_key = []
-        if isinstance(inputs.batch_export_model, BatchExportModel):
-            if inputs.batch_export_model.name == "persons":
-                requires_merge = True
-                merge_key = [
-                    ("team_id", "INT64"),
-                    ("distinct_id", "STRING"),
-                ]
-                update_key = ["person_version", "person_distinct_id_version"]
-
-            elif inputs.batch_export_model.name == "sessions":
-                requires_merge = True
-                merge_key = [("team_id", "INT64"), ("session_id", "STRING")]
-                update_key = [
-                    "end_timestamp",
-                ]
+        requires_merge, merge_key, update_key = _get_snowflake_merge_config(model=model)
 
         data_interval_end_str = dt.datetime.fromisoformat(inputs.data_interval_end).strftime("%Y-%m-%d_%H-%M-%S")
         stage_table_name = (
@@ -1215,11 +1239,13 @@ async def insert_into_snowflake_activity_from_stage(inputs: SnowflakeInsertInput
                     schema=record_batch_schema,
                     file_format="JSONLines",
                     compression=None,
-                    include_inserted_at=True,
+                    include_inserted_at=False,
                     max_file_size_bytes=settings.BATCH_EXPORT_SNOWFLAKE_UPLOAD_CHUNK_SIZE_BYTES,
                     json_columns=known_variant_columns,
                 )
 
+                # TODO - handle multiple_files
+                # TODO - move this into the consumer finalize method
                 # Copy all staged files to the table
                 await snow_client.copy_loaded_files_to_snowflake_table(
                     snow_stage_table if requires_merge else snow_table, data_interval_end_str
