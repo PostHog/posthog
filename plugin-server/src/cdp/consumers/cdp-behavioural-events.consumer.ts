@@ -3,10 +3,10 @@ import { createHash } from 'crypto'
 import { Message } from 'node-rdkafka'
 import { Histogram } from 'prom-client'
 
-import { KAFKA_EVENTS_JSON } from '../../config/kafka-topics'
+import { KAFKA_CDP_PERSON_PERFORMED_EVENT, KAFKA_EVENTS_JSON } from '../../config/kafka-topics'
 import { KafkaConsumer } from '../../kafka/consumer'
 import { runInstrumentedFunction } from '../../main/utils'
-import { Hub, RawClickHouseEvent } from '../../types'
+import { CdpPersonPerformedEvent, Hub, RawClickHouseEvent } from '../../types'
 import { Action } from '../../utils/action-manager-cdp'
 import { BehavioralCounterRepository, CounterUpdate } from '../../utils/db/cassandra/behavioural-counter.repository'
 import { parseJSON } from '../../utils/json-parse'
@@ -47,6 +47,7 @@ export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
     protected cassandra: CassandraClient | null
     protected behavioralCounterRepository: BehavioralCounterRepository | null
     private filterHashCache = new Map<string, string>()
+    private personPerformedEventsQueue: CdpPersonPerformedEvent[] = []
 
     constructor(hub: Hub, topic: string = KAFKA_EVENTS_JSON, groupId: string = 'cdp-behavioural-events-consumer') {
         super(hub)
@@ -202,6 +203,28 @@ export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
         return hash
     }
 
+    private async publishPersonPerformedEvents(): Promise<void> {
+        if (!this.kafkaProducer || this.personPerformedEventsQueue.length === 0) {
+            return
+        }
+
+        try {
+            const messages = this.personPerformedEventsQueue.map((event) => ({
+                topic: KAFKA_CDP_PERSON_PERFORMED_EVENT,
+                value: JSON.stringify(event),
+                key: event.teamId.toString(),
+            }))
+
+            await this.kafkaProducer.queueMessages({ topic: KAFKA_CDP_PERSON_PERFORMED_EVENT, messages })
+            this.personPerformedEventsQueue.length = 0
+        } catch (error) {
+            logger.error('Error publishing person performed events', {
+                error,
+                queueLength: this.personPerformedEventsQueue.length,
+            })
+        }
+    }
+
     // This consumer always parses from kafka
     public async _parseKafkaBatch(messages: Message[]): Promise<BehavioralEvent[]> {
         return await this.runWithHeartbeat(() =>
@@ -222,6 +245,13 @@ export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
                                 })
                                 return
                             }
+
+                            // Queue person performed event directly from raw data
+                            this.personPerformedEventsQueue.push({
+                                teamId: clickHouseEvent.team_id,
+                                personId: clickHouseEvent.person_id,
+                                eventName: clickHouseEvent.event,
+                            })
 
                             // Convert directly to filter globals
                             const filterGlobals = convertClickhouseRawEventToFilterGlobals(clickHouseEvent)
@@ -265,7 +295,12 @@ export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
                 const events = await this._parseKafkaBatch(messages)
                 await this.processBatch(events)
 
-                return { backgroundTask: Promise.resolve() }
+                // Publish person performed events in background
+                const backgroundTask = this.publishPersonPerformedEvents().catch((error) => {
+                    logger.error('Error in background task - person performed events publishing', { error })
+                })
+
+                return { backgroundTask }
             })
         })
     }
