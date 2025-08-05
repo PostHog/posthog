@@ -13,8 +13,7 @@ import { Query } from '~/queries/Query/Query'
 import { LemonDivider, LemonTag } from '@posthog/lemon-ui'
 import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
 import { INTEGER_REGEX_MATCH_GROUPS } from './utils'
-import { NotebookNodeAttributes, NotebookNodeProps, NotebookNodeType } from '../types'
-import { ExtendedRegExpMatchArray } from '@tiptap/core'
+import { NotebookNodeProps, NotebookNodeType } from '../types'
 
 const Component = ({ attributes }: NotebookNodeProps<NotebookNodeCohortAttributes>): JSX.Element => {
     const { id } = attributes
@@ -161,17 +160,17 @@ export const NotebookNodeCohort = createPostHogWidgetNode<NotebookNodeCohortAttr
     Component,
     heightEstimate: 300,
     minHeight: 100,
-    href: (attrs: NotebookNodeCohortAttributes): string => urls.cohort(attrs.id),
+    href: (attrs) => urls.cohort(attrs.id),
     attributes: {
         id: {},
     },
     pasteOptions: {
         find: urls.cohort(INTEGER_REGEX_MATCH_GROUPS),
-        getAttributes: (match: ExtendedRegExpMatchArray): NotebookNodeCohortAttributes => {
+        getAttributes: async (match) => {
             return { id: parseInt(match[1]) }
         },
     },
-    serializedText: (attrs: NotebookNodeAttributes<NotebookNodeCohortAttributes>): string => {
+    serializedText: (attrs) => {
         const title = attrs?.title || ''
         const id = attrs?.id || ''
         return `${title} ${id}`.trim()

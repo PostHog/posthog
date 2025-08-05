@@ -11,7 +11,7 @@ import { urls } from 'scenes/urls'
 
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { ExtendedRegExpMatchArray, JSONContent } from '@tiptap/core'
+import { JSONContent } from '@tiptap/core'
 import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
 import { SHORT_CODE_REGEX_MATCH_GROUPS } from './utils'
 import { NotebookNodeAttributeProperties, NotebookNodeProps, NotebookNodeType } from '../types'
@@ -236,7 +236,7 @@ export const NotebookNodeQuery = createPostHogWidgetNode<NotebookNodeQueryAttrib
             default: DEFAULT_QUERY,
         },
     },
-    href: ({ query }: NotebookNodeQueryAttributes): string | undefined =>
+    href: ({ query }) =>
         query.kind === NodeKind.SavedInsightNode
             ? urls.insightView(query.shortId)
             : isInsightVizNode(query)
@@ -245,7 +245,7 @@ export const NotebookNodeQuery = createPostHogWidgetNode<NotebookNodeQueryAttrib
     Settings,
     pasteOptions: {
         find: urls.insightView(SHORT_CODE_REGEX_MATCH_GROUPS as InsightShortId),
-        getAttributes: (match: ExtendedRegExpMatchArray): NotebookNodeQueryAttributes => {
+        getAttributes: async (match) => {
             return {
                 query: {
                     kind: NodeKind.SavedInsightNode,
@@ -254,7 +254,7 @@ export const NotebookNodeQuery = createPostHogWidgetNode<NotebookNodeQueryAttrib
             }
         },
     },
-    serializedText: (attrs: NotebookNodeQueryAttributes): string => {
+    serializedText: (attrs) => {
         let text = ''
         const q = attrs.query
         if (containsHogQLQuery(q)) {

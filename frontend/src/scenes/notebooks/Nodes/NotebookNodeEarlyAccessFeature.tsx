@@ -18,7 +18,6 @@ import { IconFlag, IconRocket } from '@posthog/icons'
 import { UUID_REGEX_MATCH_GROUPS } from './utils'
 import { JSONContent } from 'lib/components/RichContentEditor/types'
 import { NotebookNodeProps, NotebookNodeType } from '../types'
-import { ExtendedRegExpMatchArray } from '@tiptap/core'
 
 const Component = ({ attributes }: NotebookNodeProps<NotebookNodeEarlyAccessAttributes>): JSX.Element => {
     const { id } = attributes
@@ -129,14 +128,14 @@ export const NotebookNodeEarlyAccessFeature = createPostHogWidgetNode<NotebookNo
     titlePlaceholder: 'Early Access Management',
     Component,
     heightEstimate: '3rem',
-    href: (attrs: NotebookNodeEarlyAccessAttributes): string => urls.earlyAccessFeature(attrs.id),
+    href: (attrs) => urls.earlyAccessFeature(attrs.id),
     resizeable: false,
     attributes: {
         id: {},
     },
     pasteOptions: {
         find: urls.earlyAccessFeature(UUID_REGEX_MATCH_GROUPS),
-        getAttributes: (match: ExtendedRegExpMatchArray): NotebookNodeEarlyAccessAttributes => {
+        getAttributes: async (match) => {
             return { id: match[1] }
         },
     },

@@ -1,12 +1,10 @@
-import { mergeAttributes, Node, NodeViewProps, NodeViewRenderer } from '@tiptap/core'
+import { mergeAttributes, Node, NodeViewProps } from '@tiptap/core'
 import { NodeViewWrapper, ReactNodeViewRenderer } from '@tiptap/react'
 import clsx from 'clsx'
 import { LemonButton, ProfilePicture, Tooltip } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { RichContentNodeType } from './types'
-import { DOMOutputSpec, TagParseRule } from '@tiptap/pm/model'
-import { Attributes } from '@tiptap/core'
 
 export interface RichContentNodeMentionAttrs {
     id?: number
@@ -55,21 +53,21 @@ export const RichContentNodeMention = Node.create({
         return `(member:${attrs.id})`
     },
 
-    addAttributes(): Attributes {
+    addAttributes() {
         return {
             id: { default: null },
         }
     },
 
-    parseHTML(): TagParseRule[] {
+    parseHTML() {
         return [{ tag: RichContentNodeType.Mention }]
     },
 
-    renderHTML({ HTMLAttributes }: { HTMLAttributes: Record<string, any> }): DOMOutputSpec {
+    renderHTML({ HTMLAttributes }) {
         return [RichContentNodeType.Mention, mergeAttributes(HTMLAttributes)]
     },
 
-    addNodeView(): NodeViewRenderer {
+    addNodeView() {
         return ReactNodeViewRenderer(Component)
     },
 })

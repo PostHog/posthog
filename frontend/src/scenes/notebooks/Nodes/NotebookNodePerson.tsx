@@ -15,8 +15,7 @@ import { PropertyIcon } from 'lib/components/PropertyIcon/PropertyIcon'
 import clsx from 'clsx'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { NotFound } from 'lib/components/NotFound'
-import { NotebookNodeAttributes, NotebookNodeProps, NotebookNodeType } from '../types'
-import { ExtendedRegExpMatchArray } from '@tiptap/core'
+import { NotebookNodeProps, NotebookNodeType } from '../types'
 
 const Component = ({ attributes }: NotebookNodeProps<NotebookNodePersonAttributes>): JSX.Element => {
     const { id } = attributes
@@ -161,18 +160,18 @@ export const NotebookNodePerson = createPostHogWidgetNode<NotebookNodePersonAttr
     heightEstimate: 300,
     minHeight: '5rem',
     startExpanded: false,
-    href: (attrs: NotebookNodePersonAttributes): string => urls.personByDistinctId(attrs.id),
+    href: (attrs) => urls.personByDistinctId(attrs.id),
     resizeable: true,
     attributes: {
         id: {},
     },
     pasteOptions: {
         find: urls.personByDistinctId('(.+)', false),
-        getAttributes: (match: ExtendedRegExpMatchArray): NotebookNodePersonAttributes => {
+        getAttributes: async (match) => {
             return { id: match[1] }
         },
     },
-    serializedText: (attrs: NotebookNodeAttributes<NotebookNodePersonAttributes>): string => {
+    serializedText: (attrs) => {
         const personTitle = attrs?.title || ''
         const personId = attrs?.id || ''
         return `${personTitle} ${personId}`.trim()

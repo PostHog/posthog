@@ -3,14 +3,12 @@ import clsx from 'clsx'
 import { BuiltLogic } from 'kea'
 
 import type { notebookLogicType } from '../Notebook/notebookLogicType'
-import { Attributes } from '@tiptap/core'
-import { DOMOutputSpec, TagParseRule } from '@tiptap/pm/model'
 
 export const NotebookMarkComment = Mark.create({
     name: 'comment',
     spanning: false,
 
-    addAttributes(): Attributes {
+    addAttributes() {
         return {
             id: {
                 default: null,
@@ -20,7 +18,7 @@ export const NotebookMarkComment = Mark.create({
         }
     },
 
-    parseHTML(): TagParseRule[] {
+    parseHTML() {
         return [
             {
                 tag: 'span[data-id]',
@@ -29,14 +27,14 @@ export const NotebookMarkComment = Mark.create({
         ]
     },
 
-    onSelectionUpdate(): void {
+    onSelectionUpdate() {
         if (this.editor.isActive('comment')) {
             const notebookLogic = this.editor.extensionStorage._notebookLogic as BuiltLogic<notebookLogicType>
             notebookLogic.actions.selectComment(this.editor.getAttributes('comment').id)
         }
     },
 
-    renderHTML({ HTMLAttributes }: { HTMLAttributes: Record<string, any> }): DOMOutputSpec {
+    renderHTML({ HTMLAttributes }) {
         return [
             'span',
             mergeAttributes(HTMLAttributes, {

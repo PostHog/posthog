@@ -24,8 +24,7 @@ import { NotFound } from 'lib/components/NotFound'
 import { IconComment, IconPerson } from '@posthog/icons'
 import { UUID_REGEX_MATCH_GROUPS } from './utils'
 import { JSONContent } from 'lib/components/RichContentEditor/types'
-import { NotebookNodeAttributeProperties, NotebookNodeAttributes, NotebookNodeProps, NotebookNodeType } from '../types'
-import { ExtendedRegExpMatchArray } from '@tiptap/core'
+import { NotebookNodeAttributeProperties, NotebookNodeProps, NotebookNodeType } from '../types'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 const HEIGHT = 500
@@ -148,7 +147,7 @@ export const NotebookNodeRecording = createPostHogWidgetNode<NotebookNodeRecordi
     Component,
     heightEstimate: HEIGHT,
     minHeight: MIN_HEIGHT,
-    href: (attrs: NotebookNodeRecordingAttributes): string => urls.replaySingle(attrs.id),
+    href: (attrs) => urls.replaySingle(attrs.id),
     resizeable: true,
     attributes: {
         id: {
@@ -160,12 +159,12 @@ export const NotebookNodeRecording = createPostHogWidgetNode<NotebookNodeRecordi
     },
     pasteOptions: {
         find: urls.replaySingle(UUID_REGEX_MATCH_GROUPS),
-        getAttributes: (match: ExtendedRegExpMatchArray): NotebookNodeRecordingAttributes => {
+        getAttributes: async (match) => {
             return { id: match[1], noInspector: false }
         },
     },
     Settings,
-    serializedText: (attrs: NotebookNodeAttributes<NotebookNodeRecordingAttributes>): string => {
+    serializedText: (attrs) => {
         return attrs.id
     },
 })

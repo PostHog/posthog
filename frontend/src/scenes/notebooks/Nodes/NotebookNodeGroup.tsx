@@ -12,8 +12,7 @@ import { groupDisplayId } from 'scenes/persons/GroupActorDisplay'
 import { GroupCaption } from 'scenes/groups/Group'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
-import { NotebookNodeAttributes, NotebookNodeProps, NotebookNodeType } from '../types'
-import { ExtendedRegExpMatchArray } from '@tiptap/core'
+import { NotebookNodeProps, NotebookNodeType } from '../types'
 
 const Component = ({ attributes }: NotebookNodeProps<NotebookNodeGroupAttributes>): JSX.Element => {
     const { id, groupTypeIndex } = attributes
@@ -91,7 +90,7 @@ export const NotebookNodeGroup = createPostHogWidgetNode<NotebookNodeGroupAttrib
     Component,
     heightEstimate: 300,
     minHeight: 100,
-    href: (attrs: NotebookNodeGroupAttributes): string => urls.group(attrs.groupTypeIndex, attrs.id),
+    href: (attrs) => urls.group(attrs.groupTypeIndex, attrs.id),
     resizeable: false,
     expandable: false,
     attributes: {
@@ -100,12 +99,12 @@ export const NotebookNodeGroup = createPostHogWidgetNode<NotebookNodeGroupAttrib
     },
     pasteOptions: {
         find: urls.groups('(.+)'),
-        getAttributes: (match: ExtendedRegExpMatchArray): NotebookNodeGroupAttributes => {
+        getAttributes: async (match) => {
             const [groupTypeIndex, id] = match[1].split('/')
             return { id: decodeURIComponent(id), groupTypeIndex: parseInt(groupTypeIndex) }
         },
     },
-    serializedText: (attrs: NotebookNodeAttributes<NotebookNodeGroupAttributes>): string => {
+    serializedText: (attrs) => {
         const title = attrs?.title || ''
         const id = attrs?.id || ''
         return `${title} ${id}`.trim()
