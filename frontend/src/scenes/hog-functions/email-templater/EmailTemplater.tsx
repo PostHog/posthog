@@ -9,6 +9,8 @@ import EmailEditor from 'react-email-editor'
 
 import { emailTemplaterLogic, EmailTemplaterLogicProps } from './emailTemplaterLogic'
 
+import { unsubscribeLinkToolCustomJs } from './custom-tools/unsubscribeLinkTool'
+
 export type EmailEditorMode = 'full' | 'preview'
 
 /**
@@ -219,6 +221,7 @@ function NativeEmailTemplaterForm({ mode }: { mode: EmailEditorMode }): JSX.Elem
                                 stockImages: false,
                             },
                             projectId: unlayerEditorProjectId,
+                            customJS: isMessagingProductEnabled ? [unsubscribeLinkToolCustomJs] : [],
                         }}
                     />
                 ) : (
