@@ -5,10 +5,10 @@ import structlog
 
 from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.team.team import Team
-from posthog.models.vercel_installation import VercelInstallation
+from ee.models.vercel_installation import VercelInstallation
 from posthog.models.utils import UpdatedMetaFields, UUIDModel
 from posthog.utils import absolute_uri
-from posthog.vercel.client import VercelAPIClient
+from ee.vercel.client import VercelAPIClient
 
 logger = structlog.get_logger(__name__)
 

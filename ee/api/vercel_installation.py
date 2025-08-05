@@ -14,10 +14,10 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework import mixins
 from rest_framework.permissions import BasePermission
-from posthog.auth import VercelAuthentication
+from ee.api.authentication import VercelAuthentication
 from posthog.event_usage import report_user_signed_up
 from posthog.models.user import User
-from posthog.models.vercel_installation import VercelInstallation
+from ee.models.vercel_installation import VercelInstallation
 from rest_framework import decorators
 
 

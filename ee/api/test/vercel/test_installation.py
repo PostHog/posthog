@@ -7,11 +7,11 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from django.utils import timezone
 from rest_framework import status
-from posthog.models.vercel_installation import VercelInstallation
+from ee.models.vercel_installation import VercelInstallation
 from posthog.test.base import APIBaseTest
 
 
-@patch("posthog.auth.get_vercel_jwks")
+@patch("ee.api.authentication.get_vercel_jwks")
 class TestVercelInstallationAPI(APIBaseTest):
     """Test Vercel Installation API functionality (authentication/permission tests are in test_vercel_auth.py)"""
 

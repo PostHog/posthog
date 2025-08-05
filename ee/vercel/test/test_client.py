@@ -1,7 +1,7 @@
 from unittest import TestCase
 from unittest.mock import MagicMock, patch
 from parameterized import parameterized
-from posthog.vercel.client import VercelAPIClient
+from ee.vercel.client import VercelAPIClient
 
 
 class TestVercelAPIClient(TestCase):
@@ -23,7 +23,7 @@ class TestVercelAPIClient(TestCase):
         client = VercelAPIClient()
         assert client.bearer_token == "mock_token"
 
-    @patch("posthog.vercel.client.requests.Session.post")
+    @patch("ee.vercel.client.requests.Session.post")
     def test_create_experimentation_items_success(self, mock_post):
         mock_response = MagicMock()
         mock_response.status_code = 204
@@ -38,7 +38,7 @@ class TestVercelAPIClient(TestCase):
             json={"items": items},
         )
 
-    @patch("posthog.vercel.client.requests.Session.post")
+    @patch("ee.vercel.client.requests.Session.post")
     def test_create_experimentation_items_failure(self, mock_post):
         mock_response = MagicMock()
         mock_response.status_code = 400
@@ -50,7 +50,7 @@ class TestVercelAPIClient(TestCase):
 
         assert result is False
 
-    @patch("posthog.vercel.client.requests.Session.post")
+    @patch("ee.vercel.client.requests.Session.post")
     def test_create_experimentation_items_exception(self, mock_post):
         mock_post.side_effect = Exception("Network error")
 
@@ -59,7 +59,7 @@ class TestVercelAPIClient(TestCase):
 
         assert result is False
 
-    @patch("posthog.vercel.client.requests.Session.patch")
+    @patch("ee.vercel.client.requests.Session.patch")
     def test_update_experimentation_item_success(self, mock_patch):
         mock_response = MagicMock()
         mock_response.status_code = 204
@@ -76,7 +76,7 @@ class TestVercelAPIClient(TestCase):
             json=data,
         )
 
-    @patch("posthog.vercel.client.requests.Session.patch")
+    @patch("ee.vercel.client.requests.Session.patch")
     def test_update_experimentation_item_failure(self, mock_patch):
         mock_response = MagicMock()
         mock_response.status_code = 404
@@ -90,7 +90,7 @@ class TestVercelAPIClient(TestCase):
 
         assert result is False
 
-    @patch("posthog.vercel.client.requests.Session.patch")
+    @patch("ee.vercel.client.requests.Session.patch")
     def test_update_experimentation_item_exception(self, mock_patch):
         mock_patch.side_effect = Exception("Network error")
 
@@ -101,7 +101,7 @@ class TestVercelAPIClient(TestCase):
 
         assert result is False
 
-    @patch("posthog.vercel.client.requests.Session.delete")
+    @patch("ee.vercel.client.requests.Session.delete")
     def test_delete_experimentation_item_success(self, mock_delete):
         mock_response = MagicMock()
         mock_response.status_code = 204
@@ -114,7 +114,7 @@ class TestVercelAPIClient(TestCase):
             f"{self.client.BASE_URL}/installations/{self.integration_config_id}/resources/{self.resource_id}/experimentation/items/{self.item_id}"
         )
 
-    @patch("posthog.vercel.client.requests.Session.delete")
+    @patch("ee.vercel.client.requests.Session.delete")
     def test_delete_experimentation_item_failure(self, mock_delete):
         mock_response = MagicMock()
         mock_response.status_code = 404
@@ -125,7 +125,7 @@ class TestVercelAPIClient(TestCase):
 
         assert result is False
 
-    @patch("posthog.vercel.client.requests.Session.delete")
+    @patch("ee.vercel.client.requests.Session.delete")
     def test_delete_experimentation_item_exception(self, mock_delete):
         mock_delete.side_effect = Exception("Network error")
 
@@ -166,7 +166,7 @@ class TestVercelAPIClient(TestCase):
             ),
         ]
     )
-    @patch("posthog.vercel.client.requests.Session.post")
+    @patch("ee.vercel.client.requests.Session.post")
     def test_sso_token_exchange_success(self, _name, kwargs, expected_data, mock_post):
         mock_response = MagicMock()
         mock_response.status_code = 200
@@ -192,7 +192,7 @@ class TestVercelAPIClient(TestCase):
             ("network_exception", {"side_effect": Exception("Network error"), "status_code": None, "text": None}),
         ]
     )
-    @patch("posthog.vercel.client.requests.Session.post")
+    @patch("ee.vercel.client.requests.Session.post")
     def test_sso_token_exchange_failures(self, _name, error_config, mock_post):
         if error_config["side_effect"]:
             mock_post.side_effect = error_config["side_effect"]

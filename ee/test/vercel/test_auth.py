@@ -10,7 +10,7 @@ from rest_framework.views import APIView
 from posthog.test.base import APIBaseTest, SimpleTestCase
 
 
-@patch("posthog.auth.get_vercel_jwks")
+@patch("ee.api.authentication.get_vercel_jwks")
 class TestVercelAuthentication(SimpleTestCase):
     def setUp(self):
         super().setUp()
@@ -90,7 +90,7 @@ class TestVercelAuthentication(SimpleTestCase):
         """Test valid User authentication with real JWT"""
         mock_get_jwks.return_value = self.mock_jwks
 
-        from posthog.auth import VercelAuthentication
+        from ee.api.authentication import VercelAuthentication
 
         auth = VercelAuthentication()
         token = self._create_jwt_token(self._create_user_auth_payload())
@@ -110,7 +110,7 @@ class TestVercelAuthentication(SimpleTestCase):
         """Test valid System authentication with real JWT"""
         mock_get_jwks.return_value = self.mock_jwks
 
-        from posthog.auth import VercelAuthentication
+        from ee.api.authentication import VercelAuthentication
 
         auth = VercelAuthentication()
         token = self._create_jwt_token(self._create_system_auth_payload())
@@ -128,7 +128,7 @@ class TestVercelAuthentication(SimpleTestCase):
 
     def test_missing_authorization_header(self, mock_get_jwks):
         """Test authentication with missing Authorization header"""
-        from posthog.auth import VercelAuthentication
+        from ee.api.authentication import VercelAuthentication
 
         auth = VercelAuthentication()
 
@@ -142,7 +142,7 @@ class TestVercelAuthentication(SimpleTestCase):
 
     def test_missing_vercel_auth_header(self, mock_get_jwks):
         """Test authentication with missing X-Vercel-Auth header"""
-        from posthog.auth import VercelAuthentication
+        from ee.api.authentication import VercelAuthentication
         from rest_framework.exceptions import AuthenticationFailed
 
         auth = VercelAuthentication()
@@ -159,7 +159,7 @@ class TestVercelAuthentication(SimpleTestCase):
 
     def test_invalid_vercel_auth_header(self, mock_get_jwks):
         """Test authentication with invalid X-Vercel-Auth header"""
-        from posthog.auth import VercelAuthentication
+        from ee.api.authentication import VercelAuthentication
         from rest_framework.exceptions import AuthenticationFailed
 
         auth = VercelAuthentication()
@@ -178,7 +178,7 @@ class TestVercelAuthentication(SimpleTestCase):
         """Test authentication with invalid JWT token"""
         mock_get_jwks.return_value = self.mock_jwks
 
-        from posthog.auth import VercelAuthentication
+        from ee.api.authentication import VercelAuthentication
         from rest_framework.exceptions import AuthenticationFailed
 
         auth = VercelAuthentication()
@@ -196,7 +196,7 @@ class TestVercelAuthentication(SimpleTestCase):
         """Test authentication with JWT token missing key ID"""
         mock_get_jwks.return_value = self.mock_jwks
 
-        from posthog.auth import VercelAuthentication
+        from ee.api.authentication import VercelAuthentication
         from rest_framework.exceptions import AuthenticationFailed
 
         auth = VercelAuthentication()
@@ -215,7 +215,7 @@ class TestVercelAuthentication(SimpleTestCase):
         """Test authentication with unknown key ID"""
         mock_get_jwks.return_value = self.mock_jwks
 
-        from posthog.auth import VercelAuthentication
+        from ee.api.authentication import VercelAuthentication
         from rest_framework.exceptions import AuthenticationFailed
 
         auth = VercelAuthentication()
@@ -234,7 +234,7 @@ class TestVercelAuthentication(SimpleTestCase):
         """Test authentication with invalid issuer"""
         mock_get_jwks.return_value = self.mock_jwks
 
-        from posthog.auth import VercelAuthentication
+        from ee.api.authentication import VercelAuthentication
         from rest_framework.exceptions import AuthenticationFailed
 
         auth = VercelAuthentication()
@@ -257,7 +257,7 @@ class TestVercelAuthentication(SimpleTestCase):
         """Test authentication with missing required claims"""
         mock_get_jwks.return_value = self.mock_jwks
 
-        from posthog.auth import VercelAuthentication
+        from ee.api.authentication import VercelAuthentication
         from rest_framework.exceptions import AuthenticationFailed
 
         auth = VercelAuthentication()
@@ -280,7 +280,7 @@ class TestVercelAuthentication(SimpleTestCase):
         """Test authentication with invalid user role"""
         mock_get_jwks.return_value = self.mock_jwks
 
-        from posthog.auth import VercelAuthentication
+        from ee.api.authentication import VercelAuthentication
         from rest_framework.exceptions import AuthenticationFailed
 
         auth = VercelAuthentication()
@@ -303,7 +303,7 @@ class TestVercelAuthentication(SimpleTestCase):
         """Test System auth sub format validation"""
         mock_get_jwks.return_value = self.mock_jwks
 
-        from posthog.auth import VercelAuthentication
+        from ee.api.authentication import VercelAuthentication
         from rest_framework.exceptions import AuthenticationFailed
 
         auth = VercelAuthentication()
@@ -326,7 +326,7 @@ class TestVercelAuthentication(SimpleTestCase):
         """Test User auth sub format validation"""
         mock_get_jwks.return_value = self.mock_jwks
 
-        from posthog.auth import VercelAuthentication
+        from ee.api.authentication import VercelAuthentication
         from rest_framework.exceptions import AuthenticationFailed
 
         auth = VercelAuthentication()
@@ -349,7 +349,7 @@ class TestVercelAuthentication(SimpleTestCase):
         """Test authentication when JWKS fetch fails"""
         mock_get_jwks.side_effect = Exception("JWKS fetch failed")
 
-        from posthog.auth import VercelAuthentication
+        from ee.api.authentication import VercelAuthentication
         from rest_framework.exceptions import AuthenticationFailed
 
         auth = VercelAuthentication()
@@ -365,7 +365,7 @@ class TestVercelAuthentication(SimpleTestCase):
         self.assertIn("User authentication failed", str(cm.exception))
 
 
-@patch("posthog.auth.get_vercel_jwks")
+@patch("ee.api.authentication.get_vercel_jwks")
 class TestVercelInstallationPermission(APIBaseTest):
     def setUp(self):
         super().setUp()
@@ -375,7 +375,7 @@ class TestVercelInstallationPermission(APIBaseTest):
 
     def test_auth_type_validation_success(self, mock_get_jwks):
         """Test permission with valid auth type"""
-        from posthog.api.vercel_installation import VercelInstallationPermission
+        from ee.api.vercel_installation import VercelInstallationPermission
 
         permission = VercelInstallationPermission()
 
@@ -395,7 +395,7 @@ class TestVercelInstallationPermission(APIBaseTest):
 
     def test_auth_type_validation_failure(self, mock_get_jwks):
         """Test permission with invalid auth type for action"""
-        from posthog.api.vercel_installation import VercelInstallationPermission
+        from ee.api.vercel_installation import VercelInstallationPermission
         from rest_framework.exceptions import PermissionDenied
 
         permission = VercelInstallationPermission()
@@ -418,7 +418,7 @@ class TestVercelInstallationPermission(APIBaseTest):
 
     def test_installation_id_match_success(self, mock_get_jwks):
         """Test permission with matching installation ID"""
-        from posthog.api.vercel_installation import VercelInstallationPermission
+        from ee.api.vercel_installation import VercelInstallationPermission
 
         permission = VercelInstallationPermission()
 
@@ -437,7 +437,7 @@ class TestVercelInstallationPermission(APIBaseTest):
 
     def test_installation_id_match_failure(self, mock_get_jwks):
         """Test permission with mismatched installation ID"""
-        from posthog.api.vercel_installation import VercelInstallationPermission
+        from ee.api.vercel_installation import VercelInstallationPermission
         from rest_framework.exceptions import PermissionDenied
 
         permission = VercelInstallationPermission()
@@ -459,7 +459,7 @@ class TestVercelInstallationPermission(APIBaseTest):
 
     def test_missing_auth_header(self, mock_get_jwks):
         """Test permission with missing X-Vercel-Auth header"""
-        from posthog.api.vercel_installation import VercelInstallationPermission
+        from ee.api.vercel_installation import VercelInstallationPermission
         from rest_framework.exceptions import AuthenticationFailed
 
         permission = VercelInstallationPermission()

@@ -7,6 +7,7 @@ from django.urls.conf import path
 from django.views.decorators.csrf import csrf_exempt
 
 from ee.api import integration
+from ee.api import vercel_sso
 from ee.support_sidebar_max.views import MaxChatViewSet
 
 from .api import (
@@ -116,5 +117,6 @@ urlpatterns: list[Any] = [
     path("api/saml/metadata/", authentication.saml_metadata_view),
     path("api/sentry_stats/", sentry_stats.sentry_stats),
     path("max/chat/", csrf_exempt(MaxChatViewSet.as_view({"post": "create"})), name="max_chat"),
+    path("login/vercel/", vercel_sso.VercelSSOViewSet.as_view({"get": "sso_redirect"})),  # Vercel SSO login endpoint
     *admin_urlpatterns,
 ]

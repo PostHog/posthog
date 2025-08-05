@@ -61,8 +61,6 @@ from . import (
     instance_status,
     integration,
     notebook,
-    vercel_installation,
-    vercel_resource,
     organization,
     organization_domain,
     organization_feature_flag,
@@ -521,6 +519,7 @@ if EE_AVAILABLE:
         EnterprisePersonViewSet,
         LegacyEnterprisePersonViewSet,
     )
+    from ee.api import vercel_installation, vercel_resource
 
     projects_router.register(r"experiments", EnterpriseExperimentsViewSet, "project_experiments", ["project_id"])
     projects_router.register(
@@ -538,6 +537,24 @@ if EE_AVAILABLE:
         r"persons", EnterprisePersonViewSet, "environment_persons", ["team_id"]
     )
     router.register(r"person", LegacyEnterprisePersonViewSet, "persons")
+
+    # Vercel Marketplace API endpoints
+    vercel_installations_router = router.register(
+        r"vercel/v1/installations",
+        vercel_installation.VercelInstallationViewSet,
+        "vercel_installations",
+    )
+    vercel_installations_router.register(
+        r"resources",
+        vercel_resource.VercelResourceViewSet,
+        "vercel_installation_resources",
+        ["installation_id"],
+    )
+    router.register(
+        r"vercel/v1/products",
+        vercel_installation.VercelProductViewSet,
+        "vercel_products",
+    )
 else:
     environment_insights_router, legacy_project_insights_router = register_grandfathered_environment_nested_viewset(
         r"insights", InsightViewSet, "environment_insights", ["team_id"]
@@ -800,16 +817,3 @@ projects_router.register(
     "project_flag_value",
     ["project_id"],
 )
-
-vercel_router = router.register(
-    r"vercel/v1/installations", vercel_installation.VercelInstallationViewSet, "vercel_installations"
-)
-vercel_router.register(
-    r"resources",
-    vercel_resource.VercelResourceViewSet,
-    "vercel_resources",
-    ["installation_id"],
-)
-
-# Vercel product endpoints
-router.register(r"vercel/v1/products", vercel_installation.VercelProductViewSet, "vercel_products")

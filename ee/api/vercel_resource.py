@@ -10,11 +10,11 @@ from rest_framework import serializers, viewsets, exceptions
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework import mixins
-from posthog.auth import VercelAuthentication
-from posthog.api.vercel_installation import VercelInstallationPermission, get_vercel_plans
+from ee.api.authentication import VercelAuthentication
+from ee.api.vercel_installation import VercelInstallationPermission, get_vercel_plans
 from posthog.models.organization import Organization
-from posthog.models.vercel_resouce import VercelResource
-from posthog.models.vercel_installation import VercelInstallation
+from ee.models.vercel_resource import VercelResource
+from ee.models.vercel_installation import VercelInstallation
 from posthog.models.team.team import Team
 
 
@@ -183,7 +183,7 @@ class VercelResourceViewSet(
         installation_id = self.kwargs.get("parent_lookup_installation_id")
 
         try:
-            installation = VercelInstallation.objects.get(id=installation_id)
+            installation = VercelInstallation.objects.get(installation_id=installation_id)
         except VercelInstallation.DoesNotExist:
             raise exceptions.NotFound("Installation not found")
 

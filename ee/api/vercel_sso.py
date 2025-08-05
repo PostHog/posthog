@@ -6,9 +6,9 @@ from rest_framework import permissions, serializers, status
 from rest_framework.decorators import action
 from rest_framework.viewsets import ViewSet
 
-from posthog.auth import VercelAuthentication
-from posthog.models.vercel_installation import VercelInstallation
-from posthog.vercel.client import VercelAPIClient
+from ee.api.authentication import VercelAuthentication
+from ee.models.vercel_installation import VercelInstallation
+from ee.vercel.client import VercelAPIClient
 
 logger = structlog.get_logger(__name__)
 
