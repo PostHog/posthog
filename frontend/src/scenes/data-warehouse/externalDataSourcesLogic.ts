@@ -1,4 +1,4 @@
-import { actions, kea, listeners, path, reducers } from 'kea'
+import { actions, kea, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import api, { ApiMethodOptions, PaginatedResponse } from 'lib/api'
 
@@ -9,7 +9,7 @@ import type { externalDataSourcesLogicType } from './externalDataSourcesLogicTyp
 export const externalDataSourcesLogic = kea<externalDataSourcesLogicType>([
     path(['scenes', 'data-warehouse', 'externalDataSourcesLogic']),
     actions({}),
-    loaders(({ cache }) => ({
+    loaders(({ cache, values }) => ({
         dataWarehouseSources: [
             null as PaginatedResponse<ExternalDataSource> | null,
             {
@@ -32,6 +32,15 @@ export const externalDataSourcesLogic = kea<externalDataSourcesLogicType>([
                     cache.abortController = null
                     return res
                 },
+                updateSource: async (source: ExternalDataSource) => {
+                    const updatedSource = await api.externalDataSources.update(source.id, source)
+                    return {
+                        ...values.dataWarehouseSources,
+                        results:
+                            values.dataWarehouseSources?.results.map((s) => (s.id === updatedSource.id ? source : s)) ||
+                            [],
+                    }
+                },
             },
         ],
     })),
@@ -45,5 +54,4 @@ export const externalDataSourcesLogic = kea<externalDataSourcesLogicType>([
             },
         ],
     })),
-    listeners(() => ({})),
 ])
