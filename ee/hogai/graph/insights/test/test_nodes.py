@@ -143,52 +143,6 @@ class TestInsightSearchNode(BaseTest):
 
         self.assertEqual(result, [])
 
-    def test_format_search_results_no_results(self):
-        """Test formatting when no results are found."""
-        result, viz_messages = self.node._format_search_results([], "test query")
-
-        self.assertIn("No insights found matching 'test query'", result)
-        self.assertIn("Suggest that the user try", result)
-        self.assertEqual(viz_messages, [])
-
-    def test_format_search_results_with_results(self):
-        """Test formatting with actual results."""
-        # Load the first page so insights are available for search results formatting
-        self.node._load_insights_page(0)
-
-        # Use actual insight IDs
-        selected_insights = [self.insight1.id, self.insight2.id]
-
-        result, viz_messages = self.node._format_search_results(selected_insights, "pageviews")
-
-        self.assertIn("Found 2 insights matching 'pageviews'", result)
-        self.assertIn("**1. Daily Pageviews**", result)
-        self.assertIn("**2. User Signup Funnel**", result)
-        self.assertIn("Track daily website traffic", result)
-        self.assertIn("Track user conversion through signup", result)
-        # Test that execution results are included by default
-        self.assertIn("**Current Data:**", result)
-        self.assertIn("INSTRUCTIONS: Add a link to the insight in the format [Insight Name](Insight URL)", result)
-        # Check that visualization messages list is returned
-        self.assertIsInstance(viz_messages, list)
-
-    def test_format_search_results_execution_data_always_included(self):
-        """Test that execution data is always included in current implementation."""
-        # Load the first page so insights are available for search results formatting
-        self.node._load_insights_page(0)
-
-        # Use actual insight IDs
-        selected_insights = [self.insight1.id, self.insight2.id]
-
-        result, viz_messages = self.node._format_search_results(selected_insights, "pageviews")
-
-        self.assertIn("Found 2 insights matching 'pageviews'", result)
-        self.assertIn("**1. Daily Pageviews**", result)
-        self.assertIn("**2. User Signup Funnel**", result)
-        # Test that execution results are always included in current implementation
-        self.assertIn("**Current Data:**", result)
-        self.assertIsInstance(viz_messages, list)
-
     def test_create_error_response(self):
         """Test creating error response."""
         result = self.node._create_error_response("Test error", "test_tool_call_id")
@@ -254,25 +208,6 @@ class TestInsightSearchNode(BaseTest):
                         self.assertIn("YES: This insight is perfect for your needs.", first_message.content)
 
                 # Note: Additional visualization messages depend on query type support in test data
-
-    def test_format_search_results_with_visualization_messages(self):
-        """Test formatting with visualization messages."""
-        # Load the first page so insights are available for search results formatting
-        self.node._load_insights_page(0)
-
-        # Use actual insight IDs
-        selected_insights = [self.insight1.id, self.insight2.id]
-
-        result, viz_messages = self.node._format_search_results(selected_insights, "pageviews")
-
-        # Verify text content
-        self.assertIn("Found 2 insights matching 'pageviews'", result)
-        self.assertIn("**1. Daily Pageviews**", result)
-        self.assertIn("**2. User Signup Funnel**", result)
-
-        # Verify visualization messages were created (though they might be None for unsupported query types)
-        self.assertIsInstance(viz_messages, list)
-        # Note: viz_messages might be empty if the test insights have unsupported query types
 
     @patch("ee.hogai.graph.insights.nodes.ChatOpenAI")
     def test_search_insights_iteratively_single_page(self, mock_openai):

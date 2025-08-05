@@ -26,11 +26,6 @@ from .prompts import (
     ITERATIVE_SEARCH_SYSTEM_PROMPT,
     ITERATIVE_SEARCH_USER_PROMPT,
     PAGINATION_INSTRUCTIONS_TEMPLATE,
-    NO_SEARCH_RESULTS_TEMPLATE,
-    SEARCH_RESULTS_FOOTER_TEMPLATE,
-    INSIGHT_BLOCK_WITH_DESCRIPTION_TEMPLATE,
-    INSIGHT_BLOCK_NO_DESCRIPTION_TEMPLATE,
-    CURRENT_DATA_TEMPLATE,
 )
 from .utils import convert_filters_to_query
 
@@ -303,74 +298,6 @@ class InsightSearchNode(AssistantNode):
 
         return valid_ids
 
-    def _format_search_results(
-        self, selected_insights: list[int], search_query: str
-    ) -> tuple[str, list[VisualizationMessage]]:
-        """Format final search results for display."""
-        if not selected_insights:
-            content = NO_SEARCH_RESULTS_TEMPLATE.format(search_query=search_query or "your search")
-            return content, []
-
-        insight_details = []
-        query_executor = AssistantQueryExecutor(self._team, self._utc_now_datetime)
-        visualization_messages = []
-
-        for insight_id in selected_insights:
-            insight = self._find_insight_by_id(insight_id)
-            if insight:
-                insight_details.append(insight)
-                # Create visualization message for each insight
-                viz_message = self._create_visualization_message_for_insight(insight)
-                if viz_message:
-                    visualization_messages.append(viz_message)
-
-        header = f"Found {len(insight_details)} insight{'s' if len(insight_details) != 1 else ''}"
-        if search_query:
-            header += f" matching '{search_query}'"
-        header += ":\n\n"
-
-        formatted_results = []
-        for i, insight in enumerate(insight_details, 1):
-            name = insight.get("insight__name") or insight.get("insight__derived_name", "Unnamed Insight")
-            description = insight.get("insight__description")
-            insight_short_id = insight.get("insight__short_id")
-            insight_url = f"/project/{self._team.project_id}/insights/{insight_short_id}"
-
-            # Get formatted metadata
-            metadata = self._format_insight_metadata(insight)
-
-            # Execute insight if requested
-            execution_results = ""
-            executed_results = self._execute_insight_for_display(insight, query_executor)
-            if executed_results:
-                execution_results = CURRENT_DATA_TEMPLATE.format(results=executed_results)
-
-            if description:
-                result_block = INSIGHT_BLOCK_WITH_DESCRIPTION_TEMPLATE.format(
-                    index=i,
-                    name=name,
-                    description=description,
-                    metadata=metadata,
-                    execution_results=execution_results,
-                    insight_url=insight_url,
-                )
-            else:
-                result_block = INSIGHT_BLOCK_NO_DESCRIPTION_TEMPLATE.format(
-                    index=i, name=name, metadata=metadata, execution_results=execution_results, insight_url=insight_url
-                )
-
-            formatted_results.append(result_block)
-
-        content = header + "\n\n".join(formatted_results)
-
-        search_context = f" related to '{search_query}'" if search_query else ""
-        plural = "s" if len(insight_details) != 1 else ""
-        content += "\n\n" + SEARCH_RESULTS_FOOTER_TEMPLATE.format(
-            count=len(insight_details), plural=plural, search_context=search_context
-        )
-
-        return content, visualization_messages
-
     def _convert_insight_to_query(self, insight: dict) -> tuple[dict | None, str | None]:
         """
         Convert an insight (with query or legacy filters) to a modern query format.
@@ -494,26 +421,6 @@ class InsightSearchNode(AssistantNode):
         except Exception:
             return None
 
-    def _execute_insight_for_display(self, insight: dict, query_executor: AssistantQueryExecutor) -> str | None:
-        """Execute an insight query and return formatted results for user display."""
-        try:
-            query_dict, query_kind = self._convert_insight_to_query(insight)
-            if not query_dict or not query_kind:
-                return "No query data available or could not convert"
-
-            from ee.hogai.graph.root.nodes import MAX_SUPPORTED_QUERY_KIND_TO_MODEL
-
-            if query_kind not in MAX_SUPPORTED_QUERY_KIND_TO_MODEL:
-                return f"Query type '{query_kind}' not supported"
-
-            QueryModel = MAX_SUPPORTED_QUERY_KIND_TO_MODEL[query_kind]
-            query_obj = QueryModel.model_validate(query_dict)
-            results, _ = query_executor.run_and_format_query(query_obj)
-            return results
-
-        except Exception:
-            return "Could not execute query"
-
     def _create_error_response(self, content: str, tool_call_id: str | None) -> PartialAssistantState:
         """Create error response for the assistant."""
         return PartialAssistantState(
@@ -610,63 +517,6 @@ class InsightSearchNode(AssistantNode):
                 "explanation": "Could not evaluate insights due to an error.",
                 "visualization_messages": visualization_messages,
             }
-
-    def _format_insight_metadata(self, insight: dict) -> str:
-        """
-        Format insight metadata into a user-friendly string.
-        """
-        metadata_parts = []
-
-        insight_query = insight.get("insight__query")
-        if insight_query:
-            try:
-                if isinstance(insight_query, str):
-                    query_dict = json.loads(insight_query)
-                elif isinstance(insight_query, dict):
-                    query_dict = insight_query
-                else:
-                    query_dict = {}
-
-                query_kind = query_dict.get("kind", "Unknown")
-                if query_kind in ["TrendsQuery", "FunnelsQuery", "RetentionQuery", "HogQLQuery"]:
-                    readable_type = {
-                        "TrendsQuery": "Trends",
-                        "FunnelsQuery": "Funnel",
-                        "RetentionQuery": "Retention",
-                        "HogQLQuery": "SQL",
-                    }.get(query_kind, query_kind)
-                    metadata_parts.append(f"**Type:** {readable_type}")
-
-            except (json.JSONDecodeError, AttributeError):
-                pass
-
-        insight_filters = insight.get("insight__filters")
-        if insight_filters:
-            try:
-                if isinstance(insight_filters, str):
-                    filters_dict = json.loads(insight_filters)
-                elif isinstance(insight_filters, dict):
-                    filters_dict = insight_filters
-                else:
-                    filters_dict = {}
-
-                # Properties filters
-                properties = filters_dict.get("properties", [])
-                if properties and len(properties) > 0:
-                    metadata_parts.append(f"**Filters:** {len(properties)} filter(s) applied")
-
-                # Breakdown filters
-                breakdown = filters_dict.get("breakdown")
-                if breakdown:
-                    metadata_parts.append(f"**Breakdown:** {breakdown}")
-
-            except (json.JSONDecodeError, AttributeError):
-                pass
-
-        if metadata_parts:
-            return "\n" + "\n".join(metadata_parts)
-        else:
-            return ""
 
     def router(self, state: AssistantState) -> Literal["root", "insights"]:
         if state.root_tool_insight_plan and not state.search_insights_query:
