@@ -108,7 +108,7 @@ export function BillingLineGraph({
     const [chartDimensions, setChartDimensions] = useState({ width: 0, height: 0 })
     const { ensureBillingTooltip, hideBillingTooltip } = useBillingTooltip()
     const { isDarkModeOn } = useValues(themeLogic)
-    const graphColors = getGraphColors()
+
     const { chartAreaLeft, chartAreaTop, getMarkerPosition } = useBillingMarkersPositioning(
         chartRef.current || undefined,
         chartDimensions.width,
@@ -125,6 +125,7 @@ export function BillingLineGraph({
         }
 
         const visibleSeries = series.filter((s) => !hiddenSeries.includes(s.id))
+        const graphColors = getGraphColors()
 
         const datasets: ChartDataset<'line'>[] = visibleSeries.map((s) => ({
             label: s.label,
@@ -315,7 +316,6 @@ export function BillingLineGraph({
         ensureBillingTooltip,
         hideBillingTooltip,
         isDarkModeOn,
-        graphColors,
         billingPeriodMarkers,
     ])
 
@@ -335,9 +335,9 @@ export function BillingLineGraph({
                         {
                             '--billing-markers-chart-area-left': `${chartAreaLeft}px`,
                             '--billing-markers-chart-area-top': `${chartAreaTop}px`,
-                            '--billing-marker-text-color': graphColors.axisLabel || '#666666',
+                            '--billing-marker-text-color': '#666666',
                             '--billing-marker-bg-color': isDarkModeOn ? 'var(--bg-light)' : 'white',
-                            '--billing-marker-border-color': graphColors.axisLine || 'rgba(0, 0, 0, 0.1)',
+                            '--billing-marker-border-color': 'rgba(0, 0, 0, 0.1)',
                         } as React.CSSProperties & Record<string, string>
                     }
                 >
