@@ -106,6 +106,7 @@ export function BillingLineGraph({
     const chartRef = useRef<Chart | null>(null)
     const [chartReady, setChartReady] = useState(false)
     const [chartDimensions, setChartDimensions] = useState({ width: 0, height: 0 })
+    const [axisLabelColor, setAxisLabelColor] = useState('#666666')
     const { ensureBillingTooltip, hideBillingTooltip } = useBillingTooltip()
     const { isDarkModeOn } = useValues(themeLogic)
 
@@ -126,6 +127,8 @@ export function BillingLineGraph({
 
         const visibleSeries = series.filter((s) => !hiddenSeries.includes(s.id))
         const graphColors = getGraphColors()
+        const currentAxisLabelColor = graphColors.axisLabel || '#666666'
+        setAxisLabelColor(currentAxisLabelColor)
 
         const datasets: ChartDataset<'line'>[] = visibleSeries.map((s) => ({
             label: s.label,
@@ -157,7 +160,7 @@ export function BillingLineGraph({
                     },
                     ticks: {
                         source: 'labels',
-                        color: graphColors.axisLabel || '#666666',
+                        color: currentAxisLabelColor,
                     },
                     grid: {
                         display: false,
@@ -173,7 +176,7 @@ export function BillingLineGraph({
                             // Use the provided formatter, fallback shouldn't be needed due to default prop
                             return typeof value === 'number' ? valueFormatter(value) : value
                         },
-                        color: graphColors.axisLabel || '#666666',
+                        color: currentAxisLabelColor,
                     },
                 },
             },
@@ -335,7 +338,7 @@ export function BillingLineGraph({
                         {
                             '--billing-markers-chart-area-left': `${chartAreaLeft}px`,
                             '--billing-markers-chart-area-top': `${chartAreaTop}px`,
-                            '--billing-marker-text-color': '#666666',
+                            '--billing-marker-text-color': axisLabelColor,
                             '--billing-marker-bg-color': isDarkModeOn ? 'var(--bg-light)' : 'white',
                             '--billing-marker-border-color': 'rgba(0, 0, 0, 0.1)',
                         } as React.CSSProperties & Record<string, string>
