@@ -1,4 +1,4 @@
-import { INSIGHT_ALERT_FIRING_SUB_TEMPLATE_ID } from 'lib/components/Alerts/views/AlertDestinationSelector'
+import { INSIGHT_ALERT_FIRING_SUB_TEMPLATE_ID } from 'lib/components/Alerts/constants'
 import {
     HogFunctionConfigurationContextId,
     HogFunctionSubTemplateIdType,

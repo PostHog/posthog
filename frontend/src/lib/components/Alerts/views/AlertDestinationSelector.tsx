@@ -1,14 +1,11 @@
 import { LinkedHogFunctions } from 'scenes/hog-functions/list/LinkedHogFunctions'
 
 import { PropertyFilterType, PropertyOperator } from '~/types'
+import { INSIGHT_ALERT_FIRING_EVENT_ID, INSIGHT_ALERT_FIRING_SUB_TEMPLATE_ID } from '../constants'
 
 export interface AlertDestinationSelectorProps {
     alertId: string
 }
-
-export const INSIGHT_ALERT_DESTINATION_LOGIC_KEY = 'insightAlertDestination'
-export const INSIGHT_ALERT_FIRING_SUB_TEMPLATE_ID = 'insight-alert-firing'
-export const INSIGHT_ALERT_FIRING_EVENT_ID = '$insight_alert_firing'
 
 export function AlertDestinationSelector({ alertId }: AlertDestinationSelectorProps): JSX.Element {
     return (
