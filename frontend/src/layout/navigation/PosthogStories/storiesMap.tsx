@@ -1,5 +1,7 @@
 // This should eventually be moved to a DB.
 
+import { PizzaSurveyOverlayComponent } from './PizzaSurveyOverlayComponent'
+
 export enum StoryType {
     Image = 'image',
     Video = 'video',
@@ -50,6 +52,125 @@ export interface storyGroup {
 // from top to bottom.
 // Important: we use the first thumbnail of the first story in each group as the thumbnail of the group.
 export const storiesMap: storyGroup[] = [
+    {
+        id: 'surveys',
+        title: 'Surveys',
+        stories: [
+            {
+                id: 'surveys-overview',
+                title: 'Surveys',
+                description: 'Ask users for feedback',
+                thumbnailUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/surveys_522e544094.png',
+                mediaUrl: 'https://res.cloudinary.com/dmukukwp6/video/upload/surveys_overview_2cfc290333.mp4',
+                type: StoryType.Video,
+            },
+            {
+                id: 'surveys-cta',
+                title: 'Surveys',
+                description: 'Try surveys',
+                thumbnailUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/surveys_522e544094.png',
+                mediaUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/surveys_cta_b32a2b0596.png',
+                type: StoryType.Image,
+                seeMoreLink: 'https://app.posthog.com/surveys',
+                seeMoreOptions: {
+                    backgroundColor: 'black',
+                    text: 'Create a survey',
+                },
+            },
+            {
+                id: 'surveys-pineapple-pizza-poll',
+                title: 'Surveys',
+                description: "There's only one right answer!",
+                thumbnailUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/surveys_522e544094.png',
+                type: StoryType.Overlay,
+                seeMoreOverlay: (closeOverlay) => <PizzaSurveyOverlayComponent closeOverlay={closeOverlay} />,
+                seeMoreOptions: {
+                    hideDefaultClose: true,
+                },
+            },
+        ],
+    },
+    {
+        id: 'experiments',
+        title: 'Experiments',
+        stories: [
+            {
+                id: 'experiments-overview',
+                title: 'Experiments',
+                description: 'Find out what performs',
+                thumbnailUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/experiments_icon_05539e123f.png',
+                mediaUrl: 'https://res.cloudinary.com/dmukukwp6/video/upload/experiments_overview_193828c533.mp4',
+                type: StoryType.Video,
+            },
+            {
+                id: 'experiments-cta',
+                title: 'Experiments',
+                description: 'Try experiments',
+                thumbnailUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/experiments_icon_05539e123f.png',
+                mediaUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/experiments_cta_18e8927447.png',
+                type: StoryType.Image,
+                seeMoreLink: 'https://app.posthog.com/experiments',
+                seeMoreOptions: {
+                    backgroundColor: 'black',
+                    text: 'Create an experiment',
+                },
+            },
+        ],
+    },
+    {
+        id: 'feature-flags',
+        title: 'Feature flags',
+        stories: [
+            {
+                id: 'feature-flags-overview',
+                title: 'Feature flags',
+                description: 'Roll out changes',
+                thumbnailUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/feature_flags_fd5d9949a0.png',
+                mediaUrl: 'https://res.cloudinary.com/dmukukwp6/video/upload/feature_flags_overview_79e6f410ae.mp4',
+                type: StoryType.Video,
+            },
+            {
+                id: 'feature-flags-cta',
+                title: 'Feature flags',
+                description: 'Try feature flags',
+                thumbnailUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/feature_flags_fd5d9949a0.png',
+                mediaUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/feature_flags_cta_image_3c1f74f6ed.png',
+                type: StoryType.Image,
+                seeMoreLink: 'https://app.posthog.com/feature_flags',
+                seeMoreOptions: {
+                    backgroundColor: 'black',
+                    text: 'Get started',
+                },
+            },
+        ],
+    },
+    {
+        id: 'max-ai',
+        title: 'Max AI',
+        stories: [
+            {
+                id: 'meet-max-ai-overview',
+                title: 'Max AI',
+                description: 'Say hi to Max!',
+                thumbnailUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/max_ai_f8c9cdf4e8.png',
+                mediaUrl: 'https://res.cloudinary.com/dmukukwp6/video/upload/meet_max_ai_overview_778f4acffb.mp4',
+                type: StoryType.Video,
+            },
+            {
+                id: 'max-ai-cta',
+                title: 'Max AI',
+                description: 'Try talking to Max',
+                thumbnailUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/max_ai_f8c9cdf4e8.png',
+                mediaUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/max_cta_frame_06906e3804.png',
+                type: StoryType.Image,
+                seeMoreLink: 'https://app.posthog.com/#panel=max:hi%20max',
+                seeMoreOptions: {
+                    backgroundColor: 'black',
+                    text: 'Say hi',
+                },
+            },
+        ],
+    },
     {
         id: 'changelog',
         title: 'Changelog',
@@ -216,87 +337,6 @@ export const storiesMap: storyGroup[] = [
                 seeMoreOptions: {
                     backgroundColor: 'black',
                     text: 'Launch the toolbar',
-                },
-            },
-        ],
-    },
-    {
-        id: 'max-ai',
-        title: 'Max AI',
-        stories: [
-            {
-                id: 'meet-max-ai-overview',
-                title: 'Max AI',
-                description: 'Say hi to Max!',
-                thumbnailUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/max_ai_f8c9cdf4e8.png',
-                mediaUrl: 'https://res.cloudinary.com/dmukukwp6/video/upload/meet_max_ai_overview_778f4acffb.mp4',
-                type: StoryType.Video,
-            },
-            {
-                id: 'max-ai-cta',
-                title: 'Max AI',
-                description: 'Try talking to Max',
-                thumbnailUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/max_ai_f8c9cdf4e8.png',
-                mediaUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/max_cta_frame_06906e3804.png',
-                type: StoryType.Image,
-                seeMoreLink: 'https://app.posthog.com/#panel=max:hi%20max',
-                seeMoreOptions: {
-                    backgroundColor: 'black',
-                    text: 'Say hi',
-                },
-            },
-        ],
-    },
-    {
-        id: 'feature-flags',
-        title: 'Feature flags',
-        stories: [
-            {
-                id: 'feature-flags-overview',
-                title: 'Feature flags',
-                description: 'Roll out changes',
-                thumbnailUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/feature_flags_fd5d9949a0.png',
-                mediaUrl: 'https://res.cloudinary.com/dmukukwp6/video/upload/feature_flags_overview_79e6f410ae.mp4',
-                type: StoryType.Video,
-            },
-            {
-                id: 'feature-flags-cta',
-                title: 'Feature flags',
-                description: 'Try feature flags',
-                thumbnailUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/feature_flags_fd5d9949a0.png',
-                mediaUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/feature_flags_cta_image_3c1f74f6ed.png',
-                type: StoryType.Image,
-                seeMoreLink: 'https://app.posthog.com/feature_flags',
-                seeMoreOptions: {
-                    backgroundColor: 'black',
-                    text: 'Get started',
-                },
-            },
-        ],
-    },
-    {
-        id: 'experiments',
-        title: 'Experiments',
-        stories: [
-            {
-                id: 'experiments-overview',
-                title: 'Experiments',
-                description: 'Find out what performs',
-                thumbnailUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/experiments_icon_05539e123f.png',
-                mediaUrl: 'https://res.cloudinary.com/dmukukwp6/video/upload/experiments_overview_07bb5ecdd1.mp4',
-                type: StoryType.Video,
-            },
-            {
-                id: 'experiments-cta',
-                title: 'Experiments',
-                description: 'Try experiments',
-                thumbnailUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/experiments_icon_05539e123f.png',
-                mediaUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/experiments_cta_18e8927447.png',
-                type: StoryType.Image,
-                seeMoreLink: 'https://app.posthog.com/experiments',
-                seeMoreOptions: {
-                    backgroundColor: 'black',
-                    text: 'Create an experiment',
                 },
             },
         ],
