@@ -107,6 +107,9 @@ export function BillingLineGraph({
     const [chartReady, setChartReady] = useState(false)
     const [chartDimensions, setChartDimensions] = useState({ width: 0, height: 0 })
     const [axisLabelColor, setAxisLabelColor] = useState('#666666')
+    const [markersReady, setMarkersReady] = useState(false)
+    const [stableChartAreaLeft, setStableChartAreaLeft] = useState<number | null>(null)
+    const markerTimeoutRef = useRef<NodeJS.Timeout | null>(null)
     const { ensureBillingTooltip, hideBillingTooltip } = useBillingTooltip()
     const { isDarkModeOn } = useValues(themeLogic)
 
@@ -300,15 +303,41 @@ export function BillingLineGraph({
                 height: chartInstance.height,
             })
             setChartReady(true)
+            const currentChartAreaLeft = chartInstance.chartArea?.left
+
+            // Only show markers if chart area has stabilized
+            if (stableChartAreaLeft !== null && Math.abs(currentChartAreaLeft - stableChartAreaLeft) < 1) {
+                setMarkersReady(true)
+            } else {
+                setStableChartAreaLeft(currentChartAreaLeft)
+                setMarkersReady(false)
+
+                // Clear any existing timeout
+                if (markerTimeoutRef.current) {
+                    clearTimeout(markerTimeoutRef.current)
+                }
+                // Delay marker visibility to allow chart to stabilize
+                markerTimeoutRef.current = setTimeout(() => {
+                    setMarkersReady(true)
+                }, 200)
+            }
         }
 
         return () => {
+            if (markerTimeoutRef.current) {
+                clearTimeout(markerTimeoutRef.current)
+            }
             if (chartRef.current) {
                 chartRef.current.destroy()
                 chartRef.current = null
                 setChartReady(false)
+                setMarkersReady(false)
+                setStableChartAreaLeft(null)
             }
         }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        // Note: stableChartAreaLeft is intentionally excluded from dependencies to prevent re-render loops
+        // since it's updated inside this useEffect itself
     }, [
         series,
         dates,
@@ -331,7 +360,7 @@ export function BillingLineGraph({
             )}
             <canvas ref={canvasRef} />
             {/* Billing period marker overlays with tooltips */}
-            {chartReady && billingPeriodMarkers.length > 0 && (
+            {chartReady && markersReady && billingPeriodMarkers.length > 0 && (
                 <div
                     className="BillingMarkersOverlay"
                     style={
