@@ -19,70 +19,76 @@ const meta = {
 
 export default meta
 
+function RenderCombobox(): JSX.Element {
+    return (
+        <Combobox>
+            <Combobox.Search placeholder="Search this list..." autoFocus />
+
+            {/* For styling the list items */}
+            <Combobox.Content className="max-w-[300px] max-h-none">
+                <Combobox.Empty>No searchable groups match</Combobox.Empty>
+
+                {/* responsible for filtering the list items */}
+                {/* can pass in an array of values to filter by */}
+                <Combobox.Group value={['Pineapple', 'belongs on pizza']}>
+                    {/* what we actually get as focus */}
+                    {/* eslint-disable-next-line no-console */}
+                    <Combobox.Item asChild onClick={() => console.log('clicked Pineapple')}>
+                        <ButtonPrimitive menuItem>Searchable: Pineapple</ButtonPrimitive>
+                    </Combobox.Item>
+                </Combobox.Group>
+
+                {/* Groups with no value are "static" and don't affect Empty state */}
+                <Combobox.Group>
+                    <div className="-mx-1 my-1 h-px bg-border-primary shrink-0" />
+                </Combobox.Group>
+
+                <Combobox.Group value={['Banana']}>
+                    {/* eslint-disable-next-line no-console */}
+                    <Combobox.Item asChild onClick={() => console.log('clicked Banana')}>
+                        <ButtonPrimitive menuItem>Searchable: Banana</ButtonPrimitive>
+                    </Combobox.Item>
+                </Combobox.Group>
+                <div className="-mx-1 my-1 h-px bg-border-primary shrink-0" />
+
+                <Combobox.Group value={['projectName']}>
+                    <ButtonGroupPrimitive fullWidth className="[&>span]:contents">
+                        <Combobox.Item asChild>
+                            <ButtonPrimitive menuItem hasSideActionRight className="pr-12" disabled>
+                                <span className="truncate">Disabled main button</span>
+                            </ButtonPrimitive>
+                        </Combobox.Item>
+                        <Combobox.Item asChild>
+                            <Link
+                                buttonProps={{
+                                    iconOnly: true,
+                                    isSideActionRight: true,
+                                }}
+                                tooltip="Visit posthog's website"
+                                tooltipPlacement="right"
+                                to="https://posthog.com"
+                            >
+                                <IconGear className="text-tertiary" />
+                            </Link>
+                        </Combobox.Item>
+                    </ButtonGroupPrimitive>
+                </Combobox.Group>
+
+                <Combobox.Item asChild onClick={() => alert('clicked')}>
+                    <ButtonPrimitive menuItem className="shrink-0">
+                        <IconPlusSmall className="text-tertiary" />
+                        Static: Add item
+                    </ButtonPrimitive>
+                </Combobox.Item>
+            </Combobox.Content>
+        </Combobox>
+    )
+}
+
 export function Default(): JSX.Element {
     return (
         <div className="flex gap-4">
-            <Combobox>
-                <Combobox.Search placeholder="Search this list..." autoFocus />
-
-                {/* For styling the list items */}
-                <Combobox.Content className="max-w-[300px] max-h-none">
-                    <Combobox.Empty>No searchable groups match</Combobox.Empty>
-
-                    {/* responsible for filtering the list items */}
-                    {/* can pass in an array of values to filter by */}
-                    <Combobox.Group value={['Pineapple', 'belongs on pizza']}>
-                        {/* what we actually get as focus */}
-                        {/* eslint-disable-next-line no-console */}
-                        <Combobox.Item asChild onClick={() => console.log('clicked Pineapple')}>
-                            <ButtonPrimitive menuItem>Searchable: Pineapple</ButtonPrimitive>
-                        </Combobox.Item>
-                    </Combobox.Group>
-
-                    {/* Groups with no value are "static" and don't affect Empty state */}
-                    <Combobox.Group>
-                        <div className="-mx-1 my-1 h-px bg-border-primary shrink-0" />
-                    </Combobox.Group>
-
-                    <Combobox.Group value={['Banana']}>
-                        {/* eslint-disable-next-line no-console */}
-                        <Combobox.Item asChild onClick={() => console.log('clicked Banana')}>
-                            <ButtonPrimitive menuItem>Searchable: Banana</ButtonPrimitive>
-                        </Combobox.Item>
-                    </Combobox.Group>
-                    <div className="-mx-1 my-1 h-px bg-border-primary shrink-0" />
-
-                    <Combobox.Group value={['projectName']}>
-                        <ButtonGroupPrimitive fullWidth className="[&>span]:contents">
-                            <Combobox.Item asChild>
-                                <ButtonPrimitive menuItem hasSideActionRight className="pr-12" disabled>
-                                    <span className="truncate">Disabled main button</span>
-                                </ButtonPrimitive>
-                            </Combobox.Item>
-                            <Combobox.Item asChild>
-                                <Link
-                                    buttonProps={{
-                                        iconOnly: true,
-                                        isSideActionRight: true,
-                                    }}
-                                    tooltip="Visit posthog's website"
-                                    tooltipPlacement="right"
-                                    to="https://posthog.com"
-                                >
-                                    <IconGear className="text-tertiary" />
-                                </Link>
-                            </Combobox.Item>
-                        </ButtonGroupPrimitive>
-                    </Combobox.Group>
-
-                    <Combobox.Item asChild onClick={() => alert('clicked')}>
-                        <ButtonPrimitive menuItem className="shrink-0">
-                            <IconPlusSmall className="text-tertiary" />
-                            Static: Add item
-                        </ButtonPrimitive>
-                    </Combobox.Item>
-                </Combobox.Content>
-            </Combobox>
+            <RenderCombobox />
 
             <div className="max-w-[500px]">
                 <p className="font-semibold">This is a combo box</p>
@@ -126,67 +132,7 @@ export function InPopover(): JSX.Element {
                     </ButtonPrimitive>
                 </PopoverPrimitiveTrigger>
                 <PopoverPrimitiveContent align="start">
-                    <Combobox>
-                        <Combobox.Search placeholder="Search this list..." autoFocus />
-
-                        {/* For styling the list items */}
-                        <Combobox.Content className="max-w-[300px] max-h-none">
-                            <Combobox.Empty>No searchable groups match</Combobox.Empty>
-
-                            {/* responsible for filtering the list items */}
-                            {/* can pass in an array of values to filter by */}
-                            <Combobox.Group value={['Pineapple', 'belongs on pizza']}>
-                                {/* what we actually get as focus */}
-                                {/* eslint-disable-next-line no-console */}
-                                <Combobox.Item asChild onClick={() => console.log('clicked Pineapple')}>
-                                    <ButtonPrimitive menuItem>Searchable: Pineapple</ButtonPrimitive>
-                                </Combobox.Item>
-                            </Combobox.Group>
-
-                            {/* Groups with no value are "static" and don't affect Empty state */}
-                            <Combobox.Group>
-                                <div className="-mx-1 my-1 h-px bg-border-primary shrink-0" />
-                            </Combobox.Group>
-
-                            <Combobox.Group value={['Banana']}>
-                                {/* eslint-disable-next-line no-console */}
-                                <Combobox.Item asChild onClick={() => console.log('clicked Banana')}>
-                                    <ButtonPrimitive menuItem>Searchable: Banana</ButtonPrimitive>
-                                </Combobox.Item>
-                            </Combobox.Group>
-                            <div className="-mx-1 my-1 h-px bg-border-primary shrink-0" />
-
-                            <Combobox.Group value={['projectName']}>
-                                <ButtonGroupPrimitive fullWidth className="[&>span]:contents">
-                                    <Combobox.Item asChild>
-                                        <ButtonPrimitive menuItem hasSideActionRight className="pr-12" disabled>
-                                            <span className="truncate">Disabled main button</span>
-                                        </ButtonPrimitive>
-                                    </Combobox.Item>
-                                    <Combobox.Item asChild>
-                                        <Link
-                                            buttonProps={{
-                                                iconOnly: true,
-                                                isSideActionRight: true,
-                                            }}
-                                            tooltip="Visit posthog's website"
-                                            tooltipPlacement="right"
-                                            to="https://posthog.com"
-                                        >
-                                            <IconGear className="text-tertiary" />
-                                        </Link>
-                                    </Combobox.Item>
-                                </ButtonGroupPrimitive>
-                            </Combobox.Group>
-
-                            <Combobox.Item asChild onClick={() => alert('clicked')}>
-                                <ButtonPrimitive menuItem className="shrink-0">
-                                    <IconPlusSmall className="text-tertiary" />
-                                    Static: Add item
-                                </ButtonPrimitive>
-                            </Combobox.Item>
-                        </Combobox.Content>
-                    </Combobox>
+                    <RenderCombobox />
                 </PopoverPrimitiveContent>
             </PopoverPrimitive>
         </div>
