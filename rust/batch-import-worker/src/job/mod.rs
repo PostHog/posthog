@@ -150,13 +150,30 @@ impl Job {
                 // If we fail to fetch and parse, we need to pause the job (assuming manual intervention is required) and
                 // return an Ok(None) - this pod can continue to process other jobs, it just can't work on this one
                 error!("Failed to fetch and parse chunk: {:?}", e);
-                self.model
-                    .lock()
-                    .await
+                
+                let current_date_range = {
+                    let state = self.state.lock().await;
+                    state.parts.iter()
+                        .find(|p| !p.is_done())
+                        .and_then(|p| self.source.get_date_range_for_key(&p.key))
+                };
+                
+                let mut model = self.model.lock().await;
+                let error_message = if let Some(date_range) = &current_date_range {
+                    format!("Failed to fetch and parse chunk for date range {}: {:?}", date_range, e)
+                } else {
+                    format!("Failed to fetch and parse chunk: {:?}", e)
+                };
+                let display_message = if let Some(date_range) = &current_date_range {
+                    format!("{} (Date range: {})", user_facing_error_message, date_range)
+                } else {
+                    user_facing_error_message.to_string()
+                };
+                model
                     .pause(
                         self.context.clone(),
-                        format!("Failed to fetch and parse chunk: {:?}", e),
-                        Some(user_facing_error_message.to_string()),
+                        error_message,
+                        Some(display_message),
                     )
                     .await?;
                 return Ok(None);
@@ -362,5 +379,124 @@ impl Job {
         } else {
             Ok(())
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+    use async_trait::async_trait;
+
+    struct MockDataSource {
+        keys: Vec<String>,
+        date_ranges: HashMap<String, String>,
+    }
+
+    impl MockDataSource {
+        fn new() -> Self {
+            let mut date_ranges = HashMap::new();
+            date_ranges.insert(
+                "2023-01-01T00:00:00+00:00_2023-01-01T01:00:00+00:00".to_string(),
+                "2023-01-01 00:00 UTC to 2023-01-01 01:00 UTC".to_string(),
+            );
+            date_ranges.insert(
+                "2023-01-01T01:00:00+00:00_2023-01-01T02:00:00+00:00".to_string(),
+                "2023-01-01 01:00 UTC to 2023-01-01 02:00 UTC".to_string(),
+            );
+
+            Self {
+                keys: vec![
+                    "2023-01-01T00:00:00+00:00_2023-01-01T01:00:00+00:00".to_string(),
+                    "2023-01-01T01:00:00+00:00_2023-01-01T02:00:00+00:00".to_string(),
+                ],
+                date_ranges,
+            }
+        }
+    }
+
+    #[async_trait]
+    impl DataSource for MockDataSource {
+        async fn keys(&self) -> Result<Vec<String>, Error> {
+            Ok(self.keys.clone())
+        }
+
+        async fn size(&self, _key: &str) -> Result<Option<u64>, Error> {
+            Ok(Some(100))
+        }
+
+        async fn get_chunk(&self, _key: &str, _offset: u64, _size: u64) -> Result<Vec<u8>, Error> {
+            Err(Error::msg("Mock error for testing"))
+        }
+
+        fn get_date_range_for_key(&self, key: &str) -> Option<String> {
+            self.date_ranges.get(key).cloned()
+        }
+    }
+
+    struct MockDataSourceWithoutDateRange {
+        keys: Vec<String>,
+    }
+
+    impl MockDataSourceWithoutDateRange {
+        fn new() -> Self {
+            Self {
+                keys: vec!["some-key".to_string()],
+            }
+        }
+    }
+
+    #[async_trait]
+    impl DataSource for MockDataSourceWithoutDateRange {
+        async fn keys(&self) -> Result<Vec<String>, Error> {
+            Ok(self.keys.clone())
+        }
+
+        async fn size(&self, _key: &str) -> Result<Option<u64>, Error> {
+            Ok(Some(100))
+        }
+
+        async fn get_chunk(&self, _key: &str, _offset: u64, _size: u64) -> Result<Vec<u8>, Error> {
+            Err(Error::msg("Mock error for testing"))
+        }
+    }
+
+    #[test]
+    fn test_error_message_includes_date_range_when_available() {
+        let mock_source = MockDataSource::new();
+        let key = "2023-01-01T00:00:00+00:00_2023-01-01T01:00:00+00:00";
+        
+        let date_range = mock_source.get_date_range_for_key(key);
+        assert_eq!(date_range, Some("2023-01-01 00:00 UTC to 2023-01-01 01:00 UTC".to_string()));
+
+        let error_message = format!("Failed to fetch and parse chunk for date range {}: Mock error", date_range.unwrap());
+        assert_eq!(
+            error_message,
+            "Failed to fetch and parse chunk for date range 2023-01-01 00:00 UTC to 2023-01-01 01:00 UTC: Mock error"
+        );
+    }
+
+    #[test]
+    fn test_error_message_without_date_range() {
+        let mock_source = MockDataSourceWithoutDateRange::new();
+        let key = "some-key";
+        
+        let date_range = mock_source.get_date_range_for_key(key);
+        assert!(date_range.is_none());
+
+        let error_message = "Failed to fetch and parse chunk: Mock error";
+        assert_eq!(error_message, "Failed to fetch and parse chunk: Mock error");
+    }
+
+    #[test]
+    fn test_display_message_includes_date_range() {
+        let user_message = "Connection failed";
+        let date_range = "2023-01-01 00:00 UTC to 2023-01-01 01:00 UTC";
+        
+        let display_message = format!("{} (Date range: {})", user_message, date_range);
+        assert_eq!(
+            display_message,
+            "Connection failed (Date range: 2023-01-01 00:00 UTC to 2023-01-01 01:00 UTC)"
+        );
     }
 }

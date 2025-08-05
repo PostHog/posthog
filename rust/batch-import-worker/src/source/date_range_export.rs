@@ -222,6 +222,15 @@ impl DateRangeExportSource {
         Some((start, end))
     }
 
+    pub fn format_date_range_from_key(&self, key: &str) -> Option<String> {
+        let (start, end) = self.interval_from_key(key)?;
+        Some(format!(
+            "{} to {}",
+            start.format("%Y-%m-%d %H:%M UTC"),
+            end.format("%Y-%m-%d %H:%M UTC")
+        ))
+    }
+
     async fn get_temp_dir_path(&self) -> Result<PathBuf, Error> {
         let temp_dir_guard = self.temp_dir.lock().await;
         Ok(temp_dir_guard
@@ -615,6 +624,10 @@ impl DataSource for DateRangeExportSource {
             }
         }
         Ok(())
+    }
+
+    fn get_date_range_for_key(&self, key: &str) -> Option<String> {
+        self.format_date_range_from_key(key)
     }
 }
 
@@ -1030,6 +1043,69 @@ mod tests {
         assert!(source.size(key).await.unwrap().is_none());
 
         source.cleanup_after_job().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_format_date_range_from_key() {
+        let server = MockServer::start();
+        let source = create_test_source(server.url("/export"), 3600);
+
+        let key = "2023-01-01T00:00:00+00:00_2023-01-01T01:00:00+00:00";
+        let formatted = source.format_date_range_from_key(key).unwrap();
+        
+        assert_eq!(formatted, "2023-01-01 00:00 UTC to 2023-01-01 01:00 UTC");
+    }
+
+    #[tokio::test]
+    async fn test_format_date_range_from_key_different_dates() {
+        let server = MockServer::start();
+        let source = create_test_source(server.url("/export"), 3600);
+
+        let key = "2023-12-31T23:30:00+00:00_2024-01-01T00:30:00+00:00";
+        let formatted = source.format_date_range_from_key(key).unwrap();
+        
+        assert_eq!(formatted, "2023-12-31 23:30 UTC to 2024-01-01 00:30 UTC");
+    }
+
+    #[tokio::test]
+    async fn test_format_date_range_from_invalid_key() {
+        let server = MockServer::start();
+        let source = create_test_source(server.url("/export"), 3600);
+
+        let key = "invalid-key-format";
+        let formatted = source.format_date_range_from_key(key);
+        
+        assert!(formatted.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_get_date_range_for_key_trait_method() {
+        let server = MockServer::start();
+        let source = create_test_source(server.url("/export"), 3600);
+
+        let key = "2023-06-15T12:00:00+00:00_2023-06-15T13:00:00+00:00";
+        let date_range = source.get_date_range_for_key(key).unwrap();
+        
+        assert_eq!(date_range, "2023-06-15 12:00 UTC to 2023-06-15 13:00 UTC");
+    }
+
+    #[tokio::test]
+    async fn test_format_date_range_edge_cases() {
+        let server = MockServer::start();
+        let source = create_test_source(server.url("/export"), 3600);
+
+        let key_with_ms = "2023-01-01T00:00:00.123+00:00_2023-01-01T01:30:45.456+00:00";
+        let formatted = source.format_date_range_from_key(key_with_ms).unwrap();
+        assert_eq!(formatted, "2023-01-01 00:00 UTC to 2023-01-01 01:30 UTC");
+
+        let invalid_key = "2023-01-01T00:00:00+00:00";
+        assert!(source.format_date_range_from_key(invalid_key).is_none());
+
+        let invalid_key2 = "2023-01-01T00:00:00+00:00_2023-01-01T01:00:00+00:00_extra";
+        assert!(source.format_date_range_from_key(invalid_key2).is_none());
+
+        let invalid_date_key = "invalid-date_2023-01-01T01:00:00+00:00";
+        assert!(source.format_date_range_from_key(invalid_date_key).is_none());
     }
 
     #[tokio::test]
