@@ -302,7 +302,7 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
                                 <>
                                     <SlashCommandsPopover
                                         mode="add"
-                                        getPos={() => getPos() + 1}
+                                        getPos={() => (getPos() ?? 0) + 1}
                                         visible={slashCommandsPopoverVisible}
                                         onClose={() => setSlashCommandsPopoverVisible(false)}
                                     >
