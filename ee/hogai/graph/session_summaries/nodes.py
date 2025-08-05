@@ -196,20 +196,24 @@ class SessionSummarizationNode(AssistantNode):
                 return self._create_error_response(self._base_error_instructions, state.root_tool_call_id)
             # Query the filters to get session ids
             session_ids = await database_sync_to_async(self._get_session_ids_with_filters)(replay_filters)
-            # TODO: Remove after testing
-            # Limit to 5 to test fast summarization
-            session_ids = session_ids[:5] if session_ids else []
             if not session_ids:
-                self._log_failure(
-                    f"No session ids found for the provided filters: {replay_filters}", conversation_id, start_time
+                return PartialAssistantState(
+                    messages=[
+                        AssistantToolCallMessage(
+                            content="No sessions were found.",
+                            tool_call_id=state.root_tool_call_id or "unknown",
+                            id=str(uuid4()),
+                        ),
+                    ],
+                    session_summarization_query=None,
+                    root_tool_call_id=None,
                 )
-                return self._create_error_response(self._base_error_instructions, state.root_tool_call_id)
             # Process sessions based on count
             base_message = f"Found sessions ({len(session_ids)})"
             if len(session_ids) <= GROUP_SUMMARIES_MIN_SESSIONS:
                 # If small amount of sessions - there are no patterns to extract, so summarize them individually and return as is
                 self._stream_progress(
-                    progress_message=f"{base_message}. We will do a quick summary, as the scope is small.",
+                    progress_message=f"{base_message}. We will do a quick summary, as the scope is small",
                     writer=writer,
                 )
                 summaries_content = await self._summarize_sessions_individually(session_ids=session_ids, writer=writer)
@@ -217,7 +221,7 @@ class SessionSummarizationNode(AssistantNode):
                 # For large groups, process in detail, searching for patterns
                 # TODO: Allow users to define the pattern themselves
                 self._stream_progress(
-                    progress_message=f"{base_message}. We will analyze in detail, and store the report in a notebook.",
+                    progress_message=f"{base_message}. We will analyze in detail, and store the report in a notebook",
                     writer=writer,
                 )
                 summaries_content = await self._summarize_sessions_as_group(session_ids=session_ids)
