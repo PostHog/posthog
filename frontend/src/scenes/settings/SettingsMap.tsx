@@ -426,7 +426,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'error-tracking-integrations',
                 title: 'Integrations',
                 component: <ErrorTrackingIntegrations />,
-                flag: 'ERROR_TRACKING_INTEGRATIONS',
             },
             {
                 id: 'error-tracking-symbol-sets',
@@ -490,7 +489,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'integration-error-tracking',
                 title: 'Error tracking integrations',
                 component: <ErrorTrackingIntegrations />,
-                flag: 'ERROR_TRACKING_INTEGRATIONS',
             },
             {
                 id: 'integration-other',

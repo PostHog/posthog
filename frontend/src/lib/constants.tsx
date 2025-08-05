@@ -233,7 +233,6 @@ export const FEATURE_FLAGS = {
     SETTINGS_SESSIONS_V2_JOIN: 'settings-sessions-v2-join', // owner: @robbie-c #team-web-analytics
     SAVE_INSIGHT_TASK: 'save-insight-task', // owner: @joshsny #team-growth
     DASHBOARD_COLORS: 'dashboard-colors', // owner: @thmsobrmlr #team-product-analytics
-    ERROR_TRACKING_INTEGRATIONS: 'error-tracking-integrations', // owner: @david #team-error-tracking
     ERROR_TRACKING_ALERT_ROUTING: 'error-tracking-alert-routing', // owner: #team-error-tracking
     ERROR_TRACKING_SCENE_TOOL: 'error-tracking-scene-max-tool', // owner: @olly #team-error-tracking
     ERROR_TRACKING_ISSUE_CORRELATION: 'error-tracking-issue-correlation', // owner: @david #team-error-tracking
