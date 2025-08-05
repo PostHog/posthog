@@ -59,32 +59,33 @@ export function Info(): JSX.Element {
         primaryMetricsResults?.[0]?.last_refresh ||
         secondaryMetricsResults?.[0]?.last_refresh
 
+    const status = getExperimentStatus(experiment)
+
     return (
         <div>
             <div className="flex flex-wrap justify-between gap-4">
                 <div className="inline-flex deprecated-space-x-8">
                     <div className="block" data-attr="experiment-status">
                         <div className="text-xs font-semibold uppercase tracking-wide">Status</div>
-                        <StatusTag experiment={experiment} />
+                        <StatusTag status={status} />
                     </div>
                     {experiment.feature_flag && (
                         <div className="block">
                             <div className="text-xs font-semibold uppercase tracking-wide">
                                 <span>Feature flag</span>
                             </div>
-                            {getExperimentStatus(experiment) === ProgressStatus.Running &&
-                                !experiment.feature_flag.active && (
-                                    <Tooltip
-                                        placement="bottom"
-                                        title="Your experiment is running, but the linked flag is disabled. No data is being collected."
-                                    >
-                                        <IconWarning
-                                            style={{ transform: 'translateY(2px)' }}
-                                            className="mr-1 text-danger"
-                                            fontSize="18px"
-                                        />
-                                    </Tooltip>
-                                )}
+                            {status === ProgressStatus.Running && !experiment.feature_flag.active && (
+                                <Tooltip
+                                    placement="bottom"
+                                    title="Your experiment is running, but the linked flag is disabled. No data is being collected."
+                                >
+                                    <IconWarning
+                                        style={{ transform: 'translateY(2px)' }}
+                                        className="mr-1 text-danger"
+                                        fontSize="18px"
+                                    />
+                                </Tooltip>
+                            )}
                             <CopyToClipboardInline
                                 iconStyle={{ color: 'var(--lemon-button-icon-opacity)' }}
                                 className="font-normal text-sm"
@@ -139,16 +140,16 @@ export function Info(): JSX.Element {
                                                 ? dayjs().diff(dayjs(lastRefresh), 'hours') > 12
                                                     ? 'text-danger'
                                                     : dayjs().diff(dayjs(lastRefresh), 'hours') > 6
-                                                    ? 'text-warning'
-                                                    : ''
+                                                      ? 'text-warning'
+                                                      : ''
                                                 : ''
                                         }`}
                                     >
                                         {primaryMetricsResultsLoading || secondaryMetricsResultsLoading
                                             ? 'Loading…'
                                             : lastRefresh
-                                            ? dayjs(lastRefresh).fromNow()
-                                            : 'a while ago'}
+                                              ? dayjs(lastRefresh).fromNow()
+                                              : 'a while ago'}
                                     </span>
                                     <LemonButton
                                         type="secondary"
@@ -214,7 +215,7 @@ export function Info(): JSX.Element {
                                 className="w-full"
                                 value={tempDescription}
                                 onChange={(value) => setTempDescription(value)}
-                                placeholder="Add your hypothesis for this test (optional)"
+                                placeholder="Add your hypothesis for this test"
                                 minRows={6}
                                 maxLength={400}
                             />

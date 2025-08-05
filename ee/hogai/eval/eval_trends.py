@@ -18,8 +18,395 @@ from .conftest import MaxEval
 from .scorers import PlanAndQueryOutput, PlanCorrectness, QueryAndPlanAlignment, QueryKindSelection, TimeRangeRelevancy
 
 
+TRENDS_CASES = [
+    EvalCase(
+        input="Show the $pageview trend",
+        expected=PlanAndQueryOutput(
+            plan="""
+Events:
+- $pageview
+    - math operation: total count
+""",
+            query=AssistantTrendsQuery(
+                dateRange={"date_from": "-30d", "date_to": None},
+                filterTestAccounts=True,
+                interval="day",
+                trendsFilter=AssistantTrendsFilter(
+                    display="ActionsLineGraph",
+                    showLegend=True,
+                ),
+                series=[
+                    AssistantTrendsEventsNode(
+                        event="$pageview",
+                        math="total",
+                        properties=None,
+                    )
+                ],
+            ),
+        ),
+    ),
+    EvalCase(
+        input="What is our MAU?",
+        expected=PlanAndQueryOutput(
+            plan="""
+Events:
+- All events
+    - math operation: unique users
+
+Time period: last 30 days
+No interval
+""",
+            query=AssistantTrendsQuery(
+                dateRange={"date_from": "-30d", "date_to": None},
+                filterTestAccounts=True,
+                trendsFilter=AssistantTrendsFilter(
+                    display="BoldNumber",
+                    showLegend=True,
+                ),
+                series=[
+                    AssistantTrendsEventsNode(
+                        event=None,
+                        math="dau",  # "dau" name is a legacy misnomer, it actually just means "unique users"
+                        properties=None,
+                    )
+                ],
+            ),
+        ),
+    ),
+    EvalCase(
+        input="can you compare how many Chrome vs Safari users uploaded a file in the last 30d?",
+        expected=PlanAndQueryOutput(
+            plan="""
+Events:
+- uploaded_file
+    - math operation: unique users
+    - property filter 1:
+        - entity: event
+        - property name: $browser
+        - property type: String
+        - operator: equals
+        - property value: Chrome
+- uploaded_file
+    - math operation: unique users
+    - property filter 1:
+        - entity: event
+        - property name: $browser
+        - property type: String
+        - operator: equals
+        - property value: Safari
+""",
+            query=AssistantTrendsQuery(
+                dateRange={"date_from": "-30d", "date_to": None},
+                filterTestAccounts=True,
+                interval="day",
+                trendsFilter=AssistantTrendsFilter(
+                    display="ActionsLineGraph",
+                    showLegend=True,
+                ),
+                breakdownFilter=AssistantTrendsBreakdownFilter(
+                    breakdowns=[
+                        AssistantGenericMultipleBreakdownFilter(
+                            property="$browser",
+                            type=AssistantEventMultipleBreakdownFilterType.EVENT,
+                        )
+                    ]
+                ),
+                series=[
+                    AssistantTrendsEventsNode(
+                        event="uploaded_file",
+                        math="total",
+                        properties=[
+                            {
+                                "key": "$browser",
+                                "value": ["Chrome", "Safari"],
+                                "operator": "exact",
+                                "type": "event",
+                            },
+                        ],
+                    )
+                ],
+            ),
+        ),
+    ),
+    EvalCase(
+        input="i want to see a ratio of identify divided by page views",
+        expected=PlanAndQueryOutput(
+            plan="""
+Events:
+- $identify
+    - math operation: total count
+- $pageview
+    - math operation: total count
+
+Formula:
+`A/B`, where `A` is the total count of `$identify` and `B` is the total count of `$pageview`
+""",
+            query=AssistantTrendsQuery(
+                dateRange={"date_from": "-30d", "date_to": None},
+                filterTestAccounts=True,
+                interval="day",
+                trendsFilter=AssistantTrendsFilter(display="ActionsLineGraph", showLegend=True, formulas=["A/B"]),
+                series=[
+                    AssistantTrendsEventsNode(
+                        event="$identify",
+                        math="total",
+                        properties=None,
+                    ),
+                    AssistantTrendsEventsNode(
+                        event="$pageview",
+                        math="total",
+                        properties=None,
+                    ),
+                ],
+            ),
+        ),
+    ),
+    EvalCase(
+        input="what is our average session duration?",
+        expected=PlanAndQueryOutput(
+            plan="""
+Events:
+- All Events
+    - math operation: average by `$session_duration`
+""",
+            query=AssistantTrendsQuery(
+                dateRange={"date_from": "-30d", "date_to": None},
+                filterTestAccounts=True,
+                interval="day",
+                trendsFilter=AssistantTrendsFilter(
+                    display="ActionsLineGraph",
+                    showLegend=True,
+                ),
+                series=[
+                    AssistantTrendsEventsNode(
+                        event="$all_events",
+                        math="avg",
+                        math_property="$session_duration",
+                        properties=None,
+                    )
+                ],
+            ),
+        ),
+    ),
+    EvalCase(
+        input="how many $pageviews with unique sessions did we have?",
+        expected=PlanAndQueryOutput(
+            plan="""
+Events:
+- $pageview
+    - math operation: unique sessions
+
+Time period: last month
+Time interval: day
+""",
+            query=AssistantTrendsQuery(
+                dateRange={"date_from": "-30d", "date_to": None},
+                filterTestAccounts=True,
+                interval="day",
+                trendsFilter=AssistantTrendsFilter(
+                    display="ActionsLineGraph",
+                    showLegend=True,
+                ),
+                series=[
+                    AssistantTrendsEventsNode(
+                        event="$pageview",
+                        math="unique_session",
+                        properties=None,
+                    )
+                ],
+            ),
+        ),
+    ),
+    EvalCase(
+        input="How often do users view the website in this January?",
+        expected=PlanAndQueryOutput(
+            plan="""
+Events:
+- $pageview
+    - math operation: total count
+
+Time period: this January
+Time interval: day
+""",
+            query=AssistantTrendsQuery(
+                dateRange={
+                    "date_from": f"{datetime.now().year}-01-01",
+                    "date_to": f"{datetime.now().year}-01-31",
+                },
+                filterTestAccounts=True,
+                interval="day",
+                trendsFilter=AssistantTrendsFilter(
+                    display="ActionsLineGraph",
+                    showLegend=True,
+                ),
+                series=[
+                    AssistantTrendsEventsNode(
+                        event="$pageview",
+                        math="total",
+                        properties=None,
+                    )
+                ],
+            ),
+        ),
+    ),
+    EvalCase(
+        input="How many paid bill events have occurred with amount more than 20 usd in this January?",
+        expected=PlanAndQueryOutput(
+            plan="""
+Events:
+- paid_bill
+    - math operation: total count
+    - property filter 1:
+        - entity: event
+        - property name: amount_usd
+        - property type: Numeric
+        - operator: greater than
+        - property value: 20
+
+Time period: this January
+Time interval: day
+""",
+            query=AssistantTrendsQuery(
+                dateRange={
+                    "date_from": f"{datetime.now().year}-01-01",
+                    "date_to": f"{datetime.now().year}-01-31",
+                },
+                filterTestAccounts=True,
+                interval="day",
+                trendsFilter=AssistantTrendsFilter(
+                    display="ActionsLineGraph",
+                    showLegend=True,
+                ),
+                series=[
+                    AssistantTrendsEventsNode(
+                        event="paid_bill",
+                        math="total",
+                        properties=[
+                            {
+                                "key": "amount_usd",
+                                "value": 20,
+                                "operator": "gt",
+                                "type": "event",
+                            },
+                        ],
+                    )
+                ],
+            ),
+        ),
+    ),
+    EvalCase(
+        input="on hedgebox.net, what is the % of mac os x users",
+        expected=PlanAndQueryOutput(
+            plan="""
+Events:
+- All events
+    - math operation: unique users
+    - property filter 1:
+        - entity: event
+        - property name: $host
+        - property type: String
+        - operator: equals
+        - property value: hedgebox.net
+- All events
+    - math operation: unique users
+    - property filter 1:
+        - entity: event
+        - property name: $host
+        - property type: String
+        - operator: equals
+        - property value: hedgebox.net
+    - property filter 2:
+        - entity: event
+        - property name: $os
+        - property type: String
+        - operator: equals
+        - property value: Mac OS X
+
+Formula:
+`B/A * 100`, where `A` is total unique users on hedgebox.net and `B` is unique users on hedgebox.net with Mac OS X
+""",
+            query=AssistantTrendsQuery(
+                dateRange={"date_from": "-30d", "date_to": None},
+                filterTestAccounts=True,
+                interval="day",
+                trendsFilter=AssistantTrendsFilter(display="BoldNumber", showLegend=True, formulas=["B/A * 100"]),
+                series=[
+                    AssistantTrendsEventsNode(
+                        event=None,
+                        math="dau",
+                        properties=[
+                            {
+                                "key": "$host",
+                                "value": "hedgebox.net",
+                                "operator": "icontains",
+                                "type": "event",
+                            },
+                        ],
+                    ),
+                    AssistantTrendsEventsNode(
+                        event=None,
+                        math="dau",
+                        properties=[
+                            {
+                                "key": "$host",
+                                "value": "hedgebox.net",
+                                "operator": "icontains",
+                                "type": "event",
+                            },
+                            {
+                                "key": "$os",
+                                "value": "Mac OS X",
+                                "operator": "exact",
+                                "type": "event",
+                            },
+                        ],
+                    ),
+                ],
+            ),
+        ),
+    ),
+    # Specific, uppercase event to use, which doesn't exist in the actual data (but the user quotes it specifically anyway)
+    EvalCase(
+        input="How many 'Onboarding Completed' events have we had in January 2025?",
+        expected=PlanAndQueryOutput(
+            plan="""
+Logic:
+- Scan the events table for records where the event name exactly equals “Onboarding Completed”.
+- Restrict to those with timestamp ≥ 2025-01-01 00:00:00 and ≤ 2025-01-31 23:59:59.
+- Aggregate by counting the total number of matching rows.
+
+Sources:
+- events
+    - filter: event = “Onboarding Completed”
+    - filter: timestamp between “2025-01-01” and “2025-01-31”
+    - aggregation: COUNT(*)
+
+Query kind:
+- Trends
+    - single series (EventsNode) with math = total
+    - dateRange: { date_from: “2025-01-01”, date_to: “2025-01-31” }
+    - display: ActionsLineGraph (to have the requested number for the month, but also see any trends)
+""",
+            query=AssistantTrendsQuery(
+                dateRange={"date_from": "2025-01-01", "date_to": "2025-01-31"},
+                filterTestAccounts=True,
+                interval="day",
+                trendsFilter=AssistantTrendsFilter(display="ActionsLineGraph"),
+                series=[
+                    AssistantTrendsEventsNode(
+                        event="Onboarding Completed",
+                        math="total",
+                        properties=None,
+                    )
+                ],
+            ),
+        ),
+    ),
+]
+
+
 @pytest.mark.django_db
-async def eval_trends(call_root_for_insight_generation):
+async def eval_trends(call_root_for_insight_generation, pytestconfig):
     await MaxEval(
         experiment_name="trends",
         task=call_root_for_insight_generation,
@@ -71,356 +458,6 @@ async def eval_trends(call_root_for_insight_generation):
             ),
             TimeRangeRelevancy(query_kind=NodeKind.TRENDS_QUERY),
         ],
-        data=[
-            EvalCase(
-                input="Show the $pageview trend",
-                expected=PlanAndQueryOutput(
-                    plan="""
-Events:
-- $pageview
-    - math operation: total count
-""",
-                    query=AssistantTrendsQuery(
-                        dateRange={"date_from": "-30d", "date_to": None},
-                        filterTestAccounts=True,
-                        interval="day",
-                        trendsFilter=AssistantTrendsFilter(
-                            display="ActionsLineGraph",
-                            showLegend=True,
-                        ),
-                        series=[
-                            AssistantTrendsEventsNode(
-                                event="$pageview",
-                                math="total",
-                                properties=None,
-                            )
-                        ],
-                    ),
-                ),
-            ),
-            EvalCase(
-                input="What is our MAU?",
-                expected=PlanAndQueryOutput(
-                    plan="""
-Events:
-- All events
-    - math operation: unique users
-
-Time period: last 30 days
-No interval
-""",
-                    query=AssistantTrendsQuery(
-                        dateRange={"date_from": "-30d", "date_to": None},
-                        filterTestAccounts=True,
-                        trendsFilter=AssistantTrendsFilter(
-                            display="BoldNumber",
-                            showLegend=True,
-                        ),
-                        series=[
-                            AssistantTrendsEventsNode(
-                                event=None,
-                                math="dau",  # "dau" name is a legacy misnomer, it actually just means "unique users"
-                                properties=None,
-                            )
-                        ],
-                    ),
-                ),
-            ),
-            EvalCase(
-                input="can you compare how many Chrome vs Safari users uploaded a file in the last 30d?",
-                expected=PlanAndQueryOutput(
-                    plan="""
-Events:
-- uploaded_file
-    - math operation: unique users
-    - property filter 1:
-        - entity: event
-        - property name: $browser
-        - property type: String
-        - operator: equals
-        - property value: Chrome
-- uploaded_file
-    - math operation: unique users
-    - property filter 1:
-        - entity: event
-        - property name: $browser
-        - property type: String
-        - operator: equals
-        - property value: Safari
-""",
-                    query=AssistantTrendsQuery(
-                        dateRange={"date_from": "-30d", "date_to": None},
-                        filterTestAccounts=True,
-                        interval="day",
-                        trendsFilter=AssistantTrendsFilter(
-                            display="ActionsLineGraph",
-                            showLegend=True,
-                        ),
-                        breakdownFilter=AssistantTrendsBreakdownFilter(
-                            breakdowns=[
-                                AssistantGenericMultipleBreakdownFilter(
-                                    property="$browser",
-                                    type=AssistantEventMultipleBreakdownFilterType.EVENT,
-                                )
-                            ]
-                        ),
-                        series=[
-                            AssistantTrendsEventsNode(
-                                event="uploaded_file",
-                                math="total",
-                                properties=[
-                                    {
-                                        "key": "$browser",
-                                        "value": ["Chrome", "Safari"],
-                                        "operator": "exact",
-                                        "type": "event",
-                                    },
-                                ],
-                            )
-                        ],
-                    ),
-                ),
-            ),
-            EvalCase(
-                input="i want to see a ratio of identify divided by page views",
-                expected=PlanAndQueryOutput(
-                    plan="""
-Events:
-- $identify
-    - math operation: total count
-- $pageview
-    - math operation: total count
-
-Formula:
-`A/B`, where `A` is the total count of `$identify` and `B` is the total count of `$pageview`
-""",
-                    query=AssistantTrendsQuery(
-                        dateRange={"date_from": "-30d", "date_to": None},
-                        filterTestAccounts=True,
-                        interval="day",
-                        trendsFilter=AssistantTrendsFilter(
-                            display="ActionsLineGraph", showLegend=True, formulas=["A/B"]
-                        ),
-                        series=[
-                            AssistantTrendsEventsNode(
-                                event="$identify",
-                                math="total",
-                                properties=None,
-                            ),
-                            AssistantTrendsEventsNode(
-                                event="$pageview",
-                                math="total",
-                                properties=None,
-                            ),
-                        ],
-                    ),
-                ),
-            ),
-            EvalCase(
-                input="what is our average session duration?",
-                expected=PlanAndQueryOutput(
-                    plan="""
-Events:
-- All Events
-    - math operation: average by `$session_duration`
-""",
-                    query=AssistantTrendsQuery(
-                        dateRange={"date_from": "-30d", "date_to": None},
-                        filterTestAccounts=True,
-                        interval="day",
-                        trendsFilter=AssistantTrendsFilter(
-                            display="ActionsLineGraph",
-                            showLegend=True,
-                        ),
-                        series=[
-                            AssistantTrendsEventsNode(
-                                event="$all_events",
-                                math="avg",
-                                math_property="$session_duration",
-                                properties=None,
-                            )
-                        ],
-                    ),
-                ),
-            ),
-            EvalCase(
-                input="how many $pageviews with unique sessions did we have?",
-                expected=PlanAndQueryOutput(
-                    plan="""
-Events:
-- $pageview
-    - math operation: unique sessions
-
-Time period: last month
-Time interval: day
-""",
-                    query=AssistantTrendsQuery(
-                        dateRange={"date_from": "-30d", "date_to": None},
-                        filterTestAccounts=True,
-                        interval="day",
-                        trendsFilter=AssistantTrendsFilter(
-                            display="ActionsLineGraph",
-                            showLegend=True,
-                        ),
-                        series=[
-                            AssistantTrendsEventsNode(
-                                event="$pageview",
-                                math="unique_session",
-                                properties=None,
-                            )
-                        ],
-                    ),
-                ),
-            ),
-            EvalCase(
-                input="How often do users view the website in this January?",
-                expected=PlanAndQueryOutput(
-                    plan="""
-Events:
-- $pageview
-    - math operation: total count
-
-Time period: this January
-Time interval: day
-""",
-                    query=AssistantTrendsQuery(
-                        dateRange={
-                            "date_from": f"{datetime.now().year}-01-01",
-                            "date_to": f"{datetime.now().year}-01-31",
-                        },
-                        filterTestAccounts=True,
-                        interval="day",
-                        trendsFilter=AssistantTrendsFilter(
-                            display="ActionsLineGraph",
-                            showLegend=True,
-                        ),
-                        series=[
-                            AssistantTrendsEventsNode(
-                                event="$pageview",
-                                math="total",
-                                properties=None,
-                            )
-                        ],
-                    ),
-                ),
-            ),
-            EvalCase(
-                input="How many paid bill events have occurred with amount more than 20 usd in this January?",
-                expected=PlanAndQueryOutput(
-                    plan="""
-Events:
-- paid_bill
-    - math operation: total count
-    - property filter 1:
-        - entity: event
-        - property name: amount_usd
-        - property type: Numeric
-        - operator: greater than
-        - property value: 20
-
-Time period: this January
-Time interval: day
-""",
-                    query=AssistantTrendsQuery(
-                        dateRange={
-                            "date_from": f"{datetime.now().year}-01-01",
-                            "date_to": f"{datetime.now().year}-01-31",
-                        },
-                        filterTestAccounts=True,
-                        interval="day",
-                        trendsFilter=AssistantTrendsFilter(
-                            display="ActionsLineGraph",
-                            showLegend=True,
-                        ),
-                        series=[
-                            AssistantTrendsEventsNode(
-                                event="paid_bill",
-                                math="total",
-                                properties=[
-                                    {
-                                        "key": "amount_usd",
-                                        "value": 20,
-                                        "operator": "gt",
-                                        "type": "event",
-                                    },
-                                ],
-                            )
-                        ],
-                    ),
-                ),
-            ),
-            EvalCase(
-                input="on hedgebox.net, what is the % of mac os x users",
-                expected=PlanAndQueryOutput(
-                    plan="""
-Events:
-- All events
-    - math operation: unique users
-    - property filter 1:
-        - entity: event
-        - property name: $host
-        - property type: String
-        - operator: equals
-        - property value: hedgebox.net
-- All events
-    - math operation: unique users
-    - property filter 1:
-        - entity: event
-        - property name: $host
-        - property type: String
-        - operator: equals
-        - property value: hedgebox.net
-    - property filter 2:
-        - entity: event
-        - property name: $os
-        - property type: String
-        - operator: equals
-        - property value: Mac OS X
-
-Formula:
-`B/A * 100`, where `A` is total unique users on hedgebox.net and `B` is unique users on hedgebox.net with Mac OS X
-""",
-                    query=AssistantTrendsQuery(
-                        dateRange={"date_from": "-30d", "date_to": None},
-                        filterTestAccounts=True,
-                        interval="day",
-                        trendsFilter=AssistantTrendsFilter(
-                            display="BoldNumber", showLegend=True, formulas=["B/A * 100"]
-                        ),
-                        series=[
-                            AssistantTrendsEventsNode(
-                                event=None,
-                                math="dau",
-                                properties=[
-                                    {
-                                        "key": "$host",
-                                        "value": "hedgebox.net",
-                                        "operator": "icontains",
-                                        "type": "event",
-                                    },
-                                ],
-                            ),
-                            AssistantTrendsEventsNode(
-                                event=None,
-                                math="dau",
-                                properties=[
-                                    {
-                                        "key": "$host",
-                                        "value": "hedgebox.net",
-                                        "operator": "icontains",
-                                        "type": "event",
-                                    },
-                                    {
-                                        "key": "$os",
-                                        "value": "Mac OS X",
-                                        "operator": "exact",
-                                        "type": "event",
-                                    },
-                                ],
-                            ),
-                        ],
-                    ),
-                ),
-            ),
-        ][-1:],
+        data=TRENDS_CASES,
+        pytestconfig=pytestconfig,
     )

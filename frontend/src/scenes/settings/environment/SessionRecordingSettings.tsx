@@ -15,16 +15,15 @@ import { useActions, useValues } from 'kea'
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { EventSelect } from 'lib/components/EventSelect/EventSelect'
-import { InternalMultipleChoiceSurvey } from 'lib/components/InternalSurvey/InternalMultipleChoiceSurvey'
+import { InternalMultipleChoiceSurvey } from 'scenes/session-recordings/components/InternalSurvey/InternalMultipleChoiceSurvey'
 import { PropertySelect } from 'lib/components/PropertySelect/PropertySelect'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { FEATURE_FLAGS, SESSION_RECORDING_OPT_OUT_SURVEY_ID_2 } from 'lib/constants'
+import { SESSION_RECORDING_OPT_OUT_SURVEY_ID } from 'lib/constants'
 import { IconSelectEvents } from 'lib/lemon-ui/icons'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isObject, objectsEqual } from 'lib/utils'
 import { ReactNode, useState } from 'react'
-import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
+
 import { getMaskingConfigFromLevel, getMaskingLevelFromConfig } from 'scenes/session-recordings/utils'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -241,28 +240,6 @@ function PayloadWarning(): JSX.Element {
                 </Link>
             </p>
         </>
-    )
-}
-
-function ZenModeSettings(): JSX.Element | null {
-    const { isZenMode } = useValues(playerSettingsLogic)
-    const { setIsZenMode } = useActions(playerSettingsLogic)
-
-    return (
-        <div>
-            <h3>Cinema mode</h3>
-            <p>
-                This setting controls if cinema mode is enabled. Cinema mode hides all the extra features (e.g.
-                annotations, inspector, etc.) and only shows the bare minimum.
-            </p>
-            <LemonSwitch
-                data-attr="opt-in-cinema-mode-switch"
-                onChange={setIsZenMode}
-                label="Enable cinema mode"
-                bordered
-                checked={isZenMode}
-            />
-        </div>
     )
 }
 
@@ -623,7 +600,6 @@ export function ReplayGeneral(): JSX.Element {
     const { updateCurrentTeam } = useActions(teamLogic)
     const { currentTeam } = useValues(teamLogic)
     const [showSurvey, setShowSurvey] = useState<boolean>(false)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     /**
      * Handle the opt in change
@@ -666,11 +642,10 @@ export function ReplayGeneral(): JSX.Element {
                     bordered
                     checked={!!currentTeam?.session_recording_opt_in}
                 />
-                {showSurvey && <InternalMultipleChoiceSurvey surveyId={SESSION_RECORDING_OPT_OUT_SURVEY_ID_2} />}
+                {showSurvey && <InternalMultipleChoiceSurvey surveyId={SESSION_RECORDING_OPT_OUT_SURVEY_ID} />}
             </div>
             <LogCaptureSettings />
             <CanvasCaptureSettings />
-            {featureFlags[FEATURE_FLAGS.REPLAY_ZEN_MODE] && <ZenModeSettings />}
         </div>
     )
 }

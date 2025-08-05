@@ -9,7 +9,7 @@ export function ErrorTrackingAutoAssignment(): JSX.Element {
         <>
             <p>
                 Automatically assign newly created issues based on properties of the exception event the first time it
-                was seen.
+                was seen. The first rule that matches will be applied.
             </p>
             <ErrorTrackingRules<ErrorTrackingAssignmentRule> ruleType={ErrorTrackingRuleType.Assignment}>
                 {({ rule, editing, disabled }) => {
@@ -23,7 +23,15 @@ export function ErrorTrackingAutoAssignment(): JSX.Element {
                                     <ErrorTrackingRules.Operator rule={rule} editing={editing} />
                                     <div>filters match</div>
                                 </div>
-                                {!disabled && <ErrorTrackingRules.Actions rule={rule} editing={editing} />}
+                                {!disabled && (
+                                    <ErrorTrackingRules.Actions
+                                        rule={rule}
+                                        editing={editing}
+                                        validate={(rule) =>
+                                            rule.assignee ? undefined : 'You must choose an assignee for each rule.'
+                                        }
+                                    />
+                                )}
                             </div>
                             <LemonDivider className="my-0" />
                             <div className="p-2">

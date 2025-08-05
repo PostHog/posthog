@@ -1,13 +1,9 @@
-import json
 from datetime import datetime, timedelta
-from typing import cast
 
 from django.test import override_settings
 from freezegun import freeze_time
 from parameterized import parameterized
-from rest_framework.exceptions import ValidationError
 
-from posthog.constants import ExperimentNoResultsErrorKeys
 from posthog.hogql_queries.experiments.experiment_query_runner import (
     ExperimentQueryRunner,
 )
@@ -29,10 +25,7 @@ from posthog.schema import (
     ExperimentMeanMetric,
     ExperimentMetricMathType,
     ExperimentQuery,
-    ExperimentSignificanceCode,
-    ExperimentVariantTrendsBaseStats,
     FunnelConversionWindowTimeUnit,
-    LegacyExperimentQueryResponse,
     MultipleVariantHandling,
     PropertyOperator,
 )
@@ -139,21 +132,18 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         flush_persons_and_events()
 
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
-        result = cast(LegacyExperimentQueryResponse, query_runner.calculate())
+        result = query_runner.calculate()
+        assert result.variant_results is not None
+        self.assertEqual(len(result.variant_results), 1)
+        control_variant = result.baseline
+        assert control_variant is not None
+        test_variant = result.variant_results[0]
+        assert test_variant is not None
 
-        self.assertEqual(len(result.variants), 2)
-
-        control_variant = cast(
-            ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "control")
-        )
-        test_variant = cast(
-            ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "test")
-        )
-
-        self.assertEqual(control_variant.count, 6)
-        self.assertEqual(test_variant.count, 8)
-        self.assertEqual(control_variant.absolute_exposure, 10)
-        self.assertEqual(test_variant.absolute_exposure, 10)
+        self.assertEqual(control_variant.sum, 6)
+        self.assertEqual(test_variant.sum, 8)
+        self.assertEqual(control_variant.number_of_samples, 10)
+        self.assertEqual(test_variant.number_of_samples, 10)
 
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
@@ -221,21 +211,18 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         flush_persons_and_events()
 
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
-        result = cast(LegacyExperimentQueryResponse, query_runner.calculate())
+        result = query_runner.calculate()
+        assert result.variant_results is not None
+        self.assertEqual(len(result.variant_results), 1)
+        control_variant = result.baseline
+        assert control_variant is not None
+        test_variant = result.variant_results[0]
+        assert test_variant is not None
 
-        self.assertEqual(len(result.variants), 2)
-
-        control_variant = cast(
-            ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "control")
-        )
-        test_variant = cast(
-            ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "test")
-        )
-
-        self.assertEqual(control_variant.count, 6)
-        self.assertEqual(test_variant.count, 8)
-        self.assertEqual(control_variant.absolute_exposure, 11)
-        self.assertEqual(test_variant.absolute_exposure, 11)
+        self.assertEqual(control_variant.sum, 6)
+        self.assertEqual(test_variant.sum, 8)
+        self.assertEqual(control_variant.number_of_samples, 11)
+        self.assertEqual(test_variant.number_of_samples, 11)
 
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
@@ -284,21 +271,18 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         flush_persons_and_events()
 
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
-        result = cast(LegacyExperimentQueryResponse, query_runner.calculate())
+        result = query_runner.calculate()
+        assert result.variant_results is not None
+        self.assertEqual(len(result.variant_results), 1)
+        control_variant = result.baseline
+        assert control_variant is not None
+        test_variant = result.variant_results[0]
+        assert test_variant is not None
 
-        self.assertEqual(len(result.variants), 2)
-
-        control_variant = cast(
-            ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "control")
-        )
-        test_variant = cast(
-            ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "test")
-        )
-
-        self.assertEqual(control_variant.count, 6)
-        self.assertEqual(test_variant.count, 8)
-        self.assertEqual(control_variant.absolute_exposure, 10)
-        self.assertEqual(test_variant.absolute_exposure, 10)
+        self.assertEqual(control_variant.sum, 6)
+        self.assertEqual(test_variant.sum, 8)
+        self.assertEqual(control_variant.number_of_samples, 10)
+        self.assertEqual(test_variant.number_of_samples, 10)
 
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
@@ -326,21 +310,18 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         flush_persons_and_events()
 
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
-        result = cast(LegacyExperimentQueryResponse, query_runner.calculate())
+        result = query_runner.calculate()
+        assert result.variant_results is not None
+        self.assertEqual(len(result.variant_results), 1)
+        control_variant = result.baseline
+        assert control_variant is not None
+        test_variant = result.variant_results[0]
+        assert test_variant is not None
 
-        self.assertEqual(len(result.variants), 2)
-
-        control_variant = cast(
-            ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "control")
-        )
-        test_variant = cast(
-            ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "test")
-        )
-
-        self.assertEqual(control_variant.absolute_exposure, 2)
-        self.assertEqual(test_variant.absolute_exposure, 3)
-        self.assertEqual(control_variant.count, 6)
-        self.assertEqual(test_variant.count, 8)
+        self.assertEqual(control_variant.number_of_samples, 2)
+        self.assertEqual(test_variant.number_of_samples, 3)
+        self.assertEqual(control_variant.sum, 6)
+        self.assertEqual(test_variant.sum, 8)
 
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
@@ -368,21 +349,18 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         flush_persons_and_events()
 
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
-        result = cast(LegacyExperimentQueryResponse, query_runner.calculate())
+        result = query_runner.calculate()
+        assert result.variant_results is not None
+        self.assertEqual(len(result.variant_results), 1)
+        control_variant = result.baseline
+        assert control_variant is not None
+        test_variant = result.variant_results[0]
+        assert test_variant is not None
 
-        self.assertEqual(len(result.variants), 2)
-
-        control_variant = cast(
-            ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "control")
-        )
-        test_variant = cast(
-            ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "test")
-        )
-
-        self.assertEqual(control_variant.absolute_exposure, 2)
-        self.assertEqual(test_variant.absolute_exposure, 3)
-        self.assertEqual(control_variant.count, 60)
-        self.assertEqual(test_variant.count, 120)
+        self.assertEqual(control_variant.number_of_samples, 2)
+        self.assertEqual(test_variant.number_of_samples, 3)
+        self.assertEqual(control_variant.sum, 60)
+        self.assertEqual(test_variant.sum, 120)
 
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
@@ -467,35 +445,18 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         flush_persons_and_events()
 
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
-        result = cast(LegacyExperimentQueryResponse, query_runner.calculate())
+        result = query_runner.calculate()
+        assert result.variant_results is not None
+        self.assertEqual(len(result.variant_results), 1)
+        control_variant = result.baseline
+        assert control_variant is not None
+        test_variant = result.variant_results[0]
+        assert test_variant is not None
 
-        self.assertEqual(len(result.variants), 2)
-        for variant in result.variants:
-            self.assertIn(variant.key, ["control", "test"])
-
-        control_variant = cast(ExperimentVariantTrendsBaseStats, next(v for v in result.variants if v.key == "control"))
-        test_variant = cast(ExperimentVariantTrendsBaseStats, next(v for v in result.variants if v.key == "test"))
-
-        self.assertEqual(control_variant.count, 3)
-        self.assertEqual(test_variant.count, 5)
-        self.assertEqual(control_variant.absolute_exposure, 2)
-        self.assertEqual(test_variant.absolute_exposure, 2)
-
-        self.assertEqual(result.significance_code, ExperimentSignificanceCode.NOT_ENOUGH_EXPOSURE)
-
-        self.assertFalse(result.significant)
-
-        self.assertEqual(len(result.variants), 2)
-
-        self.assertEqual(control_variant.absolute_exposure, 2.0)
-        self.assertEqual(control_variant.count, 3.0)
-        # In the new query runner, the exposure value is the same as the absolute exposure value
-        self.assertEqual(control_variant.exposure, 2.0)
-
-        self.assertEqual(test_variant.absolute_exposure, 2.0)
-        self.assertEqual(test_variant.count, 5.0)
-        # In the new query runner, the exposure value is the same as the absolute exposure value
-        self.assertEqual(test_variant.exposure, 2.0)
+        self.assertEqual(control_variant.sum, 3)
+        self.assertEqual(test_variant.sum, 5)
+        self.assertEqual(control_variant.number_of_samples, 2)
+        self.assertEqual(test_variant.number_of_samples, 2)
 
     @snapshot_clickhouse_queries
     def test_query_runner_with_custom_exposure(self):
@@ -557,21 +518,18 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         )
 
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
-        result = cast(LegacyExperimentQueryResponse, query_runner.calculate())
+        result = query_runner.calculate()
+        assert result.variant_results is not None
+        self.assertEqual(len(result.variant_results), 1)
+        control_variant = result.baseline
+        assert control_variant is not None
+        test_variant = result.variant_results[0]
+        assert test_variant is not None
 
-        self.assertEqual(len(result.variants), 2)
-
-        control_variant = cast(
-            ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "control")
-        )
-        test_variant = cast(
-            ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "test")
-        )
-
-        self.assertEqual(control_variant.count, 6)
-        self.assertEqual(test_variant.count, 8)
-        self.assertEqual(control_variant.absolute_exposure, 10)
-        self.assertEqual(test_variant.absolute_exposure, 10)
+        self.assertEqual(control_variant.sum, 6)
+        self.assertEqual(test_variant.sum, 8)
+        self.assertEqual(control_variant.number_of_samples, 10)
+        self.assertEqual(test_variant.number_of_samples, 10)
 
     @snapshot_clickhouse_queries
     def test_query_runner_with_custom_exposure_without_properties(self):
@@ -631,21 +589,18 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         )
 
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
-        result = cast(LegacyExperimentQueryResponse, query_runner.calculate())
+        result = query_runner.calculate()
+        assert result.variant_results is not None
+        self.assertEqual(len(result.variant_results), 1)
+        control_variant = result.baseline
+        assert control_variant is not None
+        test_variant = result.variant_results[0]
+        assert test_variant is not None
 
-        self.assertEqual(len(result.variants), 2)
-
-        control_variant = cast(
-            ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "control")
-        )
-        test_variant = cast(
-            ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "test")
-        )
-
-        self.assertEqual(control_variant.count, 6)
-        self.assertEqual(test_variant.count, 8)
-        self.assertEqual(control_variant.absolute_exposure, 11)
-        self.assertEqual(test_variant.absolute_exposure, 10)
+        self.assertEqual(control_variant.sum, 6)
+        self.assertEqual(test_variant.sum, 8)
+        self.assertEqual(control_variant.number_of_samples, 11)
+        self.assertEqual(test_variant.number_of_samples, 10)
 
     @snapshot_clickhouse_queries
     def test_query_runner_with_custom_exposure_on_feature_flag_called_event(self):
@@ -716,21 +671,18 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         )
 
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
-        result = cast(LegacyExperimentQueryResponse, query_runner.calculate())
+        result = query_runner.calculate()
+        assert result.variant_results is not None
+        self.assertEqual(len(result.variant_results), 1)
+        control_variant = result.baseline
+        assert control_variant is not None
+        test_variant = result.variant_results[0]
+        assert test_variant is not None
 
-        self.assertEqual(len(result.variants), 2)
-
-        control_variant = cast(
-            ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "control")
-        )
-        test_variant = cast(
-            ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "test")
-        )
-
-        self.assertEqual(control_variant.count, 6)
-        self.assertEqual(test_variant.count, 8)
-        self.assertEqual(control_variant.absolute_exposure, 10)
-        self.assertEqual(test_variant.absolute_exposure, 10)
+        self.assertEqual(control_variant.sum, 6)
+        self.assertEqual(test_variant.sum, 8)
+        self.assertEqual(control_variant.number_of_samples, 10)
+        self.assertEqual(test_variant.number_of_samples, 10)
 
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
@@ -769,21 +721,18 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         flush_persons_and_events()
 
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
-        result = cast(LegacyExperimentQueryResponse, query_runner.calculate())
+        result = query_runner.calculate()
+        assert result.variant_results is not None
+        self.assertEqual(len(result.variant_results), 1)
+        control_variant = result.baseline
+        assert control_variant is not None
+        test_variant = result.variant_results[0]
+        assert test_variant is not None
 
-        self.assertEqual(len(result.variants), 2)
-
-        control_variant = cast(
-            ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "control")
-        )
-        test_variant = cast(
-            ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "test")
-        )
-
-        self.assertEqual(control_variant.count, 6)
-        self.assertEqual(test_variant.count, 8)
-        self.assertEqual(control_variant.absolute_exposure, 11)
-        self.assertEqual(test_variant.absolute_exposure, 10)
+        self.assertEqual(control_variant.sum, 6)
+        self.assertEqual(test_variant.sum, 8)
+        self.assertEqual(control_variant.number_of_samples, 11)
+        self.assertEqual(test_variant.number_of_samples, 10)
 
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
@@ -809,17 +758,10 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         flush_persons_and_events()
 
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
-        with self.assertRaises(ValidationError) as context:
-            cast(LegacyExperimentQueryResponse, query_runner.calculate())
+        with self.assertRaises(ValueError) as context:
+            query_runner.calculate()
 
-        expected_errors = json.dumps(
-            {
-                ExperimentNoResultsErrorKeys.NO_EXPOSURES: True,
-                ExperimentNoResultsErrorKeys.NO_CONTROL_VARIANT: True,
-                ExperimentNoResultsErrorKeys.NO_TEST_VARIANT: True,
-            }
-        )
-        self.assertEqual(cast(list, context.exception.detail)[0], expected_errors)
+        self.assertEqual(str(context.exception), "No control variant found")
 
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
@@ -861,17 +803,10 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         flush_persons_and_events()
 
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
-        with self.assertRaises(ValidationError) as context:
-            cast(LegacyExperimentQueryResponse, query_runner.calculate())
+        with self.assertRaises(ValueError) as context:
+            query_runner.calculate()
 
-        expected_errors = json.dumps(
-            {
-                ExperimentNoResultsErrorKeys.NO_EXPOSURES: True,  # Should be False but the query doesn't support it yet
-                ExperimentNoResultsErrorKeys.NO_CONTROL_VARIANT: True,
-                ExperimentNoResultsErrorKeys.NO_TEST_VARIANT: True,
-            }
-        )
-        self.assertEqual(cast(list, context.exception.detail)[0], expected_errors)
+        self.assertEqual(str(context.exception), "No control variant found")
 
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
@@ -921,17 +856,10 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         flush_persons_and_events()
 
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
-        with self.assertRaises(ValidationError) as context:
-            cast(LegacyExperimentQueryResponse, query_runner.calculate())
+        with self.assertRaises(ValueError) as context:
+            query_runner.calculate()
 
-        expected_errors = json.dumps(
-            {
-                ExperimentNoResultsErrorKeys.NO_EXPOSURES: False,
-                ExperimentNoResultsErrorKeys.NO_CONTROL_VARIANT: True,
-                ExperimentNoResultsErrorKeys.NO_TEST_VARIANT: False,
-            }
-        )
-        self.assertEqual(cast(list, context.exception.detail)[0], expected_errors)
+        self.assertEqual(str(context.exception), "No control variant found")
 
     @parameterized.expand(
         [
@@ -998,8 +926,8 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
                     "operator": "exact",
                 },
                 {
-                    "control_absolute_exposure": 2,
-                    "test_absolute_exposure": 1,
+                    "control_absolute_exposure": 12,
+                    "test_absolute_exposure": 15,
                 },
             ],
             [
@@ -1091,22 +1019,33 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         experiment.metrics = [metric.model_dump(mode="json")]
         experiment.save()
 
-        # Populate count events
-        for variant, count in [("control", 7), ("test", 9)]:
+        # Populate count events - ensuring we have non-zero values and variance
+        # Create pageview events with variance to avoid statistical errors
+        for variant, count in [("control", 14), ("test", 16)]:
             for i in range(count):
-                extra_properties = {"$host": "localhost", "$group_0": "my_awesome_group"} if i > 5 else {}
-                _create_event(
-                    team=self.team,
-                    event="$pageview",
-                    distinct_id=f"user_{variant}_{i}",
-                    timestamp=datetime(2020, 1, i + 2),
-                    properties={feature_flag_property: variant, **extra_properties},
-                )
+                # Create different numbers of pageviews per user to ensure variance
+                num_pageviews = (i % 4) + 1  # 1, 2, 3, or 4 pageviews per user
+                for j in range(num_pageviews):
+                    extra_properties = {"$host": "localhost", "$group_0": "my_awesome_group"} if i > 5 else {}
+                    # Add some events with button elements for the element filter test
+                    if i < 2:  # First 2 events have button element
+                        extra_properties["$elements"] = [{"tag_name": "button"}]  # type: ignore
+                    # Don't add the feature flag property - this filter is meant to filter out all events
+                    _create_event(
+                        team=self.team,
+                        event="$pageview",
+                        distinct_id=f"user_{variant}_{i}",
+                        timestamp=datetime(2020, 1, min(i + 4 + j, 30)),  # Pageviews happen after exposure (i+3)
+                        properties={feature_flag_property: variant, **extra_properties},
+                    )
 
         # Populate exposure events
         for variant, count in [("control", 14), ("test", 16)]:
             for i in range(count):
                 extra_properties = {"$host": "localhost", "$group_0": "my_awesome_group"} if i > 5 else {}
+                # Add element properties to exposure events for element filter test
+                if i < 2:  # First 2 events have button element
+                    extra_properties["$elements"] = [{"tag_name": "button"}]  # type: ignore
                 _create_event(
                     team=self.team,
                     event="$feature_flag_called",
@@ -1120,33 +1059,19 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
                     },
                 )
 
-        _create_person(
-            team=self.team,
-            distinct_ids=["user_control_1"],
-        )
-        _create_person(
-            team=self.team,
-            distinct_ids=["user_control_2"],
-        )
-        _create_person(
-            team=self.team,
-            distinct_ids=["user_control_3"],
-            properties={"email": "user_control_3@posthog.com"},
-        )
-        _create_person(
-            team=self.team,
-            distinct_ids=["user_control_6"],
-            properties={"email": "user_control_6@posthog.com"},
-        )
-        _create_person(
-            team=self.team,
-            distinct_ids=["user_test_2"],
-            properties={"email": "user_test_2@posthog.com"},
-        )
-        _create_person(
-            team=self.team,
-            distinct_ids=["user_test_3"],
-        )
+        # Create persons for all users
+        # Only give some users @posthog.com emails so they get filtered out
+        for variant, count in [("control", 14), ("test", 16)]:
+            for i in range(count):
+                properties = {}
+                # Give @posthog.com emails to specific users that should be filtered out
+                if (variant == "control" and i in [3, 6]) or (variant == "test" and i == 2):
+                    properties = {"email": f"user_{variant}_{i}@posthog.com"}
+                _create_person(
+                    team=self.team,
+                    distinct_ids=[f"user_{variant}_{i}"],
+                    properties=properties,
+                )
 
         flush_persons_and_events()
 
@@ -1157,32 +1082,23 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
             cohort.calculate_people_ch(pending_version=0)
 
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
-        # "feature_flags" and "element" filter out all events
-        if name == "feature_flags" or name == "element":
-            with self.assertRaises(ValidationError) as context:
-                cast(LegacyExperimentQueryResponse, query_runner.calculate())
 
-            expected_errors = json.dumps(
-                {
-                    ExperimentNoResultsErrorKeys.NO_EXPOSURES: True,
-                    ExperimentNoResultsErrorKeys.NO_CONTROL_VARIANT: True,
-                    ExperimentNoResultsErrorKeys.NO_TEST_VARIANT: True,
-                }
-            )
-            self.assertEqual(cast(list, context.exception.detail)[0], expected_errors)
+        # Handle cases where filters result in no exposures
+        if expected_results["control_absolute_exposure"] == 0 and expected_results["test_absolute_exposure"] == 0:
+            with self.assertRaises(ValueError) as context:
+                query_runner.calculate()
+
+            self.assertEqual(str(context.exception), "No control variant found")
         else:
-            result = cast(LegacyExperimentQueryResponse, query_runner.calculate())
+            result = query_runner.calculate()
+            assert result.variant_results is not None
+            control_result = result.baseline
+            assert control_result is not None
+            test_result = result.variant_results[0]
+            assert test_result is not None
 
-            control_result = cast(
-                ExperimentVariantTrendsBaseStats,
-                next(variant for variant in result.variants if variant.key == "control"),
-            )
-            test_result = cast(
-                ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "test")
-            )
-
-            self.assertEqual(control_result.absolute_exposure, expected_results["control_absolute_exposure"])
-            self.assertEqual(test_result.absolute_exposure, expected_results["test_absolute_exposure"])
+            self.assertEqual(control_result.number_of_samples, expected_results["control_absolute_exposure"])
+            self.assertEqual(test_result.number_of_samples, expected_results["test_absolute_exposure"])
 
         ## Run again with filterTestAccounts=False
         metric = ExperimentMeanMetric(
@@ -1198,17 +1114,15 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         experiment.save()
 
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
-        result = cast(LegacyExperimentQueryResponse, query_runner.calculate())
+        result = query_runner.calculate()
+        assert result.variant_results is not None
+        control_result = result.baseline
+        assert control_result is not None
+        test_result = result.variant_results[0]
+        assert test_result is not None
 
-        control_result = cast(
-            ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "control")
-        )
-        test_result = cast(
-            ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "test")
-        )
-
-        self.assertEqual(control_result.absolute_exposure, 14)
-        self.assertEqual(test_result.absolute_exposure, 16)
+        self.assertEqual(control_result.number_of_samples, 14)
+        self.assertEqual(test_result.number_of_samples, 16)
 
     @parameterized.expand(
         [
@@ -1216,8 +1130,8 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
                 "experiment_duration",
                 None,
                 {
-                    "control_count": 2,
-                    "test_count": 2,
+                    "control_count": 3,
+                    "test_count": 3,
                 },
             ],
             [
@@ -1232,16 +1146,16 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
                 "48_hour_window",
                 48,
                 {
-                    "control_count": 3,
-                    "test_count": 3,
+                    "control_count": 6,
+                    "test_count": 6,
                 },
             ],
             [
                 "72_hour_window",
                 72,
                 {
-                    "control_count": 4,
-                    "test_count": 4,
+                    "control_count": 7,
+                    "test_count": 7,
                 },
             ],
         ]
@@ -1288,34 +1202,34 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
                     },
                 )
                 if i < purchase_count:
-                    _create_event(
-                        team=self.team,
-                        event="purchase",
-                        distinct_id=f"user_{variant}_{i}",
-                        timestamp=d + timedelta(hours=15 * (i + 1)),
-                        properties={feature_flag_property: variant},
-                    )
+                    # Create variable number of purchase events to add variance
+                    num_purchases = (i % 3) + 1  # 1, 2, or 3 purchases per user
+                    for k in range(num_purchases):
+                        _create_event(
+                            team=self.team,
+                            event="purchase",
+                            distinct_id=f"user_{variant}_{i}",
+                            timestamp=d + timedelta(hours=15 * (i + 1) + k),
+                            properties={feature_flag_property: variant},
+                        )
 
         flush_persons_and_events()
 
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
-        result = cast(LegacyExperimentQueryResponse, query_runner.calculate())
-
-        self.assertEqual(len(result.variants), 2)
-
-        control_variant = cast(
-            ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "control")
-        )
-        test_variant = cast(
-            ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "test")
-        )
+        result = query_runner.calculate()
+        assert result.variant_results is not None
+        self.assertEqual(len(result.variant_results), 1)
+        control_variant = result.baseline
+        assert control_variant is not None
+        test_variant = result.variant_results[0]
+        assert test_variant is not None
 
         # Exposures on 2020-01-02 11:30, 2020-01-03 11:30, 2020-01-04 11:30, 2020-01-05 11:30
-        self.assertEqual(control_variant.absolute_exposure, 4)
-        self.assertEqual(test_variant.absolute_exposure, 4)
+        self.assertEqual(control_variant.number_of_samples, 4)
+        self.assertEqual(test_variant.number_of_samples, 4)
         # Purchases on 2020-01-03 02:30:00 (15 hours), 2020-01-04 17:30:00 (30 hours), 2020-01-06 08:30:00 (45 hours), 2020-01-07 23:30:00 (60 hours)
-        self.assertEqual(control_variant.count, expected_results["control_count"])
-        self.assertEqual(test_variant.count, expected_results["test_count"])
+        self.assertEqual(control_variant.sum, expected_results["control_count"])
+        self.assertEqual(test_variant.sum, expected_results["test_count"])
 
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
@@ -1339,47 +1253,53 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         experiment.metrics = [metric.model_dump(mode="json")]
         experiment.save()
 
-        # User who sees only control variant
-        _create_person(distinct_ids=["user_control"], team_id=self.team.pk)
-        _create_event(
-            team=self.team,
-            event="$feature_flag_called",
-            distinct_id="user_control",
-            timestamp="2020-01-02T12:00:00Z",
-            properties={
-                "$feature_flag_response": "control",
-                feature_flag_property: "control",
-                "$feature_flag": feature_flag.key,
-            },
-        )
-        _create_event(
-            team=self.team,
-            event="$pageview",
-            distinct_id="user_control",
-            timestamp="2020-01-02T12:01:00Z",
-            properties={feature_flag_property: "control"},
-        )
+        # Users who see only control variant
+        for i in range(3):
+            _create_person(distinct_ids=[f"user_control_{i}"], team_id=self.team.pk)
+            _create_event(
+                team=self.team,
+                event="$feature_flag_called",
+                distinct_id=f"user_control_{i}",
+                timestamp="2020-01-02T12:00:00Z",
+                properties={
+                    "$feature_flag_response": "control",
+                    feature_flag_property: "control",
+                    "$feature_flag": feature_flag.key,
+                },
+            )
+            # Create different numbers of events per user to create variance
+            for j in range(i + 1):
+                _create_event(
+                    team=self.team,
+                    event="$pageview",
+                    distinct_id=f"user_control_{i}",
+                    timestamp=f"2020-01-02T12:0{j+1}:00Z",
+                    properties={feature_flag_property: "control"},
+                )
 
-        # User who sees only test variant
-        _create_person(distinct_ids=["user_test"], team_id=self.team.pk)
-        _create_event(
-            team=self.team,
-            event="$feature_flag_called",
-            distinct_id="user_test",
-            timestamp="2020-01-02T12:00:00Z",
-            properties={
-                "$feature_flag_response": "test",
-                feature_flag_property: "test",
-                "$feature_flag": feature_flag.key,
-            },
-        )
-        _create_event(
-            team=self.team,
-            event="$pageview",
-            distinct_id="user_test",
-            timestamp="2020-01-02T12:01:00Z",
-            properties={feature_flag_property: "test"},
-        )
+        # Users who see only test variant
+        for i in range(3):
+            _create_person(distinct_ids=[f"user_test_{i}"], team_id=self.team.pk)
+            _create_event(
+                team=self.team,
+                event="$feature_flag_called",
+                distinct_id=f"user_test_{i}",
+                timestamp="2020-01-02T12:00:00Z",
+                properties={
+                    "$feature_flag_response": "test",
+                    feature_flag_property: "test",
+                    "$feature_flag": feature_flag.key,
+                },
+            )
+            # Create different numbers of events per user to create variance
+            for j in range(i + 1):
+                _create_event(
+                    team=self.team,
+                    event="$pageview",
+                    distinct_id=f"user_test_{i}",
+                    timestamp=f"2020-01-02T12:0{j+1}:00Z",
+                    properties={feature_flag_property: "test"},
+                )
 
         # User who sees both variants (should be excluded)
         _create_person(distinct_ids=["user_multiple"], team_id=self.team.pk)
@@ -1423,36 +1343,35 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         flush_persons_and_events()
 
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
-        result = cast(LegacyExperimentQueryResponse, query_runner.calculate())
-
-        self.assertEqual(len(result.variants), 2)
-
-        control_variant = cast(
-            ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "control")
-        )
-        test_variant = cast(
-            ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "test")
-        )
+        result = query_runner.calculate()
+        assert result.variant_results is not None
+        self.assertEqual(len(result.variant_results), 1)
+        control_variant = result.baseline
+        assert control_variant is not None
+        test_variant = result.variant_results[0]
+        assert test_variant is not None
 
         # Verify that only the single-variant users are counted
-        self.assertEqual(control_variant.count, 1)  # Only from user_control
-        self.assertEqual(test_variant.count, 1)  # Only from user_test
+        # Control: user_0 (1 event) + user_1 (2 events) + user_2 (3 events) = 6 total events
+        self.assertEqual(control_variant.sum, 6)  # 1 + 2 + 3 = 6 events
+        # Test: user_0 (1 event) + user_1 (2 events) + user_2 (3 events) = 6 total events
+        self.assertEqual(test_variant.sum, 6)  # 1 + 2 + 3 = 6 events
 
         # Verify the exposure counts (users who have been exposed to the variant)
-        self.assertEqual(control_variant.absolute_exposure, 1)  # Only user_control
-        self.assertEqual(test_variant.absolute_exposure, 1)  # Only user_test
+        self.assertEqual(control_variant.number_of_samples, 3)  # 3 control users
+        self.assertEqual(test_variant.number_of_samples, 3)  # 3 test users
 
     @parameterized.expand(
         [
             [
                 "exclude",
                 MultipleVariantHandling.EXCLUDE,
-                {"control_count": 1, "test_count": 1, "control_exposure": 1, "test_exposure": 1},
+                {"control_count": 3, "test_count": 3, "control_exposure": 2, "test_exposure": 2},
             ],
             [
                 "first_seen",
                 MultipleVariantHandling.FIRST_SEEN,
-                {"control_count": 4, "test_count": 3, "control_exposure": 2, "test_exposure": 2},
+                {"control_count": 6, "test_count": 5, "control_exposure": 3, "test_exposure": 3},
             ],
         ]
     )
@@ -1481,47 +1400,53 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         experiment.metrics = [metric.model_dump(mode="json")]
         experiment.save()
 
-        # User who sees only control variant
-        _create_person(distinct_ids=["user_control_only"], team_id=self.team.pk)
-        _create_event(
-            team=self.team,
-            event="$feature_flag_called",
-            distinct_id="user_control_only",
-            timestamp="2020-01-02T12:00:00Z",
-            properties={
-                "$feature_flag_response": "control",
-                feature_flag_property: "control",
-                "$feature_flag": feature_flag.key,
-            },
-        )
-        _create_event(
-            team=self.team,
-            event="$pageview",
-            distinct_id="user_control_only",
-            timestamp="2020-01-02T12:01:00Z",
-            properties={feature_flag_property: "control"},
-        )
+        # Users who see only control variant - create multiple users with different pageview counts
+        for i in range(2):
+            _create_person(distinct_ids=[f"user_control_only_{i}"], team_id=self.team.pk)
+            _create_event(
+                team=self.team,
+                event="$feature_flag_called",
+                distinct_id=f"user_control_only_{i}",
+                timestamp="2020-01-02T12:00:00Z",
+                properties={
+                    "$feature_flag_response": "control",
+                    feature_flag_property: "control",
+                    "$feature_flag": feature_flag.key,
+                },
+            )
+            # First user gets 1 pageview, second user gets 2 pageviews
+            for j in range(i + 1):
+                _create_event(
+                    team=self.team,
+                    event="$pageview",
+                    distinct_id=f"user_control_only_{i}",
+                    timestamp=f"2020-01-02T12:0{j+1}:00Z",
+                    properties={feature_flag_property: "control"},
+                )
 
-        # User who sees only test variant
-        _create_person(distinct_ids=["user_test_only"], team_id=self.team.pk)
-        _create_event(
-            team=self.team,
-            event="$feature_flag_called",
-            distinct_id="user_test_only",
-            timestamp="2020-01-02T12:00:00Z",
-            properties={
-                "$feature_flag_response": "test",
-                feature_flag_property: "test",
-                "$feature_flag": feature_flag.key,
-            },
-        )
-        _create_event(
-            team=self.team,
-            event="$pageview",
-            distinct_id="user_test_only",
-            timestamp="2020-01-02T12:01:00Z",
-            properties={feature_flag_property: "test"},
-        )
+        # Users who see only test variant - create multiple users with different pageview counts
+        for i in range(2):
+            _create_person(distinct_ids=[f"user_test_only_{i}"], team_id=self.team.pk)
+            _create_event(
+                team=self.team,
+                event="$feature_flag_called",
+                distinct_id=f"user_test_only_{i}",
+                timestamp="2020-01-02T12:00:00Z",
+                properties={
+                    "$feature_flag_response": "test",
+                    feature_flag_property: "test",
+                    "$feature_flag": feature_flag.key,
+                },
+            )
+            # First user gets 1 pageview, second user gets 2 pageviews
+            for j in range(i + 1):
+                _create_event(
+                    team=self.team,
+                    event="$pageview",
+                    distinct_id=f"user_test_only_{i}",
+                    timestamp=f"2020-01-02T12:0{j+1}:00Z",
+                    properties={feature_flag_property: "test"},
+                )
 
         # User who sees control first, then test (for testing first_seen vs last_seen)
         _create_person(distinct_ids=["user_multiple_control_first"], team_id=self.team.pk)
@@ -1617,29 +1542,26 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         flush_persons_and_events()
 
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
-        result = cast(LegacyExperimentQueryResponse, query_runner.calculate())
-
-        self.assertEqual(len(result.variants), 2)
-
-        control_variant = cast(
-            ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "control")
-        )
-        test_variant = cast(
-            ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "test")
-        )
+        result = query_runner.calculate()
+        assert result.variant_results is not None
+        self.assertEqual(len(result.variant_results), 1)
+        control_variant = result.baseline
+        assert control_variant is not None
+        test_variant = result.variant_results[0]
+        assert test_variant is not None
 
         # Verify the expected behavior based on multiple_variant_handling setting
         self.assertEqual(
-            control_variant.count, expected_results["control_count"], f"Control count mismatch for {name} handling"
+            control_variant.sum, expected_results["control_count"], f"Control count mismatch for {name} handling"
         )
-        self.assertEqual(test_variant.count, expected_results["test_count"], f"Test count mismatch for {name} handling")
+        self.assertEqual(test_variant.sum, expected_results["test_count"], f"Test count mismatch for {name} handling")
         self.assertEqual(
-            control_variant.absolute_exposure,
+            control_variant.number_of_samples,
             expected_results["control_exposure"],
             f"Control exposure mismatch for {name} handling",
         )
         self.assertEqual(
-            test_variant.absolute_exposure,
+            test_variant.number_of_samples,
             expected_results["test_exposure"],
             f"Test exposure mismatch for {name} handling",
         )
@@ -1731,21 +1653,260 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         flush_persons_and_events()
 
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
-        result = cast(LegacyExperimentQueryResponse, query_runner.calculate())
+        result = query_runner.calculate()
 
-        self.assertEqual(len(result.variants), 2)
+        assert result.variant_results is not None
 
-        control_variant = cast(
-            ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "control")
-        )
-        test_variant = cast(
-            ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "test")
-        )
+        self.assertEqual(len(result.variant_results), 1)
+
+        control_variant = result.baseline
+        assert control_variant is not None
+
+        test_variant = result.variant_results[0]
+        assert test_variant is not None
 
         # Control should have 3 + 2 + 1 = 6 events (all event types with matching property)
-        self.assertEqual(control_variant.count, 6)
+        self.assertEqual(control_variant.sum, 6)
         # Test should have 4 + 3 + 2 = 9 events (all event types with matching property)
-        self.assertEqual(test_variant.count, 9)
+        self.assertEqual(test_variant.sum, 9)
         # Both should have 5 exposures each
-        self.assertEqual(control_variant.absolute_exposure, 5)
-        self.assertEqual(test_variant.absolute_exposure, 5)
+        self.assertEqual(control_variant.number_of_samples, 5)
+        self.assertEqual(test_variant.number_of_samples, 5)
+
+    @freeze_time("2020-01-01T12:00:00Z")
+    @snapshot_clickhouse_queries
+    def test_query_runner_with_hogql_aggregation_expressions(self):
+        """Test that HogQL aggregation expressions work end-to-end."""
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment.save()
+
+        feature_flag_property = f"$feature/{feature_flag.key}"
+
+        # Test with sum aggregation expression
+        metric_sum = ExperimentMeanMetric(
+            source=EventsNode(
+                event="purchase",
+                math=ExperimentMetricMathType.HOGQL,
+                math_hogql="sum(toFloat(properties.revenue) - toFloat(properties.cost))",
+            ),
+        )
+
+        experiment_query = ExperimentQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentQuery",
+            metric=metric_sum,
+        )
+
+        experiment.metrics = [metric_sum.model_dump(mode="json")]
+        experiment.save()
+
+        # Create test data with revenue and cost properties
+        for variant, user_count in [("control", 10), ("test", 10)]:
+            for i in range(user_count):
+                _create_person(distinct_ids=[f"user_{variant}_{i}"], team_id=self.team.pk)
+                # Create exposure event
+                _create_event(
+                    team=self.team,
+                    event="$feature_flag_called",
+                    distinct_id=f"user_{variant}_{i}",
+                    timestamp="2020-01-02T12:00:00Z",
+                    properties={
+                        feature_flag_property: variant,
+                        "$feature_flag_response": variant,
+                        "$feature_flag": feature_flag.key,
+                    },
+                )
+                # Create purchase events with different revenue/cost values
+                purchase_count = 6 if variant == "control" else 8
+                if i < purchase_count:
+                    if variant == "control":
+                        revenue = 100 + (i * 10)  # revenue: 100, 110, 120, 130, 140, 150
+                        cost = 20 + (i * 5)  # cost: 20, 25, 30, 35, 40, 45
+                    else:  # test variant
+                        revenue = 120 + (i * 15)  # revenue: 120, 135, 150, 165, 180, 195, 210, 225
+                        cost = 30 + (i * 3)  # cost: 30, 33, 36, 39, 42, 45, 48, 51
+
+                    _create_event(
+                        team=self.team,
+                        event="purchase",
+                        distinct_id=f"user_{variant}_{i}",
+                        timestamp="2020-01-02T12:01:00Z",
+                        properties={
+                            feature_flag_property: variant,
+                            "revenue": revenue,
+                            "cost": cost,
+                        },
+                    )
+
+        flush_persons_and_events()
+
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        result = query_runner.calculate()
+        assert result.variant_results is not None
+
+        self.assertEqual(len(result.variant_results), 1)
+
+        control_variant = result.baseline
+        assert control_variant is not None
+        test_variant = result.variant_results[0]
+
+        # Control: 6 purchases with (revenue - cost) = (80, 85, 90, 95, 100, 105) = sum = 555
+        expected_control_sum = sum([80, 85, 90, 95, 100, 105])
+        self.assertEqual(control_variant.sum, expected_control_sum)
+        self.assertEqual(control_variant.number_of_samples, 10)
+
+        # Test: 8 purchases with (revenue - cost) = (90, 102, 114, 126, 138, 150, 162, 174) = sum = 1056
+        expected_test_sum = sum([90, 102, 114, 126, 138, 150, 162, 174])
+        self.assertEqual(test_variant.sum, expected_test_sum)
+        self.assertEqual(test_variant.number_of_samples, 10)
+
+    @freeze_time("2020-01-01T12:00:00Z")
+    @snapshot_clickhouse_queries
+    def test_query_runner_with_hogql_aggregation_end_to_end(self):
+        """Test that HogQL aggregation expressions work end-to-end with the experiment query runner."""
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment.save()
+
+        feature_flag_property = f"$feature/{feature_flag.key}"
+
+        # Test with avg aggregation expression - this should use avg() not sum()
+        metric_avg = ExperimentMeanMetric(
+            source=EventsNode(
+                event="purchase", math=ExperimentMetricMathType.HOGQL, math_hogql="avg(properties.amount)"
+            ),
+        )
+
+        experiment_query = ExperimentQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentQuery",
+            metric=metric_avg,
+        )
+
+        experiment.metrics = [metric_avg.model_dump(mode="json")]
+        experiment.save()
+
+        # Create test data - simple case with one event per user
+        for variant, amounts in [("control", [10, 20, 30]), ("test", [15, 25, 35, 45])]:
+            for i, amount in enumerate(amounts):
+                _create_person(distinct_ids=[f"user_{variant}_{i}"], team_id=self.team.pk)
+                # Create exposure event
+                _create_event(
+                    team=self.team,
+                    event="$feature_flag_called",
+                    distinct_id=f"user_{variant}_{i}",
+                    timestamp="2020-01-02T12:00:00Z",
+                    properties={
+                        feature_flag_property: variant,
+                        "$feature_flag_response": variant,
+                        "$feature_flag": feature_flag.key,
+                    },
+                )
+                # Create purchase event
+                _create_event(
+                    team=self.team,
+                    event="purchase",
+                    distinct_id=f"user_{variant}_{i}",
+                    timestamp="2020-01-02T12:01:00Z",
+                    properties={
+                        feature_flag_property: variant,
+                        "amount": amount,
+                    },
+                )
+
+        flush_persons_and_events()
+
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        result = query_runner.calculate()
+        assert result.variant_results is not None
+
+        self.assertEqual(len(result.variant_results), 1)
+
+        control_variant = result.baseline
+        assert control_variant is not None
+        test_variant = result.variant_results[0]
+
+        # With one event per user, avg(amount) per user = amount, so we get:
+        # Control: 10 + 20 + 30 = 60
+        # Test: 15 + 25 + 35 + 45 = 120
+        self.assertEqual(control_variant.sum, 60)
+        self.assertEqual(test_variant.sum, 120)
+        self.assertEqual(control_variant.number_of_samples, 3)
+        self.assertEqual(test_variant.number_of_samples, 4)
+
+    @freeze_time("2020-01-01T12:00:00Z")
+    @snapshot_clickhouse_queries
+    def test_query_runner_with_hogql_fallback_to_sum(self):
+        """Test that HogQL expressions without aggregation functions default to sum."""
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment.save()
+
+        feature_flag_property = f"$feature/{feature_flag.key}"
+
+        # Test with simple property expression (no aggregation function)
+        metric_simple = ExperimentMeanMetric(
+            source=EventsNode(
+                event="purchase",
+                math=ExperimentMetricMathType.HOGQL,
+                math_hogql="properties.price",  # No aggregation function, should default to sum
+            ),
+        )
+
+        experiment_query = ExperimentQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentQuery",
+            metric=metric_simple,
+        )
+
+        experiment.metrics = [metric_simple.model_dump(mode="json")]
+        experiment.save()
+
+        # Create test data
+        for variant, prices in [("control", [50, 75]), ("test", [60, 80, 100])]:
+            for i, price in enumerate(prices):
+                _create_person(distinct_ids=[f"user_{variant}_{i}"], team_id=self.team.pk)
+                # Create exposure event
+                _create_event(
+                    team=self.team,
+                    event="$feature_flag_called",
+                    distinct_id=f"user_{variant}_{i}",
+                    timestamp="2020-01-02T12:00:00Z",
+                    properties={
+                        feature_flag_property: variant,
+                        "$feature_flag_response": variant,
+                        "$feature_flag": feature_flag.key,
+                    },
+                )
+                # Create purchase event
+                _create_event(
+                    team=self.team,
+                    event="purchase",
+                    distinct_id=f"user_{variant}_{i}",
+                    timestamp="2020-01-02T12:01:00Z",
+                    properties={
+                        feature_flag_property: variant,
+                        "price": price,
+                    },
+                )
+
+        flush_persons_and_events()
+
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        result = query_runner.calculate()
+        assert result.variant_results is not None
+
+        self.assertEqual(len(result.variant_results), 1)
+
+        control_variant = result.baseline
+        assert control_variant is not None
+        test_variant = result.variant_results[0]
+
+        # Control: sum(50, 75) = 125
+        self.assertEqual(control_variant.sum, 125)
+        self.assertEqual(control_variant.number_of_samples, 2)
+
+        # Test: sum(60, 80, 100) = 240
+        self.assertEqual(test_variant.sum, 240)
+        self.assertEqual(test_variant.number_of_samples, 3)

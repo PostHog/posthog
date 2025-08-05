@@ -9,6 +9,8 @@ from posthog.models.utils import UUIDModel
 
 
 class Conversation(UUIDModel):
+    TITLE_MAX_LENGTH = 250
+
     class Meta:
         indexes = [
             models.Index(fields=["updated_at"]),
@@ -29,11 +31,7 @@ class Conversation(UUIDModel):
     updated_at = models.DateTimeField(auto_now=True, null=True)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.IDLE)
     type = models.CharField(max_length=20, choices=Type.choices, default=Type.ASSISTANT)
-    title = models.CharField(null=True, blank=True, help_text="Title of the conversation.", max_length=250)
-
-    @property
-    def is_locked(self) -> bool:
-        return self.status in (self.Status.IN_PROGRESS, self.Status.CANCELING)
+    title = models.CharField(null=True, blank=True, help_text="Title of the conversation.", max_length=TITLE_MAX_LENGTH)
 
 
 class ConversationCheckpoint(UUIDModel):
@@ -158,7 +156,10 @@ class CoreMemory(UUIDModel):
         self.save()
 
     def append_core_memory(self, text: str):
-        self.text = self.text + "\n" + text
+        if self.text == "":
+            self.text = text
+        else:
+            self.text = self.text + "\n" + text
         self.save()
 
     def replace_core_memory(self, original_fragment: str, new_fragment: str):

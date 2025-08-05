@@ -26,7 +26,8 @@ import { EntityTypes, HogFunctionConfigurationType, HogFunctionMappingType } fro
 import { hogFunctionConfigurationLogic } from '../configuration/hogFunctionConfigurationLogic'
 
 const humanize = (value: string): string => {
-    const fallback = typeof value === 'string' ? value ?? '' : ''
+    const fallback = typeof value === 'string' ? (value ?? '') : ''
+
     // Simple replacement from something like MY_STRING-here to My string here
     return fallback
         .toLowerCase()
@@ -69,8 +70,8 @@ const MappingSummary = memo(function MappingSummary({
                 {mapping.name
                     ? humanize(mapping.name)
                     : typeof firstInputValue === 'object'
-                    ? JSON.stringify(firstInputValue)
-                    : humanize(firstInputValue)}
+                      ? JSON.stringify(firstInputValue)
+                      : humanize(firstInputValue)}
             </span>
             <span className="flex-1" />
             {mapping.disabled ? <LemonTag type="danger">Disabled</LemonTag> : null}
@@ -90,7 +91,7 @@ export function HogFunctionMapping({
     parentConfiguration: HogFunctionConfigurationType
 }): JSX.Element | null {
     const { groupsTaxonomicTypes } = useValues(groupsModel)
-    const { showSource } = useValues(hogFunctionConfigurationLogic)
+    const { showSource, sampleGlobalsWithInputs } = useValues(hogFunctionConfigurationLogic)
 
     return (
         <>
@@ -153,6 +154,7 @@ export function HogFunctionMapping({
                             onChange({ ...mapping, inputs: { ...mapping.inputs, [key]: value } })
                         }}
                         showSource={showSource}
+                        sampleGlobalsWithInputs={sampleGlobalsWithInputs}
                     />
                 </Group>
                 {showSource ? (
@@ -205,9 +207,14 @@ export function HogFunctionMappings(): JSX.Element | null {
                 value,
                 onChange,
             }: {
-                value: HogFunctionMappingType[]
+                value: HogFunctionMappingType[] | undefined
                 onChange: (mappings: HogFunctionMappingType[]) => void
             }) => {
+                if (!value) {
+                    // Tricky there can be a race where this renders before the parent is un-rendered
+                    return <></>
+                }
+
                 const addMapping = (template: string): void => {
                     const mappingTemplate = mappingTemplates.find((t) => t.name === template)
                     if (mappingTemplate) {

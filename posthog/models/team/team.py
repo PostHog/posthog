@@ -132,6 +132,7 @@ class TeamManager(models.Manager):
                 name=str(playlist["name"]),
                 filters=playlist["filters"],
                 description=str(playlist.get("description", "")),
+                type="filters",
             )
         team.save()
         return team
@@ -438,7 +439,7 @@ class Team(UUIDClassicModel):
         config, _ = TeamRevenueAnalyticsConfig.objects.get_or_create(team=self)
         return config
 
-    @property
+    @cached_property
     def marketing_analytics_config(self):
         from .team_marketing_analytics_config import TeamMarketingAnalyticsConfig
 

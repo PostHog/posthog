@@ -11,6 +11,7 @@ import {
     IconWarning,
 } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
+import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { AccessControlledLemonButton } from 'lib/components/AccessControlledLemonButton'
@@ -51,6 +52,7 @@ import { samplingFilterLogic } from '../EditorFilters/samplingFilterLogic'
 import { MathAvailability } from '../filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { insightDataLogic } from '../insightDataLogic'
 import { insightVizDataLogic } from '../insightVizDataLogic'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 export function InsightEmptyState({
     heading = 'There are no matching events for this query',
@@ -123,6 +125,45 @@ function QueryDebuggerButton({ query }: { query?: Record<string, any> | null }):
             className="max-w-80"
         >
             Open in query debugger
+        </LemonButton>
+    )
+}
+
+const RetryButton = ({
+    onRetry,
+    query,
+}: {
+    onRetry: () => void
+    query?: Record<string, any> | Node | null
+}): JSX.Element => {
+    let sideAction = {}
+    if (query) {
+        sideAction = {
+            dropdown: {
+                overlay: (
+                    <LemonMenuOverlay
+                        items={[
+                            {
+                                label: 'Open in query debugger',
+                                to: urls.debugQuery(query),
+                            },
+                        ]}
+                    />
+                ),
+                placement: 'bottom-end',
+            },
+        }
+    }
+
+    return (
+        <LemonButton
+            data-attr="insight-retry-button"
+            size="small"
+            type="primary"
+            onClick={() => onRetry()}
+            sideAction={sideAction}
+        >
+            Try again
         </LemonButton>
     )
 }
@@ -244,7 +285,7 @@ export function StatelessInsightLoadingState({
     }, [pollResponse, showLoadingDetails])
 
     // Toggle between loading messages every 2.5-3.5 seconds, with 300ms fade out, then change text, keep in sync with the transition duration below
-    useEffect(() => {
+    useOnMountEffect(() => {
         const TOGGLE_INTERVAL_MIN = 2500
         const TOGGLE_INTERVAL_JITTER = 1000
         const FADE_OUT_DURATION = 300
@@ -254,23 +295,26 @@ export function StatelessInsightLoadingState({
             return
         }
 
-        const interval = setInterval(() => {
-            setIsLoadingMessageVisible(false)
-            setTimeout(() => {
-                setLoadingMessageIndex((current) => {
-                    // Attempt to do random messages, but don't do the same message twice
-                    let newIndex = Math.floor(Math.random() * LOADING_MESSAGES.length)
-                    if (newIndex === current) {
-                        newIndex = (newIndex + 1) % LOADING_MESSAGES.length
-                    }
-                    return newIndex
-                })
-                setIsLoadingMessageVisible(true)
-            }, FADE_OUT_DURATION)
-        }, TOGGLE_INTERVAL_MIN + Math.random() * TOGGLE_INTERVAL_JITTER)
+        const interval = setInterval(
+            () => {
+                setIsLoadingMessageVisible(false)
+                setTimeout(() => {
+                    setLoadingMessageIndex((current) => {
+                        // Attempt to do random messages, but don't do the same message twice
+                        let newIndex = Math.floor(Math.random() * LOADING_MESSAGES.length)
+                        if (newIndex === current) {
+                            newIndex = (newIndex + 1) % LOADING_MESSAGES.length
+                        }
+                        return newIndex
+                    })
+                    setIsLoadingMessageVisible(true)
+                }, FADE_OUT_DURATION)
+            },
+            TOGGLE_INTERVAL_MIN + Math.random() * TOGGLE_INTERVAL_JITTER
+        )
 
         return () => clearInterval(interval)
-    }, [])
+    })
 
     const suggestions = suggestion ? (
         suggestion
@@ -359,7 +403,7 @@ export function SlowQuerySuggestions({
         ) : null,
         slowQueryPossibilities.includes('first_time_for_user') ? (
             <li key="first_time_for_user">
-                When possible, avoid <CodeWrapper>First time for user</CodeWrapper> metric types.
+                When possible, avoid <CodeWrapper>First-ever occurrence</CodeWrapper> metric types.
             </li>
         ) : null,
         slowQueryPossibilities.includes('strict_funnel') ? (
@@ -529,6 +573,7 @@ export interface InsightErrorStateProps {
     query?: Record<string, any> | Node | null
     queryId?: string | null
     fixWithAIComponent?: JSX.Element
+    onRetry?: () => void
 }
 
 export function InsightErrorState({
@@ -537,6 +582,7 @@ export function InsightErrorState({
     query,
     queryId,
     fixWithAIComponent,
+    onRetry,
 }: InsightErrorStateProps): JSX.Element {
     const { preflight } = useValues(preflightLogic)
     const { openSupportForm } = useActions(supportLogic)
@@ -586,7 +632,7 @@ export function InsightErrorState({
             )}
 
             <div className="flex gap-2 mt-4">
-                <QueryDebuggerButton query={query} />
+                {onRetry ? <RetryButton onRetry={onRetry} query={query} /> : <QueryDebuggerButton query={query} />}
                 {fixWithAIComponent ?? null}
             </div>
             <QueryIdDisplay queryId={queryId} />

@@ -13,7 +13,10 @@ export type GroupTypesByProjectId = Record<ProjectId, GroupTypeToColumnIndex>
 export class GroupTypeManager {
     private loader: LazyLoader<GroupTypeToColumnIndex>
 
-    constructor(private postgres: PostgresRouter, private teamManager: TeamManager) {
+    constructor(
+        private postgres: PostgresRouter,
+        private teamManager: TeamManager
+    ) {
         this.loader = new LazyLoader({
             name: 'GroupTypeManager',
             refreshAge: 30_000, // 30 seconds

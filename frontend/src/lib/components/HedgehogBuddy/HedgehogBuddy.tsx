@@ -797,7 +797,7 @@ export class HedgehogActor {
                             ref?.(r)
                         }
                     }}
-                    className="m-0 cursor-pointer HedgehogBuddy"
+                    className="HedgehogBuddy"
                     data-content={preloadContent}
                     onTouchStart={this.static ? undefined : () => onTouchOrMouseStart()}
                     onMouseDown={this.static ? undefined : () => onTouchOrMouseStart()}
@@ -809,6 +809,7 @@ export class HedgehogActor {
                         position: this.static ? 'relative' : 'fixed',
                         left: this.static ? undefined : this.x,
                         bottom: this.static ? undefined : this.y - SHADOW_HEIGHT * 0.5,
+                        zIndex: !this.static ? 'var(--z-hedgehog-buddy)' : undefined,
                         transition: !(this.isDragging || this.followMouse) ? `all ${1000 / FPS}ms` : undefined,
                     }}
                 >
@@ -944,7 +945,7 @@ export const HedgehogBuddy = React.forwardRef<HTMLDivElement, HedgehogBuddyProps
         if (currentLocation.pathname.includes('/heatmaps')) {
             actor?.setOnFire()
         }
-    }, [currentLocation.pathname])
+    }, [currentLocation.pathname, actor])
 
     useEffect(() => {
         if (hedgehogConfig) {
@@ -954,15 +955,15 @@ export const HedgehogBuddy = React.forwardRef<HTMLDivElement, HedgehogBuddyProps
                 actor.direction = hedgehogConfig.fixed_direction
             }
         }
-    }, [hedgehogConfig])
+    }, [hedgehogConfig, actor, actor.hedgehogConfig, actor.direction])
 
     useEffect(() => {
         actor.tooltip = tooltip
-    }, [tooltip])
+    }, [tooltip, actor.tooltip])
 
     useEffect(() => {
         actor.static = staticMode ?? false
-    }, [staticMode])
+    }, [staticMode, actor.static])
 
     useEffect(() => {
         let timer: any = null
@@ -977,7 +978,7 @@ export const HedgehogBuddy = React.forwardRef<HTMLDivElement, HedgehogBuddyProps
         return () => {
             clearTimeout(timer)
         }
-    }, [])
+    }, [actor])
 
     useEffect(() => {
         if (actor.isDragging) {
@@ -991,7 +992,7 @@ export const HedgehogBuddy = React.forwardRef<HTMLDivElement, HedgehogBuddyProps
 
     useEffect(() => {
         onPositionChange?.(actor)
-    }, [actor.x, actor.y, actor.direction])
+    }, [actor.x, actor.y, actor.direction, onPositionChange, actor])
 
     const onClick = (): void => {
         !actor.isDragging && _onClick?.(actor)

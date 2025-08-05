@@ -7,14 +7,15 @@ import { InsightType } from '~/types'
 import { getDefaultMetricTitle } from './utils'
 
 export const MetricTitle = ({ metric, metricType }: { metric: any; metricType?: InsightType }): JSX.Element => {
-    const getTextClassName = (text: string): string => {
-        // If text contains spaces, allow word breaks; otherwise truncate
-        return text.includes(' ') ? 'break-words' : 'truncate'
+    const shouldShowTooltip = (text: string): boolean => {
+        // Show tooltip for longer text that might be clamped
+        return text.length > 50
     }
 
-    const shouldShowTooltip = (text: string): boolean => {
-        // Only show tooltip when we're truncating (single long words without spaces)
-        return !text.includes(' ') && text.length > 15
+    const getTextClassName = (text: string): string => {
+        // Use break-words for text with spaces, break-all for underscore-separated text
+        const breakClass = text.includes(' ') ? 'break-words' : 'break-all'
+        return `line-clamp-3 ${breakClass}`
     }
 
     const wrapWithTooltip = (text: string, element: JSX.Element): JSX.Element => {
@@ -24,13 +25,8 @@ export const MetricTitle = ({ metric, metricType }: { metric: any; metricType?: 
         return element
     }
 
-    if (metric.name) {
-        const element = <span className={getTextClassName(metric.name)}>{metric.name}</span>
-        return wrapWithTooltip(metric.name, element)
-    }
-
     if (metric.kind === NodeKind.ExperimentMetric) {
-        const title = getDefaultMetricTitle(metric)
+        const title = metric.name || getDefaultMetricTitle(metric)
         const element = <span className={getTextClassName(title)}>{title}</span>
         return wrapWithTooltip(title, element)
     }
@@ -62,5 +58,5 @@ export const MetricTitle = ({ metric, metricType }: { metric: any; metricType?: 
         }
     }
 
-    return <span className="text-secondary break-words">Untitled metric</span>
+    return <span className={`text-secondary ${getTextClassName('Untitled metric')}`}>Untitled metric</span>
 }

@@ -19,6 +19,7 @@ from ee.hogai.graph.memory.nodes import (
     MemoryOnboardingFinalizeNode,
     MemoryOnboardingNode,
 )
+from ee.hogai.graph.root.nodes import SLASH_COMMAND_INIT
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from ee.models import CoreMemory
 from posthog.schema import AssistantMessage, EventTaxonomyItem, HumanMessage
@@ -34,8 +35,20 @@ from posthog.test.base import (
 @override_settings(IN_UNIT_TESTING=True)
 class TestMemoryInitializerContextMixin(ClickhouseTestMixin, BaseTest):
     def get_mixin(self):
-        mixin = MemoryInitializerContextMixin()
-        mixin._team = self.team
+        class Mixin(MemoryInitializerContextMixin):
+            def __init__(self, team, user):
+                self.__team = team
+                self.__user = user
+
+            @property
+            def _team(self):
+                return self.__team
+
+            @property
+            def _user(self):
+                return self.__user
+
+        mixin = Mixin(self.team, self.user)
         return mixin
 
     def test_domain_retrieval(self):
@@ -142,9 +155,7 @@ class TestMemoryOnboardingNode(ClickhouseTestMixin, BaseTest):
     def test_should_run(self):
         node = MemoryOnboardingNode(team=self.team, user=self.user)
         self.assertEqual(
-            node.should_run_onboarding_at_start(
-                AssistantState(messages=[HumanMessage(content=prompts.ONBOARDING_INITIAL_MESSAGE)])
-            ),
+            node.should_run_onboarding_at_start(AssistantState(messages=[HumanMessage(content=SLASH_COMMAND_INIT)])),
             "memory_onboarding",
         )
 
@@ -162,6 +173,10 @@ class TestMemoryOnboardingNode(ClickhouseTestMixin, BaseTest):
         self.assertEqual(
             node.should_run_onboarding_at_start(AssistantState(messages=[HumanMessage(content="Hello")])), "continue"
         )
+
+    def test_should_run_with_empty_messages(self):
+        node = MemoryOnboardingNode(team=self.team, user=self.user)
+        self.assertEqual(node.should_run_onboarding_at_start(AssistantState(messages=[])), "continue")
 
     def test_router(self):
         node = MemoryOnboardingNode(team=self.team, user=self.user)
@@ -428,7 +443,7 @@ class TestMemoryOnboardingEnquiryNode(ClickhouseTestMixin, BaseTest):
             model_mock.return_value = RunnableLambda(lambda _: "===What is your target market?")
 
             state = AssistantState(
-                messages=[HumanMessage(content=prompts.ONBOARDING_INITIAL_MESSAGE)],
+                messages=[HumanMessage(content=SLASH_COMMAND_INIT)],
             )
 
             new_state = self.node.run(state, {})
@@ -467,7 +482,7 @@ class TestMemoryOnboardingEnquiryNode(ClickhouseTestMixin, BaseTest):
 
             # First run - should get interrupted with first question
             state = AssistantState(
-                messages=[HumanMessage(content=prompts.ONBOARDING_INITIAL_MESSAGE)],
+                messages=[HumanMessage(content=SLASH_COMMAND_INIT)],
             )
             new_state = self.node.run(state, {})
             self.assertEqual(new_state.onboarding_question, "What is your target market?")
@@ -597,6 +612,36 @@ class TestMemoryOnboardingFinalizeNode(ClickhouseTestMixin, BaseTest):
             self.core_memory.refresh_from_db()
             self.assertEqual(self.core_memory.text, "Compressed memory about enterprise product")
 
+    def test_handles_json_content_in_memory(self):
+        """Test that memory compression works when memory contains JSON with curly braces."""
+        json_memory_content = """Question: What kind of data structure do we use for events?
+Answer: We use JSON like this:
+{
+  "event": "user_signup",
+  "properties": {
+    "plan": "enterprise",
+    "source": "organic"
+  },
+  "timestamp": "2024-01-01T12:00:00Z"
+}
+
+Additional context: Our system also handles nested configurations like {"feature_flags": {"experiment_1": true, "experiment_2": false}}"""
+
+        with patch.object(MemoryOnboardingFinalizeNode, "_model") as model_mock:
+            model_mock.return_value = RunnableLambda(lambda _: "Company uses structured JSON for event tracking")
+
+            # This content contains JSON with curly braces that could be misinterpreted as template variables
+            self.core_memory.initial_text = json_memory_content
+            self.core_memory.save()
+
+            # This should not raise a KeyError about missing template variables
+            new_state = self.node.run(AssistantState(messages=[]), {})
+
+            self.assertEqual(len(new_state.messages), 1)
+            self.assertEqual(new_state.messages[0].content, prompts.SCRAPING_MEMORY_SAVED_MESSAGE)
+            self.core_memory.refresh_from_db()
+            self.assertEqual(self.core_memory.text, "Company uses structured JSON for event tracking")
+
 
 @override_settings(IN_UNIT_TESTING=True)
 class TestMemoryCollectorNode(ClickhouseTestMixin, BaseTest):
@@ -698,7 +743,6 @@ class TestMemoryCollectorNode(ClickhouseTestMixin, BaseTest):
             )
 
             new_state = self.node.run(state, {})
-            self.assertEqual(new_state.memory_updated, True)
             self.assertEqual(new_state.memory_collection_messages, None)
 
     def test_appends_new_message(self):
@@ -974,9 +1018,13 @@ class TestMemoryCollectorToolsNode(BaseTest):
             self.node.run(state, {})
         self.assertEqual(str(e.exception), "Last message must be an AI message.")
 
-    def test_error_when_no_core_memory(self):
-        # Test error when core memory is not found
+    def test_creates_core_memory_when_missing(self):
+        # Test that core memory is created when it doesn't exist
         self.core_memory.delete()
+
+        # Verify no core memory exists
+        self.assertFalse(CoreMemory.objects.filter(team=self.team).exists())
+
         state = AssistantState(
             messages=[],
             memory_collection_messages=[
@@ -993,6 +1041,94 @@ class TestMemoryCollectorToolsNode(BaseTest):
             ],
         )
 
-        with self.assertRaises(ValueError) as e:
-            self.node.run(state, {})
-        self.assertEqual(str(e.exception), "No core memory found.")
+        # Should not raise an error and should create core memory
+        new_state = self.node.run(state, {})
+
+        # Verify core memory was created
+        self.assertTrue(CoreMemory.objects.filter(team=self.team).exists())
+        created_memory = CoreMemory.objects.get(team=self.team)
+        self.assertEqual(created_memory.text, "New memory")
+
+        # Verify response messages
+        self.assertEqual(len(new_state.memory_collection_messages), 2)
+        self.assertEqual(new_state.memory_collection_messages[1].content, "Memory appended.")
+        self.assertEqual(new_state.memory_collection_messages[1].type, "tool")
+        self.assertEqual(new_state.memory_collection_messages[1].tool_call_id, "1")
+
+    def test_creates_core_memory_when_missing_for_replace(self):
+        # Test that core memory is created when it doesn't exist, even for replace operations
+        self.core_memory.delete()
+
+        # Verify no core memory exists
+        self.assertFalse(CoreMemory.objects.filter(team=self.team).exists())
+
+        state = AssistantState(
+            messages=[],
+            memory_collection_messages=[
+                LangchainAIMessage(
+                    content="Memory operation",
+                    tool_calls=[
+                        {
+                            "name": "core_memory_replace",
+                            "args": {
+                                "original_fragment": "nonexistent",
+                                "new_fragment": "New content",
+                            },
+                            "id": "1",
+                        }
+                    ],
+                )
+            ],
+        )
+
+        # Should not raise an error and should create core memory
+        new_state = self.node.run(state, {})
+
+        # Verify core memory was created (empty since replace failed)
+        self.assertTrue(CoreMemory.objects.filter(team=self.team).exists())
+        created_memory = CoreMemory.objects.get(team=self.team)
+        self.assertEqual(created_memory.text, "")  # Empty because replace of nonexistent fragment
+
+        # Verify response messages (replace should fail but not crash)
+        self.assertEqual(len(new_state.memory_collection_messages), 2)
+        self.assertIn("not found", new_state.memory_collection_messages[1].content)
+        self.assertEqual(new_state.memory_collection_messages[1].type, "tool")
+        self.assertEqual(new_state.memory_collection_messages[1].tool_call_id, "1")
+
+    def test_append_when_onboarding_memory_exists(self):
+        # Set up existing core memory with data from /init command
+        self.core_memory.append_question_to_initial_text("What does PostHog do?")
+        self.core_memory.append_answer_to_initial_text("PostHog is an analytics platform")
+        initial_text = self.core_memory.text
+
+        state = AssistantState(
+            messages=[],
+            memory_collection_messages=[
+                LangchainAIMessage(
+                    content="Memory operation",
+                    tool_calls=[
+                        {
+                            "name": "core_memory_append",
+                            "args": {"memory_content": "New insight about user behavior"},
+                            "id": "1",
+                        }
+                    ],
+                )
+            ],
+        )
+
+        new_state = self.node.run(state, {})
+
+        # Verify memory was appended to existing content
+        self.core_memory.refresh_from_db()
+        expected_text = initial_text + "\nNew insight about user behavior"
+        self.assertEqual(self.core_memory.text, expected_text)
+
+        # Verify no new core memory was created (still same record)
+        self.assertEqual(CoreMemory.objects.filter(team=self.team).count(), 1)
+
+        # Verify response messages
+        self.assertEqual(len(new_state.memory_collection_messages), 2)
+        self.assertEqual(new_state.memory_collection_messages[1].content, "Memory appended.")
+        self.assertEqual(new_state.memory_collection_messages[1].type, "tool")
+        self.assertEqual(new_state.memory_collection_messages[1].tool_call_id, "1")

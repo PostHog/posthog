@@ -6,6 +6,7 @@ import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { ReactNode } from 'react'
 import { IndexedTrendResult } from 'scenes/trends/types'
 import { urls } from 'scenes/urls'
+import isEqual from 'lodash.isequal'
 
 import { propertyFilterTypeToPropertyDefinitionType } from '~/lib/components/PropertyFilters/utils'
 import { FormatPropertyValueForDisplayFunction } from '~/models/propertyDefinitionsModel'
@@ -48,6 +49,8 @@ import {
 
 import { RESULT_CUSTOMIZATION_DEFAULT } from './EditorFilters/ResultCustomizationByPicker'
 import { insightLogic } from './insightLogic'
+import { cleanInsightQuery } from '~/scenes/insights/utils/queryUtils'
+import { removeUndefinedAndNull } from '~/lib/utils'
 
 export const isAllEventsEntityFilter = (filter: EntityFilter | ActionFilter | null): boolean => {
     return (
@@ -361,8 +364,8 @@ export function formatBreakdownLabel(
         return isOtherBreakdown(breakdown_value) || breakdown_value === 'nan'
             ? BREAKDOWN_OTHER_DISPLAY
             : isNullBreakdown(breakdown_value) || breakdown_value === ''
-            ? BREAKDOWN_NULL_DISPLAY
-            : breakdown_value
+              ? BREAKDOWN_NULL_DISPLAY
+              : breakdown_value
     }
 
     return ''
@@ -485,8 +488,8 @@ export function getTrendDatasetKey(dataset: IndexedTrendResult): string {
         series: Number.isInteger(dataset.action?.order)
             ? dataset.action?.order
             : dataset.seriesIndex > 0
-            ? `formula${dataset.seriesIndex + 1}`
-            : 'formula',
+              ? `formula${dataset.seriesIndex + 1}`
+              : 'formula',
         breakdown_value: dataset.breakdown_value,
         compare_label: dataset.compare_label,
     }
@@ -512,7 +515,7 @@ export function getFunnelDatasetPosition(
     if (isFunnelStepWithConversionMetrics(dataset)) {
         // increment the minimum order for funnels where there baseline is hidden
         // i.e. funnels for experiments where only the respective variants matter
-        return disableFunnelBreakdownBaseline ? (dataset.order ?? 0) + 1 : dataset.order ?? 0
+        return disableFunnelBreakdownBaseline ? (dataset.order ?? 0) + 1 : (dataset.order ?? 0)
     }
 
     return dataset?.breakdownIndex ?? 0
@@ -621,4 +624,71 @@ export function parseDraftQueryFromURL(query: string): Node<Record<string, any>>
 
 export function crushDraftQueryForURL(query: Node<Record<string, any>>): string {
     return JSON.stringify(query)
+}
+
+const SOURCE_FIELD_LABELS: Record<string, string> = {
+    breakdownFilter: 'Breakdowns',
+    compareFilter: 'Compare filter',
+    dateRange: 'Date range',
+    filterTestAccounts: 'Test account filtering',
+    interval: 'Interval',
+    kind: 'Insight type',
+    properties: 'Global property filters',
+    samplingFactor: 'Sampling',
+    series: 'Series',
+    trendsFilter: 'Display options',
+}
+
+function arraysEqual(arr1: any[], arr2: any[]): boolean {
+    if (arr1.length !== arr2.length) {
+        return false
+    }
+
+    // Create copies and sort them for order-independent comparison
+    const sorted1 = [...arr1].sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)))
+    const sorted2 = [...arr2].sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)))
+
+    // Compare each element
+    for (let i = 0; i < sorted1.length; i++) {
+        if (!isEqual(sorted1[i], sorted2[i])) {
+            return false
+        }
+    }
+    return true
+}
+
+function deepEqual(val1: any, val2: any): boolean {
+    if (Array.isArray(val1) && Array.isArray(val2)) {
+        return arraysEqual(val1, val2)
+    }
+    return isEqual(val1, val2)
+}
+
+export function compareInsightTopLevelSections(obj1: any, obj2: any): string[] {
+    const changedLabels = new Set<string>()
+
+    const cleanObj1 = cleanInsightQuery(removeUndefinedAndNull(obj1)) as Record<string, any>
+    const cleanObj2 = cleanInsightQuery(removeUndefinedAndNull(obj2)) as Record<string, any>
+
+    // Handle both InsightVizNode (with source) and InsightQueryNode (without source)
+    const source1 = cleanObj1.source || cleanObj1
+    const source2 = cleanObj2.source || cleanObj2
+
+    if (!objectsEqual(source1, source2)) {
+        const keys = new Set([...Object.keys(source1 || {}), ...Object.keys(source2 || {})])
+
+        for (const key of keys) {
+            const val1 = source1?.[key]
+            const val2 = source2?.[key]
+
+            // Check if the property exists in both objects and has different values
+            // Also check if property exists in one but not the other
+            if (!deepEqual(val1, val2) || key in source1 !== key in source2) {
+                const label = SOURCE_FIELD_LABELS[key] || key
+                changedLabels.add(label)
+            }
+        }
+    }
+
+    return Array.from(changedLabels).sort()
 }

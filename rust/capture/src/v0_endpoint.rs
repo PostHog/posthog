@@ -1,4 +1,3 @@
-use std::cell::RefCell;
 use std::ops::Deref;
 use std::sync::Arc;
 
@@ -13,11 +12,9 @@ use chrono::{DateTime, Duration, Utc};
 use common_types::{CapturedEvent, RawEvent};
 use limiters::token_dropper::TokenDropper;
 use metrics::counter;
-use rand::Rng;
-use rand::{rngs::ThreadRng, thread_rng};
 use serde_json::json;
 use serde_json::Value;
-use tracing::{debug, error, info, instrument, warn, Span};
+use tracing::{debug, error, instrument, warn, Span};
 
 use crate::prometheus::{report_dropped_events, report_internal_error_metrics};
 use crate::v0_request::{
@@ -34,9 +31,71 @@ use crate::{
     v0_request::{EventFormData, EventQuery},
 };
 
-// TEMPORARY: used to trigger sampling of chatty log line
-thread_local! {
-    static RNG: RefCell<ThreadRng> = RefCell::new(thread_rng());
+// EXAMPLE: use verbose_sample_percent env var to capture extra logging/metric details of interest
+// let roll = thread_rng().with_borrow_mut(|rng| rng.gen_range(0.0..100.0));
+// if roll < verbose_sample_percent { ... }
+
+/// Check if an event is a survey-related event that should be subject to survey quota limiting
+fn is_survey_event(event_name: &str) -> bool {
+    matches!(
+        event_name,
+        "survey sent" | "survey shown" | "survey dismissed"
+    )
+}
+
+/// Check for survey quota limiting and filter out survey events if quota exceeded
+/// Simple all-or-nothing operation: if survey quota is exceeded, drop all survey events.
+async fn check_survey_quota_and_filter(
+    state: &crate::router::State,
+    context: &ProcessingContext,
+    events: Vec<RawEvent>,
+) -> Result<Vec<RawEvent>, CaptureError> {
+    let survey_limited = state
+        .survey_limiter
+        .is_limited(context.token.as_str())
+        .await;
+
+    if survey_limited {
+        // Drop all survey events when quota is exceeded
+        let (survey_events, non_survey_events): (Vec<_>, Vec<_>) = events
+            .into_iter()
+            .partition(|event| is_survey_event(&event.event));
+
+        let dropped_count = survey_events.len();
+        if dropped_count > 0 {
+            report_dropped_events("survey_over_quota", dropped_count as u64);
+        }
+
+        // If no events remain, return billing limit error
+        if non_survey_events.is_empty() {
+            return Err(CaptureError::BillingLimit);
+        }
+
+        return Ok(non_survey_events);
+    }
+
+    Ok(events)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_is_survey_event() {
+        // Survey events should return true
+        assert!(is_survey_event("survey sent"));
+        assert!(is_survey_event("survey shown"));
+        assert!(is_survey_event("survey dismissed"));
+
+        // Non-survey events should return false
+        assert!(!is_survey_event("pageview"));
+        assert!(!is_survey_event("$pageview"));
+        assert!(!is_survey_event("click"));
+        assert!(!is_survey_event("survey_sent")); // underscore variant
+        assert!(!is_survey_event("Survey Sent")); // case sensitivity
+        assert!(!is_survey_event(""));
+    }
 }
 
 /// handle_legacy owns the /e, /capture, /track, and /engage capture endpoints
@@ -204,7 +263,7 @@ async fn handle_legacy(
     let maybe_batch_token = request.get_batch_token();
 
     // consumes the parent request, so it's no longer in scope to extract metadata from
-    let events = match request.events(path.as_str()) {
+    let mut events = match request.events(path.as_str()) {
         Ok(events) => events,
         Err(e) => return Err(e),
     };
@@ -217,13 +276,6 @@ async fn handle_legacy(
         }
     };
     Span::current().record("token", &token);
-
-    // TEMPORARY: conditionally sample targeted event submissions
-    let roll = RNG.with_borrow_mut(|rng| rng.gen_range(0.0..100.0));
-    if compression == Compression::Base64 && roll < state.base64_detect_percent {
-        // API token, req path etc. should be logged here by tracing lib
-        info!("handle_legacy: candidate team for base64 issue")
-    }
 
     counter!("capture_events_received_total", &[("legacy", "true")]).increment(events.len() as u64);
 
@@ -246,9 +298,18 @@ async fn handle_legacy(
         .await;
 
     if billing_limited {
-        report_dropped_events("over_quota", events.len() as u64);
-        return Err(CaptureError::BillingLimit);
+        let start_len = events.len();
+        // TODO - right now the exception billing limits are applied only in ET's pipeline,
+        // we should apply both ET and PA limits here, and remove both types of events as needed.
+        events.retain(|e| e.event == "$exception" || is_survey_event(&e.event));
+        report_dropped_events("over_quota", (start_len - events.len()) as u64);
+        if events.is_empty() {
+            return Err(CaptureError::BillingLimit);
+        }
     }
+
+    // Check for survey quota limiting if any events are survey-related
+    events = check_survey_quota_and_filter(state, &context, events).await?;
 
     debug!(context=?context,
         event_count=?events.len(),
@@ -352,7 +413,7 @@ async fn handle_common(
     let maybe_batch_token = request.get_batch_token();
 
     // consumes the parent request, so it's no longer in scope to extract metadata from
-    let events = match request.events(path.as_str()) {
+    let mut events = match request.events(path.as_str()) {
         Ok(events) => events,
         Err(e) => return Err(e),
     };
@@ -387,9 +448,18 @@ async fn handle_common(
         .await;
 
     if billing_limited {
-        report_dropped_events("over_quota", events.len() as u64);
-        return Err(CaptureError::BillingLimit);
+        let start_len = events.len();
+        // TODO - right now the exception billing limits are applied only in ET's pipeline,
+        // we should apply both ET and PA limits here, and remove both types of events as needed.
+        events.retain(|e| e.event == "$exception" || is_survey_event(&e.event));
+        report_dropped_events("over_quota", (start_len - events.len()) as u64);
+        if events.is_empty() {
+            return Err(CaptureError::BillingLimit);
+        }
     }
+
+    // Check for survey quota limiting if any events are survey-related
+    events = check_survey_quota_and_filter(state, &context, events).await?;
 
     debug!(context=?context, events=?events, "decoded request");
 

@@ -10,6 +10,7 @@ from django.utils.timezone import now
 from django.views.decorators.clickjacking import xframe_options_exempt
 from loginas.utils import is_impersonated_session
 from rest_framework import mixins, response, serializers, viewsets
+from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.permissions import SAFE_METHODS
 from rest_framework.request import Request
@@ -23,6 +24,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.client.async_task_chain import task_chain_context
 from posthog.constants import AvailableFeature
 from posthog.models import SessionRecording, SharingConfiguration, Team, InsightViewed
+from posthog.schema import SharingConfigurationSettings
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.dashboard import Dashboard
 from posthog.models.exported_asset import (
@@ -35,6 +37,7 @@ from posthog.models.user import User
 from posthog.session_recordings.session_recording_api import SessionRecordingSerializer
 from posthog.user_permissions import UserPermissions
 from posthog.utils import render_template
+from posthog.exceptions_capture import capture_exception
 
 
 def shared_url_as_png(url: str = "") -> str:
@@ -84,14 +87,32 @@ def get_themes_for_team(team: Team):
 
 
 class SharingConfigurationSerializer(serializers.ModelSerializer):
+    settings = serializers.JSONField(required=False, allow_null=True)
+
     class Meta:
         model = SharingConfiguration
-        fields = ["created_at", "enabled", "access_token"]
+        fields = ["created_at", "enabled", "access_token", "settings"]
         read_only_fields = ["created_at", "access_token"]
+
+    def validate_settings(self, value: Optional[dict[str, Any]]) -> Optional[dict[str, Any]]:
+        if value is None:
+            return None
+        try:
+            # Filter out unknown fields before validation since the schema has extra="forbid"
+            known_fields = SharingConfigurationSettings.model_fields.keys()
+            filtered_data = {k: v for k, v in value.items() if k in known_fields}
+
+            validated_settings = SharingConfigurationSettings.model_validate(filtered_data, strict=False)
+            result = validated_settings.model_dump(exclude_none=True)
+            return result
+        except Exception as e:
+            capture_exception(e)
+            raise serializers.ValidationError("Invalid settings format")
 
 
 class SharingConfigurationViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.GenericViewSet):
     scope_object = "sharing_configuration"
+    scope_object_write_actions = ["create", "update", "partial_update", "patch", "destroy", "refresh"]
     pagination_class = None
     queryset = SharingConfiguration.objects.select_related("dashboard", "insight", "recording")
     serializer_class = SharingConfigurationSerializer
@@ -140,6 +161,7 @@ class SharingConfigurationViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin,
             "insight": insight,
             "dashboard": dashboard,
             "recording": recording,
+            "expires_at": None,
         }
 
         try:
@@ -209,6 +231,35 @@ class SharingConfigurationViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin,
 
         return response.Response(serializer.data)
 
+    @action(methods=["POST"], detail=False)
+    def refresh(self, request: Request, *args: Any, **kwargs: Any) -> response.Response:
+        context = self.get_serializer_context()
+        instance = self._get_sharing_configuration(context)
+
+        check_can_edit_sharing_configuration(self, request, instance)
+
+        # Create new sharing configuration and expire the old one
+        new_instance = instance.rotate_access_token()
+
+        if context.get("insight"):
+            name = new_instance.insight.name or new_instance.insight.derived_name
+            log_activity(
+                organization_id=None,
+                team_id=self.team_id,
+                user=cast(User, self.request.user),
+                was_impersonated=is_impersonated_session(self.request),
+                item_id=new_instance.insight.pk,
+                scope="Insight",
+                activity="access token refreshed",
+                detail=Detail(
+                    name=str(name) if name else None,
+                    short_id=str(new_instance.insight.short_id),
+                ),
+            )
+
+        serializer = self.get_serializer(new_instance)
+        return response.Response(serializer.data)
+
 
 def custom_404_response(request):
     """Returns a custom 404 page."""
@@ -238,15 +289,18 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
         # Path based access (SharingConfiguration only)
         access_token = self.kwargs.get("access_token", "").split(".")[0]
         if access_token:
-            sharing_configuration = None
-            try:
-                sharing_configuration = SharingConfiguration.objects.select_related(
-                    "dashboard", "insight", "recording"
-                ).get(access_token=access_token)
-            except SharingConfiguration.DoesNotExist:
-                raise NotFound()
+            # Find non-expired configuration (expires_at is NULL for active, or in the future for grace period)
+            sharing_configuration = (
+                SharingConfiguration.objects.select_related("dashboard", "insight", "recording")
+                .filter(
+                    access_token=access_token,
+                    enabled=True,
+                )
+                .filter(Q(expires_at__isnull=True) | Q(expires_at__gt=now()))
+                .first()
+            )
 
-            if sharing_configuration and sharing_configuration.enabled:
+            if sharing_configuration:
                 return sharing_configuration
 
         return None
@@ -288,6 +342,9 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
         add_og_tags = resource.insight or resource.dashboard
         asset_description = ""
 
+        # Check both query params (legacy) and settings for configuration options
+        state = getattr(resource, "settings", {}) or {}
+
         if resource.insight and not resource.insight.deleted:
             # Both insight AND dashboard can be set. If both it is assumed we should render that
             context["dashboard"] = resource.dashboard
@@ -296,7 +353,9 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             InsightViewed.objects.update_or_create(
                 insight=resource.insight, team=None, user=None, defaults={"last_viewed_at": now()}
             )
-            insight_data = InsightSerializer(resource.insight, many=False, context=context).data
+            # Add hideExtraDetails to context so that PII related information is not returned to the client
+            insight_context = {**context, "hide_extra_details": state.get("hideExtraDetails", False)}
+            insight_data = InsightSerializer(resource.insight, many=False, context=insight_context).data
             exported_data.update({"insight": insight_data})
             exported_data.update({"themes": get_themes_for_team(resource.team)})
         elif resource.dashboard and not resource.dashboard.deleted:
@@ -316,18 +375,46 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
         else:
             raise NotFound()
 
-        if "whitelabel" in request.GET and resource.team.organization.is_feature_available(
+        # Get sharing settings using Pydantic model for validation and defaults
+        settings_data = getattr(resource, "settings", {}) or {}
+        base_settings = SharingConfigurationSettings.model_validate(settings_data, strict=False)
+
+        # Only check query params for configurations created before SETTINGS_SHIP_DATE
+        SETTINGS_SHIP_DATE = "2025-07-31"
+        created_before_settings_ship = False
+        if isinstance(resource, SharingConfiguration):
+            created_before_settings_ship = resource.created_at.strftime("%Y-%m-%d") < SETTINGS_SHIP_DATE
+
+        # Exported assets don't have settings so we can continue to use query params
+        can_use_query_params = created_before_settings_ship or not isinstance(resource, SharingConfiguration)
+
+        # Merge query params with base settings if allowed
+        if can_use_query_params:
+            # Convert query params to dict and merge with base settings
+            merged_data = base_settings.model_dump()
+            for field_name in base_settings.model_fields.keys():
+                if field_name in request.GET:
+                    merged_data[field_name] = bool(request.GET[field_name])
+            final_settings = SharingConfigurationSettings.model_validate(merged_data, strict=False)
+        else:
+            final_settings = base_settings
+
+        # Apply settings to exported data
+        if final_settings.whitelabel and resource.team.organization.is_feature_available(
             AvailableFeature.WHITE_LABELLING
         ):
             exported_data.update({"whitelabel": True})
-        if "noHeader" in request.GET:
+
+        if final_settings.noHeader:
             exported_data.update({"noHeader": True})
-        if "showInspector" in request.GET:
+        if final_settings.showInspector:
             exported_data.update({"showInspector": True})
-        if "legend" in request.GET:
+        if final_settings.legend:
             exported_data.update({"legend": True})
-        if "detailed" in request.GET:
+        if final_settings.detailed:
             exported_data.update({"detailed": True})
+        if final_settings.hideExtraDetails:
+            exported_data.update({"hideExtraDetails": True})
 
         if request.path.endswith(f".json"):
             return response.Response(exported_data)

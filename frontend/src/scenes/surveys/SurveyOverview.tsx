@@ -4,6 +4,7 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { IconAreaChart, IconComment, IconGridView, IconLink, IconListView } from 'lib/lemon-ui/icons'
 import { pluralize } from 'lib/utils'
 import { SURVEY_TYPE_LABEL_MAP, SurveyQuestionLabel } from 'scenes/surveys/constants'
+import { CopySurveyLink } from 'scenes/surveys/CopySurveyLink'
 import { SurveyDisplaySummary } from 'scenes/surveys/Survey'
 import { SurveyAPIEditor } from 'scenes/surveys/SurveyAPIEditor'
 import { SurveyFormAppearance } from 'scenes/surveys/SurveyFormAppearance'
@@ -51,11 +52,35 @@ const QuestionIconMap = {
 export function SurveyOverview(): JSX.Element {
     const { survey, selectedPageIndex, targetingFlagFilters } = useValues(surveyLogic)
     const { setSelectedPageIndex } = useActions(surveyLogic)
+
+    const isExternalSurvey = survey.type === SurveyType.ExternalSurvey
+
     const { surveyUsesLimit, surveyUsesAdaptiveLimit } = useValues(surveyLogic)
     return (
         <div className="flex gap-4">
             <dl className="flex flex-col gap-4 flex-1 overflow-hidden">
-                <SurveyOption label="Display mode">{SURVEY_TYPE_LABEL_MAP[survey.type]}</SurveyOption>
+                <SurveyOption label="Display mode">
+                    <div className="flex flex-col">
+                        <div className="flex flex-row items-center gap-2">
+                            {SURVEY_TYPE_LABEL_MAP[survey.type]}
+                            {isExternalSurvey && <CopySurveyLink surveyId={survey.id} className="w-fit" />}
+                        </div>
+                        {isExternalSurvey && (
+                            <span>
+                                Responses are anonymous by default. To identify respondents, add the{' '}
+                                <code className="bg-surface-tertiary px-1 rounded">?distinct_id=user123</code> to the
+                                URL.{' '}
+                                <Link
+                                    to="https://posthog.com/docs/surveys/creating-surveys#identifying-respondents-on-hosted-surveys"
+                                    target="_blank"
+                                >
+                                    Check more details in the documentation
+                                </Link>
+                                .
+                            </span>
+                        )}
+                    </div>
+                </SurveyOption>
                 <SurveyOption label={pluralize(survey.questions.length, 'Question', 'Questions', false)}>
                     {survey.questions.map((q, idx) => {
                         return (

@@ -18,6 +18,8 @@ import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/column
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { getAppContext } from 'lib/utils/getAppContext'
@@ -36,6 +38,7 @@ import {
     AnyPropertyFilter,
     AvailableFeature,
     BaseMathType,
+    FeatureFlagEvaluationRuntime,
     FeatureFlagFilters,
     FeatureFlagType,
 } from '~/types'
@@ -195,6 +198,29 @@ export function OverViewTab({
                 )
             },
         },
+        ...(enabledFeaturesLogic.values.featureFlags?.[FEATURE_FLAGS.FLAG_EVALUATION_RUNTIMES]
+            ? [
+                  {
+                      title: 'Runtime',
+                      dataIndex: 'evaluation_runtime' as keyof FeatureFlagType,
+                      width: 120,
+                      render: function RenderFlagRuntime(_: any, featureFlag: FeatureFlagType) {
+                          const runtime = featureFlag.evaluation_runtime || FeatureFlagEvaluationRuntime.ALL
+                          return (
+                              <LemonTag type="default" className="uppercase">
+                                  {runtime === FeatureFlagEvaluationRuntime.ALL
+                                      ? 'All'
+                                      : runtime === FeatureFlagEvaluationRuntime.CLIENT
+                                        ? 'Client'
+                                        : runtime === FeatureFlagEvaluationRuntime.SERVER
+                                          ? 'Server'
+                                          : 'All'}
+                              </LemonTag>
+                          )
+                      },
+                  },
+              ]
+            : []),
         {
             width: 0,
             render: function Render(_, featureFlag: FeatureFlagType) {
@@ -280,6 +306,19 @@ export function OverViewTab({
                                     Try out in Insights
                                 </LemonButton>
 
+                                <LemonButton
+                                    onClick={() => {
+                                        if (featureFlag.id) {
+                                            featureFlagLogic({ id: featureFlag.id }).mount()
+                                            featureFlagLogic({ id: featureFlag.id }).actions.createSurvey()
+                                        }
+                                    }}
+                                    data-attr="create-survey"
+                                    fullWidth
+                                >
+                                    Create survey
+                                </LemonButton>
+
                                 <LemonDivider />
 
                                 {featureFlag.id && (
@@ -301,10 +340,12 @@ export function OverViewTab({
                                             !featureFlag.can_edit
                                                 ? "You have only 'View' access for this feature flag. To make changes, please contact the flag's creator."
                                                 : (featureFlag.features?.length || 0) > 0
-                                                ? 'This feature flag is in use with an early access feature. Delete the early access feature to delete this flag'
-                                                : (featureFlag.experiment_set?.length || 0) > 0
-                                                ? 'This feature flag is linked to an experiment. Delete the experiment to delete this flag'
-                                                : null
+                                                  ? 'This feature flag is in use with an early access feature. Delete the early access feature to delete this flag'
+                                                  : (featureFlag.experiment_set?.length || 0) > 0
+                                                    ? 'This feature flag is linked to an experiment. Delete the experiment to delete this flag'
+                                                    : (featureFlag.surveys?.length || 0) > 0
+                                                      ? 'This feature flag is linked to a survey. Delete the survey to delete this flag'
+                                                      : null
                                         }
                                         fullWidth
                                     >
@@ -369,13 +410,13 @@ export function OverViewTab({
                     dropdownMatchSelectWidth={false}
                     size="small"
                     onChange={(status) => {
+                        const { active, ...restFilters } = filters || {}
                         if (status === 'all') {
-                            if (filters) {
-                                const { active, ...restFilters } = filters
-                                setFeatureFlagsFilters({ ...restFilters, page: 1 }, true)
-                            }
+                            setFeatureFlagsFilters({ ...restFilters, page: 1 }, true)
+                        } else if (status === 'STALE') {
+                            setFeatureFlagsFilters({ ...restFilters, active: 'STALE', page: 1 }, true)
                         } else {
-                            setFeatureFlagsFilters({ active: status, page: 1 })
+                            setFeatureFlagsFilters({ ...restFilters, active: status, page: 1 }, true)
                         }
                     }}
                     options={[
@@ -385,6 +426,11 @@ export function OverViewTab({
                             label: 'Disabled',
                             value: 'false',
                             'data-attr': 'feature-flag-select-status-disabled',
+                        },
+                        {
+                            label: 'Stale',
+                            value: 'STALE',
+                            'data-attr': 'feature-flag-select-status-stale',
                         },
                     ]}
                     value={filters.active ?? 'all'}
@@ -408,6 +454,36 @@ export function OverViewTab({
                     }}
                     data-attr="feature-flag-select-created-by"
                 />
+                {enabledFeaturesLogic.values.featureFlags?.[FEATURE_FLAGS.FLAG_EVALUATION_RUNTIMES] && (
+                    <>
+                        <span className="ml-1">
+                            <b>Runtime</b>
+                        </span>
+                        <LemonSelect
+                            dropdownMatchSelectWidth={false}
+                            size="small"
+                            onChange={(runtime) => {
+                                const { evaluation_runtime, ...restFilters } = filters || {}
+                                if (runtime === 'any') {
+                                    setFeatureFlagsFilters({ ...restFilters, page: 1 }, true)
+                                } else {
+                                    setFeatureFlagsFilters(
+                                        { ...restFilters, evaluation_runtime: runtime, page: 1 },
+                                        true
+                                    )
+                                }
+                            }}
+                            options={[
+                                { label: 'Any', value: 'any', 'data-attr': 'feature-flag-select-runtime-any' },
+                                { label: 'All', value: FeatureFlagEvaluationRuntime.ALL },
+                                { label: 'Client', value: FeatureFlagEvaluationRuntime.CLIENT },
+                                { label: 'Server', value: FeatureFlagEvaluationRuntime.SERVER },
+                            ]}
+                            value={filters.evaluation_runtime ?? 'any'}
+                            data-attr="feature-flag-select-runtime"
+                        />
+                    </>
+                )}
             </div>
         </div>
     )

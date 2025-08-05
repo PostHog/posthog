@@ -38,8 +38,8 @@ export const getTierDescription = (
             ? `First ${summarizeUsage(tiers[i].up_to)} ${product.unit}s / ${interval}`
             : `All ${product.unit}s`
         : tiers[i].up_to
-        ? `${summarizeUsage(tiers?.[i - 1].up_to || null)} - ${summarizeUsage(tiers[i].up_to)}`
-        : `> ${summarizeUsage(tiers?.[i - 1].up_to || null)}`
+          ? `${summarizeUsage(tiers?.[i - 1].up_to || null)} - ${summarizeUsage(tiers[i].up_to)}`
+          : `> ${summarizeUsage(tiers?.[i - 1].up_to || null)}`
 }
 
 export const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Element | null => {
@@ -337,7 +337,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
 
                     {product.price_description ? (
                         <LemonBanner type="info">
-                            <span dangerouslySetInnerHTML={{ __html: product.price_description }} />
+                            <span>{product.price_description}</span>
                         </LemonBanner>
                     ) : null}
 

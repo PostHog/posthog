@@ -14,7 +14,7 @@ export function CampaignMetrics({ id }: CampaignMetricsLogicProps): JSX.Element 
 
     useEffect(() => {
         loadMetricsByKind()
-    }, [id])
+    }, [id]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     return (
         <BindLogic logic={campaignMetricsLogic} props={{ id }}>

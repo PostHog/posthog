@@ -33,7 +33,7 @@ export const deserializeCanvasArg = (
             }
             if (arg.rr_type === 'ImageBitmap' && 'args' in arg) {
                 const args = await deserializeCanvasArg(imageMap, ctx, preload)(arg.args)
-                // eslint-disable-next-line prefer-spread
+                // oxlint-disable-next-line prefer-spread
                 return await createImageBitmap.apply(null, args)
             }
             if ('index' in arg) {
