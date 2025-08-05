@@ -47,7 +47,7 @@ export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
     protected cassandra: CassandraClient | null
     protected behavioralCounterRepository: BehavioralCounterRepository | null
     private filterHashCache = new Map<string, string>()
-    private personPerformedEventsQueue: CdpPersonPerformedEvent[] = []
+    protected personPerformedEventsQueue: CdpPersonPerformedEvent[] = []
 
     constructor(hub: Hub, topic: string = KAFKA_EVENTS_JSON, groupId: string = 'cdp-behavioural-events-consumer') {
         super(hub)
@@ -96,7 +96,7 @@ export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
         })
     }
 
-    private async processEvent(event: BehavioralEvent, counterUpdates: CounterUpdate[]): Promise<number> {
+    protected async processEvent(event: BehavioralEvent, counterUpdates: CounterUpdate[]): Promise<number> {
         try {
             const actions = await this.loadActionsForTeam(event.teamId)
 
@@ -203,7 +203,7 @@ export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
         return hash
     }
 
-    private async publishPersonPerformedEvents(): Promise<void> {
+    protected async publishPersonPerformedEvents(): Promise<void> {
         if (!this.kafkaProducer || this.personPerformedEventsQueue.length === 0) {
             return
         }
@@ -216,12 +216,14 @@ export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
             }))
 
             await this.kafkaProducer.queueMessages({ topic: KAFKA_CDP_PERSON_PERFORMED_EVENT, messages })
+            // Only clear queue on successful publish
             this.personPerformedEventsQueue.length = 0
         } catch (error) {
             logger.error('Error publishing person performed events', {
                 error,
                 queueLength: this.personPerformedEventsQueue.length,
             })
+            // Don't clear queue on error - messages will be retried with next batch
         }
     }
 
