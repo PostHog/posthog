@@ -47,6 +47,7 @@ export const KAFKA_LOG_ENTRIES = `${prefix}log_entries${suffix}`
 // CDP topics
 export const KAFKA_CDP_FUNCTION_OVERFLOW = `${prefix}cdp_function_overflow${suffix}`
 export const KAFKA_CDP_INTERNAL_EVENTS = `${prefix}cdp_internal_events${suffix}`
+export const KAFKA_CDP_PERSON_PERFORMED_EVENT = `${prefix}cdp_person_performed_event${suffix}`
 
 // Error tracking topics
 export const KAFKA_EXCEPTION_SYMBOLIFICATION_EVENTS = `${prefix}exception_symbolification_events${suffix}`
