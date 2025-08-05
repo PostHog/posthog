@@ -5,6 +5,7 @@ import functools
 import signal
 
 import structlog
+import uvloop
 from temporalio import workflow
 from temporalio.worker import Worker
 
@@ -205,7 +206,7 @@ class Command(BaseCommand):
             logger.info("Initiating Temporal worker shutdown")
             shutdown_task = loop.create_task(worker.shutdown())
 
-        with asyncio.Runner() as runner:
+        with asyncio.Runner(loop_factory=uvloop.new_event_loop if settings.TEMPORAL_USE_UVLOOP else None) as runner:
             if settings.TEMPORAL_USE_EXTERNAL_LOGGER is True:
                 configure_logger_async(loop=runner.get_loop())
 
