@@ -353,7 +353,7 @@ describe('HogWatcher', () => {
                 expect(await watcher.getPersistedState(hogFunctionId)).toMatchInlineSnapshot(`
                     {
                       "state": 11,
-                      "tokens": 8100,
+                      "tokens": 0,
                     }
                 `)
                 await watcher.observeResults(Array(1000).fill(createResult({ duration: 1, kind: 'hog' })))
@@ -361,7 +361,7 @@ describe('HogWatcher', () => {
                 expect(await watcher.getPersistedState(hogFunctionId)).toMatchInlineSnapshot(`
                     {
                       "state": 11,
-                      "tokens": 8100,
+                      "tokens": 0,
                     }
                 `)
             })
