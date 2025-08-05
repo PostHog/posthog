@@ -9,7 +9,7 @@ interface PizzaSurveyOverlayComponentProps {
 export const PizzaSurveyOverlayComponent = ({ closeOverlay }: PizzaSurveyOverlayComponentProps): JSX.Element => {
     const clickPollButton = (): void => {
         setTimeout(() => {
-            const button = document.getElementById('pineapple-pizza-poll-button')
+            const button = document.getElementById('hogtok-pineapple-pizza-poll-button')
             if (button) {
                 button.click()
             }

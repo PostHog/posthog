@@ -7,7 +7,7 @@ interface ExampleOverlayComponentProps {
 export const ExampleOverlayComponent = ({ closeOverlay }: ExampleOverlayComponentProps): JSX.Element => {
     return (
         <div className="flex items-center justify-center h-full bg-white p-8">
-            <div className="text-center gap-2">
+            <div className="text-center flex flex-col gap-2">
                 <h2 className="text-2xl font-bold mb-4">Custom Component Placeholder</h2>
                 <p className="text-gray-600 mb-6">Add your custom component code here</p>
 
