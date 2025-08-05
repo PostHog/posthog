@@ -33,8 +33,10 @@ elif [[ "$*" == *"--enable-tracing"* ]]; then
     export OTEL_SDK_DISABLED="false"
     export OTEL_TRACES_SAMPLER="parentbased_traceidratio"
     export OTEL_TRACES_SAMPLER_ARG="1"
+    echo "👉 Tracing enabled, see http://localhost:16686 for Jaeger UI"
 else
     export OTEL_SDK_DISABLED="true"
+    echo "👉 To start with tracing enabled: bin/start --enable-tracing"
 fi
 
 if [ -f .env ]; then
@@ -58,6 +60,8 @@ fi
 # Use minimal config if --minimal flag is passed
 if [[ "$*" == *"--minimal"* ]]; then
     exec mprocs --config bin/mprocs-minimal.yaml
+elif [[ "$*" == *"--vite"* ]]; then
+    exec mprocs --config bin/mprocs-vite.yaml
 else
     exec mprocs --config bin/mprocs.yaml
 fi

@@ -15,7 +15,7 @@ from posthog.hogql_queries.ai.vector_search_query_runner import (
 )
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Action
-from posthog.schema import MaxActionContext, CachedVectorSearchQueryResponse, TeamTaxonomyQuery, VectorSearchQuery
+from posthog.schema import CachedVectorSearchQueryResponse, MaxActionContext, TeamTaxonomyQuery, VectorSearchQuery
 
 from ..base import AssistantNode
 
@@ -47,7 +47,9 @@ class InsightRagContextNode(AssistantNode):
             embeddings_client = get_azure_embeddings_client()
             vector = embed_search_query(embeddings_client, plan)
         except (AzureHttpResponseError, ValueError) as e:
-            posthoganalytics.capture_exception(e, distinct_id=distinct_id, properties={"tag": "max"})
+            posthoganalytics.capture_exception(
+                e, distinct_id=self._get_user_distinct_id(config), properties=self._get_debug_props(config)
+            )
             if len(actions_in_context) == 0:
                 return None
             else:

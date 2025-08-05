@@ -3,7 +3,7 @@ import { IconArrowRight, IconStopFilled, IconWrench } from '@posthog/icons'
 import { LemonButton, LemonTextArea, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { ReactNode } from 'react'
+import { ReactNode, useState, useEffect } from 'react'
 import React from 'react'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 
@@ -13,6 +13,8 @@ import { maxGlobalLogic } from '../maxGlobalLogic'
 import { maxLogic } from '../maxLogic'
 import { maxThreadLogic } from '../maxThreadLogic'
 import { ContextDisplay } from '../Context'
+import { MAX_SLASH_COMMANDS, SlashCommandAutocomplete } from './SlashCommandAutocomplete'
+import posthog from 'posthog-js'
 
 interface QuestionInputProps {
     isFloating?: boolean
@@ -49,6 +51,17 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
     const { setQuestion } = useActions(maxLogic)
     const { threadLoading, inputDisabled, submissionDisabledReason } = useValues(maxThreadLogic)
     const { askMax, stopGeneration, completeThreadGeneration } = useActions(maxThreadLogic)
+
+    const [showAutocomplete, setShowAutocomplete] = useState(false)
+
+    // Update autocomplete visibility when question changes
+    useEffect(() => {
+        const isSlashCommand = question[0] === '/'
+        if (isSlashCommand && !showAutocomplete) {
+            posthog.capture('Max slash command autocomplete shown')
+        }
+        setShowAutocomplete(isSlashCommand)
+    }, [question, showAutocomplete])
 
     return (
         <div
@@ -92,24 +105,45 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                         ) : (
                             <ContextDisplay size={contextDisplaySize} />
                         )}
-                        <LemonTextArea
-                            ref={textAreaRef}
-                            value={question}
-                            onChange={(value) => setQuestion(value)}
-                            placeholder={
-                                threadLoading ? 'Thinking…' : isFloating ? placeholder || 'Ask follow-up' : 'Ask away'
-                            }
-                            onPressEnter={() => {
-                                if (question && !submissionDisabledReason && !threadLoading) {
-                                    onSubmit?.()
-                                    askMax(question)
+
+                        <SlashCommandAutocomplete
+                            onActivate={(command) => {
+                                if (command.arg) {
+                                    setQuestion(command.name + ' ') // Rest must be filled in by the user
+                                } else {
+                                    askMax(command.name)
                                 }
                             }}
-                            disabled={inputDisabled}
-                            minRows={1}
-                            maxRows={10}
-                            className="!border-none !bg-transparent min-h-0 py-2.5 pl-2.5 pr-12"
-                        />
+                            onSelect={(command) =>
+                                command.arg ? setQuestion(command.name + ' ') : setQuestion(command.name)
+                            }
+                            visible={showAutocomplete}
+                            onClose={() => setShowAutocomplete(false)}
+                            searchText={question}
+                        >
+                            <LemonTextArea
+                                ref={textAreaRef}
+                                value={question}
+                                onChange={setQuestion}
+                                placeholder={
+                                    threadLoading
+                                        ? 'Thinking…'
+                                        : isFloating
+                                          ? placeholder || 'Ask follow-up (/ for commands)'
+                                          : 'Ask away (/ for commands)'
+                                }
+                                onPressEnter={() => {
+                                    if (question && !submissionDisabledReason && !threadLoading) {
+                                        onSubmit?.()
+                                        askMax(question)
+                                    }
+                                }}
+                                disabled={inputDisabled}
+                                minRows={1}
+                                maxRows={10}
+                                className="!border-none !bg-transparent min-h-0 py-2.5 pl-2.5 pr-12"
+                            />
+                        </SlashCommandAutocomplete>
                     </div>
                     <div
                         className={clsx('absolute flex items-center', {
@@ -154,7 +188,14 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                                         : submissionDisabledReason
                                 }
                                 size="small"
-                                icon={threadLoading ? <IconStopFilled /> : <IconArrowRight />}
+                                icon={
+                                    threadLoading ? (
+                                        <IconStopFilled />
+                                    ) : (
+                                        MAX_SLASH_COMMANDS.find((cmd) => cmd.name === question.split(' ', 1)[0])
+                                            ?.icon || <IconArrowRight />
+                                    )
+                                }
                             />
                         </AIConsentPopoverWrapper>
                     </div>

@@ -21,3 +21,21 @@ declare module '*.lottie' {
     const content: any
     export default content
 }
+
+// This fixes TS errors when importing an .lottie file with ?url suffix
+declare module '*.lottie?url' {
+    const content: string
+    export default content
+}
+
+// This fixes TS errors when importing an .json file
+declare module '*.json' {
+    const content: any
+    export default content
+}
+
+// This fixes TS errors when importing an .json file with ?url suffix
+declare module '*.json?url' {
+    const content: any
+    export default content
+}

@@ -15,9 +15,12 @@ import { groupsModel } from '~/models/groupsModel'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { DataTableNode, Node, NodeKind } from '~/queries/schema/schema-general'
 import { isDataTableNode } from '~/queries/utils'
-import { Breadcrumb, Group, GroupTypeIndex, PropertyFilterType, PropertyOperator } from '~/types'
+import { ActivityScope, Breadcrumb, Group, GroupTypeIndex, PropertyFilterType, PropertyOperator } from '~/types'
 
 import type { groupLogicType } from './groupLogicType'
+import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 function getGroupEventsQuery(groupTypeIndex: number, groupKey: string): DataTableNode {
     return {
@@ -50,7 +53,14 @@ export const groupLogic = kea<groupLogicType>([
     path((key) => ['scenes', 'groups', 'groupLogic', key]),
     connect(() => ({
         actions: [groupsModel, ['createDetailDashboard']],
-        values: [teamLogic, ['currentTeamId'], groupsModel, ['groupTypes', 'aggregationLabel']],
+        values: [
+            teamLogic,
+            ['currentTeamId'],
+            groupsModel,
+            ['groupTypes', 'aggregationLabel'],
+            featureFlagLogic,
+            ['featureFlags'],
+        ],
     })),
     actions(() => ({
         setGroupData: (group: Group) => ({ group }),
@@ -193,6 +203,18 @@ export const groupLogic = kea<groupLogicType>([
                 })
 
                 return breadcrumbs
+            },
+        ],
+        [SIDE_PANEL_CONTEXT_KEY]: [
+            (s, p) => [p.groupTypeIndex, p.groupKey, s.featureFlags],
+            (groupTypeIndex, groupKey, featureFlags): SidePanelSceneContext | null => {
+                if (!featureFlags[FEATURE_FLAGS.CRM_ITERATION_ONE]) {
+                    return null
+                }
+                return {
+                    activity_scope: ActivityScope.GROUP,
+                    activity_item_id: `${groupTypeIndex}-${groupKey}`,
+                }
             },
         ],
     }),

@@ -1,7 +1,19 @@
 {
     "name": "@posthog/products-error-tracking",
     "scripts": {},
+    "dependencies": {
+        "kea": "^3.1.6",
+        "kea-forms": "^3.2.0",
+        "kea-loaders": "^3.1.1",
+        "kea-router": "^3.4.0",
+        "kea-subscriptions": "^3.0.1",
+        "posthog-js": "1.258.5"
+    },
     "peerDependencies": {
+        "@dnd-kit/core": "*",
+        "@dnd-kit/modifiers": "*",
+        "@dnd-kit/sortable": "*",
+        "@dnd-kit/utilities": "*",
         "@posthog/icons": "*",
         "@storybook/addon-actions": "*",
         "@storybook/react": "*",
@@ -12,20 +24,10 @@
         "d3": "*",
         "fast-deep-equal": "*",
         "fuse.js": "*",
-        "kea": "*",
-        "kea-forms": "*",
-        "kea-loaders": "*",
-        "kea-router": "*",
-        "kea-subscriptions": "*",
-        "posthog-js": "*",
         "react": "*",
         "react-transition-group": "*",
         "ts-pattern": "*",
-        "use-resize-observer": "*",
         "use-debounce": "*",
-        "@dnd-kit/core": "*",
-        "@dnd-kit/modifiers": "*",
-        "@dnd-kit/sortable": "*",
-        "@dnd-kit/utilities": "*"
+        "use-resize-observer": "*"
     }
 }

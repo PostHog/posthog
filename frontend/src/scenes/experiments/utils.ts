@@ -1,8 +1,8 @@
 import { getSeriesColor } from 'lib/colors'
 import { EXPERIMENT_DEFAULT_DURATION, FunnelLayout } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
+import { uuid } from 'lib/utils'
 
-import merge from 'lodash.merge'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
 import {
@@ -18,9 +18,8 @@ import {
     ExperimentMetricType,
     ExperimentMetricTypeProps,
     ExperimentTrendsQuery,
-    type FunnelsQuery,
     NodeKind,
-    type TrendsQuery,
+    TrendsQuery,
 } from '~/queries/schema/schema-general'
 import { isFunnelsQuery, isNodeWithSource, isTrendsQuery, isValidQueryForExperiment } from '~/queries/utils'
 import {
@@ -361,6 +360,7 @@ export function getDefaultFunnelsMetric(): ExperimentFunnelsQuery {
 export function getDefaultFunnelMetric(): ExperimentMetric {
     return {
         kind: NodeKind.ExperimentMetric,
+        uuid: uuid(),
         metric_type: ExperimentMetricType.FUNNEL,
         series: [
             {
@@ -378,6 +378,7 @@ export function getDefaultFunnelMetric(): ExperimentMetric {
 export function getDefaultCountMetric(): ExperimentMetric {
     return {
         kind: NodeKind.ExperimentMetric,
+        uuid: uuid(),
         metric_type: ExperimentMetricType.MEAN,
         source: {
             kind: NodeKind.EventsNode,
@@ -399,9 +400,7 @@ export function getDefaultExperimentMetric(metricType: ExperimentMetricType): Ex
     }
 }
 
-export function getExperimentMetricFromInsight(
-    insight: QueryBasedInsightModel | null
-): ExperimentTrendsQuery | ExperimentFunnelsQuery | undefined {
+export function getExperimentMetricFromInsight(insight: QueryBasedInsightModel | null): ExperimentMetric | undefined {
     if (!insight?.query || !isValidQueryForExperiment(insight?.query) || !isNodeWithSource(insight.query)) {
         return undefined
     }
@@ -409,41 +408,45 @@ export function getExperimentMetricFromInsight(
     const metricName = (insight?.name || insight?.derived_name) ?? undefined
 
     if (isFunnelsQuery(insight.query.source)) {
-        const defaultFunnelsQuery = getDefaultFunnelsMetric().funnels_query
-
-        const funnelsQuery: FunnelsQuery = merge(defaultFunnelsQuery, {
-            series: insight.query.source.series,
-            funnelsFilter: {
-                funnelAggregateByHogQL: insight.query.source.funnelsFilter?.funnelAggregateByHogQL,
-                funnelWindowInterval: insight.query.source.funnelsFilter?.funnelWindowInterval,
-                funnelWindowIntervalUnit: insight.query.source.funnelsFilter?.funnelWindowIntervalUnit,
-                layout: insight.query.source.funnelsFilter?.layout,
-                breakdownAttributionType: insight.query.source.funnelsFilter?.breakdownAttributionType,
-                breakdownAttributionValue: insight.query.source.funnelsFilter?.breakdownAttributionValue,
-                funnelOrderType: insight.query.source.funnelsFilter?.funnelOrderType,
-            },
-            filterTestAccounts: insight.query.source.filterTestAccounts,
-        })
-
         return {
-            kind: NodeKind.ExperimentFunnelsQuery,
-            funnels_query: funnelsQuery,
+            kind: NodeKind.ExperimentMetric,
+            uuid: uuid(),
+            metric_type: ExperimentMetricType.FUNNEL,
             name: metricName,
+            series: insight.query.source.series.map((series) => ({
+                ...series,
+                // Ensure we have proper node structure
+                kind: series.kind || NodeKind.EventsNode,
+                event: series.kind === NodeKind.EventsNode ? series.event : undefined,
+                name: series.name || (series.kind === NodeKind.EventsNode ? series.event : undefined),
+            })) as ExperimentFunnelMetricStep[],
         }
     }
 
+    /**
+     * TODO: add support for trends queries. IsValidQueryForExperiment
+     * has a isFunnelsQuery check, so this is never called. Trend queries
+     * get undefined.
+     */
     if (isTrendsQuery(insight.query.source)) {
-        const defaultTrendsQuery = getDefaultTrendsMetric().count_query
-
-        const trendsQuery: TrendsQuery = merge(defaultTrendsQuery, {
-            series: insight.query.source.series,
-            filterTestAccounts: insight.query.source.filterTestAccounts,
-        })
+        // For trends queries, convert the first series to a mean metric
+        const firstSeries = insight.query.source.series?.[0]
+        if (!firstSeries) {
+            return undefined
+        }
 
         return {
-            kind: NodeKind.ExperimentTrendsQuery,
-            count_query: trendsQuery,
+            kind: NodeKind.ExperimentMetric,
+            uuid: uuid(),
+            metric_type: ExperimentMetricType.MEAN,
             name: metricName,
+            source: {
+                ...firstSeries,
+                kind: NodeKind.EventsNode,
+                event: firstSeries.name,
+                name: firstSeries.name,
+                math: firstSeries.math || ExperimentMetricMathType.TotalCount,
+            },
         }
     }
 
@@ -519,7 +522,7 @@ export function filterToMetricConfig(
                         event: event.id,
                         properties: event.properties,
                         order: event.order,
-                    } as EventsNode & { order: number })
+                    }) as EventsNode & { order: number }
             ) || []
 
         const actionSteps =
@@ -531,7 +534,7 @@ export function filterToMetricConfig(
                         name: action.name,
                         properties: action.properties,
                         order: action.order,
-                    } as ActionsNode & { order: number })
+                    }) as ActionsNode & { order: number }
             ) || []
 
         const combinedSteps = [...eventSteps, ...actionSteps].sort((a, b) => a.order - b.order)
@@ -675,3 +678,96 @@ export const isLegacyExperiment = ({ metrics, metrics_secondary, saved_metrics }
 }
 
 export const isLegacySharedMetric = ({ query }: SharedMetric): boolean => isLegacyExperimentQuery(query)
+
+/**
+ * Builds a TrendsQuery for counting events in the last 14 days for experiment metric preview
+ */
+export function getEventCountQuery(metric: ExperimentMetric, filterTestAccounts: boolean): TrendsQuery | null {
+    let series: AnyEntityNode[] = []
+
+    if (metric.metric_type === ExperimentMetricType.MEAN) {
+        const source = metric.source
+        if (source.kind === NodeKind.EventsNode) {
+            series = [
+                {
+                    kind: NodeKind.EventsNode,
+                    name: source.event || undefined,
+                    event: source.event || undefined,
+                    math: ExperimentMetricMathType.TotalCount,
+                    ...(source.properties && source.properties.length > 0 && { properties: source.properties }),
+                },
+            ]
+        } else if (source.kind === NodeKind.ActionsNode) {
+            series = [
+                {
+                    kind: NodeKind.ActionsNode,
+                    id: source.id,
+                    name: source.name,
+                    math: ExperimentMetricMathType.TotalCount,
+                    ...(source.properties && source.properties.length > 0 && { properties: source.properties }),
+                },
+            ]
+        } else if (source.kind === NodeKind.ExperimentDataWarehouseNode) {
+            series = [
+                {
+                    kind: NodeKind.DataWarehouseNode,
+                    id: source.table_name,
+                    id_field: source.data_warehouse_join_key,
+                    table_name: source.table_name,
+                    timestamp_field: source.timestamp_field,
+                    distinct_id_field: source.events_join_key,
+                    name: source.name,
+                    math: ExperimentMetricMathType.TotalCount,
+                    ...(source.properties && source.properties.length > 0 && { properties: source.properties }),
+                },
+            ]
+        }
+    } else if (metric.metric_type === ExperimentMetricType.FUNNEL) {
+        const lastStep = metric.series[metric.series.length - 1]
+        if (lastStep) {
+            if (lastStep.kind === NodeKind.EventsNode) {
+                series = [
+                    {
+                        kind: NodeKind.EventsNode,
+                        name: lastStep.event || undefined,
+                        event: lastStep.event,
+                        math: ExperimentMetricMathType.TotalCount,
+                        ...(lastStep.properties &&
+                            lastStep.properties.length > 0 && { properties: lastStep.properties }),
+                    },
+                ]
+            } else if (lastStep.kind === NodeKind.ActionsNode) {
+                series = [
+                    {
+                        kind: NodeKind.ActionsNode,
+                        id: lastStep.id,
+                        name: lastStep.name,
+                        math: ExperimentMetricMathType.TotalCount,
+                        ...(lastStep.properties &&
+                            lastStep.properties.length > 0 && { properties: lastStep.properties }),
+                    },
+                ]
+            }
+        }
+    }
+
+    if (series.length === 0) {
+        return null
+    }
+
+    return {
+        kind: NodeKind.TrendsQuery,
+        series,
+        trendsFilter: {
+            formulaNodes: [],
+            display: ChartDisplayType.BoldNumber,
+        },
+        dateRange: {
+            date_from: '-14d',
+            date_to: null,
+            explicitDate: false,
+        },
+        interval: 'day',
+        filterTestAccounts,
+    }
+}

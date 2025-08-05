@@ -37,6 +37,7 @@ jest.mock('./metrics', () => ({
 describe('BatchWritingPersonStore', () => {
     let db: DB
     let personStore: BatchWritingPersonsStore
+    let mockRepo: any
     let teamId: TeamId
     let person: InternalPerson
 
@@ -64,32 +65,18 @@ describe('BatchWritingPersonStore', () => {
                     return await transaction(transaction)
                 }),
             },
-            fetchPerson: jest.fn().mockImplementation(() => {
-                return Promise.resolve(person)
-            }),
-            createPerson: jest.fn().mockImplementation(() => {
-                dbCounter++
-                const personCopy = { ...person, version: dbCounter }
-                return Promise.resolve([personCopy, []])
-            }),
             updatePerson: jest.fn().mockImplementation(() => {
                 dbCounter++
                 const personCopy = { ...person, version: dbCounter }
                 return Promise.resolve([personCopy, []])
-            }),
-            updatePersonAssertVersion: jest.fn().mockImplementation(() => {
-                dbCounter++
-                return Promise.resolve(dbCounter) // Return new version number
-            }),
-            deletePerson: jest.fn().mockImplementation(() => {
-                return Promise.resolve([])
             }),
             moveDistinctIds: jest.fn().mockImplementation(() => {
                 return Promise.resolve([])
             }),
         } as unknown as DB
 
-        personStore = new BatchWritingPersonsStore(db)
+        mockRepo = createMockRepository()
+        personStore = new BatchWritingPersonsStore(mockRepo, db.kafkaProducer)
     })
 
     afterEach(() => {
@@ -97,6 +84,39 @@ describe('BatchWritingPersonStore', () => {
     })
 
     const getBatchStoreForBatch = () => personStore.forBatch() as BatchWritingPersonsStoreForBatch
+
+    const createMockRepository = () => {
+        const mockRepo = {
+            fetchPerson: jest.fn().mockResolvedValue(person),
+            createPerson: jest.fn().mockResolvedValue([person, []]),
+            updatePerson: jest.fn().mockResolvedValue([person, [], false]),
+            updatePersonAssertVersion: jest.fn().mockResolvedValue([person.version + 1, []]),
+            deletePerson: jest.fn().mockResolvedValue([]),
+            addDistinctId: jest.fn().mockResolvedValue([]),
+            moveDistinctIds: jest.fn().mockResolvedValue({ success: true, messages: [], distinctIdsMoved: [] }),
+            addPersonlessDistinctId: jest.fn().mockResolvedValue(true),
+            addPersonlessDistinctIdForMerge: jest.fn().mockResolvedValue(true),
+            personPropertiesSize: jest.fn().mockResolvedValue(1024),
+            updateCohortsAndFeatureFlagsForMerge: jest.fn().mockResolvedValue(undefined),
+            inTransaction: jest.fn().mockImplementation(async (description, transaction) => {
+                return await transaction(transaction)
+            }),
+        }
+        return mockRepo
+    }
+
+    const createMockTransaction = () => {
+        const mockTransaction = {
+            createPerson: jest.fn().mockResolvedValue([person, []]),
+            updatePerson: jest.fn().mockResolvedValue([person, [], false]),
+            deletePerson: jest.fn().mockResolvedValue([]),
+            addDistinctId: jest.fn().mockResolvedValue([]),
+            moveDistinctIds: jest.fn().mockResolvedValue({ success: true, messages: [] }),
+            addPersonlessDistinctIdForMerge: jest.fn().mockResolvedValue(true),
+            updateCohortsAndFeatureFlagsForMerge: jest.fn().mockResolvedValue(undefined),
+        }
+        return mockTransaction
+    }
 
     it('should update person in cache', async () => {
         const personStoreForBatch = getBatchStoreForBatch()
@@ -162,18 +182,19 @@ describe('BatchWritingPersonStore', () => {
 
         await personStoreForBatch.flush()
 
-        expect(db.updatePerson).toHaveBeenCalledWith(
+        expect(mockRepo.updatePerson).toHaveBeenCalledWith(
             expect.objectContaining({
                 properties: { test: 'test' },
             }),
             expect.anything(),
-            undefined,
             'updatePersonNoAssert'
         )
     })
 
     it('should remove person from caches when deleted', async () => {
-        const personStoreForBatch = getBatchStoreForBatch()
+        const mockRepo = createMockRepository()
+        const testPersonStore = new BatchWritingPersonsStore(mockRepo, db.kafkaProducer)
+        const personStoreForBatch = testPersonStore.forBatch() as BatchWritingPersonsStoreForBatch
 
         // Add person to cache using the proper PersonUpdate structure
         let updateCache = personStoreForBatch.getUpdateCache()
@@ -189,6 +210,13 @@ describe('BatchWritingPersonStore', () => {
 
         const response = await personStoreForBatch.deletePerson(person, 'test')
         expect(response).toEqual([])
+        // The cached person update should be passed to deletePerson
+        expect(mockRepo.deletePerson).toHaveBeenCalledWith(
+            expect.objectContaining({
+                ...person,
+                properties: { new_value: 'new_value' },
+            })
+        )
 
         // Validate cache
         updateCache = personStoreForBatch.getUpdateCache()
@@ -212,17 +240,19 @@ describe('BatchWritingPersonStore', () => {
         // Flush should call updatePerson (NO_ASSERT default mode)
         await personStoreForBatch.flush()
 
-        expect(db.updatePerson).toHaveBeenCalledTimes(1)
-        expect(db.updatePersonAssertVersion).not.toHaveBeenCalled()
+        expect(mockRepo.updatePerson).toHaveBeenCalledTimes(1)
+        expect(mockRepo.updatePersonAssertVersion).not.toHaveBeenCalled()
     })
 
     it('should fallback to direct update when optimistic update fails', async () => {
         // Use ASSERT_VERSION mode for this test since it tests optimistic behavior
-        const assertVersionStore = new BatchWritingPersonsStore(db, { dbWriteMode: 'ASSERT_VERSION' })
+        const assertVersionStore = new BatchWritingPersonsStore(mockRepo, db.kafkaProducer, {
+            dbWriteMode: 'ASSERT_VERSION',
+        })
         const personStoreForBatch = assertVersionStore.forBatch()
 
         // Mock optimistic update to fail (version mismatch)
-        db.updatePersonAssertVersion = jest.fn().mockResolvedValue([undefined, []])
+        mockRepo.updatePersonAssertVersion = jest.fn().mockResolvedValue([undefined, []])
 
         // Add a person update to cache
         await personStoreForBatch.updatePersonWithPropertiesDiffForUpdate(
@@ -236,9 +266,9 @@ describe('BatchWritingPersonStore', () => {
         // Flush should retry optimistically then fallback to direct update
         await personStoreForBatch.flush()
 
-        expect(db.updatePersonAssertVersion).toHaveBeenCalled()
-        expect(db.fetchPerson).toHaveBeenCalled() // Called during conflict resolution
-        expect(db.updatePerson).toHaveBeenCalled() // Fallback
+        expect(mockRepo.updatePersonAssertVersion).toHaveBeenCalled()
+        expect(mockRepo.fetchPerson).toHaveBeenCalled() // Called during conflict resolution
+        expect(mockRepo.updatePerson).toHaveBeenCalled() // Fallback
     })
 
     it('should merge multiple updates for same person', async () => {
@@ -290,26 +320,30 @@ describe('BatchWritingPersonStore', () => {
         })
 
         it('should handle cache hits for both checking and updating', async () => {
-            const personStoreForBatch = personStore.forBatch()
+            const mockRepo = createMockRepository()
+            const testPersonStore = new BatchWritingPersonsStore(mockRepo, db.kafkaProducer)
+            const personStoreForBatch = testPersonStore.forBatch()
 
             // First fetch should hit the database
             await personStoreForBatch.fetchForChecking(teamId, 'test-distinct')
-            expect(db.fetchPerson).toHaveBeenCalledTimes(1)
+            expect(mockRepo.fetchPerson).toHaveBeenCalledTimes(1)
 
             // Second fetch should hit the cache
             await personStoreForBatch.fetchForChecking(teamId, 'test-distinct')
-            expect(db.fetchPerson).toHaveBeenCalledTimes(1) // No additional call
+            expect(mockRepo.fetchPerson).toHaveBeenCalledTimes(1) // No additional call
 
             // Similar for update cache
             await personStoreForBatch.fetchForUpdate(teamId, 'test-distinct2')
-            expect(db.fetchPerson).toHaveBeenCalledTimes(2)
+            expect(mockRepo.fetchPerson).toHaveBeenCalledTimes(2)
 
             await personStoreForBatch.fetchForUpdate(teamId, 'test-distinct2')
-            expect(db.fetchPerson).toHaveBeenCalledTimes(2) // No additional call
+            expect(mockRepo.fetchPerson).toHaveBeenCalledTimes(2) // No additional call
         })
 
         it('should prefer update cache over check cache in fetchForChecking', async () => {
-            const personStoreForBatch = personStore.forBatch()
+            const mockRepo = createMockRepository()
+            const testPersonStore = new BatchWritingPersonsStore(mockRepo, db.kafkaProducer)
+            const personStoreForBatch = testPersonStore.forBatch()
 
             // First populate update cache
             await personStoreForBatch.fetchForUpdate(teamId, 'test-distinct')
@@ -320,12 +354,14 @@ describe('BatchWritingPersonStore', () => {
             // fetchForChecking should use the cached PersonUpdate instead of hitting DB
             const result = await personStoreForBatch.fetchForChecking(teamId, 'test-distinct')
             expect(result).toBeDefined()
-            expect(db.fetchPerson).not.toHaveBeenCalled()
+            expect(mockRepo.fetchPerson).not.toHaveBeenCalled()
         })
 
         it('should handle null results from database', async () => {
-            const personStoreForBatch = personStore.forBatch()
-            db.fetchPerson = jest.fn().mockResolvedValue(undefined)
+            const mockRepo = createMockRepository()
+            mockRepo.fetchPerson = jest.fn().mockResolvedValue(undefined)
+            const testPersonStore = new BatchWritingPersonsStore(mockRepo, db.kafkaProducer)
+            const personStoreForBatch = testPersonStore.forBatch()
 
             const checkResult = await personStoreForBatch.fetchForChecking(teamId, 'nonexistent')
             expect(checkResult).toBeNull()
@@ -337,12 +373,15 @@ describe('BatchWritingPersonStore', () => {
 
     it('should retry optimistic updates with exponential backoff', async () => {
         // Use ASSERT_VERSION mode for this test since it tests optimistic behavior
-        const assertVersionStore = new BatchWritingPersonsStore(db, { dbWriteMode: 'ASSERT_VERSION' })
+        const testMockRepo = createMockRepository()
+        const assertVersionStore = new BatchWritingPersonsStore(testMockRepo, db.kafkaProducer, {
+            dbWriteMode: 'ASSERT_VERSION',
+        })
         const personStoreForBatch = assertVersionStore.forBatch()
         let callCount = 0
 
         // Mock to fail first few times, then succeed
-        db.updatePersonAssertVersion = jest.fn().mockImplementation(() => {
+        testMockRepo.updatePersonAssertVersion = jest.fn().mockImplementation(() => {
             callCount++
             if (callCount < 3) {
                 return Promise.resolve([undefined, []]) // version mismatch
@@ -359,18 +398,20 @@ describe('BatchWritingPersonStore', () => {
         )
         await personStoreForBatch.flush()
 
-        expect(db.updatePersonAssertVersion).toHaveBeenCalledTimes(3)
-        expect(db.fetchPerson).toHaveBeenCalledTimes(2) // Called for each conflict
-        expect(db.updatePerson).not.toHaveBeenCalled() // Shouldn't fallback if retries succeed
+        expect(testMockRepo.updatePersonAssertVersion).toHaveBeenCalledTimes(3)
+        expect(testMockRepo.fetchPerson).toHaveBeenCalledTimes(2) // Called for each conflict
+        expect(testMockRepo.updatePerson).not.toHaveBeenCalled() // Shouldn't fallback if retries succeed
     })
 
     it('should fallback to direct update after max retries', async () => {
         // Use ASSERT_VERSION mode for this test since it tests optimistic behavior
-        const assertVersionStore = new BatchWritingPersonsStore(db, { dbWriteMode: 'ASSERT_VERSION' })
+        const assertVersionStore = new BatchWritingPersonsStore(mockRepo, db.kafkaProducer, {
+            dbWriteMode: 'ASSERT_VERSION',
+        })
         const personStoreForBatch = assertVersionStore.forBatch()
 
         // Mock to always fail optimistic updates
-        db.updatePersonAssertVersion = jest.fn().mockResolvedValue([undefined, []])
+        mockRepo.updatePersonAssertVersion = jest.fn().mockResolvedValue([undefined, []])
 
         await personStoreForBatch.updatePersonWithPropertiesDiffForUpdate(
             person,
@@ -382,13 +423,15 @@ describe('BatchWritingPersonStore', () => {
         await personStoreForBatch.flush()
 
         // Should try optimistic update multiple times based on config (1 initial + 5 retries = 6 total)
-        expect(db.updatePersonAssertVersion).toHaveBeenCalledTimes(6) // default max retries
-        expect(db.updatePerson).toHaveBeenCalledTimes(1) // fallback
+        expect(mockRepo.updatePersonAssertVersion).toHaveBeenCalledTimes(6) // default max retries
+        expect(mockRepo.updatePerson).toHaveBeenCalledTimes(1) // fallback
     })
 
     it('should merge properties during conflict resolution', async () => {
         // Use ASSERT_VERSION mode for this test since it tests optimistic behavior
-        const assertVersionStore = new BatchWritingPersonsStore(db, { dbWriteMode: 'ASSERT_VERSION' })
+        const assertVersionStore = new BatchWritingPersonsStore(mockRepo, db.kafkaProducer, {
+            dbWriteMode: 'ASSERT_VERSION',
+        })
         const personStoreForBatch = assertVersionStore.forBatch()
         const latestPerson = {
             ...person,
@@ -396,8 +439,8 @@ describe('BatchWritingPersonStore', () => {
             properties: { existing_prop: 'existing_value', shared_prop: 'old_value' },
         }
 
-        db.updatePersonAssertVersion = jest.fn().mockResolvedValue([undefined, []]) // Always fail, but we don't care about the version
-        db.fetchPerson = jest.fn().mockResolvedValue(latestPerson)
+        mockRepo.updatePersonAssertVersion = jest.fn().mockResolvedValue([undefined, []]) // Always fail, but we don't care about the version
+        mockRepo.fetchPerson = jest.fn().mockResolvedValue(latestPerson)
 
         // Update with new properties
         await personStoreForBatch.updatePersonWithPropertiesDiffForUpdate(
@@ -411,7 +454,7 @@ describe('BatchWritingPersonStore', () => {
         await personStoreForBatch.flush()
 
         // Verify the direct update was called with merged properties
-        expect(db.updatePerson).toHaveBeenCalledWith(
+        expect(mockRepo.updatePerson).toHaveBeenCalledWith(
             expect.objectContaining({
                 version: 3, // Should use latest version
             }),
@@ -422,7 +465,6 @@ describe('BatchWritingPersonStore', () => {
                     shared_prop: 'new_value',
                 },
             }),
-            undefined,
             'updatePersonNoAssert'
         )
     })
@@ -430,7 +472,7 @@ describe('BatchWritingPersonStore', () => {
     it('should handle database errors gracefully during flush', async () => {
         const personStoreForBatch = personStore.forBatch()
 
-        db.updatePerson = jest.fn().mockRejectedValue(new Error('Database connection failed'))
+        mockRepo.updatePerson = jest.fn().mockRejectedValue(new Error('Database connection failed'))
 
         await personStoreForBatch.updatePersonWithPropertiesDiffForUpdate(
             person,
@@ -453,7 +495,7 @@ describe('BatchWritingPersonStore', () => {
 
         // Mock first update to succeed, second to fail
         let callCount = 0
-        db.updatePerson = jest.fn().mockImplementation(() => {
+        mockRepo.updatePerson = jest.fn().mockImplementation(() => {
             callCount++
             if (callCount === 1) {
                 return Promise.resolve([person, []]) // success for first person
@@ -465,7 +507,9 @@ describe('BatchWritingPersonStore', () => {
     })
 
     it('should handle clearing cache for different team IDs', async () => {
-        const personStoreForBatch = getBatchStoreForBatch()
+        const mockRepo = createMockRepository()
+        const testPersonStore = new BatchWritingPersonsStore(mockRepo, db.kafkaProducer)
+        const personStoreForBatch = testPersonStore.forBatch() as BatchWritingPersonsStoreForBatch
         const person2 = { ...person, id: 'person2-id', uuid: 'person2-uuid', team_id: 2 }
 
         // Add to both caches for different teams
@@ -481,6 +525,12 @@ describe('BatchWritingPersonStore', () => {
 
         // Delete person from team 1
         await personStoreForBatch.deletePerson(person, 'test')
+        expect(mockRepo.deletePerson).toHaveBeenCalledWith(
+            expect.objectContaining({
+                ...person,
+                properties: { test: 'test' },
+            })
+        )
 
         // Only team 1 entries should be removed
         expect(updateCache.has(`${person.team_id}:${person.id}`)).toBe(false)
@@ -518,12 +568,11 @@ describe('BatchWritingPersonStore', () => {
 
         await personStoreForBatch.flush()
 
-        expect(db.updatePerson).toHaveBeenCalledWith(
+        expect(mockRepo.updatePerson).toHaveBeenCalledWith(
             expect.objectContaining({
                 properties: { null_prop: null, undefined_prop: undefined, test: 'test' },
             }),
             expect.anything(),
-            undefined,
             'updatePersonNoAssert'
         )
     })
@@ -532,7 +581,7 @@ describe('BatchWritingPersonStore', () => {
         const personStoreForBatch = personStore.forBatch()
 
         // Mock NO_ASSERT update to fail with MessageSizeTooLarge
-        db.updatePerson = jest.fn().mockRejectedValue(new MessageSizeTooLarge('test', new Error('test')))
+        mockRepo.updatePerson = jest.fn().mockRejectedValue(new MessageSizeTooLarge('test', new Error('test')))
 
         // Add a person update to cache
         await personStoreForBatch.updatePersonWithPropertiesDiffForUpdate(
@@ -546,7 +595,7 @@ describe('BatchWritingPersonStore', () => {
         // Flush should handle the error and capture warning
         await personStoreForBatch.flush()
 
-        expect(db.updatePerson).toHaveBeenCalled()
+        expect(mockRepo.updatePerson).toHaveBeenCalled()
         expect(captureIngestionWarning).toHaveBeenCalledWith(
             db.kafkaProducer,
             teamId,
@@ -561,8 +610,10 @@ describe('BatchWritingPersonStore', () => {
     describe('dbWriteMode functionality', () => {
         describe('flush with NO_ASSERT mode', () => {
             it('should call updatePersonNoAssert directly without retries', async () => {
-                const personStore = new BatchWritingPersonsStore(db, { dbWriteMode: 'NO_ASSERT' })
-                const personStoreForBatch = personStore.forBatch()
+                const testPersonStore = new BatchWritingPersonsStore(mockRepo, db.kafkaProducer, {
+                    dbWriteMode: 'NO_ASSERT',
+                })
+                const personStoreForBatch = testPersonStore.forBatch()
 
                 await personStoreForBatch.updatePersonWithPropertiesDiffForUpdate(
                     person,
@@ -573,19 +624,19 @@ describe('BatchWritingPersonStore', () => {
                 )
                 await personStoreForBatch.flush()
 
-                expect(db.updatePerson).toHaveBeenCalledTimes(1)
-                expect(db.updatePersonAssertVersion).not.toHaveBeenCalled()
+                expect(mockRepo.updatePerson).toHaveBeenCalledTimes(1)
+                expect(mockRepo.updatePersonAssertVersion).not.toHaveBeenCalled()
                 expect(db.postgres.transaction).not.toHaveBeenCalled()
             })
 
             it('should fallback with NO_ASSERT mode', async () => {
-                const personStore = new BatchWritingPersonsStore(db, {
+                const testPersonStore = new BatchWritingPersonsStore(mockRepo, db.kafkaProducer, {
                     dbWriteMode: 'NO_ASSERT',
                     maxOptimisticUpdateRetries: 5,
                 })
-                const personStoreForBatch = personStore.forBatch()
+                const personStoreForBatch = testPersonStore.forBatch()
 
-                db.updatePerson = jest.fn().mockRejectedValue(new Error('Database error'))
+                mockRepo.updatePerson = jest.fn().mockRejectedValue(new Error('Database error'))
 
                 await personStoreForBatch.updatePersonWithPropertiesDiffForUpdate(
                     person,
@@ -596,17 +647,19 @@ describe('BatchWritingPersonStore', () => {
                 )
 
                 await expect(personStoreForBatch.flush()).rejects.toThrow('Database error')
-                expect(db.updatePerson).toHaveBeenCalledTimes(6) // 6 for update (1 fallback + 5 retries)
-                expect(db.updatePersonAssertVersion).not.toHaveBeenCalled()
+                expect(mockRepo.updatePerson).toHaveBeenCalledTimes(6) // 6 for update (1 fallback + 5 retries)
+                expect(mockRepo.updatePersonAssertVersion).not.toHaveBeenCalled()
             })
         })
 
         describe('flush with ASSERT_VERSION mode', () => {
             it('should call updatePersonAssertVersion with retries', async () => {
-                const personStore = new BatchWritingPersonsStore(db, { dbWriteMode: 'ASSERT_VERSION' })
-                const personStoreForBatch = personStore.forBatch()
+                const testPersonStore = new BatchWritingPersonsStore(mockRepo, db.kafkaProducer, {
+                    dbWriteMode: 'ASSERT_VERSION',
+                })
+                const personStoreForBatch = testPersonStore.forBatch()
 
-                db.updatePersonAssertVersion = jest.fn().mockResolvedValue([5, []]) // success
+                mockRepo.updatePersonAssertVersion = jest.fn().mockResolvedValue([5, []]) // success
 
                 await personStoreForBatch.updatePersonWithPropertiesDiffForUpdate(
                     person,
@@ -617,20 +670,20 @@ describe('BatchWritingPersonStore', () => {
                 )
                 await personStoreForBatch.flush()
 
-                expect(db.updatePersonAssertVersion).toHaveBeenCalledTimes(1)
-                expect(db.updatePerson).not.toHaveBeenCalled()
+                expect(mockRepo.updatePersonAssertVersion).toHaveBeenCalledTimes(1)
+                expect(mockRepo.updatePerson).not.toHaveBeenCalled()
                 expect(db.postgres.transaction).not.toHaveBeenCalled()
             })
 
             it('should retry on version conflicts and eventually fallback', async () => {
-                const personStore = new BatchWritingPersonsStore(db, {
+                const testPersonStore = new BatchWritingPersonsStore(mockRepo, db.kafkaProducer, {
                     dbWriteMode: 'ASSERT_VERSION',
                     maxOptimisticUpdateRetries: 2,
                 })
-                const personStoreForBatch = personStore.forBatch()
+                const personStoreForBatch = testPersonStore.forBatch()
 
                 // Mock to always fail optimistic updates
-                db.updatePersonAssertVersion = jest.fn().mockResolvedValue([undefined, []])
+                mockRepo.updatePersonAssertVersion = jest.fn().mockResolvedValue([undefined, []])
 
                 await personStoreForBatch.updatePersonWithPropertiesDiffForUpdate(
                     person,
@@ -641,15 +694,17 @@ describe('BatchWritingPersonStore', () => {
                 )
                 await personStoreForBatch.flush()
 
-                expect(db.updatePersonAssertVersion).toHaveBeenCalledTimes(3) // 1 initial + 2 retries
-                expect(db.updatePerson).toHaveBeenCalledTimes(1) // fallback
+                expect(mockRepo.updatePersonAssertVersion).toHaveBeenCalledTimes(3) // 1 initial + 2 retries
+                expect(mockRepo.updatePerson).toHaveBeenCalledTimes(1) // fallback
             })
 
             it('should handle MessageSizeTooLarge in ASSERT_VERSION mode', async () => {
-                const personStore = new BatchWritingPersonsStore(db, { dbWriteMode: 'ASSERT_VERSION' })
-                const personStoreForBatch = personStore.forBatch()
+                const testPersonStore = new BatchWritingPersonsStore(mockRepo, db.kafkaProducer, {
+                    dbWriteMode: 'ASSERT_VERSION',
+                })
+                const personStoreForBatch = testPersonStore.forBatch()
 
-                db.updatePersonAssertVersion = jest
+                mockRepo.updatePersonAssertVersion = jest
                     .fn()
                     .mockRejectedValue(new MessageSizeTooLarge('test', new Error('test')))
 
@@ -662,7 +717,7 @@ describe('BatchWritingPersonStore', () => {
                 )
                 await personStoreForBatch.flush()
 
-                expect(db.updatePersonAssertVersion).toHaveBeenCalled()
+                expect(mockRepo.updatePersonAssertVersion).toHaveBeenCalled()
                 expect(captureIngestionWarning).toHaveBeenCalledWith(
                     db.kafkaProducer,
                     teamId,
@@ -672,14 +727,21 @@ describe('BatchWritingPersonStore', () => {
                         distinctId: 'test',
                     }
                 )
-                expect(db.updatePerson).not.toHaveBeenCalled() // No fallback for MessageSizeTooLarge
+                expect(mockRepo.updatePerson).not.toHaveBeenCalled() // No fallback for MessageSizeTooLarge
             })
         })
 
         describe('concurrent updates with different dbWriteModes', () => {
             it('should handle multiple updates with different modes correctly', async () => {
-                const noAssertStore = new BatchWritingPersonsStore(db, { dbWriteMode: 'NO_ASSERT' })
-                const assertVersionStore = new BatchWritingPersonsStore(db, { dbWriteMode: 'ASSERT_VERSION' })
+                const noAssertMockRepo = createMockRepository()
+                const assertVersionMockRepo = createMockRepository()
+
+                const noAssertStore = new BatchWritingPersonsStore(noAssertMockRepo, db.kafkaProducer, {
+                    dbWriteMode: 'NO_ASSERT',
+                })
+                const assertVersionStore = new BatchWritingPersonsStore(assertVersionMockRepo, db.kafkaProducer, {
+                    dbWriteMode: 'ASSERT_VERSION',
+                })
 
                 const noAssertBatch = noAssertStore.forBatch()
                 const assertVersionBatch = assertVersionStore.forBatch()
@@ -687,7 +749,7 @@ describe('BatchWritingPersonStore', () => {
                 const person2 = { ...person, id: '2', uuid: '2' }
 
                 // Mock successful updates
-                db.updatePersonAssertVersion = jest.fn().mockResolvedValue([5, []])
+                assertVersionMockRepo.updatePersonAssertVersion = jest.fn().mockResolvedValue([5, []])
 
                 await Promise.all([
                     noAssertBatch.updatePersonWithPropertiesDiffForUpdate(
@@ -708,15 +770,16 @@ describe('BatchWritingPersonStore', () => {
 
                 await Promise.all([noAssertBatch.flush(), assertVersionBatch.flush()])
 
-                expect(db.updatePerson).toHaveBeenCalledTimes(1) // NO_ASSERT mode
-                expect(db.updatePersonAssertVersion).toHaveBeenCalledTimes(1) // ASSERT_VERSION mode
+                expect(noAssertMockRepo.updatePerson).toHaveBeenCalledTimes(1) // NO_ASSERT mode
+                expect(assertVersionMockRepo.updatePersonAssertVersion).toHaveBeenCalledTimes(1) // ASSERT_VERSION mode
             })
         })
     })
 
     it('should handle concurrent updates with ASSERT_VERSION mode and preserve both properties', async () => {
         // Use ASSERT_VERSION mode for this test since it tests optimistic behavior
-        const assertVersionStore = new BatchWritingPersonsStore(db, {
+        const mockRepo = createMockRepository()
+        const assertVersionStore = new BatchWritingPersonsStore(mockRepo, db.kafkaProducer, {
             dbWriteMode: 'ASSERT_VERSION',
         })
         const personStoreForBatch = assertVersionStore.forBatch()
@@ -744,13 +807,13 @@ describe('BatchWritingPersonStore', () => {
 
         // Mock optimistic update to fail on first try, succeed on retry
         // Completely replace the mock from beforeEach
-        db.updatePersonAssertVersion = jest
+        mockRepo.updatePersonAssertVersion = jest
             .fn()
             .mockResolvedValueOnce([undefined, []]) // First call fails (version mismatch)
             .mockResolvedValueOnce([3, []]) // Second call succeeds with new version
 
         // Mock fetchPerson to return the updated person when called during conflict resolution
-        db.fetchPerson = jest.fn().mockResolvedValue(updatedByOtherPod)
+        mockRepo.fetchPerson = jest.fn().mockResolvedValue(updatedByOtherPod)
 
         // Process an event that will override one of the properties
         // We pass the initial person directly, so no initial fetch is needed
@@ -766,16 +829,16 @@ describe('BatchWritingPersonStore', () => {
         await personStoreForBatch.flush()
 
         // Verify the optimistic update was attempted (should be called twice: once initially, once on retry)
-        expect(db.updatePersonAssertVersion).toHaveBeenCalledTimes(2)
+        expect(mockRepo.updatePersonAssertVersion).toHaveBeenCalledTimes(2)
 
         // Verify fetchPerson was called once during conflict resolution
-        expect(db.fetchPerson).toHaveBeenCalledTimes(1)
+        expect(mockRepo.fetchPerson).toHaveBeenCalledTimes(1)
 
         // Since the second retry succeeds, there should be no fallback to updatePerson
-        expect(db.updatePerson).not.toHaveBeenCalled()
+        expect(mockRepo.updatePerson).not.toHaveBeenCalled()
 
         // Verify the second call to updatePersonAssertVersion had the merged properties
-        expect(db.updatePersonAssertVersion).toHaveBeenLastCalledWith(
+        expect(mockRepo.updatePersonAssertVersion).toHaveBeenLastCalledWith(
             expect.objectContaining({
                 version: 2, // Should use the latest version from the database (updatedByOtherPod has version 2)
                 properties: {
@@ -793,8 +856,6 @@ describe('BatchWritingPersonStore', () => {
     it('should consolidate updates for same person via different distinct IDs', async () => {
         // This test validates that when two distinct IDs point to the same person,
         // updates via both distinct IDs should be merged into a single person update
-        const personStoreForBatch = getBatchStoreForBatch()
-
         const distinctId1 = 'user-email@example.com'
         const distinctId2 = 'user-device-abc123'
 
@@ -807,9 +868,12 @@ describe('BatchWritingPersonStore', () => {
         }
 
         // Mock fetchPerson to return the same person for both distinct IDs
-        db.fetchPerson = jest.fn().mockImplementation(() => {
+        const mockRepo = createMockRepository()
+        mockRepo.fetchPerson = jest.fn().mockImplementation(() => {
             return Promise.resolve(sharedPerson)
         })
+        const testPersonStore = new BatchWritingPersonsStore(mockRepo, db.kafkaProducer)
+        const personStoreForBatch = testPersonStore.forBatch() as BatchWritingPersonsStoreForBatch
 
         // Update via first distinct ID
         await personStoreForBatch.updatePersonWithPropertiesDiffForUpdate(
@@ -858,8 +922,8 @@ describe('BatchWritingPersonStore', () => {
         // expect(db.updatePerson).toHaveBeenCalledTimes(1)
 
         // The updatePerson call should have the correct properties
-        expect(db.updatePerson).toHaveBeenCalledTimes(1)
-        expect(db.updatePerson).toHaveBeenCalledWith(
+        expect(mockRepo.updatePerson).toHaveBeenCalledTimes(1)
+        expect(mockRepo.updatePerson).toHaveBeenCalledWith(
             expect.objectContaining({
                 id: sharedPerson.id,
                 properties: {
@@ -876,14 +940,15 @@ describe('BatchWritingPersonStore', () => {
                     prop_from_distinctId2: 'value2',
                 },
             }),
-            undefined,
             'updatePersonNoAssert'
         )
     })
 
     describe('moveDistinctIds', () => {
         it('should preserve cached merged properties when moving distinct IDs', async () => {
-            const personStoreForBatch = getBatchStoreForBatch()
+            const mockRepo = createMockRepository()
+            const testPersonStore = new BatchWritingPersonsStore(mockRepo, db.kafkaProducer)
+            const personStoreForBatch = testPersonStore.forBatch() as BatchWritingPersonsStoreForBatch
 
             // Create target person with some initial properties
             const targetPerson: InternalPerson = {
@@ -944,6 +1009,9 @@ describe('BatchWritingPersonStore', () => {
             // Step 3: moveDistinctIds - this should preserve the merged cache
             await personStoreForBatch.moveDistinctIds(sourcePerson, targetPerson, 'target-distinct')
 
+            // Verify the repository method was called
+            expect(mockRepo.moveDistinctIds).toHaveBeenCalledWith(sourcePerson, targetPerson)
+
             // Step 4: Verify that cached merged properties are preserved
             const cacheAfterMove = personStoreForBatch.getCachedPersonForUpdateByDistinctId(teamId, 'target-distinct')
             expect(cacheAfterMove?.properties).toEqual({
@@ -967,7 +1035,9 @@ describe('BatchWritingPersonStore', () => {
         })
 
         it('should create fresh cache when no existing cache exists', async () => {
-            const personStoreForBatch = getBatchStoreForBatch()
+            const mockRepo = createMockRepository()
+            const testPersonStore = new BatchWritingPersonsStore(mockRepo, db.kafkaProducer)
+            const personStoreForBatch = testPersonStore.forBatch() as BatchWritingPersonsStoreForBatch
 
             const targetPerson: InternalPerson = {
                 ...person,
@@ -993,6 +1063,9 @@ describe('BatchWritingPersonStore', () => {
             // Move distinct IDs
             await personStoreForBatch.moveDistinctIds(sourcePerson, targetPerson, 'target-distinct')
 
+            // Verify the repository method was called
+            expect(mockRepo.moveDistinctIds).toHaveBeenCalledWith(sourcePerson, targetPerson)
+
             // Should create fresh cache from target person
             const cacheAfterMove = personStoreForBatch.getCachedPersonForUpdateByDistinctId(teamId, 'target-distinct')
             expect(cacheAfterMove?.properties).toEqual({
@@ -1003,7 +1076,9 @@ describe('BatchWritingPersonStore', () => {
         })
 
         it('should clear source person cache', async () => {
-            const personStoreForBatch = getBatchStoreForBatch()
+            const mockRepo = createMockRepository()
+            const testPersonStore = new BatchWritingPersonsStore(mockRepo, db.kafkaProducer)
+            const personStoreForBatch = testPersonStore.forBatch() as BatchWritingPersonsStoreForBatch
 
             const targetPerson: InternalPerson = {
                 ...person,
@@ -1032,12 +1107,17 @@ describe('BatchWritingPersonStore', () => {
             // Move distinct IDs
             await personStoreForBatch.moveDistinctIds(sourcePerson, targetPerson, 'target-distinct')
 
+            // Verify the repository method was called
+            expect(mockRepo.moveDistinctIds).toHaveBeenCalledWith(sourcePerson, targetPerson)
+
             // Verify source cache is cleared
             expect(personStoreForBatch.getCachedPersonForUpdateByPersonId(teamId, sourcePerson.id)).toBeUndefined()
         })
 
         it('should handle complex merge scenario with multiple properties', async () => {
-            const personStoreForBatch = getBatchStoreForBatch()
+            const mockRepo = createMockRepository()
+            const testPersonStore = new BatchWritingPersonsStore(mockRepo, db.kafkaProducer)
+            const personStoreForBatch = testPersonStore.forBatch() as BatchWritingPersonsStoreForBatch
 
             const targetPerson: InternalPerson = {
                 ...person,
@@ -1097,6 +1177,9 @@ describe('BatchWritingPersonStore', () => {
             // Step 3: moveDistinctIds
             await personStoreForBatch.moveDistinctIds(sourcePerson, targetPerson, 'target-distinct')
 
+            // Verify the repository method was called
+            expect(mockRepo.moveDistinctIds).toHaveBeenCalledWith(sourcePerson, targetPerson)
+
             // Step 4: Verify all merged properties are preserved
             const finalCache = personStoreForBatch.getCachedPersonForUpdateByDistinctId(teamId, 'target-distinct')
             expect(finalCache?.properties).toEqual({
@@ -1114,6 +1197,138 @@ describe('BatchWritingPersonStore', () => {
                 target_prop: 'target_value',
             })
             expect(finalCache?.properties_to_unset).toEqual([])
+        })
+    })
+
+    describe('addPersonlessDistinctId', () => {
+        it('should call repository method and return result', async () => {
+            const mockRepo = createMockRepository()
+            const testPersonStore = new BatchWritingPersonsStore(mockRepo, db.kafkaProducer)
+            const personStoreForBatch = testPersonStore.forBatch() as BatchWritingPersonsStoreForBatch
+
+            const result = await personStoreForBatch.addPersonlessDistinctId(teamId, 'test-distinct')
+
+            expect(mockRepo.addPersonlessDistinctId).toHaveBeenCalledWith(teamId, 'test-distinct')
+            expect(result).toBe(true)
+        })
+
+        it('should handle repository returning false', async () => {
+            const mockRepo = createMockRepository()
+            mockRepo.addPersonlessDistinctId = jest.fn().mockResolvedValue(false)
+            const testPersonStore = new BatchWritingPersonsStore(mockRepo, db.kafkaProducer)
+            const personStoreForBatch = testPersonStore.forBatch() as BatchWritingPersonsStoreForBatch
+
+            const result = await personStoreForBatch.addPersonlessDistinctId(teamId, 'test-distinct')
+
+            expect(mockRepo.addPersonlessDistinctId).toHaveBeenCalledWith(teamId, 'test-distinct')
+            expect(result).toBe(false)
+        })
+    })
+
+    describe('addPersonlessDistinctIdForMerge', () => {
+        it('should call repository method and return result', async () => {
+            const mockRepo = createMockRepository()
+            const testPersonStore = new BatchWritingPersonsStore(mockRepo, db.kafkaProducer)
+            const personStoreForBatch = testPersonStore.forBatch() as BatchWritingPersonsStoreForBatch
+
+            const result = await personStoreForBatch.addPersonlessDistinctIdForMerge(teamId, 'test-distinct')
+
+            expect(mockRepo.addPersonlessDistinctIdForMerge).toHaveBeenCalledWith(teamId, 'test-distinct')
+            expect(result).toBe(true)
+        })
+
+        it('should handle repository returning false', async () => {
+            const mockRepo = createMockRepository()
+            mockRepo.addPersonlessDistinctIdForMerge = jest.fn().mockResolvedValue(false)
+            const testPersonStore = new BatchWritingPersonsStore(mockRepo, db.kafkaProducer)
+            const personStoreForBatch = testPersonStore.forBatch() as BatchWritingPersonsStoreForBatch
+
+            const result = await personStoreForBatch.addPersonlessDistinctIdForMerge(teamId, 'test-distinct')
+
+            expect(mockRepo.addPersonlessDistinctIdForMerge).toHaveBeenCalledWith(teamId, 'test-distinct')
+            expect(result).toBe(false)
+        })
+    })
+
+    describe('personPropertiesSize', () => {
+        it('should call repository method and return result', async () => {
+            const mockRepo = createMockRepository()
+            const testPersonStore = new BatchWritingPersonsStore(mockRepo, db.kafkaProducer)
+            const personStoreForBatch = testPersonStore.forBatch() as BatchWritingPersonsStoreForBatch
+
+            const result = await personStoreForBatch.personPropertiesSize(teamId, 'test-distinct')
+
+            expect(mockRepo.personPropertiesSize).toHaveBeenCalledWith(teamId, 'test-distinct')
+            expect(result).toBe(1024)
+        })
+
+        it('should handle repository returning 0', async () => {
+            const mockRepo = createMockRepository()
+            mockRepo.personPropertiesSize = jest.fn().mockResolvedValue(0)
+            const testPersonStore = new BatchWritingPersonsStore(mockRepo, db.kafkaProducer)
+            const personStoreForBatch = testPersonStore.forBatch() as BatchWritingPersonsStoreForBatch
+
+            const result = await personStoreForBatch.personPropertiesSize(teamId, 'test-distinct')
+
+            expect(mockRepo.personPropertiesSize).toHaveBeenCalledWith(teamId, 'test-distinct')
+            expect(result).toBe(0)
+        })
+    })
+
+    describe('updateCohortsAndFeatureFlagsForMerge', () => {
+        it('should call repository method with correct arguments', async () => {
+            const mockRepo = createMockRepository()
+            const testPersonStore = new BatchWritingPersonsStore(mockRepo, db.kafkaProducer)
+            const personStoreForBatch = testPersonStore.forBatch() as BatchWritingPersonsStoreForBatch
+
+            const teamID = 1
+            const sourcePersonID = 'source-person-id'
+            const targetPersonID = 'target-person-id'
+            const distinctId = 'test-distinct'
+
+            await personStoreForBatch.updateCohortsAndFeatureFlagsForMerge(
+                teamID,
+                sourcePersonID,
+                targetPersonID,
+                distinctId
+            )
+
+            expect(mockRepo.updateCohortsAndFeatureFlagsForMerge).toHaveBeenCalledWith(
+                teamID,
+                sourcePersonID,
+                targetPersonID
+            )
+        })
+
+        it('should call repository method with transaction when provided', async () => {
+            const mockRepo = createMockRepository()
+            const testPersonStore = new BatchWritingPersonsStore(mockRepo, db.kafkaProducer)
+            const personStoreForBatch = testPersonStore.forBatch() as BatchWritingPersonsStoreForBatch
+
+            const teamID = 1
+            const sourcePersonID = 'source-person-id'
+            const targetPersonID = 'target-person-id'
+            const distinctId = 'test-distinct'
+
+            const mockTransaction = createMockTransaction()
+
+            await personStoreForBatch.updateCohortsAndFeatureFlagsForMerge(
+                teamID,
+                sourcePersonID,
+                targetPersonID,
+                distinctId,
+                mockTransaction
+            )
+
+            // Verify the transaction was called instead of the repository
+            expect(mockTransaction.updateCohortsAndFeatureFlagsForMerge).toHaveBeenCalledWith(
+                teamID,
+                sourcePersonID,
+                targetPersonID
+            )
+
+            // Verify the repository was NOT called
+            expect(mockRepo.updateCohortsAndFeatureFlagsForMerge).not.toHaveBeenCalled()
         })
     })
 })

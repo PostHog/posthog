@@ -588,7 +588,7 @@ describe('session recording process event', () => {
                 null,
                 null
             )
-        }).toThrowError()
+        }).toThrow()
     })
 
     it(`snapshot event with no event summary timestamps is ignored`, () => {
@@ -618,7 +618,7 @@ describe('session recording process event', () => {
                 null,
                 null
             )
-        }).toThrowError()
+        }).toThrow()
     })
 
     test.each([

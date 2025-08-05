@@ -110,11 +110,11 @@ export function HeatmapCanvas({
         })
 
         updateHeatmapData()
-    }, [])
+    }, []) // oxlint-disable-line react-hooks/exhaustive-deps
 
     useEffect(() => {
         updateHeatmapData()
-    }, [heatmapJsData])
+    }, [heatmapJsData]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     useEffect(() => {
         if (!heatmapsJsContainerRef.current) {
@@ -122,7 +122,7 @@ export function HeatmapCanvas({
         }
 
         heatmapsJsRef.current?.configure({
-            ...heatmapConfig,
+            ...heatmapConfig, // oxlint-disable-line react-hooks/exhaustive-deps
             container: heatmapsJsContainerRef.current,
             gradient: heatmapJSColorGradient,
         })

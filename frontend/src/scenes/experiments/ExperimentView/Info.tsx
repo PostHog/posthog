@@ -140,16 +140,16 @@ export function Info(): JSX.Element {
                                                 ? dayjs().diff(dayjs(lastRefresh), 'hours') > 12
                                                     ? 'text-danger'
                                                     : dayjs().diff(dayjs(lastRefresh), 'hours') > 6
-                                                    ? 'text-warning'
-                                                    : ''
+                                                      ? 'text-warning'
+                                                      : ''
                                                 : ''
                                         }`}
                                     >
                                         {primaryMetricsResultsLoading || secondaryMetricsResultsLoading
                                             ? 'Loading…'
                                             : lastRefresh
-                                            ? dayjs(lastRefresh).fromNow()
-                                            : 'a while ago'}
+                                              ? dayjs(lastRefresh).fromNow()
+                                              : 'a while ago'}
                                     </span>
                                     <LemonButton
                                         type="secondary"
@@ -215,7 +215,7 @@ export function Info(): JSX.Element {
                                 className="w-full"
                                 value={tempDescription}
                                 onChange={(value) => setTempDescription(value)}
-                                placeholder="Add your hypothesis for this test (optional)"
+                                placeholder="Add your hypothesis for this test"
                                 minRows={6}
                                 maxLength={400}
                             />

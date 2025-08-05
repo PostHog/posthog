@@ -329,9 +329,7 @@ describe('toYearMonthDateInTimezone', () => {
     })
 
     it('should throw on invalid timezone', () => {
-        expect(() => toYearMonthDayInTimezone(new Date().getTime(), 'Invalid/Timezone')).toThrowError(
-            'Invalid time zone'
-        )
+        expect(() => toYearMonthDayInTimezone(new Date().getTime(), 'Invalid/Timezone')).toThrow('Invalid time zone')
     })
 })
 

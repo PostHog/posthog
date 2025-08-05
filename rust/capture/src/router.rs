@@ -32,6 +32,7 @@ pub struct State {
     pub timesource: Arc<dyn TimeSource + Send + Sync>,
     pub redis: Arc<dyn Client + Send + Sync>,
     pub billing_limiter: RedisLimiter,
+    pub survey_limiter: RedisLimiter,
     pub token_dropper: Arc<TokenDropper>,
     pub event_size_limit: usize,
     pub historical_cfg: HistoricalConfig,
@@ -102,6 +103,7 @@ pub fn router<
     sink: S,
     redis: Arc<R>,
     billing_limiter: RedisLimiter,
+    survey_limiter: RedisLimiter,
     token_dropper: TokenDropper,
     metrics: bool,
     capture_mode: CaptureMode,
@@ -118,6 +120,7 @@ pub fn router<
         timesource: Arc::new(timesource),
         redis,
         billing_limiter,
+        survey_limiter,
         event_size_limit,
         token_dropper: Arc::new(token_dropper),
         historical_cfg: HistoricalConfig::new(
@@ -152,25 +155,39 @@ pub fn router<
         )
         .layer(DefaultBodyLimit::max(BATCH_BODY_SIZE));
 
-    let batch_router = Router::new()
-        .route(
-            "/batch",
-            post(v0_endpoint::event)
-                .get(v0_endpoint::event)
-                .options(v0_endpoint::options),
-        )
-        .route(
-            "/batch/",
-            post(v0_endpoint::event)
-                .get(v0_endpoint::event)
-                .options(v0_endpoint::options),
-        )
-        .layer(DefaultBodyLimit::max(BATCH_BODY_SIZE)); // Have to use this, rather than RequestBodyLimitLayer, because we use `Bytes` in the handler (this limit applies specifically to Bytes body types)
+    let mut batch_router = Router::new();
+    batch_router = if is_mirror_deploy {
+        batch_router
+            .route(
+                "/batch",
+                post(v0_endpoint::event_legacy)
+                    .get(v0_endpoint::event_legacy)
+                    .options(v0_endpoint::options),
+            )
+            .route(
+                "/batch/",
+                post(v0_endpoint::event_legacy)
+                    .get(v0_endpoint::event_legacy)
+                    .options(v0_endpoint::options),
+            )
+    } else {
+        batch_router
+            .route(
+                "/batch",
+                post(v0_endpoint::event)
+                    .get(v0_endpoint::event)
+                    .options(v0_endpoint::options),
+            )
+            .route(
+                "/batch/",
+                post(v0_endpoint::event)
+                    .get(v0_endpoint::event)
+                    .options(v0_endpoint::options),
+            )
+    };
+    batch_router = batch_router.layer(DefaultBodyLimit::max(BATCH_BODY_SIZE)); // Have to use this, rather than RequestBodyLimitLayer, because we use `Bytes` in the handler (this limit applies specifically to Bytes body types)
 
     let mut event_router = Router::new()
-        // only full /i/v0/e/ is supported; send these to default handler
-        .route("/i/v0", get(index))
-        .route("/i/v0/", get(index))
         // legacy endpoints registered here
         .route(
             "/e",
@@ -219,8 +236,7 @@ pub fn router<
             post(v0_endpoint::event_legacy)
                 .get(v0_endpoint::event_legacy)
                 .options(v0_endpoint::options),
-        )
-        .layer(DefaultBodyLimit::max(EVENT_BODY_SIZE));
+        );
 
     // conditionally allow legacy event handler to process /i/v0/e/
     // (modern capture) events for observation in mirror deploy
@@ -253,6 +269,7 @@ pub fn router<
                     .options(v0_endpoint::options),
             )
     };
+    event_router = event_router.layer(DefaultBodyLimit::max(EVENT_BODY_SIZE));
 
     let status_router = Router::new()
         .route("/", get(index))

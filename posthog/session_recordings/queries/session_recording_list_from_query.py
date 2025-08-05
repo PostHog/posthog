@@ -1,7 +1,8 @@
-from typing import Any, cast, Optional, Union
+from typing import Any, cast, Optional, Union, Literal
 from datetime import datetime, timedelta, UTC
 
 from posthog.hogql import ast
+
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.parser import parse_select
 from posthog.hogql.property import property_to_expr
@@ -29,8 +30,10 @@ from posthog.session_recordings.queries.utils import (
     _strip_person_and_event_and_cohort_properties,
     expand_test_account_filters,
 )
+from opentelemetry import trace
 
 logger = structlog.get_logger(__name__)
+tracer = trace.get_tracer(__name__)
 
 
 class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
@@ -66,7 +69,6 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         WHERE {where_predicates}
         GROUP BY session_id
         HAVING {having_predicates}
-        ORDER BY {order_by} DESC
         """
 
     @staticmethod
@@ -118,26 +120,30 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         )
         self._hogql_query_modifiers = hogql_query_modifiers
 
+    @tracer.start_as_current_span("SessionRecordingListFromQuery.run")
     def run(self) -> SessionRecordingQueryResult:
         query = self.get_query()
 
-        paginated_response = self._paginator.execute_hogql_query(
-            # TODO I guess the paginator needs to know how to handle union queries or all callers are supposed to collapse them or .... 🤷
-            query=cast(ast.SelectQuery, query),
-            team=self._team,
-            query_type="SessionRecordingListQuery",
-            modifiers=self._hogql_query_modifiers,
-            settings=HogQLGlobalSettings(allow_experimental_analyzer=None),  # Using global ClickHouse setting
-        )
+        with tracer.start_as_current_span("SessionRecordingListFromQuery.paginate"):
+            paginated_response = self._paginator.execute_hogql_query(
+                # TODO I guess the paginator needs to know how to handle union queries or all callers are supposed to collapse them or .... 🤷
+                query=cast(ast.SelectQuery, query),
+                team=self._team,
+                query_type="SessionRecordingListQuery",
+                modifiers=self._hogql_query_modifiers,
+                settings=HogQLGlobalSettings(allow_experimental_analyzer=None),  # Using global ClickHouse setting
+            )
 
-        return SessionRecordingQueryResult(
-            results=(self._data_to_return(self._paginator.results)),
-            has_more_recording=self._paginator.has_more(),
-            timings=paginated_response.timings,
-        )
+        with tracer.start_as_current_span("SessionRecordingListFromQuery._data_to_return"):
+            return SessionRecordingQueryResult(
+                results=(self._data_to_return(self._paginator.results)),
+                has_more_recording=self._paginator.has_more(),
+                timings=paginated_response.timings,
+            )
 
+    @tracer.start_as_current_span("SessionRecordingListFromQuery.get_query")
     def get_query(self):
-        return parse_select(
+        parsed_query = parse_select(
             self.BASE_QUERY,
             {
                 # Check if the most recent _timestamp is within five minutes of the current time
@@ -153,17 +159,25 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
                         op=ast.CompareOperationOp.GtEq,
                     ),
                 ),
-                "order_by": self._order_by_clause(),
                 "where_predicates": self._where_predicates(),
                 "having_predicates": self._having_predicates() or ast.Constant(value=True),
             },
         )
+        if isinstance(parsed_query, ast.SelectSetQuery):
+            raise Exception("replay does not support SelectSetQuery")
 
-    def _order_by_clause(self) -> ast.Field:
+        parsed_query.order_by = [self._order_by_clause()]
+        return parsed_query
+
+    @tracer.start_as_current_span("SessionRecordingListFromQuery._order_by_clause")
+    def _order_by_clause(self) -> ast.OrderExpr:
         # KLUDGE: we only need a default here because mypy is silly
         order_by = self._query.order.value if self._query.order else RecordingOrder.START_TIME
-        return ast.Field(chain=[order_by])
+        direction = cast(Literal["ASC", "DESC"], self._query.order_direction or "DESC")
 
+        return ast.OrderExpr(expr=ast.Field(chain=[order_by]), order=direction)
+
+    @tracer.start_as_current_span("SessionRecordingListFromQuery._where_predicates")
     def _where_predicates(self) -> Union[ast.And, ast.Or]:
         exprs: list[ast.Expr] = [
             ast.CompareOperation(
@@ -219,8 +233,8 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         optional_exprs: list[ast.Expr] = []
 
         # if in PoE mode then we should be pushing person property queries into here
-        events_sub_query = ReplayFiltersEventsSubQuery(self._team, self._query).get_query_for_session_id_matching()
-        if events_sub_query:
+        events_sub_queries = ReplayFiltersEventsSubQuery(self._team, self._query).get_queries_for_session_id_matching()
+        for events_sub_query in events_sub_queries:
             optional_exprs.append(
                 ast.CompareOperation(
                     # this hits the distributed events table from the distributed session_replay_events table
@@ -285,10 +299,11 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
             )
 
         if optional_exprs:
-            exprs.append(self.ast_operand(exprs=optional_exprs))
+            exprs.append(self.wrapped_with_query_operand(exprs=optional_exprs))
 
         return ast.And(exprs=exprs)
 
+    @tracer.start_as_current_span("SessionRecordingListFromQuery._having_predicates")
     def _having_predicates(self) -> ast.Expr | None:
         return (
             property_to_expr(self._query.having_predicates, team=self._team, scope="replay")

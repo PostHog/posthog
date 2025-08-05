@@ -38,8 +38,8 @@ export const getTierDescription = (
             ? `First ${summarizeUsage(tiers[i].up_to)} ${product.unit}s / ${interval}`
             : `All ${product.unit}s`
         : tiers[i].up_to
-        ? `${summarizeUsage(tiers?.[i - 1].up_to || null)} - ${summarizeUsage(tiers[i].up_to)}`
-        : `> ${summarizeUsage(tiers?.[i - 1].up_to || null)}`
+          ? `${summarizeUsage(tiers?.[i - 1].up_to || null)} - ${summarizeUsage(tiers[i].up_to)}`
+          : `> ${summarizeUsage(tiers?.[i - 1].up_to || null)}`
 }
 
 export const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Element | null => {
