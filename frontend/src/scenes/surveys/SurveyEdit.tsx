@@ -11,6 +11,8 @@ import {
     LemonDialog,
     LemonDivider,
     LemonInput,
+    LemonSegmentedButton,
+    LemonSegmentedButtonOption,
     LemonSelect,
     LemonTag,
     LemonTextArea,
@@ -22,6 +24,7 @@ import { EventSelect } from 'lib/components/EventSelect/EventSelect'
 import { FlagSelector } from 'lib/components/FlagSelector'
 import { PropertyValue } from 'lib/components/PropertyFilters/components/PropertyValue'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { IconCancel } from 'lib/lemon-ui/icons'
@@ -30,7 +33,7 @@ import { LemonRadio, LemonRadioOption } from 'lib/lemon-ui/LemonRadio'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { formatDate } from 'lib/utils'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlagReleaseConditions'
 import { Customization } from 'scenes/surveys/survey-appearance/SurveyCustomization'
@@ -44,6 +47,7 @@ import { getPropertyKey } from '~/taxonomy/helpers'
 import {
     ActionType,
     LinkSurveyQuestion,
+    MultivariateFlagOptions,
     PropertyFilterType,
     PropertyOperator,
     RatingSurveyQuestion,
@@ -61,6 +65,24 @@ import { HTMLEditor, PresentationTypeCard } from './SurveyAppearanceUtils'
 import { SurveyEditQuestionGroup, SurveyEditQuestionHeader } from './SurveyEditQuestionRow'
 import { SurveyFormAppearance } from './SurveyFormAppearance'
 import { DataCollectionType, SurveyEditSection, surveyLogic } from './surveyLogic'
+
+function variantOptions(multivariate: MultivariateFlagOptions | undefined): LemonSegmentedButtonOption<string>[] {
+    if (!multivariate) {
+        return []
+    }
+    return [
+        {
+            label: 'any',
+            value: 'any',
+        },
+        ...multivariate.variants.map((variant) => {
+            return {
+                label: variant.key,
+                value: variant.key,
+            }
+        }),
+    ]
+}
 
 function SurveyCompletionConditions(): JSX.Element {
     const { survey, dataCollectionType, isAdaptiveLimitFFEnabled } = useValues(surveyLogic)
@@ -248,6 +270,21 @@ export default function SurveyEdit(): JSX.Element {
     const sortedItemIds = survey.questions.map((_, idx) => idx.toString())
     const { thankYouMessageDescriptionContentType = null } = survey.appearance ?? {}
     useMountedLogic(actionsModel)
+
+    // Load feature flag details if linked_flag_id exists but linked_flag doesn't
+    useEffect(() => {
+        if (survey.linked_flag_id && !survey.linked_flag) {
+            api.featureFlags
+                .get(survey.linked_flag_id)
+                .then((flag) => {
+                    setSurveyValue('linked_flag', flag)
+                })
+                .catch(() => {
+                    // If flag doesn't exist anymore, clear the linked_flag_id
+                    setSurveyValue('linked_flag_id', null)
+                })
+        }
+    }, [survey.linked_flag_id, survey.linked_flag, setSurveyValue])
 
     function onSortEnd({ oldIndex, newIndex }: { oldIndex: number; newIndex: number }): void {
         function move(arr: SurveyQuestion[], from: number, to: number): SurveyQuestion[] {
@@ -724,19 +761,72 @@ export default function SurveyEdit(): JSX.Element {
                                                                   className="flex"
                                                                   data-attr="survey-display-conditions-linked-flag"
                                                               >
-                                                                  <FlagSelector value={value} onChange={onChange} />
+                                                                  <FlagSelector
+                                                                      value={value}
+                                                                      onChange={(id, _key, flag) => {
+                                                                          onChange(id)
+                                                                          setSurveyValue('linked_flag', flag)
+                                                                          // Reset variant selection when flag changes
+                                                                          setSurveyValue('conditions', {
+                                                                              ...survey.conditions,
+                                                                              linkedFlagVariant: null,
+                                                                          })
+                                                                      }}
+                                                                  />
                                                                   {value && (
                                                                       <LemonButton
                                                                           className="ml-2"
                                                                           icon={<IconCancel />}
                                                                           size="small"
-                                                                          onClick={() => onChange(null)}
+                                                                          onClick={() => {
+                                                                              onChange(null)
+                                                                              setSurveyValue('linked_flag', null)
+                                                                              setSurveyValue('conditions', {
+                                                                                  ...survey.conditions,
+                                                                                  linkedFlagVariant: null,
+                                                                              })
+                                                                          }}
                                                                           aria-label="close"
                                                                       />
                                                                   )}
                                                               </div>
                                                           )}
                                                       </LemonField>
+                                                      {/* {JSON.stringify(survey)} */}
+                                                      {survey.linked_flag?.filters.multivariate && (
+                                                          <LemonField.Pure
+                                                              label="Link to a specific flag variant"
+                                                              info="Choose which variant of the feature flag to link to this survey."
+                                                          >
+                                                              <div className="flex flex-col gap-2">
+                                                                  <LemonSegmentedButton
+                                                                      className="min-w-1/3"
+                                                                      value={
+                                                                          survey.conditions?.linkedFlagVariant ?? 'any'
+                                                                      }
+                                                                      options={variantOptions(
+                                                                          survey.linked_flag?.filters.multivariate ||
+                                                                              undefined
+                                                                      )}
+                                                                      onChange={(variant) => {
+                                                                          setSurveyValue('conditions', {
+                                                                              ...survey.conditions,
+                                                                              linkedFlagVariant:
+                                                                                  variant === 'any' ? null : variant,
+                                                                          })
+                                                                      }}
+                                                                  />
+                                                                  <p className="text-sm text-secondary">
+                                                                      This is a multi-variant flag. You can link to
+                                                                      "any" variant of the flag, and the survey will be
+                                                                      shown whenever the flag is enabled for a user.
+                                                                      Alternatively, you can link to a specific variant
+                                                                      of the flag, and the survey will only be shown
+                                                                      when the user has that specific variant enabled.
+                                                                  </p>
+                                                              </div>
+                                                          </LemonField.Pure>
+                                                      )}
                                                       <LemonField name="conditions">
                                                           {({ value, onChange }) => (
                                                               <>

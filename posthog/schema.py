@@ -4602,6 +4602,7 @@ class SurveyDisplayConditionsSchema(BaseModel):
     actions: Optional[Actions] = None
     deviceTypes: Optional[list[str]] = None
     deviceTypesMatchType: Optional[SurveyMatchType] = None
+    linkedFlagVariant: Optional[str] = None
     seenSurveyWaitPeriodInDays: Optional[float] = None
     selector: Optional[str] = None
     url: Optional[str] = None

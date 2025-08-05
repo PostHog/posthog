@@ -68,6 +68,7 @@ export interface SurveyDisplayConditionsSchema {
     selector?: string
     deviceTypes?: string[]
     deviceTypesMatchType?: SurveyMatchType
+    linkedFlagVariant?: string | null
     seenSurveyWaitPeriodInDays?: number
     actions?: {
         values: Array<{

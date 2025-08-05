@@ -3016,6 +3016,7 @@ export interface SurveyDisplayConditions {
     urlMatchType?: SurveyMatchType
     deviceTypes?: string[]
     deviceTypesMatchType?: SurveyMatchType
+    linkedFlagVariant?: string | null
     actions: {
         values: {
             id: number

@@ -23281,6 +23281,9 @@
                 "deviceTypesMatchType": {
                     "$ref": "#/definitions/SurveyMatchType"
                 },
+                "linkedFlagVariant": {
+                    "type": "string"
+                },
                 "seenSurveyWaitPeriodInDays": {
                     "type": "number"
                 },

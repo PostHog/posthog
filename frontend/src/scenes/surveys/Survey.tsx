@@ -179,10 +179,20 @@ export function SurveyDisplaySummary({
                     <span>Feature flag enabled for:</span>{' '}
                     {id !== 'new' ? (
                         survey.linked_flag?.id ? (
-                            <Link to={urls.featureFlag(survey.linked_flag?.id)}>{survey.linked_flag?.key}</Link>
+                            <>
+                                <Link to={urls.featureFlag(survey.linked_flag?.id)}>{survey.linked_flag?.key}</Link>
+                                {survey.conditions?.linkedFlagVariant && (
+                                    <LemonTag>variant: {survey.conditions.linkedFlagVariant}</LemonTag>
+                                )}
+                            </>
                         ) : null
                     ) : (
-                        <FlagSelector value={survey.linked_flag_id} readOnly={true} onChange={() => {}} />
+                        <>
+                            <FlagSelector value={survey.linked_flag_id} readOnly={true} onChange={() => {}} />
+                            {survey.conditions?.linkedFlagVariant && (
+                                <LemonTag>variant: {survey.conditions.linkedFlagVariant}</LemonTag>
+                            )}
+                        </>
                     )}
                 </div>
             )}
