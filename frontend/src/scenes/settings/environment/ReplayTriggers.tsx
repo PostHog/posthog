@@ -718,6 +718,9 @@ export function ReplayTriggers(): JSX.Element {
                 <LemonDivider />
                 <UrlTriggerOptions />
                 <EventTriggerOptions />
+                <PayGateMini feature={AvailableFeature.SESSION_REPLAY_LINKED_FLAGS}>
+                    <LinkedFlagSelector />
+                </PayGateMini>
                 <PayGateMini feature={AvailableFeature.SESSION_REPLAY_SAMPLING}>
                     <LinkedFlagSelector />
                     <Sampling />

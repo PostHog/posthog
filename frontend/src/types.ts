@@ -93,6 +93,7 @@ export enum AvailableFeature {
     SESSION_REPLAY_NETWORK_PAYLOADS = 'session_replay_network_payloads',
     RECORDINGS_FILE_EXPORT = 'recordings_file_export',
     SESSION_REPLAY_SAMPLING = 'session_replay_sampling',
+    SESSION_REPLAY_LINKED_FLAGS = 'replay_feature_flag_based_recording',
     REPLAY_RECORDING_DURATION_MINIMUM = 'replay_recording_duration_minimum',
     REPLAY_FEATURE_FLAG_BASED_RECORDING = 'replay_feature_flag_based_recording',
     REPLAY_MASK_SENSITIVE_DATA = 'replay_mask_sensitive_data',
