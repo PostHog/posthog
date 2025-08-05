@@ -3,13 +3,13 @@ from dagster_docker import PipesDockerClient
 from django.conf import settings
 
 from dags.common import JobOwners
+from dags.max_ai.schema import Snapshot
 from dags.max_ai.snapshot_project_data import (
     ClickhouseProjectDataSnapshot,
     PostgresProjectDataSnapshot,
     snapshot_clickhouse_project_data,
     snapshot_postgres_project_data,
 )
-from posthog.models.utils import uuid7
 
 
 def get_object_storage_endpoint() -> dagster.EnvVar | str:
@@ -43,6 +43,7 @@ def spawn_evaluation_container(
     context: dagster.AssetExecutionContext,
     config: EvaluationConfig,
     docker_pipes_client: PipesDockerClient,
+    project_ids: list[int],
     postgres_snapshots: PostgresProjectDataSnapshot,
     clickhouse_snapshots: ClickhouseProjectDataSnapshot,
 ):
@@ -63,10 +64,10 @@ def spawn_evaluation_container(
         extras={
             "endpoint_url": get_object_storage_endpoint(),
             "bucket_name": settings.OBJECT_STORAGE_BUCKET,
-            "file_key": f"{settings.OBJECT_STORAGE_MAX_AI_EVALS_FOLDER}/postgres/db_{uuid7()}.tar",
-            "database_url": "postgres://posthog:posthog@db:5432/posthog",
-            "postgres_snapshots": postgres_snapshots.model_dump(),
-            "clickhouse_snapshots": clickhouse_snapshots.model_dump(),
+            "project_snapshots": [
+                Snapshot(project=project_id, postgres=postgres, clickhouse=clickhouse).model_dump()
+                for project_id, postgres, clickhouse in zip(project_ids, postgres_snapshots, clickhouse_snapshots)
+            ],
         },
     ).get_materialize_result()
 
@@ -85,5 +86,7 @@ def run_evaluation():
     project_ids = export_projects()
     postgres_snapshots = project_ids.map(snapshot_postgres_project_data)
     clickhouse_snapshots = project_ids.map(snapshot_clickhouse_project_data)
-    evaluation_result = spawn_evaluation_container(postgres_snapshots, clickhouse_snapshots)
+    evaluation_result = spawn_evaluation_container(
+        project_ids.collect(), postgres_snapshots.collect(), clickhouse_snapshots.collect()
+    )
     return evaluation_result

@@ -15,16 +15,14 @@ from dags.max_ai.schema import (
     PostgresProjectDataSnapshot,
     PropertyDefinitionSchema,
     PropertyTaxonomySchema,
+    TeamSchema,
     TeamTaxonomyItemSchema,
 )
+from dags.max_ai.utils import compose_clickhouse_dump_path, compose_postgres_dump_path
 from posthog.hogql_queries.ai.event_taxonomy_query_runner import EventTaxonomyQueryRunner
 from posthog.hogql_queries.ai.team_taxonomy_query_runner import TeamTaxonomyQueryRunner
-from posthog.models import DataWarehouseTable, PropertyDefinition, Team
+from posthog.models import Team
 from posthog.schema import EventTaxonomyQuery, TeamTaxonomyQuery
-
-
-def compose_dump_path(project_id: int, file_name: str) -> str:
-    return f"{settings.OBJECT_STORAGE_MAX_AI_EVALS_FOLDER}/models/{project_id}/{file_name}"
 
 
 def check_dump_exists(s3: S3Resource, file_key: str) -> bool:
@@ -52,37 +50,24 @@ def dump_model(*, s3: S3Resource, schema: type[AvroBase], file_key: str):
 SnapshotModelOutput = tuple[str, str]
 
 
-def snapshot_property_definitions(s3: S3Resource, project_id: int) -> SnapshotModelOutput:
-    file_key = compose_dump_path(project_id, "prop_defs.avro")
+def snapshot_project(s3: S3Resource, project_id: int) -> SnapshotModelOutput:
+    file_key = compose_postgres_dump_path(project_id, "team.avro")
+    with dump_model(s3=s3, schema=TeamSchema, file_key=file_key) as dump:
+        dump(TeamSchema.serialize_for_project(project_id))
+    return "project", file_key
 
+
+def snapshot_property_definitions(s3: S3Resource, project_id: int) -> SnapshotModelOutput:
+    file_key = compose_postgres_dump_path(project_id, "prop_defs.avro")
     with dump_model(s3=s3, schema=PropertyDefinitionSchema, file_key=file_key) as dump:
-        models_to_dump: list[PropertyDefinitionSchema] = []
-        for prop in PropertyDefinition.objects.filter(project_id=project_id).iterator(500):
-            model = PropertyDefinitionSchema(
-                name=prop.name,
-                is_numerical=prop.is_numerical,
-                property_type=prop.property_type,
-                type=prop.type,
-                group_type_index=prop.group_type_index,
-            )
-            models_to_dump.append(model)
-        dump(models_to_dump)
+        dump(PropertyDefinitionSchema.serialize_for_project(project_id))
     return "property_definitions", file_key
 
 
 def snapshot_data_warehouse_tables(s3: S3Resource, project_id: int):
-    file_key = compose_dump_path(project_id, "dwh_tables.avro")
-
+    file_key = compose_postgres_dump_path(project_id, "dwh_tables.avro")
     with dump_model(s3=s3, schema=DataWarehouseTableSchema, file_key=file_key) as dump:
-        models_to_dump: list[DataWarehouseTableSchema] = []
-        for table in DataWarehouseTable.objects.filter(team_id=project_id).iterator(500):
-            model = DataWarehouseTableSchema(
-                name=table.name,
-                format=table.format,
-                columns=table.columns,
-            )
-            models_to_dump.append(model)
-        dump(models_to_dump)
+        dump(DataWarehouseTableSchema.serialize_for_project(project_id))
     return "data_warehouse_tables", file_key
 
 
@@ -95,6 +80,7 @@ def snapshot_postgres_project_data(
 ) -> PostgresProjectDataSnapshot:
     deps = dict(
         (
+            snapshot_project(s3, project_id),
             snapshot_property_definitions(s3, project_id),
             snapshot_data_warehouse_tables(s3, project_id),
         )
@@ -107,11 +93,11 @@ def snapshot_postgres_project_data(
             tags={"owner": JobOwners.TEAM_MAX_AI.value},
         )
     )
-    return PostgresProjectDataSnapshot.model_validate(deps)
+    return PostgresProjectDataSnapshot(**deps)
 
 
 def snapshot_events_taxonomy(s3: S3Resource, team: Team):
-    file_key = compose_dump_path(team.id, "events_taxonomy.avro")
+    file_key = compose_clickhouse_dump_path(team.id, "events_taxonomy.avro")
     res = TeamTaxonomyQueryRunner(query=TeamTaxonomyQuery(), team=team).calculate()
     if not res.results:
         raise ValueError("No results from events taxonomy query")
@@ -132,7 +118,7 @@ def snapshot_properties_taxonomy(
             team=team,
         ).calculate()
         results.append(PropertyTaxonomySchema(event=item.event, results=res.results))
-    file_key = compose_dump_path(team.id, "properties_taxonomy.avro")
+    file_key = compose_clickhouse_dump_path(team.id, "properties_taxonomy.avro")
     context.log.info(f"Dumping properties taxonomy to {file_key}")
     with dump_model(s3=s3, schema=PropertyTaxonomySchema, file_key=file_key) as dump:
         dump(results)
