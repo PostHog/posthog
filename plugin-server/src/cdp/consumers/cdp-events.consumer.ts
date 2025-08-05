@@ -153,7 +153,7 @@ export class CdpEventsConsumer extends CdpConsumerBase {
                     })
                     .inc()
 
-                if (effectiveState(state) === HogWatcherState.disabled) {
+                if (state === HogWatcherState.disabled) {
                     this.hogFunctionMonitoringService.queueAppMetric(
                         {
                             team_id: item.teamId,
@@ -167,7 +167,7 @@ export class CdpEventsConsumer extends CdpConsumerBase {
                     return
                 }
 
-                if (effectiveState(state) === HogWatcherState.degraded) {
+                if (state === HogWatcherState.degraded) {
                     item.queuePriority = 2
                     if (this.hub.CDP_OVERFLOW_QUEUE_ENABLED) {
                         item.queue = 'hog_overflow'
@@ -288,7 +288,7 @@ export class CdpEventsConsumer extends CdpConsumerBase {
             // Iterate over adding them to the list and updating their priority
             possibleInvocations.forEach((item) => {
                 const state = states[item.hogFlow.id].state
-                if (effectiveState(state) === HogWatcherState.disabled) {
+                if (state === HogWatcherState.disabled) {
                     this.hogFunctionMonitoringService.queueAppMetric(
                         {
                             team_id: item.teamId,
@@ -302,7 +302,7 @@ export class CdpEventsConsumer extends CdpConsumerBase {
                     return
                 }
 
-                if (effectiveState(state) === HogWatcherState.degraded) {
+                if (state === HogWatcherState.degraded) {
                     item.queuePriority = 2
                 }
 
