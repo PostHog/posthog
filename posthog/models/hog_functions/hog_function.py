@@ -266,11 +266,6 @@ def enabled_default_hog_functions_for_new_team(sender, instance: Team, created: 
     if settings.DISABLE_MMDB or not created:
         return
 
-    # Create GeoIP transformation using the new Hog template
-    from posthog.models.hog_functions.hog_function import HogFunction
-    from posthog.models.hog_function_template import HogFunctionTemplate
-
-    # Get the new GeoIP template
     template = HogFunctionTemplate.get_template("template-geoip")
     if template:
         HogFunction.objects.create(
