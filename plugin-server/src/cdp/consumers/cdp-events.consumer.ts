@@ -10,7 +10,7 @@ import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
 import { captureException } from '../../utils/posthog'
 import { CyclotronJobQueue } from '../services/job-queue/job-queue'
-import { HogWatcherState } from '../services/monitoring/hog-watcher.service'
+import { effectiveState, HogWatcherState } from '../services/monitoring/hog-watcher.service'
 import {
     CyclotronJobInvocation,
     CyclotronJobInvocationHogFunction,
@@ -117,7 +117,7 @@ export class CdpEventsConsumer extends CdpConsumerBase {
                 )
             ).flat()
 
-            const states = await this.hogWatcher.getPersistedStates(possibleInvocations.map((x) => x.hogFunction.id))
+            const states = await this.hogWatcher.getEffectiveStates(possibleInvocations.map((x) => x.hogFunction.id))
             const validInvocations: CyclotronJobInvocationHogFunction[] = []
 
             // Iterate over adding them to the list and updating their priority
@@ -153,7 +153,7 @@ export class CdpEventsConsumer extends CdpConsumerBase {
                     })
                     .inc()
 
-                if (state === HogWatcherState.disabled) {
+                if (effectiveState(state) === HogWatcherState.disabled) {
                     this.hogFunctionMonitoringService.queueAppMetric(
                         {
                             team_id: item.teamId,
@@ -167,7 +167,7 @@ export class CdpEventsConsumer extends CdpConsumerBase {
                     return
                 }
 
-                if (state === HogWatcherState.degraded) {
+                if (effectiveState(state) === HogWatcherState.degraded) {
                     item.queuePriority = 2
                     if (this.hub.CDP_OVERFLOW_QUEUE_ENABLED) {
                         item.queue = 'hog_overflow'
@@ -282,13 +282,13 @@ export class CdpEventsConsumer extends CdpConsumerBase {
                 )
             ).flat()
 
-            const states = await this.hogWatcher.getPersistedStates(possibleInvocations.map((x) => x.hogFlow.id))
+            const states = await this.hogWatcher.getEffectiveStates(possibleInvocations.map((x) => x.hogFlow.id))
             const validInvocations: CyclotronJobInvocation[] = []
 
             // Iterate over adding them to the list and updating their priority
             possibleInvocations.forEach((item) => {
                 const state = states[item.hogFlow.id].state
-                if (state === HogWatcherState.disabled) {
+                if (effectiveState(state) === HogWatcherState.disabled) {
                     this.hogFunctionMonitoringService.queueAppMetric(
                         {
                             team_id: item.teamId,
@@ -302,7 +302,7 @@ export class CdpEventsConsumer extends CdpConsumerBase {
                     return
                 }
 
-                if (state === HogWatcherState.degraded) {
+                if (effectiveState(state) === HogWatcherState.degraded) {
                     item.queuePriority = 2
                 }
 
