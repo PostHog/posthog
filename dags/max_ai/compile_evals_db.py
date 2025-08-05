@@ -3,7 +3,7 @@ from dagster_docker import PipesDockerClient
 from django.conf import settings
 
 from dags.common import JobOwners
-from dags.snapshot_project_data import (
+from dags.max_ai.snapshot_project_data import (
     ClickhouseProjectDataSnapshot,
     PostgresProjectDataSnapshot,
     snapshot_clickhouse_project_data,
@@ -16,51 +16,6 @@ def get_object_storage_endpoint() -> dagster.EnvVar | str:
     if settings.DEBUG:
         return dagster.EnvVar("EVALS_DIND_OBJECT_STORAGE_ENDPOINT")
     return settings.OBJECT_STORAGE_ENDPOINT
-
-
-class CompileEvalsDbConfig(dagster.Config):
-    project_ids: list[int]
-
-
-@dagster.asset(
-    check_specs=[dagster.AssetCheckSpec(name="no_empty_dump", asset="compile_evals_db")],
-    tags={"owner": JobOwners.TEAM_MAX_AI.value},
-)
-def compile_evals_db(
-    context: dagster.AssetExecutionContext, config: CompileEvalsDbConfig, docker_pipes_client: PipesDockerClient
-):
-    """
-    Spawns a posthog-ai-evals:test container in privileged mode, runs database migrations,
-    and returns the path to the exported database dump tar file.
-    """
-    if settings.DEBUG:
-        bucket_name = settings.OBJECT_STORAGE_BUCKET
-        endpoint_url = "http://objectstorage.posthog.orb.local"
-    else:
-        bucket_name = settings.OBJECT_STORAGE_BUCKET
-        endpoint_url = "https://s3.amazonaws.com"
-        raise NotImplementedError("Not implemented for production")
-
-    return docker_pipes_client.run(
-        context=context,
-        image="posthog-ai-evals:test",
-        container_kwargs={
-            "privileged": True,
-            "auto_remove": True,
-        },
-        env={
-            "EVAL_SCRIPT": "python bin/evals/export_modeled_db.py",
-            "OBJECT_STORAGE_ACCESS_KEY_ID": settings.OBJECT_STORAGE_ACCESS_KEY_ID,
-            "OBJECT_STORAGE_SECRET_ACCESS_KEY": settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
-            "PROJECT_IDS": ",".join(map(str, config.project_ids)),
-        },
-        extras={
-            "bucket_name": bucket_name,
-            "endpoint_url": endpoint_url,
-            "file_key": f"{settings.OBJECT_STORAGE_MAX_AI_EVALS_FOLDER}/postgres/db_{uuid7()}.tar",
-            "database_url": "postgres://posthog:posthog@db:5432/posthog",
-        },
-    ).get_materialize_result()
 
 
 class ExportProjectsConfig(dagster.Config):
@@ -119,7 +74,12 @@ def spawn_evaluation_container(
 @dagster.job(
     description="Runs an AI evaluation",
     tags={"owner": JobOwners.TEAM_MAX_AI.value},
-    config=dagster.RunConfig(ops={"export_projects": ExportProjectsConfig(project_ids=[])}),
+    config=dagster.RunConfig(
+        ops={
+            "export_projects": ExportProjectsConfig(project_ids=[]),
+            "spawn_evaluation_container": EvaluationConfig(evaluation_module=""),
+        }
+    ),
 )
 def run_evaluation():
     project_ids = export_projects()
