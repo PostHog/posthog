@@ -37,17 +37,18 @@ def extract_insight_query_metadata(insight_id: int) -> None:
         raise
 
 
-@shared_task(ignore_result=True, queue=CeleryQueue.LONG_RUNNING.value, expires=60 * 60)
+@shared_task(
+    ignore_result=True,
+    queue=CeleryQueue.LONG_RUNNING.value,
+    expires=60 * 60,
+    track_started=True,
+)
 def fill_insights_missing_query_metadata() -> None:
-    from datetime import timedelta
     from django.db.models import Q, F
-    from django.db.models.functions import Now
-
-    one_day_ago = Now() - timedelta(days=1)
 
     insights = Insight.objects_including_soft_deleted.filter(
         # Insights with no metadata or empty metadata
-        ((Q(query_metadata__isnull=True) | Q(query_metadata={})) & Q(last_modified_at__gte=one_day_ago))
+        (Q(query_metadata__isnull=True) | Q(query_metadata={}))
         |
         # Insights with outdated metadata
         (
@@ -59,3 +60,8 @@ def fill_insights_missing_query_metadata() -> None:
 
     for insight in insights.iterator(chunk_size=100):
         extract_insight_query_metadata.delay(insight_id=insight.id)
+
+    logger.info(
+        "Scheduled task to fill missing query metadata for insights",
+        total_insights=insights.count(),
+    )
