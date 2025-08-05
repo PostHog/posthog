@@ -63,19 +63,19 @@ export function RunningTime(): JSX.Element {
 
                         <div className="space-y-3">
                             <div>
-                                <div className="card-secondary mb-1">Recommended sample size</div>
+                                <div className="deprecated-label mb-1">Recommended sample size</div>
                                 <div className="text-sm font-semibold">
                                     {humanFriendlyNumber(recommendedSampleSize, 0)} users
                                 </div>
                             </div>
                             <div>
-                                <div className="card-secondary mb-1">Estimated running time</div>
+                                <div className="deprecated-label mb-1">Estimated running time</div>
                                 <div className="text-sm font-semibold">
                                     {humanFriendlyNumber(recommendedRunningTime, 0)} days
                                 </div>
                             </div>
                             <div>
-                                <div className="card-secondary mb-1">Minimum detectable effect</div>
+                                <div className="deprecated-label mb-1">Minimum detectable effect</div>
                                 <div className="text-sm font-semibold">{minimumDetectableEffect}%</div>
                             </div>
                         </div>

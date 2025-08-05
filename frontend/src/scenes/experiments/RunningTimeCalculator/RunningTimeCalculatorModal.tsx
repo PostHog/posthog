@@ -135,13 +135,13 @@ export function RunningTimeCalculatorModal(): JSX.Element {
                             >
                                 <div className="grid grid-cols-2 gap-4 pt-2">
                                     <div>
-                                        <div className="card-secondary">Recommended sample size</div>
+                                        <div className="deprecated-label">Recommended sample size</div>
                                         <div className="text-lg font-semibold">
                                             ~{humanFriendlyNumber(recommendedSampleSize, 0)} users
                                         </div>
                                     </div>
                                     <div>
-                                        <div className="card-secondary">Estimated running time</div>
+                                        <div className="deprecated-label">Estimated running time</div>
                                         <div className="text-lg font-semibold">
                                             ~{humanFriendlyNumber(recommendedRunningTime, 1)} days
                                         </div>

@@ -37,7 +37,7 @@ function SurveySchedule(): JSX.Element {
 function SurveyOption({ label, children }: { label: string; children: React.ReactNode }): JSX.Element {
     return (
         <div className="flex flex-col">
-            <dt className="card-secondary">{label}</dt>
+            <dt className="deprecated-label">{label}</dt>
             <dd>{children}</dd>
         </div>
     )

@@ -66,7 +66,7 @@ export const MetricSelectorStep = ({
             description="Choose a metric to analyze. We'll use historical data from this metric to estimate the experiment duration."
         >
             <div className="mb-4">
-                <div className="card-secondary mb-2">Experiment metric</div>
+                <div className="deprecated-label mb-2">Experiment metric</div>
                 <LemonSelect
                     options={metricOptions.map((option, index) => ({
                         label: (

@@ -36,24 +36,24 @@ function FunnelCalculation({ experimentId }: ExperimentCalculatorProps): JSX.Ele
             {!experiment?.start_date && (
                 <>
                     <div className="mb-4 w-1/2">
-                        <div className="card-secondary">Baseline Conversion Rate</div>
+                        <div className="deprecated-label">Baseline Conversion Rate</div>
                         <div className="l4">{baselineConversionRate}%</div>
                     </div>
                     <div className="mb-4 w-1/2">
-                        <div className="card-secondary">Minimum Acceptable Conversion Rate</div>
+                        <div className="deprecated-label">Minimum Acceptable Conversion Rate</div>
                         <div className="l4">{minimumAcceptableConversionRate}%</div>
                     </div>
                 </>
             )}
             <div className="w-1/2">
-                <div className="card-secondary">Recommended Sample Size</div>
+                <div className="deprecated-label">Recommended Sample Size</div>
                 <div className="pb-4">
                     <span className="l4">~{recommendedSampleSize}</span> persons
                 </div>
             </div>
             {!experiment?.start_date && (
                 <div className="w-1/2">
-                    <div className="card-secondary">Recommended running time</div>
+                    <div className="deprecated-label">Recommended running time</div>
                     <div>
                         <span className="l4">~{recommendedRunningTime}</span> days
                     </div>
@@ -81,17 +81,17 @@ function TrendCalculation({ experimentId }: ExperimentCalculatorProps): JSX.Elem
             {!experiment?.start_date && (
                 <>
                     <div className="mb-4 w-1/2">
-                        <div className="card-secondary">Baseline Count</div>
+                        <div className="deprecated-label">Baseline Count</div>
                         <div className="l4">{baselineCount}</div>
                     </div>
                     <div className="mb-4 w-1/2">
-                        <div className="card-secondary">Minimum Acceptable Count</div>
+                        <div className="deprecated-label">Minimum Acceptable Count</div>
                         <div className="l4">{minimumAcceptableCount}</div>
                     </div>
                 </>
             )}
             <div className="w-1/2">
-                <div className="card-secondary">Recommended running time</div>
+                <div className="deprecated-label">Recommended running time</div>
                 <div>
                     <span className="l4">~{recommendedRunningTime}</span> days
                 </div>

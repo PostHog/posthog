@@ -11,7 +11,7 @@ export const UniqueUsersPanel = ({ uniqueUsers }: { uniqueUsers: number }): JSX.
 
     return (
         <div>
-            <div className="card-secondary">Unique users</div>
+            <div className="deprecated-label">Unique users</div>
             <div className="font-semibold">~{humanFriendlyNumber(uniqueUsers, 0)} persons</div>
             <div className="text-xs text-tertiary-foreground">Last {TIMEFRAME_HISTORICAL_DATA_DAYS} days</div>
         </div>
@@ -25,7 +25,7 @@ export const AverageEventsPerUserPanel = ({ averageEventsPerUser }: { averageEve
 
     return (
         <div>
-            <div className="card-secondary">Avg. events per user</div>
+            <div className="deprecated-label">Avg. events per user</div>
             <div className="font-semibold">~{humanFriendlyNumber(averageEventsPerUser, 0)}</div>
         </div>
     )
@@ -42,7 +42,7 @@ export const AveragePropertyValuePerUserPanel = ({
 
     return (
         <div>
-            <div className="card-secondary">Avg. property value per user</div>
+            <div className="deprecated-label">Avg. property value per user</div>
             <div className="font-semibold">~{humanFriendlyNumber(averagePropertyValuePerUser, 0)}</div>
         </div>
     )
@@ -55,7 +55,7 @@ export const StandardDeviationPanel = ({ standardDeviation }: { standardDeviatio
 
     return (
         <div>
-            <div className="card-secondary">
+            <div className="deprecated-label">
                 <span>Est. standard deviation</span>
                 <Tooltip
                     className="ml-1"

@@ -162,7 +162,7 @@ export function Exposures(): JSX.Element {
                     <div className={clsx(chartWrapperClasses, 'border rounded bg-card p-4')}>
                         <div className="flex justify-between mb-4">
                             <div>
-                                <h3 className="card-secondary">Exposure criteria</h3>
+                                <h3 className="deprecated-label">Exposure criteria</h3>
                                 <div className="flex items-center gap-2">
                                     <div className="text-sm font-semibold">
                                         {getExposureCriteriaLabel(exposureCriteria)}
@@ -179,7 +179,7 @@ export function Exposures(): JSX.Element {
                         </div>
                         {exposures?.timeseries.length > 0 && (
                             <div>
-                                <h3 className="card-secondary">Total exposures</h3>
+                                <h3 className="deprecated-label">Total exposures</h3>
                                 <div className="overflow-auto max-h-[150px]">
                                     <LemonTable
                                         dataSource={exposures?.timeseries || []}

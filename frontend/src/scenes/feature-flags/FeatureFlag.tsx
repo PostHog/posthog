@@ -601,10 +601,10 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                                             !featureFlag.can_edit
                                                                 ? "You have only 'View' access for this feature flag. To make changes, please contact the flag's creator."
                                                                 : (featureFlag.features?.length || 0) > 0
-                                                                ? 'This feature flag is in use with an early access feature. Delete the early access feature to delete this flag'
-                                                                : (featureFlag.experiment_set?.length || 0) > 0
-                                                                ? 'This feature flag is linked to an experiment. Delete the experiment to delete this flag'
-                                                                : null
+                                                                  ? 'This feature flag is in use with an early access feature. Delete the early access feature to delete this flag'
+                                                                  : (featureFlag.experiment_set?.length || 0) > 0
+                                                                    ? 'This feature flag is linked to an experiment. Delete the experiment to delete this flag'
+                                                                    : null
                                                         }
                                                     >
                                                         {featureFlag.deleted ? 'Restore' : 'Delete'} feature flag
@@ -633,8 +633,8 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                                 !featureFlag.can_edit
                                                     ? "You have only 'View' access for this feature flag. To make changes, please contact the flag's creator."
                                                     : featureFlag.deleted
-                                                    ? 'This feature flag has been deleted. Restore it to edit.'
-                                                    : null
+                                                      ? 'This feature flag has been deleted. Restore it to edit.'
+                                                      : null
                                             }
                                             onClick={() => {
                                                 editFeatureFlag(true)
@@ -870,8 +870,8 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                 <>
                     <div className="flex flex-col mb-4">
                         <div className="grid grid-cols-8">
-                            <div className="col-span-2 card-secondary">Status</div>
-                            <div className="col-span-6 card-secondary">Type</div>
+                            <div className="col-span-2 deprecated-label">Status</div>
+                            <div className="col-span-6 deprecated-label">Type</div>
                             <div className="col-span-2">
                                 {featureFlag.deleted ? (
                                     <LemonTag size="medium" type="danger" className="uppercase">
@@ -940,7 +940,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                             </div>
                         </div>
 
-                        <span className="card-secondary mt-4">Flag persistence</span>
+                        <span className="deprecated-label mt-4">Flag persistence</span>
                         <span>
                             This flag{' '}
                             <b>{featureFlag.ensure_experience_continuity ? 'persists' : 'does not persist'} </b>
@@ -949,7 +949,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
 
                         {featureFlags[FEATURE_FLAGS.FLAG_EVALUATION_RUNTIMES] && (
                             <>
-                                <span className="card-secondary mt-4">Evaluation runtime</span>
+                                <span className="deprecated-label mt-4">Evaluation runtime</span>
                                 <div className="mt-2">
                                     <div className="flex items-center gap-2">
                                         {featureFlag.evaluation_runtime === FeatureFlagEvaluationRuntime.ALL ? (

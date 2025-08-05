@@ -27,7 +27,7 @@ export const FunnelMetricDataPanel = ({
             <div className="grid grid-cols-3 gap-4">
                 <UniqueUsersPanel uniqueUsers={uniqueUsers ?? 0} />
                 <div>
-                    <div className="card-secondary">
+                    <div className="deprecated-label">
                         <span>Conversion rate input</span>
                         <Tooltip
                             className="ml-1"
