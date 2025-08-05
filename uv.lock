@@ -4097,7 +4097,7 @@ requires-dist = [
     { name = "django-extensions", specifier = "==3.1.2" },
     { name = "django-filter", specifier = "==2.4.0" },
     { name = "django-loginas", specifier = "==0.3.11" },
-    { name = "django-mcp-server", specifier = ">=0.5.6" },
+    { name = "django-mcp-server", specifier = "==0.5.6" },
     { name = "django-oauth-toolkit", specifier = ">=3.0.1" },
     { name = "django-picklefield", specifier = "==3.0.1" },
     { name = "django-prometheus", specifier = "==2.2.0" },
