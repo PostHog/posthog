@@ -180,6 +180,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                         insightShortId={insight.short_id}
                         insight={insight}
                         previewIframe
+                        userAccessLevel={insight.user_access_level}
                     />
                     <AddToDashboardModal
                         isOpen={addToDashboardModalOpen}

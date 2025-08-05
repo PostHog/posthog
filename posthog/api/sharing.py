@@ -36,6 +36,7 @@ from posthog.models.insight import Insight
 from posthog.models.user import User
 from posthog.session_recordings.session_recording_api import SessionRecordingSerializer
 from posthog.user_permissions import UserPermissions
+from posthog.rbac.user_access_control import UserAccessControl
 from posthog.utils import render_template
 from posthog.exceptions_capture import capture_exception
 
@@ -59,8 +60,24 @@ def check_can_edit_sharing_configuration(
     if request.method in SAFE_METHODS:
         return True
 
-    if sharing.dashboard and not view.user_permissions.dashboard(sharing.dashboard).can_edit:
-        raise PermissionDenied("You don't have edit permissions for this dashboard.")
+    user_access_control = UserAccessControl(user=request.user, team=view.team)
+
+    # TODO: change these checks once "get_user_access_level" is available on UserAccessControl
+    if sharing.dashboard:
+        # Check both object-level and resource-level permissions
+        has_object_access = user_access_control.check_access_level_for_object(sharing.dashboard, "editor")
+        has_resource_access = user_access_control.check_access_level_for_resource("dashboard", "editor")
+
+        if not (has_object_access or has_resource_access):
+            raise PermissionDenied("You don't have edit permissions for this dashboard.")
+
+    if sharing.insight:
+        # Check both object-level and resource-level permissions
+        has_object_access = user_access_control.check_access_level_for_object(sharing.insight, "editor")
+        has_resource_access = user_access_control.check_access_level_for_resource("insight", "editor")
+
+        if not (has_object_access or has_resource_access):
+            raise PermissionDenied("You don't have edit permissions for this insight.")
 
     return True
 
