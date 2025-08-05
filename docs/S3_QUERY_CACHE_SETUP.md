@@ -54,11 +54,32 @@ QUERY_CACHE_S3_BUCKET = "my-query-cache-bucket"
 QUERY_CACHE_BACKEND = "redis"  # 'redis' (default) or 's3'
 ```
 
-### Enabling S3 Cache for an Organization
+### Enabling S3 Cache
 
-1. **Using PostHog UI**: Go to Feature Flags and enable `query-cache-use-s3` for target organizations
+The `query-cache-use-s3` feature flag supports multiple targeting options:
+
+1. **Organization-level**: Enable for entire organizations
+2. **User-level**: Enable for specific users within organizations
+3. **Hybrid**: Combine organization and user-level targeting
+
+#### Configuration Methods
+
+1. **Using PostHog UI**: 
+   - Go to Feature Flags
+   - Create/edit `query-cache-use-s3`
+   - Target specific organizations or users
+   - Set rollout percentage for gradual deployment
+
 2. **Using API**: Create/update the feature flag via PostHog API
-3. **For testing**: Enable the flag for specific users/organizations during development
+
+3. **For testing**: Enable the flag for specific users during development
+
+#### User-Specific Evaluation
+
+When a `user` parameter is passed to `get_query_cache_manager()`, the feature flag evaluation will:
+- Use the user's `distinct_id` for personalized flag evaluation
+- Still include organization/project context for group-based targeting
+- Allow fine-grained control over which users get S3 caching
 
 ## Required S3 Lifecycle Configuration
 
@@ -312,6 +333,7 @@ cache_manager = get_query_cache_manager(
     cache_key="my_query_hash",
     insight_id=123,
     dashboard_id=456,
+    user=request.user,  # Optional: for user-specific feature flag evaluation
 )
 
 # Use the same interface regardless of backend
@@ -327,6 +349,8 @@ stale_insights = cache_manager.get_stale_insights(team_id=team.pk, limit=10)
 
 The factory automatically determines which backend to use:
 1. **First**: Checks the `query-cache-use-s3` feature flag for the team's organization
+   - If `user` parameter provided: Evaluates flag for the specific user
+   - If no `user` provided: Evaluates flag for the team/organization
 2. **Fallback**: Uses `QUERY_CACHE_BACKEND` setting if team cannot be found
 3. **Default**: Uses Redis if no configuration is found
 

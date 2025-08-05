@@ -84,6 +84,38 @@ class TestQueryCacheFactory(APIBaseTest):
         self.assertIsNone(manager.insight_id)
         self.assertIsNone(manager.dashboard_id)
 
+    @patch("posthog.hogql_queries.query_cache_factory.query_cache_use_s3")
+    def test_get_s3_cache_manager_with_user(self, mock_feature_flag):
+        """Test factory returns S3 manager when feature flag is enabled for user."""
+        mock_feature_flag.return_value = True
+
+        manager = get_query_cache_manager(
+            team_id=self.team_id,
+            cache_key=self.cache_key,
+            insight_id=self.insight_id,
+            dashboard_id=self.dashboard_id,
+            user=self.user,
+        )
+
+        self.assertIsInstance(manager, S3QueryCacheManager)
+        mock_feature_flag.assert_called_once_with(self.team, user=self.user)
+
+    @patch("posthog.hogql_queries.query_cache_factory.query_cache_use_s3")
+    def test_get_redis_cache_manager_with_user(self, mock_feature_flag):
+        """Test factory returns Redis manager when feature flag is disabled for user."""
+        mock_feature_flag.return_value = False
+
+        manager = get_query_cache_manager(
+            team_id=self.team_id,
+            cache_key=self.cache_key,
+            insight_id=self.insight_id,
+            dashboard_id=self.dashboard_id,
+            user=self.user,
+        )
+
+        self.assertIsInstance(manager, RedisQueryCacheManager)
+        mock_feature_flag.assert_called_once_with(self.team, user=self.user)
+
     @patch("posthog.models.Team.objects.get")
     def test_get_cache_manager_team_not_found_fallback_to_settings(self, mock_team_get):
         """Test factory falls back to settings when team doesn't exist."""

@@ -28,7 +28,8 @@ from posthog.hogql.modifiers import create_default_modifiers_for_user
 from posthog.hogql.printer import print_ast
 from posthog.hogql.query import create_default_modifiers_for_team
 from posthog.hogql.timings import HogQLTimings
-from posthog.hogql_queries.query_cache import QueryCacheManager
+from posthog.hogql_queries.query_cache import QueryCacheManager  # For type annotations
+from posthog.hogql_queries.query_cache_factory import get_query_cache_manager
 from posthog.metrics import LABEL_TEAM_ID
 from posthog.models import Team, User
 from posthog.models.team import WeekStartDay
@@ -889,11 +890,12 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
             self.query_id = query_id or self.query_id
             CachedResponse: type[CR] = self.cached_response_type
-            cache_manager = QueryCacheManager(
+            cache_manager = get_query_cache_manager(
                 team_id=self.team.pk,
                 cache_key=cache_key,
                 insight_id=insight_id,
                 dashboard_id=dashboard_id,
+                user=user,
             )
 
             if execution_mode == ExecutionMode.CALCULATE_ASYNC_ALWAYS:
