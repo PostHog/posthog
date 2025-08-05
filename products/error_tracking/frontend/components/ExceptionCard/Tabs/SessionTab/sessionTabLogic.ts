@@ -15,7 +15,6 @@ import {
 
 import type { sessionTabLogicType } from './sessionTabLogicType'
 import { loaders } from 'kea-loaders'
-import { hogql } from '~/queries/utils'
 import { dayjs } from 'lib/dayjs'
 import api from 'lib/api'
 import {
@@ -34,6 +33,7 @@ import {
 } from './SessionTimelineItem/event'
 import { SessionRecordingPlayerProps } from 'scenes/session-recordings/player/SessionRecordingPlayer'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
+import { EventsQuery, NodeKind } from '~/queries/schema/schema-general'
 
 export type SessionTabLogicProps = {
     sessionId: string
@@ -131,17 +131,17 @@ export const sessionTabLogic = kea<sessionTabLogicType>([
                 loadEvents: async () => {
                     const start = dayjs(props.timestamp).subtract(5, 'minutes')
                     const end = dayjs(props.timestamp).add(5, 'minutes')
-                    const sessionEventsQuery = hogql`
-                    SELECT uuid, event, timestamp, properties
-                    FROM events
-                    WHERE timestamp > ${start}
-                    AND timestamp < ${end}
-                    AND $session_id = ${props.sessionId}
-                    ORDER BY timestamp ASC
-                    LIMIT 1000000`
-
-                    const response = await api.queryHogQL(sessionEventsQuery)
-                    return response.results.map((result: any) => ({
+                    const query: EventsQuery = {
+                        kind: NodeKind.EventsQuery,
+                        select: ['uuid', 'event', 'timestamp', 'properties'],
+                        where: [`$session_id = '${props.sessionId}'`],
+                        before: end.toISOString(),
+                        after: start.toISOString(),
+                        orderBy: ['timestamp'],
+                    }
+                    const response = await api.query(query)
+                    const results = response.results
+                    return results.map((result: any) => ({
                         id: result[0],
                         type: 'event',
                         timestamp: result[2],
