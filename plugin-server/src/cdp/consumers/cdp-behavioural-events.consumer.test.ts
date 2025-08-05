@@ -1,8 +1,14 @@
+// eslint-disable-next-line simple-import-sort/imports
+import { MockKafkaProducerWrapper } from '../../../tests/helpers/mocks/producer.mock'
+import { KafkaProducerObserver } from '../../../tests/helpers/mocks/producer.spy'
+
 import { Client as CassandraClient } from 'cassandra-driver'
 import { createHash } from 'crypto'
 
 import { truncateBehavioralCounters } from '../../../tests/helpers/cassandra'
 import { createAction, getFirstTeam, resetTestDatabase } from '../../../tests/helpers/sql'
+import { resetKafka } from '../../../tests/helpers/kafka'
+import { waitForExpect } from '../../../tests/helpers/expectations'
 import { KAFKA_CDP_PERSON_PERFORMED_EVENT } from '../../config/kafka-topics'
 import { Hub, RawClickHouseEvent, Team } from '../../types'
 import { BehavioralCounterRepository } from '../../utils/db/cassandra/behavioural-counter.repository'
@@ -18,12 +24,6 @@ class TestableCdpBehaviouralEventsConsumer extends CdpBehaviouralEventsConsumer 
     }
     public get testBehavioralCounterRepository() {
         return this.behavioralCounterRepository
-    }
-    public get testKafkaProducer() {
-        if (!this.kafkaProducer) {
-            throw new Error('KafkaProducer not initialized. Did you call start()?')
-        }
-        return this.kafkaProducer
     }
     public get testPersonPerformedEventsQueue() {
         return this.personPerformedEventsQueue
@@ -446,13 +446,27 @@ describe('CdpBehaviouralEventsConsumer', () => {
         let processor: TestableCdpBehaviouralEventsConsumer
         let hub: Hub
         let team: Team
+        let mockProducerObserver: KafkaProducerObserver
 
-        beforeAll(async () => {
+        beforeEach(async () => {
+            // Use real producer implementation like in E2E tests
+            const ActualKafkaProducerWrapper = jest.requireActual('../../../src/kafka/producer').KafkaProducerWrapper
+            MockKafkaProducerWrapper.create = jest.fn((...args) => {
+                return ActualKafkaProducerWrapper.create(...args)
+            })
+
+            await resetKafka()
             await resetTestDatabase()
+
             hub = await createHub()
             team = await getFirstTeam(hub)
+
             processor = new TestableCdpBehaviouralEventsConsumer(hub)
             await processor.start()
+
+            // Create observer for the consumer's own kafka producer, not hub's
+            mockProducerObserver = new KafkaProducerObserver(processor['kafkaProducer']!)
+            mockProducerObserver.resetKafkaProducer()
         })
 
         beforeEach(async () => {
@@ -467,13 +481,10 @@ describe('CdpBehaviouralEventsConsumer', () => {
             processor.testPersonPerformedEventsQueue.length = 0
         })
 
-        afterAll(async () => {
+        afterEach(async () => {
             await processor.stop()
             await closeHub(hub)
-        })
-
-        afterEach(() => {
-            jest.restoreAllMocks()
+            mockProducerObserver.resetKafkaProducer()
         })
 
         it('should queue person performed events during message parsing', async () => {
@@ -510,11 +521,6 @@ describe('CdpBehaviouralEventsConsumer', () => {
             const personId = '550e8400-e29b-41d4-a716-446655440000'
             const eventName = '$pageview'
 
-            // Spy on the real Kafka producer
-            const queueMessagesSpy = jest
-                .spyOn(processor.testKafkaProducer, 'queueMessages')
-                .mockResolvedValue(undefined)
-
             // Add an event to the queue manually
             processor.testPersonPerformedEventsQueue.push({
                 teamId: team.id,
@@ -525,21 +531,23 @@ describe('CdpBehaviouralEventsConsumer', () => {
             // Publish the events
             await processor.testPublishPersonPerformedEvents()
 
-            // Verify Kafka producer was called with correct message
-            expect(queueMessagesSpy).toHaveBeenCalledTimes(1)
-            expect(queueMessagesSpy).toHaveBeenCalledWith({
+            // Wait for the message to be published to Kafka
+            await waitForExpect(() => {
+                const messages = mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_CDP_PERSON_PERFORMED_EVENT)
+                expect(messages).toHaveLength(1)
+            }, 5000)
+
+            // Verify message content
+            const messages = mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_CDP_PERSON_PERFORMED_EVENT)
+            expect(messages[0]).toEqual({
                 topic: KAFKA_CDP_PERSON_PERFORMED_EVENT,
-                messages: [
-                    {
-                        topic: KAFKA_CDP_PERSON_PERFORMED_EVENT,
-                        value: JSON.stringify({
-                            teamId: team.id,
-                            personId,
-                            eventName,
-                        }),
-                        key: team.id.toString(),
-                    },
-                ],
+                key: team.id.toString(),
+                value: {
+                    teamId: team.id,
+                    personId,
+                    eventName,
+                },
+                headers: undefined,
             })
 
             // Verify queue was cleared
@@ -553,31 +561,36 @@ describe('CdpBehaviouralEventsConsumer', () => {
                 { teamId: 1, personId: 'person3', eventName: 'event3' },
             ]
 
-            // Spy on the real Kafka producer
-            const queueMessagesSpy = jest
-                .spyOn(processor.testKafkaProducer, 'queueMessages')
-                .mockResolvedValue(undefined)
-
             // Add events to the queue
             events.forEach((event) => processor.testPersonPerformedEventsQueue.push(event))
 
             // Publish the events
             await processor.testPublishPersonPerformedEvents()
 
+            // Wait for all messages to be published to Kafka
+            await waitForExpect(() => {
+                const messages = mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_CDP_PERSON_PERFORMED_EVENT)
+                expect(messages).toHaveLength(3)
+            }, 5000)
+
             // Verify messages have correct keys for partitioning
-            const call = queueMessagesSpy.mock.calls[0][0] as { messages: { key: string }[] }
-            expect(call.messages).toHaveLength(3)
-            expect(call.messages[0].key).toBe('1')
-            expect(call.messages[1].key).toBe('2')
-            expect(call.messages[2].key).toBe('1')
+            const messages = mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_CDP_PERSON_PERFORMED_EVENT)
+            expect(messages[0].key).toBe('1')
+            expect(messages[1].key).toBe('2')
+            expect(messages[2].key).toBe('1')
+
+            // Verify message contents
+            expect(messages[0].value).toEqual({ teamId: 1, personId: 'person1', eventName: 'event1' })
+            expect(messages[1].value).toEqual({ teamId: 2, personId: 'person2', eventName: 'event2' })
+            expect(messages[2].value).toEqual({ teamId: 1, personId: 'person3', eventName: 'event3' })
         })
 
         it('should handle publishing errors gracefully', async () => {
             const personId = '550e8400-e29b-41d4-a716-446655440000'
             const eventName = '$pageview'
 
-            // Spy on the real Kafka producer to throw an error
-            jest.spyOn(processor.testKafkaProducer, 'queueMessages').mockRejectedValue(new Error('Kafka error'))
+            // Mock the producer to throw an error - need to do this BEFORE observer tracks calls
+            mockProducerObserver.produceSpy.mockRejectedValue(new Error('Kafka connection error'))
 
             // Add an event to the queue
             processor.testPersonPerformedEventsQueue.push({
@@ -591,6 +604,10 @@ describe('CdpBehaviouralEventsConsumer', () => {
 
             // Queue should NOT be cleared on error - messages should be retried
             expect(processor.testPersonPerformedEventsQueue).toHaveLength(1)
+
+            // Verify no messages were successfully published due to the error
+            // (The observer will still record the attempted calls)
+            expect(mockProducerObserver.produceSpy).toHaveBeenCalled()
         })
     })
 })
