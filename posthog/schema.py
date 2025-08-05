@@ -1587,6 +1587,7 @@ class IntegrationKind(StrEnum):
     GOOGLE_PUBSUB = "google-pubsub"
     GOOGLE_CLOUD_STORAGE = "google-cloud-storage"
     GOOGLE_ADS = "google-ads"
+    GOOGLE_SHEETS = "google-sheets"
     LINKEDIN_ADS = "linkedin-ads"
     SNAPCHAT = "snapchat"
     INTERCOM = "intercom"
