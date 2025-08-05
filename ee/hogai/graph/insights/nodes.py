@@ -453,7 +453,6 @@ class InsightSearchNode(AssistantNode):
                 "visualization_messages": [],
             }
 
-        query_executor = AssistantQueryExecutor(self._team, self._utc_now_datetime)
         insights_with_results = []
         visualization_messages = []
 
@@ -462,7 +461,9 @@ class InsightSearchNode(AssistantNode):
             if not insight:
                 continue
 
-            insight_info = self._process_insight_for_evaluation(insight, query_executor)
+            insight_info = self._process_insight_for_evaluation(
+                insight, AssistantQueryExecutor(self._team, self._utc_now_datetime)
+            )
 
             # Add to results (removing the visualization_message key since LLM doesn't need to see this + smaller token print)
             eval_insight_info = {k: v for k, v in insight_info.items() if k != "visualization_message"}
