@@ -335,12 +335,14 @@ function processChoiceQuestion(
         } else {
             // Multiple choice
             const choices = rawValue as string[]
-            total += 1
 
-            choices.forEach((choice) => {
-                const cleaned = choice.replace(/^['"]+|['"]+$/g, '')
-                countChoice(cleaned, counts, uniqueResponsePersonData, personData)
-            })
+            if (choices.length > 0) {
+                total += 1
+                choices.forEach((choice) => {
+                    const cleaned = choice.replace(/^['"]+|['"]+$/g, '')
+                    countChoice(cleaned, counts, uniqueResponsePersonData, personData)
+                })
+            }
         }
     })
 
