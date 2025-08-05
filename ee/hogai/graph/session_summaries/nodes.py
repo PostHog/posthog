@@ -8,6 +8,7 @@ from langchain_core.runnables import RunnableConfig
 
 from ee.hogai.graph.base import AssistantNode
 from ee.hogai.session_summaries.constants import SESSION_SUMMARIES_STREAMING_MODEL, GROUP_SUMMARIES_MIN_SESSIONS
+from ee.hogai.session_summaries.session_group.patterns import EnrichedSessionGroupSummaryPatternsList
 from ee.hogai.session_summaries.session_group.summarize_session_group import find_sessions_timestamps
 from ee.hogai.session_summaries.session_group.summary_notebooks import create_summary_notebook
 from ee.hogai.utils.types import AssistantState, PartialAssistantState, AssistantNodeName
@@ -157,10 +158,11 @@ class SessionSummarizationNode(AssistantNode):
         self._stream_progress(progress_message=f"Generating a summary, almost there", writer=writer)
         return "\n".join(summaries)
 
-    async def _summarize_sessions_as_group(self, session_ids: list[str]) -> str:
+    async def _summarize_sessions_as_group(self, session_ids: list[str], writer: StreamWriter | None) -> str:
         """Summarize sessions as a group (for larger sets)."""
         min_timestamp, max_timestamp = find_sessions_timestamps(session_ids=session_ids, team=self._team)
-        summary = execute_summarize_session_group(
+        summary = None
+        async for update in execute_summarize_session_group(
             session_ids=session_ids,
             user_id=self._user.pk,
             team=self._team,
@@ -168,9 +170,24 @@ class SessionSummarizationNode(AssistantNode):
             max_timestamp=max_timestamp,
             extra_summary_context=None,
             local_reads_prod=False,
-        )
-        create_summary_notebook(session_ids=session_ids, user=self._user, team=self._team, summary=summary)
-        return summary.model_dump_json(exclude_none=True)
+        ):
+            if isinstance(update, str):
+                # Status message - stream to user
+                self._stream_progress(progress_message=update, writer=writer)
+            elif isinstance(update, EnrichedSessionGroupSummaryPatternsList):
+                # Final summary
+                summary = update
+            else:
+                raise ValueError(
+                    f"Unexpected update type ({type(update)}) in session group summarization (session_ids: {session_ids})."
+                )
+        if summary:
+            database_sync_to_async(create_summary_notebook)(
+                session_ids=session_ids, user=self._user, team=self._team, summary=summary
+            )
+            return summary.model_dump_json(exclude_none=True)
+        else:
+            raise ValueError(f"No summary was generated from session group summarization (session_ids: {session_ids})")
 
     async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
         start_time = time.time()
@@ -224,7 +241,7 @@ class SessionSummarizationNode(AssistantNode):
                     progress_message=f"{base_message}. We will analyze in detail, and store the report in a notebook",
                     writer=writer,
                 )
-                summaries_content = await self._summarize_sessions_as_group(session_ids=session_ids)
+                summaries_content = await self._summarize_sessions_as_group(session_ids=session_ids, writer=writer)
             return PartialAssistantState(
                 messages=[
                     AssistantToolCallMessage(

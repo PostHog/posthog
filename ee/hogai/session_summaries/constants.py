@@ -15,10 +15,12 @@ GROUP_SUMMARIES_MIN_SESSIONS = (
 )
 
 # Temporal
-# How long to store the DB data in Redis within Temporal session summaries jobs
-SESSION_SUMMARIES_DB_DATA_REDIS_TTL = 60 * 60 * 24  # 24 hours to keep alive for retries and long-running workflows
+SESSION_SUMMARIES_DB_DATA_REDIS_TTL = (
+    60 * 60 * 24
+)  # How long to store the DB data in Redis within Temporal session summaries jobs
 FAILED_SESSION_SUMMARIES_MIN_RATIO = 0.5  # If less than 50% of session group summaries succeed, stop the workflow
 FAILED_PATTERNS_ASSIGNMENT_MIN_RATIO = 0.75  # If less than 75% of patterns assignment succeed, stop the workflow
+SESSION_GROUP_SUMMARIES_WORKFLOW_POLLING_INTERVAL_MS = 300  # How often to poll for the workflow status
 
 # Patterns
 PATTERNS_ASSIGNMENT_CHUNK_SIZE = 10  # How many single-session-summaries to feed at once to assign events to patterns

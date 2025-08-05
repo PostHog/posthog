@@ -4,14 +4,17 @@ from datetime import datetime, timedelta
 import hashlib
 import json
 import uuid
+from collections.abc import AsyncGenerator
+
 import structlog
 import temporalio
-from asgiref.sync import async_to_sync
+from temporalio.client import WorkflowExecutionStatus
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 from django.conf import settings
 from ee.hogai.session_summaries.constants import (
     FAILED_SESSION_SUMMARIES_MIN_RATIO,
     FAILED_PATTERNS_EXTRACTION_MIN_RATIO,
+    SESSION_GROUP_SUMMARIES_WORKFLOW_POLLING_INTERVAL_MS,
 )
 from ee.hogai.session_summaries.constants import SESSION_SUMMARIES_SYNC_MODEL
 from ee.hogai.session_summaries.session.input_data import add_context_and_filter_events, get_team
@@ -498,14 +501,15 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
         return patterns_assignments
 
 
-async def _execute_workflow(
+async def _start_session_group_summary_workflow(
     inputs: SessionGroupSummaryInputs, workflow_id: str
-) -> EnrichedSessionGroupSummaryPatternsList:
-    """Execute the workflow and return the final group summary."""
+) -> AsyncGenerator[EnrichedSessionGroupSummaryPatternsList | str, None]:
+    """Start the workflow and yield status updates until completion."""
     client = await async_connect()
     retry_policy = RetryPolicy(maximum_attempts=int(settings.TEMPORAL_WORKFLOW_MAX_ATTEMPTS))
-    # Temporal returns EnrichedSessionGroupSummaryPatternsList deserialized to dict
-    result_raw: dict = await client.execute_workflow(
+
+    # Start the workflow instead of execute
+    handle = await client.start_workflow(
         "summarize-session-group",
         inputs,
         id=workflow_id,
@@ -513,9 +517,32 @@ async def _execute_workflow(
         task_queue=constants.MAX_AI_TASK_QUEUE,
         retry_policy=retry_policy,
     )
-    # Convert back to EnrichedSessionGroupSummaryPatternsList
-    result = EnrichedSessionGroupSummaryPatternsList(**result_raw)
-    return result
+
+    # Poll for status every 3 seconds
+    while True:
+        # Check workflow status
+        workflow_description = await handle.describe()
+        # Query the current activities status
+        progress_status = await handle.query("get_current_status")
+
+        if workflow_description.status == WorkflowExecutionStatus.COMPLETED:
+            # Workflow completed - get and yield the final result
+            result_raw: dict = await handle.result()
+            result = EnrichedSessionGroupSummaryPatternsList(**result_raw)
+            yield result
+            break
+        elif workflow_description.status in (
+            WorkflowExecutionStatus.FAILED,
+            WorkflowExecutionStatus.CANCELED,
+            WorkflowExecutionStatus.TERMINATED,
+            WorkflowExecutionStatus.TIMED_OUT,
+        ):
+            # Workflow failed - raise an exception
+            raise ApplicationError(f"Workflow {workflow_id} failed with status: {workflow_description.status}")
+        else:
+            # Workflow still running - yield the current status
+            yield progress_status
+            await asyncio.sleep(int(SESSION_GROUP_SUMMARIES_WORKFLOW_POLLING_INTERVAL_MS / 1000))
 
 
 def _generate_shared_id(session_ids: list[str]) -> str:
@@ -524,7 +551,7 @@ def _generate_shared_id(session_ids: list[str]) -> str:
     return hashlib.sha256("-".join(session_ids).encode()).hexdigest()[:16]
 
 
-def execute_summarize_session_group(
+async def execute_summarize_session_group(
     session_ids: list[str],
     user_id: int,
     team: Team,
@@ -533,9 +560,9 @@ def execute_summarize_session_group(
     model_to_use: str = SESSION_SUMMARIES_SYNC_MODEL,
     extra_summary_context: ExtraSummaryContext | None = None,
     local_reads_prod: bool = False,
-) -> EnrichedSessionGroupSummaryPatternsList:
+) -> AsyncGenerator[EnrichedSessionGroupSummaryPatternsList | str, None]:
     """
-    Start the workflow and return the final summary for the group of sessions.
+    Start the workflow and yield status updates and final summary for the group of sessions.
     """
     # Use shared identifier to be able to construct all the ids to check/debug.
     shared_id = _generate_shared_id(session_ids)
@@ -554,5 +581,6 @@ def execute_summarize_session_group(
     )
     # Connect to Temporal and execute the workflow
     workflow_id = f"session-summary:group:{user_id}-{team.id}:{shared_id}:{uuid.uuid4()}"
-    result = async_to_sync(_execute_workflow)(inputs=session_group_input, workflow_id=workflow_id)
-    return result
+    # Yield status updates and final result
+    async for update in _start_session_group_summary_workflow(inputs=session_group_input, workflow_id=workflow_id):
+        yield update
