@@ -160,6 +160,9 @@ export function BillingLineGraph({
                     type: 'time',
                     time: {
                         unit: interval,
+                        displayFormats: {
+                            day: 'MMM DD',
+                        },
                     },
                     ticks: {
                         source: 'labels',
@@ -273,8 +276,8 @@ export function BillingLineGraph({
                     annotations: billingPeriodMarkers.reduce((acc: Record<string, any>, marker, idx) => {
                         acc[`billing-period-${idx}`] = {
                             type: 'line',
-                            xMin: marker.date.format('YYYY-MM-DD'),
-                            xMax: marker.date.format('YYYY-MM-DD'),
+                            xMin: marker.date.utc().format('YYYY-MM-DD'),
+                            xMax: marker.date.utc().format('YYYY-MM-DD'),
                             borderColor: isDarkModeOn ? 'rgba(255, 255, 255, 0.4)' : 'rgba(0, 0, 0, 0.4)',
                             borderWidth: 2,
                             borderDash: [8, 4],

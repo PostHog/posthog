@@ -66,8 +66,8 @@ export interface BillingError {
 const parseBillingResponse = (data: Partial<BillingType>): BillingType => {
     if (data.billing_period) {
         data.billing_period = {
-            current_period_start: dayjs(data.billing_period.current_period_start),
-            current_period_end: dayjs(data.billing_period.current_period_end),
+            current_period_start: dayjs.utc(data.billing_period.current_period_start),
+            current_period_end: dayjs.utc(data.billing_period.current_period_end),
             interval: data.billing_period.interval,
         }
     }

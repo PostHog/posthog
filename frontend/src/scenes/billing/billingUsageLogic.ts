@@ -167,24 +167,32 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
         ],
     })),
     selectors({
-        dateOptions: [
+        currentBillingPeriod: [
             (s) => [s.billing],
-            (billing: BillingType | null): DateMappingOption[] => {
-                const currentBillingPeriodStart = billing?.billing_period?.current_period_start
-                const currentBillingPeriodEnd = billing?.billing_period?.current_period_end
+            (billing: BillingType | null) => ({
+                start: billing?.billing_period?.current_period_start || null,
+                end: billing?.billing_period?.current_period_end || null,
+                interval: billing?.billing_period?.interval || null,
+            }),
+        ],
+        dateOptions: [
+            (s) => [s.currentBillingPeriod],
+            (currentPeriod): DateMappingOption[] => {
+                const currentBillingPeriodStart = currentPeriod.start
+                const currentBillingPeriodEnd = currentPeriod.end
                 const currentBillingPeriodOption: DateMappingOption = {
                     key: 'Current billing period',
                     values: [
-                        currentBillingPeriodStart?.format('YYYY-MM-DD') || '',
-                        currentBillingPeriodEnd?.format('YYYY-MM-DD') || '',
+                        currentBillingPeriodStart?.utc().format('YYYY-MM-DD') || '',
+                        currentBillingPeriodEnd?.utc().format('YYYY-MM-DD') || '',
                     ],
                     defaultInterval: 'day',
                 }
                 const previousBillingPeriodOption: DateMappingOption = {
                     key: 'Previous billing period',
                     values: [
-                        currentBillingPeriodStart?.subtract(1, 'month').format('YYYY-MM-DD') || '',
-                        currentBillingPeriodEnd?.subtract(1, 'month').format('YYYY-MM-DD') || '',
+                        currentBillingPeriodStart?.subtract(1, 'month').utc().format('YYYY-MM-DD') || '',
+                        currentBillingPeriodEnd?.subtract(1, 'month').utc().format('YYYY-MM-DD') || '',
                     ],
                 }
                 const dayAndMonthOptions = dateMapping.filter(
@@ -194,19 +202,20 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
             },
         ],
         billingPeriodMarkers: [
-            (s) => [s.billing, s.dateFrom, s.dateTo],
-            (billing: BillingType | null, dateFrom: string, dateTo: string): BillingPeriodMarker[] => {
-                if (!billing?.billing_period?.current_period_start || !billing?.billing_period?.interval) {
+            (s) => [s.currentBillingPeriod, s.dateFrom, s.dateTo],
+            (currentPeriod, dateFrom: string, dateTo: string): BillingPeriodMarker[] => {
+                if (!currentPeriod.start || !currentPeriod.interval) {
                     return []
                 }
 
                 const markers = []
-                const from = dateStringToDayJs(dateFrom) || dayjs(dateFrom)
-                const to = dateStringToDayJs(dateTo) || dayjs(dateTo)
-                const interval = billing.billing_period.interval
+                // Fix: Convert user dates to UTC for comparison with billing data (which is always UTC)
+                const from = dateStringToDayJs(dateFrom)?.utc() || dayjs(dateFrom).utc()
+                const to = dateStringToDayJs(dateTo)?.utc() || dayjs(dateTo).utc()
+                const interval = currentPeriod.interval
 
                 // Calculate all billing period starts within the date range
-                let periodStart = billing.billing_period.current_period_start
+                let periodStart = currentPeriod.start
 
                 // Go back to find the first period that might be visible
                 while (periodStart.isAfter(from)) {

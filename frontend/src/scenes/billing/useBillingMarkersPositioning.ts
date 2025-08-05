@@ -29,7 +29,9 @@ export function useBillingMarkersPositioning(
             chartAreaLeft: xScale.left,
             chartAreaTop: yScale.top,
             getMarkerPosition: (date: Dayjs) => {
-                const xPos = xScale.getPixelForValue(date.valueOf())
+                // Use midnight UTC of the same day to match Chart.js annotation date string interpretation
+                const utcMidnightTimestamp = date.utc().startOf('day').valueOf()
+                const xPos = xScale.getPixelForValue(utcMidnightTimestamp)
 
                 // Check if position is within visible chart area
                 const visible = xPos !== undefined && xPos >= xScale.left && xPos <= xScale.right
