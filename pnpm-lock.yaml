@@ -599,14 +599,14 @@ importers:
         specifier: workspace:*
         version: link:../products/web_analytics
       '@posthog/rrweb':
-        specifier: 0.0.24
-        version: 0.0.24
+        specifier: 0.0.25
+        version: 0.0.25
       '@posthog/rrweb-plugin-console-record':
-        specifier: 0.0.24
-        version: 0.0.24(@posthog/rrweb-utils@0.0.4)(@posthog/rrweb@0.0.24)
+        specifier: 0.0.25
+        version: 0.0.25(@posthog/rrweb-utils@0.0.4)(@posthog/rrweb@0.0.25)
       '@posthog/rrweb-types':
-        specifier: 0.0.24
-        version: 0.0.24
+        specifier: 0.0.25
+        version: 0.0.25
       '@posthog/tailwind':
         specifier: workspace:*
         version: link:../common/tailwind
@@ -5229,8 +5229,8 @@ packages:
   '@posthog/rrdom@0.0.4':
     resolution: {integrity: sha512-hUZOgnIxzB6ZWgKBbuf79oHko+7x1+sQMVtovY0k6fO67e5SwhKkLq3Y/Tn2ayIyUqEKqL8971wP1cmIeIVO+A==}
 
-  '@posthog/rrweb-plugin-console-record@0.0.24':
-    resolution: {integrity: sha512-3hX9scO14RjgdY8U6XGZbayOUyZM0+/mJ2A5q/tR1bRMmf8ZnlFrzEX0Ig2/HAajBvMIw01axmq9hj19WCvbqg==}
+  '@posthog/rrweb-plugin-console-record@0.0.25':
+    resolution: {integrity: sha512-b4K33UOhBr4ypTSve5ONRCN5Tm2D4O8kvw6dL6jLYApo7poNcaUPCQrbcx3P1REGZWC1LQtmdx8X3rOaCGs0lg==}
     peerDependencies:
       '@posthog/rrweb': '*'
       '@posthog/rrweb-utils': '*'
@@ -5238,8 +5238,8 @@ packages:
   '@posthog/rrweb-snapshot@0.0.4':
     resolution: {integrity: sha512-ifZH6T0FYjHtiCcqQOdrLn8YH9I7OOIWu2GSZMCzFd8F8oX1gtX4Tk/yX0sA6qAIWtfwDC0dKXgHWS2/EqGjgg==}
 
-  '@posthog/rrweb-types@0.0.24':
-    resolution: {integrity: sha512-gyJC+EOUQgm/FuTgV2VUxJqyt+MdGWCbxC4pwIeOYlnz0cDOIQ3X766LeWhnt0+1NctJqsewJyFoNoyOlavTUA==}
+  '@posthog/rrweb-types@0.0.25':
+    resolution: {integrity: sha512-e4ZIyTFLKoAWxpAOh+HA7eysaRtiR3Rhdw9KW+ytpNL8s/A/vpn9exTZSStWUfz8o9w2x7n2lRGZsA12xU5kxA==}
 
   '@posthog/rrweb-types@0.0.8':
     resolution: {integrity: sha512-CdZkKgr6VhCNJZLRdw7TC1J4iI/H+nEt5NZSBjV8vglQ4o31kl0KUfo2g0r6EvAm3mX3p5/mGrqub+LxABwzQQ==}
@@ -5247,8 +5247,8 @@ packages:
   '@posthog/rrweb-utils@0.0.4':
     resolution: {integrity: sha512-ndkpquzqXV/i0u4paOPiESWE/wdOEPdM+Q+sFQfcn6KnvjxtkzsnNNSlOcNHSwuRh0bCk3Cgs2ixDVTSZ+Zdtg==}
 
-  '@posthog/rrweb@0.0.24':
-    resolution: {integrity: sha512-KCWCRq/ihzCU3ZELWhqKeOAjhkGii95IHvMXdfNAkdQTQ6Yy0ZUU4CkQSYGC6GYBo2g9+HjbnhbLwV8oeRqt5w==}
+  '@posthog/rrweb@0.0.25':
+    resolution: {integrity: sha512-f9JdlcRE6LqaHuzkZBJVW1z6AkO/NxUQU1hFrzocmkCP3vJGW6uxGl0/pFUH9OB9p3paj08tS+S+c2qSZJMoSw==}
 
   '@posthog/siphash@1.1.1':
     resolution: {integrity: sha512-JUFk57H89fOnHpF62FDyFGw4uXeHAX20OPfkLL8/iqg/xrVp5Q21LvJUDijmS5wt0avgUwXF2bxYgaZ5iWRmAg==}
@@ -16559,8 +16559,8 @@ packages:
     resolution: {integrity: sha512-hAZsKq7Yy11Zu1DE0OzWjw7nnLZmJZYTDZZyEFHZdUhV8FkH5MCfoU1XMaxXovpyW5nq5scPqq0ZDP9Zyl04oQ==}
     engines: {node: '>= 10.0.0'}
 
-  unlayer-types@1.287.0:
-    resolution: {integrity: sha512-uBjqRzO68BLYDlbDIp2sHQMOzuynUYYAbFjARLv6CzEOwno+8rtylYdo6Ew6apo4+74nc2JAACMd4w36pkf6Rg==}
+  unlayer-types@1.289.0:
+    resolution: {integrity: sha512-3nqnOUbAPV84ektF3f1cKNvfl5uK8uwR7WzVR1nMqCCWLZTUo9j9Y9W5dcIVWVUcmJyWiPXADiPOcHxLbSo+Lw==}
 
   unpipe@1.0.0:
     resolution: {integrity: sha512-pjy2bYhSsufwWlKwPc+l3cN7+wuJlK6uz0YdJEOlQDbl6jo/YlPi4mb8agUkVC8BF7V8NuzeyPNqRksA3hztKQ==}
@@ -21919,26 +21919,26 @@ snapshots:
     dependencies:
       '@posthog/rrweb-snapshot': 0.0.4
 
-  '@posthog/rrweb-plugin-console-record@0.0.24(@posthog/rrweb-utils@0.0.4)(@posthog/rrweb@0.0.24)':
+  '@posthog/rrweb-plugin-console-record@0.0.25(@posthog/rrweb-utils@0.0.4)(@posthog/rrweb@0.0.25)':
     dependencies:
-      '@posthog/rrweb': 0.0.24
+      '@posthog/rrweb': 0.0.25
       '@posthog/rrweb-utils': 0.0.4
 
   '@posthog/rrweb-snapshot@0.0.4':
     dependencies:
       postcss: 8.5.6
 
-  '@posthog/rrweb-types@0.0.24': {}
+  '@posthog/rrweb-types@0.0.25': {}
 
   '@posthog/rrweb-types@0.0.8': {}
 
   '@posthog/rrweb-utils@0.0.4': {}
 
-  '@posthog/rrweb@0.0.24':
+  '@posthog/rrweb@0.0.25':
     dependencies:
       '@posthog/rrdom': 0.0.4
       '@posthog/rrweb-snapshot': 0.0.4
-      '@posthog/rrweb-types': 0.0.24
+      '@posthog/rrweb-types': 0.0.25
       '@posthog/rrweb-utils': 0.0.4
       '@types/css-font-loading-module': 0.0.7
       '@xstate/fsm': 1.6.5
@@ -33958,7 +33958,7 @@ snapshots:
   react-email-editor@1.7.11(react@18.2.0):
     dependencies:
       react: 18.2.0
-      unlayer-types: 1.287.0
+      unlayer-types: 1.289.0
 
   react-error-overlay@6.0.9: {}
 
@@ -35962,7 +35962,7 @@ snapshots:
 
   universalify@2.0.0: {}
 
-  unlayer-types@1.287.0: {}
+  unlayer-types@1.289.0: {}
 
   unpipe@1.0.0: {}
 
