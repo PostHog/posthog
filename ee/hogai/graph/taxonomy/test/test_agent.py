@@ -8,7 +8,7 @@ from posthog.test.base import BaseTest
 
 
 class MockTaxonomyAgentNode(TaxonomyAgentNode[TaxonomyAgentState, TaxonomyAgentState]):
-    def _get_system_prompts(self):
+    def _get_system_prompt(self):
         return ["test system prompt"]
 
 

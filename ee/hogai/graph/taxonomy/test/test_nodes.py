@@ -22,8 +22,10 @@ class MockTaxonomyAgentToolkit(TaxonomyAgentToolkit):
 
 
 class ConcreteTaxonomyAgentNode(TaxonomyAgentNode[TaxonomyAgentState, TaxonomyAgentState]):
-    def _get_system_prompts(self):
-        return ["test system prompt"]
+    def _get_system_prompt(self):
+        from langchain_core.prompts import ChatPromptTemplate
+
+        return ChatPromptTemplate([("system", "test system prompt")])
 
 
 class ConcreteTaxonomyAgentToolsNode(TaxonomyAgentToolsNode[TaxonomyAgentState, TaxonomyAgentState]):
@@ -45,9 +47,10 @@ class TestTaxonomyAgentNode(BaseTest):
         self.assertEqual(state_class, TaxonomyAgentState)
         self.assertEqual(partial_state_class, TaxonomyAgentState)
 
-    def test_get_system_prompts_concrete_implementation(self):
-        prompts = self.node._get_system_prompts()
-        self.assertEqual(prompts, ["test system prompt"])
+    def test_get_system_prompt_concrete_implementation(self):
+        prompts = self.node._get_system_prompt()
+        self.assertTrue(len(prompts.messages) == 1)
+        self.assertEqual(prompts.messages[0].prompt.template, "test system prompt")
 
     def test_construct_messages(self):
         from langchain_core.messages import HumanMessage

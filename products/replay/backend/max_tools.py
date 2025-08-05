@@ -7,6 +7,7 @@ from ee.hogai.graph.taxonomy.agent import TaxonomyAgent
 from ee.hogai.graph.taxonomy.tools import create_final_answer_model
 from ee.hogai.graph.taxonomy.types import TaxonomyAgentState
 from ee.hogai.tool import MaxTool
+from langchain_core.prompts import ChatPromptTemplate
 from posthog.models import Team, User
 from posthog.schema import MaxRecordingUniversalFilters
 from .prompts import (
@@ -44,16 +45,17 @@ class SessionReplayFilterNode(TaxonomyAgentNode[TaxonomyAgentState, TaxonomyAgen
     def __init__(self, team: Team, user: User, toolkit_class: SessionReplayFilterOptionsToolkit):
         super().__init__(team, user, toolkit_class=toolkit_class)
 
-    def _get_system_prompts(self) -> list[str]:
+    def _get_system_prompt(self) -> ChatPromptTemplate:
         """Get default system prompts. Override in subclasses for custom prompts."""
-
-        return [
+        all_messages = [
             PRODUCT_DESCRIPTION_PROMPT,
             SESSION_REPLAY_EXAMPLES_PROMPT,
             FILTER_FIELDS_TAXONOMY_PROMPT,
             DATE_FIELDS_PROMPT,
             *super()._get_default_system_prompts(),
         ]
+        system_messages = [("system", message) for message in all_messages]
+        return ChatPromptTemplate(system_messages, template_format="mustache")
 
 
 class SessionReplayFilterOptionsToolsNode(
@@ -103,10 +105,11 @@ class SearchSessionRecordingsTool(MaxTool):
 
         graph = SessionReplayFilterOptionsGraph(team=self._team, user=self._user)
         pretty_filters = json.dumps(self.context.get("current_filters", {}), indent=2)
-        instructions = USER_FILTER_OPTIONS_PROMPT.format(change=change, current_filters=pretty_filters)
+        user_prompt = USER_FILTER_OPTIONS_PROMPT.format(change=change, current_filters=pretty_filters)
         # Set the context
         graph_context = {
-            "instructions": instructions,
+            # "instructions": instructions,
+            "change": user_prompt,
             "output": None,
             "messages": [],
             "tool_progress_messages": [],
@@ -116,7 +119,7 @@ class SearchSessionRecordingsTool(MaxTool):
         result = await graph.compile_full_graph().ainvoke(graph_context)
 
         if "output" not in result or result["output"] is None:
-            last_message = result["intermediate_steps"][-1]
+            last_message, _ = result["intermediate_steps"][-1]
             tool_call_id = last_message.tool or None
 
             if tool_call_id == "ask_user_for_help" or tool_call_id == "max_iterations":

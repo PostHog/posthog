@@ -88,21 +88,21 @@ class TaxonomyAgentNode(Generic[TaxonomyStateType, TaxonomyPartialStateType], Ta
         """Get the system prompt for this node. Override in subclasses."""
         return [PROPERTY_TYPES_PROMPT, TAXONOMY_TOOL_USAGE_PROMPT, HUMAN_IN_THE_LOOP_PROMPT]
 
-    def _get_system_prompts(self) -> list[str]:
-        raise NotImplementedError("_get_system_prompts must be implemented in subclasses")
+    def _get_system_prompt(self) -> ChatPromptTemplate:
+        raise NotImplementedError("_get_system_prompt must be implemented in subclasses")
 
     def _construct_messages(self, state: TaxonomyStateType) -> ChatPromptTemplate:
         """
         Construct the conversation thread for the agent. Handles both initial conversation setup
         and continuation with intermediate steps.
         """
-        system_messages = [("system", prompt) for prompt in self._get_system_prompts()]
-        system_messages.append(("human", state.instructions or ""))
+        conversation = self._get_system_prompt().messages
+        conversation.append(("human", state.change or ""))
 
         progress_messages = state.tool_progress_messages or []
-        all_messages = [*system_messages, *progress_messages]
+        conversation = [*conversation, *progress_messages]
 
-        return ChatPromptTemplate(all_messages, template_format="mustache")
+        return ChatPromptTemplate(conversation, template_format="mustache")
 
     def run(self, state: TaxonomyStateType, config: RunnableConfig) -> TaxonomyPartialStateType:
         """Process the state and return filtering options."""
@@ -134,6 +134,7 @@ class TaxonomyAgentNode(Generic[TaxonomyStateType, TaxonomyPartialStateType], Ta
         ai_message = LangchainAIMessage(
             content=output_message.content, tool_calls=output_message.tool_calls, id=output_message.id
         )
+
         return self._partial_state_class(
             tool_progress_messages=[*progress_messages, ai_message],
             intermediate_steps=[*intermediate_steps, (result, None)],
