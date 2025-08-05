@@ -270,7 +270,6 @@ def enabled_default_hog_functions_for_new_team(sender, instance: Team, created: 
     if template:
         from posthog.api.hog_function import HogFunctionSerializer
 
-        # Use serializer to create HogFunction with proper validation
         serializer_data = {
             "template_id": template.template_id,
             "type": "transformation",
