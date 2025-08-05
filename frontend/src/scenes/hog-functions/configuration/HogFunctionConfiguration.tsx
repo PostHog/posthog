@@ -33,6 +33,7 @@ import { HogFunctionIconEditable } from './HogFunctionIcon'
 import { HogFunctionTest } from './HogFunctionTest'
 import { HogFunctionCode } from './components/HogFunctionCode'
 import { HogFunctionTemplateOptions } from './components/HogFunctionTemplateOptions'
+import { humanizeHogFunctionType } from '../hog-function-utils'
 
 export interface HogFunctionConfigurationProps {
     templateId?: string | null
@@ -172,9 +173,9 @@ export function HogFunctionConfiguration({ templateId, id, logicKey }: HogFuncti
                     <div>
                         <LemonBanner type="warning">
                             <p>
-                                This destination is currently in an experimental state. For many cases this will work
-                                just fine but for others there may be unexpected issues and we do not offer official
-                                customer support for it in these cases.
+                                This {humanizeHogFunctionType(type)} is currently in an experimental state. For many
+                                cases this will work just fine but for others there may be unexpected issues and we do
+                                not offer official customer support for it in these cases.
                             </p>
                             {['template-reddit-conversions-api', 'template-snapchat-ads'].includes(
                                 templateId ?? hogFunction?.template?.id ?? ''

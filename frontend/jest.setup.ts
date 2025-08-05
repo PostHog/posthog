@@ -10,7 +10,7 @@ global.TextDecoder = TextDecoder as any
 global.TextEncoder = TextEncoder as any
 
 window.scrollTo = jest.fn()
-window.matchMedia = jest.fn(() => ({ matches: false, addListener: jest.fn(), removeListener: jest.fn() }) as any)
+window.matchMedia = jest.fn(() => ({ matches: false, addListener: jest.fn(), removeListener: jest.fn() } as any))
 
 // we use CSS.escape in the toolbar, but Jest/JSDom doesn't support it
 if (typeof (globalThis as any).CSS === 'undefined') {
