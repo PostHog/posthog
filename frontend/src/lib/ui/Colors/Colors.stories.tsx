@@ -277,7 +277,7 @@ export function SemanticColors(): JSX.Element {
     ]
     const fillColors: RenderColorConfig[] = [
         {
-            tailwindClass: 'bg-fill-primary',
+            tailwindClass: 'bg-card',
             description: 'the main fill color',
             name: '--color-card',
         },
@@ -372,7 +372,7 @@ export function SemanticColors(): JSX.Element {
     ]
     return (
         <div className="flex flex-col gap-4">
-            <div className="flex flex-col gap-4 border border-border rounded-md p-2 bg-fill-primary">
+            <div className="flex flex-col gap-4 border border-border rounded-md p-2 bg-card">
                 <div className="deprecated-space-y-0">
                     <h2>Texts</h2>
                     <p>
@@ -382,7 +382,7 @@ export function SemanticColors(): JSX.Element {
                 </div>
                 <RenderTable colors={textColors} />
             </div>
-            <div className="flex flex-col gap-4 border border-border rounded-md p-2 bg-fill-primary">
+            <div className="flex flex-col gap-4 border border-border rounded-md p-2 bg-card">
                 <div className="deprecated-space-y-0">
                     <h2>Text on fills</h2>
                     <p>
@@ -392,14 +392,14 @@ export function SemanticColors(): JSX.Element {
                 </div>
                 <RenderTable colors={textOnFillColors} />
             </div>
-            <div className="flex flex-col gap-4 border border-border rounded-md p-2 bg-fill-primary">
+            <div className="flex flex-col gap-4 border border-border rounded-md p-2 bg-card">
                 <div className="deprecated-space-y-0">
                     <h2>Backgrounds</h2>
                     <p>Behind surfaces, large areas: app scenes, etc.</p>
                 </div>
                 <RenderTable colors={backgroundColors} />
             </div>
-            <div className="flex flex-col gap-4 border border-border rounded-md p-2 bg-fill-primary">
+            <div className="flex flex-col gap-4 border border-border rounded-md p-2 bg-card">
                 <div className="deprecated-space-y-0">
                     <h2>Surfaces</h2>
                     <p>
@@ -408,14 +408,14 @@ export function SemanticColors(): JSX.Element {
                 </div>
                 <RenderTable colors={surfaceColors} />
             </div>
-            <div className="flex flex-col gap-4 border border-border rounded-md p-2 bg-fill-primary">
+            <div className="flex flex-col gap-4 border border-border rounded-md p-2 bg-card">
                 <div className="deprecated-space-y-0">
                     <h2>Fills</h2>
                     <p>Small colourful areas: banners, pills, buttons, etc.</p>
                 </div>
                 <RenderTable colors={fillColors} />
             </div>
-            <div className="flex flex-col gap-4 border border-border rounded-md p-2 bg-fill-primary">
+            <div className="flex flex-col gap-4 border border-border rounded-md p-2 bg-card">
                 <div className="deprecated-space-y-0">
                     <h2>Borders</h2>
                     <p>Borders for surfaces/fills</p>

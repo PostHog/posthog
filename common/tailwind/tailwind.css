@@ -4,33 +4,34 @@
 @config "./tailwind.config.js";
 
 @theme inline {
+    /* Font-sizes */
+    /* ============================== */
     --text-xxs: 0.625rem;
     --text-xxs--line-height: 0.75rem;
 
+    /* Spacings */
+    /* ============================== */
     --spacing-button-padding-x: 7px; /* Match the padding of the button primitives base size (6px) + 1px border */
 
+    /* Colors */
+    /* ============================== */
+    /* General */
     --color-background: var(--color-background);
     --color-foreground: var(--color-foreground);
-    --color-nav: var(--color-nav);
-    --color-nav-foreground: var(--color-nav-foreground);
     --color-secondary: var(--color-secondary);
     --color-secondary-foreground: var(--color-secondary-foreground);
     --color-tertiary: var(--color-tertiary);
     --color-tertiary-foreground: var(--color-tertiary-foreground);
+    --color-nav: var(--color-nav);
+    --color-nav-foreground: var(--color-nav-foreground);
     --color-card: var(--color-card);
     --color-card-foreground: var(--color-card-foreground);
-    --color-card-secondary: var(--color-card-secondary);
-    --color-card-secondary-foreground: var(--color-card-secondary-foreground);
-    --color-card-tertiary: var(--color-card-tertiary);
-    --color-card-tertiary-foreground: var(--color-card-tertiary-foreground);
     --color-card-subtle: var(--color-card-subtle);
     --color-card-subtle-foreground: var(--color-card-subtle-foreground);
     --color-glass: var(--color-glass);
     --color-glass-foreground: var(--color-glass-foreground);
-    --color-tooltip: var(--color-tooltip);
-    --color-tooltip-foreground: var(--color-tooltip-foreground);
-    --color-popover: var(--color-popover);
-    --color-popover-foreground: var(--color-popover-foreground);
+
+    /* State fills (info, warning, error, success) */
     --color-info: var(--color-info);
     --color-info-foreground: var(--color-info-foreground);
     --color-warning: var(--color-warning);
@@ -39,6 +40,14 @@
     --color-error-foreground: var(--color-error-foreground);
     --color-success: var(--color-success);
     --color-success-foreground: var(--color-success-foreground);
+
+    /* Elements */
+    --color-tooltip: var(--color-tooltip);
+    --color-tooltip-foreground: var(--color-tooltip-foreground);
+    --color-popover: var(--color-popover);
+    --color-popover-foreground: var(--color-popover-foreground);
+
+    /* Interactives (buttons) */
     --color-interactive: transparent;
     --color-interactive-foreground: var(--color-interactive-foreground);
     --color-interactive-active: var(--color-interactive-active);
@@ -51,6 +60,28 @@
     --color-input-foreground: var(--color-input-foreground);
     --color-scrollbar: var(--color-scrollbar);
     --color-scrollbar-foreground: var(--color-scrollbar-foreground);
+
+    /* Borders */
     --color-border: var(--color-border);
     --color-border-secondary: var(--color-border-secondary);
+    --color-border-warning: var(--color-border-warning);
+    --color-border-error: var(--color-border-error);
+    --color-border-success: var(--color-border-success);
+
+    /* Tags */
+    --color-tag-warning-foreground: var(--color-tag-warning-foreground);
+
+    /* Overlays */
+    --color-overlay-25: var(--color-overlay-25);
+    --color-overlay-50: var(--color-overlay-50);
+    --color-overlay-75: var(--color-overlay-75);
+    --color-overlay-100: var(--color-overlay-100);
+    --color-overlay-150: var(--color-overlay-150);
+    --color-overlay-200: var(--color-overlay-200);
+    --color-overlay-25-inverse: var(--color-overlay-25-inverse);
+    --color-overlay-50-inverse: var(--color-overlay-50-inverse);
+    --color-overlay-75-inverse: var(--color-overlay-75-inverse);
+    --color-overlay-100-inverse: var(--color-overlay-100-inverse);
+    --color-overlay-150-inverse: var(--color-overlay-150-inverse);
+    --color-overlay-200-inverse: var(--color-overlay-200-inverse);
 }

@@ -1,6 +1,6 @@
 @mixin secondary-variables {
     --button-border-color: var(--secondary-3000-button-border);
-    --lemon-button-bg-color-active: var(--color-card);
+    --lemon-button-bg-color-active: var(--color-bg-surface-primary);
     --lemon-button-border-color-hover: var(--secondary-3000-button-border-hover);
     --lemon-button-frame-bg-color: var(--secondary-3000-frame-bg);
 }

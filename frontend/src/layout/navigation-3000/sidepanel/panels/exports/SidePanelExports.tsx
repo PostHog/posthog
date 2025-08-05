@@ -59,7 +59,7 @@ const ExportsContent = (): JSX.Element => {
 
                     return (
                         <div
-                            className="flex justify-between mt-2 gap-2 border rounded bg-fill-primary items-center"
+                            className="flex justify-between mt-2 gap-2 border rounded bg-card items-center"
                             key={asset.id}
                         >
                             <div className="flex items-center justify-between flex-auto p-2">

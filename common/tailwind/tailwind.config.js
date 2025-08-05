@@ -1,6 +1,7 @@
 /** @type {import('tailwindcss').Config} */
 const plugin = require('tailwindcss/plugin')
 
+// TODO: Move this tailwind.css
 const commonColors = {
     inherit: 'inherit',
     current: 'currentColor',
@@ -629,14 +630,14 @@ const config = {
                 'fill-primary': 'var(--color-card)',
                 'fill-secondary': 'var(--color-background)',
                 'fill-tertiary': 'var(--color-card-tertiary)',
-                'fill-highlight-50': 'var(--color-bg-fill-highlight-50)',
-                'fill-highlight-inverse-50': 'var(--color-bg-fill-highlight-inverse-50)',
-                'fill-highlight-100': 'var(--color-bg-fill-highlight-100)',
-                'fill-highlight-inverse-100': 'var(--color-bg-fill-highlight-inverse-100)',
-                'fill-highlight-150': 'var(--color-bg-fill-highlight-150)',
-                'fill-highlight-inverse-150': 'var(--color-bg-fill-highlight-inverse-150)',
-                'fill-highlight-200': 'var(--color-bg-fill-highlight-200)',
-                'fill-highlight-inverse-200': 'var(--color-bg-fill-highlight-inverse-200)',
+                'fill-highlight-50': 'var(--color-overlay-50)',
+                'fill-highlight-inverse-50': 'var(--color-overlay-inverse-50)',
+                'fill-highlight-100': 'var(--color-overlay-100)',
+                'fill-highlight-inverse-100': 'var(--color-overlay-inverse-100)',
+                'fill-highlight-150': 'var(--color-overlay-150)',
+                'fill-highlight-inverse-150': 'var(--color-overlay-inverse-150)',
+                'fill-highlight-200': 'var(--color-overlay-200)',
+                'fill-highlight-inverse-200': 'var(--color-overlay-inverse-200)',
                 // 'fill-primary-highlight': 'var(--color-card-highlight)',
                 'fill-info-secondary': 'var(--color-bg-fill-info-secondary)',
                 'fill-info-tertiary': 'var(--color-bg-fill-info-tertiary)',

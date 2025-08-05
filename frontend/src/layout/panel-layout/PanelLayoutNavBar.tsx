@@ -508,7 +508,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                             showLayoutNavBar(false)
                             clearActivePanelIdentifier()
                         }}
-                        className="z-[var(--z-layout-navbar-under)] fixed inset-0 w-screen h-screen bg-fill-highlight-200 lg:bg-transparent"
+                        className="z-[var(--z-layout-navbar-under)] fixed inset-0 w-screen h-screen bg-overlay-200 lg:bg-transparent"
                     />
                 )}
 
@@ -518,7 +518,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                             showLayoutPanel(false)
                             clearActivePanelIdentifier()
                         }}
-                        className="z-[var(--z-layout-navbar-over)] fixed inset-0 w-screen h-screen bg-fill-highlight-200 lg:bg-transparent"
+                        className="z-[var(--z-layout-navbar-over)] fixed inset-0 w-screen h-screen bg-overlay-200 lg:bg-transparent"
                     />
                 )}
             </div>

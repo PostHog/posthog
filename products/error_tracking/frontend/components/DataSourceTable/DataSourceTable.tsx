@@ -45,7 +45,7 @@ export function DataSourceTable<T extends Record<string, any>>({
                 onClick: (event: MouseEvent) => {
                     onRowClick(record, event)
                 },
-                className: 'hover:bg-fill-highlight-50',
+                className: 'hover:overlay-50',
             }
         },
         [onRowClick]

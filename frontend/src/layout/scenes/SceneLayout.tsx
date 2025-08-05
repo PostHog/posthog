@@ -166,7 +166,7 @@ export function SceneLayout({ children, className, layoutConfig }: SceneLayoutPr
                                 onClick={() => {
                                     setScenePanelOpen(false)
                                 }}
-                                className="z-[var(--z-top-navigation-under)] fixed inset-0 w-screen h-screen bg-fill-highlight-100"
+                                className="z-[var(--z-top-navigation-under)] fixed inset-0 w-screen h-screen bg-overlay-100"
                             />
                         )}
                     </>

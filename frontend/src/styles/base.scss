@@ -246,7 +246,7 @@
     --color-neutral-cool-75: hsl(236deg 8% 92.5%);
     --color-neutral-cool-100: hsl(232deg 8% 90%);
     --color-neutral-cool-150: hsl(232.5deg 8% 85%);
-    --color-neutral-cool-200: hsl(233deg 8% 80%);
+    --color-neutral-cool-200: hwb(233deg 78% 18%);
     --color-neutral-cool-250: hsl(231.5deg 8% 75%);
     --color-neutral-cool-300: hsl(230deg 8% 70%);
     --color-neutral-cool-350: hsl(230.5deg 8% 65%);
@@ -404,9 +404,10 @@
         10%
     );
 
-    // Backgrounds
+    /* Colors */
 
-    // New
+    /* ============================== */
+    // General
     --color-background: var(--color-posthog-3000-25);
     --color-foreground: var(--color-neutral-950);
     --color-secondary: var(--color-posthog-3000-50);
@@ -417,18 +418,12 @@
     --color-nav-foreground: var(--color-neutral-100);
     --color-card: var(--color-white);
     --color-card-foreground: var(--color-neutral-950);
-    --color-card-secondary: var(--color-posthog-3000-100);
-    --color-card-secondary-foreground: var(--color-neutral-950);
-    --color-card-tertiary: var(--color-posthog-3000-150);
-    --color-card-tertiary-foreground: var(--color-neutral-950);
     --color-card-subtle: #e5e7e0;
     --color-card-subtle-foreground: var(--color-neutral-750);
-    --color-glass: #e4e5deb3;
+    --color-glass: hsl(69deg 12% 88% / 70.2%);
     --color-glass-foreground: var(--color-neutral-950);
-    --color-tooltip: var(--color-neutral-cool-850);
-    --color-tooltip-foreground: var(--color-neutral-100);
-    --color-popover: var(--color-white);
-    --color-popover-foreground: var(--color-neutral-950);
+
+    // State fills (info, warning, error, success)
     --color-info: var(--color-blue-100);
     --color-info-foreground: var(--color-neutral-950);
     --color-warning: var(--color-yellow-100);
@@ -437,27 +432,46 @@
     --color-error-foreground: var(--color-red-600);
     --color-success: var(--color-green-100);
     --color-success-foreground: #388600;
+
+    // Elements
+    --color-tooltip: var(--color-neutral-cool-850);
+    --color-tooltip-foreground: var(--color-neutral-100);
+    --color-popover: var(--color-white);
+    --color-popover-foreground: var(--color-neutral-950);
+
+    // Interactives (buttons)
     --color-interactive: transparent;
-    --color-interactive-active: var(--color-bg-fill-highlight-50);
+    --color-interactive-active: var(--color-overlay-50);
     --color-interactive-hover: color-mix(in oklab, var(--color-black) 7.5%, transparent);
     --color-interactive-focus: color-mix(in oklab, var(--color-black) 7.5%, transparent);
-
-    // --color-interactive-foreground: var(--color-neutral-950);
-    // --color-interactive-active-foreground: var(--color-neutral-950);
-    // --color-interactive-hover-foreground: var(--color-neutral-950);
-    // --color-interactive-focus-foreground: var(--color-neutral-950);
     --color-highlight: hsl(42deg 93% 86% / 80%);
     --color-highlight-foreground: var(--color-neutral-950);
     --color-input: var(--color-white);
     --color-input-foreground: var(--color-neutral-950);
     --color-scrollbar: var(--color-neutral-cool-250);
     --color-scrollbar-foreground: var(--color-neutral-cool-400);
+
+    // Borders
     --color-border: var(--color-neutral-cool-200);
     --color-border-secondary: var(--color-neutral-cool-400);
     --color-border-warning: var(--color-yellow-400);
     --color-border-error: var(--color-red-400);
     --color-border-success: var(--color-green-400);
     --color-tag-warning-foreground: #f7a501;
+
+    // Overlays
+    --color-overlay-25: color-mix(in oklab, var(--color-black) 2.5%, transparent);
+    --color-overlay-50: color-mix(in oklab, var(--color-black) 5%, transparent);
+    --color-overlay-75: color-mix(in oklab, var(--color-black) 7.5%, transparent);
+    --color-overlay-100: color-mix(in oklab, var(--color-black) 10%, transparent);
+    --color-overlay-150: color-mix(in oklab, var(--color-black) 15%, transparent);
+    --color-overlay-200: color-mix(in oklab, var(--color-black) 20%, transparent);
+    --color-overlay-inverse-25: color-mix(in oklab, var(--color-white) 2.5%, transparent);
+    --color-overlay-inverse-50: color-mix(in oklab, var(--color-white) 5%, transparent);
+    --color-overlay-inverse-75: color-mix(in oklab, var(--color-white) 7.5%, transparent);
+    --color-overlay-inverse-100: color-mix(in oklab, var(--color-white) 10%, transparent);
+    --color-overlay-inverse-150: color-mix(in oklab, var(--color-white) 15%, transparent);
+    --color-overlay-inverse-200: color-mix(in oklab, var(--color-white) 20%, transparent);
 
     // Behind surfaces, large areas: app scenes, etc.
     // //////////////////////////////////////////////////////////
@@ -481,21 +495,6 @@
     // Fills
     // Small colourful areas: banners, pills, buttons, etc.
     // //////////////////////////////////////////////////////////
-    --color-bg-fill-primary: var(--color-white);
-    --color-bg-fill-secondary: var(--color-posthog-3000-25);
-    --color-bg-fill-tertiary: var(--color-posthog-3000-50);
-    --color-bg-fill-highlight-25: color-mix(in oklab, var(--color-black) 2.5%, transparent);
-    --color-bg-fill-highlight-50: color-mix(in oklab, var(--color-black) 5%, transparent);
-    --color-bg-fill-highlight-75: color-mix(in oklab, var(--color-black) 7.5%, transparent);
-    --color-bg-fill-highlight-100: color-mix(in oklab, var(--color-black) 10%, transparent);
-    --color-bg-fill-highlight-150: color-mix(in oklab, var(--color-black) 15%, transparent);
-    --color-bg-fill-highlight-200: color-mix(in oklab, var(--color-black) 20%, transparent);
-    --color-bg-fill-highlight-inverse-25: color-mix(in oklab, var(--color-white) 2.5%, transparent);
-    --color-bg-fill-highlight-inverse-50: color-mix(in oklab, var(--color-white) 5%, transparent);
-    --color-bg-fill-highlight-inverse-75: color-mix(in oklab, var(--color-white) 7.5%, transparent);
-    --color-bg-fill-highlight-inverse-100: color-mix(in oklab, var(--color-white) 10%, transparent);
-    --color-bg-fill-highlight-inverse-150: color-mix(in oklab, var(--color-white) 15%, transparent);
-    --color-bg-fill-highlight-inverse-200: color-mix(in oklab, var(--color-white) 20%, transparent);
 
     // Highlights
     // --color-card-highlight: color-mix(in oklab, var(--color-primary-500) 10%, transparent);
@@ -514,11 +513,11 @@
     --color-bg-fill-success-highlight: color-mix(in oklab, var(--color-green-500) 10%, transparent);
 
     // Buttons
-    --color-bg-fill-button-group-tertiary-hover: var(--color-bg-fill-highlight-25);
-    --color-bg-fill-button-tertiary-hover: var(--color-bg-fill-highlight-75);
-    --color-bg-fill-button-tertiary-hover-inverse: var(--color-bg-fill-highlight-inverse-75);
-    --color-bg-fill-button-tertiary-active: var(--color-bg-fill-highlight-50);
-    --color-bg-fill-button-tertiary-active-inverse: var(--color-bg-fill-highlight-inverse-50);
+    --color-bg-fill-button-group-tertiary-hover: var(--color-overlay-25);
+    --color-bg-fill-button-tertiary-hover: var(--color-overlay-75);
+    --color-bg-fill-button-tertiary-hover-inverse: var(--color-overlay-inverse-75);
+    --color-bg-fill-button-tertiary-active: var(--color-overlay-50);
+    --color-bg-fill-button-tertiary-active-inverse: var(--color-overlay-inverse-50);
     --color-bg-fill-button-danger-hover: var(--color-error);
     --color-bg-fill-button-danger-active: var(--color-error);
 
@@ -585,18 +584,14 @@
     --opacity-disabled: 0.65;
     --font-medium: 500;
     --font-semibold: 600;
-    --font-sans:
-        'Emoji Flags Polyfill', -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', 'Roboto', 'Helvetica Neue',
-        helvetica, arial, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol';
-    --font-title:
-        'Emoji Flags Polyfill', 'MatterSQ', -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', 'Roboto',
+    --font-sans: 'Emoji Flags Polyfill', -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', 'Roboto',
         'Helvetica Neue', helvetica, arial, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol';
-    --font-button:
-        'Emoji Flags Polyfill', -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', 'Roboto', 'Helvetica Neue',
-        helvetica, arial, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol';
-    --font-mono:
-        'Emoji Flags Polyfill', ui-monospace, 'SFMono-Regular', 'SF Mono', 'Menlo', 'Consolas', 'Liberation Mono',
-        monospace;
+    --font-title: 'Emoji Flags Polyfill', 'MatterSQ', -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', 'Roboto',
+        'Helvetica Neue', helvetica, arial, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol';
+    --font-button: 'Emoji Flags Polyfill', -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', 'Roboto',
+        'Helvetica Neue', helvetica, arial, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol';
+    --font-mono: 'Emoji Flags Polyfill', ui-monospace, 'SFMono-Regular', 'SF Mono', 'Menlo', 'Consolas',
+        'Liberation Mono', monospace;
 
     // Dashboard item colors
     --blue: #597dce;
@@ -743,8 +738,8 @@
     --secondary-3000-button-border-hover-light: #aaa;
     --secondary-3000-button-border-dark: #4a4c52;
     --secondary-3000-button-border-hover-dark: #5e6064;
-    --secondary-3000-button-border: var(--secondary-3000-button-border-light);
-    --secondary-3000-button-border-hover: var(--secondary-3000-button-border-hover-light);
+    --secondary-3000-button-border: #ccc;
+    --secondary-3000-button-border-hover: #aaa;
     --secondary-3000-frame-bg-light: #e1dddd;
     --secondary-3000-frame-bg-dark: #323232;
     --secondary-3000-frame-bg: var(--secondary-3000-frame-bg-light);
@@ -764,7 +759,6 @@
     --danger-3000-button-border-hover-light: #f54e00;
 
     // TODO
-    --color-bg-3000-dark: #1d1f27;
     --white: #fff;
     --border-3000-light: #dadbd2;
     --border-bold: rgb(0 0 0 / 24%);
@@ -915,19 +909,18 @@
     // Small colourful areas: banners, pills, buttons, etc.
     // //////////////////////////////////////////////////////////
     --color-bg-fill-secondary: var(--color-neutral-cool-850);
-    --color-bg-fill-tertiary: var(--color-neutral-cool-800);
-    --color-bg-fill-highlight-25: color-mix(in oklab, var(--color-white) 2.5%, transparent);
-    --color-bg-fill-highlight-50: color-mix(in oklab, var(--color-white) 5%, transparent);
-    --color-bg-fill-highlight-75: color-mix(in oklab, var(--color-white) 7.5%, transparent);
-    --color-bg-fill-highlight-100: color-mix(in oklab, var(--color-white) 10%, transparent);
-    --color-bg-fill-highlight-150: color-mix(in oklab, var(--color-white) 15%, transparent);
-    --color-bg-fill-highlight-200: color-mix(in oklab, var(--color-white) 20%, transparent);
-    --color-bg-fill-highlight-inverse-25: color-mix(in oklab, var(--color-black) 2.5%, transparent);
-    --color-bg-fill-highlight-inverse-50: color-mix(in oklab, var(--color-black) 5%, transparent);
-    --color-bg-fill-highlight-inverse-75: color-mix(in oklab, var(--color-black) 7.5%, transparent);
-    --color-bg-fill-highlight-inverse-100: color-mix(in oklab, var(--color-black) 10%, transparent);
-    --color-bg-fill-highlight-inverse-150: color-mix(in oklab, var(--color-black) 15%, transparent);
-    --color-bg-fill-highlight-inverse-200: color-mix(in oklab, var(--color-black) 20%, transparent);
+    --color-overlay-25: color-mix(in oklab, var(--color-white) 2.5%, transparent);
+    --color-overlay-50: color-mix(in oklab, var(--color-white) 5%, transparent);
+    --color-overlay-75: color-mix(in oklab, var(--color-white) 7.5%, transparent);
+    --color-overlay-100: color-mix(in oklab, var(--color-white) 10%, transparent);
+    --color-overlay-150: color-mix(in oklab, var(--color-white) 15%, transparent);
+    --color-overlay-200: color-mix(in oklab, var(--color-white) 20%, transparent);
+    --color-overlay-inverse-25: color-mix(in oklab, var(--color-black) 2.5%, transparent);
+    --color-overlay-inverse-50: color-mix(in oklab, var(--color-black) 5%, transparent);
+    --color-overlay-inverse-75: color-mix(in oklab, var(--color-black) 7.5%, transparent);
+    --color-overlay-inverse-100: color-mix(in oklab, var(--color-black) 10%, transparent);
+    --color-overlay-inverse-150: color-mix(in oklab, var(--color-black) 15%, transparent);
+    --color-overlay-inverse-200: color-mix(in oklab, var(--color-black) 20%, transparent);
     --color-bg-fill-info-secondary: var(--color-blue-950);
     --color-bg-fill-info-tertiary: var(--color-blue-950);
     --color-bg-fill-warning-secondary: var(--color-yellow-950);
@@ -941,11 +934,11 @@
     --color-bg-fill-success-highlight: color-mix(in oklab, var(--color-green-950) 50%, transparent);
 
     // --color-card-highlight: color-mix(in oklab, var(--color-primary-950) 50%, transparent);
-    --color-bg-fill-button-group-tertiary-hover: var(--color-bg-fill-highlight-25);
-    --color-bg-fill-button-tertiary-hover: var(--color-bg-fill-highlight-75);
-    --color-bg-fill-button-tertiary-hover-inverse: var(--color-bg-fill-highlight-inverse-75);
-    --color-bg-fill-button-tertiary-active: var(--color-bg-fill-highlight-50);
-    --color-bg-fill-button-tertiary-active-inverse: var(--color-bg-fill-highlight-inverse-50);
+    --color-bg-fill-button-group-tertiary-hover: var(--color-overlay-25);
+    --color-bg-fill-button-tertiary-hover: var(--color-overlay-75);
+    --color-bg-fill-button-tertiary-hover-inverse: var(--color-overlay-inverse-75);
+    --color-bg-fill-button-tertiary-active: var(--color-overlay-50);
+    --color-bg-fill-button-tertiary-active-inverse: var(--color-overlay-inverse-50);
     --color-bg-fill-input: var(--color-neutral-cool-850);
     --color-bg-fill-switch: var(--color-neutral-cool-900);
     --color-bg-fill-slider-rail: color-mix(in oklab, var(--color-white) 15%, transparent);

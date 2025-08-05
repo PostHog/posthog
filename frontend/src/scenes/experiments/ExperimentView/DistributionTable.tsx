@@ -272,9 +272,7 @@ export function DistributionTable(): JSX.Element {
                 loading={false}
                 columns={columns}
                 dataSource={tableData}
-                rowClassName={(item) =>
-                    item.key === `holdout-${experiment.holdout?.id}` ? 'dark:bg-fill-primary bg-mid' : ''
-                }
+                rowClassName={(item) => (item.key === `holdout-${experiment.holdout?.id}` ? 'dark:bg-card bg-mid' : '')}
             />
         </div>
     )
