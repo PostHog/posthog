@@ -1,5 +1,6 @@
 from unittest import TestCase
 from unittest.mock import MagicMock, patch
+from parameterized import parameterized
 from posthog.vercel.client import VercelAPIClient
 
 
@@ -13,14 +14,14 @@ class TestVercelAPIClient(TestCase):
 
     def test_client_initialization(self):
         client = VercelAPIClient("my_token")
-        self.assertEqual(client.bearer_token, "my_token")
-        self.assertEqual(client.BASE_URL, "https://api.vercel.com/v1")
-        self.assertEqual(client.session.headers["Authorization"], "Bearer my_token")
-        self.assertEqual(client.session.headers["Content-Type"], "application/json")
+        assert client.bearer_token == "my_token"
+        assert client.BASE_URL == "https://api.vercel.com/v1"
+        assert client.session.headers["Authorization"] == "Bearer my_token"
+        assert client.session.headers["Content-Type"] == "application/json"
 
     def test_client_initialization_with_default_token(self):
         client = VercelAPIClient()
-        self.assertEqual(client.bearer_token, "mock_token")
+        assert client.bearer_token == "mock_token"
 
     @patch("posthog.vercel.client.requests.Session.post")
     def test_create_experimentation_items_success(self, mock_post):
@@ -31,7 +32,7 @@ class TestVercelAPIClient(TestCase):
         items = [{"id": "test", "slug": "test-slug", "origin": "test-origin"}]
         result = self.client.create_experimentation_items(self.integration_config_id, self.resource_id, items)
 
-        self.assertTrue(result)
+        assert result is True
         mock_post.assert_called_once_with(
             f"{self.client.BASE_URL}/installations/{self.integration_config_id}/resources/{self.resource_id}/experimentation/items",
             json={"items": items},
@@ -47,7 +48,7 @@ class TestVercelAPIClient(TestCase):
         items = [{"id": "test"}]
         result = self.client.create_experimentation_items(self.integration_config_id, self.resource_id, items)
 
-        self.assertFalse(result)
+        assert result is False
 
     @patch("posthog.vercel.client.requests.Session.post")
     def test_create_experimentation_items_exception(self, mock_post):
@@ -56,7 +57,7 @@ class TestVercelAPIClient(TestCase):
         items = [{"id": "test"}]
         result = self.client.create_experimentation_items(self.integration_config_id, self.resource_id, items)
 
-        self.assertFalse(result)
+        assert result is False
 
     @patch("posthog.vercel.client.requests.Session.patch")
     def test_update_experimentation_item_success(self, mock_patch):
@@ -69,7 +70,7 @@ class TestVercelAPIClient(TestCase):
             self.integration_config_id, self.resource_id, self.item_id, data
         )
 
-        self.assertTrue(result)
+        assert result is True
         mock_patch.assert_called_once_with(
             f"{self.client.BASE_URL}/installations/{self.integration_config_id}/resources/{self.resource_id}/experimentation/items/{self.item_id}",
             json=data,
@@ -87,7 +88,7 @@ class TestVercelAPIClient(TestCase):
             self.integration_config_id, self.resource_id, self.item_id, data
         )
 
-        self.assertFalse(result)
+        assert result is False
 
     @patch("posthog.vercel.client.requests.Session.patch")
     def test_update_experimentation_item_exception(self, mock_patch):
@@ -98,7 +99,7 @@ class TestVercelAPIClient(TestCase):
             self.integration_config_id, self.resource_id, self.item_id, data
         )
 
-        self.assertFalse(result)
+        assert result is False
 
     @patch("posthog.vercel.client.requests.Session.delete")
     def test_delete_experimentation_item_success(self, mock_delete):
@@ -108,7 +109,7 @@ class TestVercelAPIClient(TestCase):
 
         result = self.client.delete_experimentation_item(self.integration_config_id, self.resource_id, self.item_id)
 
-        self.assertTrue(result)
+        assert result is True
         mock_delete.assert_called_once_with(
             f"{self.client.BASE_URL}/installations/{self.integration_config_id}/resources/{self.resource_id}/experimentation/items/{self.item_id}"
         )
@@ -122,7 +123,7 @@ class TestVercelAPIClient(TestCase):
 
         result = self.client.delete_experimentation_item(self.integration_config_id, self.resource_id, self.item_id)
 
-        self.assertFalse(result)
+        assert result is False
 
     @patch("posthog.vercel.client.requests.Session.delete")
     def test_delete_experimentation_item_exception(self, mock_delete):
@@ -130,39 +131,77 @@ class TestVercelAPIClient(TestCase):
 
         result = self.client.delete_experimentation_item(self.integration_config_id, self.resource_id, self.item_id)
 
-        self.assertFalse(result)
+        assert result is False
 
-    def test_url_construction_create(self):
-        with patch("posthog.vercel.client.requests.Session.post") as mock_post:
+    @parameterized.expand(
+        [
+            (
+                "minimal_params",
+                {"code": "auth_code", "client_id": "client_123", "client_secret": "secret_456"},
+                {
+                    "code": "auth_code",
+                    "client_id": "client_123",
+                    "client_secret": "secret_456",
+                    "grant_type": "authorization_code",
+                },
+            ),
+            (
+                "all_params",
+                {
+                    "code": "auth_code",
+                    "client_id": "client_123",
+                    "client_secret": "secret_456",
+                    "state": "state_789",
+                    "redirect_uri": "https://example.com/callback",
+                    "grant_type": "custom_grant",
+                },
+                {
+                    "code": "auth_code",
+                    "client_id": "client_123",
+                    "client_secret": "secret_456",
+                    "grant_type": "custom_grant",
+                    "state": "state_789",
+                    "redirect_uri": "https://example.com/callback",
+                },
+            ),
+        ]
+    )
+    @patch("posthog.vercel.client.requests.Session.post")
+    def test_sso_token_exchange_success(self, _name, kwargs, expected_data, mock_post):
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "access_token": "test_access_token",
+            "id_token": "test_id_token",
+            "token_type": "Bearer",
+        }
+        mock_post.return_value = mock_response
+
+        result = self.client.sso_token_exchange(**kwargs)
+
+        assert result == {"access_token": "test_access_token", "id_token": "test_id_token", "token_type": "Bearer"}
+        mock_post.assert_called_once_with(
+            f"{self.client.BASE_URL}/integrations/sso/token",
+            data=expected_data,
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+        )
+
+    @parameterized.expand(
+        [
+            ("api_error", {"side_effect": None, "status_code": 400, "text": "Invalid authorization code"}),
+            ("network_exception", {"side_effect": Exception("Network error"), "status_code": None, "text": None}),
+        ]
+    )
+    @patch("posthog.vercel.client.requests.Session.post")
+    def test_sso_token_exchange_failures(self, _name, error_config, mock_post):
+        if error_config["side_effect"]:
+            mock_post.side_effect = error_config["side_effect"]
+        else:
             mock_response = MagicMock()
-            mock_response.status_code = 204
+            mock_response.status_code = error_config["status_code"]
+            mock_response.text = error_config["text"]
             mock_post.return_value = mock_response
 
-            self.client.create_experimentation_items("config_123", "resource_456", [])
+        result = self.client.sso_token_exchange("invalid_code", "client_123", "secret_456")
 
-            expected_url = (
-                "https://api.vercel.com/v1/installations/config_123/resources/resource_456/experimentation/items"
-            )
-            mock_post.assert_called_once_with(expected_url, json={"items": []})
-
-    def test_url_construction_update(self):
-        with patch("posthog.vercel.client.requests.Session.patch") as mock_patch:
-            mock_response = MagicMock()
-            mock_response.status_code = 204
-            mock_patch.return_value = mock_response
-
-            self.client.update_experimentation_item("config_123", "resource_456", "item_789", {})
-
-            expected_url = "https://api.vercel.com/v1/installations/config_123/resources/resource_456/experimentation/items/item_789"
-            mock_patch.assert_called_once_with(expected_url, json={})
-
-    def test_url_construction_delete(self):
-        with patch("posthog.vercel.client.requests.Session.delete") as mock_delete:
-            mock_response = MagicMock()
-            mock_response.status_code = 204
-            mock_delete.return_value = mock_response
-
-            self.client.delete_experimentation_item("config_123", "resource_456", "item_789")
-
-            expected_url = "https://api.vercel.com/v1/installations/config_123/resources/resource_456/experimentation/items/item_789"
-            mock_delete.assert_called_once_with(expected_url)
+        assert result is None

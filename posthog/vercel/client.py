@@ -122,3 +122,57 @@ class VercelAPIClient:
                 error=str(e),
             )
             return False
+
+    def sso_token_exchange(
+        self,
+        code: str,
+        client_id: str,
+        client_secret: str,
+        state: str | None = None,
+        redirect_uri: str | None = None,
+        grant_type: str = "authorization_code",
+    ) -> dict[str, Any] | None:
+        """
+        Exchange authorization code for OIDC token during SSO flow
+        """
+        url = f"{self.BASE_URL}/integrations/sso/token"
+
+        data = {
+            "code": code,
+            "client_id": client_id,
+            "client_secret": client_secret,
+            "grant_type": grant_type,
+        }
+
+        if state is not None:
+            data["state"] = state
+        if redirect_uri is not None:
+            data["redirect_uri"] = redirect_uri
+
+        try:
+            # Use form-encoded content type for token exchange
+            headers: dict[str, str] = {"Content-Type": "application/x-www-form-urlencoded"}
+            response = self.session.post(url, data=data, headers=headers)
+
+            if response.status_code == 200:
+                logger.info(
+                    "vercel_sso_token_exchange_success",
+                    client_id=client_id,
+                    has_state=state is not None,
+                )
+                return response.json()
+            else:
+                logger.error(
+                    "vercel_sso_token_exchange_failed",
+                    client_id=client_id,
+                    status_code=response.status_code,
+                    response_text=response.text,
+                )
+                return None
+        except Exception as e:
+            logger.exception(
+                "vercel_sso_token_exchange_error",
+                client_id=client_id,
+                error=str(e),
+            )
+            return None
