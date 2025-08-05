@@ -1,5 +1,7 @@
 set -e
 export DEBUG=1
+export IN_EVAL_TESTING=1
+export RESTORE_EVALS_SNAPSHOTS=1
 
 cleanup() {
     echo "🧹 Cleaning up..."
@@ -16,7 +18,7 @@ echo "⏳ Waiting for services..."
 bin/check_postgres_up
 
 echo "✅ Services ready! Migrating database..."
-python manage.py migrate
+bin/migrate
 
 echo "🌱 Seeding database..."
 $EVAL_SCRIPT

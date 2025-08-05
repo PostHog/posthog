@@ -4,17 +4,8 @@ import tempfile
 
 import boto3
 from dagster_pipes import open_dagster_pipes
-from pydantic import BaseModel
 
-
-class ExportConfig(BaseModel):
-    class Config:
-        extra = "allow"
-
-    database_url: str
-    bucket_name: str
-    endpoint_url: str
-    file_key: str
+from dags.max_ai.shared import EvalsDockerImageConfig
 
 
 def main():
@@ -23,7 +14,7 @@ def main():
         tempfile.NamedTemporaryFile(mode="wb", suffix=".tar", delete=False) as temp_file,
     ):
         # Get variables for dumping a DB
-        config = ExportConfig.model_validate(context.extras)
+        config = EvalsDockerImageConfig.model_validate(context.extras)
 
         # Build pg_dump command
         pg_dump_cmd = [

@@ -10,6 +10,7 @@ from _pytest.terminal import TerminalReporter
 from braintrust import EvalAsync, Metadata, init_logger
 from braintrust.framework import EvalData, EvalScorer, EvalTask, Input, Output
 from braintrust_langchain import BraintrustCallbackHandler, set_global_handler
+from django.conf import settings
 from django.test import override_settings
 
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
@@ -21,8 +22,8 @@ from ee.models.assistant import Conversation, CoreMemory
 # We want the PostHog django_db_setup fixture here
 from posthog.conftest import django_db_setup  # noqa: F401
 from posthog.demo.matrix.manager import MatrixManager
-from posthog.models import Team
-from posthog.schema import HumanMessage, VisualizationMessage, FailureMessage
+from posthog.models import Organization, Team, User
+from posthog.schema import FailureMessage, HumanMessage, VisualizationMessage
 from posthog.tasks.demo_create_data import HedgeboxMatrix
 
 handler = BraintrustCallbackHandler()
@@ -141,37 +142,45 @@ def call_root_for_insight_generation(demo_org_team_user):
     return callable
 
 
-@pytest.fixture(scope="package")
-def demo_org_team_user(django_db_setup, django_db_blocker):  # noqa: F811
-    with django_db_blocker.unblock():
-        team = Team.objects.order_by("-created_at").first()
-        today = datetime.date.today()
-        # If there's no eval team or it's older than today, we need to create a new one with fresh data
-        should_create_new_team = not team or team.created_at.date() < today
+def setup_matrix() -> tuple[Organization, Team, User]:
+    team = Team.objects.order_by("-created_at").first()
+    today = datetime.date.today()
+    # If there's no eval team or it's older than today, we need to create a new one with fresh data
+    should_create_new_team = not team or team.created_at.date() < today
 
-        if should_create_new_team:
-            print(f"Generating fresh demo data for evals...")  # noqa: T201
+    if should_create_new_team:
+        print(f"Generating fresh demo data for evals...")  # noqa: T201
 
-            matrix = HedgeboxMatrix(
-                seed="b1ef3c66-5f43-488a-98be-6b46d92fbcef",  # this seed generates all events
-                days_past=120,
-                days_future=30,
-                n_clusters=500,
-                group_type_index_offset=0,
+        matrix = HedgeboxMatrix(
+            seed="b1ef3c66-5f43-488a-98be-6b46d92fbcef",  # this seed generates all events
+            days_past=120,
+            days_future=30,
+            n_clusters=500,
+            group_type_index_offset=0,
+        )
+        matrix_manager = MatrixManager(matrix, print_steps=True)
+        with override_settings(TEST=False):
+            # Simulation saving should occur in non-test mode, so that Kafka isn't mocked. Normally in tests we don't
+            # want to ingest via Kafka, but simulation saving is specifically designed to use that route for speed
+            org, team, user = matrix_manager.ensure_account_and_save(
+                f"eval-{today.isoformat()}", EVAL_USER_FULL_NAME, "Hedgebox Inc."
             )
-            matrix_manager = MatrixManager(matrix, print_steps=True)
-            with override_settings(TEST=False):
-                # Simulation saving should occur in non-test mode, so that Kafka isn't mocked. Normally in tests we don't
-                # want to ingest via Kafka, but simulation saving is specifically designed to use that route for speed
-                org, team, user = matrix_manager.ensure_account_and_save(
-                    f"eval-{today.isoformat()}", EVAL_USER_FULL_NAME, "Hedgebox Inc."
-                )
-        else:
-            print(f"Using existing demo data for evals...")  # noqa: T201
-            org = team.organization
-            user = org.memberships.first().user
+    else:
+        print(f"Using existing demo data for evals...")  # noqa: T201
+        org = team.organization
+        user = org.memberships.first().user
+    return org, team, user
 
-        yield org, team, user
+
+@pytest.fixture(scope="package")
+def demo_org_team_user(django_db_setup, django_db_blocker) -> Generator[tuple[Organization, Team, User], None, None]:  # noqa: F811
+    with django_db_blocker.unblock():
+        if settings.RESTORE_EVALS_SNAPSHOTS:
+            from .ci import restore_postgres_snapshot
+
+            yield restore_postgres_snapshot()
+        else:
+            yield setup_matrix()
 
 
 @pytest.fixture(scope="package", autouse=True)
