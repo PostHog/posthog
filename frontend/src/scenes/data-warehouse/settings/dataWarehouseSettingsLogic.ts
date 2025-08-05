@@ -1,6 +1,6 @@
-import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { urlToAction } from 'kea-router'
+import { router, urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import posthog from 'posthog-js'
@@ -8,9 +8,11 @@ import { databaseTableListLogic } from 'scenes/data-management/database/database
 import { externalDataSourcesLogic } from 'scenes/data-warehouse/externalDataSourcesLogic'
 
 import { DatabaseSchemaDataWarehouseTable } from '~/queries/schema/schema-general'
-import { ExternalDataSource, ExternalDataSourceSchema } from '~/types'
+import { ExternalDataSchemaStatus, ExternalDataSource, ExternalDataSourceSchema } from '~/types'
 
 import type { dataWarehouseSettingsLogicType } from './dataWarehouseSettingsLogicType'
+
+const REFRESH_INTERVAL = 10000
 
 export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
     path(['scenes', 'data-warehouse', 'settings', 'dataWarehouseSettingsLogic']),
@@ -25,22 +27,15 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
             databaseTableListLogic,
             ['loadDatabase'],
             externalDataSourcesLogic,
-            [
-                'loadSources',
-                'loadSourcesSuccess',
-                'loadSourcesFailure',
-                'abortAnyRunningQuery',
-                'updateSource',
-                'deleteSource',
-                'reloadSource',
-                'reloadSourceSuccess',
-                'reloadSourceFailure',
-            ],
+            ['loadSources', 'loadSourcesSuccess'],
         ],
     })),
     actions({
+        deleteSource: (source: ExternalDataSource) => ({ source }),
+        reloadSource: (source: ExternalDataSource) => ({ source }),
         sourceLoadingFinished: (source: ExternalDataSource) => ({ source }),
         schemaLoadingFinished: (schema: ExternalDataSourceSchema) => ({ schema }),
+        abortAnyRunningQuery: true,
         deleteSelfManagedTable: (tableId: string) => ({ tableId }),
         refreshSelfManagedTableSchema: (tableId: string) => ({ tableId }),
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
@@ -131,7 +126,7 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
             actions.loadSources(null)
         },
     })),
-    listeners(({ actions }) => ({
+    listeners(({ actions, values, cache }) => ({
         deleteSelfManagedTable: async ({ tableId }) => {
             await api.dataWarehouseTables.delete(tableId)
             actions.loadDatabase()
@@ -142,22 +137,82 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
             lemonToast.success('Schema updated')
             actions.loadDatabase()
         },
-        deleteSource: ({ source }) => {
+        deleteSource: async ({ source }) => {
+            await api.externalDataSources.delete(source.id)
+            actions.loadSources(null)
             actions.sourceLoadingFinished(source)
+
+            posthog.capture('source deleted', { sourceType: source.source_type })
         },
-        reloadSourceSuccess: ({ source }) => {
-            actions.sourceLoadingFinished(source)
-        },
-        reloadSourceFailure: ({ source, error }) => {
-            if (error.message) {
-                lemonToast.error(error.message)
-            } else {
-                lemonToast.error('Cant refresh source at this time')
+        reloadSource: async ({ source }) => {
+            // Optimistic UI updates before sending updates to the backend
+            const clonedSources = JSON.parse(
+                JSON.stringify(values.dataWarehouseSources?.results ?? [])
+            ) as ExternalDataSource[]
+            const sourceIndex = clonedSources.findIndex((n) => n.id === source.id)
+            clonedSources[sourceIndex].status = 'Running'
+            clonedSources[sourceIndex].schemas = clonedSources[sourceIndex].schemas.map((n) => {
+                if (n.should_sync) {
+                    return {
+                        ...n,
+                        status: ExternalDataSchemaStatus.Running,
+                    }
+                }
+
+                return n
+            })
+
+            actions.loadSourcesSuccess({
+                ...values.dataWarehouseSources,
+                results: clonedSources,
+            })
+
+            try {
+                await api.externalDataSources.reload(source.id)
+                actions.loadSources(null)
+
+                posthog.capture('source reloaded', { sourceType: source.source_type })
+            } catch (e: any) {
+                if (e.message) {
+                    lemonToast.error(e.message)
+                } else {
+                    lemonToast.error('Cant refresh source at this time')
+                }
             }
             actions.sourceLoadingFinished(source)
+        },
+        abortAnyRunningQuery: () => {
+            if (cache.abortController) {
+                cache.abortController.abort()
+                cache.abortController = null
+            }
         },
         updateSchema: (schema) => {
             posthog.capture('schema updated', { shouldSync: schema.should_sync, syncType: schema.sync_type })
         },
+        loadSourcesSuccess: () => {
+            clearTimeout(cache.refreshTimeout)
+
+            if (router.values.location.pathname.includes('data-warehouse')) {
+                cache.refreshTimeout = setTimeout(() => {
+                    actions.loadSources(null)
+                }, REFRESH_INTERVAL)
+            }
+        },
+        loadSourcesFailure: () => {
+            clearTimeout(cache.refreshTimeout)
+
+            if (router.values.location.pathname.includes('data-warehouse')) {
+                cache.refreshTimeout = setTimeout(() => {
+                    actions.loadSources(null)
+                }, REFRESH_INTERVAL)
+            }
+        },
     })),
+    afterMount(({ actions }) => {
+        actions.loadSources(null)
+    }),
+    beforeUnmount(({ cache }) => {
+        clearTimeout(cache.refreshTimeout)
+    }),
 ])

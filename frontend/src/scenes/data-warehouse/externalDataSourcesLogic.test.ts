@@ -19,7 +19,7 @@ describe('externalDataSourcesLogic', () => {
         logic.unmount()
     })
 
-    it('centralizes external data sources API calls', async () => {
+    it('loads external data sources', async () => {
         const mockResponse = {
             results: [{ id: 'test-1', source_type: 'postgres', status: 'Running', schemas: [] }],
             count: 1,
