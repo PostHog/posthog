@@ -175,16 +175,16 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
                 const currentBillingPeriodOption: DateMappingOption = {
                     key: 'Current billing period',
                     values: [
-                        currentBillingPeriodStart?.utc().format('YYYY-MM-DD') || '',
-                        currentBillingPeriodEnd?.utc().format('YYYY-MM-DD') || '',
+                        currentBillingPeriodStart?.format('YYYY-MM-DD') || '',
+                        currentBillingPeriodEnd?.format('YYYY-MM-DD') || '',
                     ],
                     defaultInterval: 'day',
                 }
                 const previousBillingPeriodOption: DateMappingOption = {
                     key: 'Previous billing period',
                     values: [
-                        currentBillingPeriodStart?.subtract(1, 'month').utc().format('YYYY-MM-DD') || '',
-                        currentBillingPeriodEnd?.subtract(1, 'month').utc().format('YYYY-MM-DD') || '',
+                        currentBillingPeriodStart?.subtract(1, 'month').format('YYYY-MM-DD') || '',
+                        currentBillingPeriodEnd?.subtract(1, 'month').format('YYYY-MM-DD') || '',
                     ],
                 }
                 const dayAndMonthOptions = dateMapping.filter(
@@ -200,23 +200,21 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
                     return []
                 }
 
-                const markers = []
-                // Fix: Convert user dates to UTC for comparison with billing data (which is always UTC)
+                // Convert user dates to UTC for comparison with billing data (which is always UTC)
                 const from = dateStringToDayJs(dateFrom)?.utc() || dayjs(dateFrom).utc()
                 const to = dateStringToDayJs(dateTo)?.utc() || dayjs(dateTo).utc()
                 const interval = currentPeriod.interval
 
-                // Calculate all billing period starts within the date range
-                let periodStart = currentPeriod.start
+                // Find the first period start that could be visible
+                const periodsSinceStart = Math.ceil(currentPeriod.start.diff(from, interval))
+                const firstVisiblePeriod = currentPeriod.start.subtract(Math.max(0, periodsSinceStart), interval)
 
-                // Go back to find the first period that might be visible
-                while (periodStart.isAfter(from)) {
-                    periodStart = periodStart.subtract(1, interval)
-                }
+                // Collect all period starts within the range
+                const markers = []
+                let periodStart = firstVisiblePeriod
 
-                // Now go forward and collect all period starts that fall within the range
-                while (periodStart.isBefore(to) || periodStart.isSame(to)) {
-                    if (periodStart.isAfter(from) || periodStart.isSame(from)) {
+                while (periodStart.isSameOrBefore(to)) {
+                    if (periodStart.isSameOrAfter(from)) {
                         markers.push({
                             date: periodStart,
                             label: 'New billing period - usage tiers reset',

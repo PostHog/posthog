@@ -98,7 +98,7 @@ export const BillingSummary = (): JSX.Element => {
                     {billing?.billing_period && (
                         <div>
                             <p className="ml-0 mb-0 break-words">
-                                {billing?.has_active_subscription ? 'Billing period (UTC)' : 'Cycle'}:{' '}
+                                {billing?.has_active_subscription ? 'Billing period' : 'Cycle'}:{' '}
                                 <b className="whitespace-nowrap">
                                     {billing.billing_period.current_period_start.format('LL')}
                                 </b>{' '}

@@ -18,7 +18,6 @@ import { BillingLineGraphTooltip } from './BillingLineGraphTooltip'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { useBillingMarkersPositioning } from './useBillingMarkersPositioning'
 
-// Register the annotation plugin
 Chart.register(annotationPlugin)
 
 export interface BillingSeriesType {
@@ -391,7 +390,7 @@ export function BillingLineGraph({
                                             '--billing-marker-left': `${position.left}px`,
                                         } as React.CSSProperties & Record<string, string>
                                     }
-                                    onMouseEnter={hideBillingTooltip} // Hide chart tooltip when hovering over marker
+                                    onMouseEnter={hideBillingTooltip}
                                 >
                                     <Tooltip
                                         title={

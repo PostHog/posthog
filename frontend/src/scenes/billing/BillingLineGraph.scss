@@ -7,11 +7,11 @@
 
 .BillingMarker {
     position: absolute;
-    top: -20px; // Position above the chart area
+    top: -20px;
     left: var(--billing-marker-left);
     pointer-events: auto;
     cursor: default;
-    transform: translateX(-50%); // Center the label on the line
+    transform: translateX(-50%);
 
     .BillingMarkerLabel {
         display: flex;
