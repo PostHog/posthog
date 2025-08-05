@@ -11030,7 +11030,7 @@ exports[`segment templates template segment-actions-hyperengage matches expected
           "type": "string",
         },
         {
-          "default": "{event.context.group_id ?? event.properties.$group_0}",
+          "default": "{event.properties.$group_0}",
           "description": "The account id, to uniquely identify the account associated with the user",
           "key": "account_id",
           "label": "Account id",
@@ -11228,7 +11228,7 @@ exports[`segment templates template segment-actions-hyperengage matches expected
       "include_by_default": true,
       "inputs_schema": [
         {
-          "default": "{event.context.group_id ?? event.properties.$group_0}",
+          "default": "{event.properties.$group_0}",
           "description": "The External ID of the account to send properties for",
           "key": "account_id",
           "label": "Account id",
@@ -30647,7 +30647,7 @@ exports[`segment templates template segment-inleads-ai matches expected result 1
           "type": "string",
         },
         {
-          "default": "{event.context.group_id ?? event.properties.$group_0}",
+          "default": "{event.properties.$group_0}",
           "description": "The account id, to uniquely identify the account associated with the user",
           "key": "account_id",
           "label": "Account id",
