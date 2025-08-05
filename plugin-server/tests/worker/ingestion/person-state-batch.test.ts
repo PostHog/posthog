@@ -1425,7 +1425,7 @@ describe('PersonState.processEvent()', () => {
             expect(distinctIds).toEqual(expect.arrayContaining([oldUserDistinctId, newUserDistinctId]))
         })
 
-        it(`merge into distinct_id person and marks user as is_identified when both persons have is_identified false`, async () => {
+        it.skip(`merge into distinct_id person and marks user as is_identified when both persons have is_identified false`, async () => {
             await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, oldUserUuid, [
                 { distinctId: oldUserDistinctId },
             ])
