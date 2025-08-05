@@ -9,6 +9,8 @@ from posthog.models.hog_functions.hog_function import HogFunction, HogFunctionTy
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.test.base import QueryMatchingTest
+from django.core.management import call_command
+from unittest.mock import patch, MagicMock
 
 
 to_dict = lambda x: json.loads(json.dumps(x))
@@ -294,9 +296,6 @@ class TestHogFunctionsBackgroundReloading(TestCase, QueryMatchingTest):
         assert json.dumps(hog_function_3.filters["bytecode"]) == snapshot(f'["_H", {HOGQL_BYTECODE_VERSION}, 29]')
 
     def test_geoip_transformation_created_when_enabled(self):
-        from django.core.management import call_command
-        from unittest.mock import patch, MagicMock
-
         # Mock the plugin server API response for template sync
         with patch("posthog.plugins.plugin_server_api.get_hog_function_templates") as mock_get_templates:
             # Create mock template data for template-geoip
@@ -315,20 +314,6 @@ class TestHogFunctionsBackgroundReloading(TestCase, QueryMatchingTest):
                     "icon_url": "/static/transformations/geoip.png",
                 }
             ]
-                {
-                    "id": "template-geoip",
-                    "name": "GeoIP",
-                    "description": "Adds geoip data to the event",
-                    "type": "transformation",
-                    "code": "return event",
-                    "inputs_schema": [],
-                    "status": "stable",
-                    "free": True,
-                    "category": ["Custom"],
-                    "code_language": "hog",
-                    "icon_url": "/static/transformations/geoip.png",
-                }
-            )
 
             # Set up the mock response
             mock_response = MagicMock()
