@@ -256,4 +256,44 @@ describe('LLM Observability utils', () => {
             },
         ])
     })
+
+    it('normalizeMessage: handles new array-based content format', () => {
+        const message = {
+            role: 'assistant',
+            content: [
+                {
+                    type: 'text',
+                    text: "I'll check the weather for you.",
+                },
+                {
+                    type: 'function',
+                    id: 'call_123',
+                    function: {
+                        name: 'get_weather',
+                        arguments: { location: 'New York City' },
+                    },
+                },
+            ],
+        }
+
+        expect(normalizeMessage(message)).toEqual([
+            {
+                role: 'assistant',
+                content: [
+                    {
+                        type: 'text',
+                        text: "I'll check the weather for you.",
+                    },
+                    {
+                        type: 'function',
+                        id: 'call_123',
+                        function: {
+                            name: 'get_weather',
+                            arguments: { location: 'New York City' },
+                        },
+                    },
+                ],
+            },
+        ])
+    })
 })

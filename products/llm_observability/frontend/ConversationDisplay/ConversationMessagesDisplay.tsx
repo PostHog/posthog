@@ -210,10 +210,48 @@ export const LLMMessageDisplay = React.memo(
             : Object.fromEntries(Object.entries(additionalKwargs).filter(([, value]) => value !== undefined))
 
         const renderMessageContent = (
-            content: string | { type: string; content: string } | VercelSDKImageMessage
+            content: string | { type: string; content: string } | VercelSDKImageMessage | object[]
         ): JSX.Element | null => {
             if (!content) {
                 return null
+            }
+
+            // Handle array-based content
+            if (Array.isArray(content)) {
+                return (
+                    <>
+                        {content.map((item, index) => (
+                            <React.Fragment key={index}>
+                                {typeof item === 'string' ? (
+                                    <span className="whitespace-pre-wrap">{item}</span>
+                                ) : item &&
+                                  typeof item === 'object' &&
+                                  'type' in item &&
+                                  item.type === 'text' &&
+                                  'text' in item ? (
+                                    <span className="whitespace-pre-wrap">{item.text}</span>
+                                ) : item &&
+                                  typeof item === 'object' &&
+                                  'type' in item &&
+                                  item.type === 'image' &&
+                                  'image' in item &&
+                                  typeof item.image === 'string' ? (
+                                    <ImageMessageDisplay
+                                        message={{
+                                            content: {
+                                                type: 'image',
+                                                image: item.image,
+                                            },
+                                        }}
+                                    />
+                                ) : (
+                                    <JSONViewer src={item} name={null} collapsed={5} />
+                                )}
+                                {index < content.length - 1 && <div className="border-t my-2" />}
+                            </React.Fragment>
+                        ))}
+                    </>
+                )
             }
             const trimmed = typeof content === 'string' ? content.trim() : JSON.stringify(content).trim()
 
