@@ -141,3 +141,9 @@ export interface NotebookEditor extends RichContentEditorType {
     removeComment: (pos: number) => void
     getText: () => string
 }
+
+declare module '@tiptap/core' {
+    interface NodeConfig {
+        serializedText: (attrs: NotebookNodeAttributes<any>) => string
+    }
+}
