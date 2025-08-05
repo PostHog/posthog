@@ -3,18 +3,14 @@ import datetime as dt
 import os
 import random
 import subprocess
+import math
 from pathlib import Path
-from typing import Literal, Optional
+from time import sleep
+from typing import Optional
 from dataclasses import dataclass
 import urllib.parse
+import requests
 
-import aiohttp
-from aiohttp import ClientTimeout
-
-
-from playwright.async_api import async_playwright
-from posthog.demo.matrix.models import SimEvent
-from posthog.demo.products.hedgebox.models import HedgeboxPerson
 from posthog.demo.products.hedgebox.taxonomy import (
     EVENT_SIGNED_UP,
     EVENT_LOGGED_IN,
@@ -23,15 +19,37 @@ from posthog.demo.products.hedgebox.taxonomy import (
     EVENT_DELETED_FILE,
 )
 
+from playwright.async_api import Browser, async_playwright
+
+
+@dataclass
+class ReplayPerson:
+    """Generic person data for session replay."""
+
+    email: str
+    name: str
+    distinct_id: str
+
+
+@dataclass
+class ReplayEvent:
+    """Generic event data for session replay."""
+
+    event: str
+    timestamp: dt.datetime
+    properties: dict
+    distinct_id: str
+
 
 @dataclass
 class ReplayableSession:
     """A session that can be replayed with Playwright."""
 
-    person: HedgeboxPerson
-    events: list[SimEvent]
+    person: ReplayPerson
+    events: list[ReplayEvent]
     start_time: dt.datetime
     end_time: dt.datetime
+    session_id: str
 
 
 LOCAL_POSTHOG_NETLOC = "localhost:8010"
@@ -39,96 +57,54 @@ WEB_APP_NETLOC = "localhost:3000"
 
 
 class SessionReplayGenerator:
-    """Generates session recordings by replaying simulated user behavior with Playwright."""
+    """Generates session recordings by replaying user behavior with Playwright."""
 
-    product_key: Literal["hedgebox"]  # Only Hedgebox is supported for now
-    product_app_path: Path
+    app_path: Path
     posthog_api_token: str
-    max_sessions: int
     headless: bool
     _app_process: Optional[subprocess.Popen] = None
 
     def __init__(
         self,
-        product_key: Literal["hedgebox"],
         posthog_api_token: str,
         *,
-        max_sessions: int = 2,
         headless: bool = False,
     ):
-        self.product_key = product_key
-        self.product_app_path = Path(__file__).parent.parent / "products" / product_key / "app"
+        self.app_path = Path(__file__).parent.parent.parent / "demo" / "products" / "hedgebox" / "app"
         self.posthog_api_token = posthog_api_token
-        self.max_sessions = max_sessions
         self.headless = headless
 
-    async def generate_session_recordings(self, people: list[HedgeboxPerson], *, print_progress: bool = False) -> None:
-        """Generate session replays for a sample of sessions of the given simulated users."""
+    def generate_session_recordings(self, sessions: list[ReplayableSession], *, print_progress: bool = False) -> None:
+        """Generate session replays for the given sessions."""
         if print_progress:
-            print("Starting the Hedgebox app in the background...")
+            print("Starting the demo app in the background...")
         self.start_demo_app(print_progress=print_progress)
-
-        if print_progress:
-            print("Selecting sessions for replay generation...")
-        replayable_sessions = self._select_sessions_for_replay(people)
-
-        if print_progress:
-            print(f"Selected {len(replayable_sessions)} sessions for replay")
-
-        if print_progress:
-            print("Waiting for the Hedgebox app to be ready...")
-        await self._wait_for_netloc_ready(WEB_APP_NETLOC)  # Next.js app should be ready by now
-        await self._wait_for_netloc_ready(LOCAL_POSTHOG_NETLOC)
-
         try:
             if print_progress:
+                print("Waiting for the demo app to be ready...")
+            self._wait_for_netloc_ready(WEB_APP_NETLOC)  # Next.js app should be ready by now
+            self._wait_for_netloc_ready(LOCAL_POSTHOG_NETLOC)
+
+            if print_progress:
                 print("Beginning session replay automation...")
-            await self._replay_sessions(replayable_sessions, print_progress)
+            asyncio.run(self._replay_sessions(sessions, print_progress))
         except:
             raise
         finally:
-            await self._stop_demo_app()
+            self._stop_demo_app()
             if print_progress:
                 print("Session replay generation completed")
 
-    def _select_sessions_for_replay(self, people: list[HedgeboxPerson]) -> list[ReplayableSession]:
-        """Select a sample of Chrome sessions for recording."""
-        sessions = []
-        for person in people:
-            # Filter for Chrome users only, as we'll be capturing the web app in Chrome using Playwright
-            if person.active_client.browser != "Chrome":
-                continue
-            sessions.extend(self._group_events_into_sessions(person))
-        return random.sample(sessions, min(self.max_sessions, len(sessions)))
-
-    def _group_events_into_sessions(self, person: HedgeboxPerson) -> list[ReplayableSession]:
-        """Group a person's events into sessions based on $session_id."""
-        if not person.all_events:
-            return []
-        # Group events by $session_id
-        sessions_by_id: dict[str, list[SimEvent]] = {}
-        for event in person.all_events:
-            session_id = event.properties.get("$session_id")
-            if session_id is None:
-                continue  # Unexpected, but we'll skip it
-            sessions_by_id.setdefault(session_id, []).append(event)
-        return [
-            ReplayableSession(
-                person=person, events=events, start_time=events[0].timestamp, end_time=events[-1].timestamp
-            )
-            for events in sessions_by_id.values()
-        ]
-
     def start_demo_app(self, *, print_progress: bool = False) -> None:
-        """Start the dummy demo app with PostHog configuration."""
+        """Start the demo app with PostHog configuration."""
         # Set environment variables for PostHog integration
         # Start the Next.js app
         print(
-            f"Starting the app at {self.product_app_path.absolute()} with API netloc {LOCAL_POSTHOG_NETLOC}, token {self.posthog_api_token}"
+            f"Starting the app at {self.app_path} with API netloc {LOCAL_POSTHOG_NETLOC}, token {self.posthog_api_token}"
         )
         self._app_process = subprocess.Popen(
             ["node_modules/.bin/next", "dev", "--port", WEB_APP_NETLOC.split(":")[1]],
-            cwd=self.product_app_path,
+            cwd=self.app_path,
             env={
                 **os.environ,
                 "NEXT_PUBLIC_POSTHOG_KEY": self.posthog_api_token,
@@ -137,23 +113,22 @@ class SessionReplayGenerator:
             stderr=None if print_progress else subprocess.PIPE,
         )
 
-    async def _wait_for_netloc_ready(self, netloc: str) -> None:
-        """Wait for the Hedgebox app to be ready."""
-        async with aiohttp.ClientSession() as session:
-            for _ in range(50):
-                try:
-                    # Timeout of 5 s as Next.js JIT builds can take a moment
-                    async with session.get(f"http://{netloc}", timeout=ClientTimeout(total=5)) as response:
-                        if response.ok:
-                            return  # Good to go!
-                except Exception as e:
-                    print(f"Failed to connect to {netloc}: {e}")
-                    pass
-                await asyncio.sleep(0.5)
+    def _wait_for_netloc_ready(self, netloc: str) -> None:
+        """Wait for the demo app to be ready."""
+        for _ in range(50):
+            try:
+                # Timeout of 5 s as Next.js JIT builds can take a moment
+                response = requests.get(f"http://{netloc}", timeout=5)
+                if response.ok:
+                    return  # Good to go!
+            except Exception as e:
+                print(f"Failed to connect to {netloc}: {e}")
+                pass
+            sleep(0.5)
         raise RuntimeError(f"{netloc} failed to start")
 
-    async def _stop_demo_app(self) -> None:
-        """Stop the Hedgebox Next.js app."""
+    def _stop_demo_app(self) -> None:
+        """Stop the demo Next.js app."""
         if self._app_process:
             self._app_process.terminate()
             try:
@@ -166,128 +141,212 @@ class SessionReplayGenerator:
         """Replay sessions using Playwright."""
 
         async with async_playwright() as p:
-            # Launch browser
             browser = await p.chromium.launch(headless=self.headless)
-
             try:
-                for i, session in enumerate(sessions):
-                    if print_progress:
-                        print(f"Replaying session {i+1}/{len(sessions)}")
-                    # Create new browser context for each session
-                    context = await browser.new_context()
-                    try:
-                        await self._replay_single_session(context, session)
-                    except:
-                        raise
-                    finally:
-                        await context.close()
+                async with asyncio.TaskGroup() as tg:
+                    for session in sessions:
+                        tg.create_task(self._replay_single_session(browser, session, print_progress=print_progress))
             except:
                 raise
             finally:
                 await browser.close()
 
-    async def _replay_single_session(self, context, session: ReplayableSession) -> None:
+    async def _replay_single_session(
+        self, browser: Browser, session: ReplayableSession, *, print_progress: bool = False
+    ) -> None:
         """Replay a single session with Playwright."""
-        page = await context.new_page()
-
+        if print_progress:
+            print(f"Replaying session {session.session_id}")
+        # Create new browser context for each session
+        context = None
+        page = None
         try:
+            context = await browser.new_context()
+            page = await context.new_page()
             # Calculate timing multiplier (compress long sessions)
             session_duration = (session.end_time - session.start_time).total_seconds()
             timing_multiplier = min(1.0, 300 / max(session_duration, 60))  # Max 5 minute replays
 
-            for i, event in enumerate(session.events):
-                # Calculate delay from previous event
-                if i > 0:
-                    delay_seconds = (event.timestamp - session.events[i - 1].timestamp).total_seconds()
-                    compressed_delay = delay_seconds * timing_multiplier
-                    await asyncio.sleep(min(compressed_delay, 10))  # Max 10 second delays
+            # Track session state for more realistic behavior
+            session_state = {
+                "first_pageview": True,
+                "current_url": None,
+                "is_authenticated": False,
+                "mouse_x": random.randint(200, 800),
+                "mouse_y": random.randint(200, 400),
+                "viewport": {"width": 1280, "height": 720},
+            }
 
-                # Replay the event
-                await self._replay_event(page, event, session.person)
+            # Start continuous mouse movement task
+            mouse_task = asyncio.create_task(self._continuous_mouse_movement(page, session_state))
+
+            try:
+                for i, event in enumerate(session.events):
+                    # Calculate delay from previous event
+                    if i > 0:
+                        delay_seconds = (event.timestamp - session.events[i - 1].timestamp).total_seconds()
+                        compressed_delay = delay_seconds * timing_multiplier
+
+                        # During the delay, simulate human-like mouse activity
+                        await self._simulate_human_activity_during_delay(page, session_state, compressed_delay)
+
+                    # Replay the event with session context
+                    await self._replay_event(page, event, session.person, session_state)
+
+                    # Update authentication state based on events
+                    if event.event in [EVENT_SIGNED_UP, EVENT_LOGGED_IN]:
+                        session_state["is_authenticated"] = True
+            finally:
+                # Cancel continuous mouse movement
+                mouse_task.cancel()
+                try:
+                    await mouse_task
+                except asyncio.CancelledError:
+                    pass
+
+            await asyncio.sleep(10)  # Allow posthog-js to flush events
         except:
             raise
         finally:
-            await page.close()
+            if page:
+                await page.close()
+            if context:
+                await context.close()
 
-    async def _replay_event(self, page, event: SimEvent, person: HedgeboxPerson) -> None:
+    async def _replay_event(self, page, event: ReplayEvent, person: ReplayPerson, session_state: dict) -> None:
         """Replay a single event with Playwright."""
         if event.event == "$pageview":
             url = self._convert_url_to_localhost(event.properties.get("$current_url", ""))
-            await page.goto(url)
-            await page.wait_for_load_state("networkidle")
+
+            if session_state["first_pageview"]:
+                # First pageview: use goto as before
+                await page.goto(url)
+                await page.wait_for_load_state("networkidle")
+                session_state["first_pageview"] = False
+                session_state["current_url"] = url
+            else:
+                # Subsequent pageviews: try to navigate naturally by clicking links
+                if await self._navigate_by_clicking(page, url, session_state):
+                    session_state["current_url"] = url
+                else:
+                    # Fallback to goto if we can't find a way to navigate naturally
+                    await page.goto(url)
+                    await page.wait_for_load_state("networkidle")
+                    session_state["current_url"] = url
 
         elif event.event == EVENT_SIGNED_UP:
-            await self._replay_signup(page, person)
+            await self._replay_signup(page, person, session_state)
 
         elif event.event == EVENT_LOGGED_IN:
-            await self._replay_login(page, person)
+            await self._replay_login(page, person, session_state)
 
         elif event.event == EVENT_UPLOADED_FILE:
-            await self._replay_file_upload(page)
+            await self._replay_file_upload(page, session_state)
 
         elif event.event == EVENT_DOWNLOADED_FILE:
-            await self._replay_file_download(page)
+            await self._replay_file_download(page, session_state)
 
         elif event.event == EVENT_DELETED_FILE:
-            await self._replay_file_delete(page)
+            await self._replay_file_delete(page, session_state)
 
         elif event.event == "$autocapture":
-            await self._replay_click(page, event)
+            await self._replay_click(page, event, session_state)
 
     def _convert_url_to_localhost(self, url: str) -> str:
         """Convert demo URLs to localhost."""
         parsed_url = urllib.parse.urlparse(url)
         return parsed_url._replace(netloc=WEB_APP_NETLOC, scheme="http").geturl()
 
-    async def _replay_signup(self, page, person: HedgeboxPerson) -> None:
-        """Replay signup flow."""
-        # Fill signup form
-        await page.fill('input[type="email"]', person.email)
-        await page.fill('input[name="name"]', person.name)
-        await page.fill('input[type="password"]', "demo_password_123")
+    async def _replay_signup(self, page, person: ReplayPerson, session_state: dict) -> None:
+        """Replay signup flow with human-like behavior."""
+        # Simulate reading the page before filling the form
+        await self._simulate_human_activity_during_delay(page, session_state, random.uniform(1.0, 2.5))
 
-        # Submit form
-        await page.click('button[type="submit"]')
+        # Fill signup form with realistic typing delays
+        await self._type_naturally_with_mouse(page, 'input[type="email"]', person.email, session_state)
+        await self._simulate_human_activity_during_delay(page, session_state, random.uniform(0.5, 1.0))
+
+        await self._type_naturally_with_mouse(page, 'input[name="name"]', person.name, session_state)
+        await self._simulate_human_activity_during_delay(page, session_state, random.uniform(0.5, 1.0))
+
+        await self._type_naturally_with_mouse(page, 'input[type="password"]', "demo_password_123", session_state)
+        await self._simulate_human_activity_during_delay(page, session_state, random.uniform(0.8, 1.5))
+
+        # Submit form with mouse movement
+        try:
+            submit_button = await page.wait_for_selector('button[type="submit"]', timeout=2000)
+            if submit_button:
+                await self._move_mouse_to_element_and_click(page, submit_button, session_state)
+        except:
+            # Fallback to regular click
+            await page.click('button[type="submit"]')
         await page.wait_for_load_state("networkidle")
 
-    async def _replay_login(self, page, person: HedgeboxPerson) -> None:
-        """Replay login flow."""
-        # Fill login form
-        await page.fill('input[type="email"]', person.email)
-        await page.fill('input[type="password"]', "demo_password_123")
+    async def _replay_login(self, page, person: ReplayPerson, session_state: dict) -> None:
+        """Replay login flow with human-like behavior."""
+        # Simulate reading the page before filling the form
+        await self._simulate_human_activity_during_delay(page, session_state, random.uniform(0.8, 1.5))
 
-        # Submit form
-        await page.click('button[type="submit"]')
+        # Fill login form with realistic typing delays
+        await self._type_naturally_with_mouse(page, 'input[type="email"]', person.email, session_state)
+        await self._simulate_human_activity_during_delay(page, session_state, random.uniform(0.3, 0.8))
+
+        await self._type_naturally_with_mouse(page, 'input[type="password"]', "demo_password_123", session_state)
+        await self._simulate_human_activity_during_delay(page, session_state, random.uniform(0.5, 1.0))
+
+        # Submit form with mouse movement
+        try:
+            submit_button = await page.wait_for_selector('button[type="submit"]', timeout=2000)
+            if submit_button:
+                await self._move_mouse_to_element_and_click(page, submit_button, session_state)
+        except:
+            # Fallback to regular click
+            await page.click('button[type="submit"]')
         await page.wait_for_load_state("networkidle", timeout=30000)
 
-    async def _replay_file_upload(self, page) -> None:
-        """Replay file upload action."""
+    async def _replay_file_upload(self, page, session_state: dict) -> None:
+        """Replay file upload action with human-like behavior."""
+        # Simulate looking for upload option with mouse activity
+        await self._simulate_human_activity_during_delay(page, session_state, random.uniform(0.5, 1.2))
+
         # Look for file upload button/input
         upload_selectors = ['input[type="file"]', 'button:has-text("Upload")', '[data-testid="upload-button"]']
 
         for selector in upload_selectors:
             try:
-                if await page.is_visible(selector):
-                    await page.click(selector)
+                element = await page.wait_for_selector(selector, timeout=1000)
+                if element and await element.is_visible():
+                    await self._move_mouse_to_element_and_click(page, element, session_state)
+                    # Wait after action with mouse activity
+                    await self._simulate_human_activity_during_delay(page, session_state, random.uniform(0.5, 1.0))
                     break
             except:
                 continue
 
-    async def _replay_file_download(self, page) -> None:
-        """Replay file download action."""
+    async def _replay_file_download(self, page, session_state: dict) -> None:
+        """Replay file download action with human-like behavior."""
+        # Simulate looking for download option with mouse activity
+        await self._simulate_human_activity_during_delay(page, session_state, random.uniform(0.4, 1.0))
+
         # Look for download buttons
         download_selectors = ['button:has-text("Download")', '[data-testid="download-button"]', "a[download]"]
 
         for selector in download_selectors:
             try:
-                if await page.is_visible(selector):
-                    await page.click(selector)
+                element = await page.wait_for_selector(selector, timeout=1000)
+                if element and await element.is_visible():
+                    await self._move_mouse_to_element_and_click(page, element, session_state)
+                    # Wait after action with mouse activity
+                    await self._simulate_human_activity_during_delay(page, session_state, random.uniform(0.3, 0.8))
                     break
             except:
                 continue
 
-    async def _replay_file_delete(self, page) -> None:
-        """Replay file delete action."""
+    async def _replay_file_delete(self, page, session_state: dict) -> None:
+        """Replay file delete action with human-like behavior."""
+        # Simulate looking for delete option with mouse activity
+        await self._simulate_human_activity_during_delay(page, session_state, random.uniform(0.5, 1.0))
+
         # Look for delete buttons
         delete_selectors = [
             'button:has-text("Delete")',
@@ -297,19 +356,36 @@ class SessionReplayGenerator:
 
         for selector in delete_selectors:
             try:
-                if await page.is_visible(selector):
-                    await page.click(selector)
+                element = await page.wait_for_selector(selector, timeout=1000)
+                if element and await element.is_visible():
+                    # Pause before clicking (humans hesitate before deleting) with mouse activity
+                    await self._simulate_human_activity_during_delay(page, session_state, random.uniform(0.8, 1.5))
+                    await self._move_mouse_to_element_and_click(page, element, session_state)
+
                     # Handle confirmation dialog if it appears
                     try:
-                        await page.click('button:has-text("Confirm")', timeout=2000)
+                        confirm_button = await page.wait_for_selector('button:has-text("Confirm")', timeout=2000)
+                        if confirm_button:
+                            # Slight pause before confirming (reading the dialog) with mouse activity
+                            await self._simulate_human_activity_during_delay(
+                                page, session_state, random.uniform(0.5, 1.2)
+                            )
+                            await self._move_mouse_to_element_and_click(page, confirm_button, session_state)
+                            # Wait after confirming
+                            await self._simulate_human_activity_during_delay(
+                                page, session_state, random.uniform(0.3, 0.8)
+                            )
                     except:
                         pass
                     break
             except:
                 continue
 
-    async def _replay_click(self, page, event: SimEvent) -> None:
-        """Replay a click event."""
+    async def _replay_click(self, page, event: ReplayEvent, session_state: dict) -> None:
+        """Replay a click event with human-like behavior."""
+        # Simulate looking for the element with mouse activity
+        await self._simulate_human_activity_during_delay(page, session_state, random.uniform(0.2, 0.6))
+
         # Try to find clickable element based on event properties
         element_selectors = []
 
@@ -326,8 +402,414 @@ class SessionReplayGenerator:
             try:
                 elements = await page.query_selector_all(selector)
                 if elements:
-                    # Click the first matching element
-                    await elements[0].click()
+                    # Move mouse to element and click
+                    await self._move_mouse_to_element_and_click(page, elements[0], session_state)
+                    # Small pause after clicking with mouse activity
+                    await self._simulate_human_activity_during_delay(page, session_state, random.uniform(0.2, 0.5))
                     break
             except:
                 continue
+
+    async def _continuous_mouse_movement(self, page, session_state: dict) -> None:
+        """Continuous background mouse movement task that runs throughout the session."""
+        try:
+            while True:
+                await asyncio.sleep(random.uniform(0.1, 0.5))
+
+                # Occasionally do small random movements (fidgeting)
+                if random.random() < 0.3:
+                    await self._small_mouse_fidget(page, session_state)
+
+                # Sometimes do exploratory movements
+                if random.random() < 0.1:
+                    await self._exploratory_mouse_movement(page, session_state)
+
+        except asyncio.CancelledError:
+            raise
+        except:
+            # Continue if any mouse movement fails
+            pass
+
+    async def _simulate_human_activity_during_delay(self, page, session_state: dict, delay_seconds: float) -> None:
+        """Simulate realistic human mouse activity during delays between events."""
+        if delay_seconds <= 0:
+            return
+
+        # Cap the delay at 10 seconds max
+        delay_seconds = min(delay_seconds, 10)
+
+        # Break delay into smaller chunks with mouse activity
+        chunks = max(1, int(delay_seconds / 0.5))  # 500ms chunks
+        chunk_delay = delay_seconds / chunks
+
+        for _ in range(chunks):
+            activity_type = random.choices(
+                ["fidget", "explore", "scan", "hover", "scroll", "pause"], weights=[30, 15, 20, 10, 15, 10]
+            )[0]
+
+            if activity_type == "fidget":
+                await self._small_mouse_fidget(page, session_state)
+            elif activity_type == "explore":
+                await self._exploratory_mouse_movement(page, session_state)
+            elif activity_type == "scan":
+                await self._scanning_mouse_movement(page, session_state)
+            elif activity_type == "hover":
+                await self._hover_over_elements(page, session_state)
+            elif activity_type == "scroll":
+                await self._random_scroll_behavior(page, session_state)
+            # 'pause' means no mouse movement - human is thinking/reading
+
+            await asyncio.sleep(chunk_delay)
+
+    async def _small_mouse_fidget(self, page, session_state: dict) -> None:
+        """Small random mouse movements - typical human fidgeting."""
+        try:
+            current_x = session_state["mouse_x"]
+            current_y = session_state["mouse_y"]
+
+            # Small random movements (5-25 pixels)
+            dx = random.randint(-25, 25)
+            dy = random.randint(-25, 25)
+
+            new_x = max(50, min(session_state["viewport"]["width"] - 50, current_x + dx))
+            new_y = max(50, min(session_state["viewport"]["height"] - 50, current_y + dy))
+
+            await self._smooth_mouse_move(page, session_state, new_x, new_y, speed="fast")
+
+        except:
+            pass
+
+    async def _exploratory_mouse_movement(self, page, session_state: dict) -> None:
+        """Larger exploratory movements - user exploring the page."""
+        try:
+            # Pick a random area of the page to explore
+            viewport = session_state["viewport"]
+
+            # Define interesting areas (header, main content, sidebar, footer)
+            areas = [
+                {"x_range": (100, viewport["width"] - 100), "y_range": (50, 150)},  # Header
+                {"x_range": (100, viewport["width"] - 100), "y_range": (150, 500)},  # Main content
+                {"x_range": (100, viewport["width"] - 100), "y_range": (500, 600)},  # Lower content
+            ]
+
+            area = random.choice(areas)
+            target_x = random.randint(*area["x_range"])
+            target_y = random.randint(*area["y_range"])
+
+            await self._smooth_mouse_move(page, session_state, target_x, target_y, speed="medium")
+
+        except:
+            pass
+
+    async def _scanning_mouse_movement(self, page, session_state: dict) -> None:
+        """Mouse following text/content - reading behavior."""
+        try:
+            current_x = session_state["mouse_x"]
+            current_y = session_state["mouse_y"]
+
+            # Simulate reading left-to-right, top-to-bottom movements
+            if random.random() < 0.7:  # Horizontal scanning (reading)
+                direction = 1 if random.random() < 0.8 else -1  # Mostly left-to-right
+                distance = random.randint(50, 200)
+                new_x = max(100, min(session_state["viewport"]["width"] - 100, current_x + direction * distance))
+                new_y = current_y + random.randint(-10, 10)  # Slight vertical drift
+            else:  # Vertical movement (scrolling with eyes)
+                direction = 1 if random.random() < 0.6 else -1  # Mostly downward
+                distance = random.randint(30, 100)
+                new_x = current_x + random.randint(-20, 20)  # Slight horizontal drift
+                new_y = max(100, min(session_state["viewport"]["height"] - 100, current_y + direction * distance))
+
+            await self._smooth_mouse_move(page, session_state, new_x, new_y, speed="slow")
+
+        except:
+            pass
+
+    async def _hover_over_elements(self, page, session_state: dict) -> None:
+        """Hover over interactive elements - goal-oriented behavior."""
+        try:
+            # Try to find interactive elements to hover over
+            selectors = [
+                "button:visible",
+                "a:visible",
+                "input:visible",
+                '[role="button"]:visible',
+                ".btn:visible",
+                "nav a:visible",
+            ]
+
+            for selector in selectors:
+                try:
+                    elements = await page.query_selector_all(selector)
+                    if elements and len(elements) > 0:
+                        # Pick a random element
+                        element = random.choice(elements[:5])  # Don't consider too many
+
+                        # Get element position
+                        box = await element.bounding_box()
+                        if box:
+                            # Move to element with some randomness
+                            target_x = box["x"] + box["width"] / 2 + random.randint(-10, 10)
+                            target_y = box["y"] + box["height"] / 2 + random.randint(-5, 5)
+
+                            await self._smooth_mouse_move(page, session_state, target_x, target_y, speed="medium")
+
+                            # Hover for a moment
+                            await asyncio.sleep(random.uniform(0.2, 0.8))
+                            return
+                except:
+                    continue
+        except:
+            pass
+
+    async def _random_scroll_behavior(self, page, session_state: dict) -> None:
+        """Random scrolling behavior."""
+        try:
+            # Scroll up or down
+            direction = random.choice([-1, 1])
+            scroll_amount = random.randint(100, 300) * direction
+
+            # Move mouse to a scrollable area first
+            scroll_x = random.randint(200, session_state["viewport"]["width"] - 200)
+            scroll_y = random.randint(200, session_state["viewport"]["height"] - 200)
+
+            await self._smooth_mouse_move(page, session_state, scroll_x, scroll_y, speed="fast")
+
+            # Perform scroll
+            await page.mouse.wheel(0, scroll_amount)
+
+        except:
+            pass
+
+    async def _smooth_mouse_move(
+        self, page, session_state: dict, target_x: float, target_y: float, speed: str = "medium"
+    ) -> None:
+        """Move mouse smoothly from current position to target with human-like curves."""
+        try:
+            start_x = session_state["mouse_x"]
+            start_y = session_state["mouse_y"]
+
+            # Don't move if we're already very close
+            distance = math.sqrt((target_x - start_x) ** 2 + (target_y - start_y) ** 2)
+            if distance < 5:
+                return
+
+            # Speed settings
+            speed_settings = {
+                "slow": {"steps": max(8, int(distance / 15)), "base_delay": 0.05},
+                "medium": {"steps": max(5, int(distance / 25)), "base_delay": 0.03},
+                "fast": {"steps": max(3, int(distance / 40)), "base_delay": 0.02},
+            }
+
+            settings = speed_settings.get(speed, speed_settings["medium"])
+            steps = settings["steps"]
+            base_delay = settings["base_delay"]
+
+            # Generate bezier curve for natural movement
+            control_x = start_x + (target_x - start_x) * 0.5 + random.randint(-50, 50)
+            control_y = start_y + (target_y - start_y) * 0.5 + random.randint(-30, 30)
+
+            for i in range(steps + 1):
+                t = i / steps
+
+                # Bezier curve calculation
+                x = (1 - t) ** 2 * start_x + 2 * (1 - t) * t * control_x + t**2 * target_x
+                y = (1 - t) ** 2 * start_y + 2 * (1 - t) * t * control_y + t**2 * target_y
+
+                # Add small random variations
+                x += random.uniform(-2, 2)
+                y += random.uniform(-2, 2)
+
+                # Ensure we stay within bounds
+                x = max(10, min(session_state["viewport"]["width"] - 10, x))
+                y = max(10, min(session_state["viewport"]["height"] - 10, y))
+
+                await page.mouse.move(x, y)
+                session_state["mouse_x"] = x
+                session_state["mouse_y"] = y
+
+                # Variable delay - faster in middle, slower at start/end
+                delay_multiplier = 1.0 + 0.5 * math.sin(t * math.pi)  # Slower at ends
+                await asyncio.sleep(base_delay * delay_multiplier + random.uniform(0, 0.01))
+
+        except:
+            pass
+
+    async def _navigate_by_clicking(self, page, target_url: str, session_state: dict) -> bool:
+        """Attempt to navigate to target URL by clicking appropriate links."""
+        try:
+            # Parse target URL to get the path
+            from urllib.parse import urlparse
+
+            target_path = urlparse(target_url).path
+
+            # Map of paths to likely link selectors based on our analysis of the Hedgebox app
+            navigation_map = {
+                "/": ['a[href="/"]', 'a:has-text("Hedgebox")', 'a:has-text("Home")'],
+                "/signup": [
+                    'a[href="/signup"]',
+                    'button:has-text("Sign up")',
+                    'a:has-text("Get started")',
+                    'a:has-text("Start your journey")',
+                ],
+                "/login": ['a[href="/login"]', 'a:has-text("Log in")', 'button:has-text("Log in")'],
+                "/pricing": ['a[href="/pricing"]', 'a:has-text("Pricing")', 'a:has-text("View pricing")'],
+                "/mariustechtips": ['a[href="/mariustechtips"]', 'a:has-text("Blog")'],
+                "/files": ['a[href="/files"]', 'a:has-text("Files")', 'a:has-text("Go to files")'],
+                "/account/settings": [
+                    'a[href="/account/settings"]',
+                    'a:has-text("Account Settings")',
+                    'a:has-text("Account settings")',
+                ],
+                "/account/billing": ['a[href="/account/billing"]', 'a:has-text("Billing")'],
+                "/account/team": ['a[href="/account/team"]', 'a:has-text("Team")'],
+            }
+
+            selectors = navigation_map.get(target_path, [])
+
+            # Add some generic selectors that might work
+            selectors.extend(
+                [f'a[href="{target_path}"]', f'a[href*="{target_path}"]', f'a:has-text("{target_path.split("/")[-1]}")']
+            )
+
+            # Try each selector until one works
+            for selector in selectors:
+                try:
+                    # Wait briefly to see if element is available
+                    element = await page.wait_for_selector(selector, timeout=1000)
+                    if element and await element.is_visible():
+                        # Move mouse to element before clicking
+                        await self._move_mouse_to_element_and_click(page, element, session_state)
+                        await page.wait_for_load_state("networkidle", timeout=10000)
+                        return True
+                except:
+                    continue
+
+            # If we're on a page with a dropdown menu (authenticated user), try opening it first
+            if session_state.get("is_authenticated") and target_path.startswith("/account/"):
+                try:
+                    # Try to open user profile dropdown
+                    dropdown_selectors = [
+                        '.dropdown-end [role="button"]',
+                        'button[data-testid="user-menu"]',
+                        ".avatar",
+                        '[data-dropdown="profile"]',
+                    ]
+
+                    for dropdown_selector in dropdown_selectors:
+                        try:
+                            dropdown = await page.wait_for_selector(dropdown_selector, timeout=1000)
+                            if dropdown and await dropdown.is_visible():
+                                await self._move_mouse_to_element_and_click(page, dropdown, session_state)
+                                await asyncio.sleep(0.5)  # Wait for dropdown to open
+
+                                # Now try the original selectors again
+                                for selector in selectors:
+                                    try:
+                                        element = await page.wait_for_selector(selector, timeout=1000)
+                                        if element and await element.is_visible():
+                                            await self._move_mouse_to_element_and_click(page, element, session_state)
+                                            await page.wait_for_load_state("networkidle", timeout=10000)
+                                            return True
+                                    except:
+                                        continue
+                                break
+                        except:
+                            continue
+                except:
+                    pass
+
+            return False
+        except:
+            return False
+
+    async def _type_naturally(self, page, selector: str, text: str) -> None:
+        """Type text with human-like speed and behavior."""
+        try:
+            element = await page.wait_for_selector(selector, timeout=2000)
+            if element:
+                # Clear the field first
+                await element.click()
+                await page.keyboard.press("Meta+a")  # Select all
+                await asyncio.sleep(0.1)
+
+                # Type each character with slight random delays
+                for char in text:
+                    await page.keyboard.type(char)
+                    # Random delay between characters (30-120ms)
+                    await asyncio.sleep(random.uniform(0.03, 0.12))
+
+                # Small pause after typing
+                await asyncio.sleep(random.uniform(0.2, 0.5))
+        except:
+            # Fallback to regular fill if natural typing fails
+            try:
+                await page.fill(selector, text)
+            except:
+                pass
+
+    async def _move_mouse_to_element_and_click(self, page, element, session_state: dict) -> None:
+        """Move mouse to element in a human-like way, then click."""
+        try:
+            # Get element position
+            box = await element.bounding_box()
+            if box:
+                # Calculate target position with some randomness
+                target_x = box["x"] + box["width"] / 2 + random.randint(-int(box["width"] / 4), int(box["width"] / 4))
+                target_y = (
+                    box["y"] + box["height"] / 2 + random.randint(-int(box["height"] / 4), int(box["height"] / 4))
+                )
+
+                # Move mouse to element
+                await self._smooth_mouse_move(page, session_state, target_x, target_y, speed="medium")
+
+                # Small pause before clicking (human hesitation)
+                await asyncio.sleep(random.uniform(0.1, 0.3))
+
+                # Click the element
+                await element.click()
+
+                # Small pause after clicking
+                await asyncio.sleep(random.uniform(0.1, 0.2))
+        except:
+            # Fallback to regular click
+            try:
+                await element.click()
+            except:
+                pass
+
+    async def _type_naturally_with_mouse(self, page, selector: str, text: str, session_state: dict) -> None:
+        """Type text with natural mouse movement to the input field first."""
+        try:
+            element = await page.wait_for_selector(selector, timeout=2000)
+            if element:
+                # Move mouse to input field before typing
+                await self._move_mouse_to_element_and_click(page, element, session_state)
+
+                # Clear the field
+                await page.keyboard.press("Meta+a")  # Select all
+                await asyncio.sleep(0.1)
+
+                # Type each character with slight random delays
+                for char in text:
+                    await page.keyboard.type(char)
+                    # Random delay between characters (30-120ms)
+                    await asyncio.sleep(random.uniform(0.03, 0.12))
+
+                    # Occasionally move mouse slightly while typing (fidgeting)
+                    if random.random() < 0.1:
+                        current_x = session_state.get("mouse_x", 640)
+                        current_y = session_state.get("mouse_y", 360)
+                        fidget_x = current_x + random.randint(-5, 5)
+                        fidget_y = current_y + random.randint(-3, 3)
+                        await page.mouse.move(fidget_x, fidget_y)
+                        session_state["mouse_x"] = fidget_x
+                        session_state["mouse_y"] = fidget_y
+
+                # Small pause after typing
+                await asyncio.sleep(random.uniform(0.2, 0.5))
+        except:
+            # Fallback to regular typing
+            try:
+                await page.fill(selector, text)
+            except:
+                pass
