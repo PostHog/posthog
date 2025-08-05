@@ -1,5 +1,4 @@
 from dataclasses import dataclass
-from typing import Union
 
 import numpy as np
 
@@ -103,8 +102,8 @@ class RatioStatistic:
     """
 
     n: int  # Sample size
-    m_statistic: Union[SampleMeanStatistic, ProportionStatistic]  # Numerator statistic
-    d_statistic: Union[SampleMeanStatistic, ProportionStatistic]  # Denominator statistic
+    m_statistic: SampleMeanStatistic | ProportionStatistic  # Numerator statistic
+    d_statistic: SampleMeanStatistic | ProportionStatistic  # Denominator statistic
     m_d_sum_of_products: float  # Sum of products between numerator and denominator
 
     def __post_init__(self):
