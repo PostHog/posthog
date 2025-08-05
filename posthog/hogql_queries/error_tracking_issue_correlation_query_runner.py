@@ -106,33 +106,31 @@ class ErrorTrackingIssueCorrelationQueryRunner(QueryRunner):
 
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         return parse_select(
-            """SELECT
-    '$pageview',
-    any(issue_ids),
+            """WITH issue_list AS (
+SELECT groupUniqArray(issue_id) as value
+    FROM events
+    WHERE timestamp > now() - INTERVAL 12 HOUR AND notEmpty(events.$session_id) AND issue_id IS NOT NULL AND event = '$exception'
+)
+SELECT
+    (SELECT * FROM issue_list) as issue_ids,
     sumForEach(both) as both,
     sumForEach(success_only) as success_only,
     sumForEach(exception_only) as exception_only,
     sumForEach(neither) as neither
 FROM(
-    WITH issue_list AS (
-        SELECT groupUniqArray(issue_id) as value
-        FROM events
-        WHERE timestamp > now() - INTERVAL 6 HOUR AND notEmpty(events.$session_id) AND issue_id IS NOT NULL AND event = '$exception'
-    )
-    select
+    SELECT
         $session_id,
-        (SELECT * FROM issue_list) AS issue_ids,
         minIf(toNullable(timestamp), event='{self.query.events[0]}') as earliest_success_event,
         minForEach(arrayMap(x -> (if(x = issue_id, toNullable(timestamp), NULL)), (SELECT * FROM issue_list))) as earliest_exceptions,
         arrayMap(x -> if(x IS NOT NULL AND earliest_success_event IS NOT NULL AND x < earliest_success_event, 1, 0), earliest_exceptions) AS both,
         arrayMap(x -> if(x IS NULL AND earliest_success_event IS NOT NULL, 1, 0), earliest_exceptions) AS success_only,
         arrayMap(x -> if(x IS NOT NULL AND earliest_success_event IS NULL, 1, 0), earliest_exceptions) AS exception_only,
         arrayMap(x -> if(x IS NULL AND earliest_success_event IS NULL, 1, 0), earliest_exceptions) AS neither
-    from events
-    where
-        timestamp > now() - INTERVAL 6 HOUR AND
+    FROM events
+    WHERE
+        timestamp > now() - INTERVAL 12 HOUR AND
         notEmpty(events.$session_id)
-    group by $session_id
+    GROUP BY $session_id
 )"""
         )
 
