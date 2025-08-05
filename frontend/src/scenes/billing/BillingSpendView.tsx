@@ -25,7 +25,7 @@ export function BillingSpendView(): JSX.Element {
         minimumAccessLevel: OrganizationMembershipLevel.Admin,
         scope: RestrictionScope.Organization,
     })
-    const logic = billingSpendLogic({ dashboardItemId: 'spendView' })
+    const logic = billingSpendLogic({ syncWithUrl: true })
     const {
         series,
         dates,

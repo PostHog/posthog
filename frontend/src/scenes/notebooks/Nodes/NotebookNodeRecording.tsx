@@ -26,6 +26,7 @@ import { UUID_REGEX_MATCH_GROUPS } from './utils'
 import { JSONContent } from 'lib/components/RichContentEditor/types'
 import { NotebookNodeAttributeProperties, NotebookNodeAttributes, NotebookNodeProps, NotebookNodeType } from '../types'
 import { ExtendedRegExpMatchArray } from '@tiptap/core'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 const HEIGHT = 500
 const MIN_HEIGHT = '20rem'
@@ -57,11 +58,8 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeRecordingAttrib
     const { loadRecordingMeta } = useActions(sessionRecordingDataLogic(recordingLogicProps))
     const { seekToTime, setPlay } = useActions(sessionRecordingPlayerLogic(recordingLogicProps))
 
-    useEffect(() => {
-        loadRecordingMeta()
-        // oxlint-disable-next-line exhaustive-deps
-    }, [])
     // TODO Only load data when in view...
+    useOnMountEffect(loadRecordingMeta)
 
     useEffect(() => {
         const person = sessionPlayerMetaData?.person
@@ -90,10 +88,9 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeRecordingAttrib
                   }
                 : undefined,
         ])
-        // oxlint-disable-next-line exhaustive-deps
-    }, [sessionPlayerMetaData?.person?.id])
+    }, [sessionPlayerMetaData?.person?.id]) // oxlint-disable-line exhaustive-deps
 
-    useEffect(() => {
+    useOnMountEffect(() => {
         setMessageListeners({
             'play-replay': ({ time }) => {
                 if (!expanded) {
@@ -105,8 +102,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeRecordingAttrib
                 scrollIntoView()
             },
         })
-        // oxlint-disable-next-line exhaustive-deps
-    }, [])
+    })
 
     if (!sessionPlayerMetaData && !sessionPlayerMetaDataLoading) {
         return <NotFound object="replay" />

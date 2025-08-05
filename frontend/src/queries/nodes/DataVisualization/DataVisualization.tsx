@@ -161,7 +161,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
 
     const setQuerySource = useCallback(
         (source: HogQLQuery) => props.setQuery?.({ ...props.query, source }),
-        [props.setQuery, props.query]
+        [props.setQuery, props.query] // oxlint-disable-line react-hooks/exhaustive-deps
     )
 
     let component: JSX.Element | null = null
@@ -272,8 +272,8 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                                         queryCancelled
                                             ? 'The query was cancelled'
                                             : response && 'error' in response
-                                            ? (response as any).error
-                                            : responseError
+                                              ? (response as any).error
+                                              : responseError
                                     }
                                 />
                             </div>

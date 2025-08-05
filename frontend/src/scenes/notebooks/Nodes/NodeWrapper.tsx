@@ -35,6 +35,7 @@ import {
     NotebookNodeResource,
     SerializableNode,
 } from '../types'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperProps<T>): JSX.Element {
     const {
@@ -92,11 +93,10 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
         [inViewRef]
     )
 
-    useEffect(() => {
-        // TRICKY: child nodes mount the parent logic so we need to control the mounting / unmounting directly in this component
+    // TRICKY: child nodes mount the parent logic so we need to control the mounting / unmounting directly in this component
+    useOnMountEffect(() => {
         return () => unregisterNodeLogic(nodeId)
-        // oxlint-disable-next-line exhaustive-deps
-    }, [])
+    })
 
     useWhyDidIRender('NodeWrapper.logicProps', {
         resizeable,
@@ -243,7 +243,7 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
                                                                             <IconFilter />
                                                                         )
                                                                     ) : (
-                                                                        settingsIcon ?? <IconFilter />
+                                                                        (settingsIcon ?? <IconFilter />)
                                                                     )
                                                                 }
                                                                 active={editingNodeId === nodeId}

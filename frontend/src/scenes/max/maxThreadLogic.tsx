@@ -41,6 +41,7 @@ import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLog
 import { maxBillingContextLogic } from './maxBillingContextLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { getRandomThinkingMessage } from './utils/thinkingMessages'
 
 export type MessageStatus = 'loading' | 'completed' | 'error'
 
@@ -139,7 +140,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
 
     reducers(({ props }) => ({
         conversation: [
-            props.conversation ? removeConversationMessages(props.conversation) ?? null : null,
+            props.conversation ? (removeConversationMessages(props.conversation) ?? null) : null,
             {
                 setConversation: (_, { conversation }) => conversation,
             },
@@ -516,7 +517,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     const finalMessageSoFar = threadGrouped.at(-1)?.at(-1)
                     const thinkingMessage: ReasoningMessage & ThreadMessage = {
                         type: AssistantMessageType.Reasoning,
-                        content: 'Thinking',
+                        content: getRandomThinkingMessage(),
                         status: 'completed',
                         id: 'loader',
                     }

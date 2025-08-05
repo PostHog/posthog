@@ -71,8 +71,8 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeEarlyAccessAttr
                                     earlyAccessFeature.stage === EarlyAccessFeatureStage.Beta
                                         ? 'warning'
                                         : earlyAccessFeature.stage === EarlyAccessFeatureStage.GeneralAvailability
-                                        ? 'success'
-                                        : 'default'
+                                          ? 'success'
+                                          : 'default'
                                 }
                                 className="uppercase"
                             >
