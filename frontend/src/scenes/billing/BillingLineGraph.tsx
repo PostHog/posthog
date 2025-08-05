@@ -275,7 +275,7 @@ export function BillingLineGraph({
                             type: 'line',
                             xMin: marker.date.format('YYYY-MM-DD'),
                             xMax: marker.date.format('YYYY-MM-DD'),
-                            borderColor: isDarkModeOn ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.6)',
+                            borderColor: isDarkModeOn ? 'rgba(255, 255, 255, 0.4)' : 'rgba(0, 0, 0, 0.4)',
                             borderWidth: 2,
                             borderDash: [8, 4],
                         }
