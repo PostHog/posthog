@@ -1792,9 +1792,9 @@ describe('processResultsForSurveyQuestions', () => {
                 label: 'Yes',
                 value: 2,
                 isPredefined: true,
-                distinctId: 'user1',
+                distinctId: 'user3',
                 personProperties: undefined,
-                timestamp: '2024-01-15T10:00:00Z',
+                timestamp: '2024-01-15T10:30:00Z',
             })
             expect(dataMap.get('No')).toEqual({
                 label: 'No',
@@ -1845,9 +1845,9 @@ describe('processResultsForSurveyQuestions', () => {
                 label: 'A',
                 value: 2,
                 isPredefined: true,
-                distinctId: 'user1',
+                distinctId: 'user2',
                 personProperties: undefined,
-                timestamp: '2024-01-15T10:00:00Z',
+                timestamp: '2024-01-15T10:15:00Z',
             })
             expect(dataMap.get('B')).toEqual({
                 label: 'B',
