@@ -28,7 +28,7 @@ from posthog.hogql.modifiers import create_default_modifiers_for_user
 from posthog.hogql.printer import print_ast
 from posthog.hogql.query import create_default_modifiers_for_team
 from posthog.hogql.timings import HogQLTimings
-from posthog.hogql_queries.query_cache import QueryCacheManager  # For type annotations
+from posthog.hogql_queries.query_cache_base import QueryCacheManagerBase
 from posthog.hogql_queries.query_cache_factory import get_query_cache_manager
 from posthog.metrics import LABEL_TEAM_ID
 from posthog.models import Team, User
@@ -756,7 +756,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
     def enqueue_async_calculation(
         self,
         *,
-        cache_manager: QueryCacheManager,
+        cache_manager: QueryCacheManagerBase,
         refresh_requested: bool = False,
         user: Optional[User] = None,
     ) -> QueryStatus:
@@ -788,7 +788,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         QUERY_CACHE_HIT_COUNTER.labels(team_id=self.team.pk, cache_hit=hit, trigger=trigger).inc()
 
     def handle_cache_and_async_logic(
-        self, execution_mode: ExecutionMode, cache_manager: QueryCacheManager, user: Optional[User] = None
+        self, execution_mode: ExecutionMode, cache_manager: QueryCacheManagerBase, user: Optional[User] = None
     ) -> Optional[CR | CacheMissResponse]:
         CachedResponse: type[CR] = self.cached_response_type
         cached_response: CR | CacheMissResponse

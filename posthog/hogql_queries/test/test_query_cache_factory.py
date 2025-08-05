@@ -2,7 +2,7 @@ from unittest.mock import patch
 
 from posthog.test.base import APIBaseTest
 from posthog.hogql_queries.query_cache_factory import get_query_cache_manager
-from posthog.hogql_queries.query_cache import RedisQueryCacheManager
+from posthog.hogql_queries.query_cache import DjangoCacheQueryCacheManager
 from posthog.hogql_queries.query_cache_s3 import S3QueryCacheManager
 from posthog.models import Team
 
@@ -29,7 +29,7 @@ class TestQueryCacheFactory(APIBaseTest):
             dashboard_id=self.dashboard_id,
         )
 
-        self.assertIsInstance(manager, RedisQueryCacheManager)
+        self.assertIsInstance(manager, DjangoCacheQueryCacheManager)
         self.assertEqual(manager.team_id, self.team_id)
         self.assertEqual(manager.cache_key, self.cache_key)
         self.assertEqual(manager.insight_id, self.insight_id)
@@ -47,7 +47,7 @@ class TestQueryCacheFactory(APIBaseTest):
             dashboard_id=self.dashboard_id,
         )
 
-        self.assertIsInstance(manager, RedisQueryCacheManager)
+        self.assertIsInstance(manager, DjangoCacheQueryCacheManager)
 
     @patch("posthog.hogql_queries.query_cache_factory.query_cache_use_s3")
     def test_get_s3_cache_manager(self, mock_feature_flag):
@@ -78,7 +78,7 @@ class TestQueryCacheFactory(APIBaseTest):
             cache_key=self.cache_key,
         )
 
-        self.assertIsInstance(manager, RedisQueryCacheManager)
+        self.assertIsInstance(manager, DjangoCacheQueryCacheManager)
         self.assertEqual(manager.team_id, self.team_id)
         self.assertEqual(manager.cache_key, self.cache_key)
         self.assertIsNone(manager.insight_id)
@@ -113,7 +113,7 @@ class TestQueryCacheFactory(APIBaseTest):
             user=self.user,
         )
 
-        self.assertIsInstance(manager, RedisQueryCacheManager)
+        self.assertIsInstance(manager, DjangoCacheQueryCacheManager)
         mock_feature_flag.assert_called_once_with(self.team, user=self.user)
 
     @patch("posthog.models.Team.objects.get")
@@ -140,4 +140,4 @@ class TestQueryCacheFactory(APIBaseTest):
                 cache_key=self.cache_key,
             )
 
-            self.assertIsInstance(manager, RedisQueryCacheManager)
+            self.assertIsInstance(manager, DjangoCacheQueryCacheManager)

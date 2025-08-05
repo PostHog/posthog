@@ -3,7 +3,7 @@ from typing import Optional, TYPE_CHECKING
 from django.conf import settings
 
 from posthog.hogql_queries.query_cache_base import QueryCacheManagerBase
-from posthog.hogql_queries.query_cache import RedisQueryCacheManager
+from posthog.hogql_queries.query_cache import DjangoCacheQueryCacheManager
 from posthog.hogql_queries.query_cache_s3 import S3QueryCacheManager
 from posthog.hogql_queries.legacy_compatibility.feature_flag import query_cache_use_s3
 from posthog.models import Team
@@ -24,7 +24,7 @@ def get_query_cache_manager(
     Factory function to create the appropriate query cache manager based on feature flags.
 
     Uses S3QueryCacheManager if the 'query-cache-use-s3' feature flag is enabled for the team/user,
-    otherwise uses RedisQueryCacheManager.
+    otherwise uses DjangoCacheQueryCacheManager.
 
     Falls back to settings.QUERY_CACHE_BACKEND if team cannot be determined.
 
@@ -50,7 +50,7 @@ def get_query_cache_manager(
             dashboard_id=dashboard_id,
         )
     else:
-        return RedisQueryCacheManager(
+        return DjangoCacheQueryCacheManager(
             team_id=team_id,
             cache_key=cache_key,
             insight_id=insight_id,
