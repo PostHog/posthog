@@ -120,11 +120,6 @@ async def test_interceptor_calls_histogram_metrics(
                 "exception": "",
             }
         )
-
-        mocked_meter.return_value.create_histogram.assert_any_call(
-            name="batch_exports_activity_attempt",
-            description="Histogram tracking attempts made by critical batch export activities",
-        )
         mocked_meter.return_value.create_histogram_timedelta.assert_any_call(
             name="batch_exports_workflow_interval_execution_latency",
             description="Histogram tracking execution latency for batch export workflows by interval",
@@ -136,11 +131,21 @@ async def test_interceptor_calls_histogram_metrics(
             unit="ms",
         )
 
-        number_of_record_calls = len(
-            mocked_meter.return_value.create_histogram_timedelta.return_value.record.mock_calls
+        mocked_meter.return_value.create_counter.assert_any_call(
+            name="batch_exports_activity_attempts",
+            description="Counter tracking every attempt at running an activity",
         )
+        mocked_meter.return_value.create_counter.assert_any_call(
+            name="batch_exports_activity_success_attempts",
+            description="Counter tracking the attempts it took to complete activities",
+        )
+
+        number_of_record_calls = mocked_meter.return_value.create_histogram_timedelta.return_value.record.call_count
         assert (
             number_of_record_calls == 2
         ), f"expected to have recorded two metrics: for workflow and activity execution latency, but only found {number_of_record_calls}"
 
-        mocked_meter.return_value.create_histogram.return_value.record.assert_called_once_with(1)
+        number_of_add_calls = mocked_meter.return_value.create_counter.return_value.add.call_count
+        expected_calls = [mock.call(1)] * number_of_add_calls
+
+        assert mocked_meter.return_value.create_counter.return_value.add.mock_calls == expected_calls

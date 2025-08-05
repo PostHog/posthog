@@ -525,6 +525,17 @@ def get_query_runner(
             limit_context=limit_context,
         )
 
+    if kind == "ErrorTrackingIssueCorrelationQuery":
+        from .error_tracking_issue_correlation_query_runner import ErrorTrackingIssueCorrelationQueryRunner
+
+        return ErrorTrackingIssueCorrelationQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+        )
+
     if kind == "ExperimentFunnelsQuery":
         from .experiments.experiment_funnels_query_runner import ExperimentFunnelsQueryRunner
 
