@@ -9,7 +9,6 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { SidePanelTab, SurveyQuestion, SurveyQuestionType } from '~/types'
 
 import { internalMultipleChoiceSurveyLogic } from './internalMultipleChoiceSurveyLogic'
-import MaxTool from 'scenes/max/MaxTool'
 import { maxLogic } from 'scenes/max/maxLogic'
 import { sidePanelSettingsLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelSettingsLogic'
 
@@ -237,33 +236,22 @@ export function InternalMultipleChoiceSurvey({ surveyId }: InternalSurveyProps):
                                             {question.buttonText ?? 'Submit'}
                                         </LemonButton>
                                         {isHelpEnabled && (
-                                            <MaxTool
-                                                name="session_recording_settings_help"
-                                                displayName="Session recording settings help"
-                                                description="Max can help you with your session recording issues"
-                                                context={{}}
-                                                callback={() => {
-                                                    // No need to handle structured output for this tool
+                                            <LemonButton
+                                                disabledReason={
+                                                    !openChoice || openChoice.length < 5
+                                                        ? 'Message must be at least 5 characters'
+                                                        : false
+                                                }
+                                                type="secondary"
+                                                onClick={() => {
+                                                    openSidePanel(SidePanelTab.Max)
+                                                    askMax(
+                                                        `I am disabling session replay because of "${openChoice}". Go through PostHog documentation and find a solution to fix this.`
+                                                    )
                                                 }}
-                                                onMaxOpen={() => {}}
                                             >
-                                                <LemonButton
-                                                    disabledReason={
-                                                        !openChoice || openChoice.length < 5
-                                                            ? 'Message must be at least 5 characters'
-                                                            : false
-                                                    }
-                                                    type="secondary"
-                                                    onClick={() => {
-                                                        openSidePanel(SidePanelTab.Max)
-                                                        askMax(
-                                                            `I am turning off session replay because of "${openChoice}". Is there a way to fix this?`
-                                                        )
-                                                    }}
-                                                >
-                                                    Ask Max for help
-                                                </LemonButton>
-                                            </MaxTool>
+                                                Ask Max for help
+                                            </LemonButton>
                                         )}
                                     </div>
                                 </>
