@@ -104,7 +104,9 @@ mod test {
 
     #[test]
     fn test_sanitize_string_both_issues() {
-        let input = "hello\u{0000}          world".to_string();
+        let mut input = "hello\u{0000}".to_string();
+        input.push_str(&"\n".repeat(60));
+        input.push_str("world");
         let result = sanitize_string(input);
         assert_eq!(result, "hello\u{FFFD}<ws trimmed>world");
     }
