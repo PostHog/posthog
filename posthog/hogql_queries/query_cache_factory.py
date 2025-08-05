@@ -1,6 +1,5 @@
 from typing import Optional, TYPE_CHECKING
 
-from django.conf import settings
 
 from posthog.hogql_queries.query_cache_base import QueryCacheManagerBase
 from posthog.hogql_queries.query_cache import DjangoCacheQueryCacheManager
@@ -14,7 +13,7 @@ if TYPE_CHECKING:
 
 def get_query_cache_manager(
     *,
-    team_id: int,
+    team: Team,
     cache_key: str,
     insight_id: Optional[int] = None,
     dashboard_id: Optional[int] = None,
@@ -26,32 +25,25 @@ def get_query_cache_manager(
     Uses S3QueryCacheManager if the 'query-cache-use-s3' feature flag is enabled for the team/user,
     otherwise uses DjangoCacheQueryCacheManager.
 
-    Falls back to settings.QUERY_CACHE_BACKEND if team cannot be determined.
-
     Args:
-        team_id: The team ID to get cache manager for
+        team: The team to get cache manager for
         cache_key: The cache key to use
         insight_id: Optional insight ID
         dashboard_id: Optional dashboard ID
         user: Optional user for user-specific feature flag evaluation
     """
-    try:
-        team = Team.objects.get(id=team_id)
-        use_s3 = query_cache_use_s3(team, user=user)
-    except Team.DoesNotExist:
-        # Fallback to settings if team doesn't exist
-        use_s3 = getattr(settings, "QUERY_CACHE_BACKEND", "redis") == "s3"
+    use_s3 = query_cache_use_s3(team, user=user)
 
     if use_s3:
         return S3QueryCacheManager(
-            team_id=team_id,
+            team_id=team.pk,
             cache_key=cache_key,
             insight_id=insight_id,
             dashboard_id=dashboard_id,
         )
     else:
         return DjangoCacheQueryCacheManager(
-            team_id=team_id,
+            team_id=team.pk,
             cache_key=cache_key,
             insight_id=insight_id,
             dashboard_id=dashboard_id,

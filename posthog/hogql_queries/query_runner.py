@@ -891,7 +891,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             self.query_id = query_id or self.query_id
             CachedResponse: type[CR] = self.cached_response_type
             cache_manager = get_query_cache_manager(
-                team_id=self.team.pk,
+                team=self.team,
                 cache_key=cache_key,
                 insight_id=insight_id,
                 dashboard_id=dashboard_id,

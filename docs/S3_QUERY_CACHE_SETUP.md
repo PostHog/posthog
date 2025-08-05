@@ -125,7 +125,7 @@ from posthog.hogql_queries.query_cache_factory import get_query_cache_manager
 
 # Factory automatically chooses backend based on feature flag
 cache_manager = get_query_cache_manager(
-    team_id=team.pk,
+    team=team,
     cache_key="query_hash",
     insight_id=123,
     dashboard_id=456,
