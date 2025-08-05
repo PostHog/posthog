@@ -86,6 +86,7 @@ Follow these guidelines when searching documentation:
 - Use this tool when users need step-by-step instructions
 - Use this tool when users ask about sdk integration or instrumentation
 - Use this tool when users ask about troubleshooting missing or unexpected data
+- Use this tool when users explain why they disabled session replay and need help turning it back on
 - If the documentation search doesn't provide enough information, acknowledge this and suggest alternative resources or ways to get help
 </posthog_documentation>
 
