@@ -10,6 +10,8 @@ import {
 } from 'lib/components/RichContentEditor/types'
 import { UserBasicType, WithAccessControl } from '~/types'
 
+export type { TableOfContentData } from '@tiptap/extension-table-of-contents'
+
 export type NotebookListItemType = {
     id: string
     short_id: string

@@ -54,7 +54,8 @@ const PLACEHOLDER_TITLES = ['Release notes', 'Product roadmap', 'Meeting notes',
 
 export function Editor(): JSX.Element {
     const { shortId, mode } = useValues(notebookLogic)
-    const { setEditor, onEditorUpdate, onEditorSelectionUpdate, setTableOfContents } = useActions(notebookLogic)
+    const { setEditor, onEditorUpdate, onEditorSelectionUpdate, setTableOfContents, insertComment } =
+        useActions(notebookLogic)
     const hasDiscussions = useFeatureFlag('DISCUSSIONS')
 
     const { resetSuggestions, setPreviousNode } = useActions(insertionSuggestionsLogic)
@@ -157,7 +158,7 @@ export function Editor(): JSX.Element {
                                 onClick={() => {
                                     const markId = uuid()
                                     editor.setMark(markId)
-                                    mountedNotebookLogic.actions.insertComment({ type: 'mark', id: markId })
+                                    insertComment({ type: 'mark', id: markId })
                                 }}
                                 icon={<IconComment className="w-4 h-4" />}
                                 size="small"
