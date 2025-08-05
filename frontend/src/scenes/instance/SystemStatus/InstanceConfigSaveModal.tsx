@@ -20,7 +20,7 @@ function ChangeRow({ metricKey, oldValue, value, isSecret }: ChangeRowInterface)
     }
 
     return (
-        <div className="bg-border-light radius p-2">
+        <div className="bg-secondary radius p-2">
             <div>
                 <code>{metricKey}</code>
             </div>

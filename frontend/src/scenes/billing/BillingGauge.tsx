@@ -80,7 +80,7 @@ export function BillingGauge({ items, product }: BillingGaugeProps): JSX.Element
     }, [items])
 
     return (
-        <div className="relative h-2 bg-border-light my-16">
+        <div className="relative h-2 bg-secondary my-16">
             {sortedItems.map((item, i) => (
                 <BillingGaugeItem
                     key={i}

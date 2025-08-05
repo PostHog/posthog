@@ -339,7 +339,7 @@ function VariantBar({ variant, index }: { variant: any; index: number }): JSX.El
                         height="16"
                         rx="3"
                         ry="3"
-                        fill="var(--border-light)"
+                        fill="var(--color-secondary)"
                         strokeWidth="0"
                     />
                     {/* Center "Not enough data yet" text on the 0 point */}

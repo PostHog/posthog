@@ -261,7 +261,7 @@ const TitleWithCount = ({ title, count }: { title?: string; count: number }): JS
                             </>
                         }
                     >
-                        <span className="rounded py-1 px-2 bg-border-light font-semibold select-none text-xxs">
+                        <span className="rounded py-1 px-2 bg-secondary font-semibold select-none text-xxs">
                             {Math.min(999, count)}+
                         </span>
                     </Tooltip>

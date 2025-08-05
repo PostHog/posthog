@@ -210,7 +210,7 @@ export function PersonsModal({
                     </div>
                 </div>
                 <div className="px-4 overflow-hidden flex flex-col">
-                    <div className="relative min-h-20 p-2 deprecated-space-y-2 rounded bg-border-light overflow-y-auto mb-2">
+                    <div className="relative min-h-20 p-2 deprecated-space-y-2 rounded bg-secondary overflow-y-auto mb-2">
                         {errorObject ? (
                             validationError ? (
                                 <InsightValidationError query={query} detail={validationError} />
