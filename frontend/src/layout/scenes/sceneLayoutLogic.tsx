@@ -12,7 +12,10 @@ const SCENE_WIDTH_WHERE_RELATIVE_PANEL_IS_OPEN = 1358
 
 export const sceneLayoutLogic = kea<sceneLayoutLogicType>([
     path(['layout', 'scene-layout', 'sceneLayoutLogic']),
-    connect({ values: [featureFlagLogic, ['featureFlags'], sceneLogic, ['sceneConfig']] }),
+    connect({
+        values: [featureFlagLogic, ['featureFlags'], sceneLogic, ['sceneConfig']],
+        actions: [sceneLogic, ['setScene']],
+    }),
     actions({
         registerScenePanelElement: (element: HTMLElement | null) => ({ element }),
         setScenePanelIsPresent: (active: boolean) => ({ active }),
@@ -20,6 +23,7 @@ export const sceneLayoutLogic = kea<sceneLayoutLogicType>([
         setSceneWidth: (width: number) => ({ width }),
         setForceScenePanelClosedWhenRelative: (closed: boolean) => ({ closed }),
         setSceneContainerRef: (ref: SceneLayoutContainerRef) => ({ ref }),
+        setActiveTab: (tab: 'info' | 'discussions') => ({ tab }),
     }),
     reducers({
         scenePanelElement: [
@@ -57,6 +61,15 @@ export const sceneLayoutLogic = kea<sceneLayoutLogicType>([
             null as SceneLayoutContainerRef,
             {
                 setSceneContainerRef: (_, { ref }) => ref,
+            },
+        ],
+        activeTab: [
+            'info' as 'info' | 'discussions',
+            {
+                setActiveTab: (_, { tab }) => tab,
+                setScene: () => 'info',
+                setScenePanelOpen: () => 'info',
+                setForceScenePanelClosedWhenRelative: () => 'info',
             },
         ],
     }),

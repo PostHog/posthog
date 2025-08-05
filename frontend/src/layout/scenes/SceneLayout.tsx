@@ -1,4 +1,4 @@
-import { IconInfo, IconX } from '@posthog/icons'
+import { IconComment, IconInfo, IconX } from '@posthog/icons'
 import { LemonDivider } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
@@ -13,6 +13,7 @@ import './SceneLayout.css'
 import { sceneLayoutLogic } from './sceneLayoutLogic'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { SceneTabs } from '~/layout/scenes/SceneTabs'
+import { SidePanelDiscussion } from '../navigation-3000/sidepanel/panels/discussion/SidePanelDiscussion'
 
 type SceneLayoutProps = {
     children: React.ReactNode
@@ -89,9 +90,15 @@ export function ScenePanelLabel({ children, title, ...props }: PropsWithChildren
 }
 
 export function SceneLayout({ children, className, layoutConfig }: SceneLayoutProps): JSX.Element {
-    const { registerScenePanelElement, setScenePanelOpen, setSceneContainerRef, setForceScenePanelClosedWhenRelative } =
-        useActions(sceneLayoutLogic)
-    const { scenePanelIsPresent, scenePanelOpen, useSceneTabs, scenePanelIsRelative } = useValues(sceneLayoutLogic)
+    const {
+        registerScenePanelElement,
+        setScenePanelOpen,
+        setSceneContainerRef,
+        setForceScenePanelClosedWhenRelative,
+        setActiveTab,
+    } = useActions(sceneLayoutLogic)
+    const { scenePanelIsPresent, scenePanelOpen, useSceneTabs, scenePanelIsRelative, activeTab } =
+        useValues(sceneLayoutLogic)
     const sceneLayoutContainer = useRef<HTMLDivElement>(null)
     const [outerRight, setOuterRight] = useState<number>(0)
 
@@ -169,9 +176,27 @@ export function SceneLayout({ children, className, layoutConfig }: SceneLayoutPr
                             )}
                         >
                             <div className="h-[var(--scene-layout-header-height)] flex items-center justify-between gap-2 -mx-2 px-4 py-1 border-b border-primary shrink-0">
-                                <div className="flex items-center gap-2">
-                                    <IconInfo className="size-5 text-tertiary" />
-                                    <h4 className="text-base font-medium text-primary m-0">Info</h4>
+                                <div className="w-5" />
+
+                                <div className="flex gap-0.5">
+                                    <ButtonPrimitive
+                                        iconOnly
+                                        onClick={() => setActiveTab('info')}
+                                        tooltip="Info"
+                                        aria-label="Info"
+                                        active={activeTab === 'info'}
+                                    >
+                                        <IconInfo className="size-4" />
+                                    </ButtonPrimitive>
+                                    <ButtonPrimitive
+                                        iconOnly
+                                        onClick={() => setActiveTab('discussions')}
+                                        tooltip="Discussions"
+                                        aria-label="Discussions"
+                                        active={activeTab === 'discussions'}
+                                    >
+                                        <IconComment className="size-4" />
+                                    </ButtonPrimitive>
                                 </div>
 
                                 {scenePanelOpen && (
@@ -201,14 +226,18 @@ export function SceneLayout({ children, className, layoutConfig }: SceneLayoutPr
                                     </ButtonPrimitive>
                                 )}
                             </div>
-                            <ScrollableShadows
-                                direction="vertical"
-                                className="h-full flex-1"
-                                innerClassName="px-2 pb-4 bg-primary"
-                                styledScrollbars
-                            >
-                                <div ref={registerScenePanelElement} />
-                            </ScrollableShadows>
+                            {activeTab === 'info' ? (
+                                <ScrollableShadows
+                                    direction="vertical"
+                                    className="h-full flex-1"
+                                    innerClassName="px-2 pb-4 bg-primary"
+                                    styledScrollbars
+                                >
+                                    <div ref={registerScenePanelElement} />
+                                </ScrollableShadows>
+                            ) : activeTab === 'discussions' ? (
+                                <SidePanelDiscussion showHeader={false} />
+                            ) : null}
                         </div>
 
                         {scenePanelOpen && !scenePanelIsRelative && (

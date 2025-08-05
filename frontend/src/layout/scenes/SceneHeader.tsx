@@ -1,4 +1,4 @@
-import { IconChevronDown, IconGear, IconInfo, IconPencil, IconX } from '@posthog/icons'
+import { IconChevronDown, IconComment, IconGear, IconInfo, IconPencil, IconX } from '@posthog/icons'
 import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { IconMenu, IconSlash } from 'lib/lemon-ui/icons'
@@ -20,6 +20,7 @@ import { projectTreeLogic } from '~/layout/panel-layout/ProjectTree/projectTreeL
 import { Breadcrumb as IBreadcrumb } from '~/types'
 import { ProjectDropdownMenu } from '../panel-layout/ProjectDropdownMenu'
 import { sceneLayoutLogic } from './sceneLayoutLogic'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
 export function SceneHeader({ className }: { className?: string }): JSX.Element | null {
     const { mobileLayout } = useValues(navigationLogic)
@@ -35,7 +36,8 @@ export function SceneHeader({ className }: { className?: string }): JSX.Element 
         scenePanelIsRelative,
         forceScenePanelClosedWhenRelative,
     } = useValues(sceneLayoutLogic)
-    const { setScenePanelOpen, setForceScenePanelClosedWhenRelative } = useActions(sceneLayoutLogic)
+    const { setScenePanelOpen, setForceScenePanelClosedWhenRelative, setActiveTab } = useActions(sceneLayoutLogic)
+    const hasDiscussions = useFeatureFlag('DISCUSSIONS')
 
     const effectiveBreadcrumbs = useSceneTabs ? breadcrumbs.slice(1) : breadcrumbs
     return effectiveBreadcrumbs.length || projectTreeRefEntry ? (
@@ -83,32 +85,38 @@ export function SceneHeader({ className }: { className?: string }): JSX.Element 
 
                         <TopBarSettingsButton buttonProps={{ size: 'small', icon: <IconGear /> }} />
 
-                        {scenePanelIsPresent && (
-                            <LemonButton
-                                onClick={() =>
-                                    scenePanelIsRelative
-                                        ? setForceScenePanelClosedWhenRelative(!forceScenePanelClosedWhenRelative)
-                                        : setScenePanelOpen(!scenePanelOpen)
-                                }
-                                icon={<IconInfo className="text-primary" />}
-                                tooltip={
-                                    scenePanelIsRelative
-                                        ? 'Force close info panel'
-                                        : scenePanelOpen
-                                          ? 'Close info panel'
-                                          : 'Open info panel'
-                                }
-                                aria-label={
-                                    scenePanelIsRelative
-                                        ? 'Force close info panel'
-                                        : scenePanelOpen
-                                          ? 'Close info panel'
-                                          : 'Open info panel'
-                                }
-                                active={scenePanelOpen}
-                                size="small"
-                            />
-                        )}
+                        {scenePanelIsPresent && !scenePanelOpen ? (
+                            <div className="flex gap-x-0.5">
+                                {hasDiscussions && (
+                                    <LemonButton
+                                        onClick={() => {
+                                            scenePanelIsRelative
+                                                ? setForceScenePanelClosedWhenRelative(
+                                                      !forceScenePanelClosedWhenRelative
+                                                  )
+                                                : setScenePanelOpen(!scenePanelOpen)
+                                            setActiveTab('discussions')
+                                        }}
+                                        icon={<IconComment className="text-primary" />}
+                                        tooltip="Open discussions panel"
+                                        aria-label="Open discussions panel"
+                                        size="small"
+                                    />
+                                )}
+                                <LemonButton
+                                    onClick={() => {
+                                        setActiveTab('info')
+                                        scenePanelIsRelative
+                                            ? setForceScenePanelClosedWhenRelative(!forceScenePanelClosedWhenRelative)
+                                            : setScenePanelOpen(!scenePanelOpen)
+                                    }}
+                                    icon={<IconInfo className="text-primary" />}
+                                    tooltip="Open info panel"
+                                    aria-label="Open info panel"
+                                    size="small"
+                                />
+                            </div>
+                        ) : null}
                     </div>
                 </div>
             </div>
