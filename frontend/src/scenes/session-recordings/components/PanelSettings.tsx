@@ -42,7 +42,7 @@ export function SettingsBar({
     return (
         <div
             className={cn(
-                'flex flex-row w-full overflow-hidden font-light text-xs bg-primary items-center',
+                'flex flex-row w-full overflow-hidden font-light text-xs bg-background items-center',
                 className,
                 {
                     'border-b': ['bottom', 'all'].includes(border),

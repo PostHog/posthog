@@ -316,7 +316,7 @@ function SessionSummaryKeyActions({
                         key={`${segmentName}-${eventIndex}`}
                         bg-card-subtle
                         className={clsx(
-                            'cursor-pointer py-2 px-2 hover:bg-primary-alt-highlight',
+                            'cursor-pointer py-2 px-2 hover:bg-background-alt-highlight',
                             // Avoid adding a border to the last event
                             eventIndex !== events.length - 1 && 'border-b',
                             (event.abandonment || event.confusion || event.exception) && 'bg-danger-highlight'

@@ -242,7 +242,7 @@ export function SemanticColors(): JSX.Element {
     ]
     const backgroundColors: RenderColorConfig[] = [
         {
-            tailwindClass: 'bg-primary',
+            tailwindClass: 'bg-background',
             description:
                 'the main background color, use behind everything, or on something to fade into the background',
             name: '--color-background',

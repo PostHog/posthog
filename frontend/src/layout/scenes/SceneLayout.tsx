@@ -154,7 +154,7 @@ export function SceneLayout({ children, className, layoutConfig }: SceneLayoutPr
                             <ScrollableShadows
                                 direction="vertical"
                                 className="h-full flex-1"
-                                innerClassName="px-2 pb-4 bg-primary"
+                                innerClassName="px-2 pb-4 bg-background"
                                 styledScrollbars
                             >
                                 <div ref={registerScenePanelElement} />

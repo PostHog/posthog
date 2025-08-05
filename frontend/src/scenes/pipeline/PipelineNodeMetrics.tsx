@@ -352,13 +352,13 @@ function CollapsibleSection(props: {
     const [isExpanded, setIsExpanded] = useState(props.defaultIsExpanded)
 
     return (
-        <div className="bg-primary border rounded">
+        <div className="bg-background border rounded">
             <LemonButton
                 fullWidth
                 onClick={() => setIsExpanded(!isExpanded)}
                 sideIcon={isExpanded ? <IconCollapse /> : <IconExpand />}
                 title={isExpanded ? 'Show less' : 'Show more'}
-                className="bg-primary"
+                className="bg-background"
             >
                 {props.title}
             </LemonButton>

@@ -101,7 +101,7 @@ NestedMenu.args = {
                 },
             ],
             footer: (
-                <div className="flex items-center h-10 px-2 rounded bg-primary text-secondary-foreground">
+                <div className="flex items-center h-10 px-2 rounded bg-background text-secondary-foreground">
                     I am a custom footer!
                 </div>
             ),

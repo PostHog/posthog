@@ -91,7 +91,7 @@ export function PlayerInspectorList(): JSX.Element {
     }
 
     return (
-        <div className="flex flex-col bg-primary flex-1 overflow-hidden relative">
+        <div className="flex flex-col bg-background flex-1 overflow-hidden relative">
             {!snapshotsLoaded ? (
                 <div className="p-16 text-center text-secondary-foreground">
                     Data will be shown once playback starts

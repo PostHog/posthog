@@ -429,7 +429,7 @@ export function SlowQuerySuggestions({
     }
 
     return (
-        <div className="flex items-center p-4 rounded bg-primary gap-x-3">
+        <div className="flex items-center p-4 rounded bg-background gap-x-3">
             <IconInfo className="text-xl shrink-0" />
             <div className="text-xs">
                 <p data-attr="insight-loading-waiting-message" className="m-0 mb-1">

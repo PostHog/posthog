@@ -86,7 +86,7 @@ function LineageNode({ data, edges }: LineageNodeProps): JSX.Element {
             className="bg-bg-light border border-border rounded-md p-3 min-w-[300px] shadow-sm"
             style={{ minHeight: nodeHeight }}
         >
-            {hasIncoming && <Handle type="target" position={Position.Left} className="w-2 h-2 bg-primary" />}
+            {hasIncoming && <Handle type="target" position={Position.Left} className="w-2 h-2 bg-background" />}
 
             <div className="flex items-center gap-2 mb-2">
                 {data.isCurrentView && (
@@ -129,7 +129,7 @@ function LineageNode({ data, edges }: LineageNodeProps): JSX.Element {
                 </div>
             )}
 
-            {hasOutgoing && <Handle type="source" position={Position.Right} className="w-2 h-2 bg-primary" />}
+            {hasOutgoing && <Handle type="source" position={Position.Right} className="w-2 h-2 bg-background" />}
         </div>
     )
 }

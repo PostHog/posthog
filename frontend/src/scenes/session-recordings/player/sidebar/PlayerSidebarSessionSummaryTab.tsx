@@ -2,7 +2,7 @@ import { PlayerSidebarSessionSummary } from 'scenes/session-recordings/player/si
 
 export function PlayerSidebarSessionSummaryTab(): JSX.Element {
     return (
-        <div className="flex flex-col overflow-auto bg-primary px-2 py-1 h-full">
+        <div className="flex flex-col overflow-auto bg-background px-2 py-1 h-full">
             <PlayerSidebarSessionSummary />
         </div>
     )

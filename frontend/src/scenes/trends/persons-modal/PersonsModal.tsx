@@ -419,7 +419,7 @@ export function ActorRow({ actor, propertiesTimelineFilter }: ActorRowProps): JS
             </div>
 
             {expanded ? (
-                <div className="PersonsModal__tabs bg-primary border-t rounded-b">
+                <div className="PersonsModal__tabs bg-background border-t rounded-b">
                     <LemonTabs
                         activeKey={tab}
                         onChange={setTab}

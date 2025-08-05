@@ -89,7 +89,7 @@ export function PayGateMini({
                 <div
                     className={clsx(
                         className,
-                        background && 'bg-primary border border-border',
+                        background && 'bg-background border border-border',
                         'PayGateMini rounded flex flex-col items-center p-4 text-center'
                     )}
                 >
@@ -186,7 +186,7 @@ function PayGateContent({
         <div
             className={clsx(
                 className,
-                background && 'bg-primary border border-border',
+                background && 'bg-background border border-border',
                 'PayGateMini rounded flex flex-col items-center p-4 text-center'
             )}
         >
@@ -232,7 +232,7 @@ const renderUsageLimitMessage = (
                     </Tooltip>
                     .
                 </p>
-                <p className="p-4 border rounded border-border bg-primary">
+                <p className="p-4 border rounded border-border bg-background">
                     <b>Your current plan limit:</b>{' '}
                     <span>
                         {featureAvailableOnOrg.limit} {featureAvailableOnOrg.unit}
@@ -292,7 +292,7 @@ const renderGateVariantMessage = (
 
 const GrandfatheredMessage = (): JSX.Element => {
     return (
-        <div className="flex mb-4 text-left rounded gap-x-2 bg-primary">
+        <div className="flex mb-4 text-left rounded gap-x-2 bg-background">
             <IconInfo className="text-2xl text-secondary-foreground" />
             <p className="mb-0 text-secondary-foreground">
                 Your plan does not include this feature, but previously set settings may remain. Please upgrade your

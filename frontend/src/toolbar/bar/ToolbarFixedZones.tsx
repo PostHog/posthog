@@ -27,7 +27,7 @@ function ToolbarFixedZone({ id, position }: { id: string; position: { x: number;
     return (
         <div
             className={clsx(
-                'transition-all absolute border rounded-lg bg-primary',
+                'transition-all absolute border rounded-lg bg-background',
                 selected ? 'opacity-50' : 'opacity-20'
             )}
             // eslint-disable-next-line react/forbid-dom-props

@@ -33,7 +33,7 @@ export function QueryPane(props: QueryPaneProps): JSX.Element {
     return (
         <>
             <div
-                className="relative flex flex-row w-full bg-primary"
+                className="relative flex flex-row w-full bg-background"
                 // eslint-disable-next-line react/forbid-dom-props
                 style={{
                     height: `${queryPaneHeight}px`,

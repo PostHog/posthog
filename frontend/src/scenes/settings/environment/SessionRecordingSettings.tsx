@@ -70,7 +70,7 @@ export function SupportedPlatforms(props: {
     flutter?: false | { note?: ReactNode; version?: string }
 }): JSX.Element {
     return (
-        <div className="text-xs inline-flex flex-row bg-primary rounded items-center border overflow-hidden mb-2 w-fit">
+        <div className="text-xs inline-flex flex-row bg-background rounded items-center border overflow-hidden mb-2 w-fit">
             <span className="px-1 py-0.5 font-semibold">Supported platforms:</span>
             <LemonDivider vertical className="h-full" />
             <SupportedPlatform

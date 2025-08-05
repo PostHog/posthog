@@ -13,7 +13,7 @@
             --ph-brand-black: #000;
             --ph-brand-white: #fff;
 
-            --ph-bg-primary: #fafaf9;
+            --ph-bg-background: #fafaf9;
             --ph-bg-card: #fff;
             --ph-text-foreground: #1d1f27;
             --ph-text-secondary-foreground: #6b7280;
@@ -28,7 +28,7 @@
 
         @media (prefers-color-scheme: dark) {
             :root {
-                --ph-bg-primary: #1d1f27;
+                --ph-bg-background: #1d1f27;
                 --ph-bg-card: #2d2f3a;
                 --ph-text-foreground: #fff;
                 --ph-text-secondary-foreground: #d1d5db;
@@ -46,7 +46,7 @@
 
         body {
             font-family: var(--ph-font-family);
-            background: var(--ph-bg-primary);
+            background: var(--ph-bg-background);
             min-height: 100vh;
             display: flex;
             align-items: center;
@@ -166,7 +166,7 @@
         }
 
         .btn-secondary:hover {
-            background: var(--ph-bg-primary);
+            background: var(--ph-bg-background);
             color: var(--ph-text-foreground);
         }
 

@@ -135,7 +135,7 @@ export function PathCleaningRulesDebugger({
                                     </div>
                                 ))}
 
-                                <div className="flex gap-3 items-center py-3 px-3 bg-primary-light border border-border rounded mt-3">
+                                <div className="flex gap-3 items-center py-3 px-3 bg-background-light border border-border rounded mt-3">
                                     <div className="w-20 flex-shrink-0 text-xs font-medium text-foreground">
                                         Final result:
                                     </div>

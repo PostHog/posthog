@@ -48,7 +48,7 @@ export const SearchResult = ({ result, resultIndex, focused }: SearchResultProps
         <>
             <div
                 className={clsx(
-                    'w-full px-2 hover:bg-primary border-l-4 border-b cursor-pointer',
+                    'w-full px-2 hover:bg-background border-l-4 border-b cursor-pointer',
                     focused ? 'bg-secondary border-l-accent' : 'bg-card'
                 )}
                 onClick={() => {

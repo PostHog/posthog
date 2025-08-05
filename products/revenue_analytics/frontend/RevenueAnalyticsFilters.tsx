@@ -76,7 +76,7 @@ export const RevenueAnalyticsFilters = (): JSX.Element => {
     return (
         <div
             className={cn(
-                'sticky z-20 bg-primary border-b py-2',
+                'sticky z-20 bg-background border-b py-2',
                 mobileLayout ? 'top-[var(--breadcrumbs-height-full)]' : 'top-[var(--breadcrumbs-height-compact)]'
             )}
         >

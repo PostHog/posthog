@@ -35,7 +35,7 @@ export function GroupsIntroduction(): JSX.Element {
 
 export function GroupIntroductionFooter({ needsUpgrade }: { needsUpgrade: boolean }): JSX.Element {
     return (
-        <div className="text-sm bg-primary rounded p-2 max-w-60">
+        <div className="text-sm bg-background rounded p-2 max-w-60">
             {needsUpgrade ? (
                 <>
                     Track usage of groups of users with Group&nbsp;Analytics.{' '}

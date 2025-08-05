@@ -11,7 +11,7 @@ export function PlayerSidebarOverviewTab(): JSX.Element {
     const { sessionPerson } = useValues(playerMetaLogic(logicProps))
 
     return (
-        <div className="flex flex-col overflow-auto bg-primary px-2 py-1 h-full deprecated-space-y-1">
+        <div className="flex flex-col overflow-auto bg-background px-2 py-1 h-full deprecated-space-y-1">
             <PersonDisplay person={sessionPerson} withIcon withCopyButton placement="bottom" />
             <PlayerSidebarOverviewGrid />
             <PlayerSidebarOverviewOtherWatchers />

@@ -29,7 +29,7 @@ const colorGroups = {
 }
 
 const preThousand = [
-    'bg-primary',
+    'bg-background',
     'bg-danger-highlight',
     'bg-danger-lighter',
     'bg-danger-light',
@@ -43,7 +43,7 @@ const preThousand = [
     'bg-success',
     'bg-success-dark',
     'bg-card-subtle',
-    'bg-primary-alt',
+    'bg-background-alt',
     'bg-muted',
     'bg-muted-alt',
     'bg-mark',
@@ -97,24 +97,24 @@ const threeThousand = [
     ['bg-text-secondary-foreground-3000-light', 'bg-red-500'],
     ['bg-muted-3000-light', 'bg-red-500'],
     ['bg-trace-3000-light', 'bg-red-500'],
-    ['bg-primary-3000-light', 'bg-red-500'],
-    ['bg-primary-highlight-light', 'bg-red-500'],
-    ['bg-primary-3000-hover-light', 'bg-red-500'],
-    ['bg-primary-3000-active-light', 'bg-red-500'],
+    ['bg-background-3000-light', 'bg-red-500'],
+    ['bg-background-highlight-light', 'bg-red-500'],
+    ['bg-background-3000-hover-light', 'bg-red-500'],
+    ['bg-background-3000-active-light', 'bg-red-500'],
 
     ['bg-secondary-3000-light', 'bg-red-500'],
     ['bg-secondary-3000-hover-light', 'bg-red-500'],
-    ['bg-primary-light', 'bg-red-500'],
+    ['bg-background-light', 'bg-red-500'],
     ['bg-border-3000-light', 'bg-red-500'],
     ['bg-border-bold-3000-light', 'bg-red-500'],
     ['bg-color-glass-light', 'bg-red-500'],
     ['bg-glass-border-3000-light', 'bg-red-500'],
 
     ['bg-link-3000-light', 'bg-red-500'],
-    ['bg-primary-3000-frame-bg-light', 'bg-red-500'],
-    ['bg-primary-3000-button-bg-light', 'bg-red-500'],
-    ['bg-primary-3000-button-border-light', 'bg-red-500'],
-    ['bg-primary-3000-button-border-hover-light', 'bg-red-500'],
+    ['bg-background-3000-frame-bg-light', 'bg-red-500'],
+    ['bg-background-3000-button-bg-light', 'bg-red-500'],
+    ['bg-background-3000-button-border-light', 'bg-red-500'],
+    ['bg-background-3000-button-border-hover-light', 'bg-red-500'],
 
     ['bg-secondary-3000-frame-bg-light', 'bg-red-500'],
     ['bg-secondary-3000-button-bg-light', 'bg-red-500'],
@@ -153,7 +153,7 @@ const threeThousand = [
     ['bg-text-foreground', 'bg-red-500'],
     ['bg-text-secondary-foreground-3000', 'bg-red-500'],
     ['bg-muted-3000', 'bg-red-500'],
-    ['bg-primary-3000', 'bg-red-500'],
+    ['bg-background-3000', 'bg-red-500'],
     ['bg-secondary-3000', 'bg-red-500'],
     ['bg-secondary-3000-hover', 'bg-red-500'],
 ]
@@ -273,7 +273,7 @@ export function AllThreeThousandColorOptions(): JSX.Element {
                     dataIndex: 'color',
                     render: function RenderColor(colorOldNew) {
                         return (
-                            <div className="bg-primary-dark flex items-center justify-center border rounded h-16 w-16">
+                            <div className="bg-background-dark flex items-center justify-center border rounded h-16 w-16">
                                 {colorOldNew &&
                                     colorOldNew.map((color) => (
                                         <div key={color} className={`${color} border rounded h-8 w-8`} />
@@ -306,7 +306,7 @@ export function DataColors(): JSX.Element {
                     dataIndex: 'color',
                     render: function RenderColor(color) {
                         return (
-                            <div className="bg-primary-light flex items-center justify-center border rounded h-16 w-16">
+                            <div className="bg-background-light flex items-center justify-center border rounded h-16 w-16">
                                 <div
                                     className="border rounded h-8 w-8"
                                     // eslint-disable-next-line react/forbid-dom-props
@@ -322,7 +322,7 @@ export function DataColors(): JSX.Element {
                     dataIndex: 'color',
                     render: function RenderColor(color) {
                         return (
-                            <div className="bg-primary-dark flex items-center justify-center border rounded h-16 w-16">
+                            <div className="bg-background-dark flex items-center justify-center border rounded h-16 w-16">
                                 <div
                                     className="border rounded h-8 w-8"
                                     // eslint-disable-next-line react/forbid-dom-props

@@ -327,7 +327,7 @@ export const PlanComparison = ({
                                         <tr>
                                             <th
                                                 colSpan={3}
-                                                className="PlanTable__th__section bg-primary justify-left rounded text-left mb-2"
+                                                className="PlanTable__th__section bg-background justify-left rounded text-left mb-2"
                                             >
                                                 <div className="flex items-center gap-x-2 my-2">
                                                     {getProductIcon(

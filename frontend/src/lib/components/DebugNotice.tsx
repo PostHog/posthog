@@ -59,7 +59,7 @@ export function DebugNotice({ isCollapsed }: DebugNoticeProps): JSX.Element | nu
         )
     }
     return (
-        <div className="border rounded bg-primary overflow-hidden w-full font-mono text-xs *:flex *:items-center *:gap-2 *:pl-2 *:pr-0.5 *:h-7 *:border-l-4">
+        <div className="border rounded bg-background overflow-hidden w-full font-mono text-xs *:flex *:items-center *:gap-2 *:pl-2 *:pr-0.5 *:h-7 *:border-l-4">
             <div className="border-brand-blue justify-between">
                 <b>DEBUG mode</b>
                 <LemonButton

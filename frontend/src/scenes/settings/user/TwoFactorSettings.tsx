@@ -56,7 +56,7 @@ export function TwoFactorSettings(): JSX.Element {
                                     Save these backup codes in a secure location. Each code can only be used once to
                                     sign in if you lose access to your authentication device.
                                 </p>
-                                <div className="bg-primary p-4 rounded font-mono deprecated-space-y-1 relative">
+                                <div className="bg-background p-4 rounded font-mono deprecated-space-y-1 relative">
                                     <LemonButton
                                         icon={<IconCopy />}
                                         size="small"
@@ -73,7 +73,7 @@ export function TwoFactorSettings(): JSX.Element {
                                 </div>
                             </>
                         ) : (
-                            <div className="bg-primary p-4 rounded font-mono deprecated-space-y-1 relative">
+                            <div className="bg-background p-4 rounded font-mono deprecated-space-y-1 relative">
                                 <p className="text-secondary-foreground mb-0">No backup codes generated</p>
                             </div>
                         )}

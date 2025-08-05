@@ -10,7 +10,7 @@ export const ErrorTrackingListOptions = (): JSX.Element => {
     const { results } = useValues(errorTrackingDataNodeLogic)
 
     return (
-        <div className="sticky top-[var(--breadcrumbs-height-compact)] z-20 py-2 bg-primary">
+        <div className="sticky top-[var(--breadcrumbs-height-compact)] z-20 py-2 bg-background">
             {selectedIssueIds.length > 0 ? (
                 <BulkActions issues={results} selectedIds={selectedIssueIds} />
             ) : (

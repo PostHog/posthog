@@ -55,7 +55,7 @@ export function autocaptureToImage(elements: ElementType[] | undefined): null | 
 function AutocaptureImage({ img }: { img: AutocapturedImage }): JSX.Element | null {
     if (img) {
         return (
-            <div className="flex bg-primary items-center justify-center relative border-2">
+            <div className="flex bg-background items-center justify-center relative border-2">
                 {/* Transparent grid background */}
                 <div className="ImagePreview__background absolute h-full w-full" />
 
@@ -83,7 +83,7 @@ export function AutocaptureImageTab({
     const img = correctRelativeSrcImages(autocaptureToImage(elements), properties)
     if (img) {
         return (
-            <div className="flex bg-primary items-center justify-center relative border-2 w-full">
+            <div className="flex bg-background items-center justify-center relative border-2 w-full">
                 <AutocaptureImage img={img} />
             </div>
         )

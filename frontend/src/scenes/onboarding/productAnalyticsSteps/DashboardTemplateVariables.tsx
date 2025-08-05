@@ -69,7 +69,7 @@ function VariableSelector({
                 </LemonBanner>
             )}
             {variable.touched && !activeVariableCustomEventName && (
-                <div className="flex justify-between items-center bg-primary-light p-2 pl-3 rounded mb-4">
+                <div className="flex justify-between items-center bg-background-light p-2 pl-3 rounded mb-4">
                     <div>
                         <p className="mb-2">
                             <IconCheckCircle className="text-success-foreground font-bold" />{' '}
@@ -327,7 +327,7 @@ export function DashboardTemplateVariables({
                             iframeRef={iframeRef}
                         />
                     ),
-                    className: 'p-4 bg-primary',
+                    className: 'p-4 bg-background',
                     onHeaderClick: () => {
                         setActiveVariableIndex(i)
                         disableElementSelector()

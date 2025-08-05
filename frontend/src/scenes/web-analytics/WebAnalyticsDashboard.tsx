@@ -481,7 +481,7 @@ export const WebAnalyticsDashboard = (): JSX.Element => {
                 <div className="WebAnalyticsDashboard w-full flex flex-col">
                     <div
                         className={clsx(
-                            'sticky z-20 bg-primary border-b pb-2',
+                            'sticky z-20 bg-background border-b pb-2',
                             mobileLayout
                                 ? 'top-[var(--breadcrumbs-height-full)]'
                                 : 'top-[var(--breadcrumbs-height-compact)]'

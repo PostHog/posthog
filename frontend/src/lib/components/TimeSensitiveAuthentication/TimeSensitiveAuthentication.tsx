@@ -124,7 +124,7 @@ export function TimeSensitiveAuthenticationArea({ children }: { children: JSX.El
     }, [checkReauthentication])
 
     return timeSensitiveAuthenticationRequired ? (
-        <div className="flex-1 bg-primary border border-border rounded flex flex-col items-center p-6 text-center w-full">
+        <div className="flex-1 bg-background border border-border rounded flex flex-col items-center p-6 text-center w-full">
             <h2>Re-authentication required</h2>
 
             <p>This area requires that you re-authenticate.</p>
