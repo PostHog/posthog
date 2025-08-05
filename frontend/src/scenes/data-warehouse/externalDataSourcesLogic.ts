@@ -37,20 +37,21 @@ export const externalDataSourcesLogic = kea<externalDataSourcesLogicType>([
                     return {
                         ...values.dataWarehouseSources,
                         results:
-                            values.dataWarehouseSources?.results.map((s) => (s.id === updatedSource.id ? source : s)) ||
-                            [],
+                            values.dataWarehouseSources?.results.map((s) =>
+                                s.id === updatedSource.id ? updatedSource : s
+                            ) || [],
                     }
                 },
             },
         ],
     })),
-    reducers(({ cache }) => ({
+    reducers(() => ({
         dataWarehouseSourcesLoading: [
             false as boolean,
             {
                 loadSources: () => true,
-                loadSourcesFailure: () => cache.abortController !== null,
-                loadSourcesSuccess: () => cache.abortController !== null,
+                loadSourcesFailure: () => false,
+                loadSourcesSuccess: () => false,
             },
         ],
     })),
