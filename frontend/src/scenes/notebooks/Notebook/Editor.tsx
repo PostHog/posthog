@@ -77,6 +77,7 @@ export function Editor(): JSX.Element {
                 StarterKit.configure({
                     document: false,
                     gapcursor: false,
+                    link: false,
                 }),
                 TableOfContents.configure({
                     getIndex: getHierarchicalIndexes,
