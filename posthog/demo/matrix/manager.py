@@ -4,13 +4,14 @@ import json
 import datetime as dt
 from time import sleep
 from typing import Any, Literal, Optional, cast
-import asyncio
 
 from django.conf import settings
 from django.core import exceptions
 from django.db import IntegrityError, transaction
 
 from django.db import transaction, IntegrityError
+
+from posthog.demo.matrix.session_data_fetcher import SessionDataFetcher
 from .session_replay_generator import SessionReplayGenerator
 from posthog.clickhouse.client import query_with_columns, sync_execute
 from posthog.demo.matrix.taxonomy_inference import infer_taxonomy_for_team
@@ -423,17 +424,15 @@ class MatrixManager:
         return Team.objects.filter(pk=cls.MASTER_TEAM_ID).exists()
 
     def _generate_session_recordings_if_available(self, team: Team):
-        """Generate session recordings for Hedgebox demo data."""
+        """Generate session recordings from the demo data ingested."""
         from posthog.demo.products.hedgebox.matrix import HedgeboxMatrix
-        from posthog.demo.products.hedgebox.models import HedgeboxPerson
 
         if not isinstance(self.matrix, HedgeboxMatrix):
             return  # Only Hedgebox supports capturing session replays right now
         if self.print_steps:
             print("Capturing session recordings on a sample of sessions...")
-        generator = SessionReplayGenerator("hedgebox", team.api_token)
-        asyncio.run(
-            generator.generate_session_recordings(
-                cast(list[HedgeboxPerson], self.matrix.people), print_progress=self.print_steps
-            )
-        )
+
+        fetcher = SessionDataFetcher(team)
+        sessions = fetcher.fetch_sessions_for_replay(max_sessions=10, days_back=30)
+        generator = SessionReplayGenerator(posthog_api_token=team.api_token, headless=False)
+        generator.generate_session_recordings(sessions=sessions, print_progress=True)
