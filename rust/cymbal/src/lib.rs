@@ -56,9 +56,9 @@ pub fn recursively_sanitize_properties(
     Ok(())
 }
 
-static WHITESPACE_REGEX: Lazy<Regex> = Lazy::new(|| Regex::new(r"\s{10,}").unwrap());
+static WHITESPACE_REGEX: Lazy<Regex> = Lazy::new(|| Regex::new(r"\s{50,}").unwrap());
 
-// Postgres doesn't like nulls (u0000) in strings, so we replace them with uFFFD.
+// Postgres doesn't like nulls (u0000) in strings, so we replace them with uFFFD. We also replace all 50-or-more whitespace sequences with "<ws trimmed>".
 pub fn sanitize_string(s: String) -> String {
     let no_nulls = s.replace('\u{0000}', "\u{FFFD}");
     WHITESPACE_REGEX
@@ -88,7 +88,9 @@ mod test {
 
     #[test]
     fn test_sanitize_string_long_whitespace() {
-        let input = "hello      \t\t\t\t\n\n\r\t\t  world".to_string();
+        let mut input = "hello".to_string();
+        input.push_str(&"\n".repeat(60));
+        input.push_str("world");
         let result = sanitize_string(input);
         assert_eq!(result, "hello<ws trimmed>world");
     }
