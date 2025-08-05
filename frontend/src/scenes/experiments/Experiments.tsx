@@ -24,9 +24,9 @@ import { match } from 'ts-pattern'
 import { ActivityScope, Experiment, ExperimentsTabs, ProductKey, ProgressStatus } from '~/types'
 import { ExperimentsSettings } from './ExperimentsSettings'
 
-import { DuplicateExperimentModal } from './DuplicateExperimentModal'
-import { EXPERIMENTS_PER_PAGE, experimentsLogic, getExperimentStatus } from './experimentsLogic'
 import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
+import { DuplicateExperimentModal } from './DuplicateExperimentModal'
+import { EXPERIMENTS_PER_PAGE, ExperimentsFilters, experimentsLogic, getExperimentStatus } from './experimentsLogic'
 import { StatusTag } from './ExperimentView/components'
 import { Holdouts } from './Holdouts'
 import { isLegacyExperiment } from './utils'
@@ -43,8 +43,75 @@ const getExperimentDuration = (experiment: Experiment): number | undefined => {
     return experiment.end_date
         ? dayjs(experiment.end_date).diff(dayjs(experiment.start_date), 'day')
         : experiment.start_date
-          ? dayjs().diff(dayjs(experiment.start_date), 'day')
-          : undefined
+        ? dayjs().diff(dayjs(experiment.start_date), 'day')
+        : undefined
+}
+
+const ExperimentsTableFilters = ({
+    tab,
+    filters,
+    onFiltersChange,
+}: {
+    tab: ExperimentsTabs
+    filters: ExperimentsFilters
+    onFiltersChange: (filters: ExperimentsFilters, replace?: boolean) => void
+}): JSX.Element => {
+    return (
+        <div className="flex justify-between mb-4 gap-2 flex-wrap">
+            <LemonInput
+                type="search"
+                placeholder="Search experiments"
+                onChange={(search) => onFiltersChange({ search, page: 1 })}
+                value={filters.search || ''}
+            />
+            <div className="flex items-center gap-2">
+                {ExperimentsTabs.Archived !== tab && (
+                    <>
+                        <span>
+                            <b>Status</b>
+                        </span>
+                        <LemonSelect
+                            size="small"
+                            onChange={(status) => {
+                                if (status === 'all') {
+                                    const { status: _, ...restFilters } = filters
+                                    onFiltersChange({ ...restFilters, page: 1 }, true)
+                                } else {
+                                    onFiltersChange({ status: status as ProgressStatus, page: 1 })
+                                }
+                            }}
+                            options={
+                                [
+                                    { label: 'All', value: 'all' },
+                                    { label: 'Draft', value: ProgressStatus.Draft },
+                                    { label: 'Running', value: ProgressStatus.Running },
+                                    { label: 'Complete', value: ProgressStatus.Complete },
+                                ] as { label: string; value: string }[]
+                            }
+                            value={filters.status ?? 'all'}
+                            dropdownMatchSelectWidth={false}
+                            dropdownMaxContentWidth
+                        />
+                    </>
+                )}
+                <span className="ml-1">
+                    <b>Created by</b>
+                </span>
+                <MemberSelect
+                    defaultLabel="Any user"
+                    value={filters.created_by_id ?? null}
+                    onChange={(user) => {
+                        if (!user) {
+                            const { created_by_id, ...restFilters } = filters
+                            onFiltersChange({ ...restFilters, page: 1 }, true)
+                        } else {
+                            onFiltersChange({ created_by_id: user.id, page: 1 })
+                        }
+                    }}
+                />
+            </div>
+        </div>
+    )
 }
 
 const ExperimentsTable = ({
@@ -259,60 +326,7 @@ const ExperimentsTable = ({
                     />
                 ))
                 .otherwise(() => null)}
-            <div className="flex justify-between mb-4 gap-2 flex-wrap">
-                <LemonInput
-                    type="search"
-                    placeholder="Search experiments"
-                    onChange={(search) => setExperimentsFilters({ search, page: 1 })}
-                    value={filters.search || ''}
-                />
-                <div className="flex items-center gap-2">
-                    {ExperimentsTabs.Archived !== tab && (
-                        <>
-                            <span>
-                                <b>Status</b>
-                            </span>
-                            <LemonSelect
-                                size="small"
-                                onChange={(status) => {
-                                    if (status === 'all') {
-                                        const { status: _, ...restFilters } = filters
-                                        setExperimentsFilters({ ...restFilters, page: 1 }, true)
-                                    } else {
-                                        setExperimentsFilters({ status: status as ProgressStatus, page: 1 })
-                                    }
-                                }}
-                                options={
-                                    [
-                                        { label: 'All', value: 'all' },
-                                        { label: 'Draft', value: ProgressStatus.Draft },
-                                        { label: 'Running', value: ProgressStatus.Running },
-                                        { label: 'Complete', value: ProgressStatus.Complete },
-                                    ] as { label: string; value: string }[]
-                                }
-                                value={filters.status ?? 'all'}
-                                dropdownMatchSelectWidth={false}
-                                dropdownMaxContentWidth
-                            />
-                        </>
-                    )}
-                    <span className="ml-1">
-                        <b>Created by</b>
-                    </span>
-                    <MemberSelect
-                        defaultLabel="Any user"
-                        value={filters.created_by_id ?? null}
-                        onChange={(user) => {
-                            if (!user) {
-                                const { created_by_id, ...restFilters } = filters
-                                setExperimentsFilters({ ...restFilters, page: 1 }, true)
-                            } else {
-                                setExperimentsFilters({ created_by_id: user.id, page: 1 })
-                            }
-                        }}
-                    />
-                </div>
-            </div>
+            <ExperimentsTableFilters tab={tab} filters={filters} onFiltersChange={setExperimentsFilters} />
             <LemonDivider className="my-4" />
             <div className="mb-4">
                 <span className="text-secondary">
