@@ -274,9 +274,9 @@ export function SummaryTable({
                 const delta = ((variantConversionRate - controlConversionRate) / controlConversionRate) * 100
 
                 return (
-                    <div
-                        className={`font-semibold ${delta > 0 ? 'text-success' : delta < 0 ? 'text-danger' : ''}`}
-                    >{`${delta > 0 ? '+' : ''}${delta.toFixed(2)}%`}</div>
+                    <div className={`font-semibold ${delta > 0 ? 'text-success' : delta < 0 ? 'text-danger' : ''}`}>{`${
+                        delta > 0 ? '+' : ''
+                    }${delta.toFixed(2)}%`}</div>
                 )
             },
         })
