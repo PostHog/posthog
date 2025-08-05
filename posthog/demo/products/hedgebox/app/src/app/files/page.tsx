@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import Header from '@/components/Header';
 import { posthog } from '@/lib/posthog';
 import { useAuth } from '@/lib/auth';
@@ -11,6 +12,7 @@ import { HedgeboxFile } from '@/types';
 
 export default function FilesPage() {
   const { user } = useAuth();
+  const router = useRouter();
   const [files, setFiles] = useState<HedgeboxFile[]>(sampleFiles);
   const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set());
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
@@ -204,8 +206,9 @@ export default function FilesPage() {
         ) : viewMode === 'grid' ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 animate-fade-in">
             {files.map((file) => (
-              <div 
-                key={file.id} 
+              <a
+                key={file.id}
+                href={`/files/${file.id}`}
                 className={`card bg-base-100 shadow-md hover:shadow-lg transition-all duration-300 cursor-pointer group ${
                   selectedFiles.has(file.id) ? 'ring-2 ring-primary' : ''
                 }`}
@@ -218,16 +221,25 @@ export default function FilesPage() {
                         type="checkbox"
                         className="checkbox checkbox-primary checkbox-sm"
                         checked={selectedFiles.has(file.id)}
-                        onChange={() => toggleFileSelection(file.id)}
+                        onChange={(e) => {
+                          e.stopPropagation();
+                          toggleFileSelection(file.id);
+                        }}
                       />
                       <div className="dropdown dropdown-end">
-                        <div tabIndex={0} role="button" className="btn btn-ghost btn-xs">
+                        <div 
+                          tabIndex={0} 
+                          role="button" 
+                          className="btn btn-ghost btn-xs"
+                          onClick={(e) => e.stopPropagation()}
+                        >
                           ⋮
                         </div>
                         <ul tabIndex={0} className="dropdown-content z-[1] menu p-2 shadow bg-base-100 rounded-lg w-40">
-                          <li><button onClick={() => handleFileDownload(file)}>📥 Download</button></li>
-                          <li><button onClick={() => handleFileShare(file.id)}>🔗 Share</button></li>
-                          <li><button onClick={() => handleFileDelete(file.id)} className="text-error">🗑️ Delete</button></li>
+                          <li><a href={`/files/${file.id}`}>👁 View</a></li>
+                          <li><button onClick={(e) => { e.stopPropagation(); handleFileDownload(file); }}>📥 Download</button></li>
+                          <li><button onClick={(e) => { e.stopPropagation(); handleFileShare(file.id); }}>🔗 Share</button></li>
+                          <li><button onClick={(e) => { e.stopPropagation(); handleFileDelete(file.id); }} className="text-error">🗑️ Delete</button></li>
                         </ul>
                       </div>
                     </div>
@@ -245,7 +257,7 @@ export default function FilesPage() {
                     )}
                   </div>
                 </div>
-              </div>
+              </a>
             ))}
           </div>
         ) : (
@@ -275,7 +287,10 @@ export default function FilesPage() {
               </thead>
               <tbody>
                 {files.map((file) => (
-                  <tr key={file.id} className="hover">
+                  <tr 
+                    key={file.id} 
+                    className="hover"
+                  >
                     <td>
                       <input 
                         type="checkbox"
@@ -285,13 +300,13 @@ export default function FilesPage() {
                       />
                     </td>
                     <td>
-                      <div className="flex items-center space-x-3">
+                      <a href={`/files/${file.id}`} className="flex items-center space-x-3 cursor-pointer">
                         <div className="text-2xl">{getFileIcon(file.type)}</div>
                         <div>
-                          <div className="font-bold">{file.name}</div>
+                          <div className="font-bold hover:text-primary">{file.name}</div>
                           <div className="text-sm text-base-content/70">{file.type}</div>
                         </div>
-                      </div>
+                      </a>
                     </td>
                     <td>{formatFileSize(file.size)}</td>
                     <td>{new Date(file.uploadedAt).toLocaleDateString()}</td>
@@ -304,21 +319,31 @@ export default function FilesPage() {
                     </td>
                     <td>
                       <div className="flex space-x-2">
+                        <a 
+                          href={`/files/${file.id}`}
+                          className="btn btn-ghost btn-xs"
+                          title="View file"
+                        >
+                          👁️
+                        </a>
                         <button 
                           onClick={() => handleFileDownload(file)}
                           className="btn btn-ghost btn-xs"
+                          title="Download file"
                         >
                           📥
                         </button>
                         <button 
                           onClick={() => handleFileShare(file.id)}
                           className="btn btn-ghost btn-xs"
+                          title="Share file"
                         >
                           🔗
                         </button>
                         <button 
                           onClick={() => handleFileDelete(file.id)}
                           className="btn btn-ghost btn-xs text-error"
+                          title="Delete file"
                         >
                           🗑️
                         </button>
