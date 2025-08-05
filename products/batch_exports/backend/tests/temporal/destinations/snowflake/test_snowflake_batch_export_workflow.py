@@ -2,7 +2,6 @@ import asyncio
 import dataclasses
 import datetime as dt
 import io
-import json
 import os
 import unittest.mock
 import uuid
@@ -10,7 +9,6 @@ from uuid import uuid4
 
 import paramiko
 import pytest
-import responses
 from django.test import override_settings
 from temporalio import activity
 from temporalio.client import WorkflowFailureError
@@ -20,6 +18,7 @@ from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog import constants
+from posthog.batch_exports.models import BatchExport
 from posthog.batch_exports.service import (
     BackfillDetails,
     BatchExportModel,
@@ -51,9 +50,7 @@ from products.batch_exports.backend.temporal.spmc import (
 )
 from products.batch_exports.backend.tests.temporal.destinations.snowflake.utils import (
     FakeSnowflakeConnection,
-    add_mock_snowflake_api,
     assert_clickhouse_records_in_snowflake,
-    contains_queries_in_order,
 )
 from products.batch_exports.backend.tests.temporal.utils import (
     FlakyClickHouseClient,
@@ -126,6 +123,52 @@ TEST_MODELS: list[BatchExportModel | BatchExportSchema | None] = [
 ]
 
 
+async def _run_workflow(
+    team_id: int,
+    batch_export_id: int,
+    data_interval_end: dt.datetime,
+    interval: str,
+    snowflake_batch_export: BatchExport,
+    expected_records_completed: int,
+) -> None:
+    workflow_id = str(uuid4())
+    inputs = SnowflakeBatchExportInputs(
+        team_id=team_id,
+        batch_export_id=str(batch_export_id),
+        data_interval_end=data_interval_end.isoformat(),
+        interval=interval,
+        **snowflake_batch_export.destination.config,
+    )
+
+    async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
+        async with Worker(
+            activity_environment.client,
+            task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
+            workflows=[SnowflakeBatchExportWorkflow],
+            activities=[
+                start_batch_export_run,
+                insert_into_snowflake_activity,
+                finish_batch_export_run,
+            ],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            await activity_environment.client.execute_workflow(
+                SnowflakeBatchExportWorkflow.run,
+                inputs,
+                id=workflow_id,
+                execution_timeout=dt.timedelta(seconds=10),
+                task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
+                retry_policy=RetryPolicy(maximum_attempts=1),
+            )
+
+    runs = await afetch_batch_export_runs(batch_export_id=snowflake_batch_export.id)
+    assert len(runs) == 1
+
+    run = runs[0]
+    assert run.status == "Completed"
+    assert run.records_completed == expected_records_completed
+
+
 class TestSnowflakeExportWorkflowMockedConnection:
     @pytest.mark.parametrize("interval", ["hour"], indirect=True)
     async def test_snowflake_export_workflow_exports_events(
@@ -152,143 +195,67 @@ class TestSnowflakeExportWorkflowMockedConnection:
             properties={"$browser": "Chrome", "$os": "Mac OS X"},
             person_properties={"utm_medium": "referral", "$initial_os": "Linux"},
         )
+        with (
+            unittest.mock.patch(
+                "products.batch_exports.backend.temporal.destinations.snowflake_batch_export.snowflake.connector.connect",
+            ) as mock,
+            override_settings(BATCH_EXPORT_SNOWFLAKE_UPLOAD_CHUNK_SIZE_BYTES=1),
+        ):
+            fake_conn = FakeSnowflakeConnection()
+            mock.return_value = fake_conn
+            await _run_workflow(
+                team_id=ateam.pk,
+                batch_export_id=snowflake_batch_export.id,
+                data_interval_end=data_interval_end,
+                interval=interval,
+                snowflake_batch_export=snowflake_batch_export,
+                expected_records_completed=10,
+            )
 
-        workflow_id = str(uuid4())
-        inputs = SnowflakeBatchExportInputs(
-            team_id=ateam.pk,
-            batch_export_id=str(snowflake_batch_export.id),
-            data_interval_end=data_interval_end.isoformat(),
-            interval=interval,
-            **snowflake_batch_export.destination.config,
-        )
+            execute_calls = []
+            for cursor in fake_conn._cursors:
+                for call in cursor._execute_calls:
+                    execute_calls.append(call["query"].strip())
 
-        async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
-            async with Worker(
-                activity_environment.client,
-                task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
-                workflows=[SnowflakeBatchExportWorkflow],
-                activities=[
-                    start_batch_export_run,
-                    insert_into_snowflake_activity,
-                    finish_batch_export_run,
-                ],
-                workflow_runner=UnsandboxedWorkflowRunner(),
-            ):
-                with (
-                    unittest.mock.patch(
-                        "products.batch_exports.backend.temporal.destinations.snowflake_batch_export.snowflake.connector.connect",
-                    ) as mock,
-                    override_settings(BATCH_EXPORT_SNOWFLAKE_UPLOAD_CHUNK_SIZE_BYTES=1),
-                ):
-                    fake_conn = FakeSnowflakeConnection()
-                    mock.return_value = fake_conn
+            execute_async_calls = []
+            for cursor in fake_conn._cursors:
+                for call in cursor._execute_async_calls:
+                    execute_async_calls.append(call["query"].strip())
 
-                    await activity_environment.client.execute_workflow(
-                        SnowflakeBatchExportWorkflow.run,
-                        inputs,
-                        id=workflow_id,
-                        execution_timeout=dt.timedelta(seconds=10),
-                        task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
-                        retry_policy=RetryPolicy(maximum_attempts=1),
-                    )
+            assert execute_async_calls[0:3] == [
+                f'USE DATABASE "{database}"',
+                f'USE SCHEMA "{schema}"',
+                "SET ABORT_DETACHED_QUERY = FALSE",
+            ]
 
-                    execute_calls = []
-                    for cursor in fake_conn._cursors:
-                        for call in cursor._execute_calls:
-                            execute_calls.append(call["query"].strip())
+            assert all(query.startswith("PUT") for query in execute_calls[0:9])
 
-                    execute_async_calls = []
-                    for cursor in fake_conn._cursors:
-                        for call in cursor._execute_async_calls:
-                            execute_async_calls.append(call["query"].strip())
-
-                    assert execute_async_calls[0:3] == [
-                        f'USE DATABASE "{database}"',
-                        f'USE SCHEMA "{schema}"',
-                        "SET ABORT_DETACHED_QUERY = FALSE",
-                    ]
-
-                    assert all(query.startswith("PUT") for query in execute_calls[0:9])
-
-                    assert execute_async_calls[3].startswith(f'CREATE TABLE IF NOT EXISTS "{table_name}"')
-                    assert execute_async_calls[4].startswith(f"""REMOVE '@%"{table_name}"/{data_interval_end_str}'""")
-                    assert execute_async_calls[5].startswith(f'COPY INTO "{table_name}"')
-
-        runs = await afetch_batch_export_runs(batch_export_id=snowflake_batch_export.id)
-        assert len(runs) == 1
-
-        run = runs[0]
-        assert run.status == "Completed"
-        assert run.records_completed == 10
+            assert execute_async_calls[3].startswith(f'CREATE TABLE IF NOT EXISTS "{table_name}"')
+            assert execute_async_calls[4].startswith(f"""REMOVE '@%"{table_name}"/{data_interval_end_str}'""")
+            assert execute_async_calls[5].startswith(f'COPY INTO "{table_name}"')
 
     @pytest.mark.parametrize("interval", ["hour"], indirect=True)
     async def test_snowflake_export_workflow_without_events(
         self, ateam, snowflake_batch_export, interval, truncate_events
     ):
-        workflow_id = str(uuid4())
-        inputs = SnowflakeBatchExportInputs(
-            team_id=ateam.pk,
-            batch_export_id=str(snowflake_batch_export.id),
-            data_interval_end=dt.datetime.now(tz=dt.UTC).replace(hour=0, minute=0, second=0, microsecond=0).isoformat(),
-            interval=interval,
-            **snowflake_batch_export.destination.config,
-        )
+        data_interval_end = dt.datetime.now(tz=dt.UTC).replace(hour=0, minute=0, second=0, microsecond=0)
 
-        async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
-            async with Worker(
-                activity_environment.client,
-                task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
-                workflows=[SnowflakeBatchExportWorkflow],
-                activities=[
-                    start_batch_export_run,
-                    insert_into_snowflake_activity,
-                    finish_batch_export_run,
-                ],
-                workflow_runner=UnsandboxedWorkflowRunner(),
-            ):
-                with (
-                    responses.RequestsMock(
-                        target="snowflake.connector.vendored.requests.adapters.HTTPAdapter.send",
-                        assert_all_requests_are_fired=False,
-                    ) as rsps,
-                    override_settings(BATCH_EXPORT_SNOWFLAKE_UPLOAD_CHUNK_SIZE_BYTES=1**2),
-                ):
-                    queries, staged_files = add_mock_snowflake_api(rsps)
-                    await activity_environment.client.execute_workflow(
-                        SnowflakeBatchExportWorkflow.run,
-                        inputs,
-                        id=workflow_id,
-                        task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
-                        retry_policy=RetryPolicy(maximum_attempts=1),
-                    )
-
-                    assert contains_queries_in_order(
-                        queries,
-                    )
-
-                    staged_data = "\n".join(staged_files)
-
-                    # Check that the data is correct.
-                    json_data = [json.loads(line) for line in staged_data.split("\n") if line]
-                    # Pull out the fields we inserted only
-                    json_data = [
-                        {
-                            "uuid": event["uuid"],
-                            "event": event["event"],
-                            "timestamp": event["timestamp"],
-                            "properties": event["properties"],
-                            "person_id": event["person_id"],
-                        }
-                        for event in json_data
-                    ]
-                    json_data.sort(key=lambda x: x["timestamp"])
-                    assert json_data == []
-
-            runs = await afetch_batch_export_runs(batch_export_id=snowflake_batch_export.id)
-            assert len(runs) == 1
-
-            run = runs[0]
-            assert run.status == "Completed"
+        with (
+            unittest.mock.patch(
+                "products.batch_exports.backend.temporal.destinations.snowflake_batch_export.snowflake.connector.connect",
+            ) as mock,
+            override_settings(BATCH_EXPORT_SNOWFLAKE_UPLOAD_CHUNK_SIZE_BYTES=1),
+        ):
+            fake_conn = FakeSnowflakeConnection()
+            mock.return_value = fake_conn
+            await _run_workflow(
+                team_id=ateam.pk,
+                batch_export_id=snowflake_batch_export.id,
+                data_interval_end=data_interval_end,
+                interval=interval,
+                snowflake_batch_export=snowflake_batch_export,
+                expected_records_completed=0,
+            )
 
 
 class TestSnowflakeExportWorkflowErrorHandling:
