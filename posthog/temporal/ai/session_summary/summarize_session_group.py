@@ -289,8 +289,7 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
             raise ApplicationError(exception_message)
         return session_inputs
 
-    @staticmethod
-    async def _run_summary(inputs: SingleSessionSummaryInputs) -> None | Exception:
+    async def _run_summary(self, inputs: SingleSessionSummaryInputs) -> None | Exception:
         """
         Run and handle the summary for a single session to avoid one activity failing the whole group.
         """
@@ -301,6 +300,9 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
                 start_to_close_timeout=timedelta(minutes=10),
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
+            # Keep track of processed summaries
+            self._processed_single_summaries += 1
+            self._current_status = f"Watching sessions ({self._processed_single_summaries}/{self._total_sessions})"
             return None
         except Exception as err:  # Activity retries exhausted
             # Let caller handle the error
@@ -333,9 +335,6 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
             else:
                 # Store only successful generations
                 session_inputs.append(single_session_input)
-            # Keep track of processed summaries
-            self._processed_single_summaries += 1
-            self._current_status = f"Watching sessions ({self._processed_single_summaries}/{self._total_sessions})"
 
         # Fail the workflow if too many sessions failed to summarize
         if len(session_inputs) < len(inputs) * FAILED_SESSION_SUMMARIES_MIN_RATIO:
@@ -349,8 +348,7 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
             raise ApplicationError(exception_message)
         return session_inputs
 
-    @staticmethod
-    async def _run_patterns_extraction_chunk(inputs: SessionGroupSummaryOfSummariesInputs) -> None | Exception:
+    async def _run_patterns_extraction_chunk(self, inputs: SessionGroupSummaryOfSummariesInputs) -> None | Exception:
         """
         Run and handle pattern extraction for a chunk of sessions to avoid one activity failing the whole group.
         """
@@ -361,6 +359,8 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
                 start_to_close_timeout=timedelta(minutes=30),
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
+            self._processed_patterns_extraction += len(inputs.single_session_summaries_inputs)
+            self._current_status = f"Searching for behavior patterns in sessions ({self._processed_patterns_extraction}/{self._total_sessions})"
             return None
         except Exception as err:  # Activity retries exhausted
             # Let caller handle the error
@@ -420,8 +420,6 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
         session_ids_with_patterns_extracted = []
         for chunk_redis_key, (task, chunk_session_ids) in chunk_tasks.items():
             res = task.result()
-            self._processed_patterns_extraction += len(chunk_session_ids)
-            self._current_status = f"Searching for behavior patterns in sessions ({self._processed_patterns_extraction}/{self._total_sessions})"
             if isinstance(res, Exception):
                 temporalio.workflow.logger.warning(
                     f"Pattern extraction failed for chunk {chunk_redis_key} containing sessions {chunk_session_ids}: {res}"
@@ -460,10 +458,10 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
         self._current_status = "Fetching session data from the database"
         db_session_inputs = await self._fetch_session_group_data(inputs)
         # Generate single-session summaries for each session
-        self._current_status = f"Watching sessions"
+        self._current_status = f"Watching sessions (0/{self._total_sessions})"
         summaries_session_inputs = await self._run_summaries(db_session_inputs)
         # Extract patterns from session summaries (with chunking if needed)
-        self._current_status = "Searching for behavior patterns in sessions"
+        self._current_status = f"Searching for behavior patterns in sessions (0/{self._total_sessions})"
         session_ids_to_process = await self._run_patterns_extraction(
             SessionGroupSummaryOfSummariesInputs(
                 single_session_summaries_inputs=summaries_session_inputs,
