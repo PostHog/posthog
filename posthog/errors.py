@@ -74,7 +74,7 @@ def wrap_query_error(err: Exception) -> Exception:
         return QuerySizeExceeded()
     elif err.code == 160:
         # Return a 512 error for queries which would time out
-        detail = "Estimated query execution time is tool long"
+        detail = "Estimated query execution time is too long"
         if match := re.search(r"Estimated query execution time \(.* seconds\) is too long.", err.message):
             detail = match.group(0)
         return EstimatedQueryExecutionTimeTooLong(detail=f"{detail} Try reducing its scope by changing the time range.")
