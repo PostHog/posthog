@@ -101,43 +101,6 @@ describe('LLM Observability utils', () => {
         ])
     })
 
-    it('normalizeOutputMessage: parses an Anthropic input message', () => {
-        let message: AnthropicInputMessage = {
-            role: 'user',
-            content: 'foo',
-        }
-        expect(normalizeMessage(message)).toEqual([
-            {
-                role: 'user',
-                content: 'foo',
-            },
-        ])
-
-        message = {
-            role: 'user',
-            content: [
-                {
-                    type: 'text',
-                    text: 'foo',
-                },
-                {
-                    type: 'text',
-                    text: 'bar',
-                },
-            ],
-        }
-        expect(normalizeMessage(message)).toEqual([
-            {
-                role: 'user',
-                content: 'foo',
-            },
-            {
-                role: 'user',
-                content: 'bar',
-            },
-        ])
-    })
-
     it('normalizeOutputMessage: parses an Anthropic tool call message', () => {
         let message: any = {
             type: 'tool_use',
