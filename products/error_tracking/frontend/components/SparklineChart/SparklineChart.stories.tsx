@@ -106,13 +106,13 @@ function buildEvents(firstDate: string, lastDate: string): Array<SparklineEvent<
             id: '1',
             date: new Date(firstDate),
             payload: 'First seen',
-            color: 'var(--brand-red)',
+            color: 'var(--color-brand-red)',
         },
         {
             id: '2',
             date: new Date(lastDate),
             payload: 'Last seen',
-            color: 'var(--brand-blue)',
+            color: 'var(--color-brand-blue)',
         },
     ]
 }

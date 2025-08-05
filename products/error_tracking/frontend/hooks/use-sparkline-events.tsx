@@ -14,7 +14,7 @@ export function useSparklineEvents(): SparklineEvent<string>[] {
             events.push({
                 id: 'first_seen',
                 date: firstSeen.toDate(),
-                color: 'var(--brand-blue)',
+                color: 'var(--color-brand-blue)',
                 payload: 'First Seen',
                 radius: 6,
             })
@@ -23,7 +23,7 @@ export function useSparklineEvents(): SparklineEvent<string>[] {
             events.push({
                 id: 'current',
                 date: new Date(selectedEvent.timestamp),
-                color: 'var(--brand-yellow)',
+                color: 'var(--color-brand-yellow)',
                 payload: 'Current',
                 radius: 6,
             })
@@ -32,7 +32,7 @@ export function useSparklineEvents(): SparklineEvent<string>[] {
             events.push({
                 id: 'last_seen',
                 date: lastSeen.toDate(),
-                color: 'var(--brand-red)',
+                color: 'var(--color-brand-red)',
                 payload: 'Last Seen',
                 radius: 6,
             })
