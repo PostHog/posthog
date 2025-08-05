@@ -1,8 +1,10 @@
-import { LemonDialog, LemonInput, LemonSkeleton, LemonTextArea, Link } from '@posthog/lemon-ui'
+import { LemonDialog, LemonInput, LemonSkeleton, LemonTextArea, Link, LemonSelect } from '@posthog/lemon-ui'
+
 import { useActions, useValues } from 'kea'
 
 import { ErrorTrackingRelationalIssue } from '~/queries/schema/schema-general'
 import { IntegrationKind, IntegrationType } from '~/types'
+import { ErrorEventType } from 'lib/components/Errors/types'
 import { urls } from 'scenes/urls'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { errorTrackingIssueSceneLogic } from '../errorTrackingIssueSceneLogic'
@@ -18,13 +20,14 @@ import {
     DropdownMenuTrigger,
 } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { IconPlus } from '@posthog/icons'
+import api from 'lib/api'
 
 const ERROR_TRACKING_INTEGRATIONS: IntegrationKind[] = ['linear', 'github']
 
 type onSubmitFormType = (integrationId: number, config: Record<string, string>) => void
 
 export const ExternalReferences = (): JSX.Element | null => {
-    const { issue, issueLoading } = useValues(errorTrackingIssueSceneLogic)
+    const { issue, issueLoading, selectedEvent } = useValues(errorTrackingIssueSceneLogic)
     const { createExternalReference } = useActions(errorTrackingIssueSceneLogic)
     const { getIntegrationsByKind, integrationsLoading } = useValues(integrationsLogic)
 
@@ -44,6 +47,11 @@ export const ExternalReferences = (): JSX.Element | null => {
         }
     }
 
+    const onClickCreateTask = (): void => {
+        const githubIntegrations = getIntegrationsByKind(['github'])
+        createTaskForm(issue, selectedEvent, githubIntegrations)
+    }
+
     return (
         <div>
             {externalReferences.map((reference) => (
@@ -55,27 +63,49 @@ export const ExternalReferences = (): JSX.Element | null => {
                 </Link>
             ))}
             {errorTrackingIntegrations.length === 0 ? (
-                <SetupIntegrationsButton />
+                <>
+                    <SetupIntegrationsButton />
+                    <ButtonPrimitive
+                        fullWidth
+                        onClick={onClickCreateTask}
+                        disabled={issueLoading}
+                        style={{ marginTop: '8px' }}
+                    >
+                        <IconPlus />
+                        Create task in PostHog
+                    </ButtonPrimitive>
+                </>
             ) : errorTrackingIntegrations.length > 1 ? (
-                <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                        <ButtonPrimitive fullWidth disabled={creatingIssue}>
-                            <IconPlus />
-                            {creatingIssue ? 'Creating issue...' : 'Create issue'}
-                        </ButtonPrimitive>
-                    </DropdownMenuTrigger>
+                <>
+                    <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                            <ButtonPrimitive fullWidth disabled={creatingIssue}>
+                                <IconPlus />
+                                {creatingIssue ? 'Creating issue...' : 'Create issue'}
+                            </ButtonPrimitive>
+                        </DropdownMenuTrigger>
 
-                    <DropdownMenuContent loop matchTriggerWidth>
-                        {errorTrackingIntegrations.map((integration) => (
-                            <DropdownMenuItem key={integration.id} asChild>
-                                <ButtonPrimitive menuItem onClick={() => onClickCreateIssue(integration)}>
-                                    <IntegrationIcon kind={integration.kind} />
-                                    {integration.display_name}
-                                </ButtonPrimitive>
-                            </DropdownMenuItem>
-                        ))}
-                    </DropdownMenuContent>
-                </DropdownMenu>
+                        <DropdownMenuContent loop matchTriggerWidth>
+                            {errorTrackingIntegrations.map((integration) => (
+                                <DropdownMenuItem key={integration.id} asChild>
+                                    <ButtonPrimitive menuItem onClick={() => onClickCreateIssue(integration)}>
+                                        <IntegrationIcon kind={integration.kind} />
+                                        {integration.display_name}
+                                    </ButtonPrimitive>
+                                </DropdownMenuItem>
+                            ))}
+                        </DropdownMenuContent>
+                    </DropdownMenu>
+                    <ButtonPrimitive
+                        fullWidth
+                        onClick={onClickCreateTask}
+                        disabled={issueLoading}
+                        style={{ marginTop: '8px' }}
+                    >
+                        <IconPlus />
+                        Create task in PostHog
+                    </ButtonPrimitive>
+                </>
             ) : (
                 <ButtonPrimitive
                     fullWidth
@@ -86,6 +116,10 @@ export const ExternalReferences = (): JSX.Element | null => {
                     {creatingIssue ? 'Creating issue...' : 'Create issue'}
                 </ButtonPrimitive>
             )}
+            <ButtonPrimitive fullWidth onClick={onClickCreateTask} disabled={issueLoading} style={{ marginTop: '8px' }}>
+                <IconPlus />
+                Create task in PostHog
+            </ButtonPrimitive>
         </div>
     )
 }
@@ -166,6 +200,196 @@ const createLinearIssueForm = (
         },
         onSubmit: ({ title, description, teamIds }) => {
             onSubmit(integration.id, { team_id: teamIds[0], title, description })
+        },
+    })
+}
+
+const createTaskForm = (
+    issue: ErrorTrackingRelationalIssue,
+    selectedEvent: ErrorEventType | null,
+    githubIntegrations: IntegrationType[]
+): void => {
+    const posthogUrl = window.location.origin + window.location.pathname
+
+    let description = ''
+
+    if (selectedEvent?.properties) {
+        const props = selectedEvent.properties
+
+        // Extract error details from exception list
+        if (props.$exception_list && Array.isArray(props.$exception_list) && props.$exception_list.length > 0) {
+            const exception = props.$exception_list[0]
+
+            description += `## ${exception.type}: ${exception.value}\n\n`
+
+            if (exception.mechanism) {
+                description += `**Handled:** ${exception.mechanism.handled ? 'Yes' : 'No'}\n\n`
+            }
+
+            // Add detailed stack trace from frames
+            if (exception.stacktrace?.frames && Array.isArray(exception.stacktrace.frames)) {
+                description += `## Stack Trace\n\n`
+
+                const frames = exception.stacktrace.frames.slice().reverse() // Reverse to show call order
+                frames.forEach((frame, index) => {
+                    description += `**${index + 1}.** `
+                    if (frame.mangled_name && frame.mangled_name !== '?') {
+                        description += `\`${frame.mangled_name}\``
+                    } else {
+                        description += 'Anonymous function'
+                    }
+
+                    if (frame.source) {
+                        description += ` in \`${frame.source}\``
+                    }
+
+                    if (frame.line) {
+                        description += ` at line ${frame.line}`
+                        if (frame.column) {
+                            description += `:${frame.column}`
+                        }
+                    }
+
+                    description += '\n'
+
+                    // Add resolution failure if present
+                    if (frame.resolve_failure) {
+                        description += `   *Source map resolution failed: ${frame.resolve_failure}*\n`
+                    }
+                })
+                description += '\n'
+            }
+        } else {
+            // Fallback to basic error info
+            description += `## ${issue.name}\n\n`
+            if (props.$exception_message) {
+                description += `**Message:** ${props.$exception_message}\n\n`
+            }
+            if (props.$exception_type) {
+                description += `**Type:** ${props.$exception_type}\n\n`
+            }
+        }
+
+        // Add browser/environment info
+        if (props.$browser || props.$os || props.$lib_version) {
+            description += `## Environment\n\n`
+            if (props.$browser) {
+                description += `**Browser:** ${props.$browser}\n`
+            }
+            if (props.$os) {
+                description += `**OS:** ${props.$os}\n`
+            }
+            if (props.$lib_version) {
+                description += `**SDK Version:** ${props.$lib_version}\n`
+            }
+            if (props.$viewport_height && props.$viewport_width) {
+                description += `**Viewport:** ${props.$viewport_width}x${props.$viewport_height}\n`
+            }
+            description += '\n'
+        }
+
+        // Add URL and user info
+        if (props.$current_url) {
+            description += `**Page:** ${props.$current_url}\n`
+        }
+        if (props.$referrer) {
+            description += `**Referrer:** ${props.$referrer}\n`
+        }
+        if (props.distinct_id) {
+            description += `**User ID:** ${props.distinct_id}\n`
+        }
+        description += '\n'
+    } else {
+        description += `## ${issue.name}\n\n`
+    }
+
+    description += `---\n\n`
+    description += `**PostHog Error Tracking:** ${posthogUrl}\n`
+    description += `**First Seen:** ${new Date(issue.first_seen).toLocaleString()}\n`
+    if (issue.last_seen) {
+        description += `**Last Seen:** ${new Date(issue.last_seen).toLocaleString()}`
+    }
+
+    const defaultIntegration = githubIntegrations[0]
+
+    LemonDialog.openForm({
+        title: 'Create PostHog task',
+        initialValues: {
+            title: issue.name,
+            description: description,
+            status: 'todo',
+            repositories: [],
+        },
+        content: (
+            <div className="flex flex-col gap-y-4">
+                {githubIntegrations.length > 0 && <GitHubRepositorySelectField integrationId={defaultIntegration.id} />}
+                <LemonField name="title" label="Title">
+                    <LemonInput data-attr="task-title" placeholder="Task title" size="small" />
+                </LemonField>
+                <LemonField name="description" label="Description">
+                    <LemonTextArea data-attr="task-description" placeholder="Start typing..." rows={8} />
+                </LemonField>
+                <LemonField name="status" label="Priority">
+                    <LemonSelect
+                        data-attr="task-status"
+                        options={[
+                            { value: 'todo', label: 'Fix now (Todo)' },
+                            { value: 'backlog', label: 'Add to backlog' },
+                        ]}
+                    />
+                </LemonField>
+            </div>
+        ),
+        errors: {
+            title: (title) => (!title ? 'You must enter a title' : undefined),
+            repositories: (repositories) =>
+                githubIntegrations.length > 0 && (!repositories || repositories.length === 0)
+                    ? 'You must choose a repository'
+                    : undefined,
+        },
+        onSubmit: async ({ title, description, status, repositories }) => {
+            try {
+                const taskData: any = {
+                    title,
+                    description,
+                    status,
+                    origin_product: 'error_tracking',
+                }
+
+                // Add repository config if GitHub integration is available and repository is selected
+                if (githubIntegrations.length > 0 && repositories && repositories.length > 0) {
+                    const repoName = repositories[0]
+
+                    if (repoName && typeof repoName === 'string') {
+                        let organization: string
+                        let repository: string
+
+                        if (repoName.includes('/')) {
+                            // Format: "owner/repo"
+                            ;[organization, repository] = repoName.split('/', 2)
+                        } else {
+                            // Just repository name - get organization from integration config
+                            organization =
+                                defaultIntegration.config?.account?.name ||
+                                defaultIntegration.config?.account?.login ||
+                                'GitHub'
+                            repository = repoName
+                        }
+
+                        taskData.github_integration = defaultIntegration.id
+                        taskData.repository_config = {
+                            organization,
+                            repository,
+                        }
+                    } else {
+                    }
+                } else {
+                }
+
+                await api.tasks.create(taskData)
+            } catch (error) {
+                console.error('Failed to create task:', error)
+            }
         },
     })
 }

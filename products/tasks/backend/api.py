@@ -25,6 +25,10 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return {**super().get_serializer_context(), "team": self.team}
 
     def perform_create(self, serializer):
+        import logging
+
+        logger = logging.getLogger(__name__)
+        logger.info(f"Creating task with data: {serializer.validated_data}")
         serializer.save(team=self.team)
 
     def perform_update(self, serializer):

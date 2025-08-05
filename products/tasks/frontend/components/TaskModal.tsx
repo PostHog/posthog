@@ -1,9 +1,12 @@
 import { LemonModal, LemonButton } from '@posthog/lemon-ui'
 import { useActions } from 'kea'
+import { useState } from 'react'
 import { Task, TaskStatus } from '../types'
 import { taskTrackerLogic } from '../TaskTrackerLogic'
 import { STATUS_LABELS, STATUS_COLORS, ORIGIN_PRODUCT_LABELS, ORIGIN_PRODUCT_COLORS } from '../constants'
 import { TaskProgressDisplay } from './TaskProgressDisplay'
+import { RepositorySelector, RepositoryConfig } from './RepositorySelector'
+import api from 'lib/api'
 
 interface TaskModalProps {
     task: Task | null
@@ -12,7 +15,14 @@ interface TaskModalProps {
 }
 
 export function TaskModal({ task, isOpen, onClose }: TaskModalProps): JSX.Element {
-    const { scopeTask } = useActions(taskTrackerLogic)
+    const { scopeTask, updateTask } = useActions(taskTrackerLogic)
+    const [isEditingRepository, setIsEditingRepository] = useState(false)
+    const [repositoryConfig, setRepositoryConfig] = useState<RepositoryConfig>({
+        integrationId: task?.github_integration || undefined,
+        organization: task?.repository_config?.organization || undefined,
+        repository: task?.repository_config?.repository || undefined,
+    })
+    const [savingRepository, setSavingRepository] = useState(false)
 
     if (!task) {
         return <></>
@@ -31,6 +41,40 @@ export function TaskModal({ task, isOpen, onClose }: TaskModalProps): JSX.Elemen
     const handleScope = (): void => {
         scopeTask(task.id)
         onClose()
+    }
+
+    const handleSaveRepository = async (): Promise<void> => {
+        if (!repositoryConfig.integrationId || !repositoryConfig.organization || !repositoryConfig.repository) {
+            return
+        }
+
+        setSavingRepository(true)
+        try {
+            const updateData = {
+                github_integration: repositoryConfig.integrationId,
+                repository_config: {
+                    organization: repositoryConfig.organization,
+                    repository: repositoryConfig.repository,
+                },
+            }
+
+            await api.tasks.update(task.id, updateData)
+            updateTask(task.id, updateData)
+            setIsEditingRepository(false)
+        } catch (error) {
+            console.error('Failed to update repository:', error)
+        } finally {
+            setSavingRepository(false)
+        }
+    }
+
+    const handleCancelEdit = (): void => {
+        setRepositoryConfig({
+            integrationId: task?.github_integration || undefined,
+            organization: task?.repository_config?.organization || undefined,
+            repository: task?.repository_config?.repository || undefined,
+        })
+        setIsEditingRepository(false)
     }
 
     return (
@@ -69,48 +113,55 @@ export function TaskModal({ task, isOpen, onClose }: TaskModalProps): JSX.Elemen
                 </div>
 
                 {/* Repository Configuration */}
-                {task.repository_scope && (
-                    <div>
-                        <h3 className="text-sm font-medium text-default mb-2">Repository Configuration</h3>
-                        <div className="bg-bg-light p-3 rounded border">
-                            <div className="space-y-2">
-                                <div className="flex items-center gap-2">
-                                    <span className="text-xs font-medium text-muted">Scope:</span>
-                                    <span className="text-sm capitalize">{task.repository_scope.replace('_', ' ')}</span>
-                                </div>
-                                
-                                {task.repository_scope === 'single' && task.primary_repository && (
-                                    <div className="flex items-center gap-2">
-                                        <span className="text-xs font-medium text-muted">Repository:</span>
-                                        <span className="text-sm font-mono text-primary">
-                                            {task.primary_repository.organization}/{task.primary_repository.repository}
-                                        </span>
-                                    </div>
-                                )}
-                                
-                                {task.repository_scope === 'multiple' && task.repository_list && (
-                                    <div>
-                                        <span className="text-xs font-medium text-muted">Repositories ({task.repository_list.length}):</span>
-                                        <div className="mt-1 space-y-1">
-                                            {task.repository_list.map((repo, index) => (
-                                                <div key={index} className="text-sm font-mono text-primary">
-                                                    {repo.organization}/{repo.repository}
-                                                </div>
-                                            ))}
-                                        </div>
-                                    </div>
-                                )}
-                                
-                                {task.repository_scope === 'smart_select' && (
-                                    <div className="flex items-center gap-2">
-                                        <span className="text-xs font-medium text-muted">Mode:</span>
-                                        <span className="text-sm">AI will select repositories based on task context</span>
-                                    </div>
-                                )}
+                <div>
+                    <div className="flex items-center justify-between mb-2">
+                        <h3 className="text-sm font-medium text-default">Repository Configuration</h3>
+                        {!isEditingRepository && (
+                            <LemonButton size="small" type="secondary" onClick={() => setIsEditingRepository(true)}>
+                                Edit
+                            </LemonButton>
+                        )}
+                    </div>
+
+                    {isEditingRepository ? (
+                        <div className="space-y-4">
+                            <RepositorySelector value={repositoryConfig} onChange={setRepositoryConfig} />
+                            <div className="flex gap-2">
+                                <LemonButton
+                                    type="primary"
+                                    size="small"
+                                    onClick={handleSaveRepository}
+                                    loading={savingRepository}
+                                    disabled={
+                                        !repositoryConfig.integrationId ||
+                                        !repositoryConfig.organization ||
+                                        !repositoryConfig.repository
+                                    }
+                                >
+                                    Save
+                                </LemonButton>
+                                <LemonButton type="secondary" size="small" onClick={handleCancelEdit}>
+                                    Cancel
+                                </LemonButton>
                             </div>
                         </div>
-                    </div>
-                )}
+                    ) : (
+                        <div className="bg-bg-light p-3 rounded border">
+                            {task.repository_config?.organization && task.repository_config?.repository ? (
+                                <div className="flex items-center gap-2">
+                                    <span className="text-xs font-medium text-muted">Repository:</span>
+                                    <span className="text-sm font-mono text-primary">
+                                        {task.repository_config.organization}/{task.repository_config.repository}
+                                    </span>
+                                </div>
+                            ) : (
+                                <div className="text-sm text-muted italic">
+                                    No repository configured - click Edit to add one
+                                </div>
+                            )}
+                        </div>
+                    )}
+                </div>
 
                 {/* Progress Display - only show for in_progress, testing, or done tasks */}
                 {[TaskStatus.IN_PROGRESS, TaskStatus.TESTING, TaskStatus.DONE].includes(task.status) && (
