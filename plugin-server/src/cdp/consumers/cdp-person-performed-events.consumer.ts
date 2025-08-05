@@ -9,26 +9,26 @@ import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
 import { CdpConsumerBase } from './cdp-base.consumer'
 
-export const histogramPersonPerformedEventProcessing = new Histogram({
+const histogramPersonPerformedEventProcessing = new Histogram({
     name: 'cdp_person_performed_event_processing_duration_ms',
     help: 'Time spent processing person performed events',
     labelNames: ['step'],
     buckets: [1, 5, 10, 25, 50, 100, 250, 500, 1000, 2500],
 })
 
-export const cacheOperationsTotal = new Counter({
+const cacheOperationsTotal = new Counter({
     name: 'cdp_person_performed_event_cache_operations_total',
     help: 'Total number of cache operations performed',
     labelNames: ['operation', 'outcome'],
 })
 
-export const cacheHitRateGauge = new Counter({
+const cacheHitRateGauge = new Counter({
     name: 'cdp_person_performed_event_cache_hit_rate_total',
     help: 'Total cache hits and misses for cache hit rate calculation',
     labelNames: ['type'],
 })
 
-export const cacheSizeGauge = new Gauge({
+const cacheSizeGauge = new Gauge({
     name: 'cdp_person_performed_event_cache_size',
     help: 'Current number of entries in cache',
 })
