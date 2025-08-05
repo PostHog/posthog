@@ -709,7 +709,7 @@ exports[`segment templates template segment-actions-accoil-analytics matches exp
           "type": "string",
         },
         {
-          "default": "{event.groupId}",
+          "default": "{event.properties.$group_0}",
           "description": "The group id",
           "key": "groupId",
           "label": "Group ID",
@@ -8193,7 +8193,7 @@ exports[`segment templates template segment-actions-canny matches expected resul
       "include_by_default": true,
       "inputs_schema": [
         {
-          "default": "{event.groupId}",
+          "default": "{event.properties.$group_0}",
           "description": "The unique identifier of the group.",
           "key": "groupId",
           "label": "Group ID",
@@ -8593,7 +8593,7 @@ exports[`segment templates template segment-actions-canvas matches expected resu
       "include_by_default": true,
       "inputs_schema": [
         {
-          "default": "{event.groupId}",
+          "default": "{event.properties.$group_0}",
           "description": "The unique identifier of the group.",
           "key": "group_id",
           "label": "Group ID",
@@ -10663,7 +10663,7 @@ exports[`segment templates template segment-actions-hilo matches expected result
           "type": "string",
         },
         {
-          "default": "{event.groupId}",
+          "default": "{event.properties.$group_0}",
           "description": "The group ID",
           "key": "groupId",
           "label": "Group ID",
@@ -10796,7 +10796,7 @@ exports[`segment templates template segment-actions-hyperengage matches expected
           "type": "string",
         },
         {
-          "default": "{event.groupId}",
+          "default": "{event.properties.$group_0}",
           "description": "The account id, to uniquely identify the account associated with the user",
           "key": "account_id",
           "label": "Account id",
@@ -11030,7 +11030,7 @@ exports[`segment templates template segment-actions-hyperengage matches expected
           "type": "string",
         },
         {
-          "default": "{event.context.group_id ?? event.groupId}",
+          "default": "{event.context.group_id ?? event.properties.$group_0}",
           "description": "The account id, to uniquely identify the account associated with the user",
           "key": "account_id",
           "label": "Account id",
@@ -11228,7 +11228,7 @@ exports[`segment templates template segment-actions-hyperengage matches expected
       "include_by_default": true,
       "inputs_schema": [
         {
-          "default": "{event.context.group_id ?? event.groupId}",
+          "default": "{event.context.group_id ?? event.properties.$group_0}",
           "description": "The External ID of the account to send properties for",
           "key": "account_id",
           "label": "Account id",
@@ -12453,7 +12453,7 @@ exports[`segment templates template segment-actions-kameleoon matches expected r
           "type": "string",
         },
         {
-          "default": "{event.groupId}",
+          "default": "{event.properties.$group_0}",
           "description": "The group id",
           "key": "groupId",
           "label": "Group ID",
@@ -13567,7 +13567,7 @@ exports[`segment templates template segment-actions-launchpad matches expected r
           "type": "string",
         },
         {
-          "default": "{event.groupId}",
+          "default": "{event.properties.$group_0}",
           "description": "The unique identifier of the group. If there is a trait that matches the group key, it will override this value.",
           "key": "groupId",
           "label": "Group ID",
@@ -16191,7 +16191,7 @@ exports[`segment templates template segment-actions-mixpanel matches expected re
           "type": "string",
         },
         {
-          "default": "{event.groupId}",
+          "default": "{event.properties.$group_0}",
           "description": "The unique identifier of the group. If there is a trait that matches the group key, it will override this value.",
           "key": "group_id",
           "label": "Group ID",
@@ -21559,7 +21559,7 @@ exports[`segment templates template segment-actions-pipedrive matches expected r
           "type": "string",
         },
         {
-          "default": "{event.groupId}",
+          "default": "{event.properties.$group_0}",
           "description": "Value to find existing organization by",
           "key": "match_value",
           "label": "Match value",
@@ -22665,7 +22665,7 @@ exports[`segment templates template segment-actions-prodeology matches expected 
           "type": "string",
         },
         {
-          "default": "{event.groupId}",
+          "default": "{event.properties.$group_0}",
           "description": "The group id",
           "key": "groupId",
           "label": "Group ID",
@@ -24627,7 +24627,7 @@ exports[`segment templates template segment-actions-ripe-cloud matches expected 
           "type": "string",
         },
         {
-          "default": "{event.groupId}",
+          "default": "{event.properties.$group_0}",
           "description": "The group id",
           "key": "groupId",
           "label": "Group ID",
@@ -27118,7 +27118,7 @@ exports[`segment templates template segment-actions-usermaven matches expected r
       "include_by_default": true,
       "inputs_schema": [
         {
-          "default": "{event.groupId}",
+          "default": "{event.properties.$group_0}",
           "description": "The company id, to uniquely identify the company",
           "key": "company_id",
           "label": "Company id",
@@ -27681,7 +27681,7 @@ exports[`segment templates template segment-actions-usermotion matches expected 
           "type": "string",
         },
         {
-          "default": "{event.groupId}",
+          "default": "{event.properties.$group_0}",
           "description": "A identifier for a known company.",
           "key": "groupId",
           "label": "Group ID",
@@ -27922,7 +27922,7 @@ exports[`segment templates template segment-actions-userpilot-cloud matches expe
       "include_by_default": true,
       "inputs_schema": [
         {
-          "default": "{event.groupId}",
+          "default": "{event.properties.$group_0}",
           "description": "The ID of the company.",
           "key": "groupId",
           "label": "Company ID",
@@ -29371,7 +29371,7 @@ exports[`segment templates template segment-calliper-cloud-actions matches expec
           "type": "string",
         },
         {
-          "default": "{event.groupId}",
+          "default": "{event.properties.$group_0}",
           "description": "The unique identifier of the group.",
           "key": "group_id",
           "label": "Group ID",
@@ -30072,7 +30072,7 @@ exports[`segment templates template segment-encharge-cloud-actions matches expec
           "type": "string",
         },
         {
-          "default": "{event.groupId}",
+          "default": "{event.properties.$group_0}",
           "description": "An ID from your app/database that is used to uniquely identify the object in Encharge.",
           "key": "externalId",
           "label": "External Object ID",
@@ -30205,7 +30205,7 @@ exports[`segment templates template segment-inleads-ai matches expected result 1
           "type": "string",
         },
         {
-          "default": "{event.groupId}",
+          "default": "{event.properties.$group_0}",
           "description": "The account id, to uniquely identify the account associated with the user",
           "key": "account_id",
           "label": "Account id",
@@ -30391,7 +30391,7 @@ exports[`segment templates template segment-inleads-ai matches expected result 1
       "include_by_default": true,
       "inputs_schema": [
         {
-          "default": "{event.groupId}",
+          "default": "{event.properties.$group_0}",
           "description": "The External ID of the account to send properties for",
           "key": "account_id",
           "label": "Account id",
@@ -30647,7 +30647,7 @@ exports[`segment templates template segment-inleads-ai matches expected result 1
           "type": "string",
         },
         {
-          "default": "{event.context.group_id ?? event.groupId}",
+          "default": "{event.context.group_id ?? event.properties.$group_0}",
           "description": "The account id, to uniquely identify the account associated with the user",
           "key": "account_id",
           "label": "Account id",
@@ -31235,7 +31235,7 @@ exports[`segment templates template segment-outfunnel matches expected result 1`
           "type": "string",
         },
         {
-          "default": "{event.groupId}",
+          "default": "{event.properties.$group_0}",
           "description": "ID of the group",
           "key": "group_id",
           "label": "Group ID",
@@ -31813,7 +31813,7 @@ exports[`segment templates template segment-voucherify-actions matches expected 
           "type": "dictionary",
         },
         {
-          "default": "{event.groupId}",
+          "default": "{event.properties.$group_0}",
           "description": "The ID used to uniquely identify a group to which [customer](https://docs.voucherify.io/reference/the-customer-object) belongs.",
           "key": "group_id",
           "label": "Group ID",
