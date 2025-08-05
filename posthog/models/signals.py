@@ -13,6 +13,10 @@ is_muted = False
 # See FeatureFlag for an example.
 model_activity_signal = Signal()
 
+# Fired when organization features change
+# Provides: organization, added_features, removed_features
+organization_features_changed = Signal()
+
 
 def mutable_receiver(*args, **kwargs):
     """

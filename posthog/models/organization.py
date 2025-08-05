@@ -17,6 +17,7 @@ from django.core.cache import cache
 
 from posthog.cloud_utils import is_cloud
 from posthog.constants import INVITE_DAYS_VALIDITY, MAX_SLUG_LENGTH, AvailableFeature
+from posthog.exceptions_capture import capture_exception
 from posthog.models.utils import (
     LowercaseSlugField,
     UUIDModel,
@@ -219,31 +220,55 @@ class Organization(UUIDModel):
             # Since billing V2 we just use the field which is updated when the billing service is called
             return self.available_product_features or []
 
+        prev_features = {f.get("key") for f in (self.available_product_features or [])}
+
         try:
             from ee.models.license import License
         except ImportError:
             self.available_product_features = []
-            return []
-
-        self.available_product_features = []
-
-        # Self hosted legacy license so we just sync the license features
-        # Demo gets all features
-        if settings.DEMO or "generate_demo_data" in sys.argv[1:2]:
-            features = License.PLANS.get(License.ENTERPRISE_PLAN, [])
-            self.available_product_features = [
-                {"key": feature, "name": " ".join(feature.split(" ")).capitalize()} for feature in features
-            ]
+            current_features = set()
         else:
-            # Otherwise, try to find a valid license on this instance
-            license = License.objects.first_valid()
-            if license:
+            self.available_product_features = []
+
+            # Self hosted legacy license so we just sync the license features
+            # Demo gets all features
+            if settings.DEMO or "generate_demo_data" in sys.argv[1:2]:
                 features = License.PLANS.get(License.ENTERPRISE_PLAN, [])
                 self.available_product_features = [
                     {"key": feature, "name": " ".join(feature.split(" ")).capitalize()} for feature in features
                 ]
+            else:
+                # Otherwise, try to find a valid license on this instance
+                license = License.objects.first_valid()
+                if license:
+                    features = License.PLANS.get(License.ENTERPRISE_PLAN, [])
+                    self.available_product_features = [
+                        {"key": feature, "name": " ".join(feature.split(" ")).capitalize()} for feature in features
+                    ]
+
+            current_features = {f.get("key") for f in (self.available_product_features or [])}
+
+        if prev_features != current_features:
+            removed_features = list(prev_features - current_features)
+            added_features = list(current_features - prev_features)
+
+            if removed_features:
+                self._send_features_changed_signal(added_features, removed_features)
 
         return self.available_product_features
+
+    def _send_features_changed_signal(self, added_features: list[str], removed_features: list[str]) -> None:
+        try:
+            from posthog.models.signals import organization_features_changed
+
+            organization_features_changed.send(
+                sender=self.__class__,
+                organization=self,
+                added_features=added_features,
+                removed_features=removed_features,
+            )
+        except Exception as e:
+            capture_exception(e)
 
     def get_available_feature(self, feature: Union[AvailableFeature, str]) -> Optional[dict]:
         vals: list[dict[str, Any]] = self.available_product_features or []
