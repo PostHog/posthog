@@ -936,6 +936,9 @@
     --bg-fill-button-tertiary-hover-inverse: var(--bg-fill-highlight-inverse-75);
     --bg-fill-button-tertiary-active: var(--bg-fill-highlight-50);
     --bg-fill-button-tertiary-active-inverse: var(--bg-fill-highlight-inverse-50);
+    --bg-fill-button-panel: var(--bg-fill-highlight-100);
+    --bg-fill-button-panel-hover: var(--bg-fill-highlight-150);
+    --bg-fill-button-panel-active: var(--bg-fill-highlight-100);
     --bg-fill-input: var(--primitive-neutral-cool-850);
     --bg-fill-switch: var(--primitive-neutral-cool-900);
     --bg-fill-slider-rail: color-mix(in oklab, var(--color-white) 15%, transparent);
