@@ -85,7 +85,7 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
         ..._commonActionFields,
         type: z.literal('delay'),
         config: z.object({
-            delay_duration: z.string(),
+            delay_duration: z.string().min(2),
         }),
     }),
     z.object({

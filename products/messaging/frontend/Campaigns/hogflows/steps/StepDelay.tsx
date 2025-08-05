@@ -24,7 +24,7 @@ export const StepDelay: HogFlowStep<'delay'> = {
                 type: 'delay',
                 on_error: 'continue',
                 config: {
-                    delay_duration: '10m',
+                    delay_duration: '',
                 },
             },
         }
