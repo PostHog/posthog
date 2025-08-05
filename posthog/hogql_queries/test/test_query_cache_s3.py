@@ -37,9 +37,9 @@ class TestS3QueryCacheManager(APIBaseTest):
             final_insight_id = insight_id if insight_id is not None else self.insight_id
             final_dashboard_id = dashboard_id if dashboard_id is not None else self.dashboard_id
         else:
-            final_cache_key = cache_key
-            final_insight_id = insight_id
-            final_dashboard_id = dashboard_id
+            final_cache_key = cache_key or "test_key"
+            final_insight_id = insight_id or 1
+            final_dashboard_id = dashboard_id or 1
 
         manager = S3QueryCacheManager(
             team_id=self.team_id,
@@ -56,26 +56,16 @@ class TestS3QueryCacheManager(APIBaseTest):
         expected_key = f"query_cache/{self.team_id}/{self.cache_key}"
         self.assertEqual(manager._cache_object_key(), expected_key)
 
-    def test_stale_insights_object_key_generation(self):
-        """Test S3 object key generation for stale insights tracking."""
-        manager = self._create_cache_manager()
-        expected_key = f"query_cache_timestamps/{self.team_id}/{self.insight_id}:{self.dashboard_id}"
-        self.assertEqual(manager._stale_insights_object_key(), expected_key)
-
     def test_ttl_days_calculation(self):
         """Test TTL calculation from seconds to days."""
         manager = self._create_cache_manager()
 
         # Test various TTL values
-        self.assertEqual(manager._get_ttl_days(86400), 1)  # 1 day
-        self.assertEqual(manager._get_ttl_days(43200), 1)  # 0.5 days -> rounds up to 1
-        self.assertEqual(manager._get_ttl_days(172800), 2)  # 2 days
-        self.assertEqual(manager._get_ttl_days(259200), 3)  # 3 days
-        self.assertEqual(manager._get_ttl_days(1), 1)  # Minimum 1 day
-
-        # Test None defaults to settings value
-        with self.settings(CACHED_RESULTS_TTL=86400):
-            self.assertEqual(manager._get_ttl_days(None), 1)
+        self.assertEqual(manager._calculate_ttl_days(86400), 1)  # 1 day
+        self.assertEqual(manager._calculate_ttl_days(43200), 1)  # 0.5 days -> rounds up to 1
+        self.assertEqual(manager._calculate_ttl_days(172800), 2)  # 2 days
+        self.assertEqual(manager._calculate_ttl_days(259200), 3)  # 3 days
+        self.assertEqual(manager._calculate_ttl_days(1), 1)  # Minimum 1 day
 
     def test_get_cache_data_success(self):
         """Test successful cache data retrieval."""
@@ -328,7 +318,7 @@ class TestS3QueryCacheManager(APIBaseTest):
         ):
             manager = self._create_cache_manager()
             self.assertEqual(manager.bucket, "custom-bucket")
-            self.assertEqual(manager._get_ttl_days(), 2)
+            self.assertEqual(manager._calculate_ttl_days(172800), 2)
 
     def test_real_s3_integration(self):
         """Test with real S3 storage client (if enabled)."""

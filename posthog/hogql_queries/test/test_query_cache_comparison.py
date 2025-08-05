@@ -49,19 +49,19 @@ class TestQueryCacheComparison(APIBaseTest):
             # Mock the storage client to avoid actual S3 calls
             manager.storage_client = MagicMock()
             # Store data in memory for consistent testing
-            manager._memory_storage = {}
+            memory_storage: dict[str, str] = {}
 
             def mock_read(bucket, key):
-                return manager._memory_storage.get(key)
+                return memory_storage.get(key)
 
             def mock_write(bucket, key, content, extras=None):
-                manager._memory_storage[key] = content
+                memory_storage[key] = content
 
             def mock_delete(bucket, key):
-                manager._memory_storage.pop(key, None)
+                memory_storage.pop(key, None)
 
             def mock_list_objects(bucket, prefix):
-                return [k for k in manager._memory_storage.keys() if k.startswith(prefix)]
+                return [k for k in memory_storage.keys() if k.startswith(prefix)]
 
             manager.storage_client.read.side_effect = mock_read
             manager.storage_client.write.side_effect = mock_write
@@ -176,7 +176,7 @@ class TestQueryCacheComparison(APIBaseTest):
             django_cache_result = django_cache_manager.get_cache_data()
 
         # Mock S3 to raise an exception
-        s3_manager.storage_client.read.side_effect = Exception("S3 error")
+        s3_manager.storage_client.read.side_effect = Exception("S3 error")  # type: ignore
         s3_result = s3_manager.get_cache_data()
 
         # Both should handle errors gracefully and return None
