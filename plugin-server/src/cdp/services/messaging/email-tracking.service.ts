@@ -1,8 +1,8 @@
 import crypto from 'crypto'
 import { Counter } from 'prom-client'
 
+import { ModifiedRequest } from '~/api/router'
 import { AppMetricType, CyclotronJobInvocationHogFunction, MinimalAppMetric } from '~/cdp/types'
-import { ModifiedRequest } from '~/router'
 
 import { Hub } from '../../../types'
 import { logger } from '../../../utils/logger'

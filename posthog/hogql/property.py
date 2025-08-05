@@ -477,14 +477,14 @@ def property_to_expr(
         if property.type == "revenue_analytics":
             expr = create_expr_for_revenue_analytics_property(cast(RevenueAnalyticsPropertyFilter, property))
 
-        is_string_array_property = property.type == "event" and property.key in [
+        is_exception_string_array_property = property.type == "event" and property.key in [
             "$exception_types",
             "$exception_values",
             "$exception_sources",
             "$exception_functions",
         ]
 
-        if is_string_array_property:
+        if is_exception_string_array_property:
             # if materialized these columns will be strings so we need to extract them
             extracted_field = ast.Call(
                 name="JSONExtract",
@@ -512,21 +512,21 @@ def property_to_expr(
                         else ast.CompareOperationOp.NotIn
                     )
 
-                    left = ast.Field(chain=["v"]) if is_string_array_property else field
-                    expr = ast.CompareOperation(
+                    left = ast.Field(chain=["v"]) if is_exception_string_array_property else expr
+                    compare_op = ast.CompareOperation(
                         op=op, left=left, right=ast.Tuple(exprs=[ast.Constant(value=v) for v in value])
                     )
 
-                    if is_string_array_property:
+                    if is_exception_string_array_property:
                         return parse_expr(
-                            "arrayExists(v -> {expr}, {key})",
+                            "arrayExists(v -> {compare_op}, {field})",
                             {
-                                "expr": expr,
-                                "key": extracted_field,
+                                "compare_op": compare_op,
+                                "field": extracted_field,
                             },
                         )
                     else:
-                        return expr
+                        return compare_op
 
                 exprs = [
                     property_to_expr(
@@ -552,7 +552,7 @@ def property_to_expr(
                 return ast.Or(exprs=exprs)
 
         expr = _expr_to_compare_op(
-            expr=ast.Field(chain=["v"]) if is_string_array_property else expr,
+            expr=ast.Field(chain=["v"]) if is_exception_string_array_property else expr,
             value=value,
             operator=operator,
             team=team,
@@ -560,7 +560,7 @@ def property_to_expr(
             is_json_field=property.type != "session",
         )
 
-        if is_string_array_property:
+        if is_exception_string_array_property:
             return parse_expr(
                 "arrayExists(v -> {expr}, {key})",
                 {"expr": expr, "key": extracted_field},

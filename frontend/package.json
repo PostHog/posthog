@@ -45,7 +45,7 @@
         "format": "cd .. && oxlint --fix --fix-suggestions --fix-dangerously --quiet && pnpm prettier -w \"./{cypress,products,frontend/src}/**/*.{js,mjs,ts,tsx,json,yaml,yml,css,scss}\"",
         "visualize-toolbar-bundle": "pnpm exec esbuild-visualizer --metadata ./toolbar-esbuild-meta.json --filename=toolbar-esbuild-bundle-visualization.html",
         "check-toolbar-csp-eval": "node ./bin/check-toolbar-csp-eval.mjs",
-        "start-vite": "concurrently -n VITE,TYPEGEN,TAILWIND -c green,blue,yellow  \"vite --host 0.0.0.0\" \"${SKIP_TYPEGEN:-pnpm run typegen:watch}\" \"pnpm watch:tailwind\""
+        "start-vite": "pnpm build:products && concurrently -n VITE,TYPEGEN,TAILWIND -c green,blue,yellow  \"vite --host 0.0.0.0\" \"${SKIP_TYPEGEN:-pnpm run typegen:watch}\" \"pnpm watch:tailwind\""
     },
     "dependencies": {
         "@babel/runtime": "^7.24.0",
@@ -158,7 +158,7 @@
         "husky": "^7.0.4",
         "idb": "^8.0.3",
         "image-blob-reduce": "^4.1.0",
-        "kea": "^3.1.5",
+        "kea": "^3.1.6",
         "kea-forms": "^3.2.0",
         "kea-loaders": "^3.1.1",
         "kea-localstorage": "^3.1.0",
