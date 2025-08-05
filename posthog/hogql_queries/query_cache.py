@@ -7,9 +7,10 @@ from django.core.cache import cache
 from posthog import redis
 from posthog.cache_utils import OrjsonJsonSerializer
 from posthog.utils import get_safe_cache
+from posthog.hogql_queries.query_cache_base import QueryCacheManagerBase
 
 
-class QueryCacheManager:
+class RedisQueryCacheManager(QueryCacheManagerBase):
     """
     Storing query results in Redis keyed by the hash of the query (cache_key param).
     '{cache_key}' -> query_results
@@ -28,15 +29,8 @@ class QueryCacheManager:
         insight_id: Optional[int] = None,
         dashboard_id: Optional[int] = None,
     ):
+        super().__init__(team_id=team_id, cache_key=cache_key, insight_id=insight_id, dashboard_id=dashboard_id)
         self.redis_client = redis.get_client()
-        self.team_id = team_id
-        self.cache_key = cache_key
-        self.insight_id = insight_id
-        self.dashboard_id = dashboard_id
-
-    @property
-    def identifier(self):
-        return f"{self.insight_id}:{self.dashboard_id or ''}"
 
     @staticmethod
     def get_stale_insights(*, team_id: int, limit: Optional[int] = None) -> list[str]:
@@ -57,13 +51,20 @@ class QueryCacheManager:
         """
         current_time = datetime.now(UTC)
         # get least stale insights first
-        insights = redis.get_client().zrevrangebyscore(
-            f"cache_timestamps:{team_id}",
-            min="-inf",
-            max=current_time.timestamp(),
-            start=0,
-            num=limit,
-        )
+        if limit is not None:
+            insights = redis.get_client().zrevrangebyscore(
+                f"cache_timestamps:{team_id}",
+                min="-inf",
+                max=current_time.timestamp(),
+                start=0,
+                num=limit,
+            )
+        else:
+            insights = redis.get_client().zrevrangebyscore(
+                f"cache_timestamps:{team_id}",
+                min="-inf",
+                max=current_time.timestamp(),
+            )
         return [insight.decode("utf-8") for insight in insights]
 
     @staticmethod
@@ -107,3 +108,7 @@ class QueryCacheManager:
             return None
 
         return OrjsonJsonSerializer({}).loads(cached_response_bytes)
+
+
+# Backward compatibility alias
+QueryCacheManager = RedisQueryCacheManager
