@@ -212,7 +212,7 @@ def handle_personal_api_key_change(
         if len(after_update.scoped_organizations) == 1:
             try:
                 # scoped_organizations contains string UUIDs
-                organization_id = uuid.UUID(after_update.scoped_organizations[0])
+                organization_id = uuid.UUID(str(after_update.scoped_organizations[0]))
             except (ValueError, TypeError):
                 pass
 

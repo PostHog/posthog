@@ -156,7 +156,7 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
             {"official", "internal"},
         )
 
-        activity_log: Optional[ActivityLog] = ActivityLog.objects.filter(scope="PropertyDefinition").first()
+        activity_log: Optional[ActivityLog] = ActivityLog.objects.filter(scope="PropertyDefinition").last()
         assert activity_log is not None
         self.assertEqual(activity_log.activity, "changed")
         self.assertEqual(activity_log.detail["name"], "enterprise property")
