@@ -191,15 +191,36 @@ def handle_personal_api_key_change(
     sender, scope, before_update, after_update, activity, was_impersonated=False, **kwargs
 ):
     from posthog.utils import get_current_user_from_thread
+    from threading import current_thread
 
     user = get_current_user_from_thread()
+    request = getattr(current_thread(), "request", None)
+    organization_id = None
 
-    # PersonalAPIKeys are user-scoped, so get organization from the user
-    organization_id = after_update.user.current_organization_id if after_update.user.current_organization_id else None
+    # 1. Try to get organization from request context
+    if request:
+        # Check various possible organization sources in the request
+        if hasattr(request, "organization"):
+            organization_id = request.organization.id
+        elif hasattr(request, "team") and hasattr(request.team, "organization"):
+            organization_id = request.team.organization_id
+        elif hasattr(request, "session") and "current_organization_id" in request.session:
+            organization_id = request.session.get("current_organization_id")
 
-    # If no current organization, try to get any organization the user belongs to
-    if organization_id is None and after_update.user.organizations.exists():
-        organization_id = after_update.user.organizations.first().id
+    # 2. If still no organization, check if the API key is scoped to a single org
+    if not organization_id and after_update.scoped_organizations:
+        if len(after_update.scoped_organizations) == 1:
+            try:
+                # scoped_organizations contains string UUIDs
+                organization_id = uuid.UUID(after_update.scoped_organizations[0])
+            except (ValueError, TypeError):
+                pass
+
+    # 3. Final fallback to user's current organization
+    if not organization_id:
+        organization_id = after_update.user.current_organization_id
+        if not organization_id and after_update.user.organizations.exists():
+            organization_id = after_update.user.organizations.first().id
 
     log_activity(
         organization_id=organization_id,
@@ -212,6 +233,4 @@ def handle_personal_api_key_change(
         detail=Detail(
             changes=changes_between(scope, previous=before_update, current=after_update), name=after_update.label
         ),
-        force_save=activity == "updated"
-        and before_update is None,  # Force save for create operations misidentified as updates
     )
