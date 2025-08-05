@@ -26,6 +26,7 @@ import { ExperimentsSettings } from './ExperimentsSettings'
 
 import { DuplicateExperimentModal } from './DuplicateExperimentModal'
 import { EXPERIMENTS_PER_PAGE, experimentsLogic, getExperimentStatus } from './experimentsLogic'
+import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 import { StatusTag } from './ExperimentView/components'
 import { Holdouts } from './Holdouts'
 import { isLegacyExperiment } from './utils'
@@ -42,8 +43,8 @@ const getExperimentDuration = (experiment: Experiment): number | undefined => {
     return experiment.end_date
         ? dayjs(experiment.end_date).diff(dayjs(experiment.start_date), 'day')
         : experiment.start_date
-        ? dayjs().diff(dayjs(experiment.start_date), 'day')
-        : undefined
+          ? dayjs().diff(dayjs(experiment.start_date), 'day')
+          : undefined
 }
 
 export function Experiments(): JSX.Element {
@@ -142,6 +143,20 @@ export function Experiments(): JSX.Element {
                                     fullWidth
                                 >
                                     Duplicate
+                                </LemonButton>
+                                <LemonButton
+                                    onClick={() => {
+                                        if (experiment.feature_flag?.id) {
+                                            featureFlagLogic({ id: experiment.feature_flag.id }).mount()
+                                            featureFlagLogic({ id: experiment.feature_flag.id }).actions.createSurvey()
+                                        }
+                                    }}
+                                    size="small"
+                                    fullWidth
+                                    data-attr="create-survey"
+                                    disabled={!experiment.feature_flag?.id}
+                                >
+                                    Create survey
                                 </LemonButton>
                                 {!experiment.archived &&
                                     experiment?.end_date &&

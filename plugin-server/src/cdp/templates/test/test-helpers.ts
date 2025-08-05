@@ -53,12 +53,15 @@ export const compileInputs = async (
     template: HogFunctionTemplate | NativeTemplate,
     _inputs: Record<string, any>
 ): Promise<Record<string, CyclotronInputType>> => {
-    const defaultInputs = template.inputs_schema.reduce((acc, input) => {
-        if (typeof input.default !== 'undefined') {
-            acc[input.key] = input.default
-        }
-        return acc
-    }, {} as Record<string, CyclotronInputType>)
+    const defaultInputs = template.inputs_schema.reduce(
+        (acc, input) => {
+            if (typeof input.default !== 'undefined') {
+                acc[input.key] = input.default
+            }
+            return acc
+        },
+        {} as Record<string, CyclotronInputType>
+    )
 
     const allInputs = { ...defaultInputs, ..._inputs }
 
@@ -73,13 +76,16 @@ export const compileInputs = async (
         })
     )
 
-    return compiledEntries.reduce((acc, [key, value]) => {
-        acc[key] = {
-            value: allInputs[key],
-            bytecode: value,
-        }
-        return acc
-    }, {} as Record<string, CyclotronInputType>)
+    return compiledEntries.reduce(
+        (acc, [key, value]) => {
+            acc[key] = {
+                value: allInputs[key],
+                bytecode: value,
+            }
+            return acc
+        },
+        {} as Record<string, CyclotronInputType>
+    )
 }
 
 const createGlobals = (
@@ -140,6 +146,7 @@ export class TemplateTester {
     the same way we did it here https://github.com/PostHog/posthog-plugin-geoip/blob/a5e9370422752eb7ea486f16c5cc8acf916b67b0/index.test.ts#L79
     */
     async beforeEach() {
+        Settings.defaultZone = 'UTC'
         if (!this.geoipService) {
             this.geoipService = new GeoIPService(defaultConfig)
         }
@@ -154,6 +161,10 @@ export class TemplateTester {
         }
 
         this.executor = new HogExecutorService(this.mockHub)
+    }
+
+    afterEach() {
+        Settings.defaultZone = 'system'
     }
 
     createGlobals(globals: DeepPartialHogFunctionInvocationGlobals = {}): HogFunctionInvocationGlobalsWithInputs {
@@ -235,13 +246,16 @@ export class TemplateTester {
                 })
         )
 
-        const inputsObj = processedInputs.reduce((acc, item) => {
-            acc[item.key] = {
-                value: item.value,
-                bytecode: item.bytecode,
-            }
-            return acc
-        }, {} as Record<string, CyclotronInputType>)
+        const inputsObj = processedInputs.reduce(
+            (acc, item) => {
+                acc[item.key] = {
+                    value: item.value,
+                    bytecode: item.bytecode,
+                }
+                return acc
+            },
+            {} as Record<string, CyclotronInputType>
+        )
 
         compiledMappingInputs.inputs = inputsObj
 
@@ -281,7 +295,15 @@ export class TemplateTester {
             body: response.body,
         })
 
-        return this.executor.execute(modifiedInvocation)
+        const result = await this.executor.execute(modifiedInvocation)
+
+        result.logs.forEach((x) => {
+            if (typeof x.message === 'string' && x.message.includes('Function completed in')) {
+                x.message = 'Function completed in [REPLACED]'
+            }
+        })
+
+        return result
     }
 }
 
@@ -493,12 +515,15 @@ export const generateTestData = (
         return val
     }
 
-    const inputs = input_schema.reduce((acc, input) => {
-        if (input.required || requiredFieldsOnly === false) {
-            acc[input.key] = input.default ?? generateValue(input)
-        }
-        return acc
-    }, {} as Record<string, any>)
+    const inputs = input_schema.reduce(
+        (acc, input) => {
+            if (input.required || requiredFieldsOnly === false) {
+                acc[input.key] = input.default ?? generateValue(input)
+            }
+            return acc
+        },
+        {} as Record<string, any>
+    )
 
     return inputs
 }

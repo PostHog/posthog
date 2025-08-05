@@ -702,20 +702,20 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 const uniqueConversionsSeries: ActionsNode | EventsNode | undefined = !conversionGoal
                     ? undefined
                     : 'actionId' in conversionGoal
-                    ? {
-                          kind: NodeKind.ActionsNode,
-                          id: conversionGoal.actionId,
-                          math: BaseMathType.UniqueUsers,
-                          name: 'Unique conversions',
-                          custom_name: 'Unique conversions',
-                      }
-                    : {
-                          kind: NodeKind.EventsNode,
-                          event: conversionGoal.customEventName,
-                          math: BaseMathType.UniqueUsers,
-                          name: 'Unique conversions',
-                          custom_name: 'Unique conversions',
-                      }
+                      ? {
+                            kind: NodeKind.ActionsNode,
+                            id: conversionGoal.actionId,
+                            math: BaseMathType.UniqueUsers,
+                            name: 'Unique conversions',
+                            custom_name: 'Unique conversions',
+                        }
+                      : {
+                            kind: NodeKind.EventsNode,
+                            event: conversionGoal.customEventName,
+                            math: BaseMathType.UniqueUsers,
+                            name: 'Unique conversions',
+                            custom_name: 'Unique conversions',
+                        }
                 const totalConversionSeries = uniqueConversionsSeries
                     ? {
                           ...uniqueConversionsSeries,

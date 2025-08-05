@@ -624,10 +624,13 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.activity(':tab')]: [Scene.Activity, 'activity'],
     [urls.replay()]: [Scene.Replay, 'replay'],
     // One entry for every available tab
-    ...Object.values(ReplayTabs).reduce((acc, tab) => {
-        acc[urls.replay(tab)] = [Scene.Replay, `replay:${tab}`]
-        return acc
-    }, {} as Record<string, [Scene, string]>),
+    ...Object.values(ReplayTabs).reduce(
+        (acc, tab) => {
+            acc[urls.replay(tab)] = [Scene.Replay, `replay:${tab}`]
+            return acc
+        },
+        {} as Record<string, [Scene, string]>
+    ),
     [urls.replayFilePlayback()]: [Scene.ReplayFilePlayback, 'replayFilePlayback'],
     [urls.replaySingle(':id')]: [Scene.ReplaySingle, 'replaySingle'],
     [urls.replayPlaylist(':id')]: [Scene.ReplayPlaylist, 'replayPlaylist'],

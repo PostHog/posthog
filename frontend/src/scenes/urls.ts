@@ -79,7 +79,7 @@ export const urls = {
             nodeTab ? `/${nodeTab}` : ''
         }`,
     customCss: (): string => '/themes/custom-css',
-    sqlEditor: (query?: string, view_id?: string, insightShortId?: string): string => {
+    sqlEditor: (query?: string, view_id?: string, insightShortId?: string, draftId?: string): string => {
         if (query) {
             return `/sql?open_query=${encodeURIComponent(query)}`
         }
@@ -90,6 +90,10 @@ export const urls = {
 
         if (insightShortId) {
             return `/sql?open_insight=${insightShortId}`
+        }
+
+        if (draftId) {
+            return `/sql?open_draft=${draftId}`
         }
 
         return '/sql'

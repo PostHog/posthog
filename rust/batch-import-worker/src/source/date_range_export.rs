@@ -63,6 +63,7 @@ pub struct DateRangeExportSourceBuilder {
     end_qp: String,
     timeout: Duration,
     retries: usize,
+    retry_delay: Duration,
     auth_config: AuthConfig,
     date_format: String,
     headers: HashMap<String, String>,
@@ -86,6 +87,7 @@ impl DateRangeExportSourceBuilder {
             end_qp: "end".to_string(),
             timeout: Duration::from_secs(30),
             retries: 3,
+            retry_delay: Duration::from_secs(30),
             auth_config: AuthConfig::None,
             date_format: "%Y-%m-%dT%H:%M:%SZ".to_string(),
             headers: HashMap::new(),
@@ -105,6 +107,11 @@ impl DateRangeExportSourceBuilder {
 
     pub fn with_retries(mut self, retries: usize) -> Self {
         self.retries = retries;
+        self
+    }
+
+    pub fn with_retry_delay(mut self, retry_delay: Duration) -> Self {
+        self.retry_delay = retry_delay;
         self
     }
 
@@ -149,6 +156,7 @@ impl DateRangeExportSourceBuilder {
             date_format: self.date_format,
             client,
             retries: self.retries,
+            retry_delay: self.retry_delay,
             extractor: self.extractor,
             temp_dir: Arc::new(Mutex::new(None)),
             prepared_keys: Arc::new(Mutex::new(HashMap::new())),
@@ -161,6 +169,7 @@ pub struct DateRangeExportSource {
     pub intervals: Vec<(DateTime<Utc>, DateTime<Utc>)>,
     pub client: Client,
     pub retries: usize,
+    pub retry_delay: Duration,
     pub extractor: Arc<dyn PartExtractor>,
     pub start_qp: String,
     pub end_qp: String,
@@ -262,6 +271,44 @@ impl DateRangeExportSource {
         }
 
         info!("Downloading and preparing key: {}", key);
+
+        let mut retries = self.retries;
+        loop {
+            match self
+                .download_and_prepare_part_data_inner(key, start, end)
+                .await
+            {
+                Ok(result) => return Ok(result),
+                Err(e) => {
+                    // Check if this is a rate limit error by looking for a 429 status in the error chain
+                    let is_rate_limit_error = e.chain().any(|err| {
+                        if let Some(reqwest_err) = err.downcast_ref::<ReqwestError>() {
+                            reqwest_err
+                                .status()
+                                .map_or(false, |status| status.as_u16() == 429)
+                        } else {
+                            false
+                        }
+                    });
+
+                    if is_rate_limit_error && retries > 0 {
+                        info!("Rate limit hit (429), sleeping for {:?} before retry. Retries remaining: {}", self.retry_delay, retries);
+                        tokio::time::sleep(self.retry_delay).await;
+                        retries -= 1;
+                    } else {
+                        return Err(e);
+                    }
+                }
+            }
+        }
+    }
+
+    async fn download_and_prepare_part_data_inner(
+        &self,
+        key: &str,
+        start: DateTime<Utc>,
+        end: DateTime<Utc>,
+    ) -> Result<ExtractedPartData, Error> {
         let mut request = self.client.get(&self.base_url).query(&[
             (&self.start_qp, start.format(&self.date_format).to_string()),
             (&self.end_qp, end.format(&self.date_format).to_string()),
@@ -297,7 +344,11 @@ impl DateRangeExportSource {
         // We want to return something to the .process() thread so that we end up making a commit
         // for this key/part of the overall job
         if response.status() == 404 {
-            info!("No data available for key: {} (404 response)", key);
+            info!(
+                "No data available for key: {} (404 response), sleeping for 2 seconds",
+                key
+            );
+            tokio::time::sleep(Duration::from_secs(2)).await;
             let temp_dir = self.get_temp_dir_path().await?;
 
             let empty_data_file_path = temp_dir.join(format!("{}.data", key.replace(':', "_")));
@@ -977,6 +1028,50 @@ mod tests {
         let _chunk = source.get_chunk(key, 0, file_size).await.unwrap();
 
         assert!(source.size(key).await.unwrap().is_none());
+
+        source.cleanup_after_job().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_429_exhausts_retries() {
+        let server = MockServer::start();
+
+        let mock = server.mock(|when, then| {
+            when.method(httpmock::Method::GET).path("/export");
+            then.status(429); // Always return 429
+        });
+
+        let source = DateRangeExportSource::builder(
+            server.url("/export"),
+            Utc.with_ymd_and_hms(2023, 1, 1, 0, 0, 0).unwrap(),
+            Utc.with_ymd_and_hms(2023, 1, 1, 1, 0, 0).unwrap(),
+            3600,
+            Arc::new(MockExtractor),
+        )
+        .with_retries(2)
+        .with_retry_delay(Duration::from_millis(1))
+        .build()
+        .unwrap();
+
+        source.prepare_for_job().await.unwrap();
+        let keys = source.keys().await.unwrap();
+        let key = &keys[0];
+
+        let result = source.prepare_key(key).await;
+        assert!(result.is_err());
+
+        // Check that we get a reqwest error with 429 status
+        if let Some(reqwest_error) = result.unwrap_err().downcast_ref::<ReqwestError>() {
+            assert_eq!(reqwest_error.status().unwrap().as_u16(), 429);
+        } else {
+            panic!("Expected reqwest error with 429 status");
+        }
+
+        assert_eq!(
+            mock.hits(),
+            3,
+            "Should have made 3 calls (initial + 2 retries)"
+        );
 
         source.cleanup_after_job().await.unwrap();
     }
