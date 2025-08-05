@@ -39,3 +39,8 @@ declare module '*.json?url' {
     const content: any
     export default content
 }
+
+// This fixes a TS error where @tiptap/react/menus cannot be found because of our moduleResolution
+declare module '@tiptap/react/menus' {
+    export * from '@tiptap/react/dist/menus/index.d.ts'
+}
