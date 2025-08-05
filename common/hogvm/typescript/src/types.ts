@@ -73,7 +73,7 @@ export type Telemetry = [
     /** Opcode */
     string,
     /** Debug */
-    string,
+    string
 ]
 
 export interface ExecResult {
