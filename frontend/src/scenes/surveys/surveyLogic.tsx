@@ -279,24 +279,22 @@ function extractPersonData(row: SurveyResponseRow): {
     return { distinctId, personProperties, timestamp }
 }
 
-// Helper to count a choice and store person data for first occurrence
+// Helper to count a choice and store person data for latest occurrence
 function countChoice(
     choice: string,
     counts: { [key: string]: number },
-    uniqueResponsePersonData: { [key: string]: ReturnType<typeof extractPersonData> },
+    latestResponsePersonData: { [key: string]: ReturnType<typeof extractPersonData> },
     personData: ReturnType<typeof extractPersonData>
 ): void {
     if (isEmptyOrUndefined(choice)) {
         return
     }
 
-    const previousCount = counts[choice] || 0
-    counts[choice] = previousCount + 1
+    counts[choice] = (counts[choice] || 0) + 1
 
-    // Store person data only for the first occurrence (unique responses)
-    if (previousCount === 0) {
-        uniqueResponsePersonData[choice] = personData
-    }
+    // Always store the latest person data - this gives us the most recent respondent
+    // for each choice to display in the UI (e.g., "Sarah was the last to pick this option")
+    latestResponsePersonData[choice] = personData
 }
 
 // Shared utility for processing choice-based questions
@@ -307,7 +305,9 @@ function processChoiceQuestion(
     questionType: SurveyQuestionType.SingleChoice | SurveyQuestionType.MultipleChoice
 ): ChoiceQuestionProcessedResponses {
     const counts: { [key: string]: number } = {}
-    const uniqueResponsePersonData: { [key: string]: ReturnType<typeof extractPersonData> } = {}
+    // Store person data for the most recent person who selected each choice - used in UI to show
+    // "who last picked this option" with avatar/name when hovering over choice visualizations
+    const latestResponsePersonData: { [key: string]: ReturnType<typeof extractPersonData> } = {}
     let total = 0
 
     // Zero-fill predefined choices (excluding open choice)
@@ -329,7 +329,7 @@ function processChoiceQuestion(
         if (questionType === SurveyQuestionType.SingleChoice) {
             const value = rawValue as string
             if (!isEmptyOrUndefined(value)) {
-                countChoice(value, counts, uniqueResponsePersonData, personData)
+                countChoice(value, counts, latestResponsePersonData, personData)
                 total += 1
             }
         } else {
@@ -340,7 +340,7 @@ function processChoiceQuestion(
                 total += 1
                 choices.forEach((choice) => {
                     const cleaned = choice.replace(/^['"]+|['"]+$/g, '')
-                    countChoice(cleaned, counts, uniqueResponsePersonData, personData)
+                    countChoice(cleaned, counts, latestResponsePersonData, personData)
                 })
             }
         }
@@ -354,13 +354,13 @@ function processChoiceQuestion(
                 isPredefined: question.choices?.includes(label) ?? false,
             }
 
-            // Add person data for unique responses
-            if (uniqueResponsePersonData[label]) {
+            // Attach the latest person's data who selected this choice (for UI display)
+            if (latestResponsePersonData[label]) {
                 return {
                     ...baseData,
-                    distinctId: uniqueResponsePersonData[label].distinctId,
-                    personProperties: uniqueResponsePersonData[label].personProperties,
-                    timestamp: uniqueResponsePersonData[label].timestamp,
+                    distinctId: latestResponsePersonData[label].distinctId,
+                    personProperties: latestResponsePersonData[label].personProperties,
+                    timestamp: latestResponsePersonData[label].timestamp,
                 }
             }
 

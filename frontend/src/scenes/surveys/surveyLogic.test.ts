@@ -1912,4 +1912,136 @@ describe('processResultsForSurveyQuestions', () => {
             })
         })
     })
+
+    describe('Latest Person Data Storage', () => {
+        it('stores latest person data for single choice questions', () => {
+            const questions = [
+                {
+                    id: 'single-latest',
+                    type: SurveyQuestionType.SingleChoice as const,
+                    question: 'Pick one',
+                    choices: ['Yes', 'No'],
+                },
+            ]
+            // Multiple people picking the same choice - should store the LATEST person's data
+            const results = [
+                ['Yes', '{"name": "Alice"}', 'user1', '2024-01-15T10:00:00Z'], // Alice picks Yes at 10:00
+                ['Yes', '{"name": "Bob"}', 'user2', '2024-01-15T11:00:00Z'], // Bob picks Yes at 11:00 (later)
+                ['Yes', '{"name": "Carol"}', 'user3', '2024-01-15T12:00:00Z'], // Carol picks Yes at 12:00 (latest)
+                ['No', '{"name": "Dave"}', 'user4', '2024-01-15T13:00:00Z'], // Dave picks No
+            ]
+
+            const processed = processResultsForSurveyQuestions(questions, results)
+            const singleData = processed['single-latest'] as ChoiceQuestionProcessedResponses
+
+            expect(singleData.totalResponses).toBe(4)
+
+            const dataMap = new Map(singleData.data.map((item) => [item.label, item]))
+
+            // "Yes" should have Carol's data (latest timestamp)
+            expect(dataMap.get('Yes')).toEqual({
+                label: 'Yes',
+                value: 3,
+                isPredefined: true,
+                distinctId: 'user3',
+                personProperties: { name: 'Carol' },
+                timestamp: '2024-01-15T12:00:00Z',
+            })
+
+            // "No" should have Dave's data (only person who picked it)
+            expect(dataMap.get('No')).toEqual({
+                label: 'No',
+                value: 1,
+                isPredefined: true,
+                distinctId: 'user4',
+                personProperties: { name: 'Dave' },
+                timestamp: '2024-01-15T13:00:00Z',
+            })
+        })
+
+        it('stores latest person data for multiple choice questions', () => {
+            const questions = [
+                {
+                    id: 'multi-latest',
+                    type: SurveyQuestionType.MultipleChoice as const,
+                    question: 'Pick many',
+                    choices: ['A', 'B', 'C'],
+                },
+            ]
+            // Multiple people picking the same choices - should store the LATEST person's data for each choice
+            const results: SurveyRawResults = [
+                [['A', 'B'], '{"name": "Alice"}', 'user1', '2024-01-15T10:00:00Z'], // Alice picks A,B at 10:00
+                [['A'], '{"name": "Bob"}', 'user2', '2024-01-15T11:00:00Z'], // Bob picks A at 11:00 (later for A)
+                [['B', 'C'], '{"name": "Carol"}', 'user3', '2024-01-15T12:00:00Z'], // Carol picks B,C at 12:00 (later for B)
+            ]
+
+            const processed = processResultsForSurveyQuestions(questions, results)
+            const multiData = processed['multi-latest'] as ChoiceQuestionProcessedResponses
+
+            expect(multiData.totalResponses).toBe(3)
+
+            const dataMap = new Map(multiData.data.map((item) => [item.label, item]))
+
+            // "A" should have Bob's data (latest person to pick A)
+            expect(dataMap.get('A')).toEqual({
+                label: 'A',
+                value: 2, // Alice and Bob both picked A
+                isPredefined: true,
+                distinctId: 'user2',
+                personProperties: { name: 'Bob' },
+                timestamp: '2024-01-15T11:00:00Z',
+            })
+
+            // "B" should have Carol's data (latest person to pick B)
+            expect(dataMap.get('B')).toEqual({
+                label: 'B',
+                value: 2, // Alice and Carol both picked B
+                isPredefined: true,
+                distinctId: 'user3',
+                personProperties: { name: 'Carol' },
+                timestamp: '2024-01-15T12:00:00Z',
+            })
+
+            // "C" should have Carol's data (only person to pick C)
+            expect(dataMap.get('C')).toEqual({
+                label: 'C',
+                value: 1,
+                isPredefined: true,
+                distinctId: 'user3',
+                personProperties: { name: 'Carol' },
+                timestamp: '2024-01-15T12:00:00Z',
+            })
+        })
+
+        it('handles invalid person properties gracefully while storing latest data', () => {
+            const questions = [
+                {
+                    id: 'single-invalid-props',
+                    type: SurveyQuestionType.SingleChoice as const,
+                    question: 'Pick one',
+                    choices: ['Option'],
+                },
+            ]
+            const results = [
+                ['Option', 'invalid json', 'user1', '2024-01-15T10:00:00Z'], // Invalid JSON
+                ['Option', '{"name": "Bob"}', 'user2', '2024-01-15T11:00:00Z'], // Valid JSON (latest)
+                ['Option', '', 'user3', '2024-01-15T12:00:00Z'], // Empty props (most recent)
+            ]
+
+            const processed = processResultsForSurveyQuestions(questions, results)
+            const singleData = processed['single-invalid-props'] as ChoiceQuestionProcessedResponses
+
+            const dataMap = new Map(singleData.data.map((item) => [item.label, item]))
+
+            // Should have user3's data (latest timestamp) with undefined personProperties (empty string)
+            expect(dataMap.get('Option')).toEqual({
+                label: 'Option',
+                value: 3,
+                isPredefined: true,
+                distinctId: 'user3',
+                personProperties: undefined,
+                timestamp: '2024-01-15T12:00:00Z',
+            })
+        })
+    })
 })
