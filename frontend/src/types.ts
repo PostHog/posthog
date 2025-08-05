@@ -3673,10 +3673,11 @@ export interface GroupType {
 export type GroupTypeProperties = Record<number, Array<PersonProperty>>
 
 export interface Group {
-    group_type_index: GroupTypeIndex
-    group_key: string
     created_at: string
+    group_key: string
+    group_type_index: GroupTypeIndex
     group_properties: Record<string, any>
+    notebook: string | null
 }
 
 export interface UserInterviewType {
@@ -4187,6 +4188,7 @@ export const INTEGRATION_KINDS = [
     'google-pubsub',
     'google-cloud-storage',
     'google-ads',
+    'google-sheets',
     'linkedin-ads',
     'snapchat',
     'intercom',

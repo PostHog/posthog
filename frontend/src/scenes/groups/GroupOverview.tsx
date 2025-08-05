@@ -15,12 +15,12 @@ export function GroupOverview({ groupData }: { groupData: Group }): JSX.Element 
     const { groupTypeName } = useValues(groupLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
-    if (featureFlags[FEATURE_FLAGS.CRM_ITERATION_ONE]) {
+    if (featureFlags[FEATURE_FLAGS.CRM_ITERATION_ONE] && groupData.notebook) {
         return (
             <div className="flex flex-col gap-4">
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-stretch">
                     <div className="col-span-1 order-1">
-                        <GroupNotebookCard />
+                        <GroupNotebookCard shortId={groupData.notebook} />
                     </div>
                     <div className="col-span-1 flex flex-col gap-4 order-2">
                         <div>

@@ -7,7 +7,10 @@ from django.urls.conf import path
 from django.views.decorators.csrf import csrf_exempt
 
 from ee.api import integration
+
+from ee.api.mcp.http import mcp_view
 from ee.support_sidebar_max.views import MaxChatViewSet
+from posthog.utils import opt_slash_path
 
 from .api import (
     authentication,
@@ -116,5 +119,6 @@ urlpatterns: list[Any] = [
     path("api/saml/metadata/", authentication.saml_metadata_view),
     path("api/sentry_stats/", sentry_stats.sentry_stats),
     path("max/chat/", csrf_exempt(MaxChatViewSet.as_view({"post": "create"})), name="max_chat"),
+    opt_slash_path("mcp", csrf_exempt(mcp_view)),
     *admin_urlpatterns,
 ]

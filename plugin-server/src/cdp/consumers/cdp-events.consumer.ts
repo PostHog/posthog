@@ -33,6 +33,12 @@ export const counterMissingAddon = new Counter({
     labelNames: ['team_id'],
 })
 
+export const counterHogFunctionStateOnEvent = new Counter({
+    name: 'cdp_hog_function_state_on_event',
+    help: 'Metric the state of a hog function that matched an event',
+    labelNames: ['state', 'kind'],
+})
+
 export class CdpEventsConsumer extends CdpConsumerBase {
     protected name = 'CdpEventsConsumer'
     protected hogTypes: HogFunctionTypeType[] = ['destination']
@@ -139,6 +145,13 @@ export class CdpEventsConsumer extends CdpConsumerBase {
                 }
 
                 const state = states[item.hogFunction.id].state
+
+                counterHogFunctionStateOnEvent
+                    .labels({
+                        state: HogWatcherState[state],
+                        kind: item.hogFunction.type,
+                    })
+                    .inc()
 
                 if (state === HogWatcherState.disabled) {
                     this.hogFunctionMonitoringService.queueAppMetric(
