@@ -1,6 +1,6 @@
 import { SceneName } from 'lib/components/Scenes/SceneName'
 import { useActions, useValues } from 'kea'
-import { ScenePanelCommonActions, ScenePanelDivider, ScenePanelLabel } from '~/layout/scenes/SceneLayout'
+import { ScenePanel, ScenePanelCommonActions, ScenePanelDivider, ScenePanelLabel } from '~/layout/scenes/SceneLayout'
 import { errorTrackingIssueSceneLogic } from './errorTrackingIssueSceneLogic'
 import { SceneDescription } from 'lib/components/Scenes/SceneDescription'
 import { SceneCommonButtons } from 'lib/components/Scenes/SceneCommonButtons'
@@ -28,40 +28,42 @@ export const ErrorTrackingIssueScenePanel = (): JSX.Element | null => {
     const { updateName, updateDescription, updateAssignee, updateStatus } = useActions(errorTrackingIssueSceneLogic)
 
     return issue ? (
-        <div className="flex flex-col gap-2">
-            <SceneName defaultValue={issue.name ?? ''} onSave={updateName} dataAttrKey={RESOURCE_TYPE} />
-            <SceneDescription
-                defaultValue={issue.description ?? ''}
-                onSave={updateDescription}
-                dataAttrKey={RESOURCE_TYPE}
-            />
-            <SceneActivityIndicator at={issue.first_seen} prefix="First seen" />
-
-            <IssueStatusSelect status={issue.status} onChange={updateStatus} />
-            <IssueAssigneeSelect
-                assignee={issue.assignee}
-                onChange={updateAssignee}
-                disabled={issue.status != 'active'}
-            />
-            <IssueExternalReference />
-
-            <ScenePanelDivider />
-
-            <ScenePanelCommonActions isFirst={false}>
-                <SceneCommonButtons
-                    comment
-                    share={{
-                        onClick: () => {
-                            void copyToClipboard(
-                                window.location.origin + urls.errorTrackingIssue(issue.id),
-                                'issue link'
-                            )
-                        },
-                    }}
+        <ScenePanel>
+            <div className="flex flex-col gap-2">
+                <SceneName defaultValue={issue.name ?? ''} onSave={updateName} dataAttrKey={RESOURCE_TYPE} />
+                <SceneDescription
+                    defaultValue={issue.description ?? ''}
+                    onSave={updateDescription}
                     dataAttrKey={RESOURCE_TYPE}
                 />
-            </ScenePanelCommonActions>
-        </div>
+                <SceneActivityIndicator at={issue.first_seen} prefix="First seen" />
+
+                <IssueStatusSelect status={issue.status} onChange={updateStatus} />
+                <IssueAssigneeSelect
+                    assignee={issue.assignee}
+                    onChange={updateAssignee}
+                    disabled={issue.status != 'active'}
+                />
+                <IssueExternalReference />
+
+                <ScenePanelDivider />
+
+                <ScenePanelCommonActions isFirst={false}>
+                    <SceneCommonButtons
+                        comment
+                        share={{
+                            onClick: () => {
+                                void copyToClipboard(
+                                    window.location.origin + urls.errorTrackingIssue(issue.id),
+                                    'issue link'
+                                )
+                            },
+                        }}
+                        dataAttrKey={RESOURCE_TYPE}
+                    />
+                </ScenePanelCommonActions>
+            </div>
+        </ScenePanel>
     ) : null
 }
 

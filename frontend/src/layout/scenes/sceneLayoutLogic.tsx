@@ -3,6 +3,7 @@ import type { sceneLayoutLogicType } from './sceneLayoutLogicType'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import React from 'react'
+import { sceneLogic } from 'scenes/sceneLogic'
 
 export type SceneLayoutContainerRef = React.RefObject<HTMLElement> | null
 
@@ -11,7 +12,7 @@ const SCENE_WIDTH_WHERE_RELATIVE_PANEL_IS_OPEN = 1358
 
 export const sceneLayoutLogic = kea<sceneLayoutLogicType>([
     path(['layout', 'scene-layout', 'sceneLayoutLogic']),
-    connect({ values: [featureFlagLogic, ['featureFlags']] }),
+    connect({ values: [featureFlagLogic, ['featureFlags'], sceneLogic, ['sceneConfig']] }),
     actions({
         registerScenePanelElement: (element: HTMLElement | null) => ({ element }),
         setScenePanelIsPresent: (active: boolean) => ({ active }),
@@ -62,8 +63,9 @@ export const sceneLayoutLogic = kea<sceneLayoutLogicType>([
     selectors({
         useSceneTabs: [(s) => [s.featureFlags], (featureFlags) => !!featureFlags[FEATURE_FLAGS.SCENE_TABS]],
         scenePanelIsRelative: [
-            (s) => [s.sceneWidth],
-            (sceneWidth) => sceneWidth >= SCENE_WIDTH_WHERE_RELATIVE_PANEL_IS_OPEN,
+            (s) => [s.sceneWidth, s.sceneConfig],
+            (sceneWidth, sceneConfig) =>
+                sceneWidth >= (sceneConfig?.panelOptions?.relativeWidth ?? SCENE_WIDTH_WHERE_RELATIVE_PANEL_IS_OPEN),
         ],
         scenePanelOpen: [
             (s) => [s.scenePanelIsRelative, s.forceScenePanelClosedWhenRelative, s.scenePanelOpenManual],
