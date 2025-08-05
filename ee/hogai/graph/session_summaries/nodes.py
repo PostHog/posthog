@@ -4,7 +4,6 @@ from typing import cast, Literal, Any
 from uuid import uuid4
 
 import structlog
-from asgiref.sync import async_to_sync
 from langchain_core.runnables import RunnableConfig
 
 from ee.hogai.graph.base import AssistantNode
@@ -13,8 +12,10 @@ from ee.hogai.session_summaries.session_group.summarize_session_group import fin
 from ee.hogai.session_summaries.session_group.summary_notebooks import create_summary_notebook
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from posthog.schema import MaxRecordingUniversalFilters, RecordingsQuery, AssistantToolCallMessage
+from posthog.sync import database_sync_to_async
 from posthog.temporal.ai.session_summary.summarize_session import execute_summarize_session
 from posthog.temporal.ai.session_summary.summarize_session_group import execute_summarize_session_group
+from langgraph.config import get_stream_writer
 
 
 class SessionSummarizationNode(AssistantNode):
@@ -102,27 +103,52 @@ class SessionSummarizationNode(AssistantNode):
         session_ids = [recording["session_id"] for recording in results.results]
         return session_ids if session_ids else None
 
-    async def _summarize_sessions_into_content(self, session_ids: list[str]) -> str:
-        """Summarizes the sessions using the provided session IDs."""
-        # If a small amount of sessions - we won't be able to extract lots of patters,
-        # so it's ok to summarize them one by one and answer fast (without notebook creation)
-        if len(session_ids) <= GROUP_SUMMARIES_MIN_SESSIONS:
-            summaries_tasks = [
-                # As it's used as a direct output, use faster streaming model instead
-                execute_summarize_session(
-                    session_id=sid,
-                    user_id=self._user.id,
-                    team=self._team,
-                    model_to_use=SESSION_SUMMARIES_STREAMING_MODEL,
+    async def _summarize_sessions_individually_with_progress(
+        self, session_ids: list[str], config: RunnableConfig
+    ) -> str:
+        """Summarize sessions individually with progress updates."""
+        total = len(session_ids)
+        completed = 0
+
+        # Get the stream writer for custom events
+        try:
+            writer = get_stream_writer()
+        except Exception:
+            # Fallback if stream writer is not available
+            writer = None
+
+        async def summarize_with_progress(session_id: str) -> str:
+            nonlocal completed
+            result = await execute_summarize_session(
+                session_id=session_id,
+                user_id=self._user.id,
+                team=self._team,
+                model_to_use=SESSION_SUMMARIES_STREAMING_MODEL,
+            )
+            completed += 1
+
+            # Emit custom event for progress using LangGraph's stream writer
+            if writer:
+                writer(
+                    {
+                        "type": "session_summary_progress",
+                        "content": f"Summarizing sessions ({completed} out of {total})",
+                        "completed": completed,
+                        "total": total,
+                    }
                 )
-                for sid in session_ids
-            ]
-            summaries: list[str] = await asyncio.gather(*summaries_tasks)
-            # TODO: Add layer to convert JSON into more readable text for Max to returns to user
-            content = "\n".join(summaries)
-            return content
-        # If a large amount of sessions - we will summarize them in a group and create a notebook
-        # to provide a more detailed overview of the patterns and insights.
+
+            return result
+
+        # Run all tasks concurrently
+        tasks = [summarize_with_progress(sid) for sid in session_ids]
+        summaries = await asyncio.gather(*tasks)
+
+        # TODO: Add layer to convert JSON into more readable text for Max to returns to user
+        return "\n".join(summaries)
+
+    async def _summarize_sessions_as_group(self, session_ids: list[str]) -> str:
+        """Summarize sessions as a group (for larger sets)."""
         min_timestamp, max_timestamp = find_sessions_timestamps(session_ids=session_ids, team=self._team)
         summary = execute_summarize_session_group(
             session_ids=session_ids,
@@ -134,10 +160,9 @@ class SessionSummarizationNode(AssistantNode):
             local_reads_prod=False,
         )
         create_summary_notebook(session_ids=session_ids, user=self._user, team=self._team, summary=summary)
-        content = summary.model_dump_json(exclude_none=True)
-        return content
+        return summary.model_dump_json(exclude_none=True)
 
-    def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
+    async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
         start_time = time.time()
         conversation_id = config.get("configurable", {}).get("thread_id", "unknown")
         # If query was not provided for some reason
@@ -150,7 +175,7 @@ class SessionSummarizationNode(AssistantNode):
             return self._create_error_response(self._base_error_instructions, state.root_tool_call_id)
         try:
             # Generate filters to get session ids from DB
-            replay_filters = async_to_sync(self._generate_replay_filters)(state.session_summarization_query)
+            replay_filters = await self._generate_replay_filters(state.session_summarization_query)
             if not replay_filters:
                 self._log_failure(
                     f"No Replay filters were generated for session summarization: {state.session_summarization_query}",
@@ -159,7 +184,7 @@ class SessionSummarizationNode(AssistantNode):
                 )
                 return self._create_error_response(self._base_error_instructions, state.root_tool_call_id)
             # Query the filters to get session ids
-            session_ids = self._get_session_ids_with_filters(replay_filters)
+            session_ids = await database_sync_to_async(self._get_session_ids_with_filters)(replay_filters)
             # TODO: Remove after testing
             # Limit to 5 to test fast summarization
             session_ids = session_ids[:5] if session_ids else []
@@ -168,7 +193,18 @@ class SessionSummarizationNode(AssistantNode):
                     f"No session ids found for the provided filters: {replay_filters}", conversation_id, start_time
                 )
                 return self._create_error_response(self._base_error_instructions, state.root_tool_call_id)
-            summaries_content = async_to_sync(self._summarize_sessions_into_content)(session_ids)
+
+            # Process sessions based on count
+            if len(session_ids) <= GROUP_SUMMARIES_MIN_SESSIONS:
+                # Process with progress updates
+                summaries_content = await self._summarize_sessions_individually_with_progress(session_ids, config)
+            else:
+                raise Exception("Temp")
+            # TODO: Temporarily disable
+            # else:
+            #     # For large groups, process as before
+            #     summaries_content = await self._summarize_sessions_as_group(session_ids)
+
             return PartialAssistantState(
                 messages=[
                     AssistantToolCallMessage(
