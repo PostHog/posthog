@@ -47,7 +47,7 @@ def fill_insights_missing_query_metadata() -> None:
 
     insights = Insight.objects_including_soft_deleted.filter(
         (Q(query_metadata__isnull=True) | Q(query_metadata={}))
-        & (Q(created_at__gte=one_day_ago) | Q(last_modified_at_gte=one_day_ago))
+        & (Q(created_at__gte=one_day_ago) | Q(last_modified_at__gte=one_day_ago))
     ).only("id")
 
     for insight in insights.iterator(chunk_size=100):
