@@ -1820,7 +1820,14 @@ describe('processResultsForSurveyQuestions', () => {
 
             // Check that data exists for each choice
             const dataMap = new Map(multiData.data.map((item) => [item.label, item]))
-            expect(dataMap.get('A')).toEqual({ label: 'A', value: 2, isPredefined: true })
+            expect(dataMap.get('A')).toEqual({
+                label: 'A',
+                value: 2,
+                isPredefined: true,
+                distinctId: 'user1',
+                personProperties: undefined,
+                timestamp: '2024-01-15T10:00:00Z',
+            })
             expect(dataMap.get('B')).toEqual({
                 label: 'B',
                 value: 1,
