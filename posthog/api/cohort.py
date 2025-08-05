@@ -777,9 +777,9 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
             raise ValidationError("Can only add users to static cohorts")
         person_ids = request.data.get("person_ids", None)
         if not isinstance(person_ids, list):
-            raise ValidationError("distinct_ids need to be a list")
+            raise ValidationError("person_ids need to be a list")
         if len(person_ids) == 0:
-            raise ValidationError("Cannot have empty distinct ids")
+            raise ValidationError("Cannot have empty person_ids")
         if len(person_ids) >= DEFAULT_COHORT_INSERT_BATCH_SIZE:
             raise ValidationError("List size exceeds limit")
         uuids = [
