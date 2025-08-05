@@ -35,6 +35,7 @@ elif [[ "$*" == *"--enable-tracing"* ]]; then
     export OTEL_TRACES_SAMPLER_ARG="1"
 else
     export OTEL_SDK_DISABLED="true"
+    echo "👉 To start with tracing enabled: bin/start --enable-tracing"
 fi
 
 if [ -f .env ]; then
