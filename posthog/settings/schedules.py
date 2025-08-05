@@ -37,10 +37,6 @@ COUNT_TILES_WITH_NO_FILTERS_HASH_INTERVAL_SECONDS = get_from_env(
 
 CACHED_RESULTS_TTL = 7 * 24 * 60 * 60  # how long to keep cached results for
 
-# Query cache backend configuration
-QUERY_CACHE_BACKEND = get_from_env("QUERY_CACHE_BACKEND", "redis")  # 'redis' or 's3'
-QUERY_CACHE_S3_BUCKET = get_from_env("QUERY_CACHE_S3_BUCKET", None, optional=True)  # Use OBJECT_STORAGE_BUCKET if None
-
 # Schedule to run asynchronous data deletion on. Follows crontab syntax.
 # Use empty string to prevent this
 CLEAR_CLICKHOUSE_REMOVED_DATA_SCHEDULE_CRON = get_from_env(
