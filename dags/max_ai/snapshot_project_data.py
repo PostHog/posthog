@@ -6,23 +6,21 @@ import dagster
 from dagster_aws.s3 import S3Resource
 from django.conf import settings
 from fastavro import parse_schema, writer
-from pydantic import BaseModel
 from pydantic_avro import AvroBase
 
 from dags.common import JobOwners
+from dags.max_ai.schema import (
+    ClickhouseProjectDataSnapshot,
+    DataWarehouseTableSchema,
+    PostgresProjectDataSnapshot,
+    PropertyDefinitionSchema,
+    PropertyTaxonomySchema,
+    TeamTaxonomyItemSchema,
+)
 from posthog.hogql_queries.ai.event_taxonomy_query_runner import EventTaxonomyQueryRunner
 from posthog.hogql_queries.ai.team_taxonomy_query_runner import TeamTaxonomyQueryRunner
 from posthog.models import DataWarehouseTable, PropertyDefinition, Team
-from posthog.schema import EventTaxonomyItem, EventTaxonomyQuery, TeamTaxonomyItem, TeamTaxonomyQuery
-
-
-# posthog/models/property_definition.py
-class PropertyDefinitionSchema(AvroBase):
-    name: str
-    is_numerical: bool
-    property_type: str | None
-    type: int
-    group_type_index: int | None
+from posthog.schema import EventTaxonomyQuery, TeamTaxonomyQuery
 
 
 def compose_dump_path(project_id: int, file_name: str) -> str:
@@ -72,13 +70,6 @@ def snapshot_property_definitions(s3: S3Resource, project_id: int) -> SnapshotMo
     return "property_definitions", file_key
 
 
-# posthog/models/warehouse/table.py
-class DataWarehouseTableSchema(AvroBase):
-    name: str
-    format: str
-    columns: list[str]
-
-
 def snapshot_data_warehouse_tables(s3: S3Resource, project_id: int):
     file_key = compose_dump_path(project_id, "dwh_tables.avro")
 
@@ -93,11 +84,6 @@ def snapshot_data_warehouse_tables(s3: S3Resource, project_id: int):
             models_to_dump.append(model)
         dump(models_to_dump)
     return "data_warehouse_tables", file_key
-
-
-class PostgresProjectDataSnapshot(BaseModel):
-    property_definitions: str
-    data_warehouse_tables: str
 
 
 @dagster.op(
@@ -124,10 +110,6 @@ def snapshot_postgres_project_data(
     return PostgresProjectDataSnapshot.model_validate(deps)
 
 
-class TeamTaxonomyItemSchema(AvroBase):
-    results: list[TeamTaxonomyItem]
-
-
 def snapshot_events_taxonomy(s3: S3Resource, team: Team):
     file_key = compose_dump_path(team.id, "events_taxonomy.avro")
     res = TeamTaxonomyQueryRunner(query=TeamTaxonomyQuery(), team=team).calculate()
@@ -137,11 +119,6 @@ def snapshot_events_taxonomy(s3: S3Resource, team: Team):
         dumped_items = TeamTaxonomyItemSchema(results=res.results)
         dump([dumped_items])
     return file_key, res.results
-
-
-class PropertyTaxonomySchema(AvroBase):
-    event: str
-    results: list[EventTaxonomyItem]
 
 
 def snapshot_properties_taxonomy(
@@ -160,11 +137,6 @@ def snapshot_properties_taxonomy(
     with dump_model(s3=s3, schema=PropertyTaxonomySchema, file_key=file_key) as dump:
         dump(results)
     return file_key
-
-
-class ClickhouseProjectDataSnapshot(BaseModel):
-    event_taxonomy: str
-    properties_taxonomy: str
 
 
 @dagster.op(
