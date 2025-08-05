@@ -416,8 +416,7 @@ function processMultipleChoiceQuestion(
                 isPredefined: question.choices?.includes(label) ?? false,
             }
 
-            // Add person data for unique responses
-            if (value === 1 && uniqueResponsePersonData[label]) {
+            if (uniqueResponsePersonData[label]) {
                 return {
                     ...baseData,
                     distinctId: uniqueResponsePersonData[label].distinctId,
