@@ -52,7 +52,7 @@ if __name__ == "__main__":
     asyncio.run(main())
 ```
 
-> ![TIP]
+> [!TIP]
 > You can find more examples of workflows throughout this repository by looking for the `@workflow.defn` decorator.
 
 ### Activity
@@ -78,7 +78,7 @@ At PostHog, we rely on [Temporal Cloud](https://cloud.temporal.io) to host the T
 
 Workflows and activities run in Temporal workers. The Temporal service assigns workflow and activity execution to different task queues, depending on how they are configured in our code, and workers poll these queues to execute the workflow and activity code. The workers are also configured in code as they are also provided by the Temporal Python SDK.
 
-> ![NOTE]
+> [!NOTE]
 > A worker can only listen to a single queue.
 
 At PostHog, most of the configuration currently happens in this package, particularly in the `worker.py` module.
@@ -89,17 +89,17 @@ Temporal schedules are defined by: the action to execute, a spec, a state, and a
 
 The action a schedule can take is always starting a workflow. This is configured with the `temporalio.client.ScheduleActionStartWorkflow` class which defines which workflow to run, with which arguments and id, in which task queue, and the retry policy for the workflow.
 
-> ![NOTE]
+> [!NOTE]
 > The workflow ID configured functions more as an ID prefix: the Temporal schedule will append the start time of the workflow to the end of the ID.
 
 The schedule spec, configured with `temporalio.client.ScheduleSpec` defines the interval or intervals our schedule will run on. The `start_at` and `end_at` parameters determine the beginning and the end of the schedule itself: This means that no runs will be created before `start_at` and no runs will be created after `end_at`. Both can be `None` if we want our schedule to schedule runs forever until paused or deleted.
 
-> ![CAUTION]
+> [!CAUTION]
 > Temporal automatically cleans up schedules sometime after their `end_at` has passed. It is generally not required to set an `end_at` but if you do consider that this means the schedule will be automatically deleted from the Temporal service without possibility of restoring it.
 
 There are multiple ways to define the intervals a schedule runs on: By setting the `intervals` argument, we pass a collection of `datetime.timedelta` of objects which determine the delta between runs, alternatively the `calendars` argument allows matching on date components, like `day_of_month` or `day_of_week`.
 
-> ![IMPORTANT]
+> [!IMPORTANT]
 > By default, calendar-based expressions are interpreted in UTC. The `time_zone_name` argument can override this.
 
 The schedule spec can also include a `jitter` to apply a random value to the start time of each run. This is useful when having multiple schedules with the same spec, as it can help avoid all runs starting simultaneously which can lead to the thundering herd problem on any services those workflows use.
@@ -158,10 +158,10 @@ Let's now dive into some of the decisions you will need to take when developing 
 
 Temporal workers run multiple workflows and activities simultaneously. In order to enable that, we need to choose a concurrency model for our activities and, like described before, there are three types: asyncio, multithreaded, and multiprocessing. This README is not a guide on each concurrency model, so we will focus only on considerations when implementing activities using each of the concurrency models instead.
 
-> ![TIP]
+> [!TIP]
 > A workflow can use different concurrency models in each of its activities, meaning we can have a workflow execute a coroutine activity, and then execute a multiprocessing activity. Although, to keep things simple, we would recommend trying to find a single concurrency model that works for all your activities.
 
-> ![TIP]
+> [!TIP]
 > Asyncio is usually the best choice.
 
 #### Asyncio
@@ -182,7 +182,7 @@ Asyncio is not new in Python (originally introduced in 3.4, and the new keywords
 
 Now that your code is using asyncio, it will run in the Temporal workers cooperating with everyone else to execute concurrently.
 
-> ![TIP]
+> [!TIP]
 > Having asyncio code opens up the door to applying *asyncio patterns* that go beyond adding an `await` and changing a method: That group of sequential requests could run concurrently if you wrap them in tasks and `asyncio.gather` or in an `asyncio.TaskGroup`, maybe that progress update request can be done as a background task while the rest of the application carries on, perhaps the data processing can be done as the data arrives using a `asyncio.Queue` in a consumer-producer pattern. Now you are using *asyncio patterns* instead of running sequential code with `await`s sprinkled around it.
 
 #### Multithreading
@@ -215,15 +215,15 @@ Hearbeats can include additional arbitrary information in them. This is known as
 
 When an activity fails, it may be retried. This will depend on the configured `RetryPolicy` which determines the number of maximum attempts allowed and retry intervals. This can be useful to implement common retry policies, like exponential backoff. Moreover, a `RetryPolicy` also defines a list of errors that should be considered non-retryable and thus they won't be retried even if there are attempts left. This is useful to define fatal errors that won't be resolved by simply retrying.
 
-> ![IMPORTANT]
+> [!IMPORTANT]
 > Temporal matches errors based on the exception class name. This is likely due to serialization/deserialization reasons (remember everything is distributed!). This means that when setting `non_retryable_error_types` you will have to use the name of all the exception you want to not retry on, and not a common ancestor in the class hierarchy.
 
 By default activities retry forever.
 
-> ![CAUTION]
+> [!CAUTION]
 > Retrying forever literally means forever. Even as the universe compresses again into almost nothing, the few gravitational waves still traveling through will contain enough information to retry your activity. Consider whether it is acceptable to have activities eventually fail, or otherwise setup alerting to spot and manually handle activities that will never succeed.
 
-> ![TIP]
+> [!TIP]
 > Always set `max_retries` in tests.
 
 Here is an example showcasing all of the above, but more can be found by searching the codebase:
@@ -296,7 +296,7 @@ class HelloWorldWorkflow:
 
 Based on their intended target, there are two types of logs: Logs intended only for our internal use, and logs that we want to share with users or other systems. In order to target one group or the other, the `posthog/temporal/common/logger.py` module contains some useful logging functions, respectively `get_logger` and `get_external_logger`. These two functions can be used to obtain a structlog logger configured with Temporal context variables. The difference is that `get_external_logger` will get a logger named `EXTERNAL` and our structlog processors know to put messages from this logger into a pipeline that eventually lands it in the `log_entries` table in ClickHouse. From there, they can be displayed in PostHog to, for example, give users more details on what failed when an error occurs, or otherwise consumed by other systems that query ClickHouse. The `get_temporal_context` function defines how to set the `log_source` and `log_source_id` fields that will be inserted into the ClickHouse table. You will want to configure this with something relevant to your own product or feature for easy filtering later.
 
-> ![IMPORTANT]
+> [!IMPORTANT]
 > This logging pipeline is currently asyncio-only and opt-in. Set `TEMPORAL_USE_EXTERNAL_LOGGER` to `true` to use it.
 
 Both `get_*` functions are intended to be called only once, at the top of the module. If you are going to be logging a lot, consider binding the module-level logger for performance reasons.
@@ -322,7 +322,7 @@ async def my_activity(inputs):
         external_logger.error("Our fancy product has failed you, here is what we know about it and what you can do: ...")
 ```
 
-> ![NOTE]
+> [!NOTE]
 > External log messages are also consumed by our internal log consumers, so they will also be available in our log dashboards.
 
 ### Watch for worker shutdowns
@@ -385,7 +385,7 @@ Some changes in our CI/CD pipeline will be required to ensure your changes are t
 
 Moreover, notice that in the workflow every trigger step comes after a check step. This step ensures that only certain module changes trigger a worker re-deployment, and not every single change. This is done because restarting workers can be disruptive to workflows running in it, so as a general rule try to minimize the changes that will trigger a re-deployment of workers. You will probably only need the common temporal modules + your product specific modules in the check.
 
-> ![NOTE]
+> [!NOTE]
 > Temporal workers stop polling for new tasks when a shutdown is initiated, and the deployments can configure a timeout for the shutdown, which can give time for all workflows currently running to finish. Configuring this correctly can minimize the disruption caused by triggering new deployments, but it can be hard to find the right timeout that ensures everything has time to finish without waiting forever.
 
 ### Execute workflows
@@ -398,10 +398,10 @@ python manage.py execute_temporal_workflow "no-op" '{"arg": "1", "batch_export_i
 
 This command takes the name of the workflow as its first argument, and any workflow arguments as a JSON as the second parameter.
 
-> ![IMPORTANT]
+> [!IMPORTANT]
 > This command makes a request to a Temporal service. If developing locally, there is a Temporal service as part of the development stack that is configured automatically for this command to work. However, to execute workflows in production you will need to access a production server to have access to production Temporal services.
 
-> ![CAUTION]
+> [!CAUTION]
 > Make note of the `TEMPORAL_TASK_QUEUE` configured in whichever environment you are running this command in. If the configured task queue is not configured to handle the workflow you are executing this command will fail.
 
 All that being said, a common scenario is that workflows have to be executed regularly on a given interval without manually calling the command. For this, you can use Temporal schedules.
