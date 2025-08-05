@@ -300,8 +300,21 @@ class TestHogFunctionsBackgroundReloading(TestCase, QueryMatchingTest):
         # Mock the plugin server API response for template sync
         with patch("posthog.plugins.plugin_server_api.get_hog_function_templates") as mock_get_templates:
             # Create mock template data for template-geoip
-            mock_node_templates = []
-            mock_node_templates.append(
+            mock_node_templates = [
+                {
+                    "id": "template-geoip",
+                    "name": "GeoIP",
+                    "description": "Adds geoip data to the event",
+                    "type": "transformation",
+                    "code": "return event",
+                    "inputs_schema": [],
+                    "status": "stable",
+                    "free": True,
+                    "category": ["Custom"],
+                    "code_language": "hog",
+                    "icon_url": "/static/transformations/geoip.png",
+                }
+            ]
                 {
                     "id": "template-geoip",
                     "name": "GeoIP",
