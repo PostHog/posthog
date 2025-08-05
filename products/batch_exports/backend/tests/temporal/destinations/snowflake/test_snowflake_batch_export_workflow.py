@@ -265,7 +265,7 @@ class TestSnowflakeExportWorkflowErrorHandling:
         data_interval_end = dt.datetime.now(tz=dt.UTC).replace(hour=0, minute=0, second=0, microsecond=0)
         data_interval_start = data_interval_end - snowflake_batch_export.interval_time_delta
 
-        _ = await generate_test_events_in_clickhouse(
+        await generate_test_events_in_clickhouse(
             client=clickhouse_client,
             team_id=ateam.pk,
             start_time=data_interval_start,
@@ -278,51 +278,29 @@ class TestSnowflakeExportWorkflowErrorHandling:
             person_properties={"utm_medium": "referral", "$initial_os": "Linux"},
         )
 
-        inputs = SnowflakeBatchExportInputs(
-            team_id=ateam.pk,
-            batch_export_id=str(snowflake_batch_export.id),
-            data_interval_end=data_interval_end.isoformat(),
-            interval=interval,
-            **snowflake_batch_export.destination.config,
-        )
+        class FakeSnowflakeConnectionFailOnPut(FakeSnowflakeConnection):
+            def __init__(self, *args, **kwargs):
+                super().__init__(*args, failure_mode="put", **kwargs)
 
-        workflow_id = str(uuid4())
+        with unittest.mock.patch(
+            "products.batch_exports.backend.temporal.destinations.snowflake_batch_export.snowflake.connector.connect",
+            side_effect=FakeSnowflakeConnectionFailOnPut,
+        ):
+            with pytest.raises(WorkflowFailureError) as exc_info:
+                await _run_workflow(
+                    team_id=ateam.pk,
+                    batch_export_id=snowflake_batch_export.id,
+                    data_interval_end=data_interval_end,
+                    interval=interval,
+                    snowflake_batch_export=snowflake_batch_export,
+                    expected_records_completed=100,
+                )
 
-        async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
-            async with Worker(
-                activity_environment.client,
-                task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
-                workflows=[SnowflakeBatchExportWorkflow],
-                activities=[
-                    start_batch_export_run,
-                    insert_into_snowflake_activity,
-                    finish_batch_export_run,
-                ],
-                workflow_runner=UnsandboxedWorkflowRunner(),
-            ):
-
-                class FakeSnowflakeConnectionFailOnPut(FakeSnowflakeConnection):
-                    def __init__(self, *args, **kwargs):
-                        super().__init__(*args, failure_mode="put", **kwargs)
-
-                with unittest.mock.patch(
-                    "products.batch_exports.backend.temporal.destinations.snowflake_batch_export.snowflake.connector.connect",
-                    side_effect=FakeSnowflakeConnectionFailOnPut,
-                ):
-                    with pytest.raises(WorkflowFailureError) as exc_info:
-                        await activity_environment.client.execute_workflow(
-                            SnowflakeBatchExportWorkflow.run,
-                            inputs,
-                            id=workflow_id,
-                            task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
-                            retry_policy=RetryPolicy(maximum_attempts=1),
-                        )
-
-                    err = exc_info.value
-                    assert hasattr(err, "__cause__"), "Workflow failure missing cause"
-                    assert isinstance(err.__cause__, ActivityError)
-                    assert isinstance(err.__cause__.__cause__, ApplicationError)
-                    assert err.__cause__.__cause__.type == "SnowflakeFileNotUploadedError"
+            err = exc_info.value
+            assert hasattr(err, "__cause__"), "Workflow failure missing cause"
+            assert isinstance(err.__cause__, ActivityError)
+            assert isinstance(err.__cause__.__cause__, ApplicationError)
+            assert err.__cause__.__cause__.type == "SnowflakeFileNotUploadedError"
 
     async def test_snowflake_export_workflow_raises_error_on_copy_fail(
         self, clickhouse_client, ateam, snowflake_batch_export, interval
@@ -330,7 +308,7 @@ class TestSnowflakeExportWorkflowErrorHandling:
         data_interval_end = dt.datetime.now(tz=dt.UTC).replace(hour=0, minute=0, second=0, microsecond=0)
         data_interval_start = data_interval_end - snowflake_batch_export.interval_time_delta
 
-        _ = await generate_test_events_in_clickhouse(
+        await generate_test_events_in_clickhouse(
             client=clickhouse_client,
             team_id=ateam.pk,
             start_time=data_interval_start,
@@ -343,51 +321,29 @@ class TestSnowflakeExportWorkflowErrorHandling:
             person_properties={"utm_medium": "referral", "$initial_os": "Linux"},
         )
 
-        inputs = SnowflakeBatchExportInputs(
-            team_id=ateam.pk,
-            batch_export_id=str(snowflake_batch_export.id),
-            data_interval_end=data_interval_end.isoformat(),
-            interval=interval,
-            **snowflake_batch_export.destination.config,
-        )
+        class FakeSnowflakeConnectionFailOnCopy(FakeSnowflakeConnection):
+            def __init__(self, *args, **kwargs):
+                super().__init__(*args, failure_mode="copy", **kwargs)
 
-        workflow_id = str(uuid4())
+        with unittest.mock.patch(
+            "products.batch_exports.backend.temporal.destinations.snowflake_batch_export.snowflake.connector.connect",
+            side_effect=FakeSnowflakeConnectionFailOnCopy,
+        ):
+            with pytest.raises(WorkflowFailureError) as exc_info:
+                await _run_workflow(
+                    team_id=ateam.pk,
+                    batch_export_id=snowflake_batch_export.id,
+                    data_interval_end=data_interval_end,
+                    interval=interval,
+                    snowflake_batch_export=snowflake_batch_export,
+                    expected_records_completed=100,
+                )
 
-        async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
-            async with Worker(
-                activity_environment.client,
-                task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
-                workflows=[SnowflakeBatchExportWorkflow],
-                activities=[
-                    start_batch_export_run,
-                    insert_into_snowflake_activity,
-                    finish_batch_export_run,
-                ],
-                workflow_runner=UnsandboxedWorkflowRunner(),
-            ):
-
-                class FakeSnowflakeConnectionFailOnCopy(FakeSnowflakeConnection):
-                    def __init__(self, *args, **kwargs):
-                        super().__init__(*args, failure_mode="copy", **kwargs)
-
-                with unittest.mock.patch(
-                    "products.batch_exports.backend.temporal.destinations.snowflake_batch_export.snowflake.connector.connect",
-                    side_effect=FakeSnowflakeConnectionFailOnCopy,
-                ):
-                    with pytest.raises(WorkflowFailureError) as exc_info:
-                        await activity_environment.client.execute_workflow(
-                            SnowflakeBatchExportWorkflow.run,
-                            inputs,
-                            id=workflow_id,
-                            task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
-                            retry_policy=RetryPolicy(maximum_attempts=1),
-                        )
-
-                    err = exc_info.value
-                    assert hasattr(err, "__cause__"), "Workflow failure missing cause"
-                    assert isinstance(err.__cause__, ActivityError)
-                    assert isinstance(err.__cause__.__cause__, ApplicationError)
-                    assert err.__cause__.__cause__.type == "SnowflakeFileNotLoadedError"
+            err = exc_info.value
+            assert hasattr(err, "__cause__"), "Workflow failure missing cause"
+            assert isinstance(err.__cause__, ActivityError)
+            assert isinstance(err.__cause__.__cause__, ApplicationError)
+            assert err.__cause__.__cause__.type == "SnowflakeFileNotLoadedError"
 
     async def test_snowflake_export_workflow_handles_unexpected_insert_activity_errors(
         self, ateam, snowflake_batch_export
