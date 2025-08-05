@@ -80,6 +80,7 @@ export function SharingModalContent({
         embedCode,
         iframeProperties,
         shareLink,
+        sharingAllowed,
     } = useValues(sharingLogic(logicProps))
     const { setIsEnabled, togglePreview, setSharingSettingsValue } = useActions(sharingLogic(logicProps))
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
@@ -127,10 +128,20 @@ export function SharingModalContent({
                         <h3>Sharing</h3>
                         <LemonSwitch
                             id="sharing-switch"
-                            label={`Share ${resource} publicly`}
-                            checked={sharingConfiguration.enabled}
+                            label={
+                                <span>
+                                    Share {resource} publicly
+                                    {!sharingAllowed && (
+                                        <Tooltip title="Public sharing is disabled for this organization. Contact your organization admin to enable it.">
+                                            <IconInfo className="ml-1" />
+                                        </Tooltip>
+                                    )}
+                                </span>
+                            }
+                            checked={sharingConfiguration.enabled && sharingAllowed}
                             data-attr="sharing-switch"
                             onChange={(active) => setIsEnabled(active)}
+                            disabled={!sharingAllowed}
                             bordered
                             fullWidth
                         />

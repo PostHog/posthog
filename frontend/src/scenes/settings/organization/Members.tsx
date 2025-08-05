@@ -197,6 +197,9 @@ export function Members(): JSX.Element | null {
     const membersCanUsePersonalApiKeysRestrictionReason = useRestrictedArea({
         minimumAccessLevel: OrganizationMembershipLevel.Admin,
     })
+    const allowPubliclySharedResourcesRestrictionReason = useRestrictedArea({
+        minimumAccessLevel: OrganizationMembershipLevel.Admin,
+    })
 
     useOnMountEffect(ensureAllMembersLoaded)
 
@@ -382,6 +385,49 @@ export function Members(): JSX.Element | null {
                                 updateOrganization({ members_can_use_personal_api_keys })
                             }
                             disabledReason={membersCanUsePersonalApiKeysRestrictionReason}
+                        />
+                        <LemonSwitch
+                            label={
+                                <span>
+                                    Allow publicly shared resources{' '}
+                                    <Tooltip title="When disabled, sharing links and public dashboards will be blocked for this organization.">
+                                        <IconInfo className="mr-1" />
+                                    </Tooltip>
+                                </span>
+                            }
+                            bordered
+                            data-attr="org-allow-publicly-shared-resources-toggle"
+                            checked={!!currentOrganization?.allow_publicly_shared_resources}
+                            onChange={(allow_publicly_shared_resources) => {
+                                if (!allow_publicly_shared_resources) {
+                                    LemonDialog.open({
+                                        title: 'Disable public sharing?',
+                                        description: (
+                                            <div>
+                                                <p>
+                                                    Disabling public sharing will immediately break all existing sharing
+                                                    links and public dashboards for this organization.
+                                                </p>
+                                                <p>
+                                                    Users will no longer be able to access any shared resources until
+                                                    this setting is re-enabled.
+                                                </p>
+                                            </div>
+                                        ),
+                                        primaryButton: {
+                                            children: 'Disable sharing',
+                                            status: 'danger',
+                                            onClick: () => updateOrganization({ allow_publicly_shared_resources }),
+                                        },
+                                        secondaryButton: {
+                                            children: 'Cancel',
+                                        },
+                                    })
+                                } else {
+                                    updateOrganization({ allow_publicly_shared_resources })
+                                }
+                            }}
+                            disabledReason={allowPubliclySharedResourcesRestrictionReason}
                         />
                     </PayGateMini>
                 </>
