@@ -18,7 +18,8 @@ function doesSurveyHaveDisplayConditions(survey: Pick<Survey, 'conditions'>): bo
         survey.conditions?.url ||
         survey.conditions?.selector ||
         (survey?.conditions?.deviceTypes?.length ?? 0) > 0 ||
-        (survey?.conditions?.seenSurveyWaitPeriodInDays ?? 0) > 0
+        (survey?.conditions?.seenSurveyWaitPeriodInDays ?? 0) > 0 ||
+        survey.conditions?.linkedFlagVariant
     )
 }
 

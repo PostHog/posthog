@@ -12,7 +12,6 @@ import {
     LemonDivider,
     LemonInput,
     LemonSegmentedButton,
-    LemonSegmentedButtonOption,
     LemonSelect,
     LemonTag,
     LemonTextArea,
@@ -47,7 +46,6 @@ import { getPropertyKey } from '~/taxonomy/helpers'
 import {
     ActionType,
     LinkSurveyQuestion,
-    MultivariateFlagOptions,
     PropertyFilterType,
     PropertyOperator,
     RatingSurveyQuestion,
@@ -65,24 +63,7 @@ import { HTMLEditor, PresentationTypeCard } from './SurveyAppearanceUtils'
 import { SurveyEditQuestionGroup, SurveyEditQuestionHeader } from './SurveyEditQuestionRow'
 import { SurveyFormAppearance } from './SurveyFormAppearance'
 import { DataCollectionType, SurveyEditSection, surveyLogic } from './surveyLogic'
-
-function variantOptions(multivariate: MultivariateFlagOptions | undefined): LemonSegmentedButtonOption<string>[] {
-    if (!multivariate) {
-        return []
-    }
-    return [
-        {
-            label: 'any',
-            value: 'any',
-        },
-        ...multivariate.variants.map((variant) => {
-            return {
-                label: variant.key,
-                value: variant.key,
-            }
-        }),
-    ]
-}
+import { ANY_VARIANT, variantOptions } from 'scenes/settings/environment/ReplayTriggers'
 
 function SurveyCompletionConditions(): JSX.Element {
     const { survey, dataCollectionType, isAdaptiveLimitFFEnabled } = useValues(surveyLogic)
@@ -792,7 +773,6 @@ export default function SurveyEdit(): JSX.Element {
                                                               </div>
                                                           )}
                                                       </LemonField>
-                                                      {/* {JSON.stringify(survey)} */}
                                                       {survey.linked_flag?.filters.multivariate && (
                                                           <LemonField.Pure
                                                               label="Link to a specific flag variant"
@@ -802,7 +782,8 @@ export default function SurveyEdit(): JSX.Element {
                                                                   <LemonSegmentedButton
                                                                       className="min-w-1/3"
                                                                       value={
-                                                                          survey.conditions?.linkedFlagVariant ?? 'any'
+                                                                          survey.conditions?.linkedFlagVariant ??
+                                                                          ANY_VARIANT
                                                                       }
                                                                       options={variantOptions(
                                                                           survey.linked_flag?.filters.multivariate ||
@@ -812,7 +793,9 @@ export default function SurveyEdit(): JSX.Element {
                                                                           setSurveyValue('conditions', {
                                                                               ...survey.conditions,
                                                                               linkedFlagVariant:
-                                                                                  variant === 'any' ? null : variant,
+                                                                                  variant === ANY_VARIANT
+                                                                                      ? null
+                                                                                      : variant,
                                                                           })
                                                                       }}
                                                                   />

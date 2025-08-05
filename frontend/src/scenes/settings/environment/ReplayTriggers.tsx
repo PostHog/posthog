@@ -40,14 +40,18 @@ import { SelectOption } from '~/queries/nodes/InsightViz/PropertyGroupFilters/An
 import { AvailableFeature, MultivariateFlagOptions } from '~/types'
 import { SessionReplayUrlTriggerConfig } from '~/types'
 
-function variantOptions(multivariate: MultivariateFlagOptions | undefined): LemonSegmentedButtonOption<string>[] {
+export const ANY_VARIANT = 'any'
+
+export function variantOptions(
+    multivariate: MultivariateFlagOptions | undefined
+): LemonSegmentedButtonOption<string>[] {
     if (!multivariate) {
         return []
     }
     return [
         {
-            label: 'any',
-            value: 'any',
+            label: ANY_VARIANT,
+            value: ANY_VARIANT,
         },
         ...multivariate.variants.map((variant) => {
             return {
@@ -113,7 +117,7 @@ function LinkedFlagSelector(): JSX.Element | null {
                         <LemonLabel className="text-base">Link to a specific flag variant</LemonLabel>
                         <LemonSegmentedButton
                             className="min-w-1/3"
-                            value={currentTeam?.session_recording_linked_flag?.variant ?? 'any'}
+                            value={currentTeam?.session_recording_linked_flag?.variant ?? ANY_VARIANT}
                             options={variantOptions(linkedFlag?.filters.multivariate)}
                             onChange={(variant) => {
                                 if (!linkedFlag) {
@@ -124,7 +128,7 @@ function LinkedFlagSelector(): JSX.Element | null {
                                     session_recording_linked_flag: {
                                         id: linkedFlag?.id,
                                         key: linkedFlag?.key,
-                                        variant: variant === 'any' ? null : variant,
+                                        variant: variant === ANY_VARIANT ? null : variant,
                                     },
                                 })
                             }}
