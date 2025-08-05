@@ -25,7 +25,7 @@ def compose_dump_path(project_id: int, file_name: str) -> str:
     return f"{settings.OBJECT_STORAGE_MAX_AI_EVALS_FOLDER}/models/{project_id}/{file_name}"
 
 
-def check_file_exists(s3: S3Resource, file_key: str) -> bool:
+def check_dump_exists(s3: S3Resource, file_key: str) -> bool:
     """Check if a file exists in S3"""
     try:
         s3.get_client().head_object(Bucket=settings.OBJECT_STORAGE_BUCKET, Key=file_key)
@@ -47,19 +47,13 @@ def dump_model(*, s3: S3Resource, schema: type[AvroBase], file_key: str):
         yield dump
 
 
-project_partitions_def = dagster.DynamicPartitionsDefinition(name="project_snapshots")
+SnapshotModelOutput = tuple[str, str]
 
 
-@dagster.asset(
-    partitions_def=project_partitions_def,
-    description="Snapshots property definitions",
-    tags={"owner": JobOwners.TEAM_MAX_AI.value},
-)
-def snapshot_property_definitions(context: dagster.AssetExecutionContext, s3: S3Resource):
-    project_id = int(context.partition_key)
+def snapshot_property_definitions(s3: S3Resource, project_id: int) -> SnapshotModelOutput:
     file_key = compose_dump_path(project_id, "prop_defs.avro")
 
-    with dump_model(s3=s3, schema=DataWarehouseTableSchema, file_key=file_key) as dump:
+    with dump_model(s3=s3, schema=PropertyDefinitionSchema, file_key=file_key) as dump:
         models_to_dump: list[PropertyDefinitionSchema] = []
         for prop in PropertyDefinition.objects.filter(project_id=project_id).iterator(500):
             model = PropertyDefinitionSchema(
@@ -71,7 +65,7 @@ def snapshot_property_definitions(context: dagster.AssetExecutionContext, s3: S3
             )
             models_to_dump.append(model)
         dump(models_to_dump)
-    return dagster.MaterializeResult(metadata={"key": file_key})
+    return "property_definitions", file_key
 
 
 # posthog/models/warehouse/table.py
@@ -81,13 +75,7 @@ class DataWarehouseTableSchema(AvroBase):
     columns: list[str]
 
 
-@dagster.asset(
-    partitions_def=project_partitions_def,
-    description="Snapshots data warehouse tables",
-    tags={"owner": JobOwners.TEAM_MAX_AI.value},
-)
-def snapshot_data_warehouse_tables(context: dagster.AssetExecutionContext, s3: S3Resource):
-    project_id = int(context.partition_key)
+def snapshot_data_warehouse_tables(s3: S3Resource, project_id: int):
     file_key = compose_dump_path(project_id, "dwh_tables.avro")
 
     with dump_model(s3=s3, schema=DataWarehouseTableSchema, file_key=file_key) as dump:
@@ -100,14 +88,25 @@ def snapshot_data_warehouse_tables(context: dagster.AssetExecutionContext, s3: S
             )
             models_to_dump.append(model)
         dump(models_to_dump)
-    return dagster.MaterializeResult(metadata={"key": file_key})
+    return "data_warehouse_tables", file_key
 
 
-@dagster.asset(
+@dagster.op(
     description="Snapshots project data (property definitions, DWH schema, etc.)",
     tags={"owner": JobOwners.TEAM_MAX_AI.value},
-    partitions_def=project_partitions_def,
 )
-def snapshot_project_data():
-    snapshot_property_definitions()
-    snapshot_data_warehouse_tables()
+def snapshot_project_data(context: dagster.OpExecutionContext, project_id: int, s3: S3Resource):
+    deps: list[SnapshotModelOutput] = dict(
+        (
+            snapshot_property_definitions(s3, project_id),
+            snapshot_data_warehouse_tables(s3, project_id),
+        )
+    )
+    context.log_event(
+        dagster.AssetMaterialization(
+            asset_key="project_postgres_snapshots",
+            description="Avro snapshots of project Postgres data",
+            metadata={"project_id": project_id, **deps},
+        )
+    )
+    return deps
