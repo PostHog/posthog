@@ -1,3 +1,5 @@
+import { NotebookNodeAttributes } from 'scenes/notebooks/types'
+
 // This fixes TS errors when importing a .svg file
 declare module '*.svg' {
     const content: any
@@ -43,4 +45,10 @@ declare module '*.json?url' {
 // This fixes a TS error where @tiptap/react/menus cannot be found because of our moduleResolution
 declare module '@tiptap/react/menus' {
     export * from '@tiptap/react/dist/menus/index.d.ts'
+}
+
+declare module '@tiptap/core' {
+    interface NodeConfig {
+        serializedText?: (attributes: NotebookNodeAttributes<T>) => string
+    }
 }
