@@ -46,10 +46,6 @@ OVERRIDE_TIMESTAMP_TEAM_IDS: dict[int, int] = dict(
 
 CLICKHOUSE_OFFLINE_5MIN_CLUSTER_HOST: str | None = os.getenv("CLICKHOUSE_OFFLINE_5MIN_CLUSTER_HOST", None)
 
-# The teams that will use the internal stage for batch exports (for destinations that support it)
-BATCH_EXPORT_USE_INTERNAL_S3_STAGE_TEAM_IDS: list[str] = get_list(
-    os.getenv("BATCH_EXPORT_USE_INTERNAL_S3_STAGE_TEAM_IDS", "")
-)
 BATCH_EXPORT_OBJECT_STORAGE_ENDPOINT: str = os.getenv(
     "BATCH_EXPORT_OBJECT_STORAGE_ENDPOINT", "http://objectstorage:19000"
 )
