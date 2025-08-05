@@ -246,7 +246,7 @@ export function InternalMultipleChoiceSurvey({ surveyId }: InternalSurveyProps):
                                                 onClick={() => {
                                                     openSidePanel(SidePanelTab.Max)
                                                     askMax(
-                                                        `I am turning off session replay because of "${openChoice}". Is there a way to fix this?`
+                                                        `I am disabling session replay because of "${openChoice}". Go through PostHog documentation and find a solution to fix this.`
                                                     )
                                                 }}
                                             >
