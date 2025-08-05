@@ -37,6 +37,8 @@ export const addPersonToCohortModalLogic = kea<addPersonToCohortModalLogicType>(
                 showExport: false,
                 showSearch: true,
                 showActions: false,
+                showElapsedTime: false,
+                showTimings: false,
             } as DataTableNode,
             {
                 setQuery: (state, { query }) => (isDataTableNode(query) ? query : state),
@@ -65,13 +67,14 @@ export const addPersonToCohortModalLogic = kea<addPersonToCohortModalLogicType>(
             },
         ],
     })),
-    listeners(({ props }) => ({
+    listeners(({ props, actions }) => ({
         addPersonToCohort: async ({ id }) => {
             const cohortId = props.id
             if (cohortId == null || cohortId === 'new') {
                 return
             }
             const response = await api.cohorts.addPersonsToStaticCohort(cohortId, [id])
+            await actions.loadCohortPersons()
             if (response) {
                 lemonToast.success('Person added to cohort')
             }
