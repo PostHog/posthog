@@ -1788,7 +1788,14 @@ describe('processResultsForSurveyQuestions', () => {
 
             // Check that all values exist (order may vary due to sorting)
             const dataMap = new Map(singleData.data.map((item) => [item.label, item]))
-            expect(dataMap.get('Yes')).toEqual({ label: 'Yes', value: 2, isPredefined: true })
+            expect(dataMap.get('Yes')).toEqual({
+                label: 'Yes',
+                value: 2,
+                isPredefined: true,
+                distinctId: 'user1',
+                personProperties: undefined,
+                timestamp: '2024-01-15T10:00:00Z',
+            })
             expect(dataMap.get('No')).toEqual({
                 label: 'No',
                 value: 1,
