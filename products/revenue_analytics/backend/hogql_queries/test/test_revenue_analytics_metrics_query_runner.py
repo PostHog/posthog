@@ -682,7 +682,7 @@ class TestRevenueAnalyticsMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     key="product",
                     operator=PropertyOperator.EXACT,
                     value=["Product C"],  # Equivalent to `prod_c` but we're querying by name
-                )
+                ),
             ]
         ).results
 
@@ -697,7 +697,7 @@ class TestRevenueAnalyticsMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     key="product",
                     operator=PropertyOperator.EXACT,
                     value=["Product C"],  # Equivalent to `prod_c` but we're querying by name
-                )
+                ),
             ],
         ).results
 
@@ -706,6 +706,40 @@ class TestRevenueAnalyticsMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         labels = [result["label"] for result in results]
         self.assertIn("Subscription Count | stripe.posthog_test - Product C", labels)
+
+    def test_with_multiple_products_filter(self):
+        results = self._run_revenue_analytics_metrics_query(
+            properties=[
+                RevenueAnalyticsPropertyFilter(
+                    key="product",
+                    operator=PropertyOperator.EXACT,
+                    value=["Product A", "Product C"],
+                ),
+            ]
+        ).results
+
+        self.assertEqual(len(results), 8)
+        self.assertEqual(
+            [result["data"] for result in results],
+            [
+                [0, 0, 1, 1, 2, 2, 2],  # Subscription Count
+                [0, 0, 1, 0, 1, 0, 0],  # New Subscription Count
+                [0, 0, 0, 0, 0, 0, 0],  # Churned Subscription Count
+                [0, 0, 1, 1, 2, 2, 2],  # Customer Count
+                [0, 0, 1, 0, 1, 0, 0],  # New Customer Count
+                [0, 0, 0, 0, 0, 0, 0],  # Churned Customer Count
+                [
+                    0,
+                    0,
+                    Decimal("8739.3135483333"),
+                    Decimal("8.2024583333"),
+                    Decimal("4472.9400041666"),
+                    Decimal("4.1012291666"),
+                    Decimal("4426.7538541666"),
+                ],  # ARPU
+                [0, 0, NaN, NaN, NaN, NaN, NaN],  # LTV
+            ],
+        )
 
     def test_with_country_filter(self):
         results = self._run_revenue_analytics_metrics_query(

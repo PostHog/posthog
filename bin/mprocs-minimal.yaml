@@ -1,6 +1,8 @@
 procs:
     backend:
         shell: 'uv sync --active && bin/check_kafka_clickhouse_up && python manage.py migrate && ./bin/start-backend'
+        env:
+            POSTHOG_USE_VITE: '1'
 
     celery-worker:
         shell: 'uv sync --active && bin/check_kafka_clickhouse_up && ./bin/start-celery worker'
@@ -10,10 +12,12 @@ procs:
         autostart: false
 
     plugin-server:
-        shell: 'bin/check_kafka_clickhouse_up && ./bin/plugin-server'
+        shell: 'bin/check_postgres_up && bin/check_kafka_clickhouse_up && SESSION_RECORDING_V2_METADATA_SWITCHOVER=1970-01-01 ./bin/plugin-server'
 
     frontend:
-        shell: 'bin/check_kafka_clickhouse_up && ./bin/start-frontend'
+        shell: './bin/start-frontend-vite'
+        env:
+            POSTHOG_USE_VITE: '1'
 
     docker-compose:
         # docker-compose makes sure the stack is up, and then follows its logs - but doesn't tear down on exit for speed
