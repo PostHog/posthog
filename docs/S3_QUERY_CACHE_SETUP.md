@@ -19,16 +19,21 @@ The S3 Query Cache Manager stores query results in S3 objects with automatic TTL
 
 ## Configuration
 
+The S3 query cache is controlled by the **`query-cache-use-s3` feature flag** per organization, allowing gradual rollouts and testing.
+
+### Feature Flag Control
+
+The cache backend is determined by the `query-cache-use-s3` feature flag:
+- **Feature flag OFF (default)**: Uses Redis for query caching
+- **Feature flag ON**: Uses S3 for query caching
+
 ### Environment Variables
 
 ```bash
-# Enable S3 query cache
-QUERY_CACHE_BACKEND=s3
-
-# Optional: Use specific bucket (defaults to OBJECT_STORAGE_BUCKET)
+# Optional: Use specific bucket for query cache (defaults to OBJECT_STORAGE_BUCKET)
 QUERY_CACHE_S3_BUCKET=my-query-cache-bucket
 
-# Standard object storage settings
+# Standard object storage settings (required for S3 functionality)
 OBJECT_STORAGE_ENABLED=true
 OBJECT_STORAGE_ENDPOINT=https://s3.amazonaws.com
 OBJECT_STORAGE_BUCKET=my-bucket
@@ -39,11 +44,21 @@ OBJECT_STORAGE_REGION=us-east-1
 
 ### Django Settings
 
+The query cache settings are located in `posthog/settings/object_storage.py`:
+
 ```python
-# In your settings file
-QUERY_CACHE_BACKEND = "s3"  # or "redis" (default)
-QUERY_CACHE_S3_BUCKET = "my-query-cache-bucket"  # optional
+# Optional: Custom S3 bucket for query cache (defaults to OBJECT_STORAGE_BUCKET)
+QUERY_CACHE_S3_BUCKET = "my-query-cache-bucket"
+
+# Fallback setting if team cannot be determined (rarely used)
+QUERY_CACHE_BACKEND = "redis"  # 'redis' (default) or 's3'
 ```
+
+### Enabling S3 Cache for an Organization
+
+1. **Using PostHog UI**: Go to Feature Flags and enable `query-cache-use-s3` for target organizations
+2. **Using API**: Create/update the feature flag via PostHog API
+3. **For testing**: Enable the flag for specific users/organizations during development
 
 ## Required S3 Lifecycle Configuration
 
@@ -291,7 +306,7 @@ Contains target age metadata as JSON:
 ```python
 from posthog.hogql_queries.query_cache_factory import get_query_cache_manager
 
-# Get the configured cache manager (Redis or S3 based on settings)
+# Get the appropriate cache manager (Redis or S3 based on feature flag)
 cache_manager = get_query_cache_manager(
     team_id=team.pk,
     cache_key="my_query_hash",
@@ -310,13 +325,32 @@ cached_data = cache_manager.get_cache_data()
 stale_insights = cache_manager.get_stale_insights(team_id=team.pk, limit=10)
 ```
 
+The factory automatically determines which backend to use:
+1. **First**: Checks the `query-cache-use-s3` feature flag for the team's organization
+2. **Fallback**: Uses `QUERY_CACHE_BACKEND` setting if team cannot be found
+3. **Default**: Uses Redis if no configuration is found
+
 ## Migration from Redis
 
-1. **Parallel Running**: Both Redis and S3 cache managers implement the same interface, so you can run them in parallel during migration.
+1. **Gradual Rollout**: Use the `query-cache-use-s3` feature flag to gradually migrate organizations:
+   - Start with internal/test organizations
+   - Monitor performance and costs
+   - Gradually expand to larger organizations
+   - Full rollout once stable
 
-2. **Gradual Migration**: Use feature flags or settings to gradually migrate teams to S3.
+2. **A/B Testing**: The feature flag allows easy A/B testing of Redis vs S3 performance
 
-3. **Monitoring**: Monitor S3 costs and performance compared to Redis.
+3. **Rollback**: Instant rollback by disabling the feature flag if issues arise
+
+4. **Monitoring**: Monitor both Redis and S3 costs/performance during transition
+
+### Migration Steps
+
+1. **Setup S3 infrastructure** (buckets, lifecycle rules, permissions)
+2. **Enable feature flag** for a small test organization
+3. **Monitor metrics** (cache hit rates, latency, costs)
+4. **Gradually expand** to more organizations
+5. **Full migration** once confidence is established
 
 ## Performance Considerations
 

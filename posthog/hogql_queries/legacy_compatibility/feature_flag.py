@@ -112,6 +112,30 @@ def insight_api_use_legacy_queries(team: Team) -> bool:
     )
 
 
+def query_cache_use_s3(team: Team) -> bool:
+    """
+    Use S3 instead of Redis for query caching.
+    """
+    return posthoganalytics.feature_enabled(
+        "query-cache-use-s3",
+        str(team.uuid),
+        groups={
+            "organization": str(team.organization_id),
+            "project": str(team.id),
+        },
+        group_properties={
+            "organization": {
+                "id": str(team.organization_id),
+            },
+            "project": {
+                "id": str(team.id),
+            },
+        },
+        only_evaluate_locally=True,
+        send_feature_flag_events=False,
+    )
+
+
 LegacyAPIQueryMethod = Literal["legacy", "hogql"]
 
 
