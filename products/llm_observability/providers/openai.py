@@ -85,6 +85,7 @@ class OpenAIProvider:
         thinking: bool = False,
         temperature: float | None = None,
         max_tokens: int | None = None,
+        tools: list[dict] | None = None,
         distinct_id: str = "",
         trace_id: str | None = None,
         properties: dict | None = None,
@@ -107,14 +108,18 @@ class OpenAIProvider:
                 common: dict[str, Any] = {
                     "stream": True,
                     "stream_options": {"include_usage": True},
-                    "temperature": effective_temperature,
                     "posthog_distinct_id": distinct_id,
                     "posthog_trace_id": trace_id or str(uuid.uuid4()),
                     "posthog_properties": {**(properties or {}), "ai_product": "playground"},
                     "posthog_groups": groups or {},
                 }
+                # Don't include temperature for reasoning models as they don't support it
+                if self.model_id not in OpenAIConfig.SUPPORTED_MODELS_WITH_THINKING:
+                    common["temperature"] = effective_temperature
                 if max_tokens is not None:
                     common["max_completion_tokens"] = max_tokens
+                if tools is not None:
+                    common["tools"] = tools
                 return common
 
             if self.model_id in OpenAIConfig.SUPPORTED_MODELS_WITH_THINKING:
@@ -149,8 +154,25 @@ class OpenAIProvider:
 
             for chunk in stream:
                 if len(chunk.choices) > 0:
-                    if chunk.choices[0].delta.content:
-                        yield f"data: {json.dumps({'type': 'text', 'text': chunk.choices[0].delta.content})}\n\n"
+                    choice = chunk.choices[0]
+
+                    # Handle regular text content
+                    if choice.delta.content:
+                        yield f"data: {json.dumps({'type': 'text', 'text': choice.delta.content})}\n\n"
+
+                    # Handle tool calls
+                    if choice.delta.tool_calls:
+                        for tool_call in choice.delta.tool_calls:
+                            tool_call_data = {
+                                "type": "tool_call",
+                                "id": tool_call.id,
+                                "function": {
+                                    "name": tool_call.function.name if tool_call.function.name else "",
+                                    "arguments": tool_call.function.arguments if tool_call.function.arguments else "",
+                                },
+                            }
+                            yield f"data: {json.dumps(tool_call_data)}\n\n"
+
                 if chunk.usage:
                     yield from self.yield_usage(chunk.usage)
 

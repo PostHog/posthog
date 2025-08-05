@@ -20,6 +20,7 @@ class AnthropicConfig:
         "claude-sonnet-4-0",
         "claude-opus-4-0",
         "claude-opus-4-20250514",
+        "claude-opus-4-1-20250805",
         "claude-sonnet-4-20250514",
         "claude-3-7-sonnet-latest",
         "claude-3-7-sonnet-20250219",
@@ -29,6 +30,7 @@ class AnthropicConfig:
 
     SUPPORTED_MODELS_WITH_CACHE_CONTROL: list[str] = [
         "claude-opus-4-20250514",
+        "claude-opus-4-1-20250805",
         "claude-sonnet-4-20250514",
         "claude-3-7-sonnet-20250219",
         "claude-3-5-sonnet-20241022",
@@ -41,6 +43,7 @@ class AnthropicConfig:
         "claude-3-7-sonnet-20250219",
         "claude-sonnet-4-20250514",
         "claude-opus-4-20250514",
+        "claude-opus-4-1-20250805",
     ]
 
 
@@ -112,6 +115,7 @@ class AnthropicProvider:
         thinking: bool = False,
         temperature: float | None = None,
         max_tokens: int | None = None,
+        tools: list[dict] | None = None,
         distinct_id: str = "",
         trace_id: str | None = None,
         properties: dict | None = None,
@@ -141,34 +145,34 @@ class AnthropicProvider:
             formatted_messages = [MessageParam(content=msg["content"], role=msg["role"]) for msg in messages]
 
         try:
+            # Build common kwargs
+            common_kwargs = {
+                "messages": formatted_messages,
+                "max_tokens": effective_max_tokens,
+                "model": self.model_id,
+                "system": system_prompt,
+                "stream": True,
+                "temperature": effective_temperature,
+                "posthog_distinct_id": distinct_id,
+                "posthog_trace_id": trace_id or str(uuid.uuid4()),
+                "posthog_properties": {**(properties or {}), "ai_product": "playground"},
+                "posthog_groups": groups or {},
+            }
+
+            # Add tools if provided
+            if tools is not None:
+                common_kwargs["tools"] = tools
+
             if reasoning_on:
                 stream = self.client.messages.create(  # type: ignore[call-overload]
-                    messages=formatted_messages,
-                    max_tokens=effective_max_tokens,
-                    model=self.model_id,
-                    system=system_prompt,
-                    stream=True,
-                    temperature=effective_temperature,
+                    **common_kwargs,
                     thinking=ThinkingConfigEnabledParam(
                         type="enabled", budget_tokens=AnthropicConfig.MAX_THINKING_TOKENS
                     ),
-                    posthog_distinct_id=distinct_id,
-                    posthog_trace_id=trace_id or str(uuid.uuid4()),
-                    posthog_properties={**(properties or {}), "ai_product": "playground"},
-                    posthog_groups=groups or {},
                 )
             else:
                 stream = self.client.messages.create(  # type: ignore[call-overload]
-                    messages=formatted_messages,
-                    max_tokens=effective_max_tokens,
-                    model=self.model_id,
-                    system=system_prompt,
-                    stream=True,
-                    temperature=effective_temperature,
-                    posthog_distinct_id=distinct_id,
-                    posthog_trace_id=trace_id or str(uuid.uuid4()),
-                    posthog_properties={**(properties or {}), "ai_product": "playground"},
-                    posthog_groups=groups or {},
+                    **common_kwargs,
                 )
         except Exception as e:
             logger.exception(f"Anthropic API error: {e}")
@@ -193,9 +197,31 @@ class AnthropicProvider:
                         data = json.dumps({"type": "text", "text": "\n"})
                         yield f"data: {data}\n\n"
                     yield f"data: {json.dumps({'type': 'text', 'text': chunk.content_block.text})}\n\n"
+                elif chunk.content_block.type == "tool_use":
+                    # Start of a tool call
+                    tool_call_data = {
+                        "type": "tool_call",
+                        "id": chunk.content_block.id,
+                        "function": {
+                            "name": chunk.content_block.name,
+                            "arguments": "",  # Will be filled by deltas
+                        },
+                    }
+                    yield f"data: {json.dumps(tool_call_data)}\n\n"
 
             elif chunk.type == "content_block_delta":
                 if chunk.delta.type == "thinking_delta":
                     yield f"data: {json.dumps({'type': 'reasoning', 'reasoning': chunk.delta.thinking})}\n\n"
                 elif chunk.delta.type == "text_delta":
                     yield f"data: {json.dumps({'type': 'text', 'text': chunk.delta.text})}\n\n"
+                elif chunk.delta.type == "input_json_delta":
+                    # Tool call arguments delta
+                    tool_call_data = {
+                        "type": "tool_call",
+                        "id": None,  # We don't have the ID in deltas
+                        "function": {
+                            "name": "",  # We don't have the name in deltas
+                            "arguments": chunk.delta.partial_json,
+                        },
+                    }
+                    yield f"data: {json.dumps(tool_call_data)}\n\n"

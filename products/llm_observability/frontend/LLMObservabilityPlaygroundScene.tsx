@@ -83,6 +83,7 @@ function ConversationPanel(): JSX.Element {
                     />
                 </div>
                 <div className="space-y-3">
+                    <ToolsDisplay expandTextAreas={expandTextAreas} />
                     <SystemMessageDisplay expandTextAreas={expandTextAreas} />
                     {messages.map((message, index) => (
                         <MessageDisplay key={index} index={index} message={message} expandTextAreas={expandTextAreas} />
@@ -99,6 +100,87 @@ function ConversationPanel(): JSX.Element {
 
             {/* Output area */}
             <OutputSection />
+        </>
+    )
+}
+
+function ToolsDisplay({ expandTextAreas }: { expandTextAreas: boolean }): JSX.Element {
+    const { tools } = useValues(llmObservabilityPlaygroundLogic)
+    const { setTools } = useActions(llmObservabilityPlaygroundLogic)
+    const [showEditModal, setShowEditModal] = useState(false)
+    const [localToolsJson, setLocalToolsJson] = useState<string | null>(null)
+
+    if (!tools) {
+        return <></>
+    }
+
+    // Use local state if available, otherwise use the current tools
+    const toolsJsonString = localToolsJson ?? JSON.stringify(tools, null, 2)
+
+    const handleToolsChange = (value: string): void => {
+        try {
+            const parsedTools = JSON.parse(value)
+            setTools(parsedTools)
+            // Clear local state when we successfully parse and update
+            setLocalToolsJson(null)
+        } finally {
+            // its fine if we cannot parse yet - try again next char
+            setLocalToolsJson(value)
+        }
+    }
+
+    return (
+        <>
+            <div className="border rounded p-3 relative group bg-white dark:bg-[var(--bg-surface-primary)] border-l-4 border-l-[var(--color-orange-500)]">
+                <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <LemonButton
+                        size="small"
+                        icon={<IconPencil />}
+                        tooltip="Edit tools"
+                        noPadding
+                        onClick={() => setShowEditModal(true)}
+                    />
+                </div>
+
+                <div className="flex items-center gap-2 mb-2">
+                    <span className="text-xs font-medium px-2 py-1 rounded">Tools</span>
+                </div>
+
+                <LemonTextArea
+                    className="text-sm w-full font-mono"
+                    placeholder="Tools available to the AI assistant (JSON format)..."
+                    value={toolsJsonString}
+                    onChange={handleToolsChange}
+                    minRows={2}
+                    maxRows={expandTextAreas ? undefined : 6}
+                />
+            </div>
+
+            <LemonModal
+                isOpen={showEditModal}
+                onClose={() => setShowEditModal(false)}
+                title="Edit Tools"
+                width="90vw"
+                maxWidth="1200px"
+            >
+                <div className="space-y-4">
+                    <div>
+                        <label className="font-semibold mb-1 block text-sm">Tools (JSON)</label>
+                        <LemonTextArea
+                            className="text-sm w-full font-mono"
+                            placeholder="Tools available to the AI assistant (JSON format)..."
+                            value={toolsJsonString}
+                            onChange={handleToolsChange}
+                            minRows={12}
+                        />
+                    </div>
+                    <div className="flex justify-end gap-2">
+                        <LemonButton type="secondary" onClick={() => setShowEditModal(false)}>
+                            Close
+                        </LemonButton>
+                    </div>
+                </div>
+            </LemonModal>
         </>
     )
 }
@@ -330,7 +412,7 @@ function OutputSection(): JSX.Element {
                 {submitting && (currentResponse === null || currentResponse === '') && (
                     <LemonSkeleton active className="my-2" />
                 )}
-                {currentResponse ? (
+                {currentResponse !== null ? (
                     <pre
                         className={`whitespace-pre-wrap text-sm break-words ${
                             responseHasError ? 'text-red-800 dark:text-red-200' : ''
@@ -350,10 +432,8 @@ function OutputSection(): JSX.Element {
 }
 
 function ConfigurationPanel(): JSX.Element {
-    const { temperature, maxTokens, thinking, model, modelOptions, modelOptionsLoading } = useValues(
-        llmObservabilityPlaygroundLogic
-    )
-    const { setTemperature, setMaxTokens, setThinking, setModel } = useActions(llmObservabilityPlaygroundLogic)
+    const { maxTokens, thinking, model, modelOptions, modelOptionsLoading } = useValues(llmObservabilityPlaygroundLogic)
+    const { setMaxTokens, setThinking, setModel } = useActions(llmObservabilityPlaygroundLogic)
 
     const handleThinkingToggle = (e: React.ChangeEvent<HTMLInputElement>): void => {
         setThinking(e.target.checked)
@@ -387,34 +467,18 @@ function ConfigurationPanel(): JSX.Element {
                 )}
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
-                <div>
-                    <label className="font-semibold mb-1 block text-sm">Temperature: {temperature.toFixed(1)}</label>
-                    <input
-                        type="range"
-                        className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer dark:bg-gray-700"
-                        min={0.0}
-                        max={1.0}
-                        step={0.1}
-                        value={temperature}
-                        onChange={(e) => setTemperature(Number(e.target.value))}
-                    />
-                    <div className="text-xs text-muted mt-1 flex justify-between">
-                        <span>Precise</span>
-                        <span>Creative</span>
-                    </div>
-                </div>
-                <div>
-                    <label className="font-semibold mb-1 block text-sm">Max tokens</label>
-                    <LemonInput
-                        type="number"
-                        value={maxTokens}
-                        onChange={(val) => setMaxTokens(Number(val))}
-                        min={1}
-                        max={16384}
-                        step={64}
-                    />
-                </div>
+            <div>
+                <label className="font-semibold mb-1 block text-sm">Max tokens (optional)</label>
+                <LemonInput
+                    type="number"
+                    value={maxTokens || ''}
+                    onChange={(val) => setMaxTokens(val ? Number(val) : null)}
+                    min={1}
+                    max={16384}
+                    step={64}
+                    placeholder="Leave empty for model default"
+                />
+                <div className="text-xs text-muted mt-1">Leave empty to use model's default max tokens</div>
             </div>
 
             <div className="flex items-center space-x-2">
@@ -499,7 +563,7 @@ function ComparisonTablePanel(): JSX.Element {
 }
 
 function StickyActionBar(): JSX.Element {
-    const { messages, submitting, model, temperature, maxTokens } = useValues(llmObservabilityPlaygroundLogic)
+    const { messages, submitting, model, maxTokens } = useValues(llmObservabilityPlaygroundLogic)
     const { addMessage, clearConversation, submitPrompt } = useActions(llmObservabilityPlaygroundLogic)
     const [showConfigModal, setShowConfigModal] = useState(false)
 
@@ -569,10 +633,12 @@ function StickyActionBar(): JSX.Element {
                         {/* Model and params summary */}
                         <div className="flex items-center gap-2 text-xs text-muted bg-bg-dark dark:bg-bg-light px-2 py-1 rounded">
                             <span className="font-medium">{model || 'No model'}</span>
-                            <span>•</span>
-                            <span>T:{temperature}</span>
-                            <span>•</span>
-                            <span>Max:{maxTokens}</span>
+                            {maxTokens && (
+                                <>
+                                    <span>•</span>
+                                    <span>Max:{maxTokens}</span>
+                                </>
+                            )}
                         </div>
 
                         <LemonButton

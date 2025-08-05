@@ -457,14 +457,16 @@ const EventContent = React.memo(
 
             let model: string | undefined = undefined
             let input: any = undefined
+            let tools: any = undefined
 
             if (isLLMTraceEvent(event)) {
                 model = event.properties.$ai_model
                 // Prefer $ai_input if available, otherwise fallback to $ai_input_state
                 input = event.properties.$ai_input ?? event.properties.$ai_input_state
+                tools = event.properties.$ai_tools
             }
 
-            setupPlaygroundFromEvent({ model, input })
+            setupPlaygroundFromEvent({ model, input, tools })
         }
 
         return (
