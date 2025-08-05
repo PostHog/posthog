@@ -62,6 +62,7 @@ dependencies = [
     "kafka-python==2.0.2",
     "kombu==5.3.2",
     "langchain==0.3.26",
+    "langgraph-checkpoint==2.0.26",
     "langchain-community==0.3.27",
     "langchain-openai==0.3.27",
     "langgraph==0.4.10",
