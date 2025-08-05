@@ -32,7 +32,7 @@ class TeamInline(admin.TabularInline):
         "plugins_opt_in",
         "opt_out_capture",
     )
-    readonly_fields = [*TeamAdmin.readonly_fields, "displayed_name"]
+    readonly_fields = [*TeamAdmin.readonly_fields, "displayed_name", "internal_properties"]
 
     def displayed_name(self, team: Team):
         return format_html(
