@@ -20,7 +20,10 @@ class TestableCdpBehaviouralEventsConsumer extends CdpBehaviouralEventsConsumer 
         return this.behavioralCounterRepository
     }
     public get testKafkaProducer() {
-        return this.kafkaProducer!
+        if (!this.kafkaProducer) {
+            throw new Error('KafkaProducer not initialized. Did you call start()?')
+        }
+        return this.kafkaProducer
     }
     public get testPersonPerformedEventsQueue() {
         return this.personPerformedEventsQueue
