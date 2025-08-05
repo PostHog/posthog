@@ -5262,6 +5262,8 @@ export enum HogWatcherState {
     healthy = 1,
     overflowed = 2,
     disabled = 3,
+    forcefully_degraded = 11,
+    forcefully_disabled = 12,
 }
 
 export type HogFunctionStatus = {
