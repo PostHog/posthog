@@ -18,7 +18,7 @@ from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog import constants
-from posthog.batch_exports.models import BatchExport
+from posthog.batch_exports.models import BatchExport, BatchExportRun
 from posthog.batch_exports.service import (
     BackfillDetails,
     BatchExportModel,
@@ -126,11 +126,10 @@ TEST_MODELS: list[BatchExportModel | BatchExportSchema | None] = [
 async def _run_workflow(
     team_id: int,
     batch_export_id: int,
-    data_interval_end: dt.datetime,
     interval: str,
     snowflake_batch_export: BatchExport,
-    expected_records_completed: int,
-) -> None:
+    data_interval_end: dt.datetime = TEST_TIME,
+) -> BatchExportRun:
     workflow_id = str(uuid4())
     inputs = SnowflakeBatchExportInputs(
         team_id=team_id,
@@ -165,8 +164,7 @@ async def _run_workflow(
     assert len(runs) == 1
 
     run = runs[0]
-    assert run.status == "Completed"
-    assert run.records_completed == expected_records_completed
+    return run
 
 
 class TestSnowflakeExportWorkflowMockedConnection:
@@ -203,14 +201,15 @@ class TestSnowflakeExportWorkflowMockedConnection:
         ):
             fake_conn = FakeSnowflakeConnection()
             mock.return_value = fake_conn
-            await _run_workflow(
+            run = await _run_workflow(
                 team_id=ateam.pk,
                 batch_export_id=snowflake_batch_export.id,
                 data_interval_end=data_interval_end,
                 interval=interval,
                 snowflake_batch_export=snowflake_batch_export,
-                expected_records_completed=10,
             )
+            assert run.status == "Completed"
+            assert run.records_completed == 10
 
             execute_calls = []
             for cursor in fake_conn._cursors:
@@ -248,21 +247,22 @@ class TestSnowflakeExportWorkflowMockedConnection:
         ):
             fake_conn = FakeSnowflakeConnection()
             mock.return_value = fake_conn
-            await _run_workflow(
+            run = await _run_workflow(
                 team_id=ateam.pk,
                 batch_export_id=snowflake_batch_export.id,
                 data_interval_end=data_interval_end,
                 interval=interval,
                 snowflake_batch_export=snowflake_batch_export,
-                expected_records_completed=0,
             )
+            assert run.status == "Completed"
+            assert run.records_completed == 0
 
 
 class TestSnowflakeExportWorkflowErrorHandling:
     async def test_snowflake_export_workflow_raises_error_on_put_fail(
         self, clickhouse_client, ateam, snowflake_batch_export, interval
     ):
-        data_interval_end = dt.datetime.now(tz=dt.UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+        data_interval_end = TEST_TIME
         data_interval_start = data_interval_end - snowflake_batch_export.interval_time_delta
 
         await generate_test_events_in_clickhouse(
@@ -287,14 +287,15 @@ class TestSnowflakeExportWorkflowErrorHandling:
             side_effect=FakeSnowflakeConnectionFailOnPut,
         ):
             with pytest.raises(WorkflowFailureError) as exc_info:
-                await _run_workflow(
+                run = await _run_workflow(
                     team_id=ateam.pk,
                     batch_export_id=snowflake_batch_export.id,
                     data_interval_end=data_interval_end,
                     interval=interval,
                     snowflake_batch_export=snowflake_batch_export,
-                    expected_records_completed=100,
                 )
+                assert run.status == "FailedRetryable"
+                assert run.latest_error == "SnowflakeFileNotUploadedError"
 
             err = exc_info.value
             assert hasattr(err, "__cause__"), "Workflow failure missing cause"
@@ -330,14 +331,15 @@ class TestSnowflakeExportWorkflowErrorHandling:
             side_effect=FakeSnowflakeConnectionFailOnCopy,
         ):
             with pytest.raises(WorkflowFailureError) as exc_info:
-                await _run_workflow(
+                run = await _run_workflow(
                     team_id=ateam.pk,
                     batch_export_id=snowflake_batch_export.id,
                     data_interval_end=data_interval_end,
                     interval=interval,
                     snowflake_batch_export=snowflake_batch_export,
-                    expected_records_completed=100,
                 )
+                assert run.status == "FailedRetryable"
+                assert run.latest_error == "SnowflakeFileNotLoadedError"
 
             err = exc_info.value
             assert hasattr(err, "__cause__"), "Workflow failure missing cause"
@@ -346,7 +348,7 @@ class TestSnowflakeExportWorkflowErrorHandling:
             assert err.__cause__.__cause__.type == "SnowflakeFileNotLoadedError"
 
     async def test_snowflake_export_workflow_handles_unexpected_insert_activity_errors(
-        self, ateam, snowflake_batch_export
+        self, ateam, snowflake_batch_export, interval
     ):
         """Test that Snowflake Export Workflow can gracefully handle unexpected errors when inserting Snowflake data.
 
@@ -355,49 +357,24 @@ class TestSnowflakeExportWorkflowErrorHandling:
 
         To simulate an unexpected error, we mock the `Producer.start` activity.
         """
-        workflow_id = str(uuid4())
-        inputs = SnowflakeBatchExportInputs(
-            team_id=ateam.pk,
-            batch_export_id=str(snowflake_batch_export.id),
-            data_interval_end="2023-04-25 14:30:00.000000",
-            **snowflake_batch_export.destination.config,
-        )
 
-        async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
-            async with Worker(
-                activity_environment.client,
-                task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
-                workflows=[SnowflakeBatchExportWorkflow],
-                activities=[
-                    mocked_start_batch_export_run,
-                    insert_into_snowflake_activity,
-                    finish_batch_export_run,
-                ],
-                workflow_runner=UnsandboxedWorkflowRunner(),
-            ):
-                with unittest.mock.patch(
-                    "products.batch_exports.backend.temporal.destinations.snowflake_batch_export.Producer.start",
-                    side_effect=ValueError("A useful error message"),
-                ):
-                    with pytest.raises(WorkflowFailureError):
-                        await activity_environment.client.execute_workflow(
-                            SnowflakeBatchExportWorkflow.run,
-                            inputs,
-                            id=workflow_id,
-                            task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
-                            retry_policy=RetryPolicy(maximum_attempts=1),
-                        )
-
-        runs = await afetch_batch_export_runs(batch_export_id=snowflake_batch_export.id)
-        assert len(runs) == 1
-
-        run = runs[0]
-        assert run.status == "FailedRetryable"
-        assert run.latest_error == "ValueError: A useful error message"
-        assert run.records_completed is None
+        with unittest.mock.patch(
+            "products.batch_exports.backend.temporal.destinations.snowflake_batch_export.Producer.start",
+            side_effect=ValueError("A useful error message"),
+        ):
+            with pytest.raises(WorkflowFailureError):
+                run = await _run_workflow(
+                    team_id=ateam.pk,
+                    batch_export_id=snowflake_batch_export.id,
+                    interval=interval,
+                    snowflake_batch_export=snowflake_batch_export,
+                )
+                assert run.status == "FailedRetryable"
+                assert run.latest_error == "ValueError: A useful error message"
+                assert run.records_completed is None
 
     async def test_snowflake_export_workflow_handles_insert_activity_non_retryable_errors(
-        self, ateam, snowflake_batch_export
+        self, ateam, snowflake_batch_export, interval
     ):
         """Test that Snowflake Export Workflow can gracefully handle non-retryable errors when inserting Snowflake data.
 
@@ -405,45 +382,20 @@ class TestSnowflakeExportWorkflowErrorHandling:
 
         To simulate a user error, we mock the `Producer.start` activity.
         """
-        workflow_id = str(uuid4())
-        inputs = SnowflakeBatchExportInputs(
-            team_id=ateam.pk,
-            batch_export_id=str(snowflake_batch_export.id),
-            data_interval_end="2023-04-25 14:30:00.000000",
-            **snowflake_batch_export.destination.config,
-        )
 
         class ForbiddenError(Exception):
             pass
 
-        async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
-            async with Worker(
-                activity_environment.client,
-                task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
-                workflows=[SnowflakeBatchExportWorkflow],
-                activities=[
-                    mocked_start_batch_export_run,
-                    insert_into_snowflake_activity,
-                    finish_batch_export_run,
-                ],
-                workflow_runner=UnsandboxedWorkflowRunner(),
-            ):
-                with unittest.mock.patch(
-                    "products.batch_exports.backend.temporal.destinations.snowflake_batch_export.Producer.start",
-                    side_effect=ForbiddenError("A useful error message"),
-                ):
-                    await activity_environment.client.execute_workflow(
-                        SnowflakeBatchExportWorkflow.run,
-                        inputs,
-                        id=workflow_id,
-                        task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
-                        retry_policy=RetryPolicy(maximum_attempts=1),
-                    )
-
-        runs = await afetch_batch_export_runs(batch_export_id=snowflake_batch_export.id)
-        assert len(runs) == 1
-
-        run = runs[0]
+        with unittest.mock.patch(
+            "products.batch_exports.backend.temporal.destinations.snowflake_batch_export.Producer.start",
+            side_effect=ForbiddenError("A useful error message"),
+        ):
+            run = await _run_workflow(
+                team_id=ateam.pk,
+                batch_export_id=snowflake_batch_export.id,
+                interval=interval,
+                snowflake_batch_export=snowflake_batch_export,
+            )
         assert run.status == "Failed"
         assert run.latest_error == "ForbiddenError: A useful error message"
         assert run.records_completed is None
