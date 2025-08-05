@@ -80,6 +80,10 @@ export type CreatePostHogWidgetNodeOptions<T extends CustomNotebookNodeAttribute
         find: string | RegExp
         getAttributes: (match: ExtendedRegExpMatchArray) => Promise<T | null | undefined> | T | null | undefined
     }
+    inputOptions?: {
+        find: string | RegExp
+        getAttributes: (match: ExtendedRegExpMatchArray) => Promise<T | null | undefined> | T | null | undefined
+    }
     attributes: Record<keyof T, Partial<Attribute>>
     serializedText?: (attributes: NotebookNodeAttributes<T>) => string
 }
