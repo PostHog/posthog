@@ -182,7 +182,7 @@ class SessionSummarizationNode(AssistantNode):
                     f"Unexpected update type ({type(update)}) in session group summarization (session_ids: {session_ids})."
                 )
         if summary:
-            database_sync_to_async(create_summary_notebook)(
+            await database_sync_to_async(create_summary_notebook)(
                 session_ids=session_ids, user=self._user, team=self._team, summary=summary
             )
             return summary.model_dump_json(exclude_none=True)

@@ -1,6 +1,7 @@
 import os
 from typing import cast
 
+from asgiref.sync import async_to_sync
 from django.conf import settings
 import posthoganalytics
 import structlog
@@ -12,6 +13,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.viewsets import GenericViewSet
 
+from ee.hogai.session_summaries.session_group.patterns import EnrichedSessionGroupSummaryPatternsList
 from ee.hogai.session_summaries.session_group.summarize_session_group import find_sessions_timestamps
 from posthog.cloud_utils import is_cloud
 from ee.hogai.session_summaries.session_group.summary_notebooks import create_summary_notebook
@@ -78,15 +80,26 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
 
         # Summarize provided sessions
         try:
-            summary = execute_summarize_session_group(
-                session_ids=session_ids,
-                user_id=user.pk,
-                team=self.team,
-                min_timestamp=min_timestamp,
-                max_timestamp=max_timestamp,
-                extra_summary_context=extra_summary_context,
-                local_reads_prod=False,
+            summary_result = list(
+                async_to_sync(execute_summarize_session_group)(
+                    session_ids=session_ids,
+                    user_id=user.pk,
+                    team=self.team,
+                    min_timestamp=min_timestamp,
+                    max_timestamp=max_timestamp,
+                    extra_summary_context=extra_summary_context,
+                    local_reads_prod=False,
+                )
             )
+            if not summary_result:
+                raise exceptions.APIException(
+                    "No summaries were generated for the provided sessions (session ids: {})".format(session_ids)
+                )
+            summary = summary_result[-1]
+            if not summary or not isinstance(summary, EnrichedSessionGroupSummaryPatternsList):
+                raise exceptions.APIException(
+                    f"Unexpected result type ({type(summary_result[-1])}) when generating summaries (session ids: {session_ids}): {summary_result[-1]}"
+                )
             create_summary_notebook(session_ids=session_ids, user=user, team=self.team, summary=summary)
             return Response(summary.model_dump(exclude_none=True, mode="json"), status=status.HTTP_200_OK)
         except Exception as err:
