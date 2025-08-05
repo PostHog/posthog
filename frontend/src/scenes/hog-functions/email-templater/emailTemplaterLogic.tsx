@@ -11,6 +11,7 @@ import { PreflightStatus, PropertyDefinition, PropertyDefinitionType } from '~/t
 
 import type { emailTemplaterLogicType } from './emailTemplaterLogicType'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { EmailTemplaterType } from './EmailTemplater'
 
 export type UnlayerMergeTags = NonNullable<EmailEditorProps['options']>['mergeTags']
 
@@ -32,7 +33,7 @@ export interface EmailTemplaterLogicProps {
     value: EmailTemplate | null
     onChange: (value: EmailTemplate) => void
     variables?: Record<string, any>
-    emailMetaFields?: ('from' | 'to' | 'subject')[]
+    type: EmailTemplaterType
 }
 
 export const emailTemplaterLogic = kea<emailTemplaterLogicType>([

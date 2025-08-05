@@ -80,14 +80,14 @@ export const template: NativeTemplate = {
     },
     inputs_schema: [
         {
-            type: 'email',
+            type: 'native-email',
             key: 'email',
             label: 'Email message',
             integration: 'email',
             required: true,
             default: {
                 to: '{person.properties.email}',
-                from: 'noreply@your-domain.com',
+                from: null,
                 subject: 'PostHog Notification',
                 text: 'Hello from PostHog!',
                 html: '<h1>Hello from PostHog!</h1>',

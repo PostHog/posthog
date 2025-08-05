@@ -293,6 +293,7 @@ export type HogFunctionInputSchemaType = {
         | 'integration'
         | 'integration_field'
         | 'email'
+        | 'native-email'
     key: string
     label?: string
     choices?: { value: string; label: string }[]

@@ -171,6 +171,7 @@ function JsonConfigField(props: {
 }
 
 function EmailTemplateField({
+    schema,
     value,
     onChange,
     sampleGlobalsWithInputs,
@@ -180,7 +181,14 @@ function EmailTemplateField({
     onChange: (value: any) => void
     sampleGlobalsWithInputs: CyclotronJobInvocationGlobalsWithInputs | null
 }): JSX.Element {
-    return <EmailTemplater variables={sampleGlobalsWithInputs ?? {}} value={value} onChange={onChange} />
+    return (
+        <EmailTemplater
+            type={schema.type as 'email' | 'native-email'}
+            variables={sampleGlobalsWithInputs ?? {}}
+            value={value}
+            onChange={onChange}
+        />
+    )
 }
 
 function CyclotronJobTemplateInput(props: {
@@ -405,6 +413,7 @@ function CyclotronJobInputRenderer({
                 />
             )
         case 'email':
+        case 'native-email':
             return (
                 <EmailTemplateField
                     schema={schema}
