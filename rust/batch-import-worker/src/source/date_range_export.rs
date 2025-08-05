@@ -1052,7 +1052,7 @@ mod tests {
 
         let key = "2023-01-01T00:00:00+00:00_2023-01-01T01:00:00+00:00";
         let formatted = source.format_date_range_from_key(key).unwrap();
-        
+
         assert_eq!(formatted, "2023-01-01 00:00 UTC to 2023-01-01 01:00 UTC");
     }
 
@@ -1063,7 +1063,7 @@ mod tests {
 
         let key = "2023-12-31T23:30:00+00:00_2024-01-01T00:30:00+00:00";
         let formatted = source.format_date_range_from_key(key).unwrap();
-        
+
         assert_eq!(formatted, "2023-12-31 23:30 UTC to 2024-01-01 00:30 UTC");
     }
 
@@ -1074,7 +1074,7 @@ mod tests {
 
         let key = "invalid-key-format";
         let formatted = source.format_date_range_from_key(key);
-        
+
         assert!(formatted.is_none());
     }
 
@@ -1085,7 +1085,7 @@ mod tests {
 
         let key = "2023-06-15T12:00:00+00:00_2023-06-15T13:00:00+00:00";
         let date_range = source.get_date_range_for_key(key).unwrap();
-        
+
         assert_eq!(date_range, "2023-06-15 12:00 UTC to 2023-06-15 13:00 UTC");
     }
 
@@ -1105,7 +1105,9 @@ mod tests {
         assert!(source.format_date_range_from_key(invalid_key2).is_none());
 
         let invalid_date_key = "invalid-date_2023-01-01T01:00:00+00:00";
-        assert!(source.format_date_range_from_key(invalid_date_key).is_none());
+        assert!(source
+            .format_date_range_from_key(invalid_date_key)
+            .is_none());
     }
 
     #[tokio::test]

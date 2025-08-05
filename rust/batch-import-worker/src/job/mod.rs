@@ -150,17 +150,22 @@ impl Job {
                 // If we fail to fetch and parse, we need to pause the job (assuming manual intervention is required) and
                 // return an Ok(None) - this pod can continue to process other jobs, it just can't work on this one
                 error!("Failed to fetch and parse chunk: {:?}", e);
-                
+
                 let current_date_range = {
                     let state = self.state.lock().await;
-                    state.parts.iter()
+                    state
+                        .parts
+                        .iter()
                         .find(|p| !p.is_done())
                         .and_then(|p| self.source.get_date_range_for_key(&p.key))
                 };
-                
+
                 let mut model = self.model.lock().await;
                 let error_message = if let Some(date_range) = &current_date_range {
-                    format!("Failed to fetch and parse chunk for date range {}: {:?}", date_range, e)
+                    format!(
+                        "Failed to fetch and parse chunk for date range {}: {:?}",
+                        date_range, e
+                    )
                 } else {
                     format!("Failed to fetch and parse chunk: {:?}", e)
                 };
@@ -170,11 +175,7 @@ impl Job {
                     user_facing_error_message.to_string()
                 };
                 model
-                    .pause(
-                        self.context.clone(),
-                        error_message,
-                        Some(display_message),
-                    )
+                    .pause(self.context.clone(), error_message, Some(display_message))
                     .await?;
                 return Ok(None);
             }
@@ -385,8 +386,8 @@ impl Job {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::HashMap;
     use async_trait::async_trait;
+    use std::collections::HashMap;
 
     struct MockDataSource {
         keys: Vec<String>,
@@ -465,11 +466,17 @@ mod tests {
     fn test_error_message_includes_date_range_when_available() {
         let mock_source = MockDataSource::new();
         let key = "2023-01-01T00:00:00+00:00_2023-01-01T01:00:00+00:00";
-        
-        let date_range = mock_source.get_date_range_for_key(key);
-        assert_eq!(date_range, Some("2023-01-01 00:00 UTC to 2023-01-01 01:00 UTC".to_string()));
 
-        let error_message = format!("Failed to fetch and parse chunk for date range {}: Mock error", date_range.unwrap());
+        let date_range = mock_source.get_date_range_for_key(key);
+        assert_eq!(
+            date_range,
+            Some("2023-01-01 00:00 UTC to 2023-01-01 01:00 UTC".to_string())
+        );
+
+        let error_message = format!(
+            "Failed to fetch and parse chunk for date range {}: Mock error",
+            date_range.unwrap()
+        );
         assert_eq!(
             error_message,
             "Failed to fetch and parse chunk for date range 2023-01-01 00:00 UTC to 2023-01-01 01:00 UTC: Mock error"
@@ -480,7 +487,7 @@ mod tests {
     fn test_error_message_without_date_range() {
         let mock_source = MockDataSourceWithoutDateRange::new();
         let key = "some-key";
-        
+
         let date_range = mock_source.get_date_range_for_key(key);
         assert!(date_range.is_none());
 
@@ -492,7 +499,7 @@ mod tests {
     fn test_display_message_includes_date_range() {
         let user_message = "Connection failed";
         let date_range = "2023-01-01 00:00 UTC to 2023-01-01 01:00 UTC";
-        
+
         let display_message = format!("{} (Date range: {})", user_message, date_range);
         assert_eq!(
             display_message,
