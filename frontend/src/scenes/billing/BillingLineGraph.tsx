@@ -373,55 +373,54 @@ export function BillingLineGraph({
                         } as React.CSSProperties & Record<string, string>
                     }
                 >
-                    {billingPeriodMarkers.map((marker, idx) => {
-                        const position = getMarkerPosition(marker.date)
+                    {billingPeriodMarkers
+                        .filter((marker) => getMarkerPosition(marker.date).visible)
+                        .slice(-1) // Show only the most recent visible marker
+                        .map((marker, idx) => {
+                            const position = getMarkerPosition(marker.date)
 
-                        if (!position.visible) {
-                            return null
-                        }
-
-                        return (
-                            <div
-                                key={`marker-${idx}`}
-                                className="BillingMarker"
-                                style={
-                                    {
-                                        '--billing-marker-left': `${position.left}px`,
-                                    } as React.CSSProperties & Record<string, string>
-                                }
-                                onMouseEnter={hideBillingTooltip} // Hide chart tooltip when hovering over marker
-                            >
-                                <Tooltip
-                                    title={
-                                        <div className="p-2">
-                                            <strong>New billing period started</strong>
-                                            <p className="mt-2 text-xs">
-                                                Pricing tiers reset when billing periods begin, which can cause
-                                                temporary usage and spend changes:
-                                            </p>
-                                            <ul className="mt-1 text-xs list-disc list-inside">
-                                                <li>
-                                                    Usage may drop to zero in last days of the billing period after
-                                                    billing limits are reached
-                                                </li>
-                                                <li>Zero spend in first days due to free tier allowance</li>
-                                                <li>
-                                                    Higher daily spend in first days due to higher rates at lower volume
-                                                    tiers
-                                                </li>
-                                            </ul>
-                                        </div>
+                            return (
+                                <div
+                                    key={`marker-${idx}`}
+                                    className="BillingMarker"
+                                    style={
+                                        {
+                                            '--billing-marker-left': `${position.left}px`,
+                                        } as React.CSSProperties & Record<string, string>
                                     }
-                                    placement="bottom"
+                                    onMouseEnter={hideBillingTooltip} // Hide chart tooltip when hovering over marker
                                 >
-                                    <div className="BillingMarkerLabel">
-                                        New billing period
-                                        <IconInfo className="w-3 h-3" />
-                                    </div>
-                                </Tooltip>
-                            </div>
-                        )
-                    })}
+                                    <Tooltip
+                                        title={
+                                            <div className="p-2">
+                                                <strong>New billing period started</strong>
+                                                <p className="mt-2 text-xs">
+                                                    Pricing tiers reset when billing periods begin, which can cause
+                                                    temporary usage and spend changes:
+                                                </p>
+                                                <ul className="mt-1 text-xs list-disc list-inside">
+                                                    <li>
+                                                        Usage may drop to zero in last days of the billing period after
+                                                        billing limits are reached
+                                                    </li>
+                                                    <li>Zero spend in first days due to free tier allowance</li>
+                                                    <li>
+                                                        Higher daily spend in first days due to higher rates at lower
+                                                        volume tiers
+                                                    </li>
+                                                </ul>
+                                            </div>
+                                        }
+                                        placement="bottom"
+                                    >
+                                        <div className="BillingMarkerLabel">
+                                            New billing period
+                                            <IconInfo className="w-3 h-3" />
+                                        </div>
+                                    </Tooltip>
+                                </div>
+                            )
+                        })}
                 </div>
             )}
         </div>
