@@ -10,12 +10,13 @@ from ee.hogai.graph.base import AssistantNode
 from ee.hogai.session_summaries.constants import SESSION_SUMMARIES_STREAMING_MODEL, GROUP_SUMMARIES_MIN_SESSIONS
 from ee.hogai.session_summaries.session_group.summarize_session_group import find_sessions_timestamps
 from ee.hogai.session_summaries.session_group.summary_notebooks import create_summary_notebook
-from ee.hogai.utils.types import AssistantState, PartialAssistantState
+from ee.hogai.utils.types import AssistantState, PartialAssistantState, AssistantNodeName
 from posthog.schema import MaxRecordingUniversalFilters, RecordingsQuery, AssistantToolCallMessage
 from posthog.sync import database_sync_to_async
 from posthog.temporal.ai.session_summary.summarize_session import execute_summarize_session
 from posthog.temporal.ai.session_summary.summarize_session_group import execute_summarize_session_group
 from langgraph.config import get_stream_writer
+from langchain_core.messages import AIMessageChunk
 
 
 class SessionSummarizationNode(AssistantNode):
@@ -127,15 +128,25 @@ class SessionSummarizationNode(AssistantNode):
             )
             completed += 1
 
-            # Emit custom event for progress using LangGraph's stream writer
+            # Emit progress as a message update that will be processed by _process_message_update
             if writer:
+                # Emit as a message chunk that appears to come from SESSION_SUMMARIZATION node
                 writer(
-                    {
-                        "type": "session_summary_progress",
-                        "content": f"Summarizing sessions ({completed} out of {total})",
-                        "completed": completed,
-                        "total": total,
-                    }
+                    (
+                        "session_summarization_node",
+                        "messages",
+                        (
+                            AIMessageChunk(
+                                content="",
+                                additional_kwargs={
+                                    "reasoning": {
+                                        "summary": [{"text": f"**Summarizing sessions ({completed} out of {total})**"}]
+                                    }
+                                },
+                            ),
+                            {"langgraph_node": AssistantNodeName.SESSION_SUMMARIZATION},
+                        ),
+                    )
                 )
 
             return result
