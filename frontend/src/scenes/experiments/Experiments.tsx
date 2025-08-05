@@ -47,7 +47,11 @@ const getExperimentDuration = (experiment: Experiment): number | undefined => {
           : undefined
 }
 
-const ExperimentsTable = (): JSX.Element => {
+const ExperimentsTable = ({
+    openDuplicateModal,
+}: {
+    openDuplicateModal: (experiment: Experiment) => void
+}): JSX.Element => {
     const { currentProjectId, experiments, experimentsLoading, tab, shouldShowEmptyState, filters, count, pagination } =
         useValues(experimentsLogic)
     const { loadExperiments, archiveExperiment, setExperimentsFilters } = useActions(experimentsLogic)
@@ -134,11 +138,7 @@ const ExperimentsTable = (): JSX.Element => {
                                 <LemonButton to={urls.experiment(`${experiment.id}`)} size="small" fullWidth>
                                     View
                                 </LemonButton>
-                                <LemonButton
-                                    onClick={() => setDuplicateModalExperiment(experiment)}
-                                    size="small"
-                                    fullWidth
-                                >
+                                <LemonButton onClick={() => openDuplicateModal(experiment)} size="small" fullWidth>
                                     Duplicate
                                 </LemonButton>
                                 <LemonButton
@@ -369,10 +369,9 @@ export function Experiments(): JSX.Element {
                             to="https://posthog.com/docs/experiments/installation?utm_medium=in-product&utm_campaign=new-experiment"
                             target="_blank"
                         >
-                            {' '}
-                            Visit the guide
-                        </Link>{' '}
-                        to learn more.
+                            &nbsp; Visit the guide
+                        </Link>
+                        &nbsp; to learn more.
                     </>
                 }
                 tabbedPage={true}
@@ -381,8 +380,16 @@ export function Experiments(): JSX.Element {
                 activeKey={tab}
                 onChange={(newKey) => setExperimentsTab(newKey)}
                 tabs={[
-                    { key: ExperimentsTabs.All, label: 'All experiments', content: <ExperimentsTable /> },
-                    { key: ExperimentsTabs.Archived, label: 'Archived experiments', content: <ExperimentsTable /> },
+                    {
+                        key: ExperimentsTabs.All,
+                        label: 'All experiments',
+                        content: <ExperimentsTable openDuplicateModal={setDuplicateModalExperiment} />,
+                    },
+                    {
+                        key: ExperimentsTabs.Archived,
+                        label: 'Archived experiments',
+                        content: <ExperimentsTable openDuplicateModal={setDuplicateModalExperiment} />,
+                    },
                     { key: ExperimentsTabs.Holdouts, label: 'Holdout groups', content: <Holdouts /> },
                     {
                         key: ExperimentsTabs.SharedMetrics,
