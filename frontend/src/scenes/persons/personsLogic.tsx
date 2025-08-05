@@ -302,7 +302,7 @@ export const personsLogic = kea<personsLogicType>([
         breadcrumbs: [
             (s) => [s.person, router.selectors.location],
             (person, location): Breadcrumb[] => {
-                const showPerson = person && location.pathname.match(/\/person\/.+/)
+                const showPerson = person && location.pathname.match(/\/persons?\/.+/)
                 const breadcrumbs: Breadcrumb[] = [
                     {
                         key: Scene.PersonsManagement,
