@@ -529,19 +529,15 @@ class ActivityLogTestHelper(APILicensedTest):
         return response.json()
 
     # Integration
-    def create_integration(self, kind: str = "slack", **kwargs) -> dict[str, Any]:
+    def create_integration(self, kind: str = "twilio", **kwargs) -> dict[str, Any]:
         """Create an integration via API."""
-        data = {"kind": kind, "config": {"team_id": "T1234", "team_name": "Test Workspace"}, **kwargs}
+        if kind == "twilio":
+            data = {"kind": "twilio", "config": {"account_sid": "AC123456", "auth_token": "test_auth_token"}, **kwargs}
+        else:
+            data = {"kind": kind, **kwargs}
+
         response = self.client.post(f"/api/projects/{self.team.id}/integrations/", data, format="json")
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        return response.json()
-
-    def update_integration(self, integration_id: str, updates: dict[str, Any]) -> dict[str, Any]:
-        """Update an integration via API."""
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/integrations/{integration_id}/", updates, format="json"
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
         return response.json()
 
     # Annotation
@@ -568,12 +564,6 @@ class ActivityLogTestHelper(APILicensedTest):
         insight = self.create_insight()
         updates = {"tags": [name]}
         return self.update_insight(insight["id"], updates)
-
-    def update_tag(self, tag_name: str, new_name: str) -> dict[str, Any]:
-        """Update a tag via API (rename)."""
-        # Tags don't have a direct update endpoint, they're managed through tagged items
-        # This would typically be done by updating all items with the old tag to the new tag
-        return {"name": new_name}
 
     # Subscription
     def create_subscription(self, title: str = "Test Subscription", **kwargs) -> dict[str, Any]:
@@ -761,18 +751,24 @@ class ActivityLogTestHelper(APILicensedTest):
     def create_batch_import(self, name: str = "Test Import", **kwargs) -> dict[str, Any]:
         """Create a batch import via API."""
         data = {
-            "name": name,
-            "source_type": "events",
-            "import_config": {"format": "csv", "mapping": {"event": "event_name", "timestamp": "event_time"}},
+            "source_type": "s3",
+            "content_type": "captured",
+            "s3_bucket": "test-bucket",
+            "s3_region": "us-east-1",
+            "s3_prefix": "data/",
+            "access_key": "test-key",
+            "secret_key": "test-secret",
             **kwargs,
         }
-        response = self.client.post(f"/api/projects/{self.team.id}/batch_imports/", data, format="json")
+        response = self.client.post(f"/api/projects/{self.team.id}/managed_migrations", data, format="json")
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         return response.json()
 
     def update_batch_import(self, import_id: str, updates: dict[str, Any]) -> dict[str, Any]:
         """Update a batch import via API."""
-        response = self.client.patch(f"/api/projects/{self.team.id}/batch_imports/{import_id}/", updates, format="json")
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/managed_migrations/{import_id}/", updates, format="json"
+        )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         return response.json()
 

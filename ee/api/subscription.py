@@ -180,6 +180,8 @@ def handle_subscription_change(sender, scope, before_update, after_update, activ
         resource_name = f"Dashboard: {after_update.dashboard.name}"
     elif after_update.insight:
         resource_name = f"Insight: {after_update.insight.name}"
+    else:
+        resource_name = "Subscribable object"
 
     log_activity(
         organization_id=after_update.team.organization_id,

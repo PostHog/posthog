@@ -32,12 +32,12 @@ class ModelActivityMixin(models.Model):
         abstract = True
 
     def save(self, *args: Any, **kwargs: Any) -> None:
-        change_type = "updated" if self.pk else "created"
+        change_type = "created" if self._state.adding else "updated"
         should_log = True
         before_update = None
 
         # For updates, check if we need activity logging at all
-        if change_type == "updated" and self.pk:
+        if change_type == "updated":
             should_log, before_update = self._should_log_activity_for_update(**kwargs)
 
         super().save(*args, **kwargs)
