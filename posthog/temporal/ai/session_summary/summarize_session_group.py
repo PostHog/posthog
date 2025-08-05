@@ -210,6 +210,19 @@ async def fetch_session_batch_events_activity(
 
 @temporalio.workflow.defn(name="summarize-session-group")
 class SummarizeSessionGroupWorkflow(PostHogWorkflow):
+    def __init__(self) -> None:
+        super().__init__()
+        self._total_single_summaries = 0
+        self._processed_single_summaries = 0
+
+    @temporalio.workflow.query
+    def get_progress(self) -> dict[str, int]:
+        """Query handler to get the current progress of summary processing."""
+        return {
+            "total_single_summaries": self._total_single_summaries,
+            "total_single_summaries": self._total_single_summaries,
+        }
+
     @staticmethod
     def parse_inputs(inputs: list[str]) -> SessionGroupSummaryInputs:
         """Parse inputs from the management command CLI."""
@@ -297,6 +310,11 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
         """
         if not inputs:
             raise ApplicationError("No sessions to summarize for group summary")
+
+        # Track summarization process to keep the user informed
+        self._total_single_summaries = len(inputs)
+        self._processed_single_summaries = 0
+
         # Summarize all sessions
         tasks = {}
         async with asyncio.TaskGroup() as tg:
@@ -309,6 +327,7 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
         # Check summary generation results
         for session_id, (task, single_session_input) in tasks.items():
             res = task.result()
+            self._processed_single_summaries += 1  # Keep track of finished summaries
             if isinstance(res, Exception):
                 temporalio.workflow.logger.warning(
                     f"Session summary failed for group summary for session {session_id} "
