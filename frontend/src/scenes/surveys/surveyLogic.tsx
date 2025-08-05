@@ -257,6 +257,48 @@ function isQuestionOpenChoice(question: SurveyQuestion, choiceIndex: number): bo
     return !!(choiceIndex === question.choices.length - 1 && question?.hasOpenChoice)
 }
 
+// Helper to extract person data from a survey response row
+function extractPersonData(row: SurveyResponseRow): {
+    distinctId: string
+    personProperties?: Record<string, any>
+    timestamp: string
+} {
+    const distinctId = row.at(-2) as string
+    const timestamp = row.at(-1) as string
+    const unparsedPersonProperties = row.at(-3)
+    let personProperties: Record<string, any> | undefined
+
+    if (unparsedPersonProperties && unparsedPersonProperties !== null) {
+        try {
+            personProperties = JSON.parse(unparsedPersonProperties as string)
+        } catch {
+            // Ignore parsing errors for person properties
+        }
+    }
+
+    return { distinctId, personProperties, timestamp }
+}
+
+// Helper to count a choice and store person data for first occurrence
+function countChoice(
+    choice: string,
+    counts: { [key: string]: number },
+    uniqueResponsePersonData: { [key: string]: ReturnType<typeof extractPersonData> },
+    personData: ReturnType<typeof extractPersonData>
+): void {
+    if (isEmptyOrUndefined(choice)) {
+        return
+    }
+
+    const previousCount = counts[choice] || 0
+    counts[choice] = previousCount + 1
+
+    // Store person data only for the first occurrence (unique responses)
+    if (previousCount === 0) {
+        uniqueResponsePersonData[choice] = personData
+    }
+}
+
 // Shared utility for processing choice-based questions
 function processChoiceQuestion(
     question: MultipleSurveyQuestion,
@@ -265,10 +307,7 @@ function processChoiceQuestion(
     questionType: SurveyQuestionType.SingleChoice | SurveyQuestionType.MultipleChoice
 ): ChoiceQuestionProcessedResponses {
     const counts: { [key: string]: number } = {}
-    // Track person data for unique responses
-    const uniqueResponsePersonData: {
-        [key: string]: { distinctId: string; personProperties?: Record<string, any>; timestamp: string }
-    } = {}
+    const uniqueResponsePersonData: { [key: string]: ReturnType<typeof extractPersonData> } = {}
     let total = 0
 
     // Zero-fill predefined choices (excluding open choice)
@@ -278,72 +317,30 @@ function processChoiceQuestion(
         }
     })
 
-    // Count responses based on question type
+    // Process each response
     results?.forEach((row: SurveyResponseRow) => {
+        const rawValue = row[questionIndex]
+        if (rawValue === null || rawValue === undefined) {
+            return
+        }
+
+        const personData = extractPersonData(row)
+
         if (questionType === SurveyQuestionType.SingleChoice) {
-            const value = row[questionIndex] as string
+            const value = rawValue as string
             if (!isEmptyOrUndefined(value)) {
-                const previousCount = counts[value] || 0
-                counts[value] = previousCount + 1
+                countChoice(value, counts, uniqueResponsePersonData, personData)
                 total += 1
-
-                // Store person data only for the first occurrence (unique responses)
-                if (previousCount === 0) {
-                    const distinctId = row.at(-2) as string
-                    const timestamp = row.at(-1) as string
-                    const unparsedPersonProperties = row.at(-3)
-                    let personProperties: Record<string, any> | undefined
-
-                    if (unparsedPersonProperties && unparsedPersonProperties !== null) {
-                        try {
-                            personProperties = JSON.parse(unparsedPersonProperties as string)
-                        } catch {
-                            // Ignore parsing errors for person properties
-                        }
-                    }
-
-                    uniqueResponsePersonData[value] = {
-                        distinctId,
-                        personProperties,
-                        timestamp,
-                    }
-                }
             }
         } else {
             // Multiple choice
-            const value = row[questionIndex] as string[]
-            if (value !== null && value !== undefined) {
-                total += 1
-                const distinctId = row.at(-2) as string
-                const timestamp = row.at(-1) as string
-                const unparsedPersonProperties = row.at(-3)
-                let personProperties: Record<string, any> | undefined
+            const choices = rawValue as string[]
+            total += 1
 
-                if (unparsedPersonProperties && unparsedPersonProperties !== null) {
-                    try {
-                        personProperties = JSON.parse(unparsedPersonProperties as string)
-                    } catch {
-                        // Ignore parsing errors for person properties
-                    }
-                }
-
-                value.forEach((choice) => {
-                    const cleaned = choice.replace(/^['"]+|['"]+$/g, '')
-                    if (!isEmptyOrUndefined(cleaned)) {
-                        const previousCount = counts[cleaned] || 0
-                        counts[cleaned] = previousCount + 1
-
-                        // Store person data only for the first occurrence (unique responses)
-                        if (previousCount === 0) {
-                            uniqueResponsePersonData[cleaned] = {
-                                distinctId,
-                                personProperties,
-                                timestamp,
-                            }
-                        }
-                    }
-                })
-            }
+            choices.forEach((choice) => {
+                const cleaned = choice.replace(/^['"]+|['"]+$/g, '')
+                countChoice(cleaned, counts, uniqueResponsePersonData, personData)
+            })
         }
     })
 
@@ -443,21 +440,12 @@ function processOpenQuestion(questionIndex: number, results: SurveyRawResults): 
             return
         }
 
+        const personData = extractPersonData(row)
         const response = {
-            distinctId: row.at(-2) as string,
+            distinctId: personData.distinctId,
             response: value,
-            personProperties: undefined as Record<string, any> | undefined,
-            timestamp: row.at(-1) as string,
-        }
-
-        const unparsedPersonProperties = row.at(-3)
-        if (unparsedPersonProperties && unparsedPersonProperties !== null) {
-            try {
-                response.personProperties = JSON.parse(unparsedPersonProperties as string)
-            } catch {
-                // Ignore parsing errors for person properties as there's no real action here
-                // It just means we won't show the person properties in the question visualization
-            }
+            personProperties: personData.personProperties,
+            timestamp: personData.timestamp,
         }
 
         totalResponses += 1
