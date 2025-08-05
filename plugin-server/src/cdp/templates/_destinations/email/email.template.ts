@@ -12,7 +12,6 @@ export const template: HogFunctionTemplate = {
     code: `
     let res := sendEmail(inputs.email);
 
-    print('Email sent', res.success);
     if (not res.success) {
         throw Error(f'Email failed to send: {res.error}');
     }
