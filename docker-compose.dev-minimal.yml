@@ -118,6 +118,14 @@ services:
             - 'host.docker.internal:host-gateway'
         depends_on:
             - kafka
+            - zookeeper
+
+    zookeeper:
+        extends:
+            file: docker-compose.base.yml
+            service: zookeeper
+        ports:
+            - '2181:2181'
 
     kafka:
         extends:
@@ -125,6 +133,8 @@ services:
             service: kafka
         ports:
             - '9092:9092'
+        depends_on:
+            - zookeeper
 
     objectstorage:
         extends:
