@@ -443,14 +443,17 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
             } as Partial<TrendsFilter>)
         },
         toggleAllResultsHidden: ({ datasets, hidden }) => {
-            const resultCustomizations = datasets.reduce((acc, dataset) => {
-                const resultCustomizationKey = getTrendResultCustomizationKey(values.resultCustomizationBy, dataset)
-                acc[resultCustomizationKey] = {
-                    assignmentBy: values.resultCustomizationBy,
-                    hidden: hidden,
-                }
-                return acc
-            }, {} as Record<string, any>)
+            const resultCustomizations = datasets.reduce(
+                (acc, dataset) => {
+                    const resultCustomizationKey = getTrendResultCustomizationKey(values.resultCustomizationBy, dataset)
+                    acc[resultCustomizationKey] = {
+                        assignmentBy: values.resultCustomizationBy,
+                        hidden: hidden,
+                    }
+                    return acc
+                },
+                {} as Record<string, any>
+            )
 
             actions.updateInsightFilter({
                 resultCustomizations,
