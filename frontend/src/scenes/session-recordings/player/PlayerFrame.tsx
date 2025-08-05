@@ -19,7 +19,12 @@ export const PlayerFrame = (): JSX.Element => {
     // Define callbacks before they're used in effects
     const updatePlayerDimensions = useCallback(
         (replayDimensions: viewportResizeDimension | undefined): void => {
-            if (!replayDimensions || !frameRef?.current?.parentElement || !player?.replayer) {
+            if (
+                !replayDimensions ||
+                !frameRef?.current?.parentElement ||
+                !player?.replayer ||
+                !player?.replayer.wrapper
+            ) {
                 return
             }
 
@@ -33,10 +38,7 @@ export const PlayerFrame = (): JSX.Element => {
                 1
             )
 
-            // Check if player still exists before updating (defensive check)
-            if (player?.replayer?.wrapper) {
-                player.replayer.wrapper.style.transform = `scale(${scale})`
-            }
+            player.replayer.wrapper.style.transform = `scale(${scale})`
 
             setScale(scale)
         },
@@ -53,13 +55,6 @@ export const PlayerFrame = (): JSX.Element => {
             setRootFrame(frameRef.current)
         }
     }, [sessionRecordingId, setRootFrame])
-
-    // Cleanup ref on unmount
-    useEffect(() => {
-        return () => {
-            replayDimensionRef.current = undefined
-        }
-    }, [])
 
     // Recalculate the player size when the recording changes dimensions
     useEffect(() => {
