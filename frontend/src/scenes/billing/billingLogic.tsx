@@ -507,6 +507,15 @@ export const billingLogic = kea<billingLogicType>([
             (s) => [s.billing],
             (billing: BillingType | null): boolean => billing?.is_annual_plan_customer || false,
         ],
+        // Centralized billing period access with explicit UTC naming
+        billingPeriodUTC: [
+            (s) => [s.billing],
+            (billing: BillingType | null) => ({
+                start: billing?.billing_period?.current_period_start || null,
+                end: billing?.billing_period?.current_period_end || null,
+                interval: billing?.billing_period?.interval || null,
+            }),
+        ],
         showBillingSummary: [
             (s) => [s.billing, s.isOnboarding],
             (billing: BillingType | null, isOnboarding: boolean): boolean => {

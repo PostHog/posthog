@@ -12,7 +12,7 @@ import sortBy from 'lodash.sortby'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { Params } from 'scenes/sceneTypes'
 
-import { BillingType, DateMappingOption, OrganizationType } from '~/types'
+import { DateMappingOption, OrganizationType } from '~/types'
 
 import {
     buildTrackingProperties,
@@ -70,7 +70,7 @@ export const billingSpendLogic = kea<billingSpendLogicType>([
     props({} as BillingSpendLogicProps),
     key(({ dashboardItemId }) => dashboardItemId || 'global_spend'),
     connect({
-        values: [organizationLogic, ['currentOrganization'], billingLogic, ['billing']],
+        values: [organizationLogic, ['currentOrganization'], billingLogic, ['billing', 'billingPeriodUTC']],
         actions: [eventUsageLogic, ['reportBillingSpendInteraction']],
     }),
     actions({
@@ -177,16 +177,8 @@ export const billingSpendLogic = kea<billingSpendLogicType>([
             (s) => [s.billingSpendResponse],
             (response: BillingSpendResponse | null) => response?.results?.[0]?.dates || [],
         ],
-        currentBillingPeriod: [
-            (s) => [s.billing],
-            (billing: BillingType | null) => ({
-                start: billing?.billing_period?.current_period_start || null,
-                end: billing?.billing_period?.current_period_end || null,
-                interval: billing?.billing_period?.interval || null,
-            }),
-        ],
         dateOptions: [
-            (s) => [s.currentBillingPeriod],
+            (s) => [s.billingPeriodUTC],
             (currentPeriod): DateMappingOption[] => {
                 const currentBillingPeriodStart = currentPeriod.start
                 const currentBillingPeriodEnd = currentPeriod.end
@@ -210,7 +202,7 @@ export const billingSpendLogic = kea<billingSpendLogicType>([
             },
         ],
         billingPeriodMarkers: [
-            (s) => [s.currentBillingPeriod, s.dateFrom, s.dateTo],
+            (s) => [s.billingPeriodUTC, s.dateFrom, s.dateTo],
             (currentPeriod, dateFrom: string, dateTo: string): BillingPeriodMarker[] => {
                 if (!currentPeriod.start || !currentPeriod.interval) {
                     return []
