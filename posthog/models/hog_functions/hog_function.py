@@ -266,20 +266,24 @@ def enabled_default_hog_functions_for_new_team(sender, instance: Team, created: 
     if settings.DISABLE_MMDB or not created:
         return
 
-    # New way: Create GeoIP transformation
+    # Create GeoIP transformation using the new Hog template
     from posthog.models.hog_functions.hog_function import HogFunction
+    from posthog.models.hog_function_template import HogFunctionTemplate
 
-    # NOTE: This is hardcoded to simplify the creation
-    HogFunction.objects.create(
-        team=instance,
-        created_by=kwargs.get("initiating_user"),
-        template_id="plugin-posthog-plugin-geoip",
-        type="transformation",
-        name="GeoIP",
-        description="Enrich events with GeoIP data",
-        icon_url="/static/transformations/geoip.png",
-        hog="return event",
-        inputs_schema=[],
-        enabled=True,
-        execution_order=1,
-    )
+    # Get the new GeoIP template
+    template = HogFunctionTemplate.get_template("template-geoip")
+    if template:
+        HogFunction.objects.create(
+            team=instance,
+            created_by=kwargs.get("initiating_user"),
+            template_id="template-geoip",
+            hog_function_template=HogFunctionTemplate.objects.filter(template_id="template-geoip").first(),
+            type="transformation",
+            name=template.name,
+            description=template.description,
+            icon_url=template.icon_url,
+            hog=template.code,
+            inputs_schema=template.inputs_schema,
+            enabled=True,
+            execution_order=1,
+        )

@@ -2,7 +2,7 @@ import { HogFunctionTemplate } from '~/cdp/types'
 
 export const template: HogFunctionTemplate = {
     free: true,
-    status: 'alpha', // TODO: change to beta once we want to enable it by default for every project.
+    status: 'stable',
     type: 'transformation',
     id: 'template-geoip',
     name: 'GeoIP',

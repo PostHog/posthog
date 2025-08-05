@@ -6,7 +6,7 @@ export const posthogPluginGeoip: LegacyTransformationPlugin = {
     processEvent,
     template: {
         free: true,
-        status: 'stable',
+        status: 'hidden',
         type: 'transformation',
         id: 'plugin-posthog-plugin-geoip',
         name: 'GeoIP',
