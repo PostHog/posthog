@@ -190,12 +190,17 @@ export interface ChoiceQuestionResponseData {
     label: string
     value: number
     isPredefined: boolean
+    // For unique responses (value === 1), include person data for display
+    distinctId?: string
+    personProperties?: Record<string, any>
+    timestamp?: string
 }
 
 export interface OpenQuestionResponseData {
     distinctId: string
     response: string
     personProperties?: Record<string, any>
+    timestamp?: string
 }
 
 export interface ChoiceQuestionProcessedResponses {
@@ -354,6 +359,10 @@ function processMultipleChoiceQuestion(
     results: SurveyRawResults
 ): ChoiceQuestionProcessedResponses {
     const counts: { [key: string]: number } = {}
+    // Track person data for unique responses
+    const uniqueResponsePersonData: {
+        [key: string]: { distinctId: string; personProperties?: Record<string, any>; timestamp: string }
+    } = {}
     let total = 0
 
     // Zero-fill predefined choices (excluding open choice)
@@ -367,21 +376,57 @@ function processMultipleChoiceQuestion(
         const value = row[questionIndex] as string[]
         if (value !== null && value !== undefined) {
             total += 1
+            const distinctId = row.at(-2) as string
+            const timestamp = row.at(-1) as string
+            const unparsedPersonProperties = row.at(-3)
+            let personProperties: Record<string, any> | undefined
+
+            if (unparsedPersonProperties && unparsedPersonProperties !== null) {
+                try {
+                    personProperties = JSON.parse(unparsedPersonProperties as string)
+                } catch {
+                    // Ignore parsing errors for person properties
+                }
+            }
+
             value.forEach((choice) => {
                 const cleaned = choice.replace(/^['"]+|['"]+$/g, '')
                 if (!isEmptyOrUndefined(cleaned)) {
-                    counts[cleaned] = (counts[cleaned] || 0) + 1
+                    const previousCount = counts[cleaned] || 0
+                    counts[cleaned] = previousCount + 1
+
+                    // Store person data only for the first occurrence (unique responses)
+                    if (previousCount === 0) {
+                        uniqueResponsePersonData[cleaned] = {
+                            distinctId,
+                            personProperties,
+                            timestamp,
+                        }
+                    }
                 }
             })
         }
     })
 
     const data = Object.entries(counts)
-        .map(([label, value]) => ({
-            label,
-            value,
-            isPredefined: question.choices?.includes(label) ?? false,
-        }))
+        .map(([label, value]) => {
+            const baseData = {
+                label,
+                value,
+                isPredefined: question.choices?.includes(label) ?? false,
+            }
+
+            if (uniqueResponsePersonData[label]) {
+                return {
+                    ...baseData,
+                    distinctId: uniqueResponsePersonData[label].distinctId,
+                    personProperties: uniqueResponsePersonData[label].personProperties,
+                    timestamp: uniqueResponsePersonData[label].timestamp,
+                }
+            }
+
+            return baseData
+        })
         .sort((a, b) => b.value - a.value)
 
     return {
@@ -392,7 +437,8 @@ function processMultipleChoiceQuestion(
 }
 
 function processOpenQuestion(questionIndex: number, results: SurveyRawResults): OpenQuestionProcessedResponses {
-    const data: { distinctId: string; response: string; personProperties?: Record<string, any> }[] = []
+    const data: { distinctId: string; response: string; personProperties?: Record<string, any>; timestamp?: string }[] =
+        []
     let totalResponses = 0
 
     results?.forEach((row: SurveyResponseRow) => {
@@ -402,12 +448,13 @@ function processOpenQuestion(questionIndex: number, results: SurveyRawResults): 
         }
 
         const response = {
-            distinctId: row.at(-1) as string,
+            distinctId: row.at(-2) as string,
             response: value,
             personProperties: undefined as Record<string, any> | undefined,
+            timestamp: row.at(-1) as string,
         }
 
-        const unparsedPersonProperties = row.at(-2)
+        const unparsedPersonProperties = row.at(-3)
         if (unparsedPersonProperties && unparsedPersonProperties !== null) {
             try {
                 response.personProperties = JSON.parse(unparsedPersonProperties as string)
@@ -851,13 +898,14 @@ export const surveyLogic = kea<surveyLogicType>([
                     return `${getSurveyResponse(question, index)} AS q${index}_response`
                 })
 
-                // Also get distinct_id and person properties for open text questions
+                // Also get distinct_id, person properties, and timestamp for open text questions
                 const query = `
                     -- QUERYING ALL SURVEY RESPONSES IN ONE GO
                     SELECT
                         ${questionFields.join(',\n')},
                         person.properties,
-                        events.distinct_id
+                        events.distinct_id,
+                        events.timestamp
                     FROM events
                     WHERE event = '${SurveyEventName.SENT}'
                         AND properties.${SurveyEventProperties.SURVEY_ID} = '${props.id}'
