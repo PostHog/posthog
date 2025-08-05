@@ -20,9 +20,12 @@ impl From<HealthHandle> for KafkaContext {
 }
 
 impl rdkafka::ClientContext for KafkaContext {
-    fn stats(&self, _: rdkafka::Statistics) {
+    fn stats(&self, stats: rdkafka::Statistics) {
         // Signal liveness, as the main rdkafka loop is running and calling us
-        self.liveness.report_healthy_blocking();
+        let brokers_up = stats.brokers.values().all(|broker| broker.state == "UP");
+        if brokers_up {
+            self.liveness.report_healthy_blocking();
+        }
 
         // TODO: Take stats recording pieces that we want from `capture-rs`.
     }

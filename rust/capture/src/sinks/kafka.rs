@@ -25,7 +25,7 @@ struct KafkaContext {
 impl rdkafka::ClientContext for KafkaContext {
     fn stats(&self, stats: rdkafka::Statistics) {
         // Signal liveness, as the main rdkafka loop is running and calling us
-        let brokers_up = stats.brokers.values().any(|broker| broker.state == "UP");
+        let brokers_up = stats.brokers.values().all(|broker| broker.state == "UP");
         if brokers_up {
             self.liveness.report_healthy_blocking();
         }
