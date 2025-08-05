@@ -144,6 +144,10 @@ export interface NotebookEditor extends RichContentEditorType {
 
 declare module '@tiptap/core' {
     interface NodeConfig {
+        // TODO: Not a big fan of any here but it's ok for now
+        // the Node type should probably not be augmented with a new method as we are
+        // instead we should probably make a new extension type that does what we want
+        // or have some kind of wrapper around the existing Node
         serializedText: (attrs: NotebookNodeAttributes<any>) => string
     }
 }
