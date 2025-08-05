@@ -35,6 +35,7 @@ from posthog.api import (
     unsubscribe,
     uploaded_media,
     user,
+    vercel_sso,
 )
 from posthog.api.zendesk_orgcheck import ensure_zendesk_organization
 from posthog.api.web_experiment import web_experiments
@@ -229,6 +230,9 @@ urlpatterns = [
     opt_slash_path(".well-known/security.txt", security_txt),
     # auth
     path("logout", authentication.logout, name="login"),
+    path(
+        "login/vercel/", vercel_sso.VercelSSOViewSet.as_view({"get": "sso_redirect"})
+    ),  # Doesn't use a real auth backend, just a ViewSet to handle the SSO flow
     path(
         "login/<str:backend>/", authentication.sso_login, name="social_begin"
     ),  # overrides from `social_django.urls` to validate proper license

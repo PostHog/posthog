@@ -104,3 +104,6 @@ SALESFORCE_SECURITY_TOKEN = get_from_env("SF_SECURITY_TOKEN", "", type_cast=str)
 # Harmonic API credentials
 HARMONIC_API_KEY = get_from_env("HARMONIC_API_KEY", "", type_cast=str)
 HARMONIC_BASE_URL = get_from_env("HARMONIC_BASE_URL", "https://api.harmonic.ai", type_cast=str)
+
+VERCEL_CLIENT_ID = get_from_env("VERCEL_CLIENT_ID", "", type_cast=str)
+VERCEL_CLIENT_SECRET = get_from_env("VERCEL_CLIENT_SECRET", "", type_cast=str)
