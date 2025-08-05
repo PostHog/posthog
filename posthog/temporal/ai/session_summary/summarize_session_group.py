@@ -301,7 +301,6 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
         tasks = {}
         async with asyncio.TaskGroup() as tg:
             for single_session_input in inputs:
-                # to have the same taskgroun function for both fetch/summarize tasks
                 tasks[single_session_input.session_id] = (
                     tg.create_task(self._run_summary(single_session_input)),
                     single_session_input,
