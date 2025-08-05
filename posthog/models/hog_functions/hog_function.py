@@ -271,8 +271,8 @@ def enabled_default_hog_functions_for_new_team(sender, instance: Team, created: 
         HogFunction.objects.create(
             team=instance,
             created_by=kwargs.get("initiating_user"),
-            template_id="template-geoip",
-            hog_function_template=HogFunctionTemplate.objects.filter(template_id="template-geoip").first(),
+            template_id=template.template_id,
+            hog_function_template=template,
             type="transformation",
             name=template.name,
             description=template.description,
