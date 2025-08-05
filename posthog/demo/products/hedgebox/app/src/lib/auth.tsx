@@ -24,7 +24,7 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
 
   // Load user from localStorage on mount
   useEffect(() => {
@@ -39,6 +39,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         localStorage.removeItem('hedgebox_user');
       }
     }
+    setIsLoading(false);
   }, []);
 
   const login = async (email: string, password: string): Promise<boolean> => {

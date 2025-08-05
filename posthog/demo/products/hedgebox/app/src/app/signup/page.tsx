@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import Header from '@/components/Header';
@@ -16,10 +16,14 @@ export default function SignupPage(): JSX.Element {
     plan: 'personal/free'
   });
   const [error, setError] = useState('');
-  const { signup, isLoading } = useAuth();
+  const { signup, isLoading, user } = useAuth();
   const router = useRouter();
 
-  useAuthRedirect();
+  useEffect(() => {
+    if (user) {
+        router.push('/files')
+    }
+}, [user, router])
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>): void => {
     const { name, value } = e.target;
@@ -32,23 +36,7 @@ export default function SignupPage(): JSX.Element {
   const handleSubmit = async (e: React.FormEvent): Promise<void> => {
     e.preventDefault();
     setError('');
-
-    // Track signup attempt (custom event for demo purposes)
-    posthog.capture('signup_attempted', {
-      plan: formData.plan,
-      signup_method: 'email'
-    });
-
-    const success = await signup(formData.name, formData.email, formData.password, formData.plan);
-    
-    if (success) {
-      router.push('/files');
-    } else {
-      setError('Signup failed. Please try again.');
-      posthog.capture('signup_failed', {
-        signup_method: 'email'
-      });
-    }
+    await signup(formData.name, formData.email, formData.password, formData.plan);
   };
 
   return (
