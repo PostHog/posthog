@@ -1030,6 +1030,100 @@ class TestInsertIntoSnowflakeActivity:
 
 @SKIP_IF_MISSING_REQUIRED_ENV_VARS
 class TestSnowflakeExportWorkflow:
+    async def _run_workflow(
+        self,
+        clickhouse_client,
+        snowflake_cursor,
+        snowflake_batch_export,
+        team,
+        data_interval_start,
+        data_interval_end,
+        interval: str,
+        batch_export_model: BatchExportModel | None = None,
+        batch_export_schema: BatchExportSchema | None = None,
+        exclude_events=None,
+        backfill_details=None,
+        settings_overrides=None,
+        execution_timeout=dt.timedelta(minutes=2),
+        expected_status: str = "Completed",
+        sort_key: str = "event",
+        expect_data_interval_start_none: bool = False,
+    ):
+        """Helper function to run SnowflakeBatchExportWorkflow and assert records in Snowflake"""
+        workflow_id = str(uuid4())
+        inputs = SnowflakeBatchExportInputs(
+            team_id=team.pk,
+            batch_export_id=str(snowflake_batch_export.id),
+            data_interval_end=data_interval_end.isoformat(),
+            interval=interval,
+            batch_export_schema=batch_export_schema,
+            batch_export_model=batch_export_model,
+            backfill_details=backfill_details,
+            **snowflake_batch_export.destination.config,
+        )
+
+        async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
+            async with Worker(
+                activity_environment.client,
+                task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
+                workflows=[SnowflakeBatchExportWorkflow],
+                activities=[
+                    start_batch_export_run,
+                    insert_into_snowflake_activity,
+                    finish_batch_export_run,
+                ],
+                workflow_runner=UnsandboxedWorkflowRunner(),
+            ):
+                if settings_overrides:
+                    with override_settings(**settings_overrides):
+                        await activity_environment.client.execute_workflow(
+                            SnowflakeBatchExportWorkflow.run,
+                            inputs,
+                            id=workflow_id,
+                            task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
+                            retry_policy=RetryPolicy(maximum_attempts=1),
+                            execution_timeout=execution_timeout,
+                        )
+                else:
+                    await activity_environment.client.execute_workflow(
+                        SnowflakeBatchExportWorkflow.run,
+                        inputs,
+                        id=workflow_id,
+                        task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
+                        retry_policy=RetryPolicy(maximum_attempts=1),
+                        execution_timeout=execution_timeout,
+                    )
+
+        runs = await afetch_batch_export_runs(batch_export_id=snowflake_batch_export.id)
+        assert len(runs) == 1
+
+        run = runs[0]
+        assert run.status == expected_status
+
+        if expect_data_interval_start_none:
+            assert run.data_interval_start is None
+
+        # Determine sort key based on model
+        if batch_export_model is not None:
+            if batch_export_model.name == "persons":
+                sort_key = "person_id"
+            elif batch_export_model.name == "sessions":
+                sort_key = "session_id"
+
+        await assert_clickhouse_records_in_snowflake(
+            snowflake_cursor=snowflake_cursor,
+            clickhouse_client=clickhouse_client,
+            table_name=snowflake_batch_export.destination.config["table_name"],
+            team_id=team.pk,
+            data_interval_start=data_interval_start,
+            data_interval_end=data_interval_end,
+            exclude_events=exclude_events,
+            batch_export_model=batch_export_model or batch_export_schema,
+            sort_key=sort_key,
+        )
+
+        return run
+
     @pytest.mark.parametrize("interval", ["hour", "day"], indirect=True)
     @pytest.mark.parametrize("exclude_events", [None, ["test-exclude"]], indirect=True)
     @pytest.mark.parametrize("model", TEST_MODELS)
@@ -1061,61 +1155,17 @@ class TestSnowflakeExportWorkflow:
         elif model is not None:
             batch_export_schema = model
 
-        workflow_id = str(uuid4())
-        inputs = SnowflakeBatchExportInputs(
-            team_id=ateam.pk,
-            batch_export_id=str(snowflake_batch_export.id),
-            data_interval_end=data_interval_end.isoformat(),
-            interval=interval,
-            batch_export_schema=batch_export_schema,
-            batch_export_model=batch_export_model,
-            **snowflake_batch_export.destination.config,
-        )
-
-        async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
-            async with Worker(
-                activity_environment.client,
-                task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
-                workflows=[SnowflakeBatchExportWorkflow],
-                activities=[
-                    start_batch_export_run,
-                    insert_into_snowflake_activity,
-                    finish_batch_export_run,
-                ],
-                workflow_runner=UnsandboxedWorkflowRunner(),
-            ):
-                await activity_environment.client.execute_workflow(
-                    SnowflakeBatchExportWorkflow.run,
-                    inputs,
-                    id=workflow_id,
-                    task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
-                    retry_policy=RetryPolicy(maximum_attempts=1),
-                    execution_timeout=dt.timedelta(minutes=2),
-                )
-
-        runs = await afetch_batch_export_runs(batch_export_id=snowflake_batch_export.id)
-        assert len(runs) == 1
-
-        run = runs[0]
-        assert run.status == "Completed"
-
-        sort_key = "event"
-        if batch_export_model is not None:
-            if batch_export_model.name == "persons":
-                sort_key = "person_id"
-            elif batch_export_model.name == "sessions":
-                sort_key = "session_id"
-
-        await assert_clickhouse_records_in_snowflake(
-            snowflake_cursor=snowflake_cursor,
+        await self._run_workflow(
             clickhouse_client=clickhouse_client,
-            table_name=snowflake_batch_export.destination.config["table_name"],
-            team_id=ateam.pk,
+            snowflake_cursor=snowflake_cursor,
+            snowflake_batch_export=snowflake_batch_export,
+            team=ateam,
             data_interval_start=data_interval_start,
             data_interval_end=data_interval_end,
+            interval=interval,
+            batch_export_model=batch_export_model,
+            batch_export_schema=batch_export_schema,
             exclude_events=exclude_events,
-            batch_export_model=model,
-            sort_key=sort_key,
         )
 
     @pytest.mark.parametrize("interval", ["hour", "day"], indirect=True)
@@ -1151,62 +1201,18 @@ class TestSnowflakeExportWorkflow:
         elif model is not None:
             batch_export_schema = model
 
-        workflow_id = str(uuid4())
-        inputs = SnowflakeBatchExportInputs(
-            team_id=ateam.pk,
-            batch_export_id=str(snowflake_batch_export.id),
-            data_interval_end=data_interval_end.isoformat(),
-            interval=interval,
-            batch_export_schema=batch_export_schema,
-            batch_export_model=batch_export_model,
-            **snowflake_batch_export.destination.config,
-        )
-
-        async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
-            async with Worker(
-                activity_environment.client,
-                task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
-                workflows=[SnowflakeBatchExportWorkflow],
-                activities=[
-                    start_batch_export_run,
-                    insert_into_snowflake_activity,
-                    finish_batch_export_run,
-                ],
-                workflow_runner=UnsandboxedWorkflowRunner(),
-            ):
-                with override_settings(BATCH_EXPORT_SNOWFLAKE_UPLOAD_CHUNK_SIZE_BYTES=1):
-                    await activity_environment.client.execute_workflow(
-                        SnowflakeBatchExportWorkflow.run,
-                        inputs,
-                        id=workflow_id,
-                        task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
-                        retry_policy=RetryPolicy(maximum_attempts=1),
-                        execution_timeout=dt.timedelta(minutes=2),
-                    )
-
-        runs = await afetch_batch_export_runs(batch_export_id=snowflake_batch_export.id)
-        assert len(runs) == 1
-
-        run = runs[0]
-        assert run.status == "Completed"
-
-        sort_key = "event"
-        if batch_export_model is not None:
-            if batch_export_model.name == "persons":
-                sort_key = "person_id"
-            elif batch_export_model.name == "sessions":
-                sort_key = "session_id"
-
-        await assert_clickhouse_records_in_snowflake(
-            snowflake_cursor=snowflake_cursor,
+        await self._run_workflow(
             clickhouse_client=clickhouse_client,
-            table_name=snowflake_batch_export.destination.config["table_name"],
-            team_id=ateam.pk,
+            snowflake_cursor=snowflake_cursor,
+            snowflake_batch_export=snowflake_batch_export,
+            team=ateam,
             data_interval_start=data_interval_start,
             data_interval_end=data_interval_end,
+            interval=interval,
+            batch_export_model=batch_export_model,
+            batch_export_schema=batch_export_schema,
             exclude_events=exclude_events,
-            batch_export_model=model,
-            sort_key=sort_key,
+            settings_overrides={"BATCH_EXPORT_SNOWFLAKE_UPLOAD_CHUNK_SIZE_BYTES": 1},
         )
 
     @pytest.mark.parametrize(
@@ -1235,21 +1241,6 @@ class TestSnowflakeExportWorkflow:
         We expect persons outside the batch interval to also be backfilled (i.e. persons that were updated
         more than an hour ago) when setting `is_earliest_backfill=True`.
         """
-        workflow_id = str(uuid.uuid4())
-        inputs = SnowflakeBatchExportInputs(
-            team_id=ateam.pk,
-            batch_export_id=str(snowflake_batch_export.id),
-            data_interval_end=data_interval_end.isoformat(),
-            interval=interval,
-            batch_export_model=model,
-            backfill_details=BackfillDetails(
-                backfill_id=None,
-                is_earliest_backfill=True,
-                start_at=None,
-                end_at=data_interval_end.isoformat(),
-            ),
-            **snowflake_batch_export.destination.config,
-        )
         _, persons = generate_test_data
 
         # Ensure some data outside batch interval has been created
@@ -1258,44 +1249,26 @@ class TestSnowflakeExportWorkflow:
             for person in persons
         )
 
-        async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
-            async with Worker(
-                activity_environment.client,
-                task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
-                workflows=[SnowflakeBatchExportWorkflow],
-                activities=[
-                    start_batch_export_run,
-                    insert_into_snowflake_activity,
-                    finish_batch_export_run,
-                ],
-                workflow_runner=UnsandboxedWorkflowRunner(),
-            ):
-                with override_settings(BATCH_EXPORT_SNOWFLAKE_UPLOAD_CHUNK_SIZE_BYTES=1):
-                    await activity_environment.client.execute_workflow(
-                        SnowflakeBatchExportWorkflow.run,
-                        inputs,
-                        id=workflow_id,
-                        task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
-                        retry_policy=RetryPolicy(maximum_attempts=1),
-                        execution_timeout=dt.timedelta(minutes=10),
-                    )
+        backfill_details = BackfillDetails(
+            backfill_id=None,
+            is_earliest_backfill=True,
+            start_at=None,
+            end_at=data_interval_end.isoformat(),
+        )
 
-        runs = await afetch_batch_export_runs(batch_export_id=snowflake_batch_export.id)
-        assert len(runs) == 1
-
-        run = runs[0]
-        assert run.status == "Completed"
-        assert run.data_interval_start is None
-
-        await assert_clickhouse_records_in_snowflake(
-            snowflake_cursor=snowflake_cursor,
+        await self._run_workflow(
             clickhouse_client=clickhouse_client,
-            table_name=snowflake_batch_export.destination.config["table_name"],
-            team_id=ateam.pk,
+            snowflake_cursor=snowflake_cursor,
+            snowflake_batch_export=snowflake_batch_export,
+            team=ateam,
             data_interval_start=data_interval_start,
             data_interval_end=data_interval_end,
+            interval=interval,
             batch_export_model=model,
-            sort_key="person_id",
+            backfill_details=backfill_details,
+            settings_overrides={"BATCH_EXPORT_SNOWFLAKE_UPLOAD_CHUNK_SIZE_BYTES": 1},
+            execution_timeout=dt.timedelta(minutes=10),
+            expect_data_interval_start_none=True,
         )
 
     async def test_snowflake_export_workflow_handles_cancellation(
