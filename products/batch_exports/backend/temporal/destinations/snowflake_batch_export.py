@@ -746,10 +746,10 @@ class SnowflakeConsumer(Consumer):
 
 
 class SnowflakeConsumerFromStage(ConsumerFromStage):
-    """A consumer that uploads chunks of data to Snowflake concurrently.
+    """A consumer that uploads data to Snowflake from the internal stage.
 
-    Similar to ConcurrentS3Consumer, this class manages concurrent uploads to Snowflake's
-    internal staging area using semaphores to limit concurrent operations.
+    This is a simpler version that works like the existing SnowflakeConsumer,
+    without concurrent uploads, just using the new pipeline interface.
     """
 
     def __init__(
@@ -759,176 +759,93 @@ class SnowflakeConsumerFromStage(ConsumerFromStage):
         snowflake_client: SnowflakeClient,
         snowflake_table: str,
         snowflake_table_stage_prefix: str,
-        max_concurrent_uploads: int = 3,
     ):
         super().__init__(data_interval_start, data_interval_end)
 
         self.snowflake_client = snowflake_client
         self.snowflake_table = snowflake_table
         self.snowflake_table_stage_prefix = snowflake_table_stage_prefix
-        self.max_concurrent_uploads = max_concurrent_uploads
-        self.upload_semaphore = asyncio.Semaphore(max_concurrent_uploads)
 
-        # File splitting management
+        # Simple file management - no concurrent uploads
         self.current_file_index = 0
-        self.current_file_size = 0
-
-        self.files_uploaded: list[str] = []
         self.current_buffer = bytearray()
-        self.pending_uploads: dict[int, asyncio.Task] = {}  # file_index -> Future
-
         self._finalized = False
 
     async def finalize_file(self):
         """Finalize the current file and start a new one."""
-        await self._finalize_current_file()
-        await self._start_new_file()
+        await self._upload_current_buffer()
+        self._start_new_file()
 
     async def consume_chunk(self, data: bytes):
-        """Consume a chunk of data by buffering it for the current file."""
+        """Consume a chunk of data by buffering it."""
         if self._finalized:
             raise RuntimeError("Consumer already finalized")
 
         self.current_buffer.extend(data)
-        self.current_file_size += len(data)
 
-        # Give pending tasks a chance to run
-        await asyncio.sleep(0)
-
-    async def _start_new_file(self):
+    def _start_new_file(self):
         """Start a new file (reset state for file splitting)."""
         self.current_file_index += 1
-        self.current_file_size = 0
         self.current_buffer.clear()
-        self.external_logger.info(
-            "Starting new file %d for Snowflake table '%s'", self.current_file_index, self.snowflake_table
-        )
-
-    async def _finalize_current_file(self):
-        """Finalize the current file by uploading it to Snowflake."""
-        if self.current_file_size == 0:
-            return  # Nothing to finalize
-
-        try:
-            # Upload the current buffer as a file
-            if len(self.current_buffer) > 0:
-                await self._upload_current_buffer()
-
-        except Exception:
-            self.logger.exception("Failed to finalize current file")
-            raise
 
     async def _upload_current_buffer(self):
         """Upload the current buffer to Snowflake using a temporary file."""
-        file_index = self.current_file_index
+        if len(self.current_buffer) == 0:
+            return  # Nothing to upload
 
-        # Acquire upload semaphore (blocks if too many uploads in flight)
-        await self.upload_semaphore.acquire()
-
-        # Create upload task
-        upload_task = asyncio.create_task(self._upload_buffer_with_cleanup(bytes(self.current_buffer), file_index))
-        upload_task.add_done_callback(lambda task: self._on_upload_complete(task, file_index))
-
-        # Track the upload
-        self.pending_uploads[file_index] = upload_task
+        data = bytes(self.current_buffer)
 
         self.logger.debug(
-            "Concurrent uploads running: %s",
-            len(self.pending_uploads),
+            "Uploading file %d with %d bytes to Snowflake table '%s'",
+            self.current_file_index,
+            len(data),
+            self.snowflake_table,
         )
 
-    async def _upload_buffer_with_cleanup(self, data: bytes, file_index: int):
-        """Upload buffer data to Snowflake with cleanup."""
+        # Create a temporary file for the data
+        import os
+        import tempfile
+
+        with tempfile.NamedTemporaryFile(mode="wb", suffix=".jsonl", delete=False) as temp_file:
+            temp_file.write(data)
+            temp_file_path = temp_file.name
+
         try:
-            self.logger.debug(
-                "Uploading file %d with %d bytes to Snowflake table '%s'",
-                file_index,
+            # Create a BatchExportTemporaryFile wrapper
+            temp_batch_file = BatchExportTemporaryFile(temp_file_path, encoding="utf-8")
+
+            # Upload to Snowflake
+            await self.snowflake_client.put_file_to_snowflake_table(
+                temp_batch_file,
+                self.snowflake_table_stage_prefix,
+                self.snowflake_table,
+            )
+
+            self.external_logger.info(
+                "File %d with %d bytes uploaded to Snowflake table '%s'",
+                self.current_file_index,
                 len(data),
                 self.snowflake_table,
             )
 
-            # Create a temporary file for the data
-            import os
-            import tempfile
-
-            with tempfile.NamedTemporaryFile(mode="wb", suffix=".jsonl", delete=False) as temp_file:
-                temp_file.write(data)
-                temp_file_path = temp_file.name
-
+        finally:
+            # Clean up temporary file
             try:
-                # Create a BatchExportTemporaryFile wrapper
-                temp_batch_file = BatchExportTemporaryFile(temp_file_path, encoding="utf-8")
-
-                # Upload to Snowflake
-                await self.snowflake_client.put_file_to_snowflake_table(
-                    temp_batch_file,
-                    self.snowflake_table_stage_prefix,
-                    self.snowflake_table,
-                )
-
-                # Track the file as uploaded
-                self.files_uploaded.append(f"{self.snowflake_table_stage_prefix}/file_{file_index}")
-
-                self.external_logger.info(
-                    "File %d with %d bytes uploaded to Snowflake table '%s'",
-                    file_index,
-                    len(data),
-                    self.snowflake_table,
-                )
-
-            finally:
-                # Clean up temporary file
-                try:
-                    os.unlink(temp_file_path)
-                except OSError:
-                    pass  # Best effort cleanup
-
-        except Exception:
-            self.logger.exception(
-                "Failed to upload file %d to Snowflake table '%s'",
-                file_index,
-                self.snowflake_table,
-            )
-            raise
-
-    def _on_upload_complete(self, task: asyncio.Task, file_index: int):
-        """Callback called when an upload task completes (success or failure)."""
-        self.upload_semaphore.release()
-
-        # Remove from pending uploads immediately
-        self.pending_uploads.pop(file_index, None)
-
-        # Handle any exceptions
-        if task.exception() is not None:
-            # Log the error - the exception will be re-raised when the task is awaited
-            self.logger.exception("Upload failed for file %d", file_index)
+                os.unlink(temp_file_path)
+            except OSError:
+                pass  # Best effort cleanup
 
     async def finalize(self):
-        """Finalize upload with proper cleanup."""
+        """Finalize by uploading any remaining data."""
         if self._finalized:
             return
 
         try:
-            # Finalize the current/last file
-            await self._finalize_current_file()
-
-            # Wait for all pending uploads and check for errors
-            if self.pending_uploads:
-                try:
-                    await asyncio.gather(*self.pending_uploads.values())
-                except Exception:
-                    self.logger.exception("One or more upload files failed")
-                    raise
-
-        except Exception:
-            self.logger.exception("Failed to finalize Snowflake consumer")
-            raise
+            # Upload any remaining data
+            await self._upload_current_buffer()
         finally:
             self._finalized = True
-            # Final cleanup
             self.current_buffer.clear()
-
-        self.external_logger.info("All uploads completed. Uploaded %d files", len(self.files_uploaded))
 
 
 def get_snowflake_fields_from_record_schema(
@@ -1289,7 +1206,6 @@ async def insert_into_snowflake_activity_from_stage(inputs: SnowflakeInsertInput
                     snowflake_client=snow_client,
                     snowflake_table=snow_stage_table if requires_merge else snow_table,
                     snowflake_table_stage_prefix=data_interval_end_str,
-                    max_concurrent_uploads=settings.BATCH_EXPORT_SNOWFLAKE_MAX_CONCURRENT_UPLOADS,
                 )
 
                 result = await run_consumer_from_stage(
@@ -1399,8 +1315,8 @@ class SnowflakeBatchExportWorkflow(PostHogWorkflow):
             destination_default_fields=snowflake_default_fields(),
         )
 
-        # Use concurrent consumer for specific team IDs, otherwise use the original activity
-        if str(inputs.team_id) in settings.BATCH_EXPORT_SNOWFLAKE_CONCURRENT_CONSUMER_TEAM_IDS:
+        # Use stage consumer for specific team IDs, otherwise use the original activity
+        if str(inputs.team_id) in settings.BATCH_EXPORT_SNOWFLAKE_STAGE_CONSUMER_TEAM_IDS:
             await execute_batch_export_using_internal_stage(
                 insert_into_snowflake_activity_from_stage,
                 insert_inputs,
