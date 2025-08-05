@@ -251,7 +251,7 @@ describe('Hog Executor', () => {
         it('refreshes oauth token if it is about to expire', async () => {
             const fn = createHogFunction({
                 name: 'Test hog function',
-                ...HOG_EXAMPLES.simple_fetch,
+                ...HOG_EXAMPLES.simple_fetch_with_oauth,
                 ...HOG_INPUTS_EXAMPLES.simple_fetch_with_oauth,
                 ...HOG_FILTERS_EXAMPLES.no_filters,
                 team_id: team.id,
@@ -293,8 +293,7 @@ describe('Hog Executor', () => {
                     url: 'https://example.com/posthog-webhook',
                     method: 'POST',
                     headers: {
-                        'Content-Type': 'application/json',
-                        Authorization: 'Bearer ',
+                        Authorization: 'Bearer token',
                     },
                 },
             })
