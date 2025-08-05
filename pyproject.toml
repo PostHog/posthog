@@ -154,6 +154,7 @@ dependencies = [
     "opentelemetry-instrumentation-kafka-python==0.54b1",
     "opentelemetry-exporter-otlp-proto-grpc==1.33.1",
     "asgiref==3.8.1",
+    "claude-code-sdk>=0.0.14",
 ]
 
 [dependency-groups]
