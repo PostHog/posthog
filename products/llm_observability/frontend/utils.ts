@@ -200,6 +200,7 @@ export function normalizeMessage(output: unknown, defaultRole?: string): CompatM
         typeof output === 'object' &&
         'role' in output &&
         'content' in output &&
+        typeof output.role === 'string' &&
         Array.isArray(output.content)
     ) {
         return [
