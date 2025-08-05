@@ -5,7 +5,7 @@ import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
-import { dateMapping, dateStringToDayJs, toParams } from 'lib/utils'
+import { dateMapping, toParams } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import difference from 'lodash.difference'
 import sortBy from 'lodash.sortby'
@@ -16,6 +16,7 @@ import { DateMappingOption, OrganizationType } from '~/types'
 
 import {
     buildTrackingProperties,
+    calculateBillingPeriodMarkers,
     canAccessBilling,
     syncBillingSearchParams,
     updateBillingSearchParams,
@@ -204,34 +205,7 @@ export const billingSpendLogic = kea<billingSpendLogicType>([
         billingPeriodMarkers: [
             (s) => [s.billingPeriodUTC, s.dateFrom, s.dateTo],
             (currentPeriod, dateFrom: string, dateTo: string): BillingPeriodMarker[] => {
-                if (!currentPeriod?.start || !currentPeriod?.interval) {
-                    return []
-                }
-
-                // Convert user dates to UTC for comparison with billingPeriodUTC
-                const from = dateStringToDayJs(dateFrom)?.utc() || dayjs(dateFrom).utc()
-                const to = dateStringToDayJs(dateTo)?.utc() || dayjs(dateTo).utc()
-                const interval = currentPeriod.interval
-
-                // Find the first period start that could be visible
-                const periodsSinceStart = Math.ceil(currentPeriod.start.diff(from, interval))
-                const firstVisiblePeriod = currentPeriod.start.subtract(Math.max(0, periodsSinceStart), interval)
-
-                // Collect all period starts within the range
-                const markers = []
-                let periodStart = firstVisiblePeriod
-
-                while (periodStart.isSameOrBefore(to)) {
-                    if (periodStart.isSameOrAfter(from)) {
-                        markers.push({
-                            date: periodStart,
-                            label: 'New billing period - spend tiers reset',
-                        })
-                    }
-                    periodStart = periodStart.add(1, interval)
-                }
-
-                return markers
+                return calculateBillingPeriodMarkers(currentPeriod, dateFrom, dateTo)
             },
         ],
         emptySeriesIDs: [

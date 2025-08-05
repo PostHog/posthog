@@ -31,7 +31,6 @@ export interface BillingSeriesType {
 
 export interface BillingPeriodMarker {
     date: Dayjs
-    label?: string
 }
 
 export interface BillingLineGraphProps {
