@@ -103,7 +103,7 @@ class RatioStatistic:
     """
 
     n: int  # Sample size
-    m_statistic: Union[SampleMeanStatistic, ProportionStatistic]  # Numerator statisticdiag
+    m_statistic: Union[SampleMeanStatistic, ProportionStatistic]  # Numerator statistic
     d_statistic: Union[SampleMeanStatistic, ProportionStatistic]  # Denominator statistic
     m_d_sum_of_products: float  # Sum of products between numerator and denominator
 
