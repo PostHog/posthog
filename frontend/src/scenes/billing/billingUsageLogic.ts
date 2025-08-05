@@ -5,7 +5,7 @@ import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
-import { dateMapping, toParams } from 'lib/utils'
+import { dateMapping, dateStringToDayJs, toParams } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import difference from 'lodash.difference'
 import sortBy from 'lodash.sortby'
@@ -201,8 +201,8 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
                 }
 
                 const markers = []
-                const from = dayjs(dateFrom)
-                const to = dayjs(dateTo)
+                const from = dateStringToDayJs(dateFrom) || dayjs(dateFrom)
+                const to = dateStringToDayJs(dateTo) || dayjs(dateTo)
                 const interval = billing.billing_period.interval
 
                 // Calculate all billing period starts within the date range
