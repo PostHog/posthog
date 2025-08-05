@@ -455,6 +455,53 @@ class TestSnowflakeExportWorkflowErrorHandling:
 
 @SKIP_IF_MISSING_REQUIRED_ENV_VARS
 class TestInsertIntoSnowflakeActivity:
+    async def _run_activity(
+        self,
+        activity_environment,
+        snowflake_cursor,
+        clickhouse_client,
+        snowflake_config,
+        team,
+        data_interval_start,
+        data_interval_end,
+        table_name: str,
+        batch_export_model: BatchExportModel | None = None,
+        batch_export_schema: BatchExportSchema | None = None,
+        exclude_events=None,
+        sort_key: str = "event",
+        expected_fields=None,
+        expect_duplicates: bool = False,
+        primary_key=None,
+    ):
+        """Helper function to run insert_into_snowflake_activity and assert records in Snowflake"""
+        insert_inputs = SnowflakeInsertInputs(
+            team_id=team.pk,
+            table_name=table_name,
+            data_interval_start=data_interval_start.isoformat(),
+            data_interval_end=data_interval_end.isoformat(),
+            exclude_events=exclude_events,
+            batch_export_schema=batch_export_schema,
+            batch_export_model=batch_export_model,
+            **snowflake_config,
+        )
+
+        await activity_environment.run(insert_into_snowflake_activity, insert_inputs)
+
+        await assert_clickhouse_records_in_snowflake(
+            snowflake_cursor=snowflake_cursor,
+            clickhouse_client=clickhouse_client,
+            table_name=table_name,
+            team_id=team.pk,
+            data_interval_start=data_interval_start,
+            data_interval_end=data_interval_end,
+            exclude_events=exclude_events,
+            batch_export_model=batch_export_model or batch_export_schema,
+            sort_key=sort_key,
+            expected_fields=expected_fields,
+            expect_duplicates=expect_duplicates,
+            primary_key=primary_key,
+        )
+
     @pytest.mark.parametrize("exclude_events", [None, ["test-exclude"]], indirect=True)
     @pytest.mark.parametrize("model", TEST_MODELS)
     async def test_insert_into_snowflake_activity_inserts_data_into_snowflake_table(
@@ -495,18 +542,6 @@ class TestInsertIntoSnowflakeActivity:
             batch_export_schema = model
 
         table_name = f"test_insert_activity_table_{ateam.pk}"
-        insert_inputs = SnowflakeInsertInputs(
-            team_id=ateam.pk,
-            table_name=table_name,
-            data_interval_start=data_interval_start.isoformat(),
-            data_interval_end=data_interval_end.isoformat(),
-            exclude_events=exclude_events,
-            batch_export_schema=batch_export_schema,
-            batch_export_model=batch_export_model,
-            **snowflake_config,
-        )
-
-        await activity_environment.run(insert_into_snowflake_activity, insert_inputs)
 
         sort_key = "event"
         if batch_export_model is not None:
@@ -515,15 +550,18 @@ class TestInsertIntoSnowflakeActivity:
             elif batch_export_model.name == "sessions":
                 sort_key = "session_id"
 
-        await assert_clickhouse_records_in_snowflake(
+        await self._run_activity(
+            activity_environment=activity_environment,
             snowflake_cursor=snowflake_cursor,
             clickhouse_client=clickhouse_client,
-            table_name=table_name,
-            team_id=ateam.pk,
+            snowflake_config=snowflake_config,
+            team=ateam,
             data_interval_start=data_interval_start,
             data_interval_end=data_interval_end,
+            table_name=table_name,
+            batch_export_model=batch_export_model,
+            batch_export_schema=batch_export_schema,
             exclude_events=exclude_events,
-            batch_export_model=model,
             sort_key=sort_key,
         )
 
@@ -546,26 +584,17 @@ class TestInsertIntoSnowflakeActivity:
         the second run.
         """
         model = BatchExportModel(name="persons", schema=None)
-
         table_name = f"test_insert_activity_table_mutable_persons_{ateam.pk}"
-        insert_inputs = SnowflakeInsertInputs(
-            team_id=ateam.pk,
-            table_name=table_name,
-            data_interval_start=data_interval_start.isoformat(),
-            data_interval_end=data_interval_end.isoformat(),
-            batch_export_model=model,
-            **snowflake_config,
-        )
 
-        await activity_environment.run(insert_into_snowflake_activity, insert_inputs)
-
-        await assert_clickhouse_records_in_snowflake(
+        await self._run_activity(
+            activity_environment=activity_environment,
             snowflake_cursor=snowflake_cursor,
             clickhouse_client=clickhouse_client,
-            table_name=table_name,
-            team_id=ateam.pk,
+            snowflake_config=snowflake_config,
+            team=ateam,
             data_interval_start=data_interval_start,
             data_interval_end=data_interval_end,
+            table_name=table_name,
             batch_export_model=model,
             sort_key="person_id",
         )
@@ -593,15 +622,15 @@ class TestInsertIntoSnowflakeActivity:
                 timestamp=old_person["_timestamp"],
             )
 
-        await activity_environment.run(insert_into_snowflake_activity, insert_inputs)
-
-        await assert_clickhouse_records_in_snowflake(
+        await self._run_activity(
+            activity_environment=activity_environment,
             snowflake_cursor=snowflake_cursor,
             clickhouse_client=clickhouse_client,
-            table_name=table_name,
-            team_id=ateam.pk,
+            snowflake_config=snowflake_config,
+            team=ateam,
             data_interval_start=data_interval_start,
             data_interval_end=data_interval_end,
+            table_name=table_name,
             batch_export_model=model,
             sort_key="person_id",
         )
@@ -625,26 +654,17 @@ class TestInsertIntoSnowflakeActivity:
         the second run with the same time range.
         """
         model = BatchExportModel(name="sessions", schema=None)
-
         table_name = f"test_insert_activity_table_mutable_sessions_{ateam.pk}"
-        insert_inputs = SnowflakeInsertInputs(
-            team_id=ateam.pk,
-            table_name=table_name,
-            data_interval_start=data_interval_start.isoformat(),
-            data_interval_end=data_interval_end.isoformat(),
-            batch_export_model=model,
-            **snowflake_config,
-        )
 
-        await activity_environment.run(insert_into_snowflake_activity, insert_inputs)
-
-        await assert_clickhouse_records_in_snowflake(
+        await self._run_activity(
+            activity_environment=activity_environment,
             snowflake_cursor=snowflake_cursor,
             clickhouse_client=clickhouse_client,
-            table_name=table_name,
-            team_id=ateam.pk,
+            snowflake_config=snowflake_config,
+            team=ateam,
             data_interval_start=data_interval_start,
             data_interval_end=data_interval_end,
+            table_name=table_name,
             batch_export_model=model,
             sort_key="session_id",
         )
@@ -673,18 +693,15 @@ class TestInsertIntoSnowflakeActivity:
             insert_sessions=True,
         )
 
-        insert_inputs.data_interval_start = new_data_interval_start.isoformat()
-        insert_inputs.data_interval_end = new_data_interval_end.isoformat()
-
-        await activity_environment.run(insert_into_snowflake_activity, insert_inputs)
-
-        await assert_clickhouse_records_in_snowflake(
+        await self._run_activity(
+            activity_environment=activity_environment,
             snowflake_cursor=snowflake_cursor,
             clickhouse_client=clickhouse_client,
-            table_name=table_name,
-            team_id=ateam.pk,
+            snowflake_config=snowflake_config,
+            team=ateam,
             data_interval_start=new_data_interval_start,
             data_interval_end=new_data_interval_end,
+            table_name=table_name,
             batch_export_model=model,
             sort_key="session_id",
         )
@@ -723,27 +740,17 @@ class TestInsertIntoSnowflakeActivity:
         are present in the table's internal stage.
         """
         model = BatchExportModel(name="events", schema=None)
-
         table_name = f"test_insert_activity_table_remove_{ateam.pk}"
 
-        insert_inputs = SnowflakeInsertInputs(
-            team_id=ateam.pk,
-            table_name=table_name,
-            data_interval_start=data_interval_start.isoformat(),
-            data_interval_end=data_interval_end.isoformat(),
-            batch_export_model=model,
-            **snowflake_config,
-        )
-
-        await activity_environment.run(insert_into_snowflake_activity, insert_inputs)
-
-        await assert_clickhouse_records_in_snowflake(
+        await self._run_activity(
+            activity_environment=activity_environment,
             snowflake_cursor=snowflake_cursor,
             clickhouse_client=clickhouse_client,
-            table_name=table_name,
-            team_id=ateam.pk,
+            snowflake_config=snowflake_config,
+            team=ateam,
             data_interval_start=data_interval_start,
             data_interval_end=data_interval_end,
+            table_name=table_name,
             batch_export_model=model,
             sort_key="event",
         )
@@ -767,15 +774,15 @@ class TestInsertIntoSnowflakeActivity:
         assert len(stage_files) == 1
         assert stage_files[0]["name"] == f"{data_interval_end_str}/{os.path.basename(garbage_jsonl_file)}.gz"
 
-        await activity_environment.run(insert_into_snowflake_activity, insert_inputs)
-
-        await assert_clickhouse_records_in_snowflake(
+        await self._run_activity(
+            activity_environment=activity_environment,
             snowflake_cursor=snowflake_cursor,
             clickhouse_client=clickhouse_client,
-            table_name=table_name,
-            team_id=ateam.pk,
+            snowflake_config=snowflake_config,
+            team=ateam,
             data_interval_start=data_interval_start,
             data_interval_end=data_interval_end,
+            table_name=table_name,
             batch_export_model=model,
             sort_key="event",
         )
@@ -876,26 +883,17 @@ class TestInsertIntoSnowflakeActivity:
         schema, then delete a column in the destination and then rerun the export.
         """
         model = BatchExportModel(name="persons", schema=None)
-
         table_name = f"test_insert_activity_migration_table_{ateam.pk}"
-        insert_inputs = SnowflakeInsertInputs(
-            team_id=ateam.pk,
-            table_name=table_name,
-            data_interval_start=data_interval_start.isoformat(),
-            data_interval_end=data_interval_end.isoformat(),
-            batch_export_model=model,
-            **snowflake_config,
-        )
 
-        await activity_environment.run(insert_into_snowflake_activity, insert_inputs)
-
-        await assert_clickhouse_records_in_snowflake(
+        await self._run_activity(
+            activity_environment=activity_environment,
             snowflake_cursor=snowflake_cursor,
             clickhouse_client=clickhouse_client,
-            table_name=table_name,
-            team_id=ateam.pk,
+            snowflake_config=snowflake_config,
+            team=ateam,
             data_interval_start=data_interval_start,
             data_interval_end=data_interval_end,
+            table_name=table_name,
             batch_export_model=model,
             sort_key="person_id",
         )
@@ -926,17 +924,17 @@ class TestInsertIntoSnowflakeActivity:
                 timestamp=old_person["_timestamp"],
             )
 
-        await activity_environment.run(insert_into_snowflake_activity, insert_inputs)
-
         # This time we don't expect there to be a created_at column
         expected_fields = [field for field in EXPECTED_PERSONS_BATCH_EXPORT_FIELDS if field != "created_at"]
-        await assert_clickhouse_records_in_snowflake(
+        await self._run_activity(
+            activity_environment=activity_environment,
             snowflake_cursor=snowflake_cursor,
             clickhouse_client=clickhouse_client,
-            table_name=table_name,
-            team_id=ateam.pk,
+            snowflake_config=snowflake_config,
+            team=ateam,
             data_interval_start=data_interval_start,
             data_interval_end=data_interval_end,
+            table_name=table_name,
             batch_export_model=model,
             sort_key="person_id",
             expected_fields=expected_fields,
