@@ -14,7 +14,7 @@ logger = structlog.get_logger(__name__)
 
 
 @receiver(organization_features_changed)
-def handle_sso_enforcement_removal(sender, organization: Organization, removed_features: list[str]):
+def handle_sso_enforcement_removal(sender, organization: Organization, removed_features: list[str], **kwargs):
     if AvailableFeature.SSO_ENFORCEMENT in removed_features:
         try:
             updated = OrganizationDomain.objects.filter(organization=organization).update(sso_enforcement="")
@@ -30,7 +30,7 @@ def handle_sso_enforcement_removal(sender, organization: Organization, removed_f
 
 
 @receiver(organization_features_changed)
-def handle_saml_removal(sender, organization: Organization, removed_features: list[str]):
+def handle_saml_removal(sender, organization: Organization, removed_features: list[str], **kwargs):
     if AvailableFeature.SAML in removed_features:
         try:
             updated = OrganizationDomain.objects.filter(organization=organization).update(
@@ -48,7 +48,7 @@ def handle_saml_removal(sender, organization: Organization, removed_features: li
 
 
 @receiver(organization_features_changed)
-def handle_automatic_provisioning_removal(sender, organization: Organization, removed_features: list[str]):
+def handle_automatic_provisioning_removal(sender, organization: Organization, removed_features: list[str], **kwargs):
     """Clean up automatic provisioning when feature is removed."""
     if AvailableFeature.AUTOMATIC_PROVISIONING in removed_features:
         try:
@@ -67,7 +67,7 @@ def handle_automatic_provisioning_removal(sender, organization: Organization, re
 
 
 @receiver(organization_features_changed)
-def handle_rbac_removal(sender, organization: Organization, removed_features: list[str]):
+def handle_rbac_removal(sender, organization: Organization, removed_features: list[str], **kwargs):
     if AvailableFeature.ROLE_BASED_ACCESS in removed_features:
         try:
             from ee.models import AccessControl, Role
@@ -86,7 +86,7 @@ def handle_rbac_removal(sender, organization: Organization, removed_features: li
 
 
 @receiver(organization_features_changed)
-def handle_invite_settings_removal(sender, organization: Organization, removed_features: list[str]):
+def handle_invite_settings_removal(sender, organization: Organization, removed_features: list[str], **kwargs):
     if AvailableFeature.ORGANIZATION_INVITE_SETTINGS in removed_features:
         try:
             organization.members_can_invite = True
