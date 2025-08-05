@@ -16,6 +16,10 @@ from posthog.hogql.database.models import (
 )
 from posthog.hogql.database.schema.persons import join_with_persons_table
 from posthog.hogql.errors import ResolutionError
+from posthog.hogql.database.schema.revenue_analytics import (
+    RawPersonsRevenueAnalyticsTable,
+    build_join_with_persons_revenue_analytics_table,
+)
 
 PERSON_DISTINCT_IDS_FIELDS = {
     "team_id": IntegerDatabaseField(name="team_id", nullable=False),
@@ -25,6 +29,14 @@ PERSON_DISTINCT_IDS_FIELDS = {
         from_field=["person_id"],
         join_table="persons",
         join_function=join_with_persons_table,
+    ),
+    "revenue_analytics": LazyJoin(
+        from_field=["person_id"],
+        join_table=RawPersonsRevenueAnalyticsTable(),
+        join_function=build_join_with_persons_revenue_analytics_table(
+            from_table_id="person_id",
+            with_relative_timestamp=True,
+        ),
     ),
 }
 

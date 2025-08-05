@@ -29,7 +29,7 @@ from posthog.models.organization import Organization
 from posthog.schema import PersonsArgMaxVersion
 from posthog.hogql.database.schema.revenue_analytics import (
     RawPersonsRevenueAnalyticsTable,
-    join_with_persons_revenue_analytics_table,
+    build_join_with_persons_revenue_analytics_table,
 )
 
 from posthog.hogql.visitor import CloningVisitor
@@ -48,7 +48,7 @@ PERSONS_FIELDS: dict[str, FieldOrTable] = {
     "revenue_analytics": LazyJoin(
         from_field=["id"],
         join_table=RawPersonsRevenueAnalyticsTable(),
-        join_function=join_with_persons_revenue_analytics_table,
+        join_function=build_join_with_persons_revenue_analytics_table(),
     ),
 }
 

@@ -393,15 +393,27 @@ def _use_virtual_fields(database: Database, modifiers: HogQLQueryModifiers, timi
             properties_path=["poe", "properties"],
         )
 
-    # TODO: POE is not well supported yet, that part is a stub
     with timings.measure("revenue"):
-        field_name = "$virt_revenue"
-        database.persons.fields[field_name] = ast.FieldTraverser(chain=["revenue_analytics", "revenue"])
-        poe.fields[field_name] = ast.FieldTraverser(chain=["properties", field_name])
+        database_field_name = "$virt_revenue"
+        revenue_analytics_table_field_name = "revenue"
+        database.persons.fields[database_field_name] = ast.FieldTraverser(
+            chain=["revenue_analytics", revenue_analytics_table_field_name]
+        )
+        poe.fields[database_field_name] = ast.FieldTraverser(
+            chain=["..", "pdi", "revenue_analytics", revenue_analytics_table_field_name]
+        )
+
+    # TODO: People will most likely want to do dates other than last 30 days, should solve that eventually
+    # maybe making this a function or something?
     with timings.measure("revenue_last_30_days"):
-        field_name = "$virt_revenue_last_30_days"
-        database.persons.fields[field_name] = ast.FieldTraverser(chain=["revenue_analytics", "revenue_last_30_days"])
-        poe.fields[field_name] = ast.FieldTraverser(chain=["properties", field_name])
+        database_field_name = "$virt_revenue_last_30_days"
+        revenue_analytics_table_field_name = "revenue_last_30_days"
+        database.persons.fields[database_field_name] = ast.FieldTraverser(
+            chain=["revenue_analytics", revenue_analytics_table_field_name]
+        )
+        poe.fields[database_field_name] = ast.FieldTraverser(
+            chain=["..", "pdi", "revenue_analytics", revenue_analytics_table_field_name]
+        )
 
 
 TableStore = dict[str, Table | TableGroup]

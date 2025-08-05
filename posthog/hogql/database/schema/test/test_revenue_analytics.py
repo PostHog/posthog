@@ -23,7 +23,6 @@ from posthog.test.base import (
     _create_event,
 )
 from posthog.test.base import snapshot_clickhouse_queries
-from posthog.hogql_queries.insights.trends.breakdown import BREAKDOWN_NULL_STRING_LABEL
 
 from posthog.temporal.data_imports.sources.stripe.constants import (
     INVOICE_RESOURCE_NAME as STRIPE_INVOICE_RESOURCE_NAME,
@@ -366,10 +365,4 @@ class TestRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
             tqr = TrendsQueryRunner(team=self.team, query=query)
             results = tqr.calculate().results
 
-        # Doesnt make sense to breakdown by this, but this is just proving it works
-        poe_modes = [
-            PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS.value,
-            PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS.value,
-        ]
-        expected = BREAKDOWN_NULL_STRING_LABEL if mode in poe_modes else "350.42"
-        assert results[0]["breakdown_value"] == [expected]
+        assert results[0]["breakdown_value"] == ["350.42"]
