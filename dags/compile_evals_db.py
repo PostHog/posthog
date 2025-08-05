@@ -3,6 +3,9 @@ from dagster_docker import PipesDockerClient
 from django.conf import settings
 
 from dags.common import JobOwners
+from dags.snapshot_project_data import (
+    snapshot_project_data,
+)
 from posthog.models.utils import uuid7
 
 
@@ -11,7 +14,7 @@ class CompileEvalsDbConfig(dagster.Config):
 
 
 @dagster.asset(
-    check_specs=[dagster.AssetCheckSpec(name="no_empty_dump", asset="migrate_and_export_database_dump")],
+    check_specs=[dagster.AssetCheckSpec(name="no_empty_dump", asset="compile_evals_db")],
     tags={"owner": JobOwners.TEAM_MAX_AI.value},
 )
 def compile_evals_db(
@@ -49,3 +52,28 @@ def compile_evals_db(
             "database_url": "postgres://posthog:posthog@db:5432/posthog",
         },
     ).get_materialize_result()
+
+
+class RunEvaluationConfig(dagster.Config):
+    evaluation_module: str
+    """Python module containing the evaluation runner."""
+    project_ids: list[int]
+    """Project IDs to run the evaluation for."""
+
+
+@dagster.op
+def snapshot_psql_data(context: dagster.OpExecutionContext, config: RunEvaluationConfig):
+    partition_keys = [str(project_id) for project_id in config.project_ids]
+    context.instance.add_dynamic_partitions(partitions_def_name="project_snapshots", partition_keys=partition_keys)
+
+    result = dagster.materialize([snapshot_project_data], part=partition_keys, instance=context.instance)
+    return result
+
+
+@dagster.job(
+    description="Runs an AI evaluation",
+    tags={"owner": JobOwners.TEAM_MAX_AI.value},
+    config=dagster.RunConfig(ops={"snapshot_psql_data": RunEvaluationConfig(project_ids=[], evaluation_module="")}),
+)
+def run_evaluation():
+    snapshot_psql_data()
