@@ -26,9 +26,12 @@ from .prompts import (
     ITERATIVE_SEARCH_USER_PROMPT,
     PAGINATION_INSTRUCTIONS_TEMPLATE,
 )
-from .utils import convert_filters_to_query, can_visualize_insight, get_insight_type_from_filters, get_basic_query_info
+from .utils import convert_filters_to_query, get_insight_type_from_filters
 
-from posthog.models import InsightViewed
+from posthog.models import Insight
+from django.db.models import Max
+from django.utils import timezone
+from datetime import timedelta
 
 
 class InsightSearchNode(AssistantNode):
@@ -44,6 +47,7 @@ class InsightSearchNode(AssistantNode):
         self._max_insights_evaluation_iterations = 3
         self._evaluation_selections = {}
         self._rejection_reason = None
+        self._cutoff_date_for_insights_in_days = 180
 
     def _create_read_insights_tool(self):
         """Create tool for reading insights pages during agentic RAG loop."""
@@ -65,9 +69,9 @@ class InsightSearchNode(AssistantNode):
 
             formatted_insights = []
             for insight in page_insights:
-                name = insight.get("insight__name") or insight.get("insight__derived_name", "Unnamed")
-                description = insight.get("insight__description", "")
-                insight_id = insight.get("insight_id")
+                name = insight.name or insight.derived_name or "Unnamed"
+                description = insight.description or ""
+                insight_id = insight.id
 
                 if description:
                     formatted_insights.append(f"ID: {insight_id} | {name} - {description}")
@@ -90,7 +94,7 @@ class InsightSearchNode(AssistantNode):
 
             self._evaluation_selections[insight_id] = {"insight": insight, "explanation": explanation}
 
-            name = insight.get("insight__name") or insight.get("insight__derived_name", "Unnamed")
+            name = insight.name or insight.derived_name or "Unnamed"
             return f"Selected insight {insight_id}: {name}"
 
         @tool
@@ -172,19 +176,16 @@ Current Results: {insight_info['results']}"""
             )
 
     def _get_insights_queryset(self):
+        """Get Insight objects with latest view time annotated and cutoff date."""
+        cutoff_date = timezone.now() - timedelta(days=self._cutoff_date_for_insights_in_days)
         return (
-            InsightViewed.objects.filter(team__project_id=self._team.project_id)
-            .select_related(
-                "insight__name",
-                "insight__description",
-                "insight__derived_name",
-                "insight__team",
-                "insight__short_id",
-                "insight__query",
-                "insight__filters",
-            )
-            .order_by("insight_id", "-last_viewed_at")
-            .distinct("insight_id")
+            Insight.objects.filter(team=self._team, deleted=False)
+            # Annotate with latest view time from InsightViewed
+            .annotate(latest_view_time=Max("insightviewed__last_viewed_at"))
+            # Only include insights viewed within the last 6 months
+            .filter(latest_view_time__gte=cutoff_date)
+            .select_related("team", "created_by")
+            .order_by("-latest_view_time")
         )
 
     def _get_total_insights_count(self) -> int:
@@ -192,7 +193,7 @@ Current Results: {insight_info['results']}"""
             self._total_insights_count = self._get_insights_queryset().count()
         return self._total_insights_count
 
-    def _load_insights_page(self, page_number: int) -> list[dict]:
+    def _load_insights_page(self, page_number: int) -> list[Insight]:
         """Load a specific page of insights from database."""
         if page_number in self._loaded_pages:
             return self._loaded_pages[page_number]
@@ -201,18 +202,7 @@ Current Results: {insight_info['results']}"""
         end_idx = start_idx + self._page_size
 
         insights_qs = self._get_insights_queryset()[start_idx:end_idx]
-
-        page_insights = list(
-            insights_qs.values(
-                "insight_id",
-                "insight__name",
-                "insight__description",
-                "insight__derived_name",
-                "insight__query",
-                "insight__short_id",
-                "insight__filters",
-            )
-        )
+        page_insights = list(insights_qs)
 
         self._loaded_pages[page_number] = page_insights
         return page_insights
@@ -279,7 +269,7 @@ Current Results: {insight_info['results']}"""
         # Fallback to max_insights if no results
         if not selected_insights:
             first_page_insights = self._load_insights_page(0)
-            selected_insights = [insight["insight_id"] for insight in first_page_insights[: self._max_insights]]
+            selected_insights = [insight.id for insight in first_page_insights[: self._max_insights]]
 
         return selected_insights[: self._max_insights]
 
@@ -292,9 +282,9 @@ Current Results: {insight_info['results']}"""
 
         formatted_insights = []
         for insight in page_insights:
-            name = insight.get("insight__name") or insight.get("insight__derived_name", "Unnamed")
-            description = insight.get("insight__description", "")
-            insight_id = insight.get("insight_id")
+            name = insight.name or insight.derived_name or "Unnamed"
+            description = insight.description or ""
+            insight_id = insight.id
 
             if description:
                 formatted_insights.append(f"ID: {insight_id} | {name} - {description}")
@@ -308,14 +298,14 @@ Current Results: {insight_info['results']}"""
         all_ids = set()
         for page_insights in self._loaded_pages.values():
             for insight in page_insights:
-                all_ids.add(insight["insight_id"])
+                all_ids.add(insight.id)
         return all_ids
 
-    def _find_insight_by_id(self, insight_id: int) -> dict | None:
+    def _find_insight_by_id(self, insight_id: int) -> Insight | None:
         """Find an insight by ID across all loaded pages."""
         for page_insights in self._loaded_pages.values():
             for insight in page_insights:
-                if insight["insight_id"] == insight_id:
+                if insight.id == insight_id:
                     return insight
         return None
 
@@ -342,31 +332,28 @@ Current Results: {insight_info['results']}"""
 
         return valid_ids
 
-    def _create_enhanced_insight_summary(self, insight: dict) -> str:
+    def _create_enhanced_insight_summary(self, insight: Insight) -> str:
         """Create enhanced summary with metadata and basic execution info."""
-        insight_id = insight.get("insight_id")
-        name = insight.get("insight__name") or insight.get("insight__derived_name", "Unnamed")
-        description = insight.get("insight__description", "")
+        insight_id = insight.id
+        name = insight.name or insight.derived_name or "Unnamed"
+        description = insight.description or ""
 
         insight_type = "Unknown"
-        if insight.get("insight__filters"):
-            insight_type = get_insight_type_from_filters(insight["insight__filters"]) or "Unknown"
-        elif insight.get("insight__query"):
+        if insight.filters:
+            insight_type = get_insight_type_from_filters(insight.filters) or "Unknown"
+        elif insight.query:
             try:
-                query_dict = (
-                    json.loads(insight["insight__query"])
-                    if isinstance(insight["insight__query"], str)
-                    else insight["insight__query"]
-                )
+                query_dict = json.loads(insight.query) if isinstance(insight.query, str) else insight.query
                 insight_type = query_dict.get("kind", "Unknown").replace("Query", "")
             except Exception:
                 insight_type = "Unknown"
 
-        can_viz = can_visualize_insight(insight)
+        # Check if insight can be visualized
+        can_viz = bool(insight.query or (insight.filters and convert_filters_to_query(insight.filters)))
         viz_status = "✓ Executable" if can_viz else "✗ Not executable"
 
         # Get basic query info without executing
-        query_info = get_basic_query_info(insight)
+        query_info = self._get_basic_query_info_from_insight(insight)
 
         summary_parts = [f"ID: {insight_id} | {name}", f"Type: {insight_type} | {viz_status}"]
 
@@ -378,55 +365,83 @@ Current Results: {insight_info['results']}"""
 
         return " | ".join(summary_parts)
 
-    def _convert_insight_to_query(self, insight: dict) -> tuple[dict | None, str | None]:
-        """
-        Convert an insight (with query or legacy filters) to a modern query format.
-        """
+    def _get_basic_query_info_from_insight(self, insight: Insight) -> str | None:
+        """Extract basic query information from Insight object without execution."""
         try:
-            insight_query = insight.get("insight__query")
-            insight_filters = insight.get("insight__filters")
+            query_dict = None
 
-            # If we have a query, use it
-            if insight_query:
-                if isinstance(insight_query, str):
-                    query_dict = json.loads(insight_query)
-                elif isinstance(insight_query, dict):
-                    query_dict = insight_query
-                else:
-                    return None, None
+            # Parse query or convert from filters
+            if insight.query:
+                if isinstance(insight.query, str):
+                    query_dict = json.loads(insight.query)
+                elif isinstance(insight.query, dict):
+                    query_dict = insight.query
+            elif insight.filters:
+                query_dict = convert_filters_to_query(insight.filters)
 
-            # If no query but we have filters, try to convert filters to query
-            elif insight_filters:
-                query_dict = convert_filters_to_query(insight_filters)
-                if not query_dict:
-                    return None, None
+            if not query_dict:
+                return None
 
-            else:
-                # No query and no filters
-                return None, None
+            # Extract basic info from query
+            info_parts = []
 
-            query_kind = query_dict.get("kind")
-            return query_dict, query_kind
+            # Get events/series info
+            series = query_dict.get("series", [])
+            if series:
+                events = []
+                for s in series:
+                    if isinstance(s, dict):
+                        event_name = s.get("event", s.get("name", "Unknown"))
+                        events.append(event_name)
+                if events:
+                    # Limit to first 3 for LLM context window
+                    info_parts.append(f"Events: {', '.join(events[:3])}")
+
+            # Get date range info
+            date_range = query_dict.get("dateRange", {})
+            if date_range:
+                date_from = date_range.get("date_from", "")
+                if date_from:
+                    info_parts.append(f"Period: {date_from}")
+
+            return " | ".join(info_parts) if info_parts else None
 
         except Exception:
-            return None, None
+            return "Query error"
 
-    def _process_insight_for_evaluation(self, insight: dict, query_executor: AssistantQueryExecutor) -> dict:
+    def _process_insight_for_evaluation(self, insight: Insight, query_executor: AssistantQueryExecutor) -> dict:
         """
         Process an insight for evaluation: convert to query, execute it, and create visualization message.
         """
         insight_info = {
-            "name": insight.get("insight__name") or insight.get("insight__derived_name", "Unnamed"),
-            "insight_id": insight.get("insight_id"),
-            "description": insight.get("insight__description", ""),
+            "name": insight.name or insight.derived_name or "Unnamed",
+            "insight_id": insight.id,
+            "description": insight.description or "",
             "query": "",
-            "filters": insight.get("insight__filters", ""),
+            "filters": insight.filters or "",
             "results": "",
             "visualization_message": None,
         }
 
         try:
-            query_dict, query_kind = self._convert_insight_to_query(insight)
+            query_dict = None
+            query_kind = None
+
+            # If we have a query, use it directly
+            if insight.query:
+                if isinstance(insight.query, str):
+                    query_dict = json.loads(insight.query)
+                elif isinstance(insight.query, dict):
+                    query_dict = insight.query
+
+                if query_dict:
+                    query_kind = query_dict.get("kind")
+
+            # If no query but we have filters, convert filters to query
+            elif insight.filters:
+                query_dict = convert_filters_to_query(insight.filters)
+                if query_dict:
+                    query_kind = query_dict.get("kind")
 
             if query_dict and query_kind:
                 from ee.hogai.graph.root.nodes import MAX_SUPPORTED_QUERY_KIND_TO_MODEL
@@ -454,7 +469,7 @@ Current Results: {insight_info['results']}"""
 
             else:
                 # No convertible query
-                original_query = insight.get("insight__query")
+                original_query = insight.query
                 if original_query:
                     insight_info["query"] = str(original_query)
                     insight_info["results"] = "Could not convert or execute query"
@@ -463,15 +478,33 @@ Current Results: {insight_info['results']}"""
                     insight_info["results"] = "Cannot execute - no query or filter data"
 
         except Exception:
-            insight_info["query"] = insight.get("insight__query", "")
+            insight_info["query"] = insight.query or ""
             insight_info["results"] = "Failed to process insight"
 
         return insight_info
 
-    def _create_visualization_message_for_insight(self, insight: dict) -> VisualizationMessage | None:
+    def _create_visualization_message_for_insight(self, insight: Insight) -> VisualizationMessage | None:
         """Create a VisualizationMessage to render the insight UI."""
         try:
-            query_dict, query_kind = self._convert_insight_to_query(insight)
+            query_dict = None
+            query_kind = None
+
+            # If we have a query, use it directly
+            if insight.query:
+                if isinstance(insight.query, str):
+                    query_dict = json.loads(insight.query)
+                elif isinstance(insight.query, dict):
+                    query_dict = insight.query
+
+                if query_dict:
+                    query_kind = query_dict.get("kind")
+
+            # If no query but we have filters, convert filters to query
+            elif insight.filters:
+                query_dict = convert_filters_to_query(insight.filters)
+                if query_dict:
+                    query_kind = query_dict.get("kind")
+
             if not query_dict or not query_kind:
                 return None
 
@@ -482,13 +515,13 @@ Current Results: {insight_info['results']}"""
                 "HogQLQuery": AssistantHogQLQuery,
             }
 
-            if not query_kind or query_kind not in assistant_query_type_map:
+            if query_kind not in assistant_query_type_map:
                 return None
 
             AssistantQueryModel = assistant_query_type_map[query_kind]
             query_obj = AssistantQueryModel.model_validate(query_dict)  # type: ignore[attr-defined]
 
-            insight_name = insight.get("insight__name") or insight.get("insight__derived_name", "Unnamed Insight")
+            insight_name = insight.name or insight.derived_name or "Unnamed Insight"
             viz_message = VisualizationMessage(
                 query=f"Existing insight: {insight_name}",
                 plan=f"Showing existing insight: {insight_name}",
@@ -594,9 +627,7 @@ Instructions:
                 viz_message = self._create_visualization_message_for_insight(selection["insight"])
                 if viz_message:
                     visualization_messages.append(viz_message)
-                insight_name = selection["insight"].get("insight__name") or selection["insight"].get(
-                    "insight__derived_name", "Unnamed"
-                )
+                insight_name = selection["insight"].name or selection["insight"].derived_name or "Unnamed"
                 explanations.append(f"- {insight_name}: {selection['explanation']}")
 
             return {

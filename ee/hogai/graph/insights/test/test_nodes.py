@@ -3,7 +3,6 @@ from django.utils import timezone
 
 
 from ee.hogai.graph.insights.nodes import InsightSearchNode
-from ee.hogai.graph.insights.utils import get_basic_query_info
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from ee.models.assistant import Conversation
 from posthog.models import Insight, InsightViewed
@@ -74,14 +73,14 @@ class TestInsightSearchNode(BaseTest):
         self.assertEqual(len(first_page), 2)
 
         # Check that insights are loaded with correct data
-        insight_ids = [insight["insight_id"] for insight in first_page]
+        insight_ids = [insight.id for insight in first_page]
         self.assertIn(self.insight1.id, insight_ids)
         self.assertIn(self.insight2.id, insight_ids)
 
         # Check insight data structure
-        insight1_data = next(i for i in first_page if i["insight_id"] == self.insight1.id)
-        self.assertEqual(insight1_data["insight__name"], "Daily Pageviews")
-        self.assertEqual(insight1_data["insight__description"], "Track daily website traffic")
+        insight1_data = next(i for i in first_page if i.id == self.insight1.id)
+        self.assertEqual(insight1_data.name, "Daily Pageviews")
+        self.assertEqual(insight1_data.description, "Track daily website traffic")
 
     def test_load_insights_page_unique_only(self):
         """Test that load_insights_page returns unique insights only."""
@@ -95,7 +94,7 @@ class TestInsightSearchNode(BaseTest):
         first_page = self.node._load_insights_page(0)
 
         # Should still only have 2 unique insights
-        insight_ids = [insight["insight_id"] for insight in first_page]
+        insight_ids = [insight.id for insight in first_page]
         self.assertEqual(len(insight_ids), len(set(insight_ids)), "Should return unique insights only")
 
     def test_format_insights_page(self):
@@ -461,7 +460,7 @@ class TestInsightSearchNode(BaseTest):
         first_page = self.node._load_insights_page(0)
 
         # Should only load insights from self.team
-        insight_ids = [insight["insight_id"] for insight in first_page]
+        insight_ids = [insight.id for insight in first_page]
         self.assertIn(self.insight1.id, insight_ids)
         self.assertIn(self.insight2.id, insight_ids)
         self.assertNotIn(other_insight.id, insight_ids)
@@ -611,11 +610,11 @@ class TestInsightSearchNode(BaseTest):
         # Load insights first
         self.node._load_insights_page(0)
 
-        # Get the insight dict from loaded pages
-        insight_dict = self.node._find_insight_by_id(self.insight1.id)
+        # Get the insight object from loaded pages
+        insight = self.node._find_insight_by_id(self.insight1.id)
 
-        # Test basic query info extraction
-        query_info = get_basic_query_info(insight_dict)
+        # Test basic query info extraction using the new method
+        query_info = self.node._get_basic_query_info_from_insight(insight)
 
         self.assertIsNotNone(query_info)
         self.assertIn("Events:", query_info)
@@ -623,26 +622,28 @@ class TestInsightSearchNode(BaseTest):
         self.assertIn("Period:", query_info)
 
         # Test with insight that has no query or filters
-        empty_insight = {
-            "insight_id": 99999,
-            "insight__name": "Empty Insight",
-            "insight__query": None,
-            "insight__filters": None,
-        }
+        empty_insight = Insight(
+            id=99999,
+            name="Empty Insight",
+            query=None,
+            filters=None,
+            team=self.team,
+        )
 
-        query_info_empty = get_basic_query_info(empty_insight)
+        query_info_empty = self.node._get_basic_query_info_from_insight(empty_insight)
         self.assertIsNone(query_info_empty)
 
     def test_non_executable_insights_handling(self):
         """Test that non-executable insights are presented to LLM but rejected."""
         # Create a mock insight that can't be visualized
-        mock_insight = {
-            "insight_id": 99999,
-            "insight__name": "Broken Insight",
-            "insight__description": "This insight cannot be executed",
-            "insight__query": None,
-            "insight__filters": None,
-        }
+        mock_insight = Insight(
+            id=99999,
+            name="Broken Insight",
+            description="This insight cannot be executed",
+            query=None,
+            filters=None,
+            team=self.team,
+        )
 
         # Mock _find_insight_by_id to return our mock insight
         original_find = self.node._find_insight_by_id
