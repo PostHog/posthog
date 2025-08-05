@@ -187,7 +187,7 @@ export function Tooltip({
                                 width={8}
                                 height={4}
                                 staticOffset={arrowOffset}
-                                fill="var(--color-bg-tooltip)"
+                                fill="var(--color-tooltip)"
                             />
                         </div>
                     </div>

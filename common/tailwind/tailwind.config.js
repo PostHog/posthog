@@ -281,7 +281,7 @@ const deprecatedColors = {
     'border-3000': 'var(--color-border-primary)',
     'border-light-opaque': 'var(--border-light-opaque)',
     'border-bold-3000': 'var(--border-bold-3000)',
-    'color-glass': 'var(--color-glass)',
+    // 'color-glass': 'var(--color-glass)',
     'glass-border-3000': 'var(--color-border-primary)',
     'bg-light': 'var(--color-card)',
     'bg-table': 'var(--color-bg-table)',
@@ -754,7 +754,7 @@ const config = {
                 ...commonColors,
 
                 primary: 'var(--color-border-primary)',
-                secondary: 'var(--color-border-secondary)',
+                // secondary: 'var(--color-border-secondary)',
                 info: 'var(--color-border-info)',
                 warning: 'var(--color-border-warning)',
                 error: 'var(--color-border-error)',

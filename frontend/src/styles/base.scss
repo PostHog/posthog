@@ -423,6 +423,20 @@
     --color-glass: hsl(69deg 12% 88% / 70.2%);
     --color-glass-foreground: var(--color-neutral-950);
 
+    // Overlays
+    --color-overlay-25: color-mix(in oklab, var(--color-black) 2.5%, transparent);
+    --color-overlay-50: color-mix(in oklab, var(--color-black) 5%, transparent);
+    --color-overlay-75: color-mix(in oklab, var(--color-black) 7.5%, transparent);
+    --color-overlay-100: color-mix(in oklab, var(--color-black) 10%, transparent);
+    --color-overlay-150: color-mix(in oklab, var(--color-black) 15%, transparent);
+    --color-overlay-200: color-mix(in oklab, var(--color-black) 20%, transparent);
+    --color-overlay-inverse-25: color-mix(in oklab, var(--color-white) 2.5%, transparent);
+    --color-overlay-inverse-50: color-mix(in oklab, var(--color-white) 5%, transparent);
+    --color-overlay-inverse-75: color-mix(in oklab, var(--color-white) 7.5%, transparent);
+    --color-overlay-inverse-100: color-mix(in oklab, var(--color-white) 10%, transparent);
+    --color-overlay-inverse-150: color-mix(in oklab, var(--color-white) 15%, transparent);
+    --color-overlay-inverse-200: color-mix(in oklab, var(--color-white) 20%, transparent);
+
     // State fills (info, warning, error, success)
     --color-info: var(--color-blue-100);
     --color-info-foreground: var(--color-neutral-950);
@@ -458,20 +472,6 @@
     --color-border-error: var(--color-red-400);
     --color-border-success: var(--color-green-400);
     --color-tag-warning-foreground: #f7a501;
-
-    // Overlays
-    --color-overlay-25: color-mix(in oklab, var(--color-black) 2.5%, transparent);
-    --color-overlay-50: color-mix(in oklab, var(--color-black) 5%, transparent);
-    --color-overlay-75: color-mix(in oklab, var(--color-black) 7.5%, transparent);
-    --color-overlay-100: color-mix(in oklab, var(--color-black) 10%, transparent);
-    --color-overlay-150: color-mix(in oklab, var(--color-black) 15%, transparent);
-    --color-overlay-200: color-mix(in oklab, var(--color-black) 20%, transparent);
-    --color-overlay-inverse-25: color-mix(in oklab, var(--color-white) 2.5%, transparent);
-    --color-overlay-inverse-50: color-mix(in oklab, var(--color-white) 5%, transparent);
-    --color-overlay-inverse-75: color-mix(in oklab, var(--color-white) 7.5%, transparent);
-    --color-overlay-inverse-100: color-mix(in oklab, var(--color-white) 10%, transparent);
-    --color-overlay-inverse-150: color-mix(in oklab, var(--color-white) 15%, transparent);
-    --color-overlay-inverse-200: color-mix(in oklab, var(--color-white) 20%, transparent);
 
     // Behind surfaces, large areas: app scenes, etc.
     // //////////////////////////////////////////////////////////
@@ -894,12 +894,88 @@
         10%
     );
 
+    /* Colors */
+
+    /* ============================== */
+    // General
+    --color-background: var(--color-neutral-cool-950);
+    --color-foreground: var(--color-neutral-100);
+    --color-secondary: var(--color-neutral-cool-900);
+    --color-secondary-foreground: var(--color-neutral-cool-300);
+    --color-tertiary: var(--color-neutral-cool-950);
+    --color-tertiary-foreground: var(--color-neutral-cool-350);
+    --color-nav: var(--color-neutral-cool-900);
+
+    // --color-nav-foreground: var(--color-neutral-100);
+    --color-card: var(--color-neutral-cool-850);
+
+    // --color-card-foreground: var(--color-neutral-950);
+    --color-card-subtle: var(--color-neutral-cool-900);
+
+    // --color-card-subtle-foreground: var(--color-neutral-750);
+    --color-glass: hsl(220deg 8% 15% / 60%);
+    --color-glass-foreground: var(--color-neutral-cool-100);
+
+    // Overlays
+    --color-overlay-25: color-mix(in oklab, var(--color-white) 2.5%, transparent);
+    --color-overlay-50: color-mix(in oklab, var(--color-white) 5%, transparent);
+    --color-overlay-75: color-mix(in oklab, var(--color-white) 7.5%, transparent);
+    --color-overlay-100: color-mix(in oklab, var(--color-white) 10%, transparent);
+    --color-overlay-150: color-mix(in oklab, var(--color-white) 15%, transparent);
+    --color-overlay-200: color-mix(in oklab, var(--color-white) 20%, transparent);
+    --color-overlay-inverse-25: color-mix(in oklab, var(--color-black) 2.5%, transparent);
+    --color-overlay-inverse-50: color-mix(in oklab, var(--color-black) 5%, transparent);
+    --color-overlay-inverse-75: color-mix(in oklab, var(--color-black) 7.5%, transparent);
+    --color-overlay-inverse-100: color-mix(in oklab, var(--color-black) 10%, transparent);
+    --color-overlay-inverse-150: color-mix(in oklab, var(--color-black) 15%, transparent);
+    --color-overlay-inverse-200: color-mix(in oklab, var(--color-black) 20%, transparent);
+
+    // State fills (info, warning, error, success)
+    // --color-info: var(--color-blue-100);
+    // --color-info-foreground: var(--color-neutral-950);
+    // --color-warning: var(--color-yellow-100);
+    // --color-warning-foreground: var(--color-yellow-700);
+    --color-error: var(--color-red-100);
+    --color-error-foreground: var(--color-red-600);
+
+    // --color-success: var(--color-green-100);
+    // --color-success-foreground: #388600;
+
+    // Elements
+    --color-tooltip: var(--color-neutral-cool-100);
+    --color-tooltip-foreground: var(--color-neutral-950);
+    --color-popover: var(--color-neutral-cool-850);
+    --color-popover-foreground: var(--color-neutral-100);
+
+    // Interactives (buttons)
+    // --color-interactive: transparent;
+    // --color-interactive-active: var(--color-overlay-50);
+    --color-interactive-hover: var(--color-overlay-75);
+    --color-interactive-focus: var(--color-overlay-75);
+
+    // --color-highlight: hsl(42deg 93% 86% / 80%);
+    // --color-highlight-foreground: var(--color-neutral-950);
+    --color-input: var(--color-neutral-cool-850);
+
+    // --color-input-foreground: var(--color-neutral-950);
+    // --color-scrollbar: var(--color-neutral-cool-250);
+    // --color-scrollbar-foreground: var(--color-neutral-cool-400);
+
+    // Borders
+    --color-border: var(--color-neutral-cool-800);
+    --color-border-secondary: var(--color-neutral-cool-600);
+
+    // --color-border-warning: var(--color-yellow-400);
+    // --color-border-error: var(--color-red-400);
+    // --color-border-success: var(--color-green-400);
+    // --color-tag-warning-foreground: #f7a501;
+
     // Backgrounds (dark mode)
     // //////////////////////////////////////////////////////////
-    --color-background: var(--color-neutral-cool-950);
-    --color-card: var(--color-neutral-cool-850);
+    // --color-card: var(--color-neutral-cool-850);
     --color-bg-secondary: var(--color-neutral-cool-900);
-    --color-tertiary: var(--color-neutral-cool-950);
+
+    // --color-tertiary: var(--color-neutral-cool-950);
     --color-bg-surface-tooltip: var(--color-neutral-100);
     --color-bg-surface-tooltip-inverse: var(--color-neutral-950);
     --color-bg-surface-popover: var(--color-neutral-cool-850);
@@ -941,7 +1017,8 @@
     --color-text-tertiary: var(--color-neutral-400);
     --color-text-success-foreground: var(--color-green-400);
     --color-text-warning-foreground: var(--color-yellow-400);
-    --color-error-foreground: var(--color-red-400);
+
+    // --color-error-foreground: var(--color-red-400);
 
     // Content on fills (dark mode)
     // Texts which are on colourful fills, ensures contrast
@@ -962,10 +1039,9 @@
     // Borders (dark mode)
     // Borders for surfaces/fills
     // //////////////////////////////////////////////////////////
-    --color-border-primary: var(--color-neutral-cool-800);
-    --color-border-secondary: var(--color-neutral-cool-600);
-    --color-border-info: var(--color-blue-900);
-    --color-border-warning: var(--color-yellow-900);
+    // --color-border-primary: var(--color-neutral-cool-800);
+    // --color-border-info: var(--color-blue-900);
+    // --color-border-warning: var(--color-yellow-900);
 
     /* Border for warning */
     --color-border-error: var(--color-red-900);
@@ -998,7 +1074,8 @@
     --border-3000: var(--border-3000-dark);
     --border-light-opaque: #1e2028;
     --border-bold-3000: var(--border-bold-3000-dark);
-    --color-glass: var(--color-glass-dark);
+
+    // --color-glass: var(--color-glass-dark);
     --glass-border-3000: var(--glass-border-3000-dark);
     --color-bg-light: var(--color-accent-3000);
     --color-bg-table: #232429;

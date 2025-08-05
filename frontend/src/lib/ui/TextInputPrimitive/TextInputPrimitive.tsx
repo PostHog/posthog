@@ -5,10 +5,10 @@ import { forwardRef, useCallback, useEffect, useRef } from 'react'
 import './TextInputPrimitive.css'
 
 export const textInputVariants = cva({
-    base: 'text-input-primitive w-full rounded border border-border p-2 text-sm outline-none focus-visible:border-secondary',
+    base: 'text-input-primitive w-full rounded border border-border p-2 text-sm outline-none focus-visible:border-border-secondary',
     variants: {
         variant: {
-            default: 'border-border bg-card hover:border-secondary',
+            default: 'border-border bg-card hover:border-border-secondary',
         },
         size: {
             sm: 'h-[var(--text-input-height-sm)]',
@@ -16,7 +16,7 @@ export const textInputVariants = cva({
             lg: 'h-[var(--text-input-height-lg)]',
         },
         error: {
-            true: 'border-error bg-fill-error-highlight hover:border-error focus-visible:border-error',
+            true: 'border-border-error bg-fill-error-highlight hover:border-border-error focus-visible:border-error',
             false: '',
         },
     },
