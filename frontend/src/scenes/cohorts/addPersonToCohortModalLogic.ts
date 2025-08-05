@@ -1,8 +1,9 @@
-import { actions, events, kea, key, path, props, reducers } from 'kea'
+import { actions, events, kea, key, listeners, path, props, reducers } from 'kea'
 
 import type { addPersonToCohortModalLogicType } from './addPersonToCohortModalLogicType'
 import { loaders } from 'kea-loaders'
 import api, { PaginatedResponse } from 'lib/api'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { CohortType, PersonType } from '~/types'
 
 import { DataTableNode, Node, NodeKind } from '~/queries/schema/schema-general'
@@ -20,6 +21,7 @@ export const addPersonToCohortModalLogic = kea<addPersonToCohortModalLogicType>(
         showAddPersonToCohortModal: true,
         hideAddPersonToCohortModal: true,
         setQuery: (query: Node) => ({ query }),
+        addPersonToCohort: (id: string) => ({ id }),
     }),
     reducers({
         query: [
@@ -62,6 +64,18 @@ export const addPersonToCohortModalLogic = kea<addPersonToCohortModalLogicType>(
                 },
             },
         ],
+    })),
+    listeners(({ props }) => ({
+        addPersonToCohort: async ({ id }) => {
+            const cohortId = props.id
+            if (cohortId == null || cohortId === 'new') {
+                return
+            }
+            const response = await api.cohorts.addPersonsToStaticCohort(cohortId, [id])
+            if (response) {
+                lemonToast.success('Person added to cohort')
+            }
+        },
     })),
     events(({ actions }) => ({
         afterMount: () => {
