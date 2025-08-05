@@ -251,9 +251,7 @@ class Organization(UUIDModel):
         if prev_features != current_features:
             removed_features = list(prev_features - current_features)
             added_features = list(current_features - prev_features)
-
-            if removed_features:
-                self._send_features_changed_signal(added_features, removed_features)
+            self._send_features_changed_signal(added_features, removed_features)
 
         return self.available_product_features
 
