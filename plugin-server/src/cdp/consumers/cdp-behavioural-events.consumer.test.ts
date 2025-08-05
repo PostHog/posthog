@@ -20,7 +20,7 @@ class TestableCdpBehaviouralEventsConsumer extends CdpBehaviouralEventsConsumer 
         return this.behavioralCounterRepository
     }
     public get testKafkaProducer() {
-        return this.kafkaProducer
+        return this.kafkaProducer!
     }
     public get testPersonPerformedEventsQueue() {
         return this.personPerformedEventsQueue
@@ -509,7 +509,7 @@ describe('CdpBehaviouralEventsConsumer', () => {
 
             // Spy on the real Kafka producer
             const queueMessagesSpy = jest
-                .spyOn(processor.testKafkaProducer!, 'queueMessages')
+                .spyOn(processor.testKafkaProducer, 'queueMessages')
                 .mockResolvedValue(undefined)
 
             // Add an event to the queue manually
@@ -552,7 +552,7 @@ describe('CdpBehaviouralEventsConsumer', () => {
 
             // Spy on the real Kafka producer
             const queueMessagesSpy = jest
-                .spyOn(processor.testKafkaProducer!, 'queueMessages')
+                .spyOn(processor.testKafkaProducer, 'queueMessages')
                 .mockResolvedValue(undefined)
 
             // Add events to the queue
@@ -574,7 +574,7 @@ describe('CdpBehaviouralEventsConsumer', () => {
             const eventName = '$pageview'
 
             // Spy on the real Kafka producer to throw an error
-            jest.spyOn(processor.testKafkaProducer!, 'queueMessages').mockRejectedValue(new Error('Kafka error'))
+            jest.spyOn(processor.testKafkaProducer, 'queueMessages').mockRejectedValue(new Error('Kafka error'))
 
             // Add an event to the queue
             processor.testPersonPerformedEventsQueue.push({
