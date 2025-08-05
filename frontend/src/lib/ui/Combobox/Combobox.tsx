@@ -150,7 +150,7 @@ const Search = ({ placeholder = 'Search...', className, autoFocus = true }: Sear
 let groupIdCounter = 0
 
 interface GroupProps {
-    value: string[]
+    value?: string[]
     children: ReactNode
 }
 
@@ -164,7 +164,7 @@ const Group = ({ value, children }: GroupProps): JSX.Element | null => {
     const idRef = useRef<string>(`group-${groupIdCounter++}`)
 
     const lowerSearch = searchValue.toLowerCase()
-    const match = value.some((v) => v.toLowerCase().includes(lowerSearch))
+    const match = !value?.length || value.some((v) => v.toLowerCase().includes(lowerSearch))
 
     useEffect(() => {
         const id = idRef.current
@@ -207,15 +207,11 @@ const Content = ({ className, children }: ContentProps): JSX.Element => {
     return (
         <div
             className={cn(
-                'primitive-menu-content max-h-[calc(var(--radix-popover-content-available-height)-var(--combobox-search-height)-var(--radix-popper-anchor-height))] max-w-none border-transparent',
+                'max-h-[calc(var(--radix-popover-content-available-height)-var(--combobox-search-height)-var(--radix-popper-anchor-height))] max-w-none border-transparent',
                 className
             )}
         >
-            <ScrollableShadows
-                direction="vertical"
-                styledScrollbars
-                innerClassName="primitive-menu-content-inner flex flex-col gap-px"
-            >
+            <ScrollableShadows direction="vertical" styledScrollbars innerClassName="flex flex-col gap-px p-1">
                 {children}
             </ScrollableShadows>
         </div>
