@@ -428,6 +428,7 @@ export interface PluginServerCapabilities {
     cdpCyclotronWorker?: boolean
     cdpCyclotronWorkerHogFlow?: boolean
     cdpBehaviouralEvents?: boolean
+    cdpPersonPerformedEvents?: boolean
     cdpApi?: boolean
     appManagementSingleton?: boolean
 }

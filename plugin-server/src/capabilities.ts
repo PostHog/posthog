@@ -22,6 +22,7 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
                 cdpCyclotronWorker: true,
                 cdpCyclotronWorkerHogFlow: true,
                 cdpBehaviouralEvents: true,
+                cdpPersonPerformedEvents: true,
                 cdpApi: true,
             }
 
@@ -35,6 +36,7 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
                 cdpCyclotronWorker: true,
                 // cdpCyclotronWorkerHogFlow: true,
                 cdpBehaviouralEvents: true,
+                cdpPersonPerformedEvents: true,
                 cdpApi: true,
             }
 
