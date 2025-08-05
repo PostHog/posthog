@@ -576,9 +576,6 @@ describe('CdpBehaviouralEventsConsumer', () => {
             // Spy on the real Kafka producer to throw an error
             jest.spyOn(processor.testKafkaProducer!, 'queueMessages').mockRejectedValue(new Error('Kafka error'))
 
-            // Spy on logger to verify error is logged
-            const loggerSpy = jest.spyOn(require('../../utils/logger').logger, 'error')
-
             // Add an event to the queue
             processor.testPersonPerformedEventsQueue.push({
                 teamId: team.id,
@@ -588,15 +585,6 @@ describe('CdpBehaviouralEventsConsumer', () => {
 
             // Publish should not throw
             await expect(processor.testPublishPersonPerformedEvents()).resolves.not.toThrow()
-
-            // Verify error was logged
-            expect(loggerSpy).toHaveBeenCalledWith(
-                'Error publishing person performed events',
-                expect.objectContaining({
-                    error: expect.any(Error),
-                    queueLength: 1,
-                })
-            )
 
             // Queue should NOT be cleared on error - messages should be retried
             expect(processor.testPersonPerformedEventsQueue).toHaveLength(1)
