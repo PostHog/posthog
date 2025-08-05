@@ -29,6 +29,21 @@ const displayMap: Record<HogWatcherState, DisplayOptions> = {
             </>
         ),
     },
+    [HogWatcherState.forcefully_degraded]: {
+        tagType: 'caution',
+        display: 'Degraded',
+        description: (
+            <>
+                The function has been forcefully marked as degraded by a PostHog admin. This means it is moved to a
+                separate processing queue and may experience delays or increased failures.
+            </>
+        ),
+    },
+    [HogWatcherState.forcefully_disabled]: {
+        tagType: 'danger',
+        display: 'Disabled',
+        description: <>The function has been forcefully disabled by a PostHog admin. Please contact support.</>,
+    },
 }
 
 const DEFAULT_DISPLAY: DisplayOptions = {

@@ -346,6 +346,25 @@ describe('HogWatcher', () => {
                 expect(res?.[1]?.[1]).toBeGreaterThan(hub.CDP_WATCHER_STATE_LOCK_TTL - 5) // The ttl
                 expect(res?.[1]?.[1]).toBeLessThan(hub.CDP_WATCHER_STATE_LOCK_TTL + 5) // The ttl
             })
+
+            it('should not transition to a different state if forcefully set', async () => {
+                await watcher.doStageChanges([[hogFunction, HogWatcherState.forcefully_degraded]], true)
+                await watcher.clearLock(hogFunctionId)
+                expect(await watcher.getPersistedState(hogFunctionId)).toMatchInlineSnapshot(`
+                    {
+                      "state": 11,
+                      "tokens": 0,
+                    }
+                `)
+                await watcher.observeResults(Array(1000).fill(createResult({ duration: 1, kind: 'hog' })))
+
+                expect(await watcher.getPersistedState(hogFunctionId)).toMatchInlineSnapshot(`
+                    {
+                      "state": 11,
+                      "tokens": 0,
+                    }
+                `)
+            })
         })
     })
 

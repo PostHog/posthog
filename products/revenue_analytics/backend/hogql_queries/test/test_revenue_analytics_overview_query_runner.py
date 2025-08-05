@@ -226,6 +226,30 @@ class TestRevenueAnalyticsOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
+    def test_with_property_filter_multiple_values(self):
+        results = self._run_revenue_analytics_overview_query(
+            properties=[
+                RevenueAnalyticsPropertyFilter(
+                    key="product",
+                    operator=PropertyOperator.EXACT,
+                    value=["Product A", "Product C"],
+                )
+            ]
+        ).results
+
+        self.assertEqual(
+            results,
+            [
+                RevenueAnalyticsOverviewItem(
+                    key=RevenueAnalyticsOverviewItemKey.REVENUE, value=Decimal("133.9132683333")
+                ),
+                RevenueAnalyticsOverviewItem(key=RevenueAnalyticsOverviewItemKey.PAYING_CUSTOMER_COUNT, value=2),
+                RevenueAnalyticsOverviewItem(
+                    key=RevenueAnalyticsOverviewItemKey.AVG_REVENUE_PER_CUSTOMER, value=Decimal("66.9566341666")
+                ),
+            ],
+        )
+
     def test_with_events_data(self):
         s1 = str(uuid7("2023-12-02"))
         s2 = str(uuid7("2024-01-03"))
