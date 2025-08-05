@@ -152,4 +152,4 @@ class RatioStatistic:
 
 
 # Type alias for any statistic type
-AnyStatistic = SampleMeanStatistic | ProportionStatistic
+AnyStatistic = SampleMeanStatistic | ProportionStatistic | RatioStatistic
