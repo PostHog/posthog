@@ -21,7 +21,7 @@ class TestLoadRawSessionSummary:
     ) -> None:
         allowed_event_ids = ["abcd1234", "defg4567", "ghij7890", "mnop3456", "stuv9012"]
         result = load_raw_session_summary_from_llm_content(
-            mock_valid_llm_yaml_response, allowed_event_ids, mock_session_id, True
+            mock_valid_llm_yaml_response, allowed_event_ids, mock_session_id, final_validation=True
         )
         assert result is not None
         # Ensure the LLM output is valid
@@ -33,7 +33,7 @@ class TestLoadRawSessionSummary:
         with pytest.raises(
             SummaryValidationError, match=f"No LLM content found when summarizing session_id {mock_session_id}"
         ):
-            load_raw_session_summary_from_llm_content(None, [], mock_session_id, True)  # type: ignore
+            load_raw_session_summary_from_llm_content(None, [], mock_session_id, final_validation=True)  # type: ignore
 
     def test_load_raw_session_summary_invalid_yaml(
         self, mock_valid_llm_yaml_response: str, mock_session_id: str
@@ -46,7 +46,9 @@ class TestLoadRawSessionSummary:
             SummaryValidationError,
             match=f"Error loading YAML content into JSON when summarizing session_id {mock_session_id}",
         ):
-            load_raw_session_summary_from_llm_content(mock_valid_llm_yaml_response, [], mock_session_id, True)
+            load_raw_session_summary_from_llm_content(
+                mock_valid_llm_yaml_response, [], mock_session_id, final_validation=True
+            )
 
     def test_load_raw_session_summary_hallucinated_events_failed_summary(
         self, mock_valid_llm_yaml_response: str, mock_session_id: str
@@ -56,7 +58,7 @@ class TestLoadRawSessionSummary:
         # Should fail the summary and force to retry
         with pytest.raises(SummaryValidationError, match=f"Too many hallucinated events"):
             load_raw_session_summary_from_llm_content(
-                mock_valid_llm_yaml_response, allowed_event_ids, mock_session_id, True
+                mock_valid_llm_yaml_response, allowed_event_ids, mock_session_id, final_validation=True
             )
 
     def test_load_raw_session_summary_hallucinated_events_intermediate_should_not_fail(
@@ -66,7 +68,7 @@ class TestLoadRawSessionSummary:
         allowed_event_ids = ["abcd1234"]
         # Should not fail the summary as it's an intermediate validation, so not all events are processed yet
         load_raw_session_summary_from_llm_content(
-            mock_valid_llm_yaml_response, allowed_event_ids, mock_session_id, False
+            mock_valid_llm_yaml_response, allowed_event_ids, mock_session_id, final_validation=False
         )
 
     def test_load_raw_session_summary_hallucinated_events_below_threshold(
@@ -77,7 +79,7 @@ class TestLoadRawSessionSummary:
         # Should pass through, as only 20% of events are hallucinated
         with patch("ee.hogai.session_summaries.session.output_data.HALLUCINATED_EVENTS_MIN_RATIO", 0.25):
             summary = load_raw_session_summary_from_llm_content(
-                mock_valid_llm_yaml_response, allowed_event_ids, mock_session_id, True
+                mock_valid_llm_yaml_response, allowed_event_ids, mock_session_id, final_validation=True
             )
             assert summary is not None
             assert summary.data is not None
@@ -136,7 +138,10 @@ class TestLoadRawSessionSummary:
             ValueError, match=f"LLM hallucinated segment index 99 when summarizing session_id {mock_session_id}"
         ):
             load_raw_session_summary_from_llm_content(
-                modified_yaml, ["abcd1234", "defg4567", "ghij7890", "mnop3456", "stuv9012"], mock_session_id, True
+                modified_yaml,
+                ["abcd1234", "defg4567", "ghij7890", "mnop3456", "stuv9012"],
+                mock_session_id,
+                final_validation=True,
             )
 
     def test_load_raw_session_summary_invalid_schema(
@@ -159,7 +164,9 @@ session_outcome:
             SummaryValidationError,
             match=f"Error validating LLM output against the schema when summarizing session_id {mock_session_id}",
         ):
-            load_raw_session_summary_from_llm_content(modified_yaml, ["abcd1234", "defg4567"], mock_session_id, True)
+            load_raw_session_summary_from_llm_content(
+                modified_yaml, ["abcd1234", "defg4567"], mock_session_id, final_validation=True
+            )
 
 
 @pytest.mark.parametrize(
@@ -184,7 +191,7 @@ class TestEnrichRawSessionSummary:
         self, mock_valid_llm_yaml_response: str, mock_valid_event_ids: list[str], mock_session_id: str
     ) -> RawSessionSummarySerializer:
         result = load_raw_session_summary_from_llm_content(
-            mock_valid_llm_yaml_response, mock_valid_event_ids, mock_session_id, True
+            mock_valid_llm_yaml_response, mock_valid_event_ids, mock_session_id, final_validation=True
         )
         assert result is not None
         return result
