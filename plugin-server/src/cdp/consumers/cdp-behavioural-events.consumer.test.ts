@@ -9,17 +9,12 @@ import { Hub, RawClickHouseEvent, Team } from '../../types'
 import { closeHub, createHub } from '../../utils/db/hub'
 import { CdpBehaviouralEventsConsumer, ProducedEvent } from './cdp-behavioural-events.consumer'
 import { resetKafka } from '~/tests/helpers/kafka'
-class TestableCdpBehaviouralEventsConsumer extends CdpBehaviouralEventsConsumer {
-    public async testPublishEvents(events: ProducedEvent[]) {
-        return this.publishEvents(events)
-    }
-}
 
 jest.setTimeout(20_000)
 
 describe('CdpBehaviouralEventsConsumer', () => {
     describe('Event Processing and Publishing', () => {
-        let processor: TestableCdpBehaviouralEventsConsumer
+        let processor: CdpBehaviouralEventsConsumer
         let hub: Hub
         let team: Team
 
@@ -30,7 +25,7 @@ describe('CdpBehaviouralEventsConsumer', () => {
             hub = await createHub()
             team = await getFirstTeam(hub)
 
-            processor = new TestableCdpBehaviouralEventsConsumer(hub)
+            processor = new CdpBehaviouralEventsConsumer(hub)
             await processor.start()
         })
 
@@ -137,7 +132,7 @@ describe('CdpBehaviouralEventsConsumer', () => {
     })
 
     describe('Event Publishing to Kafka', () => {
-        let processor: TestableCdpBehaviouralEventsConsumer
+        let processor: CdpBehaviouralEventsConsumer
         let hub: Hub
         let team: Team
 
@@ -148,7 +143,7 @@ describe('CdpBehaviouralEventsConsumer', () => {
             hub = await createHub()
             team = await getFirstTeam(hub)
 
-            processor = new TestableCdpBehaviouralEventsConsumer(hub)
+            processor = new CdpBehaviouralEventsConsumer(hub)
             await processor.start()
         })
 
@@ -186,7 +181,7 @@ describe('CdpBehaviouralEventsConsumer', () => {
             }
 
             // Publish the events
-            await processor.testPublishEvents([personEvent, filterEvent])
+            await processor['publishEvents']([personEvent, filterEvent])
 
             // Check published messages
             const messages = mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_CDP_BEHAVIOURAL_COHORTS_EVENTS)
@@ -223,7 +218,7 @@ describe('CdpBehaviouralEventsConsumer', () => {
                 },
             ]
 
-            await processor.testPublishEvents(events)
+            await processor['publishEvents'](events)
 
             // Check published messages
             const messages = mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_CDP_BEHAVIOURAL_COHORTS_EVENTS)

@@ -39,14 +39,14 @@ export const histogramBatchProcessingSteps = new Histogram({
 
 export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
     protected name = 'CdpBehaviouralEventsConsumer'
-    protected kafkaConsumer: KafkaConsumer
+    private kafkaConsumer: KafkaConsumer
 
     constructor(hub: Hub, topic: string = KAFKA_EVENTS_JSON, groupId: string = 'cdp-behavioural-events-consumer') {
         super(hub)
         this.kafkaConsumer = new KafkaConsumer({ groupId, topic })
     }
 
-    protected async publishEvents(events: ProducedEvent[]): Promise<void> {
+    private async publishEvents(events: ProducedEvent[]): Promise<void> {
         if (!this.kafkaProducer || events.length === 0) {
             return
         }
