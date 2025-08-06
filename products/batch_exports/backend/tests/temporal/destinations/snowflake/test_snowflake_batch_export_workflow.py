@@ -963,6 +963,23 @@ class TestInsertIntoSnowflakeActivity:
 
         with override_settings(BATCH_EXPORT_SNOWFLAKE_UPLOAD_CHUNK_SIZE_BYTES=0):
             if use_internal_stage:
+                assert insert_inputs.batch_export_id is not None
+                await activity_environment.run(
+                    insert_into_internal_stage_activity,
+                    BatchExportInsertIntoInternalStageInputs(
+                        team_id=insert_inputs.team_id,
+                        batch_export_id=insert_inputs.batch_export_id,
+                        data_interval_start=insert_inputs.data_interval_start,
+                        data_interval_end=insert_inputs.data_interval_end,
+                        exclude_events=insert_inputs.exclude_events,
+                        include_events=None,
+                        run_id=None,
+                        backfill_details=None,
+                        batch_export_model=insert_inputs.batch_export_model,
+                        batch_export_schema=insert_inputs.batch_export_schema,
+                        destination_default_fields=snowflake_default_fields(),
+                    ),
+                )
                 await activity_environment.run(insert_into_snowflake_activity_from_stage, insert_inputs)
             else:
                 await activity_environment.run(insert_into_snowflake_activity, insert_inputs)
