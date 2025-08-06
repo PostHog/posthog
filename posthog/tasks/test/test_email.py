@@ -437,7 +437,11 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
 
         mocked_email_messages = mock_email_messages(MockEmailMessage)
 
-        # Create a HogFunction for testing
+        # Create users for creator and editor
+        creator_user = self._create_user("creator@posthog.com")
+        editor_user = self._create_user("editor@posthog.com")
+
+        # Create a HogFunction for testing with real creator
         hog_function = HogFunction.objects.create(
             team=self.team,
             name="Test Destination Function",
@@ -445,7 +449,21 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             enabled=True,
             deleted=False,
             hog="return event",
-            created_by=self.user,
+            created_by=creator_user,
+        )
+
+        # Create an activity log entry for this function (simulating an edit)
+        from posthog.models.activity_logging.activity_log import ActivityLog, Detail
+
+        edit_date = timezone.now() - dt.timedelta(days=1)
+        ActivityLog.objects.create(
+            team_id=self.team.id,
+            user=editor_user,
+            activity="updated",
+            scope="HogFunction",
+            item_id=str(hog_function.id),
+            detail=Detail(name=hog_function.name, type="destination"),
+            created_at=edit_date,
         )
 
         # Create test data in app_metrics2 table with all metric types
@@ -485,6 +503,12 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         assert mocked_email_messages[0].send.call_count == 1
         assert mocked_email_messages[0].html_body
 
+        # Check that the HTML body contains both creator and editor info
+        html_body = mocked_email_messages[0].html_body
+        assert "creator@posthog.com" in html_body, "Creator email should be in the email"
+        assert "editor@posthog.com" in html_body, "Editor email should be in the email"
+        assert edit_date.strftime("%Y-%m-%d") in html_body, "Edit date should be in the email"
+
         # Reset mocked messages
         mocked_email_messages.clear()
 
@@ -522,16 +546,18 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         self.user.save()
 
         send_hog_functions_daily_digest()
-        # Should only be sent to user2 (user1 has notifications disabled)
-        assert mocked_email_messages[0].to == [{"recipient": "test2@posthog.com", "raw_email": "test2@posthog.com"}]
+        # Should be sent to users with notifications enabled (creator, editor, test2)
+        recipients = {recipient["raw_email"] for recipient in mocked_email_messages[0].to}
+        expected_recipients = {"creator@posthog.com", "editor@posthog.com", "test2@posthog.com"}
+        assert recipients == expected_recipients
 
         # Test 6: Test notification settings - user with plugin_disabled: True should receive email
         self.user.partial_notification_settings = {"plugin_disabled": True}
         self.user.save()
 
         send_hog_functions_daily_digest()
-        # Should now be sent to both users
-        assert len(mocked_email_messages[1].to) == 2
+        # Should now be sent to all users (creator, editor, original user, test2)
+        assert len(mocked_email_messages[1].to) == 4
 
     def test_send_hog_functions_digest_email_with_test_email_override(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
