@@ -279,11 +279,12 @@ def configure_logger_async(
         cache_logger_on_first_use: Set whether to cache logger for performance.
             Should always be True except in tests.
     """
-    base_processors = BASE_PROCESSORS.copy()
-
     log_queue = queue if queue is not None else asyncio.Queue(maxsize=settings.TEMPORAL_EXTERNAL_LOGS_QUEUE_SIZE)
     log_producer = None
     log_producer_error = None
+
+    # Build the complete processor chain
+    processors = list(BASE_PROCESSORS)
 
     if loop:
         try:
@@ -296,17 +297,20 @@ def configure_logger_async(
             log_producer_error = e
         else:
             put_in_queue = PutInLogQueueProcessor(log_queue)
-            base_processors.append(put_in_queue)
+            processors.append(put_in_queue)
 
+    # Add environment-specific processors
     if sys.stderr.isatty() or settings.TEST or settings.DEBUG:
-        base_processors += DEVELOPMENT_PROCESSORS
+        processors.extend(DEVELOPMENT_PROCESSORS)
     else:
-        base_processors += PRODUCTION_PROCESSORS
+        processors.extend(PRODUCTION_PROCESSORS)
 
-    extra_processors_to_add = extra_processors if extra_processors is not None else []
+    # Add any extra processors
+    if extra_processors:
+        processors.extend(extra_processors)
 
     structlog.configure(
-        processors=base_processors + extra_processors_to_add,
+        processors=processors,
         logger_factory=logger_factory(),
         wrapper_class=structlog.stdlib.BoundLogger,
         cache_logger_on_first_use=cache_logger_on_first_use,
