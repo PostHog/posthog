@@ -4,6 +4,8 @@ from django.db.models import QuerySet
 from posthog.models.utils import UUIDModel, RootTeamMixin, sane_repr
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
+from posthog.models.user import User
+from ee.models.rbac.role import Role
 
 if TYPE_CHECKING:
     from posthog.models.team import Team
@@ -43,6 +45,8 @@ class EarlyAccessFeature(FileSystemSyncMixin, RootTeamMixin, UUIDModel):
     stage = models.CharField(max_length=40, choices=Stage.choices)
     documentation_url = models.URLField(max_length=800, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
+    creators = models.ManyToManyField(User, related_name="early_access_features")
+    roles = models.ManyToManyField(Role, related_name="early_access_features")
 
     def __str__(self) -> str:
         return self.name
