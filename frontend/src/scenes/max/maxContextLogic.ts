@@ -162,11 +162,19 @@ export const maxContextLogic = kea<maxContextLogicType>([
                 actions.resetContext()
             }
 
-            // Always reset context if pathname or search params changed
-            if (
-                currentLocation?.pathname !== previousLocation.location?.pathname ||
-                !objectsEqual({ ...currentSearchParams }, { ...previousLocation.searchParams })
-            ) {
+            // Always reset context if pathname changed
+            if (currentLocation?.pathname !== previousLocation.location?.pathname) {
+                shouldResetContext()
+                return
+            }
+
+            // Check if search params changed (excluding 'chat' parameter)
+            const currentSearchParamsWithoutChat = { ...currentSearchParams }
+            delete currentSearchParamsWithoutChat.chat
+            const previousSearchParamsWithoutChat = { ...previousLocation.searchParams }
+            delete previousSearchParamsWithoutChat.chat
+
+            if (!objectsEqual(currentSearchParamsWithoutChat, previousSearchParamsWithoutChat)) {
                 shouldResetContext()
                 return
             }
