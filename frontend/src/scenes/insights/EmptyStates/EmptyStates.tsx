@@ -621,7 +621,20 @@ export function InsightErrorState({
                             <Link
                                 data-attr="insight-error-bug-report"
                                 onClick={() => {
-                                    openSupportForm({ kind: 'bug', target_area: 'analytics' })
+                                    // Create error context for support ticket
+                                    const errorContext = {
+                                        type: 'analytics_error',
+                                        query: query,
+                                        queryId: queryId,
+                                        title: title,
+                                        url: window.location.href,
+                                    }
+
+                                    openSupportForm({
+                                        kind: 'bug',
+                                        target_area: 'analytics',
+                                        errorContext,
+                                    })
                                 }}
                             >
                                 If this persists, submit a bug report.
