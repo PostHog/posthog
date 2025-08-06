@@ -299,6 +299,7 @@ async def stream_llm_single_session_summary(
                     session_start_time_str=session_start_time_str,
                     session_duration=session_duration,
                     summary_prompt=summary_prompt,
+                    final_validation=False,
                 )
                 if not intermediate_summary_str:
                     continue

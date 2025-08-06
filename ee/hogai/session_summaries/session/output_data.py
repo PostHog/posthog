@@ -198,7 +198,7 @@ def _remove_hallucinated_events(
 
 
 def load_raw_session_summary_from_llm_content(
-    raw_content: str, allowed_event_ids: list[str], session_id: str, final_validation: bool
+    raw_content: str, allowed_event_ids: list[str], session_id: str, *, final_validation: bool
 ) -> RawSessionSummarySerializer | None:
     if not raw_content:
         raise SummaryValidationError(f"No LLM content found when summarizing session_id {session_id}")
