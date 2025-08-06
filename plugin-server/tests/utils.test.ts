@@ -260,7 +260,7 @@ describe('utils', () => {
                 { i: 7, foo: 'z' },
             ]
 
-            expect(() => groupBy(objects, 'i', true)).toThrowError(
+            expect(() => groupBy(objects, 'i', true)).toThrow(
                 'Key "i" has more than one matching value, which is not allowed in flat groupBy!'
             )
         })
@@ -347,6 +347,6 @@ describe('getPropertyValueByPath', () => {
         expect(getPropertyValueByPath({ a: { b: [1, 2, 3] } }, ['a', 'b', '1'])).toEqual(2)
     })
     it('requires at least one path key', () => {
-        expect(() => getPropertyValueByPath({ a: { b: 'foo' } }, [])).toThrowError('No path to property was provided')
+        expect(() => getPropertyValueByPath({ a: { b: 'foo' } }, [])).toThrow('No path to property was provided')
     })
 })

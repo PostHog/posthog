@@ -61,6 +61,9 @@ const translateInputs = (defaultVal: any, multiple: boolean = false) => {
         if (modifiedVal.includes('event.name')) {
             modifiedVal = modifiedVal.replaceAll('event.name', 'event.event')
         }
+        if (modifiedVal.includes('event.groupId')) {
+            modifiedVal = modifiedVal.replaceAll('event.groupId', 'event.properties.$group_0')
+        }
         if (modifiedVal.includes('event.context.traits')) {
             modifiedVal = modifiedVal.replaceAll('event.context.traits', 'person.properties')
         }
@@ -239,7 +242,7 @@ const translateInputs = (defaultVal: any, multiple: boolean = false) => {
             modifiedVal = modifiedVal.replaceAll('context.', 'event.properties.')
         }
 
-        if (modifiedVal.endsWith('.')) {
+        if (['event.context.group_id'].includes(modifiedVal) || modifiedVal.endsWith('.')) {
             return ''
         } else {
             return modifiedVal
