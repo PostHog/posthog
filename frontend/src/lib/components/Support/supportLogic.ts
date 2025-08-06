@@ -484,6 +484,41 @@ export const supportLogic = kea<supportLogicType>([
                 area = 'login'
             }
             kind = kind ?? 'support'
+
+            // Correlate component error with stored PostHog exceptions ONCE when form opens
+            let enhancedErrorContext = errorContext
+            if (errorContext && window.recentPostHogExceptions && window.recentPostHogExceptions.length > 0) {
+                const recentExceptions = window.recentPostHogExceptions
+                let matchedPostHogException = null
+
+                // Try to find exact match based on error name/type and message/value
+                if (errorContext.type === 'react_error' && errorContext.error) {
+                    matchedPostHogException = recentExceptions.find(
+                        (exception) =>
+                            exception.errorName === errorContext.error.name &&
+                            exception.errorMessage === errorContext.error.message
+                    )
+                } else if (errorContext.type === 'analytics_error') {
+                    // For analytics errors, we might not have exact error name/message
+                    // So we'll use the most recent exception as fallback
+                    matchedPostHogException = null
+                }
+
+                // If no exact match found, use the most recent (latest) exception
+                if (!matchedPostHogException && recentExceptions.length > 0) {
+                    matchedPostHogException = recentExceptions[recentExceptions.length - 1]
+                }
+
+                // Create enhanced error context with PostHog data
+                if (matchedPostHogException) {
+                    enhancedErrorContext = {
+                        ...errorContext,
+                        posthogEventUuid: matchedPostHogException.uuid,
+                        commitHash: matchedPostHogException.commitHash,
+                    }
+                }
+            }
+
             actions.resetSendSupportRequest({
                 name: name ?? '',
                 email: email ?? '',
@@ -491,7 +526,7 @@ export const supportLogic = kea<supportLogicType>([
                 target_area: area,
                 severity_level: severity_level ?? null,
                 message: message ?? values.sendSupportRequest.message ?? '',
-                errorContext: errorContext ?? null,
+                errorContext: enhancedErrorContext ?? null,
             })
 
             if (isEmailFormOpen === 'true' || isEmailFormOpen === true) {
@@ -518,43 +553,6 @@ export const supportLogic = kea<supportLogicType>([
             message,
             errorContext,
         }: SupportFormFields) => {
-            // TEMPORARY: Log error context for testing
-            if (errorContext) {
-                if (errorContext.type === 'react_error') {
-                } else if (errorContext.type === 'analytics_error') {
-                }
-            }
-
-            // Correlate component error with stored PostHog exceptions
-            if (errorContext && window.recentPostHogExceptions && window.recentPostHogExceptions.length > 0) {
-                const recentExceptions = window.recentPostHogExceptions
-                let matchedPostHogException = null
-
-                // Try to find exact match based on error name/type and message/value
-                if (errorContext.type === 'react_error' && errorContext.error) {
-                    matchedPostHogException = recentExceptions.find(
-                        (exception) =>
-                            exception.errorName === errorContext.error.name &&
-                            exception.errorMessage === errorContext.error.message
-                    )
-                } else if (errorContext.type === 'analytics_error') {
-                    // For analytics errors, we might not have exact error name/message
-                    // So we'll use the most recent exception as fallback
-                    matchedPostHogException = null
-                }
-
-                // If no exact match found, use the most recent (latest) exception
-                if (!matchedPostHogException && recentExceptions.length > 0) {
-                    matchedPostHogException = recentExceptions[recentExceptions.length - 1]
-                }
-
-                // Add PostHog exception data to error context
-                if (matchedPostHogException) {
-                    errorContext.posthogEventUuid = matchedPostHogException.uuid
-                    errorContext.commitHash = matchedPostHogException.commitHash
-                }
-            }
-
             const zendesk_ticket_uuid = uuid()
             const subject =
                 SUPPORT_KIND_TO_SUBJECT[kind ?? 'support'] +
@@ -684,7 +682,7 @@ export const supportLogic = kea<supportLogicType>([
                                       teamLogic.values.currentTeam.default_modifiers?.personsOnEventsMode ??
                                       'unknown')
                                 : '') +
-                            getErrorContextString(errorContext), // TODO: Pass actual errorContext when available
+                            getErrorContextString(errorContext),
                     },
                 },
             }

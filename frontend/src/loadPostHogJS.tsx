@@ -44,7 +44,6 @@ export function loadPostHogJS(): void {
                 // Store exception events for correlation with user reports
                 if (payload && payload.event === '$exception' && payload.uuid) {
                     window.recentPostHogExceptions = window.recentPostHogExceptions || []
-
                     window.recentPostHogExceptions.push({
                         uuid: payload.uuid,
                         timestamp: Date.now(),
