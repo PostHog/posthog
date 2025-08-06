@@ -399,7 +399,7 @@ export class HogWatcherService {
         // This can be called a bunch of times and will queue up results to be processed
         // We need to make sure that we only process the results once
         if (!this.queuedResults) {
-            let resolvePromise: () => void | undefined
+            let resolvePromise: () => void
             const promise = new Promise<void>((resolve) => {
                 resolvePromise = resolve
             })
