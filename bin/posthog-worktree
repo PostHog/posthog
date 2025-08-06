@@ -190,10 +190,10 @@ setup_worktree_environment() {
         cp "${main_repo}/.vscode/settings.json" "${worktree_path}/.vscode/"
     fi
     
-    # Copy any .env files if they exist
-    if find "${main_repo}" -maxdepth 1 -name ".env*" -type f | grep -q .; then
+    # Copy .env and .env.* files if they exist
+    if find "${main_repo}" -maxdepth 1 \( -name ".env" -o -name ".env.*" \) -type f | grep -q .; then
         print_color blue "Copying .env files…"
-        find "${main_repo}" -maxdepth 1 -name ".env*" -type f -exec cp {} "${worktree_path}/" \;
+        find "${main_repo}" -maxdepth 1 \( -name ".env" -o -name ".env.*" \) -type f -exec cp {} "${worktree_path}/" \;
     fi
     
     # Initialize Flox in the new worktree
