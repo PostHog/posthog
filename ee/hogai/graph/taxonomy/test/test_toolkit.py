@@ -255,23 +255,6 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, BaseTest):
         with self.assertRaises(TaxonomyToolNotFoundError):
             self.toolkit.handle_tools("invalid_tool", tool_input)
 
-    def test_get_tool_input_model(self):
-        action = AgentAction(tool="test_tool", tool_input={"test": "value"}, log="test_log")
-
-        with patch.object(self.toolkit, "_create_dynamic_tool") as mock_create:
-
-            class MockTool(BaseModel):
-                name: str
-                arguments: dict
-
-                @classmethod
-                def model_validate(cls, data):
-                    return cls(**data)
-
-            mock_create.return_value = MockTool
-            result = self.toolkit.get_tool_input_model(action)
-            self.assertIsInstance(result, MockTool)
-
     def test_format_properties_formats(self):
         props = [("prop1", "String", "Test description"), ("prop2", "Numeric", None)]
 
@@ -291,3 +274,67 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, BaseTest):
         self.assertIn("Numeric:", yaml_result)
         self.assertIn("name: prop1", yaml_result)
         self.assertIn("description: Test description", yaml_result)
+
+    @parameterized.expand(
+        [
+            ("retrieve_entity_properties", {"entity": "person"}, "retrieve_entity_properties", {"entity": "person"}),
+            (
+                "retrieve_event_properties",
+                {"event_name": "test_event"},
+                "retrieve_event_properties",
+                {"event_name": "test_event"},
+            ),
+            (
+                "ask_user_for_help",
+                {"request": "Can you help me?"},
+                "ask_user_for_help",
+                {"request": "Can you help me?"},
+            ),
+            (
+                "retrieve_entity_property_values",
+                {"entity": "person", "property_name": "email"},
+                "retrieve_entity_property_values",
+                {"entity": "person", "property_name": "email"},
+            ),
+            (
+                "retrieve_event_property_values",
+                {"event_name": "test_event", "property_name": "$browser"},
+                "retrieve_event_property_values",
+                {"event_name": "test_event", "property_name": "$browser"},
+            ),
+            ("retrieve_entity_properties", {"entity": "session"}, "retrieve_entity_properties", {"entity": "session"}),
+        ]
+    )
+    def test_get_tool_input_model_with_valid_tools(self, tool_name, tool_input, expected_name, expected_args):
+        """Test get_tool_input_model with various valid tools."""
+        action = AgentAction(tool=tool_name, tool_input=tool_input, log="test log")
+
+        result = self.toolkit.get_tool_input_model(action)
+
+        self.assertEqual(result.name, expected_name)
+        self.assertIsInstance(result.arguments, BaseModel)
+
+        # Check that all expected arguments are present and correct
+        for key, value in expected_args.items():
+            self.assertEqual(getattr(result.arguments, key), value)
+
+    def test_get_tool_input_model_with_custom_tools(self):
+        """Test get_tool_input_model when custom tools are available."""
+
+        # Create a custom toolkit with custom tools
+        class CustomToolkit(TaxonomyAgentToolkit):
+            def _get_custom_tools(self):
+                class CustomTool(BaseModel):
+                    custom_field: str
+
+                return [CustomTool]
+
+        custom_toolkit = CustomToolkit(self.team)
+
+        action = AgentAction(tool="custom_tool", tool_input={"custom_field": "test_value"}, log="test log")
+
+        result = custom_toolkit.get_tool_input_model(action)
+
+        self.assertEqual(result.name, "custom_tool")
+        self.assertEqual(result.arguments.custom_field, "test_value")
+        self.assertIsInstance(result.arguments, BaseModel)

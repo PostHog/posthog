@@ -8,14 +8,15 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
 from pydantic import ValidationError
 
-from typing import get_args, get_origin, TypeVar, Generic
+from typing import get_args, get_origin, Generic, TypeVar
 from posthog.models import Team, User
-from ..base import BaseAssistantNode
-from .types import EntityType, TaxonomyAgentState
+
+from .types import EntityType, TaxonomyTool, TaxonomyAgentState
 from functools import cached_property
 from ee.hogai.llm import MaxChatOpenAI
 from posthog.models.group_type_mapping import GroupTypeMapping
 from .toolkit import TaxonomyAgentToolkit
+from ..base import BaseAssistantNode
 from .prompts import (
     PROPERTY_TYPES_PROMPT,
     TAXONOMY_TOOL_USAGE_PROMPT,
@@ -24,6 +25,10 @@ from .prompts import (
     ITERATION_LIMIT_PROMPT,
 )
 from ee.hogai.utils.helpers import format_events_prompt
+
+TaxonomyStateType = TypeVar("TaxonomyStateType", bound=TaxonomyAgentState)
+TaxonomyPartialStateType = TypeVar("TaxonomyPartialStateType", bound=TaxonomyAgentState)
+TaxonomyNodeBound = BaseAssistantNode[TaxonomyStateType, TaxonomyPartialStateType]
 
 
 class StateClassMixin:
@@ -45,12 +50,6 @@ class StateClassMixin:
             f"Make sure to inherit from {target_class.__name__} with a specific state type, "
             f"e.g., {target_class.__name__}[StateType, PartialStateType]"
         )
-
-
-# Type variables with bounds
-TaxonomyStateType = TypeVar("TaxonomyStateType", bound=TaxonomyAgentState)
-TaxonomyPartialStateType = TypeVar("TaxonomyPartialStateType", bound=TaxonomyAgentState)
-TaxonomyNodeBound = BaseAssistantNode[TaxonomyStateType, TaxonomyPartialStateType]
 
 
 class TaxonomyAgentNode(Generic[TaxonomyStateType, TaxonomyPartialStateType], TaxonomyNodeBound, StateClassMixin):
@@ -155,12 +154,12 @@ class TaxonomyAgentToolsNode(Generic[TaxonomyStateType, TaxonomyPartialStateType
     def run(self, state: TaxonomyStateType, config: RunnableConfig) -> TaxonomyPartialStateType:
         intermediate_steps = state.intermediate_steps or []
         action, _output = intermediate_steps[-1]
-        input = None
+        tool_input: TaxonomyTool | None = None
         output = ""
         tool_result_msg: list[LangchainToolMessage] = []
 
         try:
-            input = self._toolkit.get_tool_input_model(action)
+            tool_input = self._toolkit.get_tool_input_model(action)
         except ValidationError as e:
             output = str(
                 ChatPromptTemplate.from_template(REACT_PYDANTIC_VALIDATION_EXCEPTION_PROMPT, template_format="mustache")
@@ -168,24 +167,24 @@ class TaxonomyAgentToolsNode(Generic[TaxonomyStateType, TaxonomyPartialStateType
                 .content
             )
         else:
-            if input.name == "final_answer":  # type: ignore
+            if tool_input.name == "final_answer":
                 return self._partial_state_class(
-                    output=input.arguments.data,  # type: ignore
+                    output=tool_input.arguments.data,
                     intermediate_steps=None,
                 )
 
             # The agent has requested help, so we return a message to the root node
-            if input.name == "ask_user_for_help":  # type: ignore
-                help_message = input.arguments.request  # type: ignore
-                return self._get_reset_state(str(help_message), input.name, state)  # type: ignore
+            if tool_input.name == "ask_user_for_help":
+                help_message = tool_input.arguments.request
+                return self._get_reset_state(str(help_message), tool_input.name, state)
 
         # If we're still here, check if we've hit the iteration limit within this cycle
         if len(intermediate_steps) >= self.MAX_ITERATIONS:
             return self._get_reset_state(ITERATION_LIMIT_PROMPT, "max_iterations", state)
 
-        if input and not output:
+        if tool_input and not output:
             # Use the toolkit to handle tool execution
-            _, output = self._toolkit.handle_tools(input.name, input)  # type: ignore
+            _, output = self._toolkit.handle_tools(tool_input.name, tool_input)
 
         if output:
             tool_msg = LangchainToolMessage(

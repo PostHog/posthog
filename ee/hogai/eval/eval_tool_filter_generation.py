@@ -55,7 +55,7 @@ def call_search_session_recordings(demo_org_team_user):
         filters_json = DUMMY_CURRENT_FILTERS.model_dump_json(indent=2)
 
         graph_input = {
-            "instructions": USER_FILTER_OPTIONS_PROMPT.format(change=change, current_filters=filters_json),
+            "change": USER_FILTER_OPTIONS_PROMPT.format(change=change, current_filters=filters_json),
             "output": None,
         }
 

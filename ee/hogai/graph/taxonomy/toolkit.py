@@ -20,7 +20,7 @@ from typing import Optional, cast
 from collections.abc import Iterable
 from pydantic import BaseModel
 import yaml
-from .types import ToolInputType
+from .types import TaxonomyTool
 from .tools import (
     retrieve_entity_properties,
     retrieve_entity_property_values,
@@ -257,8 +257,8 @@ class TaxonomyAgentToolkit:
         return response.model_dump_json()
 
     def get_tools(self) -> list:
-        """Get tool signatures. Override in subclasses."""
-        raise NotImplementedError
+        """Get all tools (default + custom). Override in subclasses to add custom tools."""
+        return [*self._get_default_tools(), *self._get_custom_tools()]
 
     def _get_default_tools(self) -> list:
         """Get default taxonomy tools."""
@@ -269,6 +269,10 @@ class TaxonomyAgentToolkit:
             retrieve_event_property_values,
             ask_user_for_help,
         ]
+
+    def _get_custom_tools(self) -> list:
+        """Get custom tools. Override in subclasses to add custom tools."""
+        return []
 
     def retrieve_entity_properties(self, entity: str, max_properties: int = 500) -> str:
         """
@@ -420,24 +424,24 @@ class TaxonomyAgentToolkit:
             format_as_string=property_definition.property_type in (PropertyType.String, PropertyType.Datetime),
         )
 
-    def handle_tools(self, tool_name: str, tool_input: ToolInputType) -> tuple[str, str]:
+    def handle_tools(self, tool_name: str, tool_input: TaxonomyTool) -> tuple[str, str]:
         # Here we handle the tool execution for base taxonomy tools.
         if tool_name == "retrieve_entity_property_values":
             result = self.retrieve_entity_property_values(
-                tool_input.arguments.entity,  # type: ignore
-                tool_input.arguments.property_name,  # type: ignore
+                tool_input.arguments.entity,
+                tool_input.arguments.property_name,
             )
         elif tool_name == "retrieve_entity_properties":
-            result = self.retrieve_entity_properties(tool_input.arguments.entity)  # type: ignore
+            result = self.retrieve_entity_properties(tool_input.arguments.entity)
         elif tool_name == "retrieve_event_property_values":
             result = self.retrieve_event_or_action_property_values(
-                tool_input.arguments.event_name,  # type: ignore
-                tool_input.arguments.property_name,  # type: ignore
+                tool_input.arguments.event_name,
+                tool_input.arguments.property_name,
             )
         elif tool_name == "retrieve_event_properties":
-            result = self.retrieve_event_or_action_properties(tool_input.arguments.event_name)  # type: ignore
+            result = self.retrieve_event_or_action_properties(tool_input.arguments.event_name)
         elif tool_name == "ask_user_for_help":
-            result = tool_input.arguments.request  # type: ignore
+            result = tool_input.arguments.request
         elif tool_name == "final_answer":
             result = "Taxonomy finalized"
         else:
@@ -445,22 +449,11 @@ class TaxonomyAgentToolkit:
 
         return tool_name, result
 
-    def _create_dynamic_tool_union(self) -> type:
-        """Create the tool union dynamically using the actual toolkit instance."""
-        tools = self.get_tools()
-        return Union[tuple(tools)]  # type: ignore[return-value]
+    def get_tool_input_model(self, action: AgentAction) -> TaxonomyTool:
+        custom_tools = self._get_custom_tools()
+        custom_tools_union = Union[tuple(custom_tools)] if custom_tools else BaseModel
 
-    def _create_dynamic_tool(self) -> type[BaseModel]:
-        """Create a dynamic FilterOptionsTool with the correct union type."""
-        dynamic_union: type = self._create_dynamic_tool_union()
+        class DynamicTypedToolInput(TaxonomyTool[custom_tools_union]):
+            pass
 
-        class DynamicTool(BaseModel):
-            name: str
-            arguments: dynamic_union  # type: ignore
-
-        return DynamicTool
-
-    def get_tool_input_model(self, action: AgentAction) -> BaseModel:
-        tool_input_class = self._create_dynamic_tool()
-
-        return tool_input_class.model_validate({"name": action.tool, "arguments": action.tool_input})
+        return DynamicTypedToolInput.model_validate({"name": action.tool, "arguments": action.tool_input})

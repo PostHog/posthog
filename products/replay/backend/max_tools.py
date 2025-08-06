@@ -26,11 +26,10 @@ class SessionReplayFilterOptionsToolkit(TaxonomyAgentToolkit):
     def __init__(self, team: Team):
         super().__init__(team)
 
-    def get_tools(self) -> list:
-        """Get all available tools for filter options."""
+    def _get_custom_tools(self) -> list:
+        """Get custom tools for filter options."""
         final_answer = create_final_answer_model(MaxRecordingUniversalFilters)
-
-        return [*self._get_default_tools(), final_answer]
+        return [final_answer]
 
     def _format_properties(self, props: list[tuple[str, str | None, str | None]]) -> str:
         """
@@ -101,14 +100,11 @@ class SearchSessionRecordingsTool(MaxTool):
     args_schema: type[BaseModel] = SearchSessionRecordingsArgs
 
     async def _arun_impl(self, change: str) -> tuple[str, MaxRecordingUniversalFilters]:
-        # Create the graph
-
         graph = SessionReplayFilterOptionsGraph(team=self._team, user=self._user)
         pretty_filters = json.dumps(self.context.get("current_filters", {}), indent=2)
         user_prompt = USER_FILTER_OPTIONS_PROMPT.format(change=change, current_filters=pretty_filters)
-        # Set the context
+
         graph_context = {
-            # "instructions": instructions,
             "change": user_prompt,
             "output": None,
             "messages": [],
