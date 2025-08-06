@@ -910,3 +910,22 @@ class TestSharingConfigurationSerializerValidation(APIBaseTest):
             "detailed": True,
         }
         assert data["settings"] == expected_settings
+
+    @patch("posthog.api.exports.exporter.export_asset.delay")
+    def test_shared_resource_blocked_when_organization_disallows_public_sharing(self, _patched_exporter_task: Mock):
+        """Test that shared resources return 404 when organization.allow_publicly_shared_resources is False"""
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}/sharing",
+            {"enabled": True},
+        )
+        assert response.status_code == status.HTTP_200_OK
+        access_token = response.json()["access_token"]
+
+        response = self.client.get(f"/shared/{access_token}")
+        assert response.status_code == 200
+
+        self.organization.allow_publicly_shared_resources = False
+        self.organization.save()
+
+        response = self.client.get(f"/shared/{access_token}")
+        assert response.status_code == 404
