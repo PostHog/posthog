@@ -425,7 +425,11 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" 
     @lru_cache(maxsize=1)
     def _get_team_from_request(self) -> Optional["Team"]:
         team_found = None
-        token = get_token(None, self.request)
+
+        # Special case for project_api_token in the request body.
+        # This ensures we can route deterministically to the correct team for URLs with @current as the team_id.
+        # See https://github.com/PostHog/posthog/issues/35303 for more context.
+        token = self._get_explicit_project_api_token() or get_token(None, self.request)
 
         if token:
             team = Team.objects.get_team_from_token(token)
@@ -435,6 +439,15 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" 
                 raise AuthenticationFailed()
 
         return team_found
+
+    def _get_explicit_project_api_token(self) -> Optional[str]:
+        if (
+            self.request.method in ("POST", "PUT", "PATCH")
+            and hasattr(self.request, "data")
+            and isinstance(self.request.data, dict)
+        ):
+            return self.request.data.get("project_api_token")
+        return None
 
     @cached_property
     def user_permissions(self) -> "UserPermissions":
