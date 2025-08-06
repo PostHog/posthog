@@ -822,10 +822,6 @@ function getErrorContextString(errorContext: any): string {
             [
                 'Bug Type: React Error',
                 ctx.error?.name && ctx.error?.message && `Error: ${ctx.error.name} - ${ctx.error.message}`,
-                ctx.error?.stack && `Stack Trace:\n${ctx.error.stack.split('\n').slice(0, 10).join('\n')}`,
-                ctx.feature && `Feature: ${ctx.feature}`,
-                ctx.url && `URL: ${ctx.url}`,
-                ctx.teamId && `Team ID: ${ctx.teamId}`,
             ].filter(Boolean),
 
         analytics_error: (ctx: any) =>
@@ -833,8 +829,6 @@ function getErrorContextString(errorContext: any): string {
                 'Bug Type: Analytics Error',
                 ctx.queryId && `Query ID: ${ctx.queryId}`,
                 ctx.title && `Title: ${ctx.title}`,
-                ctx.query && `Query: ${JSON.stringify(ctx.query, null, 2)}`,
-                ctx.url && `URL: ${ctx.url}`,
             ].filter(Boolean),
     }
 
