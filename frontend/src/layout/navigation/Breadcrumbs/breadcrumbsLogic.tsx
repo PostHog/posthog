@@ -209,11 +209,7 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType>([
         ],
         title: [
             (s) => [s.sceneBreadcrumbs],
-            (sceneBreadcrumbs): string =>
-                sceneBreadcrumbs
-                    .filter((breadcrumb) => !!breadcrumb.name)
-                    .map((breadcrumb) => String(breadcrumb.name))
-                    .pop() ?? 'Untitled',
+            (sceneBreadcrumbs): string => sceneBreadcrumbs.map((breadcrumb) => String(breadcrumb.name)).pop() || '...',
         ],
     })),
     subscriptions({

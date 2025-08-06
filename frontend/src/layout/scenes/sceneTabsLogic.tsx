@@ -249,10 +249,16 @@ export const sceneTabsLogic = kea<sceneTabsLogicType>([
                         pathname: currentLocation.pathname,
                         search: currentLocation.search,
                         hash: currentLocation.hash,
-                        title,
+                        title: title || 'Loading...',
                     },
                 ])
             } else {
+                if (!title || title === '...') {
+                    // When the tab is loading, don't flicker between the loaded title and the new one
+                    return
+                }
+                if (title === 'null') {
+                }
                 const newTabs = values.tabs.map((tab, i) => (i === activeIndex ? { ...tab, title } : tab))
                 actions.setTabs(newTabs)
             }
