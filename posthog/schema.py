@@ -994,6 +994,16 @@ class EntityType(StrEnum):
     NEW_ENTITY = "new_entity"
 
 
+class Population(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    both: float
+    exception_only: float
+    neither: float
+    success_only: float
+
+
 class Status(StrEnum):
     ARCHIVED = "archived"
     ACTIVE = "active"
@@ -11034,13 +11044,14 @@ class ErrorTrackingCorrelatedIssue(BaseModel):
         extra="forbid",
     )
     assignee: Optional[ErrorTrackingIssueAssignee] = None
-    correlation_event: str
-    correlation_score: float
     description: Optional[str] = None
+    event: str
     external_issues: Optional[list[ErrorTrackingExternalReference]] = None
     first_seen: datetime
     id: str
     name: Optional[str] = None
+    odds_ratio: float
+    population: Population
     status: Status
 
 
