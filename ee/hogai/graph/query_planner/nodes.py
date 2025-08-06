@@ -9,11 +9,11 @@ from langchain_core.messages import (
 )
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
-from langchain_openai import ChatOpenAI
 from pydantic import Field, ValidationError, create_model
 
 from ee.hogai.graph.root.prompts import ROOT_INSIGHT_DESCRIPTION_PROMPT
-from ee.hogai.graph.shared_prompts import CORE_MEMORY_PROMPT, PROJECT_ORG_USER_CONTEXT_PROMPT
+from ee.hogai.graph.shared_prompts import CORE_MEMORY_PROMPT
+from ee.hogai.llm import MaxChatOpenAI
 from ee.hogai.utils.helpers import dereference_schema, format_events_prompt
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from posthog.hogql.ai import SCHEMA_MESSAGE
@@ -138,7 +138,7 @@ class QueryPlannerNode(AssistantNode):
         # Get dynamic entity tools with correct types for this team
         dynamic_retrieve_entity_properties, dynamic_retrieve_entity_property_values = self._get_dynamic_entity_tools()
 
-        return ChatOpenAI(
+        return MaxChatOpenAI(
             model="o4-mini",
             use_responses_api=True,
             streaming=False,
@@ -148,6 +148,8 @@ class QueryPlannerNode(AssistantNode):
             reasoning={
                 "summary": "auto",  # Without this, there's no reasoning summaries! Only works with reasoning models
             },
+            team=self._team,
+            user=self._user,
         ).bind_tools(
             [
                 retrieve_event_properties,
@@ -211,7 +213,6 @@ class QueryPlannerNode(AssistantNode):
                             },
                             {"type": "text", "text": CORE_MEMORY_PROMPT},
                             {"type": "text", "text": EVENT_DEFINITIONS_PROMPT},
-                            {"type": "text", "text": PROJECT_ORG_USER_CONTEXT_PROMPT},
                         ],
                     ),
                     # Include inputs and plans for up to 10 previously generated insights in thread

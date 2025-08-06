@@ -8,9 +8,20 @@ from posthog.tasks.utils import CeleryQueue
 logger = structlog.get_logger(__name__)
 
 
-@shared_task(ignore_result=True, queue=CeleryQueue.LONG_RUNNING.value, max_retries=1)
+@shared_task(
+    ignore_result=True,
+    queue=CeleryQueue.LONG_RUNNING.value,
+    max_retries=1,
+    acks_late=True,
+    reject_on_worker_lost=True,
+    track_started=True,
+)
 def extract_insight_query_metadata(insight_id: str) -> None:
     try:
+        logger.info(
+            "Extracting query metadata for insight",
+            insight_id=insight_id,
+        )
         with transaction.atomic():
             insight = (
                 Insight.objects.select_for_update(of=("self",))

@@ -1,6 +1,6 @@
 export interface RoleBasedMessage {
     role: string
-    content: string | { type: string; content: string }
+    content: string | { type: string; content: string } | object[]
 }
 
 export interface OpenAIToolCall {
