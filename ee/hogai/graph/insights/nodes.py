@@ -108,7 +108,11 @@ class InsightSearchNode(AssistantNode):
                 insight, AssistantQueryExecutor(self._team, self._utc_now_datetime)
             )
 
+            insight_url = f"/project/{self._team.id}/insights/{insight.short_id}"
+            hyperlink_format = f"[{insight_info['name']}]({insight_url})"
+
             return f"""Insight: {insight_info['name']} (ID: {insight_info['insight_id']})
+HYPERLINK FORMAT: {hyperlink_format}
 Description: {insight_info['description'] or 'No description'}
 Query: {insight_info['query']}
 Current Results: {insight_info['results']}"""
@@ -144,6 +148,8 @@ Current Results: {insight_info['results']}"""
                 messages_to_return = []
 
                 formatted_content = f"**Evaluation Result**: {evaluation_result['explanation']}"
+
+                formatted_content += "\n\nINSTRUCTIONS: When mentioning insights in your response, always use the hyperlink format provided above. For example, write '[Weekly signups](/project/123/insights/abc123)' instead of just 'Weekly signups'."
 
                 messages_to_return.append(
                     AssistantToolCallMessage(
@@ -370,7 +376,10 @@ Current Results: {insight_info['results']}"""
         # Get basic query info without executing
         query_info = self._get_basic_query_info_from_insight(insight)
 
-        summary_parts = [f"ID: {insight_id} | {name}", f"Type: {insight_type} | {viz_status}"]
+        insight_url = f"/project/{self._team.id}/insights/{insight.short_id}"
+        hyperlink_format = f"[{name}]({insight_url})"
+
+        summary_parts = [f"ID: {insight_id} | {name} | {hyperlink_format}", f"Type: {insight_type} | {viz_status}"]
 
         if description:
             summary_parts.append(f"Description: {description}")
@@ -656,8 +665,11 @@ Instructions:
                 viz_message = self._create_visualization_message_for_insight(selection["insight"])
                 if viz_message:
                     visualization_messages.append(viz_message)
-                insight_name = selection["insight"].name or selection["insight"].derived_name or "Unnamed"
-                explanations.append(f"- {insight_name}: {selection['explanation']}")
+                insight = selection["insight"]
+                insight_name = insight.name or insight.derived_name or "Unnamed"
+                insight_url = f"/project/{self._team.id}/insights/{insight.short_id}"
+                insight_hyperlink = f"[{insight_name}]({insight_url})"
+                explanations.append(f"- {insight_hyperlink}: {selection['explanation']}")
 
             return {
                 "should_use_existing": True,

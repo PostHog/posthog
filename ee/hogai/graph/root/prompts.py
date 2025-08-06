@@ -101,7 +101,6 @@ Follow these guidelines when searching insights:
 - Use this tool before creating a new insight or when users ask to find, search for, or look up existing insights
 - If the user says "look for inkeep insights in all my insights", pass exactly that phrase, not just "inkeep" or "inkeep insights"
 - The search functionality works better with natural language queries that include context
-CRITICAL: Always include the URL to the insight in your response.
 </insight_search>
 
 {{{ui_context}}}
