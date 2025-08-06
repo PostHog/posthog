@@ -52,26 +52,9 @@ def post_login(sender, user, request: HttpRequest, **kwargs):
     """
     Runs after every user login (including tests):
     - Sets SESSION_COOKIE_CREATED_AT_KEY in the session to the current time.
-    - Sends a login notification email if the user is logging in from a new device.
     """
     current_time = time.time()
-    previous_session_time = request.session.get(settings.SESSION_COOKIE_CREATED_AT_KEY)
-
-    # Check if this is reauthentication
-    is_reauthentication = (
-        previous_session_time and (current_time - previous_session_time) < settings.SESSION_SENSITIVE_ACTIONS_AGE
-    )
-
     request.session[settings.SESSION_COOKIE_CREATED_AT_KEY] = current_time
-
-    # Treat as signup if user was created in the last 30s
-    is_signup = (timezone.now() - user.date_joined) < datetime.timedelta(seconds=30)
-
-    short_user_agent = get_short_user_agent(request)
-    ip_address = get_ip_address(request)
-
-    if not is_reauthentication and not is_signup and is_cloud() and not settings.TEST:
-        login_from_new_device_notification.delay(user.id, timezone.now(), short_user_agent, ip_address)
 
 
 @csrf_protect
@@ -186,6 +169,12 @@ class LoginSerializer(serializers.Serializer):
             raise TwoFactorRequired()
 
         login(request, user, backend="django.contrib.auth.backends.ModelBackend")
+
+        if is_cloud():
+            short_user_agent = get_short_user_agent(request)
+            ip_address = get_ip_address(request)
+            # notification won't be sent if user has logged in from the same device in the last 30 days
+            login_from_new_device_notification.delay(user.id, timezone.now(), short_user_agent, ip_address)
 
         report_user_logged_in(user, social_provider="")
         return user

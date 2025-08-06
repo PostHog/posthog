@@ -22,8 +22,10 @@ from typing import TypedDict, cast
 
 from posthog.models.oauth import OAuthApplicationAccessLevel, OAuthGrant, OAuthRefreshToken
 from posthog.user_permissions import UserPermissions
-from posthog.utils import render_template
 from posthog.views import login_required
+from posthog.utils import render_template, get_short_user_agent, get_ip_address
+from posthog.cloud_utils import is_cloud
+from posthog.tasks.email import login_from_new_device_notification
 
 logger = structlog.get_logger(__name__)
 
@@ -317,6 +319,15 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
             )
 
         logger.debug("Success url for the request: %s", uri)
+
+        is_signup = (timezone.now() - request.user.date_joined) < timedelta(seconds=30)
+
+        # Send login notification for OAuth login
+        if serializer.validated_data["allow"] and is_cloud() and is_signup:
+            short_user_agent = get_short_user_agent(request)
+            ip_address = get_ip_address(request)
+            # notification won't be sent if user has logged in from the same device in the last 30 days
+            login_from_new_device_notification.delay(request.user.id, timezone.now(), short_user_agent, ip_address)
 
         redirect = self.redirect(uri, application)
 
