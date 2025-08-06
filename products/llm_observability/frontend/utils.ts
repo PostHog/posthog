@@ -115,7 +115,7 @@ export function isOpenAICompatMessage(output: unknown): output is OpenAICompleti
         typeof output === 'object' &&
         'role' in output &&
         'content' in output &&
-        typeof output.content === 'string'
+        (typeof output.content === 'string' || output.content === null)
     )
 }
 
@@ -193,6 +193,32 @@ export function isVercelSDKImageMessage(input: unknown): input is VercelSDKImage
  */
 export function normalizeMessage(output: unknown, defaultRole?: string): CompatMessage[] {
     const role = defaultRole || 'assistant'
+
+    // Handle new array-based content format (unified format with structured objects)
+    // Only apply this if the array contains objects with 'type' field (not Anthropic-specific formats)
+    if (
+        output &&
+        typeof output === 'object' &&
+        'role' in output &&
+        'content' in output &&
+        typeof output.role === 'string' &&
+        Array.isArray(output.content) &&
+        output.content.length > 0 &&
+        output.content.every(
+            (item) =>
+                item &&
+                typeof item === 'object' &&
+                'type' in item &&
+                (item.type === 'text' || item.type === 'function' || item.type === 'image')
+        )
+    ) {
+        return [
+            {
+                role: output.role === 'user' ? 'user' : 'assistant',
+                content: output.content,
+            },
+        ]
+    }
 
     // Vercel SDK
     if (isVercelSDKTextMessage(output)) {
@@ -306,7 +332,7 @@ export function normalizeMessages(messages: unknown, defaultRole?: string, tools
 
     if (tools) {
         normalizedMessages.push({
-            role: 'tools',
+            role: 'available tools',
             content: '',
             tools,
         })
