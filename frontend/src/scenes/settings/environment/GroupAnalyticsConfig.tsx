@@ -77,7 +77,7 @@ export function GroupAnalyticsConfig(): JSX.Element | null {
                     at{' '}
                     <Link to="https://posthog.com/docs/product-analytics/group-analytics" target="_blank">
                         this guide
-                    </Link>
+                    </Link>{' '}
                     for more information on getting started.
                 </LemonBanner>
             )}
