@@ -23,8 +23,8 @@ jobs:
               with:
                   node-version: '20'
 
-            - name: Fetch main branch
-              run: git fetch origin main
+            - name: Fetch master branch
+              run: git fetch origin master
 
             - name: Run reviewer assignment script
               env:
