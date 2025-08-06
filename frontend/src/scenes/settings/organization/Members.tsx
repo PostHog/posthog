@@ -19,7 +19,6 @@ import {
     membershipLevelToName,
     organizationMembershipLevelIntegers,
 } from 'lib/utils/permissioning'
-import { useEffect } from 'react'
 import { twoFactorLogic } from 'scenes/authentication/twoFactorLogic'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -27,6 +26,7 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { AvailableFeature, OrganizationMemberType } from '~/types'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 function RemoveMemberModal({ member }: { member: OrganizationMemberType }): JSX.Element {
     const { user } = useValues(userLogic)
@@ -198,9 +198,7 @@ export function Members(): JSX.Element | null {
         minimumAccessLevel: OrganizationMembershipLevel.Admin,
     })
 
-    useEffect(() => {
-        ensureAllMembersLoaded()
-    }, [])
+    useOnMountEffect(ensureAllMembersLoaded)
 
     if (!user) {
         return null

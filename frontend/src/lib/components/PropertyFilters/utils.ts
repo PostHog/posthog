@@ -40,6 +40,7 @@ import {
     RecordingPropertyFilter,
     RevenueAnalyticsPropertyFilter,
     SessionPropertyFilter,
+    FlagPropertyFilter,
 } from '~/types'
 
 export function isPropertyGroup(
@@ -251,6 +252,9 @@ export function isDataWarehousePersonPropertyFilter(
 export function isFeaturePropertyFilter(filter?: AnyFilterLike | null): filter is FeaturePropertyFilter {
     return filter?.type === PropertyFilterType.Feature
 }
+export function isFlagPropertyFilter(filter?: AnyFilterLike | null): filter is FlagPropertyFilter {
+    return filter?.type === PropertyFilterType.Flag
+}
 export function isHogQLPropertyFilter(filter?: AnyFilterLike | null): filter is HogQLPropertyFilter {
     return filter?.type === PropertyFilterType.HogQL
 }
@@ -267,6 +271,7 @@ export function isAnyPropertyfilter(filter?: AnyFilterLike | null): filter is An
         isRecordingPropertyFilter(filter) ||
         isLogEntryPropertyFilter(filter) ||
         isFeaturePropertyFilter(filter) ||
+        isFlagPropertyFilter(filter) ||
         isGroupPropertyFilter(filter) ||
         isLogPropertyFilter(filter)
     )
@@ -298,6 +303,7 @@ export function isPropertyFilterWithOperator(
             isRecordingPropertyFilter(filter) ||
             isLogEntryPropertyFilter(filter) ||
             isFeaturePropertyFilter(filter) ||
+            isFlagPropertyFilter(filter) ||
             isGroupPropertyFilter(filter) ||
             isCohortPropertyFilter(filter) ||
             isDataWarehousePropertyFilter(filter) ||
@@ -329,6 +335,7 @@ const propertyFilterMapping: Partial<Record<PropertyFilterType, TaxonomicFilterG
     [PropertyFilterType.ErrorTrackingIssue]: TaxonomicFilterGroupType.ErrorTrackingIssues,
     [PropertyFilterType.Log]: TaxonomicFilterGroupType.LogAttributes,
     [PropertyFilterType.RevenueAnalytics]: TaxonomicFilterGroupType.RevenueAnalyticsProperties,
+    [PropertyFilterType.Flag]: TaxonomicFilterGroupType.FeatureFlags,
 }
 
 export const filterToTaxonomicFilterType = (
@@ -376,6 +383,7 @@ export function propertyFilterTypeToPropertyDefinitionType(
         [PropertyFilterType.ErrorTrackingIssue]: PropertyDefinitionType.Resource,
         [PropertyFilterType.Log]: PropertyDefinitionType.Log,
         [PropertyFilterType.RevenueAnalytics]: PropertyDefinitionType.RevenueAnalytics,
+        [PropertyFilterType.Flag]: PropertyDefinitionType.FlagValue,
     }
 
     return mapping[filterType as PropertyFilterType] ?? PropertyDefinitionType.Event
@@ -412,6 +420,11 @@ export function taxonomicFilterTypeToPropertyFilterType(
 
     if (filterType == TaxonomicFilterGroupType.ErrorTrackingIssues) {
         return PropertyFilterType.ErrorTrackingIssue
+    }
+
+    if (filterType === TaxonomicFilterGroupType.FeatureFlags) {
+        // Feature flags dependencies (flag + value) as a property filter
+        return PropertyFilterType.Flag
     }
 
     if (filterType == TaxonomicFilterGroupType.LogAttributes) {
@@ -465,6 +478,16 @@ export function createDefaultPropertyFilter(
         return hogQLProperty
     }
 
+    if (propertyType === PropertyFilterType.Flag) {
+        const flagProperty: FlagPropertyFilter = {
+            type: propertyType,
+            key: String(propertyKey),
+            value: true, // Default to true
+            operator: PropertyOperator.FlagEvaluatesTo,
+        }
+        return flagProperty
+    }
+
     const apiType = propertyFilterTypeToPropertyDefinitionType(propertyType) ?? PropertyDefinitionType.Event
 
     const propertyValueType = describeProperty(propertyKey, apiType, taxonomicGroup.groupTypeIndex)
@@ -487,7 +510,7 @@ export function createDefaultPropertyFilter(
     // is the equivalent of selecting a property value
     const property: AnyPropertyFilter = {
         key: isGroupNameFilter ? '$group_key' : propertyKey.toString(),
-        value: isGroupNameFilter ? propertyKey.toString() : originalQuery ?? null,
+        value: isGroupNameFilter ? propertyKey.toString() : (originalQuery ?? null),
         operator,
         type: propertyType as AnyPropertyFilter['type'] as any, // bad | pipe chain :(
         group_type_index: taxonomicGroup.groupTypeIndex,

@@ -1,9 +1,9 @@
 {
     "name": "@posthog/products-games",
     "dependencies": {
-        "kea": "^3.1.5",
+        "kea": "^3.1.6",
         "kea-loaders": "^3.1.1",
-        "kea-router": "^3.3.1"
+        "kea-router": "^3.4.0"
     },
     "peerDependencies": {
         "@posthog/icons": "*",

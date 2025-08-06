@@ -19,7 +19,7 @@ export function DashboardTemplateVariables(): JSX.Element {
     // this is a hack, I'm not sure why it's not set properly initially. Figure it out.
     useEffect(() => {
         setVariables(activeDashboardTemplate?.variables || [])
-    }, [activeDashboardTemplate])
+    }, [activeDashboardTemplate]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     return (
         <div className="mb-4 DashboardTemplateVariables max-w-192">
