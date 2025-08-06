@@ -157,7 +157,7 @@ class TaxonomyAgentToolsNode(Generic[TaxonomyStateType, TaxonomyPartialStateType
             # The agent has requested help, so we return a message to the root node
             if tool_input.name == "ask_user_for_help":
                 help_message = tool_input.arguments.request
-                return self._get_reset_state(str(help_message), tool_input.name, state)
+                return self._get_reset_state(help_message, tool_input.name, state)
 
         # If we're still here, check if we've hit the iteration limit within this cycle
         if len(intermediate_steps) >= self.MAX_ITERATIONS:

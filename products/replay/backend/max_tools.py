@@ -124,6 +124,12 @@ class SearchSessionRecordingsTool(MaxTool):
                 else:
                     content = "I need more information to proceed."
 
+                # Instead of returning the help message, raise an exception that will be caught
+                # by the main graph and handled appropriately without adding to state
+                from ee.hogai.utils.exceptions import HelpRequested
+
+                raise HelpRequested(content)
+
             current_filters = MaxRecordingUniversalFilters.model_validate(
                 self.context.get("current_filters", {}),
             )
