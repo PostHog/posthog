@@ -10,10 +10,10 @@ export const template: HogFunctionTemplate = {
     icon_url: '/static/posthog-icon.svg',
     category: ['Custom'],
     code: `
-    let res := sendEmail(inputs.email);
+    let res := sendEmail(inputs.email)
 
     if (not res.success) {
-        throw Error(f'Email failed to send: {res.error}');
+        throw Error(f'Email failed to send: {res.error}')
     }
     `,
     code_language: 'hog',
