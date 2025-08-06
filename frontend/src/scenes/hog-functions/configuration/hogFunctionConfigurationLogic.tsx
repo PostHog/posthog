@@ -815,10 +815,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             (s) => [s.configuration, s.hogFunction],
             (configuration, hogFunction) => {
                 const hogState = hogFunction?.status?.state ?? 0
-                return (
-                    configuration?.enabled &&
-                    (hogState === HogWatcherState.overflowed || hogState === HogWatcherState.disabled)
-                )
+                return configuration?.enabled && hogState === HogWatcherState.disabled
             },
         ],
 

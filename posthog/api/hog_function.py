@@ -374,10 +374,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         # Standard update
         res: HogFunction = super().update(instance, validated_data)
 
-        if res.enabled and res.status.get("state", 0) in (
-            HogFunctionState.DISABLED.value,
-            HogFunctionState.DEGRADED.value,
-        ):
+        if res.enabled and res.status.get("state", 0) == HogFunctionState.DISABLED.value:
             res.set_function_status(HogFunctionState.DEGRADED.value)
 
         return res
