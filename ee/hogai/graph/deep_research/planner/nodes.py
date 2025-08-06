@@ -48,7 +48,7 @@ from posthog.schema import (
     AssistantToolCall,
     AssistantToolCallMessage,
     HumanMessage,
-    JSONContent,
+    ProsemirrorJSONContent,
     NotebookUpdateMessage,
     PlanningMessage,
     PlanningStep,
@@ -253,7 +253,9 @@ class DeepResearchNotebookPlanningNode(AssistantNode):
         return PartialAssistantState(
             messages=[
                 NotebookUpdateMessage(
-                    id=str(uuid4()), notebook_id=notebook_id, content=JSONContent.model_validate(notebook.content)
+                    id=str(uuid4()),
+                    notebook_id=notebook_id,
+                    content=ProsemirrorJSONContent.model_validate(notebook.content),
                 )
             ],
             deep_research_planner_previous_response_id=None,  # we reset the previous response id because we're starting a new conversation after the onboarding
@@ -320,7 +322,7 @@ class DeepResearchPlannerNode(AssistantNode):
                 raise ValueError("Notebook not found.")
 
             serializer = NotebookSerializer()
-            notebook_content = JSONContent.model_validate(notebook.content)
+            notebook_content = ProsemirrorJSONContent.model_validate(notebook.content)
             markdown = serializer.from_json_to_markdown(notebook_content)
             messages = [("human", markdown)]
 
