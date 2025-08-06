@@ -30,63 +30,7 @@ Find 3 insights matching this search query: {query}
 Return the insight IDs as a list of numbers.
 """
 
-INSIGHT_EVALUATION_SYSTEM_PROMPT = """
-You are evaluating whether existing insights can be used as a starting point for the user's query: "{user_query}"
-
-Here are the insights found from the search with their query results:
-
-{insights_with_results}
-
-Your task is to determine if any of these existing insights can serve as a good starting point or base for the user's request.
-Select a **single** insight ID to use as a starting point.
-
-Consider:
-1. Do the insights address similar questions or metrics?
-2. Do they use relevant events, properties, or filters?
-3. Can they be easily modified to answer the user's specific question?
-4. Do the query results show relevant data patterns?
-
-Respond with either:
-- YES: If one insight can serve as a good starting point. Include which specific insight ID and explain why.
-CRITICAL: When you mention an insight name, you MUST use the exact text from "HYPERLINK FORMAT" instead of just the name.
-For example, if you see "HYPERLINK FORMAT: [Weekly signups](/project/123/insights/abc)", write "[Weekly signups](/project/123/insights/abc)" in your response, NOT just "Weekly signups".
-- NO: If none of the insights are suitable and a new insight should be created from scratch.
-
-Your response MUST be clear and decisive.
-MANDATORY EXAMPLE: "The insight [Weekly signups](/project/123/insights/abc) is perfect because..." NOT "The insight Weekly signups is perfect because..."
-"""
-
 PAGINATION_INSTRUCTIONS_TEMPLATE = """You can read additional pages using the read_insights_page(page_number) tool. Read additional pages until you have found the most relevant insights. There are {total_pages} total pages available (0-indexed)."""
-
-NO_SEARCH_RESULTS_TEMPLATE = """No insights found matching '{search_query}'.
-
-Suggest that the user try:
-- Using different keywords
-- Searching for broader terms
-- Creating a new insight instead"""
-
-SEARCH_RESULTS_FOOTER_TEMPLATE = """You found {count} existing insight{plural}{search_context}. Present these results to the user and ask them how they'd like to proceed. You can:
-- Use one of these insights as-is
-- Modify an existing insight (propose to make the change yourself: change filters, time range, etc.)
-- Create a completely new insight
-
-Be natural and conversational - don't present this as a rigid list of options.
-
-INSTRUCTIONS: Add a link to the insight in the format [Insight Name](Insight URL) when mentioning an insight."""
-
-INSIGHT_BLOCK_WITH_DESCRIPTION_TEMPLATE = """**{index}. {name}**
-    Description: {description}{metadata}{execution_results}
-    [View Insight →]({insight_url})"""
-
-INSIGHT_BLOCK_NO_DESCRIPTION_TEMPLATE = """**{index}. {name}**{metadata}{execution_results}
-    [View Insight →]({insight_url})"""
-
-CURRENT_DATA_TEMPLATE = """
-
-    **Current Data:**
-    ```
-    {results}
-    ```"""
 
 HYPERLINK_USAGE_INSTRUCTIONS = "\n\nINSTRUCTIONS: When mentioning insights in your response, always use the hyperlink format provided above. For example, write '[Weekly signups](/project/123/insights/abc123)' instead of just 'Weekly signups'."
 
