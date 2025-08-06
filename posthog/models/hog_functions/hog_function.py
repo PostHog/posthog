@@ -27,7 +27,7 @@ from posthog.models.hog_function_template import HogFunctionTemplate
 if TYPE_CHECKING:
     from posthog.models.team import Team
 
-DEFAULT_STATE = {"state": 0, "tokens": 0, "rating": 0}
+DEFAULT_STATE = {"state": 0, "tokens": 0}
 
 logger = structlog.get_logger(__name__)
 
@@ -36,8 +36,9 @@ class HogFunctionState(enum.Enum):
     UNKNOWN = 0
     HEALTHY = 1
     DEGRADED = 2
-    DISABLED_TEMPORARILY = 3
-    DISABLED_PERMANENTLY = 4
+    DISABLED = 3
+    FORCEFULLY_DEGRADED = 11
+    FORCEFULLY_DISABLED = 12
 
 
 class HogFunctionType(models.TextChoices):

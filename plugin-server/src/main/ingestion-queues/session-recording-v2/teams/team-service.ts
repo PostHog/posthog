@@ -50,8 +50,11 @@ export async function fetchTeamTokensWithRecordings(client: PostgresRouter): Pro
         'fetchTeamTokensWithRecordings'
     )
 
-    return selectResult.rows.reduce((acc, row) => {
-        acc[row.api_token] = { teamId: row.id, consoleLogIngestionEnabled: row.capture_console_log_opt_in }
-        return acc
-    }, {} as Record<string, TeamIDWithConfig>)
+    return selectResult.rows.reduce(
+        (acc, row) => {
+            acc[row.api_token] = { teamId: row.id, consoleLogIngestionEnabled: row.capture_console_log_opt_in }
+            return acc
+        },
+        {} as Record<string, TeamIDWithConfig>
+    )
 }

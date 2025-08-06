@@ -60,7 +60,7 @@ from posthog.redis import get_client
 if TYPE_CHECKING:
     from django.contrib.auth.models import AbstractBaseUser, AnonymousUser
 
-    from posthog.models import Team, User
+    from posthog.models import Team, User, Dashboard, InsightVariable
 
 DATERANGE_MAP = {
     "second": datetime.timedelta(seconds=1),
@@ -1147,18 +1147,25 @@ def filters_override_requested_by_client(request: Request) -> Optional[dict]:
     return None
 
 
-def variables_override_requested_by_client(request: Request) -> Optional[dict[str, dict]]:
-    raw_variables = request.query_params.get("variables_override")
+def variables_override_requested_by_client(
+    request: Optional[Request], dashboard: Optional["Dashboard"], variables: list["InsightVariable"]
+) -> Optional[dict[str, dict]]:
+    from posthog.api.insight_variable import map_stale_to_latest
 
-    if raw_variables is not None:
+    raw_variables_override_param = request.query_params.get("variables_override") if request else None
+
+    request_variables = {}
+    dashboard_variables = dashboard.variables if dashboard else {}
+
+    if raw_variables_override_param is not None:
         try:
-            return json.loads(raw_variables)
+            request_variables = json.loads(raw_variables_override_param)
         except Exception:
             raise serializers.ValidationError(
                 {"variables_override": "Invalid JSON passed in variables_override parameter"}
             )
 
-    return None
+    return map_stale_to_latest({**dashboard_variables, **request_variables}, variables)
 
 
 def _request_has_key_set(key: str, request: Request, allowed_values: Optional[list[str]] = None) -> bool | str:

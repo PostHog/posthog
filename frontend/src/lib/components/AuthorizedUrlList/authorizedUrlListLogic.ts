@@ -352,8 +352,8 @@ export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
                     editUrlIndex && index < editUrlIndex
                         ? editUrlIndex - 1
                         : index === editUrlIndex
-                        ? null
-                        : editUrlIndex,
+                          ? null
+                          : editUrlIndex,
                 newUrl: () => -1,
                 updateUrl: () => null,
                 addUrl: () => null,

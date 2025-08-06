@@ -237,12 +237,15 @@ export class SessionRecordingIngester {
                 )
             )
 
-            return results.reduce((acc, [partition, highOffset]) => {
-                if (typeof partition === 'number' && typeof highOffset === 'number') {
-                    acc[partition] = highOffset
-                }
-                return acc
-            }, {} as Record<number, number>)
+            return results.reduce(
+                (acc, [partition, highOffset]) => {
+                    if (typeof partition === 'number' && typeof highOffset === 'number') {
+                        acc[partition] = highOffset
+                    }
+                    return acc
+                },
+                {} as Record<number, number>
+            )
         }, 10000)
     }
 

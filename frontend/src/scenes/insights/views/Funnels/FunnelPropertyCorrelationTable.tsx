@@ -44,7 +44,7 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
         if (loadedPropertyCorrelationsTableOnce) {
             loadPropertyCorrelations({})
         }
-    }, [querySource, loadedPropertyCorrelationsTableOnce, loadPropertyCorrelations])
+    }, [querySource]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     const { openCorrelationPersonsModal } = useActions(funnelPersonsModalLogic(insightProps))
     const { correlationPropKey } = useValues(funnelCorrelationUsageLogic(insightProps))

@@ -101,43 +101,6 @@ describe('LLM Observability utils', () => {
         ])
     })
 
-    it('normalizeOutputMessage: parses an Anthropic input message', () => {
-        let message: AnthropicInputMessage = {
-            role: 'user',
-            content: 'foo',
-        }
-        expect(normalizeMessage(message)).toEqual([
-            {
-                role: 'user',
-                content: 'foo',
-            },
-        ])
-
-        message = {
-            role: 'user',
-            content: [
-                {
-                    type: 'text',
-                    text: 'foo',
-                },
-                {
-                    type: 'text',
-                    text: 'bar',
-                },
-            ],
-        }
-        expect(normalizeMessage(message)).toEqual([
-            {
-                role: 'user',
-                content: 'foo',
-            },
-            {
-                role: 'user',
-                content: 'bar',
-            },
-        ])
-    })
-
     it('normalizeOutputMessage: parses an Anthropic tool call message', () => {
         let message: any = {
             type: 'tool_use',
@@ -253,6 +216,46 @@ describe('LLM Observability utils', () => {
                 role: 'user',
                 content: 'foo',
                 tool_call_id: '1',
+            },
+        ])
+    })
+
+    it('normalizeMessage: handles new array-based content format', () => {
+        const message = {
+            role: 'assistant',
+            content: [
+                {
+                    type: 'text',
+                    text: "I'll check the weather for you.",
+                },
+                {
+                    type: 'function',
+                    id: 'call_123',
+                    function: {
+                        name: 'get_weather',
+                        arguments: { location: 'New York City' },
+                    },
+                },
+            ],
+        }
+
+        expect(normalizeMessage(message)).toEqual([
+            {
+                role: 'assistant',
+                content: [
+                    {
+                        type: 'text',
+                        text: "I'll check the weather for you.",
+                    },
+                    {
+                        type: 'function',
+                        id: 'call_123',
+                        function: {
+                            name: 'get_weather',
+                            arguments: { location: 'New York City' },
+                        },
+                    },
+                ],
             },
         ])
     })

@@ -13,7 +13,7 @@
         "prepublishOnly": "pnpm build"
     },
     "dependencies": {
-        "kea": "^3.1.5",
+        "kea": "^3.1.6",
         "kea-router": "^3.4.0"
     },
     "devDependencies": {

@@ -56,7 +56,9 @@
         transform: translateX(var(--lemon-tabs-slider-offset));
 
         .LemonTabs--transitioning & {
-            transition: width 150ms ease, transform 150ms ease;
+            transition:
+                width 150ms ease,
+                transform 150ms ease;
         }
     }
 

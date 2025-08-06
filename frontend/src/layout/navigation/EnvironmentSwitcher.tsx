@@ -159,6 +159,18 @@ export function EnvironmentSwitcherOverlay({
             const projectNameWithoutEmoji = projectName.replace(EMOJI_INITIAL_REGEX, '').trim()
             const projectNameEmojiMatch = projectName.match(EMOJI_INITIAL_REGEX)?.[1]
 
+            // Add "Other projects" label just once, before any other projects are added
+            if (projectTeams.length > 0 && otherProjectsItems.length === 0) {
+                otherProjectsItems.push(
+                    <>
+                        <Label intent="menu" className="px-2">
+                            Other projects
+                        </Label>
+                        <div className="-mx-1.5 my-1 h-px bg-border-primary shrink-0" />
+                    </>
+                )
+            }
+
             otherProjectsItems.push(
                 <>
                     <Combobox.Group value={[projectName]} key={projectId}>
@@ -206,17 +218,6 @@ export function EnvironmentSwitcherOverlay({
                     </Combobox.Group>
                 </>
             )
-            // Only show the other projects label if there are other projects
-            if (otherProjectsItems.length > 0) {
-                otherProjectsItems.splice(
-                    0,
-                    0,
-                    <Label intent="menu" className="px-2" key="other-projects-label">
-                        Other projects
-                    </Label>,
-                    <div className="-mx-1 my-1 h-px bg-border-primary shrink-0" />
-                )
-            }
             for (const team of projectTeams) {
                 otherProjectsItems.push(convertTeamToMenuItem(team, currentTeam))
             }

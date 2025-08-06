@@ -413,8 +413,8 @@ class SourceVaryingSnapshotThrottle(PersonalApiKeyRateThrottle):
         num_requests, duration = self.parse_rate(self.get_rate())
 
         divisors = {
-            "realtime": 8,
-            "blob": 4,
+            "realtime": 32,
+            "blob": 24,
             "blob_v2": 1,
         }
 

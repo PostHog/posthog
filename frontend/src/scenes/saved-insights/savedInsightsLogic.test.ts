@@ -39,7 +39,7 @@ const createInsight = (id: number, string = 'hi'): QueryBasedInsightModel =>
         deleted: false,
         saved: true,
         query: {},
-    } as any as QueryBasedInsightModel)
+    }) as any as QueryBasedInsightModel
 const createSavedInsights = (string = 'hello', offset: number): InsightsResult => ({
     count: 3,
     results: [createInsight(1, string), createInsight(2, string), createInsight(3, string)].slice(offset),

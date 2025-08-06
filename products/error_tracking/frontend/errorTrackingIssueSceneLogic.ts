@@ -52,7 +52,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         loadInitialEvent: (timestamp: string) => ({ timestamp }),
         setInitialEventTimestamp: (timestamp: string | null) => ({ timestamp }),
         setIssue: (issue: ErrorTrackingRelationalIssue) => ({ issue }),
-        setLastSeen: (lastSeen: Dayjs) => ({ lastSeen }),
+        setLastSeen: (lastSeen: string) => ({ lastSeen }),
         selectEvent: (event: ErrorEventType | null) => ({
             event,
         }),
@@ -81,8 +81,9 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         summary: {},
         lastSeen: {
             setLastSeen: (prevLastSeen, { lastSeen }) => {
-                if (!prevLastSeen || prevLastSeen.isBefore(lastSeen)) {
-                    return lastSeen
+                const lastSeenDayjs = dayjs(lastSeen)
+                if (!prevLastSeen || prevLastSeen.isBefore(lastSeenDayjs)) {
+                    return lastSeenDayjs
                 }
                 return prevLastSeen
             },
@@ -193,15 +194,13 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                 if (!response.results.length) {
                     return null
                 }
-                if (response.results[0] && response.results[0].last_seen) {
-                    actions.setLastSeen(dayjs(response.results[0].last_seen))
-                    actions.setInitialEventTimestamp(response.results[0].last_seen)
-                }
                 const summary = response.results[0]
                 if (!summary.aggregations) {
                     return null
                 }
                 return {
+                    first_seen: summary.first_seen,
+                    last_seen: summary.last_seen,
                     aggregations: summary.aggregations,
                 }
             },
@@ -255,12 +254,20 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         },
     })),
 
-    listeners(({ props, actions }) => {
+    listeners(({ props, values, actions }) => {
         return {
             setDateRange: actions.loadSummary,
             setFilterGroup: actions.loadSummary,
             setFilterTestAccounts: actions.loadSummary,
             setSearchQuery: actions.loadSummary,
+            loadSummarySuccess: ({ summary }: { summary: ErrorTrackingIssueSummary | null }) => {
+                if (summary && summary.last_seen) {
+                    actions.setLastSeen(summary.last_seen)
+                    actions.setInitialEventTimestamp(summary.last_seen)
+                } else {
+                    actions.setInitialEventTimestamp(values.issue?.first_seen ?? null)
+                }
+            },
             loadIssueFailure: ({ errorObject: { status, data } }) => {
                 if (status == 308 && 'issue_id' in data) {
                     router.actions.replace(urls.errorTrackingIssue(data.issue_id))
@@ -303,5 +310,7 @@ function getNarrowDateRange(timestamp: Dayjs | string): DateRange {
 }
 
 export type ErrorTrackingIssueSummary = {
+    last_seen?: string
+    first_seen?: string
     aggregations: ErrorTrackingIssueAggregations
 }

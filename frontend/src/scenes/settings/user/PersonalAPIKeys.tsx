@@ -157,8 +157,8 @@ function EditKeyModal(): JSX.Element {
                                                                         )
                                                                             ? 'Does not apply to this resource'
                                                                             : disabledDueToProjectScope
-                                                                            ? 'Not available for project scoped keys'
-                                                                            : undefined,
+                                                                              ? 'Not available for project scoped keys'
+                                                                              : undefined,
                                                                     },
                                                                     {
                                                                         label: 'Write',
@@ -168,8 +168,8 @@ function EditKeyModal(): JSX.Element {
                                                                         )
                                                                             ? 'Does not apply to this resource'
                                                                             : disabledDueToProjectScope
-                                                                            ? 'Not available for project scoped keys'
-                                                                            : undefined,
+                                                                              ? 'Not available for project scoped keys'
+                                                                              : undefined,
                                                                     },
                                                                 ]}
                                                                 size="xsmall"
@@ -571,8 +571,8 @@ export function PersonalAPIKeys(): JSX.Element {
                     !canUsePersonalApiKeys
                         ? 'Your organization does not allow members using personal API keys.'
                         : keys.length >= MAX_API_KEYS_PER_USER
-                        ? `You can only have ${MAX_API_KEYS_PER_USER} personal API keys. Remove an existing key before creating a new one.`
-                        : false
+                          ? `You can only have ${MAX_API_KEYS_PER_USER} personal API keys. Remove an existing key before creating a new one.`
+                          : false
                 }
             >
                 Create personal API key

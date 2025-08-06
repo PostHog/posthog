@@ -167,7 +167,7 @@ export function LogLevelDisplay(level: LogEntryLevel): JSX.Element {
 }
 
 export function nameColumn<
-    T extends { stage: PipelineStage; id: number; name: string; description?: string }
+    T extends { stage: PipelineStage; id: number; name: string; description?: string },
 >(): LemonTableColumn<T, 'name'> {
     return {
         title: 'Name',
