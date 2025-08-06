@@ -4107,6 +4107,13 @@ class RevenueAnalyticsEventItem(BaseModel):
         ),
     )
     revenueProperty: str
+    subscriptionProperty: Optional[str] = Field(
+        default=None,
+        description=(
+            "Property used to identify what subscription the revenue event refers to Useful when trying to detect"
+            " churn/LTV/ARPU/etc."
+        ),
+    )
 
 
 class RevenueAnalyticsGrowthRateQueryResponse(BaseModel):
