@@ -2887,7 +2887,7 @@ export const billingJson: BillingType = {
                             key: 'ingestion_taxonomy',
                             name: 'Ingestion taxonomy',
                             description:
-                                'Mark events as verified or unverified to help you understand the quality of your data.',
+                                'Organize and manage your data with event and property definitions - set and update descriptions, verification status, hide/show, and assign ownership.',
                             unit: null,
                             limit: null,
                             note: null,
@@ -3204,7 +3204,7 @@ export const billingJson: BillingType = {
                                     key: 'ingestion_taxonomy',
                                     name: 'Ingestion taxonomy',
                                     description:
-                                        'Mark events as verified or unverified to help you understand the quality of your data.',
+                                        'Organize and manage your data with event and property definitions - set and update descriptions, verification status, hide/show, and assign ownership.',
                                     unit: null,
                                     limit: null,
                                     note: null,
@@ -3337,7 +3337,7 @@ export const billingJson: BillingType = {
                             key: 'ingestion_taxonomy',
                             name: 'Ingestion taxonomy',
                             description:
-                                'Mark events as verified or unverified to help you understand the quality of your data.',
+                                'Organize and manage your data with event and property definitions - set and update descriptions, verification status, hide/show, and assign ownership.',
                             images: null,
                             icon_key: null,
                             type: null,
@@ -3631,7 +3631,7 @@ export const billingJson: BillingType = {
                     key: 'ingestion_taxonomy',
                     name: 'Ingestion taxonomy',
                     description:
-                        'Mark events as verified or unverified to help you understand the quality of your data.',
+                        'Organize and manage your data with event and property definitions - set and update descriptions, verification status, hide/show, and assign ownership.',
                     images: null,
                     icon_key: null,
                     type: null,
