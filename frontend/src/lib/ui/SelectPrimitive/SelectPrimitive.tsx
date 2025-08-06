@@ -107,7 +107,7 @@ function SelectPrimitiveLabel({
 }
 
 export type SelectPrimitiveItemProps = React.ComponentProps<typeof SelectPrimitiveBase.Item> & {
-    label: string
+    label?: string
     value: string
     buttonProps?: Omit<ButtonPrimitiveProps, 'disabled'>
 }
