@@ -10,6 +10,11 @@ import { Breadcrumb, InsightLogicProps } from '~/types'
 
 import type { llmObservabilityTraceLogicType } from './llmObservabilityTraceLogicType'
 
+export enum DisplayOption {
+    ExpandAll = 'expand_all',
+    CollapseExceptOutputAndLastInput = 'collapse_except_output_and_last_input',
+}
+
 export interface LLMObservabilityTraceDataNodeLogicParams {
     traceId: string
     query: DataTableNode
@@ -45,6 +50,17 @@ export const llmObservabilityTraceLogic = kea<llmObservabilityTraceLogicType>([
         setIsRenderingMarkdown: (isRenderingMarkdown: boolean) => ({ isRenderingMarkdown }),
         toggleMarkdownRendering: true,
         setSearchQuery: (searchQuery: string) => ({ searchQuery }),
+        setInputMessageShowStates: (states: boolean[]) => ({ states }),
+        setOutputMessageShowStates: (states: boolean[]) => ({ states }),
+        toggleInputMessage: (index: number) => ({ index }),
+        toggleOutputMessage: (index: number) => ({ index }),
+        showAllInputMessages: true,
+        hideAllInputMessages: true,
+        showAllOutputMessages: true,
+        hideAllOutputMessages: true,
+        showDisplayOptionsModal: true,
+        hideDisplayOptionsModal: true,
+        setDisplayOption: (displayOption: DisplayOption) => ({ displayOption }),
     }),
 
     reducers({
@@ -57,6 +73,37 @@ export const llmObservabilityTraceLogic = kea<llmObservabilityTraceLogicType>([
             {
                 setIsRenderingMarkdown: (_, { isRenderingMarkdown }) => isRenderingMarkdown,
                 toggleMarkdownRendering: (state) => !state,
+            },
+        ],
+        inputMessageShowStates: [
+            [] as boolean[],
+            {
+                setInputMessageShowStates: (_, { states }) => states,
+                toggleInputMessage: (state, { index }) => state.map((show, i) => (i === index ? !show : show)),
+                showAllInputMessages: (state) => state.map(() => true),
+                hideAllInputMessages: (state) => state.map(() => false),
+            },
+        ],
+        outputMessageShowStates: [
+            [] as boolean[],
+            {
+                setOutputMessageShowStates: (_, { states }) => states,
+                toggleOutputMessage: (state, { index }) => state.map((show, i) => (i === index ? !show : show)),
+                showAllOutputMessages: (state) => state.map(() => true),
+                hideAllOutputMessages: (state) => state.map(() => false),
+            },
+        ],
+        displayOptionsModalVisible: [
+            false as boolean,
+            {
+                showDisplayOptionsModal: () => true,
+                hideDisplayOptionsModal: () => false,
+            },
+        ],
+        displayOption: [
+            DisplayOption.CollapseExceptOutputAndLastInput as DisplayOption,
+            {
+                setDisplayOption: (_, { displayOption }) => displayOption,
             },
         ],
     }),
@@ -117,14 +164,27 @@ export const llmObservabilityTraceLogic = kea<llmObservabilityTraceLogicType>([
         toggleMarkdownRendering: () => {
             localStorage.setItem('llm-observability-markdown-rendering', JSON.stringify(values.isRenderingMarkdown))
         },
+        setDisplayOption: ({ displayOption }) => {
+            localStorage.setItem('llm-observability-display-option', JSON.stringify(displayOption))
+        },
     })),
 
     afterMount(({ actions }) => {
-        const savedState = localStorage.getItem('llm-observability-markdown-rendering')
-        if (savedState !== null) {
+        const savedMarkdownState = localStorage.getItem('llm-observability-markdown-rendering')
+        if (savedMarkdownState !== null) {
             try {
-                const isRenderingMarkdown = JSON.parse(savedState)
+                const isRenderingMarkdown = JSON.parse(savedMarkdownState)
                 actions.setIsRenderingMarkdown(isRenderingMarkdown)
+            } catch {
+                // If parsing fails, keep the default value
+            }
+        }
+
+        const savedDisplayOption = localStorage.getItem('llm-observability-display-option')
+        if (savedDisplayOption !== null) {
+            try {
+                const displayOption = JSON.parse(savedDisplayOption)
+                actions.setDisplayOption(displayOption)
             } catch {
                 // If parsing fails, keep the default value
             }

@@ -89,8 +89,9 @@ export function ScenePanelLabel({ children, title, ...props }: PropsWithChildren
 }
 
 export function SceneLayout({ children, className, layoutConfig }: SceneLayoutProps): JSX.Element {
-    const { registerScenePanelElement, setScenePanelOpen } = useActions(sceneLayoutLogic)
-    const { scenePanelIsPresent, scenePanelOpen, useSceneTabs } = useValues(sceneLayoutLogic)
+    const { registerScenePanelElement, setScenePanelOpen, setSceneContainerRef, setForceScenePanelClosedWhenRelative } =
+        useActions(sceneLayoutLogic)
+    const { scenePanelIsPresent, scenePanelOpen, useSceneTabs, scenePanelIsRelative } = useValues(sceneLayoutLogic)
     const sceneLayoutContainer = useRef<HTMLDivElement>(null)
     const [outerRight, setOuterRight] = useState<number>(0)
 
@@ -110,6 +111,13 @@ export function SceneLayout({ children, className, layoutConfig }: SceneLayoutPr
         }
     })
 
+    // Set container ref so we can measure the width of the scene layout in logic
+    useEffect(() => {
+        if (sceneLayoutContainer.current) {
+            setSceneContainerRef(sceneLayoutContainer)
+        }
+    }, [sceneLayoutContainer, setSceneContainerRef])
+
     return (
         <div
             className={cn('scene-layout', className)}
@@ -125,10 +133,30 @@ export function SceneLayout({ children, className, layoutConfig }: SceneLayoutPr
                     block: layoutConfig?.layout === 'app-raw-no-header',
                 })}
             >
-                {useSceneTabs ? <SceneTabs /> : null}
-                {layoutConfig?.layout !== 'app-raw-no-header' && (
-                    <SceneHeader className="row-span-1 col-span-1 min-w-0" />
-                )}
+                <div
+                    className={cn('relative min-h-screen', {
+                        'w-[calc(100%-var(--scene-layout-panel-width))]':
+                            scenePanelIsPresent && scenePanelIsRelative && scenePanelOpen,
+                    })}
+                >
+                    {useSceneTabs ? <SceneTabs /> : null}
+                    {layoutConfig?.layout !== 'app-raw-no-header' && (
+                        <SceneHeader className="row-span-1 col-span-1 min-w-0" />
+                    )}
+
+                    <div
+                        className={cn(
+                            'flex-1 flex flex-col p-4 pb-16 w-full order-1 row-span-1 col-span-1 col-start-1 relative min-w-0',
+                            {
+                                'p-0 h-screen': layoutConfig?.layout === 'app-raw-no-header',
+                                'p-0 h-[calc(100vh-var(--scene-layout-header-height))]':
+                                    layoutConfig?.layout === 'app-raw',
+                            }
+                        )}
+                    >
+                        {children}
+                    </div>
+                </div>
 
                 {scenePanelIsPresent && (
                     <>
@@ -147,7 +175,28 @@ export function SceneLayout({ children, className, layoutConfig }: SceneLayoutPr
                                 </div>
 
                                 {scenePanelOpen && (
-                                    <ButtonPrimitive iconOnly onClick={() => setScenePanelOpen(false)}>
+                                    <ButtonPrimitive
+                                        iconOnly
+                                        onClick={() =>
+                                            scenePanelIsRelative
+                                                ? setForceScenePanelClosedWhenRelative(true)
+                                                : setScenePanelOpen(false)
+                                        }
+                                        tooltip={
+                                            scenePanelIsRelative
+                                                ? 'Force close info panel'
+                                                : scenePanelOpen
+                                                  ? 'Close info panel'
+                                                  : 'Open info panel'
+                                        }
+                                        aria-label={
+                                            scenePanelIsRelative
+                                                ? 'Force close info panel'
+                                                : scenePanelOpen
+                                                  ? 'Close info panel'
+                                                  : 'Open info panel'
+                                        }
+                                    >
                                         <IconX className="size-4" />
                                     </ButtonPrimitive>
                                 )}
@@ -162,27 +211,17 @@ export function SceneLayout({ children, className, layoutConfig }: SceneLayoutPr
                             </ScrollableShadows>
                         </div>
 
-                        {scenePanelOpen && (
+                        {scenePanelOpen && !scenePanelIsRelative && (
                             <div
                                 onClick={() => {
                                     setScenePanelOpen(false)
                                 }}
+                                aria-hidden="true"
                                 className="z-[var(--z-top-navigation-under)] fixed inset-0 w-screen h-screen bg-fill-highlight-100"
                             />
                         )}
                     </>
                 )}
-                <div
-                    className={cn(
-                        'flex-1 flex flex-col p-4 pb-16 w-full order-1 row-span-1 col-span-1 col-start-1 relative min-w-0',
-                        {
-                            'p-0 h-screen': layoutConfig?.layout === 'app-raw-no-header',
-                            'p-0 h-[calc(100vh-var(--scene-layout-header-height))]': layoutConfig?.layout === 'app-raw',
-                        }
-                    )}
-                >
-                    {children}
-                </div>
             </div>
         </div>
     )

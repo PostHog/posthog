@@ -6,7 +6,6 @@ import ChartDataLabels from 'chartjs-plugin-datalabels'
 import ChartjsPluginStacked100, { ExtendedChartData } from 'chartjs-plugin-stacked100'
 import clsx from 'clsx'
 import { useValues } from 'kea'
-import { LegendOptions, ScaleOptions } from 'lib/Chart'
 import {
     ActiveElement,
     Chart,
@@ -18,6 +17,8 @@ import {
     Color,
     GridLineOptions,
     InteractionItem,
+    LegendOptions,
+    ScaleOptions,
     ScriptableLineSegmentContext,
     TickOptions,
     TooltipModel,
@@ -39,6 +40,7 @@ import { PieChart } from 'scenes/insights/views/LineGraph/PieChart'
 import { createTooltipData } from 'scenes/insights/views/LineGraph/tooltip-data'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { hexToRGBA, lightenDarkenColor } from '~/lib/utils'
@@ -46,7 +48,6 @@ import { groupsModel } from '~/models/groupsModel'
 import { GoalLine, TrendsFilter } from '~/queries/schema/schema-general'
 import { isInsightVizNode } from '~/queries/utils'
 import { GraphDataset, GraphPoint, GraphPointPayload, GraphType } from '~/types'
-import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 let tooltipRoot: Root
 
@@ -672,6 +673,14 @@ export function LineGraph_({
                         return showValuesOnSeries === true && typeof datum === 'number' && datum !== 0 ? 'auto' : false
                     },
                     formatter: (value: number, context) => {
+                        // Handle survey view - show count + percentage
+                        if (inSurveyView && showValuesOnSeries) {
+                            const dataset = context.dataset as any
+                            const total = dataset.data?.reduce((sum: number, val: number) => sum + val, 0) || 1
+                            const percentage = ((value / total) * 100).toFixed(1)
+                            return `${value} (${percentage}%)`
+                        }
+
                         // the type here doesn't allow for undefined, but we see errors where things are undefined
                         const data = context.chart?.data as ExtendedChartData
                         if (!data) {
@@ -948,7 +957,9 @@ export function LineGraph_({
             }
         } else if (isHorizontal) {
             if (hideXAxis || hideYAxis) {
-                options.layout = { padding: 20 }
+                options.layout = { padding: inSurveyView ? { top: 20, bottom: 20, left: 20, right: 60 } : 20 }
+            } else if (inSurveyView) {
+                options.layout = { padding: { right: 60 } }
             }
             options.scales = {
                 x: {
@@ -974,7 +985,7 @@ export function LineGraph_({
                             return tick
                         })
 
-                        const ROW_HEIGHT = inSurveyView ? 30 : 20
+                        const ROW_HEIGHT = inSurveyView ? (isHorizontal ? 48 : 30) : 20
                         const height = scale.ticks.length * ROW_HEIGHT
                         const parentNode: any = scale.chart?.canvas?.parentNode
                         parentNode.style.height = `${height}px`
@@ -992,6 +1003,14 @@ export function LineGraph_({
                         precision,
                         stepSize: !truncateRows ? 1 : undefined,
                         autoSkip: !truncateRows ? false : undefined,
+                        ...(inSurveyView
+                            ? {
+                                  padding: 10,
+                                  font: {
+                                      size: 14,
+                                  },
+                              }
+                            : {}),
                         callback: function _renderYLabel(_, i) {
                             const d = datasets?.[0]
                             if (!d) {
