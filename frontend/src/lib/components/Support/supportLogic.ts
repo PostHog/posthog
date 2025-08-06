@@ -634,7 +634,8 @@ export const supportLogic = kea<supportLogicType>([
                                   (teamLogic.values.currentTeam.modifiers?.personsOnEventsMode ??
                                       teamLogic.values.currentTeam.default_modifiers?.personsOnEventsMode ??
                                       'unknown')
-                                : ''),
+                                : '') +
+                            getErrorContextString(null), // TODO: Pass actual errorContext when available
                     },
                 },
             }
@@ -810,3 +811,43 @@ export const supportLogic = kea<supportLogicType>([
         },
     })),
 ])
+
+function getErrorContextString(errorContext: any): string {
+    if (!errorContext) {
+        return ''
+    }
+
+    const formatters = {
+        react_error: (ctx: any) =>
+            [
+                'Bug Type: React Error',
+                ctx.error?.name && ctx.error?.message && `Error: ${ctx.error.name} - ${ctx.error.message}`,
+                ctx.error?.stack && `Stack Trace:\n${ctx.error.stack.split('\n').slice(0, 10).join('\n')}`,
+                ctx.feature && `Feature: ${ctx.feature}`,
+                ctx.url && `URL: ${ctx.url}`,
+                ctx.teamId && `Team ID: ${ctx.teamId}`,
+            ].filter(Boolean),
+
+        analytics_error: (ctx: any) =>
+            [
+                'Bug Type: Analytics Error',
+                ctx.queryId && `Query ID: ${ctx.queryId}`,
+                ctx.title && `Title: ${ctx.title}`,
+                ctx.query && `Query: ${JSON.stringify(ctx.query, null, 2)}`,
+                ctx.url && `URL: ${ctx.url}`,
+            ].filter(Boolean),
+    }
+
+    const formatter = formatters[errorContext.type as keyof typeof formatters]
+    if (!formatter) {
+        return ''
+    }
+
+    const lines = [
+        '=== Error Context ===',
+        ...formatter(errorContext),
+        errorContext.posthogEventUuid && `PostHog Event: ${errorContext.posthogEventUuid}`,
+    ].filter(Boolean)
+
+    return `\n\n${lines.join('\n')}`
+}
