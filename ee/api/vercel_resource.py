@@ -16,6 +16,7 @@ from posthog.models.organization import Organization
 from ee.models.vercel_resource import VercelResource
 from ee.models.vercel_installation import VercelInstallation
 from posthog.models.team.team import Team
+from posthog.models import ProductIntent
 
 
 class VercelResourceSerializer(serializers.ModelSerializer):
@@ -193,7 +194,22 @@ class VercelResourceViewSet(
             initiating_user=None,
             organization=organization,
             name=validated_data["name"],
+            has_completed_onboarding_for={
+                "product_analytics": True
+            },  # Mark one product as onboarded to show activation sidebar
         )
+
+        ProductIntent.objects.create(
+            team=team,
+            product_type="feature_flags",
+            contexts={"vercel flags integration": 1},
+        )
+        ProductIntent.objects.create(
+            team=team,
+            product_type="experiments",
+            contexts={"vercel flags integration": 1},
+        )
+
         resource: VercelResource = VercelResource.objects.create(
             team=team,
             installation=installation,
