@@ -4,7 +4,7 @@ import { mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
 import { createHash } from 'crypto'
 
 import { getFirstTeam, resetTestDatabase } from '../../../tests/helpers/sql'
-import { KAFKA_CDP_PERSON_PERFORMED_EVENT } from '../../config/kafka-topics'
+import { KAFKA_CDP_BEHAVIOURAL_COHORTS_EVENTS } from '../../config/kafka-topics'
 import { Hub, RawClickHouseEvent, Team } from '../../types'
 import { closeHub, createHub } from '../../utils/db/hub'
 import { CdpBehaviouralEventsConsumer, ProducedEvent } from './cdp-behavioural-events.consumer'
@@ -189,7 +189,7 @@ describe('CdpBehaviouralEventsConsumer', () => {
             await processor.testPublishEvents([personEvent, filterEvent])
 
             // Check published messages
-            const messages = mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_CDP_PERSON_PERFORMED_EVENT)
+            const messages = mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_CDP_BEHAVIOURAL_COHORTS_EVENTS)
             expect(messages).toHaveLength(2)
 
             // Check person-performed-event
@@ -226,7 +226,7 @@ describe('CdpBehaviouralEventsConsumer', () => {
             await processor.testPublishEvents(events)
 
             // Check published messages
-            const messages = mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_CDP_PERSON_PERFORMED_EVENT)
+            const messages = mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_CDP_BEHAVIOURAL_COHORTS_EVENTS)
             expect(messages).toHaveLength(3)
 
             // Verify messages have correct keys for partitioning

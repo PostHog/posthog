@@ -2,7 +2,7 @@ import { createHash } from 'crypto'
 import { Message } from 'node-rdkafka'
 import { Histogram } from 'prom-client'
 
-import { KAFKA_CDP_PERSON_PERFORMED_EVENT, KAFKA_EVENTS_JSON } from '../../config/kafka-topics'
+import { KAFKA_CDP_BEHAVIOURAL_COHORTS_EVENTS, KAFKA_EVENTS_JSON } from '../../config/kafka-topics'
 import { KafkaConsumer } from '../../kafka/consumer'
 import { runInstrumentedFunction } from '../../main/utils'
 import { Hub, RawClickHouseEvent } from '../../types'
@@ -53,12 +53,12 @@ export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
 
         try {
             const messages = events.map((event) => ({
-                topic: KAFKA_CDP_PERSON_PERFORMED_EVENT,
+                topic: KAFKA_CDP_BEHAVIOURAL_COHORTS_EVENTS,
                 value: JSON.stringify(event),
                 key: event.key,
             }))
 
-            await this.kafkaProducer.queueMessages({ topic: KAFKA_CDP_PERSON_PERFORMED_EVENT, messages })
+            await this.kafkaProducer.queueMessages({ topic: KAFKA_CDP_BEHAVIOURAL_COHORTS_EVENTS, messages })
         } catch (error) {
             logger.error('Error publishing events', {
                 error,
