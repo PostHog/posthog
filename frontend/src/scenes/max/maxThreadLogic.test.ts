@@ -1,5 +1,6 @@
 import { partial } from 'kea-test-utils'
 import { expectLogic } from 'kea-test-utils'
+import React from 'react'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { useMocks } from '~/mocks/jest'
@@ -777,6 +778,89 @@ describe('maxThreadLogic', () => {
                     status: 'completed',
                 },
             ])
+        })
+    })
+
+    describe('command selection and activation', () => {
+        beforeEach(() => {
+            logic = maxThreadLogic({ conversationId: MOCK_CONVERSATION_ID })
+            logic.mount()
+        })
+
+        it('selectCommand sets question for command without arg', async () => {
+            const initCommand = {
+                name: '/init' as const,
+                description: 'Test command',
+                icon: React.createElement('div'),
+            }
+
+            await expectLogic(logic, () => {
+                logic.actions.selectCommand(initCommand)
+            }).toDispatchActions(['setQuestion'])
+
+            expect(logic.values.question).toBe('/init')
+        })
+
+        it('selectCommand sets question with space for command with arg', async () => {
+            const rememberCommand = {
+                name: '/remember' as const,
+                arg: '[information]' as const,
+                description: 'Test command with arg',
+                icon: React.createElement('div'),
+            }
+
+            await expectLogic(logic, () => {
+                logic.actions.selectCommand(rememberCommand)
+            }).toDispatchActions(['setQuestion'])
+
+            expect(logic.values.question).toBe('/remember ')
+        })
+
+        it('activateCommand calls askMax directly for command without arg', async () => {
+            const initCommand = {
+                name: '/init' as const,
+                description: 'Test command',
+                icon: React.createElement('div'),
+            }
+
+            const askMaxSpy = jest.spyOn(logic.actions, 'askMax')
+
+            logic.actions.activateCommand(initCommand)
+
+            expect(askMaxSpy).toHaveBeenCalledWith('/init')
+        })
+
+        it('activateCommand sets question for command with arg', async () => {
+            const rememberCommand = {
+                name: '/remember' as const,
+                arg: '[information]' as const,
+                description: 'Test command with arg',
+                icon: React.createElement('div'),
+            }
+
+            await expectLogic(logic, () => {
+                logic.actions.activateCommand(rememberCommand)
+            }).toDispatchActions(['setQuestion'])
+
+            expect(logic.values.question).toBe('/remember ')
+        })
+
+        it('activateCommand does not call askMax for command with arg, only setQuestion', async () => {
+            const rememberCommand = {
+                name: '/remember' as const,
+                arg: '[information]' as const,
+                description: 'Test command with arg',
+                icon: React.createElement('div'),
+            }
+
+            const askMaxSpy = jest.spyOn(logic.actions, 'askMax')
+            const setQuestionSpy = jest.spyOn(logic.actions, 'setQuestion')
+
+            logic.actions.activateCommand(rememberCommand)
+
+            expect(askMaxSpy).not.toHaveBeenCalled()
+            expect(setQuestionSpy).toHaveBeenCalledWith('/remember ')
+            expect(logic.values.question).toBe('/remember ')
         })
     })
 })
