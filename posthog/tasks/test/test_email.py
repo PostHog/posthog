@@ -248,6 +248,9 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
                     "id": "test-hog-function-1",
                     "name": "Test Function 1",
                     "type": "destination",
+                    "created_by_email": "creator1@example.com",
+                    "last_edited_by_email": "editor1@example.com",
+                    "last_edit_date": "2025-08-01",
                     "succeeded": 95,
                     "failed": 5,
                     "failure_rate": 5.0,
@@ -257,6 +260,9 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
                     "id": "test-hog-function-2",
                     "name": "Test Function 2",
                     "type": "transformation",
+                    "created_by_email": "creator2@example.com",
+                    "last_edited_by_email": "editor2@example.com",
+                    "last_edit_date": "2025-08-02",
                     "succeeded": 200,
                     "failed": 50,
                     "failure_rate": 20.0,
@@ -285,6 +291,9 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
                     "id": "test-hog-function-1",
                     "name": "Webhook Alert System",
                     "type": "destination",
+                    "created_by_email": "admin@company.com",
+                    "last_edited_by_email": "dev@company.com",
+                    "last_edit_date": "2025-07-20",
                     "succeeded": 1000,
                     "failed": 50000,
                     "failure_rate": 98.0,
@@ -294,6 +303,9 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
                     "id": "test-hog-function-2",
                     "name": "Slack Notifications",
                     "type": "transformation",
+                    "created_by_email": None,  # Test case for missing creator
+                    "last_edited_by_email": "maintainer@company.com",
+                    "last_edit_date": "2025-07-15",
                     "succeeded": 1500000,
                     "failed": 25000,
                     "failure_rate": 1.6,
@@ -303,6 +315,9 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
                     "id": "test-hog-function-3",
                     "name": "Email Campaign Processor",
                     "type": "destination",
+                    "created_by_email": "developer@company.com",
+                    "last_edited_by_email": None,  # Test case for missing last editor
+                    "last_edit_date": None,
                     "succeeded": 75000,
                     "failed": 3500,
                     "failure_rate": 4.5,
@@ -312,6 +327,9 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
                     "id": "test-hog-function-4",
                     "name": "Data Warehouse Sync",
                     "type": "destination",
+                    "created_by_email": "data-team@company.com",
+                    "last_edited_by_email": "ops@company.com",
+                    "last_edit_date": "2025-07-25",
                     "succeeded": 2000000,
                     "failed": 150000,
                     "failure_rate": 7.0,
@@ -321,6 +339,9 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
                     "id": "test-hog-function-5",
                     "name": "Analytics Dashboard Feed",
                     "type": "transformation",
+                    "created_by_email": "analytics@company.com",
+                    "last_edited_by_email": "analyst@company.com",
+                    "last_edit_date": "2025-08-05",
                     "succeeded": 500000,
                     "failed": 12000,
                     "failure_rate": 2.3,
@@ -373,6 +394,9 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
                     "id": "test-hog-function-1",
                     "name": "Webhook Alert System",
                     "type": "destination",
+                    "created_by_email": "user@example.com",
+                    "last_edited_by_email": "modifier@example.com",
+                    "last_edit_date": "2025-07-28",
                     "succeeded": 1000,
                     "failed": 50000,
                     "failure_rate": 98.0,
@@ -382,6 +406,9 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
                     "id": "test-hog-function-2",
                     "name": "Slack Notifications",
                     "type": "transformation",
+                    "created_by_email": "another@example.com",
+                    "last_edited_by_email": "updater@example.com",
+                    "last_edit_date": "2025-07-30",
                     "succeeded": 1500000,
                     "failed": 25000,
                     "failure_rate": 1.6,
@@ -418,6 +445,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             enabled=True,
             deleted=False,
             hog="return event",
+            created_by=self.user,
         )
 
         # Create test data in app_metrics2 table with all metric types
@@ -523,6 +551,9 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
                     "id": "test-hog-function-1",
                     "name": "Test Function 1",
                     "type": "destination",
+                    "created_by_email": "test@example.com",
+                    "last_edited_by_email": "tester@example.com",
+                    "last_edit_date": "2025-08-04",
                     "succeeded": 95,
                     "failed": 5,
                     "failure_rate": 5.0,
@@ -580,6 +611,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             enabled=True,
             deleted=False,
             hog="return event",
+            created_by=self.user,
         )
 
         # Only create successful metrics, no failures
@@ -605,6 +637,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             enabled=False,  # Disabled
             deleted=False,
             hog="return event",
+            created_by=self.user,
         )
 
         # Create failure metrics for disabled function
@@ -630,6 +663,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             enabled=True,
             deleted=True,  # Deleted
             hog="return event",
+            created_by=self.user,
         )
 
         # Create failure metrics for deleted function

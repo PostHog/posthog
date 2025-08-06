@@ -24,6 +24,7 @@ from posthog.models import (
 )
 from posthog.models.error_tracking import ErrorTrackingIssueAssignment
 from posthog.models.hog_functions.hog_function import HogFunction
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.utils import UUIDT
 from posthog.user_permissions import UserPermissions
 
@@ -694,13 +695,35 @@ def send_team_hog_functions_digest(team_id: int, hog_function_ids: list[str] | N
         return
 
     # Get all active HogFunctions for the team that had failures
-    hog_functions = HogFunction.objects.filter(
-        team_id=team_id, enabled=True, deleted=False, id__in=failed_function_ids
-    ).values("id", "team_id", "name", "type")
+    hog_functions = (
+        HogFunction.objects.filter(team_id=team_id, enabled=True, deleted=False, id__in=failed_function_ids)
+        .select_related("created_by")
+        .values("id", "team_id", "name", "type", "created_by__email")
+    )
 
     if not hog_functions:
         logger.info(f"No active HogFunctions found for team {team_id}")
         return
+
+    # Get the last editor for each HogFunction from activity log
+    hog_function_ids_list = [str(hf["id"]) for hf in hog_functions]
+    last_editors = {}
+    last_edit_dates = {}
+
+    # Query for the most recent activity log entry for each HogFunction
+    for hog_function_id in hog_function_ids_list:
+        latest_activity = (
+            ActivityLog.objects.select_related("user")
+            .filter(team_id=team_id, scope="HogFunction", item_id=hog_function_id)
+            .order_by("-created_at")
+            .first()
+        )
+        if latest_activity and latest_activity.user:
+            last_editors[hog_function_id] = latest_activity.user.email
+            last_edit_dates[hog_function_id] = latest_activity.created_at.strftime("%Y-%m-%d")
+        else:
+            last_editors[hog_function_id] = None
+            last_edit_dates[hog_function_id] = None
 
     # Build function metrics
     function_metrics = []
@@ -717,6 +740,9 @@ def send_team_hog_functions_digest(team_id: int, hog_function_ids: list[str] | N
                     "id": hog_function_id,
                     "name": hog_function["name"],
                     "type": hog_function["type"],
+                    "created_by_email": hog_function["created_by__email"],
+                    "last_edited_by_email": last_editors.get(hog_function_id),
+                    "last_edit_date": last_edit_dates.get(hog_function_id),
                     "succeeded": metrics["succeeded"],
                     "failed": metrics["failed"],
                     "failure_rate": round(failure_rate, 1),
