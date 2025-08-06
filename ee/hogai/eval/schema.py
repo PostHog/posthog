@@ -23,7 +23,7 @@ class EvalsDockerImageConfig(BaseModel):
 T = TypeVar("T", bound=Model)
 
 
-class BaseSchema(ABC, Generic[T], AvroBase):
+class BaseSchema(AvroBase, ABC, Generic[T]):
     @classmethod
     @abstractmethod
     def serialize_for_project(cls, project_id: int) -> Generator[Self, None, None]:
