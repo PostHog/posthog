@@ -78,19 +78,26 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         if focus_area:
             extra_summary_context = ExtraSummaryContext(focus_area=focus_area)
 
+        # Helper function to consume the async generator and return a list
+        async def _execute_and_collect_results() -> list[EnrichedSessionGroupSummaryPatternsList | str]:
+            results = []
+            async for update in execute_summarize_session_group(
+                session_ids=session_ids,
+                user_id=user.pk,
+                team=self.team,
+                min_timestamp=min_timestamp,
+                max_timestamp=max_timestamp,
+                extra_summary_context=extra_summary_context,
+                local_reads_prod=False,
+            ):
+                results.append(update)
+            return results
+
         # Summarize provided sessions
         try:
-            summary_result: list[EnrichedSessionGroupSummaryPatternsList | str] = list(
-                async_to_sync(execute_summarize_session_group)(
-                    session_ids=session_ids,
-                    user_id=user.pk,
-                    team=self.team,
-                    min_timestamp=min_timestamp,
-                    max_timestamp=max_timestamp,
-                    extra_summary_context=extra_summary_context,
-                    local_reads_prod=False,
-                )
-            )
+            summary_result: list[EnrichedSessionGroupSummaryPatternsList | str] = async_to_sync(
+                _execute_and_collect_results
+            )()
             if not summary_result:
                 raise exceptions.APIException(
                     "No summaries were generated for the provided sessions (session ids: {})".format(session_ids)
