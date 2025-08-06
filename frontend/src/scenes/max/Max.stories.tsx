@@ -698,7 +698,7 @@ ExpandedFloatingInputThread.parameters = {
     },
 }
 
-export const EventContextPersistsOnNewChat: StoryFn = () => {
+export const ChatWithUIContext: StoryFn = () => {
     useStorybookMocks({
         post: {
             '/api/environments/:team_id/conversations/': (_, res, ctx) => res(ctx.text(chatResponseWithEventContext)),
@@ -762,7 +762,7 @@ export const EventContextPersistsOnNewChat: StoryFn = () => {
 
     return <Template />
 }
-EventContextPersistsOnNewChat.parameters = {
+ChatWithUIContext.parameters = {
     testOptions: {
         waitForLoadersToDisappear: false,
     },
