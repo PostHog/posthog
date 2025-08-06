@@ -45,6 +45,7 @@ thiserror = "2.0.12"
 tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
 posthog-rs = { version = "0.3.5", default-features = false }
 sha2 = "0.10.9"
+regex = "1.11.1"
 
 [dev-dependencies]
 test-log = "0.2.17"
