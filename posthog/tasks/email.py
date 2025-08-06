@@ -707,8 +707,8 @@ def send_team_hog_functions_digest(team_id: int, hog_function_ids: list[str] | N
 
     # Get the last editor for each HogFunction from activity log
     hog_function_ids_list = [str(hf["id"]) for hf in hog_functions]
-    last_editors = {}
-    last_edit_dates = {}
+    last_editors: dict[str, str | None] = {}
+    last_edit_dates: dict[str, str | None] = {}
 
     # Use a subquery to get only the latest activity for each HogFunction
     from django.db.models import OuterRef, Subquery
