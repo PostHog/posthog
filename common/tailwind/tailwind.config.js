@@ -673,10 +673,6 @@ const config = {
                 success: 'var(--color-text-success)',
                 warning: 'var(--color-text-warning)',
                 error: 'var(--color-text-error)',
-                'info-on-fill': 'var(--color-text-info-on-fill)',
-                'warning-on-fill': 'var(--color-text-warning-on-fill)',
-                'error-on-fill': 'var(--color-text-error-on-fill)',
-                'success-on-fill': 'var(--color-text-success-on-fill)',
             },
             borderColor: {
                 ...commonColors,

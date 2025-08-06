@@ -21,19 +21,16 @@
     }
 
     &.LemonBanner--warning {
-        color: var(--color-text-warning-on-fill);
         background-color: var(--color-bg-fill-warning-secondary);
         border-color: var(--color-border-warning);
     }
 
     &.LemonBanner--error {
-        color: var(--color-text-error-on-fill);
         background-color: var(--color-bg-fill-error-secondary);
         border-color: var(--color-border-error);
     }
 
     &.LemonBanner--success {
-        color: var(--color-text-success-on-fill);
         background-color: var(--color-bg-fill-success-secondary);
         border-color: var(--color-border-success);
     }

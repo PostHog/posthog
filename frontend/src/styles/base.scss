@@ -489,14 +489,6 @@
     --color-text-warning: var(--color-yellow-700);
     --color-text-error: var(--color-red-600);
 
-    // Content on fills
-    // Texts which are on colourful fills, ensures contrast
-    // //////////////////////////////////////////////////////////
-    --color-text-info-on-fill: var(--color-blue-800);
-    --color-text-warning-on-fill: var(--color-yellow-800);
-    --color-text-error-on-fill: var(--color-red-800);
-    --color-text-success-on-fill: var(--color-green-800);
-
     // Borders
     // Borders for surfaces/fills (TODO: perhaps we need to do border-fill-primary, border-fill-warning, etc.)
     // //////////////////////////////////////////////////////////
@@ -942,22 +934,6 @@
     --color-text-success: var(--color-green-400);
     --color-text-warning: var(--color-yellow-400);
     --color-text-error: var(--color-red-400);
-
-    // Content on fills (dark mode)
-    // Texts which are on colourful fills, ensures contrast
-    // //////////////////////////////////////////////////////////
-    --color-text-info-on-fill: var(--color-blue-50);
-
-    /* On-fill text for info */
-    --color-text-warning-on-fill: var(--color-yellow-50);
-
-    /* On-fill text for warning */
-    --color-text-error-on-fill: var(--color-red-50);
-
-    /* On-fill text for error */
-    --color-text-success-on-fill: var(--color-green-50);
-
-    /* On-fill text for success */
 
     // Borders (dark mode)
     // Borders for surfaces/fills
