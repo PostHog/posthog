@@ -2,6 +2,7 @@ import { actions, connect, kea, path, reducers, selectors, listeners, afterMount
 import type { sceneLayoutLogicType } from './sceneLayoutLogicType'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
 import React from 'react'
 
 export type SceneLayoutContainerRef = React.RefObject<HTMLElement> | null
@@ -100,13 +101,26 @@ export const sceneLayoutLogic = kea<sceneLayoutLogicType>([
         }
         cache.handleResize = handleResize
 
+        // Watch for window resize
         if (typeof window !== 'undefined') {
             window.addEventListener('resize', handleResize)
+        }
+
+        // Watch for container size changes
+        const containerRef = values.sceneContainerRef
+        if (containerRef?.current && typeof ResizeObserver !== 'undefined') {
+            cache.resizeObserver = new ResizeObserver(() => {
+                handleResize()
+            })
+            cache.resizeObserver.observe(containerRef.current)
         }
     }),
     beforeUnmount(({ cache }) => {
         if (typeof window !== 'undefined' && cache.handleResize) {
             window.removeEventListener('resize', cache.handleResize)
+        }
+        if (cache.resizeObserver) {
+            cache.resizeObserver.disconnect()
         }
     }),
 ])

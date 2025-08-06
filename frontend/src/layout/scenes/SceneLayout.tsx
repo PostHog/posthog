@@ -102,12 +102,26 @@ export function SceneLayout({ children, className, layoutConfig }: SceneLayoutPr
             }
         }
 
-        // Update on mount and when window resizes
+        // Update on mount
         updateOuterRight()
+
+        // Watch for window resize
         window.addEventListener('resize', updateOuterRight)
+
+        // Watch for container size changes
+        let resizeObserver: ResizeObserver | null = null
+        if (sceneLayoutContainer.current) {
+            resizeObserver = new ResizeObserver(() => {
+                updateOuterRight()
+            })
+            resizeObserver.observe(sceneLayoutContainer.current)
+        }
 
         return () => {
             window.removeEventListener('resize', updateOuterRight)
+            if (resizeObserver) {
+                resizeObserver.disconnect()
+            }
         }
     })
 
@@ -131,6 +145,7 @@ export function SceneLayout({ children, className, layoutConfig }: SceneLayoutPr
             <div
                 className={cn('relative min-h-screen', {
                     block: layoutConfig?.layout === 'app-raw-no-header',
+                    flex: scenePanelIsPresent && scenePanelIsRelative && scenePanelOpen,
                 })}
             >
                 <div
@@ -162,9 +177,11 @@ export function SceneLayout({ children, className, layoutConfig }: SceneLayoutPr
                     <>
                         <div
                             className={cn(
-                                'scene-layout__content-panel order-2 bg-surface-secondary flex flex-col overflow-hidden row-span-2 col-span-2 row-start-1 col-start-2 top-0 h-screen min-w-0 fixed left-[calc(var(--scene-layout-outer-right)-var(--scene-layout-panel-width)-1px)]',
+                                'scene-layout__content-panel order-2 bg-surface-secondary flex flex-col overflow-hidden row-span-2 col-span-2 row-start-1 col-start-2 top-0 h-screen min-w-0',
                                 {
                                     hidden: !scenePanelOpen,
+                                    'fixed left-[calc(var(--scene-layout-outer-right)-var(--scene-layout-panel-width)-1px)]':
+                                        !scenePanelIsRelative && scenePanelOpen,
                                 }
                             )}
                         >
