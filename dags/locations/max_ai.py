@@ -1,7 +1,7 @@
 import dagster
 from dagster_docker import PipesDockerClient
 
-from dags.max_ai.compile_evals_db import run_evaluation
+from dags.max_ai.run_evaluation import run_evaluation
 
 from . import resources
 
