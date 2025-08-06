@@ -8,6 +8,7 @@ import io
 import json
 import logging
 import tempfile
+import time
 import typing
 
 import pyarrow as pa
@@ -222,7 +223,7 @@ def load_private_key(private_key: str, passphrase: str | None) -> bytes:
 class SnowflakeClient:
     """Snowflake connection client used in batch exports."""
 
-    DEFAULT_POLL_INTERVAL = 1.0
+    DEFAULT_POLL_INTERVAL = 0.2
 
     def __init__(
         self,
@@ -384,6 +385,7 @@ class SnowflakeClient:
             - The cursor description (containing list of fields in result)
             Else when `fetch_results` is `False` we return `None`.
         """
+        query_start_time = time.time()
         self.logger.debug("Executing async query: %s", query)
 
         poll_interval = poll_interval or self.DEFAULT_POLL_INTERVAL
@@ -402,7 +404,10 @@ class SnowflakeClient:
             query_status = await asyncio.to_thread(self.connection.get_query_status_throw_if_error, query_id)
             await asyncio.sleep(poll_interval)
 
-        self.logger.debug("Async query '%s' finished with status '%s'", query_id, query_status)
+        query_execution_time = time.time() - query_start_time
+        self.logger.debug(
+            "Async query '%s' finished with status '%s' in %.2fs", query_id, query_status, query_execution_time
+        )
 
         if fetch_results is False:
             return None
@@ -577,7 +582,7 @@ class SnowflakeClient:
         MATCH_BY_COLUMN_NAME = CASE_SENSITIVE
         PURGE = TRUE
         """
-        result = await self.execute_async_query(query)
+        result = await self.execute_async_query(query, poll_interval=1.0)
         assert result is not None
         results, _ = result
 
@@ -661,7 +666,7 @@ class SnowflakeClient:
             VALUES ({values});
         """
 
-        await self.execute_async_query(merge_query, fetch_results=False)
+        await self.execute_async_query(merge_query, fetch_results=False, poll_interval=1.0)
 
 
 def snowflake_default_fields() -> list[BatchExportField]:
