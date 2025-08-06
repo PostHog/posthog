@@ -30,7 +30,7 @@ Find 3 insights matching this search query: {query}
 Return the insight IDs as a list of numbers.
 """
 
-PAGINATION_INSTRUCTIONS_TEMPLATE = """You can read additional pages using the read_insights_page(page_number) tool. Read additional pages until you have found the most relevant insights. There are {total_pages} total pages available (0-indexed)."""
+PAGINATION_INSTRUCTIONS_TEMPLATE = """You can read additional pages using the read_insights_page(page_number) tool. Read additional pages until you have found the most relevant insights. There are {total_pages} total pages available (0-indexed). Note: Page 0 data is already provided above in the initial context."""
 
 HYPERLINK_USAGE_INSTRUCTIONS = "\n\nINSTRUCTIONS: When mentioning insights in your response, always use the hyperlink format provided above. For example, write '[Weekly signups](/project/123/insights/abc123)' instead of just 'Weekly signups'."
 

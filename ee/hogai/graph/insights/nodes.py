@@ -11,6 +11,7 @@ from langchain_openai import ChatOpenAI
 
 
 from ee.hogai.graph.query_executor.query_executor import AssistantQueryExecutor
+from ee.hogai.graph.root.nodes import MAX_SUPPORTED_QUERY_KIND_TO_MODEL
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from posthog.schema import (
     AssistantToolCallMessage,
@@ -136,7 +137,6 @@ Current Results: {insight_info['results']}"""
 
         try:
             self._current_iteration = 0
-            self._load_insights_page(0)
 
             # Check if we have any insights at all
             if self._get_total_insights_count() == 0:
@@ -268,7 +268,7 @@ Current Results: {insight_info['results']}"""
                             page_number = tool_call["args"]["page_number"]
 
                             if page_number == 0:
-                                tool_content = "Page 1 data was already provided in the initial context above."
+                                tool_content = "Page 0 data is already provided in the initial context above."
                             else:
                                 page_content = self._format_insights_page(page_number)
                                 tool_content = f"Page {page_number + 1} results:\n{page_content}"
@@ -283,10 +283,8 @@ Current Results: {insight_info['results']}"""
             except Exception:
                 break
 
-        # Fallback to max_insights if no results
         if not selected_insights:
-            first_page_insights = self._load_insights_page(0)
-            selected_insights = [insight.id for insight in first_page_insights[: self._max_insights]]
+            return []
 
         return selected_insights[: self._max_insights]
 
@@ -473,8 +471,6 @@ Current Results: {insight_info['results']}"""
                     query_kind = query_dict.get("kind")
 
             if query_dict and query_kind:
-                from ee.hogai.graph.root.nodes import MAX_SUPPORTED_QUERY_KIND_TO_MODEL
-
                 if query_kind == "DataVisualizationNode":
                     source = query_dict.get("source")
                     if source and source.get("kind") == "HogQLQuery":
