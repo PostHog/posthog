@@ -1,4 +1,4 @@
-import { connect, kea, path, selectors } from 'kea'
+import { beforeUnmount, connect, kea, path, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { dashboardLogic, DashboardLogicProps } from 'scenes/dashboard/dashboardLogic'
@@ -10,6 +10,7 @@ import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
 import { DashboardPlacement, DashboardType, InsightModel, QueryBasedInsightModel } from '~/types'
 
 import type { projectHomepageLogicType } from './projectHomepageLogicType'
+import { subscriptions } from 'kea-subscriptions'
 
 export const projectHomepageLogic = kea<projectHomepageLogicType>([
     path(['scenes', 'project-homepage', 'projectHomepageLogic']),
@@ -66,4 +67,17 @@ export const projectHomepageLogic = kea<projectHomepageLogicType>([
             },
         ],
     })),
+
+    subscriptions(({ cache }) => ({
+        dashboardLogicProps: (dashboardLogicProps) => {
+            const unmount = dashboardLogic(dashboardLogicProps).mount()
+            cache.unmountDashboardLogic?.()
+            cache.unmountDashboardLogic = unmount
+        },
+    })),
+
+    beforeUnmount(({ cache }) => {
+        cache.unmountDashboardLogic?.()
+        cache.unmountDashboardLogic = null
+    }),
 ])
