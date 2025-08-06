@@ -108,8 +108,8 @@ export const sessionTabLogic = kea<sessionTabLogicType>([
         },
     }),
     selectors({
-        sessionId: [(_, props) => [props.sessionId], (sessionId: string) => sessionId],
-        timestamp: [(_, props) => [props.timestamp], (timestamp: string) => timestamp],
+        sessionId: [() => [(_, props) => props.sessionId], (sessionId: string) => sessionId],
+        timestamp: [() => [(_, props) => props.timestamp], (timestamp: string) => timestamp],
         items: [
             (s) => [s.events, s.rendererRegistry],
             (
@@ -153,7 +153,7 @@ export const sessionTabLogic = kea<sessionTabLogicType>([
             },
         ],
         recordingProps: [
-            (s) => [s.sessionId],
+            () => [(_, props) => props.sessionId],
             (sessionId: string) => {
                 return getRecordingProps(sessionId)
             },
