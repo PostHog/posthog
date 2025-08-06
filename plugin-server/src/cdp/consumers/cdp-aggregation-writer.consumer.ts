@@ -13,16 +13,11 @@ export interface ParsedBatch {
     personPerformedEvents: PersonEventPayload[]
     behaviouralFilterMatchedEvents: CohortFilterPayload[]
 }
-
-export interface DeduplicatedPersonEvent extends PersonEventPayload {
-    // No additional properties needed for deduplication, just unique events
-}
-
 export interface AggregatedBehaviouralEvent extends CohortFilterPayload {
     counter: number
 }
 
-export type EventToWrite = DeduplicatedPersonEvent | AggregatedBehaviouralEvent
+export type EventToWrite = PersonEventPayload | AggregatedBehaviouralEvent
 
 export class CdpAggregationWriterConsumer extends CdpConsumerBase {
     protected name = 'CdpAggregationWriterConsumer'
@@ -72,8 +67,8 @@ export class CdpAggregationWriterConsumer extends CdpConsumerBase {
     }
 
     // Deduplicate person performed events (unique by teamId, personId, eventName)
-    private deduplicatePersonPerformedEvents(events: PersonEventPayload[]): DeduplicatedPersonEvent[] {
-        const uniqueEventsMap = new Map<string, DeduplicatedPersonEvent>()
+    private deduplicatePersonPerformedEvents(events: PersonEventPayload[]): PersonEventPayload[] {
+        const uniqueEventsMap = new Map<string, PersonEventPayload>()
 
         for (const event of events) {
             const key = `${event.teamId}:${event.personId}:${event.eventName}`
