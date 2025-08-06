@@ -28,7 +28,7 @@ jobs:
 
             - name: Run reviewer assignment script
               env:
-                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  GITHUB_TOKEN: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
                   PR_NUMBER: ${{ github.event.pull_request.number }}
                   GITHUB_REPOSITORY: ${{ github.repository }}
               run: |
