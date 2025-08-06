@@ -350,7 +350,16 @@ Current Results: {insight_info['results']}"""
         elif insight.query:
             try:
                 query_dict = json.loads(insight.query) if isinstance(insight.query, str) else insight.query
-                insight_type = query_dict.get("kind", "Unknown").replace("Query", "")
+                query_kind = query_dict.get("kind", "Unknown")
+
+                if query_kind == "DataVisualizationNode":
+                    source = query_dict.get("source", {})
+                    if source.get("kind") == "HogQLQuery":
+                        insight_type = "HogQL"
+                    else:
+                        insight_type = "DataVisualization"
+                else:
+                    insight_type = query_kind.replace("Query", "")
             except Exception:
                 insight_type = "Unknown"
 
@@ -452,6 +461,12 @@ Current Results: {insight_info['results']}"""
             if query_dict and query_kind:
                 from ee.hogai.graph.root.nodes import MAX_SUPPORTED_QUERY_KIND_TO_MODEL
 
+                if query_kind == "DataVisualizationNode":
+                    source = query_dict.get("source")
+                    if source and source.get("kind") == "HogQLQuery":
+                        query_dict = source
+                        query_kind = "HogQLQuery"
+
                 if query_kind in MAX_SUPPORTED_QUERY_KIND_TO_MODEL:
                     # Execute query
                     try:
@@ -513,6 +528,14 @@ Current Results: {insight_info['results']}"""
 
             if not query_dict or not query_kind:
                 return None
+
+            if query_kind == "DataVisualizationNode":
+                source = query_dict.get("source")
+                if source and source.get("kind") == "HogQLQuery":
+                    query_dict = source
+                    query_kind = "HogQLQuery"
+                else:
+                    return None
 
             assistant_query_type_map = {
                 "TrendsQuery": AssistantTrendsQuery,
