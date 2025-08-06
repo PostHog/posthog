@@ -546,7 +546,7 @@ class Assistant:
         return AssistantMessage(content=MemoryInitializerNode.format_message(cast(str, self._chunks.content)))
 
     def _create_notebook_update_message(self, content: str) -> Optional[NotebookUpdateMessage]:
-        """Create a notebook update message from HTML content."""
+        """Create a notebook update message from markdown content."""
         if not self._state or not self._state.notebook_id:
             logger.debug("No notebook id found in state", state=self._state)
             return None

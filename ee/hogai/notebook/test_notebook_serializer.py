@@ -734,7 +734,7 @@ code here
                     content=[
                         ProsemirrorJSONContent(type="text", text="Insight type: "),
                         ProsemirrorJSONContent(type="text", text="funnel", marks=[Mark(type="italic")]),
-                        ProsemirrorJSONContent(type="text", text="broken down by one dimension at a time"),
+                        ProsemirrorJSONContent(type="text", text=" broken down by one dimension at a time"),
                     ],
                 )
             ],
