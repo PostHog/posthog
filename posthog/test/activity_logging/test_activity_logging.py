@@ -56,6 +56,7 @@ class TestActivityLogModel(BaseTest):
         self.assertEqual(log.activity, "added_to_clink_expander")
 
     def test_does_not_save_impersonated_activity_without_user(self) -> None:
+        initial_count = ActivityLog.objects.count()
         log_activity(
             organization_id=self.organization.id,
             team_id=self.team.id,
@@ -66,8 +67,7 @@ class TestActivityLogModel(BaseTest):
             activity="added_to_clink_expander",
             detail=Detail(),
         )
-        with pytest.raises(ActivityLog.DoesNotExist):
-            ActivityLog.objects.latest("id")
+        self.assertEqual(ActivityLog.objects.count(), initial_count)
 
     def test_does_not_save_if_there_is_neither_a_team_id_nor_an_organisation_id(self) -> None:
         # even when there are logs with team id or org id saved
