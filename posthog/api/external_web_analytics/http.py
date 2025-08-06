@@ -127,7 +127,7 @@ class ExternalWebAnalyticsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, vi
     @action(methods=["GET"], detail=False)
     def trend(self, request: Request, **kwargs) -> Response:
         """
-        Get trends for visitors, views, or sessions over time. This endpoint is in beta, please contact support to enable it for your team.
+        This endpoint is in Concept state, please join the <a href="https://app.posthog.com/settings/user-feature-previews#web-analytics-api">feature preview</a> to try it out when it's ready. Get trends for visitors, views, or sessions over time.
         """
         self._can_use_external_web_analytics()
 
