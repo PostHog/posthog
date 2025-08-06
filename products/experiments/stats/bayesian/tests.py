@@ -8,7 +8,6 @@ and risk assessments.
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Union
 
 import numpy as np
 
@@ -242,8 +241,8 @@ class BayesianProportionTest(BayesianTest):
 
     def run_test(
         self,
-        treatment_stat: Union[SampleMeanStatistic, ProportionStatistic],
-        control_stat: Union[SampleMeanStatistic, ProportionStatistic],
+        treatment_stat: SampleMeanStatistic | ProportionStatistic | RatioStatistic,
+        control_stat: SampleMeanStatistic | ProportionStatistic | RatioStatistic,
         prior: GaussianPrior,
         difference_type: DifferenceType = DifferenceType.RELATIVE,
         **kwargs,
@@ -324,8 +323,8 @@ class BayesianMeanTest(BayesianTest):
 
     def run_test(
         self,
-        treatment_stat: Union[SampleMeanStatistic, ProportionStatistic],
-        control_stat: Union[SampleMeanStatistic, ProportionStatistic],
+        treatment_stat: SampleMeanStatistic | ProportionStatistic | RatioStatistic,
+        control_stat: SampleMeanStatistic | ProportionStatistic | RatioStatistic,
         prior: GaussianPrior,
         difference_type: DifferenceType = DifferenceType.RELATIVE,
         **kwargs,
