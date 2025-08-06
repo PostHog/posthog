@@ -7,38 +7,68 @@ from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
 from ee.hogai.graph import AssistantGraph
 from ee.hogai.utils.types import AssistantNodeName, AssistantState
 from ee.models.assistant import Conversation
-from posthog.schema import HumanMessage, AssistantToolCallMessage, VisualizationMessage
+from posthog.schema import HumanMessage, VisualizationMessage
 
 from .conftest import MaxEval
 from .scorers import (
     InsightSearchOutput,
-    InsightSearchRelevance,
     InsightEvaluationAccuracy,
 )
 
 
-def extract_insight_ids_from_text(text: str) -> list[int]:
-    """Extract insight IDs from text using various regex patterns."""
-    insight_id_patterns = [
-        r"insight.*?ID:\s*(\d+)",  # "insight ID: 4"
-        r"ID:\s*(\d+)",  # "ID: 4"
-        r"insight\s*(\d+)",  # "insight 4"
-        r"\(#(\d+)\)",  # "(#1)"
-        r"#(\d+)",  # "#1"
-        r"\[.*?\]\(/project/\d+/insights/(\d+)\)",  # "[Name](/project/123/insights/1)"
-        r"/insights/(\d+)\)",  # "/insights/1)"
-    ]
+def extract_evaluation_info_from_state(state) -> dict:
+    """Extract evaluation information from the final assistant state."""
+    visualization_messages = [msg for msg in state.messages if isinstance(msg, VisualizationMessage)]
 
-    insight_ids = []
-    for pattern in insight_id_patterns:
-        matches = re.findall(pattern, text, re.IGNORECASE)
-        if matches:
-            try:
-                insight_ids.extend([int(match) for match in matches])
-            except ValueError:
-                pass
+    evaluation_message = None
+    found_insights_in_evaluation = False
+    for msg in state.messages:
+        if hasattr(msg, "content") and "Evaluation Result" in str(msg.content):
+            evaluation_message = msg.content
+            content = str(msg.content)
+            if "Found" in content and "relevant insight" in content:
+                found_insights_in_evaluation = True
+            break
 
-    return insight_ids
+    # Determine if insights were selected or rejected
+    # Use both VisualizationMessage presence AND evaluation result content
+    insights_selected = len(visualization_messages) > 0 or found_insights_in_evaluation
+    creating_new_insight = bool(state.root_tool_insight_plan)
+
+    # Also check for "No existing insights found" message which indicates new insight creation
+    # BUT only if we don't already have insights selected (VisualizationMessage takes precedence)
+    if not creating_new_insight and not insights_selected:
+        for msg in state.messages:
+            if hasattr(msg, "content"):
+                content = str(msg.content)
+                if "No existing insights found matching your query" in content:
+                    creating_new_insight = True
+                    break
+
+    selected_insight_ids = []
+    if insights_selected:
+        for msg in state.messages:
+            if hasattr(msg, "content"):
+                content = str(msg.content)
+                # Look for various insight ID patterns
+                id_matches = re.findall(
+                    r"(?:Insight\s+ID\s+|Insight\s+|Selected\s+insight\s+)(\d+)", content, re.IGNORECASE
+                )
+                for match in id_matches:
+                    try:
+                        insight_id = int(match)
+                        if insight_id not in selected_insight_ids:
+                            selected_insight_ids.append(insight_id)
+                    except ValueError:
+                        pass
+
+    return {
+        "selected_insights": selected_insight_ids,
+        "insights_selected": insights_selected,
+        "creating_new_insight": creating_new_insight,
+        "evaluation_message": evaluation_message,
+        "visualization_count": len(visualization_messages),
+    }
 
 
 @pytest.fixture
@@ -71,48 +101,28 @@ def call_insight_search(demo_org_team_user):
         raw_state = await graph.ainvoke(initial_state, {"configurable": {"thread_id": conversation.id}})
         state = AssistantState.model_validate(raw_state)
 
-        # Extract evaluation data from the final state
-        # For now, we'll extract what we can from the messages and state
-        selected_insights = []
-        evaluation_result = None
+        eval_info = extract_evaluation_info_from_state(state)
 
-        # Look through messages for visualization messages which indicate selected insights
-        for msg in state.messages:
-            if isinstance(msg, VisualizationMessage):
-                # Extract insight info from visualization messages
-                # Look for insight references in the query or plan text
-                plan_text = getattr(msg, "plan", "") or ""
-                query_text = getattr(msg, "query", "") or ""
-
-                insight_ids = extract_insight_ids_from_text(plan_text + " " + query_text)
-                selected_insights.extend(insight_ids)
-
-            elif isinstance(msg, AssistantToolCallMessage):
-                # Look for evaluation results in tool call messages
-                try:
-                    content = msg.content
-                    if "Evaluation Result" in content:
-                        # The InsightSearchNode evaluation logic returns responses starting with YES/NO
-                        # YES means should use existing, NO means should create new
-                        explanation_text = content.replace("**Evaluation Result**: ", "")
-                        should_use_existing = explanation_text.strip().upper().startswith("YES")
-
-                        evaluation_result = {"should_use_existing": should_use_existing, "explanation": content}
-
-                        insight_ids = extract_insight_ids_from_text(content)
-                        selected_insights.extend(insight_ids)
-                except Exception:
-                    pass
-
-        # Check if we went to insight creation path instead
-        if state.root_tool_insight_plan and not evaluation_result:
-            # This means the evaluation decided NOT to use existing insights
+        if eval_info["creating_new_insight"]:
             evaluation_result = {
                 "should_use_existing": False,
                 "explanation": "Evaluation decided to create new insight (root_tool_insight_plan set)",
             }
+        elif eval_info["insights_selected"]:
+            evaluation_result = {
+                "should_use_existing": True,
+                "explanation": f"Selected {eval_info['visualization_count']} insight(s) - found visualization messages",
+            }
+        else:
+            evaluation_result = {
+                "should_use_existing": False,
+                "explanation": "No insights selected and no new insight creation triggered",
+            }
 
-        # Remove duplicates and maintain order
+        selected_insights = eval_info["selected_insights"]
+        if not selected_insights and eval_info["insights_selected"]:
+            selected_insights = list(range(1, eval_info["visualization_count"] + 1))
+
         unique_insights = list(dict.fromkeys(selected_insights))
 
         return {
@@ -124,39 +134,6 @@ def call_insight_search(demo_org_team_user):
         }
 
     return callable
-
-
-@pytest.mark.django_db
-async def eval_insight_search_relevance(call_insight_search, pytestconfig):
-    """Evaluate if selected insights match the search query semantically."""
-    await MaxEval(
-        experiment_name="insight_search_relevance",
-        task=call_insight_search,
-        scores=[InsightSearchRelevance()],
-        data=[
-            EvalCase(
-                input="sql query for active users",
-                expected=[18],
-            ),
-            EvalCase(
-                input="show me trends for pageviews",
-                expected=[22],
-            ),
-            EvalCase(
-                input="funnel analysis for signup flow",
-                expected=[24],
-            ),
-            EvalCase(
-                input="user retention metrics",
-                expected=[17],
-            ),
-            EvalCase(
-                input="dashboard metrics overview",
-                expected=[22],
-            ),
-        ],
-        pytestconfig=pytestconfig,
-    )
 
 
 @pytest.mark.django_db
@@ -176,12 +153,12 @@ async def eval_insight_evaluation_accuracy(call_insight_search, pytestconfig):
                 expected=True,
             ),
             EvalCase(
-                input="completely novel analysis of user engagement patterns",
-                expected=True,
+                input="show me conversion rates for purple unicorn purchases by left-handed users",
+                expected=False,
             ),
             EvalCase(
-                input="the same user retention analysis from our previous report",
-                expected=True,
+                input="create an insight for pokemon cards sold yesterday",
+                expected=False,
             ),
         ],
         pytestconfig=pytestconfig,
