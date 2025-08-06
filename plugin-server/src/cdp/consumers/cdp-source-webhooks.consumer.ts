@@ -171,7 +171,9 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
 
                 result = createInvocationResult(
                     invocation,
-                    {},
+                    {
+                        queue: 'hog_overflow',
+                    },
                     {
                         finished: false,
                         logs: [
