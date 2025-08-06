@@ -1,7 +1,7 @@
 import { useDebouncedCallback } from 'node_modules/use-debounce/dist'
 import { useCallback, useRef, useState } from 'react'
 
-type AsyncCallbackType = ((...args: any[]) => void) & {
+type AsyncCallbackType<U, T extends (...args: any[]) => Promise<U>> = ((...args: Parameters<T>) => void) & {
     isPending: () => boolean
     isRejected: () => boolean
 }
@@ -10,7 +10,7 @@ export function useAsyncCallback<U, T extends (...args: any[]) => Promise<U>>(
     callback: T,
     deps: React.DependencyList = [],
     options: { delay?: number; onDone?: (res: U) => void } = { delay: 0, onDone: undefined }
-): AsyncCallbackType {
+): AsyncCallbackType<U, T> {
     const [loading, setLoading] = useState(false)
     const [error, setError] = useState<Error | null>(null)
 
