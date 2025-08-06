@@ -8,14 +8,16 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
 from pydantic import ValidationError
 
-from typing import get_args, get_origin, Generic, TypeVar
+from typing import Generic, TypeVar
 from posthog.models import Team, User
 
-from .types import EntityType, TaxonomyTool, TaxonomyAgentState
+from .types import EntityType, TaxonomyAgentState
+from .tools import TaxonomyTool
 from functools import cached_property
 from ee.hogai.llm import MaxChatOpenAI
 from posthog.models.group_type_mapping import GroupTypeMapping
 from .toolkit import TaxonomyAgentToolkit
+from ..mixins import StateClassMixin
 from ..base import BaseAssistantNode
 from .prompts import (
     PROPERTY_TYPES_PROMPT,
@@ -29,27 +31,6 @@ from ee.hogai.utils.helpers import format_events_prompt
 TaxonomyStateType = TypeVar("TaxonomyStateType", bound=TaxonomyAgentState)
 TaxonomyPartialStateType = TypeVar("TaxonomyPartialStateType", bound=TaxonomyAgentState)
 TaxonomyNodeBound = BaseAssistantNode[TaxonomyStateType, TaxonomyPartialStateType]
-
-
-class StateClassMixin:
-    """Mixin to extract state types from generic class parameters."""
-
-    def _get_state_class(self, target_class: type) -> tuple[type, type]:
-        """Extract the State type from the class's generic parameters."""
-        # Check if this class has generic arguments
-        if hasattr(self.__class__, "__orig_bases__"):
-            for base in self.__class__.__orig_bases__:
-                if get_origin(base) is target_class:
-                    args = get_args(base)
-                    if args:
-                        return args[0], args[1]  # State is the first argument and PartialState is the second argument
-
-        # No generic type found - this shouldn't happen in proper usage
-        raise ValueError(
-            f"Could not determine state type for {self.__class__.__name__}. "
-            f"Make sure to inherit from {target_class.__name__} with a specific state type, "
-            f"e.g., {target_class.__name__}[StateType, PartialStateType]"
-        )
 
 
 class TaxonomyAgentNode(Generic[TaxonomyStateType, TaxonomyPartialStateType], TaxonomyNodeBound, StateClassMixin):

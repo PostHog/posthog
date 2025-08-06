@@ -1,4 +1,4 @@
-from typing import Literal
+from typing import Literal, Union, TypeVar, Generic
 from pydantic import BaseModel, Field, create_model
 
 from .types import OutputType
@@ -134,3 +134,24 @@ def create_final_answer_model(response_model: type[OutputType]) -> type[BaseMode
         data: response_model = Field(description="Complete response object as defined in the prompts")  # type: ignore[valid-type]
 
     return final_answer
+
+
+DefaultTaxonomyToolArgumentsType = Union[
+    retrieve_event_properties,
+    retrieve_entity_properties,
+    retrieve_entity_property_values,
+    retrieve_event_property_values,
+    ask_user_for_help,
+]
+
+CustomTaxonomyToolArgumentsType = TypeVar("CustomTaxonomyToolArgumentsType", bound=BaseModel)
+
+
+class TaxonomyTool(BaseModel, Generic[CustomTaxonomyToolArgumentsType]):
+    """
+    Typed wrapper for tool inputs that handles both known and custom tools.
+    Default tools have static typing, custom tools have dynamic typing.
+    """
+
+    name: str
+    arguments: Union[DefaultTaxonomyToolArgumentsType, CustomTaxonomyToolArgumentsType]

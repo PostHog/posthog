@@ -1,31 +1,12 @@
 from enum import StrEnum, Enum
 from langgraph.graph import END, START
 from pydantic import BaseModel
-from typing import Generic, Optional, Union, TypeVar
+from typing import Generic, Optional, TypeVar
 
 from langchain_core.agents import AgentAction
 from langchain_core.messages import BaseMessage as LangchainBaseMessage
 from pydantic import Field
 from ee.hogai.utils.types import BaseState
-
-
-from .tools import (
-    retrieve_event_properties,
-    retrieve_entity_properties,
-    retrieve_entity_property_values,
-    retrieve_event_property_values,
-    ask_user_for_help,
-)
-
-DefaultTaxonomyToolArgumentsType = Union[
-    retrieve_event_properties,
-    retrieve_entity_properties,
-    retrieve_entity_property_values,
-    retrieve_event_property_values,
-    ask_user_for_help,
-]
-
-CustomTaxonomyToolArgumentsType = TypeVar("CustomTaxonomyToolArgumentsType", bound=BaseModel)
 
 OutputType = TypeVar("OutputType", bound=BaseModel)
 
@@ -60,16 +41,6 @@ class TaxonomyAgentState(BaseState, Generic[OutputType]):
     """
     The messages with tool calls to collect tool progress.
     """
-
-
-class TaxonomyTool(BaseModel, Generic[CustomTaxonomyToolArgumentsType]):
-    """
-    Typed wrapper for tool inputs that handles both known and custom tools.
-    Default tools have static typing, custom tools have dynamic typing.
-    """
-
-    name: str
-    arguments: Union[DefaultTaxonomyToolArgumentsType, CustomTaxonomyToolArgumentsType]
 
 
 class TaxonomyNodeName(StrEnum):

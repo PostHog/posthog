@@ -20,7 +20,7 @@ from typing import Optional, cast
 from collections.abc import Iterable
 from pydantic import BaseModel
 import yaml
-from .types import TaxonomyTool
+from .tools import TaxonomyTool
 from .tools import (
     retrieve_entity_properties,
     retrieve_entity_property_values,
@@ -453,7 +453,7 @@ class TaxonomyAgentToolkit:
         custom_tools = self._get_custom_tools()
         custom_tools_union = Union[tuple(custom_tools)] if custom_tools else BaseModel
 
-        class DynamicTypedToolInput(TaxonomyTool[custom_tools_union]):
+        class DynamicToolInput(TaxonomyTool[custom_tools_union]):
             pass
 
-        return DynamicTypedToolInput.model_validate({"name": action.tool, "arguments": action.tool_input})
+        return DynamicToolInput.model_validate({"name": action.tool, "arguments": action.tool_input})
