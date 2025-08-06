@@ -1,7 +1,9 @@
+import json
 from abc import ABC, abstractmethod
-from collections.abc import Generator
-from typing import Self
+from collections.abc import Generator, Sequence
+from typing import Generic, Self, TypeVar
 
+from django.db.models import Model
 from pydantic import BaseModel
 from pydantic_avro import AvroBase
 
@@ -9,40 +11,55 @@ from posthog.models import DataWarehouseTable, PropertyDefinition, Team
 from posthog.schema import EventTaxonomyItem, TeamTaxonomyItem
 
 
-class BaseSchema(ABC, AvroBase):
+class EvalsDockerImageConfig(BaseModel):
+    class Config:
+        extra = "allow"
+
+    bucket_name: str
+    endpoint_url: str
+    project_snapshots: list["Snapshot"]
+
+
+T = TypeVar("T", bound=Model)
+
+
+class BaseSchema(ABC, Generic[T], AvroBase):
+    @classmethod
     @abstractmethod
-    def serialize_for_project(project_id: int) -> Generator[Self, None, None]:
+    def serialize_for_project(cls, project_id: int) -> Generator[Self, None, None]:
         raise NotImplementedError
 
+    @classmethod
     @abstractmethod
-    def deserialize_for_project(project_id: int, models) -> Generator[Self, None, None]:
+    def deserialize_for_project(cls, project_id: int, models: Sequence[Self]) -> Generator[T, None, None]:
         raise NotImplementedError
 
 
-class TeamSchema(BaseSchema):
+class TeamSchema(BaseSchema[Team]):
     name: str
-    test_account_filters: list[dict]
+    test_account_filters: str
 
-    @staticmethod
-    def serialize_for_project(project_id: int):
+    @classmethod
+    def serialize_for_project(cls, project_id: int):
         team = Team.objects.get(pk=project_id)
-        return TeamSchema(name=team.name, test_account_filters=team.test_account_filters)
+        yield TeamSchema(name=team.name, test_account_filters=json.dumps(team.test_account_filters))
 
-    @staticmethod
-    def deserialize_for_project(project_id: int, model: Self):
-        return Team(id=project_id, name=model.name, test_account_filters=model.test_account_filters)
+    @classmethod
+    def deserialize_for_project(cls, project_id: int, models: Sequence[Self]) -> Generator[Team, None, None]:
+        for model in models:
+            yield Team(id=project_id, name=model.name, test_account_filters=json.loads(model.test_account_filters))
 
 
 # posthog/models/property_definition.py
-class PropertyDefinitionSchema(BaseSchema):
+class PropertyDefinitionSchema(BaseSchema[PropertyDefinition]):
     name: str
     is_numerical: bool
     property_type: str | None
     type: int
     group_type_index: int | None
 
-    @staticmethod
-    def serialize_for_project(project_id: int):
+    @classmethod
+    def serialize_for_project(cls, project_id: int):
         for prop in PropertyDefinition.objects.filter(project_id=project_id).iterator(500):
             yield PropertyDefinitionSchema(
                 name=prop.name,
@@ -52,10 +69,10 @@ class PropertyDefinitionSchema(BaseSchema):
                 group_type_index=prop.group_type_index,
             )
 
-    @staticmethod
-    def deserialize_for_project(project_id: int, models: list[Self]):
+    @classmethod
+    def deserialize_for_project(cls, project_id: int, models: Sequence[Self]):
         for model in models:
-            PropertyDefinition(
+            yield PropertyDefinition(
                 name=model.name,
                 is_numerical=model.is_numerical,
                 property_type=model.property_type,
@@ -66,13 +83,13 @@ class PropertyDefinitionSchema(BaseSchema):
 
 
 # posthog/models/warehouse/table.py
-class DataWarehouseTableSchema(BaseSchema):
+class DataWarehouseTableSchema(BaseSchema[DataWarehouseTable]):
     name: str
     format: str
     columns: list[str]
 
-    @staticmethod
-    def serialize_for_project(project_id: int):
+    @classmethod
+    def serialize_for_project(cls, project_id: int):
         for table in DataWarehouseTable.objects.filter(team_id=project_id).iterator(500):
             yield DataWarehouseTableSchema(
                 name=table.name,
@@ -80,8 +97,8 @@ class DataWarehouseTableSchema(BaseSchema):
                 columns=table.columns,
             )
 
-    @staticmethod
-    def deserialize_for_project(project_id: int, models: list[Self]):
+    @classmethod
+    def deserialize_for_project(cls, project_id: int, models: Sequence[Self]):
         for model in models:
             yield DataWarehouseTable(
                 name=model.name,
@@ -104,7 +121,7 @@ class TeamTaxonomyItemSchema(AvroBase):
 
 
 # posthog/hogql_queries/ai/event_taxonomy_query_runner.py
-class PropertyTaxonomySchema(BaseSchema):
+class PropertyTaxonomySchema(AvroBase):
     event: str
     results: list[EventTaxonomyItem]
 
