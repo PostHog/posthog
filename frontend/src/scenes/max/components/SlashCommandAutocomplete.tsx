@@ -1,41 +1,17 @@
 import { offset } from '@floating-ui/react'
-import { IconMemory, IconRocket } from '@posthog/icons'
 import { LemonMenu, LemonMenuItem } from 'lib/lemon-ui/LemonMenu'
-import { useEffect, useMemo, useState } from 'react'
-
-export interface SlashCommand {
-    name: `/${string}`
-    arg?: `[${string}]`
-    description: string
-    icon: JSX.Element
-}
-
-export const MAX_SLASH_COMMANDS: SlashCommand[] = [
-    {
-        name: '/init',
-        description: 'Set up knowledge about your product & business',
-        icon: <IconRocket />,
-    },
-    {
-        name: '/remember',
-        arg: '[information]',
-        description: "Add [information] to Max's project-level memory",
-        icon: <IconMemory />,
-    },
-]
+import { useEffect, useState } from 'react'
+import { useActions, useValues } from 'kea'
+import { maxThreadLogic } from '../maxThreadLogic'
+import { MAX_SLASH_COMMANDS, SlashCommand } from '../slash-commands'
 
 interface SlashCommandAutocompleteProps {
-    /** Enter click - activate the command. */
-    onActivate: (command: SlashCommand) => void
-    /** Right arrow click - set input value without activating the command. */
-    onSelect: (command: SlashCommand) => void
     onClose: () => void
     visible: boolean
-    searchText: string
     children: React.ReactElement
 }
-// Convert Command to LemonMenuItem
-const slashCommandToMenuItem = (
+
+const convertSlashCommandToMenuItem = (
     command: SlashCommand,
     onActivate: (command: SlashCommand) => void,
     active: boolean
@@ -55,17 +31,9 @@ const slashCommandToMenuItem = (
     active,
 })
 
-export function SlashCommandAutocomplete({
-    onActivate,
-    onSelect,
-    onClose,
-    visible,
-    searchText,
-    children,
-}: SlashCommandAutocompleteProps): JSX.Element {
-    const filteredCommands = useMemo(() => {
-        return MAX_SLASH_COMMANDS.filter((command) => command.name.toLowerCase().startsWith(searchText.toLowerCase()))
-    }, [searchText])
+export function SlashCommandAutocomplete({ onClose, visible, children }: SlashCommandAutocompleteProps): JSX.Element {
+    const { filteredCommands } = useValues(maxThreadLogic)
+    const { selectCommand, activateCommand } = useActions(maxThreadLogic)
 
     const [activeItemIndex, setActiveItemIndex] = useState(filteredCommands.length - 1) // Highlight bottom-most command by default
 
@@ -87,24 +55,26 @@ export function SlashCommandAutocomplete({
                 e.preventDefault()
                 setActiveItemIndex(activeItemIndex > 0 ? activeItemIndex - 1 : filteredCommands.length - 1)
             } else if (e.key === 'ArrowRight') {
-                onSelect(filteredCommands[activeItemIndex]) // And do NOT prevent default
+                selectCommand(filteredCommands[activeItemIndex]) // And do NOT prevent default
             } else if (e.key === 'Escape') {
                 e.preventDefault()
                 onClose()
             } else if (e.key === 'Enter') {
                 e.preventDefault()
                 e.stopPropagation()
-                onActivate(filteredCommands[activeItemIndex])
+                activateCommand(filteredCommands[activeItemIndex])
             }
         }
         document.addEventListener('keydown', handleKeyDown, { capture: true }) // Capture phase to run this before LemonTextArea's onEnter
         return () => document.removeEventListener('keydown', handleKeyDown, { capture: true })
-    }, [visible, filteredCommands, activeItemIndex, onActivate, onSelect, onClose])
+    }, [visible, filteredCommands, activeItemIndex, activateCommand, selectCommand, onClose])
 
     return (
         <LemonMenu
             items={filteredCommands
-                .map((command, index) => slashCommandToMenuItem(command, onActivate, index === activeItemIndex))
+                .map((command: SlashCommand, index: number) =>
+                    convertSlashCommandToMenuItem(command, activateCommand, index === activeItemIndex)
+                )
                 .concat([
                     {
                         key: 'navigation-hint',

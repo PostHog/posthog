@@ -387,8 +387,7 @@
   INNER JOIN "posthog_team" ON ("posthog_notebook"."team_id" = "posthog_team"."id")
   LEFT OUTER JOIN "posthog_user" ON ("posthog_notebook"."created_by_id" = "posthog_user"."id")
   LEFT OUTER JOIN "posthog_user" T5 ON ("posthog_notebook"."last_modified_by_id" = T5."id")
-  WHERE ("posthog_notebook"."visibility" = 'default'
-         AND "posthog_team"."project_id" = 99999
+  WHERE ("posthog_team"."project_id" = 99999
          AND "posthog_notebook"."short_id" = '00000000')
   LIMIT 21
   '''
