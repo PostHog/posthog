@@ -289,13 +289,14 @@ class MarketingAnalyticsTableQueryRunner(QueryRunner):
         """Execute the query and return results with pagination support"""
         # For compare queries, we need to create a new query runner for the previous period
         from copy import deepcopy
+
         previous_query = deepcopy(self.query)
         previous_date_range = self._create_previous_period_date_range()
         previous_query.dateRange = DateRange(
             date_from=previous_date_range.date_from().isoformat(),
             date_to=previous_date_range.date_to().isoformat(),
         )
-        
+
         # Create a new runner for the previous period
         previous_runner = MarketingAnalyticsTableQueryRunner(
             query=previous_query,
@@ -304,7 +305,7 @@ class MarketingAnalyticsTableQueryRunner(QueryRunner):
             modifiers=self.modifiers,
             limit_context=self.limit_context,
         )
-        
+
         previous_period_query = previous_runner.to_query()
         current_period_query = self.to_query()
 
