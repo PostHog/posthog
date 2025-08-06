@@ -87,3 +87,31 @@ CURRENT_DATA_TEMPLATE = """
     ```
     {results}
     ```"""
+
+HYPERLINK_USAGE_INSTRUCTIONS = "\n\nINSTRUCTIONS: When mentioning insights in your response, always use the hyperlink format provided above. For example, write '[Weekly signups](/project/123/insights/abc123)' instead of just 'Weekly signups'."
+
+TOOL_BASED_EVALUATION_SYSTEM_PROMPT = """You are evaluating existing insights to determine which ones (if any) match the user's query.
+
+User Query: {user_query}
+
+Available Insights:
+{insights_summary}
+
+Instructions:
+1. {selection_instruction}
+2. Use get_insight_details if you need more information about an insight before deciding
+3. If you find suitable insights, use select_insight for each one with a clear explanation of why it matches
+4. If none of the insights are suitable, use reject_all_insights with a reason
+5. Be selective - only choose insights that truly match the user's needs
+6. When multiple insights could work, prioritize:
+   - Exact matches over partial matches
+   - More specific insights over generic ones
+   - Insights with clear descriptions over vague ones"""
+
+NO_INSIGHTS_FOUND_MESSAGE = (
+    "No existing insights found matching your query. Creating a new insight based on your request."
+)
+
+SEARCH_ERROR_INSTRUCTIONS = "INSTRUCTIONS: Tell the user that you encountered an issue while searching for insights and suggest they try again with a different search term."
+
+EMPTY_DATABASE_ERROR_MESSAGE = "No insights found in the database."

@@ -25,6 +25,11 @@ from .prompts import (
     ITERATIVE_SEARCH_SYSTEM_PROMPT,
     ITERATIVE_SEARCH_USER_PROMPT,
     PAGINATION_INSTRUCTIONS_TEMPLATE,
+    HYPERLINK_USAGE_INSTRUCTIONS,
+    TOOL_BASED_EVALUATION_SYSTEM_PROMPT,
+    NO_INSIGHTS_FOUND_MESSAGE,
+    SEARCH_ERROR_INSTRUCTIONS,
+    EMPTY_DATABASE_ERROR_MESSAGE,
 )
 from .utils import convert_filters_to_query, get_insight_type_from_filters
 
@@ -135,7 +140,7 @@ Current Results: {insight_info['results']}"""
 
             # Check if we have any insights at all
             if self._get_total_insights_count() == 0:
-                return self._create_error_response("No insights found in the database.", state.root_tool_call_id)
+                return self._create_error_response(EMPTY_DATABASE_ERROR_MESSAGE, state.root_tool_call_id)
 
             selected_insights = self._search_insights_iteratively(search_query or "")
 
@@ -149,7 +154,7 @@ Current Results: {insight_info['results']}"""
 
                 formatted_content = f"**Evaluation Result**: {evaluation_result['explanation']}"
 
-                formatted_content += "\n\nINSTRUCTIONS: When mentioning insights in your response, always use the hyperlink format provided above. For example, write '[Weekly signups](/project/123/insights/abc123)' instead of just 'Weekly signups'."
+                formatted_content += HYPERLINK_USAGE_INSTRUCTIONS
 
                 messages_to_return.append(
                     AssistantToolCallMessage(
@@ -171,7 +176,7 @@ Current Results: {insight_info['results']}"""
             else:
                 # No suitable insights found, triggering creation of a new insight
                 no_insights_message = AssistantToolCallMessage(
-                    content="No existing insights found matching your query. Creating a new insight based on your request.",
+                    content=NO_INSIGHTS_FOUND_MESSAGE,
                     tool_call_id=state.root_tool_call_id or "unknown",
                     id=str(uuid4()),
                 )
@@ -183,7 +188,7 @@ Current Results: {insight_info['results']}"""
 
         except Exception:
             return self._create_error_response(
-                "INSTRUCTIONS: Tell the user that you encountered an issue while searching for insights and suggest they try again with a different search term.",
+                SEARCH_ERROR_INSTRUCTIONS,
                 state.root_tool_call_id,
             )
 
@@ -622,23 +627,11 @@ Current Results: {insight_info['results']}"""
 
         selection_instruction = f"Select ONLY the {max_selections} BEST insight{'s' if max_selections > 1 else ''} that match{'es' if max_selections == 1 else ''} the user's query."
 
-        system_prompt = f"""You are evaluating existing insights to determine which ones (if any) match the user's query.
-
-User Query: {user_query}
-
-Available Insights:
-{chr(10).join(insights_summary)}
-
-Instructions:
-1. {selection_instruction}
-2. Use get_insight_details if you need more information about an insight before deciding
-3. If you find suitable insights, use select_insight for each one with a clear explanation of why it matches
-4. If none of the insights are suitable, use reject_all_insights with a reason
-5. Be selective - only choose insights that truly match the user's needs
-6. When multiple insights could work, prioritize:
-   - Exact matches over partial matches
-   - More specific insights over generic ones
-   - Insights with clear descriptions over vague ones"""
+        system_prompt = TOOL_BASED_EVALUATION_SYSTEM_PROMPT.format(
+            user_query=user_query,
+            insights_summary=chr(10).join(insights_summary),
+            selection_instruction=selection_instruction,
+        )
 
         messages = [SystemMessage(content=system_prompt)]
 
