@@ -16,11 +16,6 @@ export const externalDataSourcesLogic = kea<externalDataSourcesLogicType>([
                 loadSources: async (_, breakpoint) => {
                     await breakpoint(300)
 
-                    // Clean up any existing abort controller
-                    if (cache.abortController) {
-                        cache.abortController.abort()
-                    }
-
                     cache.abortController = new AbortController()
                     const methodOptions: ApiMethodOptions = {
                         signal: cache.abortController.signal,
