@@ -97,7 +97,7 @@ export const destinationsFiltersLogic = kea<destinationsFiltersLogicType>([
             Record<string, any>,
             {
                 replace: boolean
-            }
+            },
         ] => [
             router.values.location.pathname,
             {

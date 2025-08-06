@@ -40,13 +40,13 @@ export const userLogic = kea<userLogicType>([
                 first_name: !first_name
                     ? 'You need to have a name.'
                     : first_name.length > 150
-                    ? 'This name is too long. Please keep it under 151 characters.'
-                    : null,
+                      ? 'This name is too long. Please keep it under 151 characters.'
+                      : null,
                 email: !email
                     ? 'You need to have an email.'
                     : email.length > 254
-                    ? 'This email is too long. Please keep it under 255 characters.'
-                    : null,
+                      ? 'This email is too long. Please keep it under 255 characters.'
+                      : null,
             }),
             submit: (user) => {
                 actions.updateUser(user)

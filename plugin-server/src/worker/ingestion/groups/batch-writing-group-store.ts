@@ -115,7 +115,10 @@ const DEFAULT_OPTIONS: BatchWritingGroupStoreOptions = {
 export class BatchWritingGroupStore implements GroupStore {
     private options: BatchWritingGroupStoreOptions
 
-    constructor(private db: DB, options?: Partial<BatchWritingGroupStoreOptions>) {
+    constructor(
+        private db: DB,
+        options?: Partial<BatchWritingGroupStoreOptions>
+    ) {
         this.options = { ...DEFAULT_OPTIONS, ...options }
     }
 
@@ -136,7 +139,10 @@ export class BatchWritingGroupStoreForBatch implements GroupStoreForBatch {
     private databaseOperationCounts: Map<string, number>
     private options: BatchWritingGroupStoreOptions
 
-    constructor(private db: DB, options?: Partial<BatchWritingGroupStoreOptions>) {
+    constructor(
+        private db: DB,
+        options?: Partial<BatchWritingGroupStoreOptions>
+    ) {
         this.options = { ...DEFAULT_OPTIONS, ...options }
         this.groupCache = new GroupCache()
         this.databaseOperationCounts = new Map()

@@ -56,10 +56,13 @@ export const newDestinationsLogic = kea<newDestinationsLogicType>([
                     const templates = await api.hogFunctions.listTemplates({
                         types: destinationTypes,
                     })
-                    return templates.results.reduce((acc, template) => {
-                        acc[template.id] = template
-                        return acc
-                    }, {} as Record<string, HogFunctionTemplateType>)
+                    return templates.results.reduce(
+                        (acc, template) => {
+                            acc[template.id] = template
+                            return acc
+                        },
+                        {} as Record<string, HogFunctionTemplateType>
+                    )
                 },
             },
         ],

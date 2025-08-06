@@ -444,8 +444,8 @@ export function InviteModal({ isOpen, onClose }: { isOpen: boolean; onClose: () 
                                         userCannotInvite
                                             ? "You don't have permissions to invite others."
                                             : !canSubmit
-                                            ? 'Please fill out all fields'
-                                            : undefined
+                                              ? 'Please fill out all fields'
+                                              : undefined
                                     }
                                     data-attr="invite-team-member-submit"
                                 >

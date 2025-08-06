@@ -13,6 +13,7 @@ import {
     DataVisualizationNode,
     DataWarehouseNode,
     DateRange,
+    ErrorTrackingIssueCorrelationQuery,
     ErrorTrackingQuery,
     EventsNode,
     EventsQuery,
@@ -235,6 +236,12 @@ export function isRevenueExampleDataWarehouseTablesQuery(
 
 export function isErrorTrackingQuery(node?: Record<string, any> | null): node is ErrorTrackingQuery {
     return node?.kind === NodeKind.ErrorTrackingQuery
+}
+
+export function isErrorTrackingIssueCorrelationQuery(
+    node?: Record<string, any> | null
+): node is ErrorTrackingIssueCorrelationQuery {
+    return node?.kind === NodeKind.ErrorTrackingIssueCorrelationQuery
 }
 
 export function containsHogQLQuery(node?: Record<string, any> | null): boolean {

@@ -36,7 +36,9 @@
             background: var(--bg-surface-primary);
             border: 1.5px solid var(--border-primary);
             border-radius: 0.25rem; // Intentionally a bit smaller than --radius
-            transition: border 200ms ease, background 200ms ease;
+            transition:
+                border 200ms ease,
+                background 200ms ease;
 
             path {
                 stroke: var(--bg-surface-primary);

@@ -1,5 +1,4 @@
 import {
-    IconBolt,
     IconCollapse,
     IconExpand,
     IconEye,
@@ -62,7 +61,7 @@ import {
     isVisualizationMessage,
 } from './utils'
 import { supportLogic } from 'lib/components/Support/supportLogic'
-import { MAX_SLASH_COMMANDS } from './components/SlashCommandAutocomplete'
+import { MAX_SLASH_COMMANDS } from './slash-commands'
 
 export function Thread({ className }: { className?: string }): JSX.Element | null {
     const { conversationLoading, conversationId } = useValues(maxLogic)
@@ -169,7 +168,9 @@ function MessageGroup({ messages, isFinal: isFinalGroup }: MessageGroupProps): J
                 {messages.map((message, messageIndex) => {
                     const key = message.id || messageIndex
                     if (isHumanMessage(message)) {
-                        const maybeCommand = MAX_SLASH_COMMANDS.find((cmd) => cmd.name === message.content)
+                        const maybeCommand = MAX_SLASH_COMMANDS.find(
+                            (cmd) => cmd.name === message.content.split(' ', 1)[0]
+                        )
 
                         return (
                             <MessageTemplate
@@ -197,7 +198,7 @@ function MessageGroup({ messages, isFinal: isFinalGroup }: MessageGroupProps): J
                                                 </>
                                             }
                                         >
-                                            <IconBolt className="text-base mr-1.5" />
+                                            <span className="text-base mr-1.5">{maybeCommand.icon}</span>
                                         </Tooltip>
                                         <span className="font-mono">{message.content}</span>
                                     </div>

@@ -121,7 +121,7 @@ export function sanitizeConfiguration(data: HogFunctionConfigurationType): HogFu
 
             sanitizedInputs[inputSchema.key] = {
                 value: value,
-                templating: templatingEnabled ? input?.templating ?? 'hog' : undefined,
+                templating: templatingEnabled ? (input?.templating ?? 'hog') : undefined,
             }
         })
 
@@ -170,10 +170,13 @@ export const templateToConfiguration = (template: HogFunctionTemplateType): HogF
             .filter((t) => t.include_by_default)
             .map((template) => ({
                 ...template,
-                inputs: template.inputs_schema?.reduce((acc, input) => {
-                    acc[input.key] = { value: input.default }
-                    return acc
-                }, {} as Record<string, CyclotronJobInputType>),
+                inputs: template.inputs_schema?.reduce(
+                    (acc, input) => {
+                        acc[input.key] = { value: input.default }
+                        return acc
+                    },
+                    {} as Record<string, CyclotronJobInputType>
+                ),
             }))
     }
 
@@ -302,7 +305,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         duplicateFromTemplate: true,
         resetToTemplate: true,
         deleteHogFunction: true,
-        sparklineQueryChanged: (sparklineQuery: TrendsQuery) => ({ sparklineQuery } as { sparklineQuery: TrendsQuery }),
+        sparklineQueryChanged: (sparklineQuery: TrendsQuery) => ({ sparklineQuery }) as { sparklineQuery: TrendsQuery },
         loadSampleGlobals: (payload?: { eventId?: string }) => ({ eventId: payload?.eventId }),
         setUnsavedConfiguration: (configuration: HogFunctionConfigurationType | null) => ({ configuration }),
         persistForUnload: true,
@@ -654,10 +657,10 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                         type === 'site_app'
                             ? 'Site apps'
                             : type === 'transformation'
-                            ? 'Transformations'
-                            : type === 'source_webhook'
-                            ? 'Sources'
-                            : 'Destinations'
+                              ? 'Transformations'
+                              : type === 'source_webhook'
+                                ? 'Sources'
+                                : 'Destinations'
                     payload._create_in_folder = `Unfiled/${typeFolder}`
                 }
                 await asyncActions.upsertHogFunction(payload as HogFunctionConfigurationType)
@@ -841,22 +844,23 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                               },
                           }
                         : contextId === 'activity-log'
-                        ? {
-                              event: '$activity_log_entry_created',
-                              properties: {
-                                  activity: 'created',
-                                  scope: 'Insight',
-                                  item_id: 'abcdef',
-                              },
-                          }
-                        : {
-                              event: '$pageview',
-                              properties: {
-                                  $current_url: currentUrl,
-                                  $browser: 'Chrome',
-                                  this_is_an_example_event: true,
-                              },
-                          }),
+                          ? {
+                                event: '$activity_log_entry_created',
+                                properties: {
+                                    activity: 'created',
+                                    scope: 'Insight',
+                                    item_id: 'abcdef',
+                                },
+                            }
+                          : {
+                                event: '$pageview',
+                                properties: {
+                                    $current_url: currentUrl,
+                                    $browser: 'Chrome',
+                                    $ip: '89.160.20.129',
+                                    this_is_an_example_event: true,
+                                },
+                            }),
                 }
                 const globals: CyclotronJobInvocationGlobals = {
                     event,

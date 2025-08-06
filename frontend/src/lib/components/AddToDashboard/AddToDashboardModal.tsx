@@ -68,8 +68,8 @@ const DashboardRelationRow = ({
                     !canEditInsight
                         ? "You don't have permission to edit this dashboard"
                         : dashboardWithActiveAPICall
-                        ? 'Loading...'
-                        : ''
+                          ? 'Loading...'
+                          : ''
                 }
                 size="small"
                 onClick={(e) => {

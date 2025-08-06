@@ -188,8 +188,8 @@ export function DashboardHeader(): JSX.Element | null {
                                     dashboardLoading
                                         ? 'Wait for dashboard to finish loading'
                                         : canEditDashboard
-                                        ? undefined
-                                        : 'Not privileged to edit this dashboard'
+                                          ? undefined
+                                          : 'Not privileged to edit this dashboard'
                                 }
                             >
                                 Save
@@ -507,6 +507,7 @@ export function DashboardHeader(): JSX.Element | null {
                         optional
                         canEdit={canEditDashboard}
                         isLoading={dashboardLoading}
+                        markdown
                     />
 
                     <SceneTags

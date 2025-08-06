@@ -238,6 +238,27 @@ export function SharingModalContent({
                                                 )}
                                             </LemonField>
                                         )}
+
+                                        {dashboardId && (
+                                            <LemonField name="hideExtraDetails">
+                                                {({ value, onChange }) => (
+                                                    <LemonSwitch
+                                                        fullWidth
+                                                        bordered
+                                                        label={
+                                                            <div className="flex items-center">
+                                                                <span>Show insight details</span>
+                                                                <Tooltip title="When disabled, viewers won't see the extra insights details like the who created the insight and the applied filters.">
+                                                                    <IconInfo className="ml-1.5 text-secondary text-lg" />
+                                                                </Tooltip>
+                                                            </div>
+                                                        }
+                                                        onChange={() => onChange(!value)}
+                                                        checked={!value}
+                                                    />
+                                                )}
+                                            </LemonField>
+                                        )}
                                     </div>
 
                                     {previewIframe && (

@@ -32,7 +32,8 @@ posthog/hogql/database/schema/sessions_v1.py @PostHog/web-analytics
 posthog/hogql/database/schema/sessions_v2.py @PostHog/web-analytics
 
 # Revenue Analytics team owns revenue analytics stuff
-products/revenue_analytics/** @PostHog/team-revenue-analytics
+# This is a single-person team - allow reviews from other teams
+# products/revenue_analytics/** @PostHog/team-revenue-analytics
 
 # Replay team...
 posthog/session_recordings/ @PostHog/team-replay

@@ -4,7 +4,6 @@ import {
     applyNodeChanges,
     EdgeChange,
     getOutgoers,
-    getSmoothStepPath,
     MarkerType,
     NodeChange,
     Position,
@@ -23,6 +22,7 @@ import { getHogFlowStep } from './steps/HogFlowSteps'
 import { StepViewNodeHandle } from './steps/types'
 import type { HogFlow, HogFlowAction, HogFlowActionNode } from './types'
 import type { DragEvent } from 'react'
+import { getSmartStepPath } from './steps/SmartEdge'
 
 const getEdgeId = (edge: HogFlow['edges'][number]): string => `${edge.from}->${edge.to} ${edge.index ?? ''}`.trim()
 
@@ -116,10 +116,13 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
         nodesById: [
             (s) => [s.nodes],
             (nodes): Record<string, HogFlowActionNode> => {
-                return nodes.reduce((acc, node) => {
-                    acc[node.id] = node
-                    return acc
-                }, {} as Record<string, HogFlowActionNode>)
+                return nodes.reduce(
+                    (acc, node) => {
+                        acc[node.id] = node
+                        return acc
+                    },
+                    {} as Record<string, HogFlowActionNode>
+                )
             },
         ],
         selectedNode: [
@@ -139,26 +142,38 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
 
         resetFlowFromHogFlow: ({ hogFlow }) => {
             try {
-                const edges: Edge[] = hogFlow.edges.map((edge) => ({
-                    // Only these values are set by the user
-                    source: edge.from,
-                    target: edge.to,
+                const edges: Edge[] = hogFlow.edges.map((edge) => {
+                    const isOnlyEdgeForNode = hogFlow.edges.filter((e) => e.from === edge.from).length === 1
 
-                    // All other values are derived
-                    id: getEdgeId(edge),
-                    type: 'smoothstep',
-                    deletable: false,
-                    reconnectable: false,
-                    selectable: false,
-                    focusable: false,
-                    markerEnd: {
-                        type: MarkerType.ArrowClosed,
-                    },
-                    labelShowBg: false,
-                    targetHandle: `target_${edge.to}`,
-                    sourceHandle:
-                        edge.type === 'continue' ? `continue_${edge.from}` : `branch_${edge.from}_${edge.index}`,
-                }))
+                    return {
+                        // Only these values are set by the user
+                        source: edge.from,
+                        target: edge.to,
+
+                        // All other values are derived
+                        id: getEdgeId(edge),
+                        type: 'smart',
+                        deletable: false,
+                        reconnectable: false,
+                        selectable: false,
+                        focusable: false,
+                        markerEnd: {
+                            type: MarkerType.ArrowClosed,
+                        },
+                        data: {
+                            edge,
+                            label: isOnlyEdgeForNode
+                                ? undefined
+                                : edge.type === 'continue'
+                                  ? `No match`
+                                  : `If condition #${(edge.index || 0) + 1} matches`,
+                        },
+                        labelShowBg: false,
+                        targetHandle: `target_${edge.to}`,
+                        sourceHandle:
+                            edge.type === 'continue' ? `continue_${edge.from}` : `branch_${edge.from}_${edge.index}`,
+                    }
+                })
 
                 const handlesByIdByNodeId: Record<string, Record<string, StepViewNodeHandle>> = {}
 
@@ -270,13 +285,13 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                     const sourceHandle = sourceNode.handles?.find((h) => h.id === edge.sourceHandle)
                     const targetHandle = targetNode.handles?.find((h) => h.id === edge.targetHandle)
 
-                    const [, labelX, labelY] = getSmoothStepPath({
+                    const [, labelX, labelY] = getSmartStepPath({
                         sourceX: sourceNode.position.x + (sourceHandle?.x || 0),
                         sourceY: sourceNode.position.y + (sourceHandle?.y || 0),
                         targetX: targetNode.position.x + (targetHandle?.x || 0),
                         targetY: targetNode.position.y + (targetHandle?.y || 0),
-                        sourcePosition: sourceHandle?.position || Position.Bottom,
-                        targetPosition: targetHandle?.position || Position.Top,
+                        edges,
+                        currentEdgeId: edge.id,
                     })
 
                     dropzoneNodes.push({

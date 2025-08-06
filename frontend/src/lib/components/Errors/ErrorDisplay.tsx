@@ -18,7 +18,7 @@ export function idFrom(event: EventType | RecordingEventType): string {
         return event.uuid
     }
     // Fallback to timestamp if uuid is not available
-    return event.timestamp ? dayjs(event.timestamp).toISOString() : event.id ?? 'error'
+    return event.timestamp ? dayjs(event.timestamp).toISOString() : (event.id ?? 'error')
 }
 
 export function ErrorDisplay({

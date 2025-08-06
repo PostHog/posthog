@@ -1427,24 +1427,26 @@ describe('HogTransformer', () => {
         it('should save and clear hog function states', async () => {
             const functionIds = ['11111111-1111-4111-a111-111111111111', '22222222-2222-4222-a222-222222222222']
             const mockStates = {
-                [functionIds[0]]: { state: HogWatcherState.disabledForPeriod, tokens: 0, rating: 0 },
-                [functionIds[1]]: { state: HogWatcherState.disabledIndefinitely, tokens: 0, rating: 0 },
+                [functionIds[0]]: { state: HogWatcherState.disabled, tokens: 0, rating: 0 },
+                [functionIds[1]]: { state: HogWatcherState.disabled, tokens: 0, rating: 0 },
             }
 
             // Mock getStates
-            jest.spyOn(hogTransformer['hogWatcher'], 'getStates').mockResolvedValue(Promise.resolve(mockStates))
+            jest.spyOn(hogTransformer['hogWatcher'], 'getPersistedStates').mockResolvedValue(
+                Promise.resolve(mockStates)
+            )
 
             // Save states
             await hogTransformer.fetchAndCacheHogFunctionStates(functionIds)
 
             // Verify states were cached
-            expect(hogTransformer['cachedStates'][functionIds[0]]).toBe(HogWatcherState.disabledForPeriod)
-            expect(hogTransformer['cachedStates'][functionIds[1]]).toBe(HogWatcherState.disabledIndefinitely)
+            expect(hogTransformer['cachedStates'][functionIds[0]]).toBe(HogWatcherState.disabled)
+            expect(hogTransformer['cachedStates'][functionIds[1]]).toBe(HogWatcherState.disabled)
 
             // Clear specific state
             hogTransformer.clearHogFunctionStates([functionIds[0]])
             expect(hogTransformer['cachedStates'][functionIds[0]]).toBeUndefined()
-            expect(hogTransformer['cachedStates'][functionIds[1]]).toBe(HogWatcherState.disabledIndefinitely)
+            expect(hogTransformer['cachedStates'][functionIds[1]]).toBe(HogWatcherState.disabled)
 
             // Clear all states
             hogTransformer.clearHogFunctionStates()
@@ -1520,7 +1522,7 @@ describe('HogTransformer', () => {
             hogTransformer['hogFunctionManager']['onHogFunctionsReloaded'](teamId, [hogFunction.id])
 
             // Mock the cached state to indicate the function is disabled
-            hogTransformer['cachedStates'][hogFunctionId] = HogWatcherState.disabledForPeriod
+            hogTransformer['cachedStates'][hogFunctionId] = HogWatcherState.disabled
 
             // Create a spy to verify the executeHogFunction method is not called
             const executeHogFunctionSpy = jest.spyOn(hogTransformer as any, 'executeHogFunction')
@@ -1637,7 +1639,7 @@ describe('HogTransformer', () => {
             hogTransformer['hogFunctionManager']['onHogFunctionsReloaded'](teamId, [hogFunction.id])
 
             // Mock the cached state to indicate the function is disabled
-            hogTransformer['cachedStates'][hogFunctionId] = HogWatcherState.disabledForPeriod
+            hogTransformer['cachedStates'][hogFunctionId] = HogWatcherState.disabled
 
             // Create a spy to verify the executeHogFunction method is called
             const executeHogFunctionSpy = jest.spyOn(hogTransformer as any, 'executeHogFunction')

@@ -384,7 +384,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 team=self.team,
                 user=mock.ANY,
                 filters_override=None,
-                variables_override=None,
+                variables_override={},
             )
 
         with patch(
@@ -398,7 +398,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 team=self.team,
                 user=mock.ANY,
                 filters_override=None,
-                variables_override=None,
+                variables_override={},
             )
 
     def test_get_insight_by_short_id(self) -> None:
