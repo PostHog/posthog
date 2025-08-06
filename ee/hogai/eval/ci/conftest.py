@@ -8,7 +8,7 @@ import aioboto3
 import aioboto3.s3
 import backoff
 import pytest
-from asgiref.sync import async_to_sync
+from asgiref.sync import async_to_sync, sync_to_async
 from dagster_pipes import PipesContext, open_dagster_pipes
 from fastavro import parse_schema, reader
 from pydantic_avro import AvroBase
@@ -32,14 +32,17 @@ class SnapshotLoader:
     def __init__(self, context: PipesContext):
         self.context = context
         self.config = EvalsDockerImageConfig.model_validate(context.extras)
-        self.organization = Organization.objects.create(name="PostHog")
-        self.user = User.objects.create_and_join(self.organization, "test@posthog.com", "12345678")
 
     async def load_snapshots(self) -> tuple[Organization, User]:
+        self.organization = await Organization.objects.acreate(name="PostHog")
+        self.user = await sync_to_async(User.objects.create_and_join)(self.organization, "test@posthog.com", "12345678")
+
         for snapshot in self.config.project_snapshots:
             self.context.log.info(f"Loading Postgres snapshot for team {snapshot.project}...")
 
-            project = Project.objects.create(id=Team.objects.increment_id_sequence(), organization=self.organization)
+            project = await Project.objects.acreate(
+                id=Team.objects.increment_id_sequence(), organization=self.organization
+            )
 
             (
                 project_snapshot_bytes,
