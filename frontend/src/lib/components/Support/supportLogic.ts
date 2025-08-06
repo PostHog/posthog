@@ -361,6 +361,7 @@ export type SupportFormFields = {
     severity_level: SupportTicketSeverityLevel | null
     message: string
     isEmailFormOpen?: boolean | 'true' | 'false'
+    errorContext?: any
 }
 
 export const supportLogic = kea<supportLogicType>([
@@ -417,6 +418,7 @@ export const supportLogic = kea<supportLogicType>([
                 severity_level: null,
                 target_area: null,
                 message: '',
+                errorContext: null,
             } as SupportFormFields,
             errors: ({ name, email, message, kind, target_area, severity_level }) => {
                 return {
@@ -475,6 +477,7 @@ export const supportLogic = kea<supportLogicType>([
             target_area,
             severity_level,
             message,
+            errorContext,
         }: Partial<SupportFormFields>) => {
             let area = target_area ?? getURLPathToTargetArea(window.location.pathname)
             if (!userLogic.values.user) {
@@ -488,6 +491,7 @@ export const supportLogic = kea<supportLogicType>([
                 target_area: area,
                 severity_level: severity_level ?? null,
                 message: message ?? values.sendSupportRequest.message ?? '',
+                errorContext: errorContext ?? null,
             })
 
             if (isEmailFormOpen === 'true' || isEmailFormOpen === true) {
@@ -505,7 +509,15 @@ export const supportLogic = kea<supportLogicType>([
 
             actions.updateUrlParams()
         },
-        submitZendeskTicket: async ({ name, email, kind, target_area, severity_level, message }: SupportFormFields) => {
+        submitZendeskTicket: async ({
+            name,
+            email,
+            kind,
+            target_area,
+            severity_level,
+            message,
+            errorContext,
+        }: SupportFormFields) => {
             const zendesk_ticket_uuid = uuid()
             const subject =
                 SUPPORT_KIND_TO_SUBJECT[kind ?? 'support'] +
@@ -635,7 +647,7 @@ export const supportLogic = kea<supportLogicType>([
                                       teamLogic.values.currentTeam.default_modifiers?.personsOnEventsMode ??
                                       'unknown')
                                 : '') +
-                            getErrorContextString(null), // TODO: Pass actual errorContext when available
+                            getErrorContextString(errorContext), // TODO: Pass actual errorContext when available
                     },
                 },
             }
