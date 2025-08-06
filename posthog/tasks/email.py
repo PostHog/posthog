@@ -710,18 +710,34 @@ def send_team_hog_functions_digest(team_id: int, hog_function_ids: list[str] | N
     last_editors = {}
     last_edit_dates = {}
 
-    # Query for the most recent activity log entry for each HogFunction
-    for hog_function_id in hog_function_ids_list:
-        latest_activity = (
-            ActivityLog.objects.select_related("user")
-            .filter(team_id=team_id, scope="HogFunction", item_id=hog_function_id)
-            .order_by("-created_at")
-            .first()
-        )
-        if latest_activity and latest_activity.user:
-            last_editors[hog_function_id] = latest_activity.user.email
-            last_edit_dates[hog_function_id] = latest_activity.created_at.strftime("%Y-%m-%d")
+    # Use a subquery to get only the latest activity for each HogFunction
+    from django.db.models import OuterRef, Subquery
+
+    latest_activities_subquery = (
+        ActivityLog.objects.filter(team_id=team_id, scope="HogFunction", item_id=OuterRef("item_id"))
+        .order_by("-created_at")
+        .values("id")[:1]
+    )
+
+    latest_activities = ActivityLog.objects.select_related("user").filter(
+        team_id=team_id,
+        scope="HogFunction",
+        item_id__in=hog_function_ids_list,
+        id__in=Subquery(latest_activities_subquery),
+    )
+
+    # Build the dictionaries from the optimized result set
+    for activity in latest_activities:
+        if activity.user:
+            last_editors[activity.item_id] = activity.user.email
+            last_edit_dates[activity.item_id] = activity.created_at.strftime("%Y-%m-%d")
         else:
+            last_editors[activity.item_id] = None
+            last_edit_dates[activity.item_id] = None
+
+    # Ensure all HogFunctions have entries (even if no activity log exists)
+    for hog_function_id in hog_function_ids_list:
+        if hog_function_id not in last_editors:
             last_editors[hog_function_id] = None
             last_edit_dates[hog_function_id] = None
 
