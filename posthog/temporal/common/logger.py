@@ -299,13 +299,11 @@ def configure_logger_async(
             put_in_queue = PutInLogQueueProcessor(log_queue)
             processors.append(put_in_queue)
 
-    # Add environment-specific processors
     if sys.stderr.isatty() or settings.TEST or settings.DEBUG:
         processors.extend(DEVELOPMENT_PROCESSORS)
     else:
         processors.extend(PRODUCTION_PROCESSORS)
 
-    # Add any extra processors
     if extra_processors:
         processors.extend(extra_processors)
 
