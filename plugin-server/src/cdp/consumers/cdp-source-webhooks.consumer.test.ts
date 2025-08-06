@@ -46,6 +46,7 @@ describe('SourceWebhooksConsumer', () => {
         let mockExecuteSpy: jest.SpyInstance
 
         beforeEach(async () => {
+            hub.CDP_WATCHER_OBSERVE_RESULTS_BUFFER_TIME_MS = 50
             api = new CdpApi(hub)
             mockExecuteSpy = jest.spyOn(api['cdpSourceWebhooksConsumer']['hogExecutor'], 'execute')
             app = setupExpressApp()

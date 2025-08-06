@@ -422,4 +422,39 @@ describe('HogWatcher', () => {
             expect(onStateChangeSpy).toHaveBeenCalledTimes(2)
         })
     })
+
+    describe('observeResultsBuffered', () => {
+        let observeResultsSpy: jest.SpyInstance
+        beforeEach(() => {
+            observeResultsSpy = jest.spyOn(watcher, 'observeResults')
+            hub.CDP_WATCHER_OBSERVE_RESULTS_BUFFER_MAX_RESULTS = 3
+        })
+
+        it('should buffer results and observe them', async () => {
+            const result1 = createResult({})
+            const result2 = createResult({})
+            const result3 = createResult({})
+
+            await Promise.all([
+                watcher.observeResultsBuffered(result1),
+                watcher.observeResultsBuffered(result2),
+                watcher.observeResultsBuffered(result3),
+            ])
+            expect(observeResultsSpy).toHaveBeenCalledTimes(1)
+            expect(observeResultsSpy).toHaveBeenCalledWith([result1, result2, result3])
+        })
+
+        it('should buffer results and observe them', async () => {
+            const results = [createResult({}), createResult({}), createResult({}), createResult({})]
+            await Promise.all([
+                watcher.observeResultsBuffered(results[0]),
+                watcher.observeResultsBuffered(results[1]),
+                watcher.observeResultsBuffered(results[2]),
+                watcher.observeResultsBuffered(results[3]),
+            ])
+            expect(observeResultsSpy).toHaveBeenCalledTimes(2)
+            expect(observeResultsSpy).toHaveBeenCalledWith([results[0], results[1], results[2]])
+            expect(observeResultsSpy).toHaveBeenCalledWith([results[3]])
+        })
+    })
 })

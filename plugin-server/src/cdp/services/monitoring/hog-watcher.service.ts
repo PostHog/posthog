@@ -74,6 +74,12 @@ const getPipelineResults = (res: PipelineResults, index: number, numOperations: 
 
 export class HogWatcherService {
     private costsMapping: HogFunctionTimingCosts
+    private queuedResults: {
+        results: CyclotronJobInvocationResult[]
+        promise: Promise<void>
+        timeout: NodeJS.Timeout
+        complete: () => void
+    } | null = null
 
     constructor(
         private hub: Hub,
@@ -387,5 +393,46 @@ export class HogWatcherService {
         })
 
         await this.doStageChanges(changes)
+    }
+
+    public async observeResultsBuffered(result: CyclotronJobInvocationResult): Promise<void> {
+        // This can be called a bunch of times and will queue up results to be processed
+        // We need to make sure that we only process the results once
+        if (!this.queuedResults) {
+            let resolvePromise: () => void | undefined
+            const promise = new Promise<void>((resolve) => {
+                resolvePromise = resolve
+            })
+
+            this.queuedResults = {
+                results: [],
+                promise,
+                complete: resolvePromise!,
+                timeout: setTimeout(
+                    () => this.flushBufferedResults(),
+                    this.hub.CDP_WATCHER_OBSERVE_RESULTS_BUFFER_TIME_MS
+                ),
+            }
+        }
+
+        this.queuedResults.results.push(result)
+
+        if (this.queuedResults.results.length >= this.hub.CDP_WATCHER_OBSERVE_RESULTS_BUFFER_MAX_RESULTS) {
+            await this.flushBufferedResults()
+        } else {
+            await this.queuedResults.promise
+        }
+    }
+
+    private async flushBufferedResults() {
+        if (!this.queuedResults) {
+            return
+        }
+
+        const { results, timeout, complete } = this.queuedResults
+        clearTimeout(timeout)
+        this.queuedResults = null
+        await this.observeResults(results)
+        complete()
     }
 }

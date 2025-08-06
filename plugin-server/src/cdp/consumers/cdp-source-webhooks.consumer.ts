@@ -168,7 +168,7 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
                     this.hogFunctionMonitoringService.queueInvocationResults([result]).then(() => {
                         return this.hogFunctionMonitoringService.produceQueuedMessages()
                     }),
-                    this.hogWatcher.observeResults([result]),
+                    this.hogWatcher.observeResultsBuffered(result),
                 ])
             )
         } catch (error) {
@@ -188,7 +188,7 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
                     this.hogFunctionMonitoringService.queueInvocationResults([result]).then(() => {
                         return this.hogFunctionMonitoringService.produceQueuedMessages()
                     }),
-                    this.hogWatcher.observeResults([result]),
+                    this.hogWatcher.observeResultsBuffered(result),
                 ])
             )
         }
