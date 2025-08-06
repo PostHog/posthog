@@ -407,7 +407,8 @@ class TestSummarizeSessionGroupWorkflow:
         workflow_id = f"test_workflow_{identifier_suffix}_{uuid.uuid4()}"
         return session_ids, workflow_id, workflow_input
 
-    def test_execute_summarize_session_group(
+    @pytest.mark.asyncio
+    async def test_execute_summarize_session_group(
         self,
         mock_session_id: str,
         mock_user: MagicMock,
@@ -432,19 +433,29 @@ class TestSummarizeSessionGroupWorkflow:
             stats=mock_stats,
         )
         expected_patterns = EnrichedSessionGroupSummaryPatternsList(patterns=[mock_pattern])
+
+        async def mock_workflow_generator():
+            """Mock async generator that yields only the final result"""
+            yield expected_patterns
+
         with patch(
-            "posthog.temporal.ai.session_summary.summarize_session_group._execute_workflow",
-            new=AsyncMock(return_value=expected_patterns),
+            "posthog.temporal.ai.session_summary.summarize_session_group._start_session_group_summary_workflow",
+            return_value=mock_workflow_generator(),
         ):
-            # Wait for workflow to complete and get result
-            result = execute_summarize_session_group(
+            # Collect all results from the async generator
+            results = []
+            async for update in execute_summarize_session_group(
                 session_ids=session_ids,
                 user_id=mock_user.id,
                 team=mock_team,
                 min_timestamp=datetime.now() - timedelta(days=1),
                 max_timestamp=datetime.now(),
-            )
-            assert result == expected_patterns
+            ):
+                results.append(update)
+
+            # Verify we got the expected result
+            assert len(results) == 1
+            assert results[0] == expected_patterns
 
     @pytest.mark.asyncio
     async def test_summarize_session_group_workflow(
