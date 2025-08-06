@@ -1129,12 +1129,29 @@ class TestInsertIntoSnowflakeActivity:
             heartbeat_details.append(snowflake_details)
 
         if use_internal_stage:
+            assert insert_inputs.batch_export_id is not None
+            await activity_environment.run(
+                insert_into_internal_stage_activity,
+                BatchExportInsertIntoInternalStageInputs(
+                    team_id=insert_inputs.team_id,
+                    batch_export_id=insert_inputs.batch_export_id,
+                    data_interval_start=insert_inputs.data_interval_start,
+                    data_interval_end=insert_inputs.data_interval_end,
+                    exclude_events=insert_inputs.exclude_events,
+                    include_events=None,
+                    run_id=None,
+                    backfill_details=None,
+                    batch_export_model=insert_inputs.batch_export_model,
+                    batch_export_schema=insert_inputs.batch_export_schema,
+                    destination_default_fields=snowflake_default_fields(),
+                ),
+            )
             with unittest.mock.patch(
-                "posthog.temporal.common.clickhouse.ClickHouseClient",
-                lambda *args, **kwargs: FlakyClickHouseClient(*args, **kwargs, fail_after_records=fail_after_records),
+                "products.batch_exports.backend.temporal.destinations.snowflake_batch_export.ProducerFromInternalStage.start",
+                side_effect=ValueError("A useful error message"),
             ):
                 # We expect this to raise an exception
-                with pytest.raises(RecordBatchTaskError):
+                with pytest.raises(ValueError):
                     await activity_environment.run(insert_into_snowflake_activity_from_stage, insert_inputs)
 
             # retrying should succeed
