@@ -9,12 +9,24 @@ const config = {
     contactPoints: [process.env.CASSANDRA_HOST || 'localhost'],
     localDataCenter: process.env.CASSANDRA_LOCAL_DATACENTER || 'datacenter1',
     keyspace: process.env.CASSANDRA_KEYSPACE || 'posthog',
-    credentials:
-        process.env.CASSANDRA_USER && process.env.CASSANDRA_PASSWORD
-            ? { username: process.env.CASSANDRA_USER, password: process.env.CASSANDRA_PASSWORD }
+    authProvider: new cassandra.auth.PlainTextAuthProvider(
+        process.env.CASSANDRA_USER || 'cassandra',
+        process.env.CASSANDRA_PASSWORD || 'cassandra'
+    ),
+    sslOptions:
+        process.env.CREATE_CASSANDRA_KEYSPACE === 'false'
+            ? {
+                  ca: fs.readFileSync(path.join(__dirname, '../../../sf-class2-root.crt')),
+                  rejectUnauthorized: true,
+                  host: process.env.CASSANDRA_HOST || 'localhost',
+              }
             : undefined,
     protocolOptions: {
         port: process.env.CASSANDRA_PORT || 9042,
+    },
+    // Counter-updates in Cassandra are not atomic, so we need to use localQuorum to ensure consistency.
+    queryOptions: {
+        consistency: cassandra.types.consistencies.localQuorum,
     },
 }
 
@@ -118,13 +130,13 @@ async function executeMigration(filename, content) {
 
 async function runMigrations() {
     try {
-        // skip keyspace creation for cloud deployments
-        const shouldCreateKeyspace = !process.env.CLOUD_DEPLOYMENT
+        // skip keyspace creation when CREATE_CASSANDRA_KEYSPACE is set to false
+        const shouldCreateKeyspace = process.env.CREATE_CASSANDRA_KEYSPACE !== 'false'
 
         if (shouldCreateKeyspace) {
             await createKeyspace()
         } else {
-            console.log('Skipping keyspace creation (CLOUD_DEPLOYMENT is set)')
+            console.log('Skipping keyspace creation (CREATE_CASSANDRA_KEYSPACE is set to false)')
         }
 
         // Connect to the keyspace

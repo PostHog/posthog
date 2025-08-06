@@ -22,15 +22,15 @@ export function getDefaultConfig(): PluginsServerConfig {
         DATABASE_URL: isTestEnv()
             ? 'postgres://posthog:posthog@localhost:5432/test_posthog'
             : isDevEnv()
-              ? 'postgres://posthog:posthog@localhost:5432/posthog'
-              : '',
+            ? 'postgres://posthog:posthog@localhost:5432/posthog'
+            : '',
         DATABASE_READONLY_URL: '',
         PLUGIN_STORAGE_DATABASE_URL: '',
         PERSONS_DATABASE_URL: isTestEnv()
             ? 'postgres://posthog:posthog@localhost:5432/test_posthog'
             : isDevEnv()
-              ? 'postgres://posthog:posthog@localhost:5432/posthog'
-              : '',
+            ? 'postgres://posthog:posthog@localhost:5432/posthog'
+            : '',
         PERSONS_READONLY_DATABASE_URL: '',
         POSTGRES_CONNECTION_POOL_SIZE: 10,
         POSTHOG_DB_NAME: null,
@@ -45,6 +45,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         CASSANDRA_USER: null,
         CASSANDRA_PASSWORD: null,
         WRITE_BEHAVIOURAL_COUNTERS_TO_CASSANDRA: false,
+        CREATE_CASSANDRA_KEYSPACE: isTestEnv() || isDevEnv() ? true : false,
         EVENT_OVERFLOW_BUCKET_CAPACITY: 1000,
         EVENT_OVERFLOW_BUCKET_REPLENISH_RATE: 1.0,
         KAFKA_BATCH_START_LOGGING_ENABLED: false,

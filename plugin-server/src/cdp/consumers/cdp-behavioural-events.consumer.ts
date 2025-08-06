@@ -1,6 +1,8 @@
-import { Client as CassandraClient } from 'cassandra-driver'
+import { auth, Client as CassandraClient, types } from 'cassandra-driver'
 import { createHash } from 'crypto'
+import * as fs from 'fs'
 import { Message } from 'node-rdkafka'
+import { join } from 'path'
 import { Histogram } from 'prom-client'
 
 import { KAFKA_EVENTS_JSON } from '../../config/kafka-topics'
@@ -59,12 +61,21 @@ export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
                 protocolOptions: {
                     port: hub.CASSANDRA_PORT,
                 },
+                sslOptions: !hub.CREATE_CASSANDRA_KEYSPACE
+                    ? {
+                          ca: fs.readFileSync(join(__dirname, '../cassandra/ca.crt')),
+                          rejectUnauthorized: true,
+                      }
+                    : undefined,
                 localDataCenter: hub.CASSANDRA_LOCAL_DATACENTER,
                 keyspace: hub.CASSANDRA_KEYSPACE,
-                credentials:
-                    hub.CASSANDRA_USER && hub.CASSANDRA_PASSWORD
-                        ? { username: hub.CASSANDRA_USER, password: hub.CASSANDRA_PASSWORD }
-                        : undefined,
+                authProvider: new auth.PlainTextAuthProvider(
+                    hub.CASSANDRA_USER || 'cassandra',
+                    hub.CASSANDRA_PASSWORD || 'cassandra'
+                ),
+                queryOptions: {
+                    consistency: types.consistencies.localQuorum,
+                },
             })
             this.behavioralCounterRepository = new BehavioralCounterRepository(this.cassandra)
         } else {
