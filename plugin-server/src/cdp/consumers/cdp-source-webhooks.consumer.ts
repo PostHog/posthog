@@ -100,6 +100,20 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
             throw new SourceWebhookError(404, 'Not found')
         }
 
+        if (hogFunctionState?.state === HogWatcherState.disabled) {
+            this.hogFunctionMonitoringService.queueAppMetric(
+                {
+                    team_id: hogFunction.team_id,
+                    app_source_id: hogFunction.id,
+                    metric_kind: 'failure',
+                    metric_name: 'disabled_permanently',
+                    count: 1,
+                },
+                'hog_function'
+            )
+            throw new SourceWebhookError(429, 'Disabled')
+        }
+
         const body: Record<string, any> = req.body
 
         const ipValue = getFirstHeaderValue(req.headers['x-forwarded-for']) || req.socket.remoteAddress || req.ip
@@ -151,7 +165,7 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
 
             const invocation = createInvocation(globalsWithInputs, hogFunction)
 
-            if (hogFunctionState?.state !== HogWatcherState.degraded) {
+            if (hogFunctionState?.state === HogWatcherState.degraded) {
                 // Degraded functions are not executed immediately
                 await this.cyclotronJobQueue.queueInvocations([invocation])
 

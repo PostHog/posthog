@@ -19,6 +19,7 @@ import { compileInputs } from '../templates/test/test-helpers'
 import { Team, Hub } from '~/types'
 import { DateTime, Settings } from 'luxon'
 import { forSnapshot } from '~/tests/helpers/snapshots'
+import { HogWatcherState } from '../services/monitoring/hog-watcher.service'
 
 describe('SourceWebhooksConsumer', () => {
     let hub: Hub
@@ -44,11 +45,16 @@ describe('SourceWebhooksConsumer', () => {
         let server: Server
 
         let mockExecuteSpy: jest.SpyInstance
+        let mockQueueInvocationsSpy: jest.SpyInstance
 
         beforeEach(async () => {
             hub.CDP_WATCHER_OBSERVE_RESULTS_BUFFER_TIME_MS = 50
             api = new CdpApi(hub)
             mockExecuteSpy = jest.spyOn(api['cdpSourceWebhooksConsumer']['hogExecutor'], 'execute')
+            mockQueueInvocationsSpy = jest.spyOn(
+                api['cdpSourceWebhooksConsumer']['cyclotronJobQueue'],
+                'queueInvocations'
+            )
             app = setupExpressApp()
             app.use('/', api.router())
             server = app.listen(0, () => {})
@@ -64,6 +70,8 @@ describe('SourceWebhooksConsumer', () => {
 
             const fixedTime = DateTime.fromObject({ year: 2025, month: 1, day: 1 }, { zone: 'UTC' })
             jest.spyOn(Date, 'now').mockReturnValue(fixedTime.toMillis())
+
+            await api.start()
         })
 
         afterEach(async () => {
@@ -182,6 +190,29 @@ describe('SourceWebhooksConsumer', () => {
                     },
                     ip: '127.0.0.1',
                 })
+            })
+        })
+
+        describe('degraded functions', () => {
+            it('should return a degraded response if the function is degraded', async () => {
+                await api['cdpSourceWebhooksConsumer']['hogWatcher'].forceStateChange(
+                    hogFunction,
+                    HogWatcherState.degraded
+                )
+                const res = await doRequest({
+                    body: {
+                        event: 'my-event',
+                        distinct_id: 'test-distinct-id',
+                    },
+                })
+                expect(res.body).toMatchInlineSnapshot(`{}`)
+                expect(mockExecuteSpy).not.toHaveBeenCalled()
+                expect(mockQueueInvocationsSpy).toHaveBeenCalledTimes(1)
+                expect(mockQueueInvocationsSpy).toHaveBeenCalledWith([
+                    expect.objectContaining({
+                        functionId: hogFunction.id,
+                    }),
+                ])
             })
         })
     })
