@@ -1,5 +1,6 @@
 import json
 import random
+import logging
 from collections.abc import AsyncIterator, Sequence
 from typing import Any, Optional, cast
 
@@ -17,14 +18,21 @@ from langgraph.checkpoint.base import (
     get_checkpoint_id,
 )
 from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
+from ee.hogai.django_checkpoint.serializer import CheckpointSerializer
 from langgraph.checkpoint.serde.types import TASKS, ChannelProtocol
 
 from ee.models.assistant import ConversationCheckpoint, ConversationCheckpointBlob, ConversationCheckpointWrite
 from posthog.sync import database_sync_to_async
 
+logger = logging.getLogger(__name__)
+
 
 class DjangoCheckpointer(BaseCheckpointSaver[str]):
     jsonplus_serde = JsonPlusSerializer()
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.serde = CheckpointSerializer()
 
     def _load_writes(self, writes: Sequence[ConversationCheckpointWrite]) -> list[PendingWrite]:
         return (
