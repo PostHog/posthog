@@ -21,9 +21,9 @@ import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableSh
 interface ComboboxContextType {
     searchValue: string
     setSearchValue: (value: string) => void
-    registerGroup: (id: string, visible: boolean) => void
+    registerGroup: (id: string, visible: boolean, isSearchable?: boolean) => void
     unregisterGroup: (id: string) => void
-    getVisibleGroupCount: () => number
+    getVisibleSearchableGroupCount: () => number
 }
 
 const ComboboxContext = createContext<ComboboxContextType | null>(null)
@@ -37,16 +37,21 @@ const InnerCombobox = forwardRef<ListBoxHandle, ComboboxProps>(({ children, clas
     const [searchValue, setSearchValue] = useState('')
 
     // Pure-react group visibility state
-    type Action = { type: 'register'; id: string; visible: boolean } | { type: 'unregister'; id: string }
+    type Action =
+        | { type: 'register'; id: string; visible: boolean; isSearchable?: boolean }
+        | { type: 'unregister'; id: string }
 
-    type State = Map<string, boolean>
+    type State = Map<string, { visible: boolean; isSearchable: boolean }>
 
     const groupReducer = (state: State, action: Action): State => {
         const newState = new Map(state)
 
         switch (action.type) {
             case 'register': {
-                newState.set(action.id, action.visible)
+                newState.set(action.id, {
+                    visible: action.visible,
+                    isSearchable: action.isSearchable ?? true,
+                })
                 return newState
             }
             case 'unregister': {
@@ -60,16 +65,16 @@ const InnerCombobox = forwardRef<ListBoxHandle, ComboboxProps>(({ children, clas
 
     const [groupVisibility, dispatch] = useReducer(groupReducer, new Map())
 
-    const registerGroup = useCallback((id: string, visible: boolean): void => {
-        dispatch({ type: 'register', id, visible })
+    const registerGroup = useCallback((id: string, visible: boolean, isSearchable = true): void => {
+        dispatch({ type: 'register', id, visible, isSearchable })
     }, [])
 
     const unregisterGroup = useCallback((id: string): void => {
         dispatch({ type: 'unregister', id })
     }, [])
 
-    const getVisibleGroupCount = useCallback((): number => {
-        return Array.from(groupVisibility.values()).filter(Boolean).length
+    const getVisibleSearchableGroupCount = useCallback((): number => {
+        return Array.from(groupVisibility.values()).filter((group) => group.visible && group.isSearchable).length
     }, [groupVisibility])
 
     const contextValue = useMemo(
@@ -78,9 +83,9 @@ const InnerCombobox = forwardRef<ListBoxHandle, ComboboxProps>(({ children, clas
             setSearchValue,
             registerGroup,
             unregisterGroup,
-            getVisibleGroupCount,
+            getVisibleSearchableGroupCount,
         }),
-        [searchValue, registerGroup, unregisterGroup, getVisibleGroupCount]
+        [searchValue, registerGroup, unregisterGroup, getVisibleSearchableGroupCount]
     )
 
     useImperativeHandle(ref, () => ({
@@ -150,7 +155,7 @@ const Search = ({ placeholder = 'Search...', className, autoFocus = true }: Sear
 let groupIdCounter = 0
 
 interface GroupProps {
-    value: string[]
+    value?: string[]
     children: ReactNode
 }
 
@@ -164,15 +169,16 @@ const Group = ({ value, children }: GroupProps): JSX.Element | null => {
     const idRef = useRef<string>(`group-${groupIdCounter++}`)
 
     const lowerSearch = searchValue.toLowerCase()
-    const match = value.some((v) => v.toLowerCase().includes(lowerSearch))
+    const match = !value?.length || value.some((v) => v.toLowerCase().includes(lowerSearch))
+    const isSearchable = !!value?.length
 
     useEffect(() => {
         const id = idRef.current
-        registerGroup(id, match)
+        registerGroup(id, match, isSearchable)
         return () => {
             unregisterGroup(id)
         }
-    }, [match, registerGroup, unregisterGroup])
+    }, [match, isSearchable, registerGroup, unregisterGroup])
 
     if (!match) {
         return null
@@ -191,8 +197,8 @@ const Empty = ({ children }: EmptyProps): JSX.Element | null => {
         throw new Error('Combobox.Empty must be used inside Combobox')
     }
 
-    return context.getVisibleGroupCount() === 0 ? (
-        <ButtonPrimitive className="text-tertiary text-center" role="alert">
+    return context.getVisibleSearchableGroupCount() === 0 ? (
+        <ButtonPrimitive className="text-tertiary text-center" role="alert" menuItem inert>
             {children}
         </ButtonPrimitive>
     ) : null
@@ -207,14 +213,15 @@ const Content = ({ className, children }: ContentProps): JSX.Element => {
     return (
         <div
             className={cn(
-                'primitive-menu-content max-h-[calc(var(--radix-popover-content-available-height)-var(--combobox-search-height)-var(--radix-popper-anchor-height))] max-w-none border-transparent',
+                'max-h-[calc(var(--radix-popover-content-available-height)-var(--combobox-search-height)-var(--radix-popper-anchor-height))] h-full max-w-none border-transparent',
                 className
             )}
         >
             <ScrollableShadows
                 direction="vertical"
                 styledScrollbars
-                innerClassName="primitive-menu-content-inner flex flex-col gap-px"
+                className="h-full"
+                innerClassName="flex flex-col gap-px p-1"
             >
                 {children}
             </ScrollableShadows>
