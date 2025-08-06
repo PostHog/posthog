@@ -221,6 +221,8 @@ def load_private_key(private_key: str, passphrase: str | None) -> bytes:
 class SnowflakeClient:
     """Snowflake connection client used in batch exports."""
 
+    DEFAULT_POLL_INTERVAL = 1.0
+
     def __init__(
         self,
         user: str,
@@ -243,6 +245,7 @@ class SnowflakeClient:
         self.warehouse = warehouse
         self.database = database
         self.schema = schema
+
         self._connection: SnowflakeConnection | None = None
 
         self.logger = LOGGER.bind(user=user, account=account, warehouse=warehouse, database=database)
@@ -359,7 +362,7 @@ class SnowflakeClient:
         query: str,
         parameters: dict | None = None,
         file_stream=None,
-        poll_interval: float = 1.0,
+        poll_interval: float | None = None,
         fetch_results: bool = True,
     ) -> tuple[list[tuple] | list[dict], list[ResultMetadata]] | None:
         """Wrap Snowflake connector's polling API in a coroutine.
@@ -381,6 +384,8 @@ class SnowflakeClient:
             Else when `fetch_results` is `False` we return `None`.
         """
         self.logger.debug("Executing async query: %s", query)
+
+        poll_interval = poll_interval or self.DEFAULT_POLL_INTERVAL
 
         with self.connection.cursor() as cursor:
             # Snowflake docs incorrectly state that the 'params' argument is named 'parameters'.

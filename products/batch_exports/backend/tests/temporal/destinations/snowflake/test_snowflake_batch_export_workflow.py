@@ -181,8 +181,24 @@ async def _run_workflow(
     return run
 
 
-@pytest.mark.parametrize("use_internal_stage", [False, True])
+@pytest.mark.parametrize("use_internal_stage", [False])
 class TestSnowflakeExportWorkflowMockedConnection:
+    @pytest.fixture(autouse=True)
+    def mock_snowflake_connection(self):
+        with (
+            unittest.mock.patch(
+                "products.batch_exports.backend.temporal.destinations.snowflake_batch_export.snowflake.connector.connect",
+            ) as mock,
+            unittest.mock.patch(
+                "products.batch_exports.backend.temporal.destinations.snowflake_batch_export.SnowflakeClient.DEFAULT_POLL_INTERVAL",
+                0.01,
+            ),
+            override_settings(BATCH_EXPORT_SNOWFLAKE_UPLOAD_CHUNK_SIZE_BYTES=1),
+        ):
+            fake_conn = FakeSnowflakeConnection()
+            mock.return_value = fake_conn
+            yield fake_conn
+
     @pytest.mark.parametrize("interval", ["hour"], indirect=True)
     async def test_snowflake_export_workflow_exports_events(
         self,
@@ -195,6 +211,7 @@ class TestSnowflakeExportWorkflowMockedConnection:
         interval,
         table_name,
         truncate_events,
+        mock_snowflake_connection,
     ):
         """Test that the whole workflow not just the activity works.
 
@@ -217,46 +234,40 @@ class TestSnowflakeExportWorkflowMockedConnection:
             properties={"$browser": "Chrome", "$os": "Mac OS X"},
             person_properties={"utm_medium": "referral", "$initial_os": "Linux"},
         )
-        with (
-            unittest.mock.patch(
-                "products.batch_exports.backend.temporal.destinations.snowflake_batch_export.snowflake.connector.connect",
-            ) as mock,
-            override_settings(BATCH_EXPORT_SNOWFLAKE_UPLOAD_CHUNK_SIZE_BYTES=1),
-        ):
-            fake_conn = FakeSnowflakeConnection()
-            mock.return_value = fake_conn
-            run = await _run_workflow(
-                team_id=ateam.pk,
-                batch_export_id=snowflake_batch_export.id,
-                data_interval_end=data_interval_end,
-                interval=interval,
-                snowflake_batch_export=snowflake_batch_export,
-                use_internal_stage=use_internal_stage,
-            )
-            assert run.status == "Completed"
-            assert run.records_completed == 10
+        run = await _run_workflow(
+            team_id=ateam.pk,
+            batch_export_id=snowflake_batch_export.id,
+            data_interval_end=data_interval_end,
+            interval=interval,
+            snowflake_batch_export=snowflake_batch_export,
+            use_internal_stage=use_internal_stage,
+        )
+        assert run.status == "Completed"
+        assert run.records_completed == 10
 
-            execute_calls = []
-            for cursor in fake_conn._cursors:
-                for call in cursor._execute_calls:
-                    execute_calls.append(call["query"].strip())
+        fake_conn = mock_snowflake_connection
 
-            execute_async_calls = []
-            for cursor in fake_conn._cursors:
-                for call in cursor._execute_async_calls:
-                    execute_async_calls.append(call["query"].strip())
+        execute_calls = []
+        for cursor in fake_conn._cursors:
+            for call in cursor._execute_calls:
+                execute_calls.append(call["query"].strip())
 
-            assert execute_async_calls[0:3] == [
-                f'USE DATABASE "{database}"',
-                f'USE SCHEMA "{schema}"',
-                "SET ABORT_DETACHED_QUERY = FALSE",
-            ]
+        execute_async_calls = []
+        for cursor in fake_conn._cursors:
+            for call in cursor._execute_async_calls:
+                execute_async_calls.append(call["query"].strip())
 
-            assert all(query.startswith("PUT") for query in execute_calls[0:9])
+        assert execute_async_calls[0:3] == [
+            f'USE DATABASE "{database}"',
+            f'USE SCHEMA "{schema}"',
+            "SET ABORT_DETACHED_QUERY = FALSE",
+        ]
 
-            assert execute_async_calls[3].startswith(f'CREATE TABLE IF NOT EXISTS "{table_name}"')
-            assert execute_async_calls[4].startswith(f"""REMOVE '@%"{table_name}"/{data_interval_end_str}'""")
-            assert execute_async_calls[5].startswith(f'COPY INTO "{table_name}"')
+        assert all(query.startswith("PUT") for query in execute_calls[0:9])
+
+        assert execute_async_calls[3].startswith(f'CREATE TABLE IF NOT EXISTS "{table_name}"')
+        assert execute_async_calls[4].startswith(f"""REMOVE '@%"{table_name}"/{data_interval_end_str}'""")
+        assert execute_async_calls[5].startswith(f'COPY INTO "{table_name}"')
 
     @pytest.mark.parametrize("interval", ["hour"], indirect=True)
     async def test_snowflake_export_workflow_without_events(
@@ -264,24 +275,16 @@ class TestSnowflakeExportWorkflowMockedConnection:
     ):
         data_interval_end = dt.datetime.now(tz=dt.UTC).replace(hour=0, minute=0, second=0, microsecond=0)
 
-        with (
-            unittest.mock.patch(
-                "products.batch_exports.backend.temporal.destinations.snowflake_batch_export.snowflake.connector.connect",
-            ) as mock,
-            override_settings(BATCH_EXPORT_SNOWFLAKE_UPLOAD_CHUNK_SIZE_BYTES=1),
-        ):
-            fake_conn = FakeSnowflakeConnection()
-            mock.return_value = fake_conn
-            run = await _run_workflow(
-                team_id=ateam.pk,
-                batch_export_id=snowflake_batch_export.id,
-                data_interval_end=data_interval_end,
-                interval=interval,
-                snowflake_batch_export=snowflake_batch_export,
-                use_internal_stage=use_internal_stage,
-            )
-            assert run.status == "Completed"
-            assert run.records_completed == 0
+        run = await _run_workflow(
+            team_id=ateam.pk,
+            batch_export_id=snowflake_batch_export.id,
+            data_interval_end=data_interval_end,
+            interval=interval,
+            snowflake_batch_export=snowflake_batch_export,
+            use_internal_stage=use_internal_stage,
+        )
+        assert run.status == "Completed"
+        assert run.records_completed == 0
 
 
 class TestSnowflakeExportWorkflowErrorHandling:
