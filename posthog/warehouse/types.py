@@ -24,7 +24,7 @@ class PartitionSettings(typing.NamedTuple):
 
     Attributes:
         partition_count: Total number of partitions.
-        partition_size: Number of rows to include per partition.
+        partition_size: Number of rows to include per partition...
     """
 
     partition_count: int

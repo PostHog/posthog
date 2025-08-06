@@ -1,0 +1,35 @@
+name: Auto Assign Reviewers
+
+on:
+    pull_request:
+        types: [opened, synchronize]
+
+permissions:
+    contents: read
+    pull-requests: write
+
+jobs:
+    assign-reviewers:
+        runs-on: ubuntu-latest
+
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@v4
+              with:
+                  fetch-depth: 0
+
+            - name: Setup Node.js
+              uses: actions/setup-node@v4
+              with:
+                  node-version: '20'
+
+            - name: Fetch main branch
+              run: git fetch origin main
+
+            - name: Run reviewer assignment script
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  PR_NUMBER: ${{ github.event.pull_request.number }}
+                  GITHUB_REPOSITORY: ${{ github.repository }}
+              run: |
+                  node .github/scripts/assign-reviewers.js
