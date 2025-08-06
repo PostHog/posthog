@@ -728,12 +728,13 @@ def send_team_hog_functions_digest(team_id: int, hog_function_ids: list[str] | N
 
     # Build the dictionaries from the optimized result set
     for activity in latest_activities:
-        if activity.user:
-            last_editors[activity.item_id] = activity.user.email
-            last_edit_dates[activity.item_id] = activity.created_at.strftime("%Y-%m-%d")
-        else:
-            last_editors[activity.item_id] = None
-            last_edit_dates[activity.item_id] = None
+        if activity.item_id is not None:  # Ensure item_id is not None before using as dict key
+            if activity.user:
+                last_editors[activity.item_id] = activity.user.email
+                last_edit_dates[activity.item_id] = activity.created_at.strftime("%Y-%m-%d")
+            else:
+                last_editors[activity.item_id] = None
+                last_edit_dates[activity.item_id] = None
 
     # Ensure all HogFunctions have entries (even if no activity log exists)
     for hog_function_id in hog_function_ids_list:
