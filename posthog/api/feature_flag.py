@@ -77,8 +77,15 @@ from posthog.queries.base import (
 from posthog.rate_limit import BurstRateThrottle
 from ee.models.rbac.organization_resource_access import OrganizationResourceAccess
 from django.dispatch import receiver
+from django.db.models.signals import post_save, post_delete
 from posthog.models.signals import model_activity_signal
 from posthog.settings.feature_flags import LOCAL_EVAL_RATE_LIMITS
+from posthog.api.services.flag_definitions_cache import (
+    FlagDefinitionsCache,
+    invalidate_cache_for_feature_flag_change,
+    invalidate_cache_for_cohort_change,
+    invalidate_cache_for_group_type_mapping_change,
+)
 
 DATABASE_FOR_LOCAL_EVALUATION = (
     "default"
@@ -1225,6 +1232,25 @@ class FeatureFlagViewSet(
                 },
             )
 
+            # Check cache first
+            should_send_cohorts = "send_cohorts" in request.GET
+            cache_key = FlagDefinitionsCache.get_cache_key(self.project_id, should_send_cohorts)
+
+            try:
+                cached_response = FlagDefinitionsCache.get_cache(self.project_id, should_send_cohorts)
+                if cached_response is not None:
+                    logger.info("Cache hit for local evaluation", extra={"cache_key": cache_key})
+                    # Still increment request count for analytics
+                    if cached_response.get("flags") and not all(
+                        flag.get("key", "").startswith("survey-targeting-") for flag in cached_response["flags"]
+                    ):
+                        increment_request_count(self.team.pk, 1, FlagRequestType.LOCAL_EVALUATION)
+                    return Response(cached_response)
+                else:
+                    logger.info("Cache miss for local evaluation", extra={"cache_key": cache_key})
+            except Exception as e:
+                logger.warning("Cache error in local evaluation, proceeding without cache", extra={"error": str(e)})
+
             try:
                 feature_flags = FeatureFlag.objects.db_manager(DATABASE_FOR_LOCAL_EVALUATION).filter(
                     ~Q(is_remote_configuration=True),
@@ -1244,7 +1270,6 @@ class FeatureFlagViewSet(
                     status=500,
                 )
 
-            should_send_cohorts = "send_cohorts" in request.GET
             cohorts = {}
             seen_cohorts_cache: dict[int, CohortOrEmpty] = {}
 
@@ -1366,6 +1391,10 @@ class FeatureFlagViewSet(
                     },
                     "cohorts": cohorts,
                 }
+
+                # Store in cache for future requests
+                FlagDefinitionsCache.set_cache(self.project_id, response_data, should_send_cohorts)
+
                 return Response(response_data)
 
             except Exception as e:
@@ -1577,6 +1606,23 @@ def handle_feature_flag_change(sender, scope, before_update, after_update, activ
             trigger=trigger,
         ),
     )
+
+    # Invalidate flag definitions cache when feature flags change
+    invalidate_cache_for_feature_flag_change(after_update, activity)
+
+
+@receiver(post_save, sender=Cohort)
+@receiver(post_delete, sender=Cohort)
+def handle_cohort_change(sender, instance, **kwargs):
+    """Invalidate flag definitions cache when cohorts change."""
+    invalidate_cache_for_cohort_change(instance)
+
+
+@receiver(post_save, sender=GroupTypeMapping)
+@receiver(post_delete, sender=GroupTypeMapping)
+def handle_group_type_mapping_change(sender, instance, **kwargs):
+    """Invalidate flag definitions cache when group type mappings change."""
+    invalidate_cache_for_group_type_mapping_change(instance)
 
 
 class LegacyFeatureFlagViewSet(FeatureFlagViewSet):
