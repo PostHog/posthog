@@ -21,6 +21,35 @@ from posthog.kafka_client.topics import KAFKA_LOG_ENTRIES
 BACKGROUND_LOGGER_TASKS = set()
 EXTERNAL_LOGGER_NAME = "EXTERNAL"
 
+# Common processor configurations for temporal loggers
+BASE_PROCESSORS = [
+    structlog.stdlib.filter_by_level,
+    structlog.stdlib.add_logger_name,
+    structlog.stdlib.add_log_level,
+    structlog.processors.format_exc_info,  # Required to prevent AttributeError with dict_tracebacks
+    structlog.stdlib.PositionalArgumentsFormatter(),
+    structlog.processors.CallsiteParameterAdder(
+        {
+            structlog.processors.CallsiteParameter.FILENAME,
+            structlog.processors.CallsiteParameter.FUNC_NAME,
+            structlog.processors.CallsiteParameter.LINENO,
+        }
+    ),
+    structlog.contextvars.merge_contextvars,
+    structlog.processors.TimeStamper(fmt="%Y-%m-%d %H:%M:%S.%f", utc=True),
+]
+
+DEVELOPMENT_PROCESSORS = [
+    EventRenamer("msg"),
+    structlog.dev.ConsoleRenderer(event_key="msg"),
+]
+
+PRODUCTION_PROCESSORS = [
+    structlog.processors.dict_tracebacks,
+    EventRenamer("msg"),
+    structlog.processors.JSONRenderer(),
+]
+
 
 def get_internal_logger():
     """Return a logger for internal use, where logs do not get sent to Kafka.
@@ -251,22 +280,7 @@ def configure_logger_async(
         cache_logger_on_first_use: Set whether to cache logger for performance.
             Should always be True except in tests.
     """
-    base_processors: list[structlog.types.Processor] = [
-        structlog.stdlib.filter_by_level,
-        structlog.stdlib.add_logger_name,
-        structlog.stdlib.add_log_level,
-        structlog.processors.format_exc_info,  # Add this to match sync version and handle exc_info properly
-        structlog.stdlib.PositionalArgumentsFormatter(),
-        structlog.processors.CallsiteParameterAdder(
-            {
-                structlog.processors.CallsiteParameter.FILENAME,
-                structlog.processors.CallsiteParameter.FUNC_NAME,
-                structlog.processors.CallsiteParameter.LINENO,
-            }
-        ),
-        structlog.contextvars.merge_contextvars,
-        structlog.processors.TimeStamper(fmt="%Y-%m-%d %H:%M:%S.%f", utc=True),
-    ]
+    base_processors = BASE_PROCESSORS.copy()
 
     log_queue = queue if queue is not None else asyncio.Queue(maxsize=settings.TEMPORAL_EXTERNAL_LOGS_QUEUE_SIZE)
     log_producer = None
@@ -286,16 +300,9 @@ def configure_logger_async(
             base_processors.append(put_in_queue)
 
     if sys.stderr.isatty() or settings.TEST or settings.DEBUG:
-        base_processors += [
-            EventRenamer("msg"),
-            structlog.dev.ConsoleRenderer(event_key="msg"),
-        ]
+        base_processors += DEVELOPMENT_PROCESSORS
     else:
-        base_processors += [
-            structlog.processors.dict_tracebacks,
-            EventRenamer("msg"),
-            structlog.processors.JSONRenderer(),
-        ]
+        base_processors += PRODUCTION_PROCESSORS
 
     extra_processors_to_add = extra_processors if extra_processors is not None else []
 
