@@ -444,7 +444,7 @@ describe('HogWatcher', () => {
             expect(observeResultsSpy).toHaveBeenCalledWith([result1, result2, result3])
         })
 
-        it('should buffer results and observe them', async () => {
+        it('should buffer results and flush them when the buffer is full', async () => {
             const results = [createResult({}), createResult({}), createResult({}), createResult({})]
             await Promise.all([
                 watcher.observeResultsBuffered(results[0]),
