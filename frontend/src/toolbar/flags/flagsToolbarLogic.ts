@@ -151,7 +151,7 @@ export const flagsToolbarLogic = kea<flagsToolbarLogicType>([
                     const currentValue =
                         flag.feature_flag.key in localOverrides
                             ? localOverrides[flag.feature_flag.key]
-                            : posthogClientFlagValues[flag.feature_flag.key] ?? flag.value
+                            : (posthogClientFlagValues[flag.feature_flag.key] ?? flag.value)
 
                     return {
                         ...flag,

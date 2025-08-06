@@ -49,7 +49,7 @@ export const nonHogFunctionTemplatesLogic = kea<nonHogFunctionTemplatesLogicType
                                 <Link to="https://posthog.com/docs/cdp/sources">Learn more</Link>
                             </>
                         ),
-                        hog: '',
+                        code: '',
                         code_language: 'hog',
                         inputs_schema: [],
                         filters: null,
@@ -71,7 +71,7 @@ export const nonHogFunctionTemplatesLogic = kea<nonHogFunctionTemplatesLogicType
                                 <Link to="https://posthog.com/docs/cdp/sources">Learn more</Link>
                             </>
                         ),
-                        hog: '',
+                        code: '',
                         code_language: 'hog',
                         inputs_schema: [],
                         filters: null,
@@ -101,7 +101,7 @@ export const nonHogFunctionTemplatesLogic = kea<nonHogFunctionTemplatesLogicType
                         name: humanizeBatchExportName(service),
                         icon_url: BATCH_EXPORT_ICON_MAP[service],
                         status: 'stable',
-                        hog: '',
+                        code: '',
                         code_language: 'hog',
                         inputs_schema: [],
                         filters: null,

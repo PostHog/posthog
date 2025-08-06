@@ -12,7 +12,6 @@ import { RecordingComment } from 'scenes/session-recordings/player/inspector/pla
 import {
     parseEncodedSnapshots,
     processAllSnapshots,
-    processAllSnapshotsRaw,
 } from 'scenes/session-recordings/player/snapshot-processing/process-all-snapshots'
 import { keyForSource } from 'scenes/session-recordings/player/snapshot-processing/source-key'
 import { teamLogic } from 'scenes/teamLogic'
@@ -35,12 +34,13 @@ import {
     SnapshotSourceType,
 } from '~/types'
 
-import { ExportedSessionRecordingFileV2, ExportedSessionType } from '../file-playback/types'
+import { ExportedSessionRecordingFileV2 } from '../file-playback/types'
 import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
 import type { sessionRecordingDataLogicType } from './sessionRecordingDataLogicType'
 import { getHrefFromSnapshot, ViewportResolution } from './snapshot-processing/patch-meta-event'
 import { createSegments, mapSnapshotsToWindowId } from './utils/segmenter'
 import { playerCommentModel } from 'scenes/session-recordings/player/commenting/playerCommentModel'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 const TWENTY_FOUR_HOURS_IN_MS = 24 * 60 * 60 * 1000 // +- before and after start and end of a recording to query for session linked events.
@@ -140,19 +140,27 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         ],
     })),
     loaders(({ values, props, cache }) => ({
-        sessionComments: {
-            loadRecordingComments: async (_, breakpoint) => {
-                const empty: CommentType[] = []
-                if (!props.sessionRecordingId) {
-                    return empty
-                }
+        sessionComments: [
+            [] as CommentType[],
+            {
+                loadRecordingComments: async (_, breakpoint): Promise<CommentType[]> => {
+                    const empty: CommentType[] = []
+                    if (!props.sessionRecordingId) {
+                        return empty
+                    }
 
-                const response = await api.comments.list({ item_id: props.sessionRecordingId })
-                breakpoint()
+                    const response = await api.comments.list({ item_id: props.sessionRecordingId })
+                    breakpoint()
 
-                return response.results || empty
+                    return response.results || empty
+                },
+                deleteComment: async (id, breakpoint): Promise<CommentType[]> => {
+                    await breakpoint(25)
+                    await api.comments.delete(id)
+                    return values.sessionComments.filter((sc) => sc.id !== id)
+                },
             },
-        },
+        ],
         sessionNotebookComments: {
             loadRecordingNotebookComments: async (_, breakpoint) => {
                 const empty: RecordingComment[] = []
@@ -294,7 +302,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     }
 
                     const sessionEventsQuery = hogql`
-SELECT uuid, event, timestamp, elements_chain, properties.$window_id, properties.$current_url, properties.$event_type, properties.$viewport_width, properties.$viewport_height, properties.$screen_name
+SELECT uuid, event, timestamp, elements_chain, properties.$window_id, properties.$current_url, properties.$event_type, properties.$viewport_width, properties.$viewport_height, properties.$screen_name, distinct_id
 FROM events
 WHERE timestamp > ${start.subtract(TWENTY_FOUR_HOURS_IN_MS, 'ms')}
 AND timestamp < ${end.add(TWENTY_FOUR_HOURS_IN_MS, 'ms')}
@@ -303,7 +311,7 @@ ORDER BY timestamp ASC
 LIMIT 1000000`
 
                     let relatedEventsQuery = hogql`
-SELECT uuid, event, timestamp, elements_chain, properties.$window_id, properties.$current_url, properties.$event_type
+SELECT uuid, event, timestamp, elements_chain, properties.$window_id, properties.$current_url, properties.$event_type, distinct_id
 FROM events
 WHERE timestamp > ${start.subtract(FIVE_MINUTES_IN_MS, 'ms')}
 AND timestamp < ${end.add(FIVE_MINUTES_IN_MS, 'ms')}
@@ -365,6 +373,7 @@ AND properties.$lib != 'web'`
                                 },
                                 playerTime: +dayjs(event[2]) - +start,
                                 fullyLoaded: false,
+                                distinct_id: event[event.length - 1] || values.sessionPlayerMetaData?.distinct_id,
                             }
                         }
                     )
@@ -441,6 +450,13 @@ AND properties.$lib != 'web'`
         ],
     })),
     listeners(({ values, actions, cache, props }) => ({
+        deleteCommentSuccess: () => {
+            lemonToast.success('Comment deleted')
+        },
+        deleteCommentFailure: (e) => {
+            posthog.captureException(e, { action: 'session recording data logic delete comment' })
+            lemonToast.error('Could not delete comment, refresh and try again')
+        },
         [playerCommentModel.actionTypes.commentEdited]: ({ recordingId }) => {
             if (props.sessionRecordingId === recordingId) {
                 actions.loadRecordingComments()
@@ -588,7 +604,7 @@ AND properties.$lib != 'web'`
             }
             actions.setWasMarkedViewed(true) // this prevents us from calling the function multiple times
 
-            await breakpoint(IS_TEST_MODE ? 1 : delay ?? 3000)
+            await breakpoint(IS_TEST_MODE ? 1 : (delay ?? 3000))
             await api.recordings.update(props.sessionRecordingId, {
                 viewed: true,
                 player_metadata: values.sessionPlayerMetaData,
@@ -865,7 +881,7 @@ AND properties.$lib != 'web'`
                 sources,
                 viewportForTimestamp,
                 sessionRecordingId,
-                // eslint-disable-next-line @typescript-eslint/no-unused-vars
+                // oxlint-disable-next-line @typescript-eslint/no-unused-vars
                 _snapshotsBySourceSuccessCount
             ): RecordingSnapshot[] => {
                 if (!sources || !cache.snapshotsBySource) {
@@ -878,22 +894,6 @@ AND properties.$lib != 'web'`
                     sessionRecordingId
                 )
                 return processedSnapshots['processed'].snapshots || []
-            },
-        ],
-
-        snapshotsRaw: [
-            (s) => [s.snapshotSources, s.viewportForTimestamp],
-            (
-                sources,
-                // eslint-disable-next-line @typescript-eslint/no-unused-vars
-                _snapshotsBySourceSuccessCount
-            ): RecordingSnapshot[] => {
-                if (!sources || !cache.snapshotsBySource) {
-                    return []
-                }
-
-                const processedSnapshots = processAllSnapshotsRaw(sources, cache.snapshotsBySource || {})
-                return processedSnapshots || []
             },
         ],
 
@@ -988,21 +988,16 @@ AND properties.$lib != 'web'`
 
         createExportJSON: [
             (s) => [s.sessionPlayerMetaData, s.snapshots],
-            (
-                sessionPlayerMetaData,
-                snapshots
-            ): ((type?: ExportedSessionType) => ExportedSessionRecordingFileV2 | RecordingSnapshot[]) => {
-                return (type?: ExportedSessionType) => {
-                    return type === 'rrweb'
-                        ? snapshots
-                        : {
-                              version: '2023-04-28',
-                              data: {
-                                  id: sessionPlayerMetaData?.id ?? '',
-                                  person: sessionPlayerMetaData?.person,
-                                  snapshots: snapshots,
-                              },
-                          }
+            (sessionPlayerMetaData, snapshots): (() => ExportedSessionRecordingFileV2) => {
+                return (): ExportedSessionRecordingFileV2 => {
+                    return {
+                        version: '2023-04-28',
+                        data: {
+                            id: sessionPlayerMetaData?.id ?? '',
+                            person: sessionPlayerMetaData?.person,
+                            snapshots: snapshots,
+                        },
+                    }
                 }
             },
         ],

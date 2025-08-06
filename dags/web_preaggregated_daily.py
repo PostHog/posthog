@@ -5,11 +5,9 @@ import os
 import dagster
 from dagster import DailyPartitionsDefinition, BackfillPolicy
 import structlog
-import chdb
 from dags.common import JobOwners, dagster_tags
 from dags.web_preaggregated_utils import (
     HISTORICAL_DAILY_CRON_SCHEDULE,
-    TEAM_IDS_WITH_WEB_PREAGGREGATED_ENABLED,
     CLICKHOUSE_SETTINGS,
     merge_clickhouse_settings,
     WEB_ANALYTICS_CONFIG_SCHEMA,
@@ -17,6 +15,7 @@ from dags.web_preaggregated_utils import (
 )
 from posthog.clickhouse import query_tagging
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.cluster import ClickhouseCluster
 
 from posthog.models.web_preaggregated.sql import (
     WEB_BOUNCES_EXPORT_SQL,
@@ -24,14 +23,13 @@ from posthog.models.web_preaggregated.sql import (
     WEB_STATS_EXPORT_SQL,
     WEB_STATS_INSERT_SQL,
     DROP_PARTITION_SQL,
-    get_s3_function_args,
 )
+from posthog.models.web_preaggregated.team_selection import WEB_PRE_AGGREGATED_TEAM_SELECTION_TABLE_NAME
 from posthog.settings.base_variables import DEBUG
 from posthog.settings.object_storage import (
     OBJECT_STORAGE_ENDPOINT,
     OBJECT_STORAGE_EXTERNAL_WEB_ANALYTICS_BUCKET,
 )
-
 
 logger = structlog.get_logger(__name__)
 
@@ -47,6 +45,7 @@ def pre_aggregate_web_analytics_data(
     context: dagster.AssetExecutionContext,
     table_name: str,
     sql_generator: Callable,
+    cluster: dagster.ResourceParam[ClickhouseCluster],
 ) -> None:
     """
     Pre-aggregate web analytics data for a given table and date range.
@@ -55,9 +54,12 @@ def pre_aggregate_web_analytics_data(
         context: Dagster execution context
         table_name: Target table name (web_stats_daily or web_bounces_daily)
         sql_generator: Function to generate SQL query
+        cluster: ClickHouse cluster resource
     """
     config = context.op_config
-    team_ids = config.get("team_ids", TEAM_IDS_WITH_WEB_PREAGGREGATED_ENABLED)
+    # Use dictionary lookup by default, fallback to config if provided
+    team_ids = config.get("team_ids")  # None = use dictionary, list = use IN clause
+
     extra_settings = config.get("extra_clickhouse_settings", "")
     ch_settings = merge_clickhouse_settings(CLICKHOUSE_SETTINGS, extra_settings)
 
@@ -96,7 +98,7 @@ def pre_aggregate_web_analytics_data(
         insert_query = sql_generator(
             date_start=date_start,
             date_end=date_end,
-            team_ids=team_ids if team_ids else TEAM_IDS_WITH_WEB_PREAGGREGATED_ENABLED,
+            team_ids=team_ids,
             settings=ch_settings,
             table_name=table_name,
         )
@@ -122,6 +124,7 @@ def pre_aggregate_web_analytics_data(
 )
 def web_bounces_daily(
     context: dagster.AssetExecutionContext,
+    cluster: dagster.ResourceParam[ClickhouseCluster],
 ) -> None:
     """
     Daily bounce rate data for web analytics.
@@ -134,6 +137,7 @@ def web_bounces_daily(
         context=context,
         table_name="web_bounces_daily",
         sql_generator=WEB_BOUNCES_INSERT_SQL,
+        cluster=cluster,
     )
 
 
@@ -147,7 +151,10 @@ def web_bounces_daily(
     tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},
     retry_policy=web_analytics_retry_policy_def,
 )
-def web_stats_daily(context: dagster.AssetExecutionContext) -> None:
+def web_stats_daily(
+    context: dagster.AssetExecutionContext,
+    cluster: dagster.ResourceParam[ClickhouseCluster],
+) -> None:
     """
     Aggregated dimensional data with pageviews and unique user counts.
 
@@ -159,6 +166,7 @@ def web_stats_daily(context: dagster.AssetExecutionContext) -> None:
         context=context,
         table_name="web_stats_daily",
         sql_generator=WEB_STATS_INSERT_SQL,
+        cluster=cluster,
     )
 
 
@@ -167,10 +175,23 @@ def export_web_analytics_data_by_team(
     table_name: str,
     sql_generator: Callable,
     export_prefix: str,
+    cluster: dagster.ResourceParam[ClickhouseCluster],
 ) -> dagster.Output[list]:
     config = context.op_config
-    team_ids = config.get("team_ids", TEAM_IDS_WITH_WEB_PREAGGREGATED_ENABLED)
+    # Use dictionary lookup by default, fallback to config if provided
+    team_ids = config.get("team_ids")  # None = use dictionary, list = use IN clause
+
     ch_settings = merge_clickhouse_settings(CLICKHOUSE_SETTINGS, config.get("extra_clickhouse_settings", ""))
+
+    if not team_ids:
+        dict_query = f"SELECT team_id FROM {WEB_PRE_AGGREGATED_TEAM_SELECTION_TABLE_NAME} FINAL"
+        try:
+            result = sync_execute(dict_query)
+            team_ids = [row[0] for row in result]
+            context.log.info(f"Retrieved {len(team_ids)} team IDs from dictionary for export")
+        except Exception as e:
+            context.log.info(f"Failed to retrieve team IDs from dictionary: {e}")
+            raise dagster.Failure(f"Failed to retrieve team IDs from dictionary: {e}")
 
     successfully_exported_paths = []
     failed_team_ids = []
@@ -211,66 +232,6 @@ def export_web_analytics_data_by_team(
     )
 
 
-def partition_web_analytics_data_by_team(
-    context: dagster.AssetExecutionContext,
-    source_s3_path: str,
-    structure: str,
-) -> dagster.Output[list]:
-    config = context.op_config
-    team_ids = config.get("team_ids", TEAM_IDS_WITH_WEB_PREAGGREGATED_ENABLED)
-
-    successfully_team_ids = []
-    failed_team_ids = []
-
-    session = chdb.session.Session()
-    try:
-        temp_db = f"temp_analytics_{context.run_id.replace('-', '_')}"
-        session.query(f"CREATE DATABASE IF NOT EXISTS {temp_db} ENGINE = Atomic")
-
-        temp_table = f"{temp_db}.source_data"
-
-        session.query(f"""
-            CREATE TABLE {temp_table} ENGINE = Memory AS
-            SELECT * FROM s3({get_s3_function_args(source_s3_path)})
-        """)
-
-        context.log.info(f"Loaded source data into temporary table {temp_table}")
-
-        for team_id in team_ids:
-            team_s3_path = f"{source_s3_path.replace('.native', '')}/{team_id}/data.native"
-
-            partition_query = f"""
-            INSERT INTO FUNCTION s3({get_s3_function_args(team_s3_path)}, '{structure}')
-            SELECT *
-            FROM {temp_table}
-            WHERE team_id = {team_id}
-            SETTINGS s3_truncate_on_insert=true
-            """
-
-            try:
-                context.log.info(f"Partitioning data for team {team_id}")
-                session.query(partition_query)
-
-                successfully_team_ids.append(team_s3_path)
-                context.log.info(f"Successfully partitioned data for team {team_id} to: {team_s3_path}")
-
-            except Exception as e:
-                context.log.exception(f"Failed to partition data for team {team_id}: {str(e)}")
-                failed_team_ids.append(team_id)
-
-    finally:
-        session.cleanup()
-
-    return dagster.Output(
-        value=successfully_team_ids,
-        metadata={
-            "team_count": len(successfully_team_ids),
-            "team_ids": successfully_team_ids,
-            "failed_team_ids": failed_team_ids,
-        },
-    )
-
-
 @dagster.asset(
     name="web_analytics_stats_export",
     group_name="web_analytics",
@@ -278,7 +239,10 @@ def partition_web_analytics_data_by_team(
     deps=["web_analytics_stats_table_daily"],
     tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},
 )
-def web_stats_daily_export(context: dagster.AssetExecutionContext) -> dagster.Output[list]:
+def web_stats_daily_export(
+    context: dagster.AssetExecutionContext,
+    cluster: dagster.ResourceParam[ClickhouseCluster],
+) -> dagster.Output[list]:
     """
     Exports web_stats_daily data directly to S3 partitioned by team using ClickHouse's native S3 export.
     """
@@ -288,6 +252,7 @@ def web_stats_daily_export(context: dagster.AssetExecutionContext) -> dagster.Ou
         table_name="web_stats_daily",
         sql_generator=WEB_STATS_EXPORT_SQL,
         export_prefix="web_stats_daily_export",
+        cluster=cluster,
     )
 
 
@@ -298,7 +263,10 @@ def web_stats_daily_export(context: dagster.AssetExecutionContext) -> dagster.Ou
     deps=["web_analytics_bounces_daily"],
     tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},
 )
-def web_bounces_daily_export(context: dagster.AssetExecutionContext) -> dagster.Output[list]:
+def web_bounces_daily_export(
+    context: dagster.AssetExecutionContext,
+    cluster: dagster.ResourceParam[ClickhouseCluster],
+) -> dagster.Output[list]:
     """
     Exports web_bounces_daily data directly to S3 partitioned by team using ClickHouse's native S3 export.
     """
@@ -308,6 +276,7 @@ def web_bounces_daily_export(context: dagster.AssetExecutionContext) -> dagster.
         table_name="web_bounces_daily",
         sql_generator=WEB_BOUNCES_EXPORT_SQL,
         export_prefix="web_bounces_daily_export",
+        cluster=cluster,
     )
 
 
@@ -351,8 +320,8 @@ def web_pre_aggregate_daily_schedule(context: dagster.ScheduleEvaluationContext)
         partition_key=yesterday,
         run_config={
             "ops": {
-                "web_analytics_bounces_daily": {"config": {"team_ids": TEAM_IDS_WITH_WEB_PREAGGREGATED_ENABLED}},
-                "web_analytics_stats_table_daily": {"config": {"team_ids": TEAM_IDS_WITH_WEB_PREAGGREGATED_ENABLED}},
+                "web_analytics_bounces_daily": {"config": {}},
+                "web_analytics_stats_table_daily": {"config": {}},
             }
         },
     )

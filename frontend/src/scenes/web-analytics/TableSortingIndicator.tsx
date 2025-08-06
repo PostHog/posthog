@@ -3,7 +3,8 @@ import { LemonButton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { IconSort } from 'lib/lemon-ui/icons'
-import { ProductTab, webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
+import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
+import { ProductTab } from './common'
 
 import { WebAnalyticsOrderByFields } from '~/queries/schema/schema-general'
 

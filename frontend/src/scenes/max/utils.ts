@@ -51,31 +51,17 @@ export function isFailureMessage(message: RootAssistantMessage | undefined | nul
     return message?.type === AssistantMessageType.Failure
 }
 
-// The cast function below look like no-ops, but they're here to ensure AssistantFooQuery types stay compatible
-// with their respective FooQuery types. If an incompatibility arises, TypeScript will shout here
-function castAssistantTrendsQuery(query: AssistantTrendsQuery): TrendsQuery {
-    return query
-}
-function castAssistantFunnelsQuery(query: AssistantFunnelsQuery): FunnelsQuery {
-    return query
-}
-function castAssistantRetentionQuery(query: AssistantRetentionQuery): RetentionQuery {
-    return query
-}
-function castAssistantHogQLQuery(query: AssistantHogQLQuery): HogQLQuery {
-    return query
-}
 export function castAssistantQuery(
     query: AssistantTrendsQuery | AssistantFunnelsQuery | AssistantRetentionQuery | AssistantHogQLQuery
 ): TrendsQuery | FunnelsQuery | RetentionQuery | HogQLQuery {
     if (isTrendsQuery(query)) {
-        return castAssistantTrendsQuery(query)
+        return query
     } else if (isFunnelsQuery(query)) {
-        return castAssistantFunnelsQuery(query)
+        return query
     } else if (isRetentionQuery(query)) {
-        return castAssistantRetentionQuery(query)
+        return query
     } else if (isHogQLQuery(query)) {
-        return castAssistantHogQLQuery(query)
+        return query
     }
     throw new Error(`Unsupported query type: ${query.kind}`)
 }

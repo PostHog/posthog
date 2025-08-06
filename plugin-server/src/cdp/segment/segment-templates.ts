@@ -61,6 +61,9 @@ const translateInputs = (defaultVal: any, multiple: boolean = false) => {
         if (modifiedVal.includes('event.name')) {
             modifiedVal = modifiedVal.replaceAll('event.name', 'event.event')
         }
+        if (modifiedVal.includes('event.groupId')) {
+            modifiedVal = modifiedVal.replaceAll('event.groupId', 'event.properties.$group_0')
+        }
         if (modifiedVal.includes('event.context.traits')) {
             modifiedVal = modifiedVal.replaceAll('event.context.traits', 'person.properties')
         }
@@ -239,7 +242,7 @@ const translateInputs = (defaultVal: any, multiple: boolean = false) => {
             modifiedVal = modifiedVal.replaceAll('context.', 'event.properties.')
         }
 
-        if (modifiedVal.endsWith('.')) {
+        if (['event.context.group_id'].includes(modifiedVal) || modifiedVal.endsWith('.')) {
             return ''
         } else {
             return modifiedVal
@@ -510,7 +513,7 @@ export const SEGMENT_DESTINATIONS = Object.entries(destinations)
                     },
                 ],
                 code_language: 'javascript',
-                hog: 'return event',
+                code: 'return event',
                 mapping_templates: (destination.presets ?? [])
                     .filter((preset) => preset.type === 'automatic' && preset.subscribe)
                     .filter((preset) => preset.partnerAction in destination.actions)
@@ -545,7 +548,10 @@ export const SEGMENT_DESTINATIONS = Object.entries(destinations)
         } as SegmentDestination
     })
 
-export const SEGMENT_DESTINATIONS_BY_ID = SEGMENT_DESTINATIONS.reduce((acc, plugin) => {
-    acc[plugin.template.id] = plugin
-    return acc
-}, {} as Record<string, SegmentDestination>)
+export const SEGMENT_DESTINATIONS_BY_ID = SEGMENT_DESTINATIONS.reduce(
+    (acc, plugin) => {
+        acc[plugin.template.id] = plugin
+        return acc
+    },
+    {} as Record<string, SegmentDestination>
+)

@@ -1,10 +1,9 @@
-import { IconCheck, IconX } from '@posthog/icons'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { useEffect, useState } from 'react'
-import { ObjectTags } from '../ObjectTags/ObjectTags'
 import { ScenePanelLabel } from '~/layout/scenes/SceneLayout'
-import { SceneCanEditProps, SceneDataAttrKeyProps } from './utils'
+import { ObjectTags } from '../ObjectTags/ObjectTags'
+import { SceneCanEditProps, SceneDataAttrKeyProps, SceneSaveCancelButtons } from './utils'
 
 type SceneTagsProps = SceneCanEditProps &
     SceneDataAttrKeyProps & {
@@ -13,7 +12,13 @@ type SceneTagsProps = SceneCanEditProps &
         tagsAvailable?: string[]
     }
 
-export function SceneTags({ onSave, tags, tagsAvailable, dataAttrKey, canEdit = true }: SceneTagsProps): JSX.Element {
+export const SceneTags = ({
+    onSave,
+    tags,
+    tagsAvailable,
+    dataAttrKey,
+    canEdit = true,
+}: SceneTagsProps): JSX.Element => {
     const [localTags, setLocalTags] = useState(tags)
     const [localIsEditing, setLocalIsEditing] = useState(false)
     const [hasChanged, setHasChanged] = useState(false)
@@ -47,59 +52,42 @@ export function SceneTags({ onSave, tags, tagsAvailable, dataAttrKey, canEdit = 
                     placeholder='try "official"'
                     size="xsmall"
                     autoFocus
-                    className="-ml-1.5"
                 />
             </ScenePanelLabel>
-            <div className="flex gap-1">
-                <ButtonPrimitive
-                    type="submit"
-                    variant="outline"
-                    disabled={!hasChanged}
-                    tooltip={hasChanged ? 'Update tags' : 'No changes to update'}
-                    data-attr={`${dataAttrKey}-tags-update-button`}
-                >
-                    <IconCheck />
-                </ButtonPrimitive>
-                <ButtonPrimitive
-                    type="button"
-                    variant="outline"
-                    onClick={() => {
-                        setLocalTags(tags)
-                        setLocalIsEditing(false)
-                    }}
-                    tooltip="Cancel"
-                    data-attr={`${dataAttrKey}-tags-undo-button`}
-                >
-                    <IconX />
-                </ButtonPrimitive>
-            </div>
+            <SceneSaveCancelButtons
+                name="tags"
+                onCancel={() => {
+                    setLocalTags(tags)
+                    setLocalIsEditing(false)
+                }}
+                hasChanged={hasChanged}
+                dataAttrKey={dataAttrKey}
+            />
         </form>
     ) : (
         <ScenePanelLabel title="Tags">
-            <div className="-ml-1.5">
-                <ButtonPrimitive
-                    className="hyphens-auto flex gap-1 items-center"
-                    lang="en"
-                    onClick={() => onSave && canEdit && setLocalIsEditing(true)}
-                    tooltip={canEdit ? 'Edit tags' : 'Tags are read-only'}
-                    autoHeight
-                    menuItem
-                    inert={!canEdit}
-                    data-attr={`${dataAttrKey}-tags-button`}
-                >
-                    {tags && tags.length > 0 ? (
-                        <ObjectTags tags={tags} data-attr={`${dataAttrKey}-tags`} staticOnly />
-                    ) : (
-                        <>
-                            {onSave && canEdit ? (
-                                'Click to add tags'
-                            ) : (
-                                <span className="text-tertiary font-normal">No tags</span>
-                            )}
-                        </>
-                    )}
-                </ButtonPrimitive>
-            </div>
+            <ButtonPrimitive
+                className="hyphens-auto flex gap-1 items-center"
+                lang="en"
+                onClick={() => onSave && canEdit && setLocalIsEditing(true)}
+                tooltip={canEdit ? 'Edit tags' : 'Tags are read-only'}
+                autoHeight
+                menuItem
+                inert={!canEdit}
+                data-attr={`${dataAttrKey}-tags-button`}
+            >
+                {tags && tags.length > 0 ? (
+                    <ObjectTags tags={tags} data-attr={`${dataAttrKey}-tags`} staticOnly />
+                ) : (
+                    <>
+                        {onSave && canEdit ? (
+                            'Click to add tags'
+                        ) : (
+                            <span className="text-tertiary font-normal">No tags</span>
+                        )}
+                    </>
+                )}
+            </ButtonPrimitive>
         </ScenePanelLabel>
     )
 }

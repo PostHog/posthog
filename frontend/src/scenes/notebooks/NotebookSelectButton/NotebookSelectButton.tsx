@@ -16,10 +16,11 @@ import {
 } from 'scenes/notebooks/NotebookSelectButton/notebookSelectButtonLogic'
 
 import { notebooksModel, openNotebook } from '~/models/notebooksModel'
-import { AccessControlLevel, AccessControlResourceType, NotebookListItemType, NotebookTarget } from '~/types'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { notebookNodeLogicType } from '../Nodes/notebookNodeLogicType'
 import { notebookLogicType } from '../Notebook/notebookLogicType'
+import { NotebookListItemType, NotebookTarget } from '../types'
 
 export type NotebookSelectProps = NotebookSelectButtonLogicProps & {
     newNotebookTitle?: string
@@ -116,7 +117,8 @@ export function NotebookSelectList(props: NotebookSelectProps): JSX.Element {
             loadNotebooksContainingResource()
         }
         loadAllNotebooks()
-    }, [])
+        // oxlint-disable-next-line exhaustive-deps
+    }, [loadAllNotebooks])
 
     return (
         <div className="flex flex-col flex-1 h-full overflow-hidden">
@@ -239,6 +241,7 @@ export function NotebookSelectButton({ children, onNotebookOpened, ...props }: N
         if (!nodeLogic) {
             loadNotebooksContainingResource()
         }
+        // oxlint-disable-next-line exhaustive-deps
     }, [nodeLogic])
 
     const button = (

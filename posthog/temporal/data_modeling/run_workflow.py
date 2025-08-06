@@ -23,11 +23,13 @@ from django.conf import settings
 
 from posthog.clickhouse.query_tagging import tag_queries, Product
 from posthog.exceptions_capture import capture_exception
+from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import create_hogql_database
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
 from posthog.models import Team
+from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.settings.base_variables import TEST
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.clickhouse import get_client
@@ -604,6 +606,15 @@ async def revert_materialization(saved_query: DataWarehouseSavedQuery, logger: F
 
         saved_query.sync_frequency_interval = None
         saved_query.status = None
+        saved_query.last_run_at = None
+        saved_query.latest_error = None
+
+        # Clear the table reference so consumers will use the on-demand view instead
+        if saved_query.table is not None:
+            saved_query.table = None
+            table = await database_sync_to_async(DataWarehouseTable.objects.get)(id=saved_query.table_id)
+            await database_sync_to_async(table.soft_delete)()
+
         await database_sync_to_async(saved_query.save)()
 
         await logger.ainfo("Successfully reverted materialization for saved query %s", saved_query.name)
@@ -640,6 +651,9 @@ async def get_query_row_count(query: str, team: Team, logger: FilteringBoundLogg
 
     query_node = parse_select(count_query)
 
+    settings = HogQLGlobalSettings()
+    settings.max_execution_time = HOGQL_INCREASED_MAX_EXECUTION_TIME
+
     context = HogQLContext(
         team=team,
         team_id=team.id,
@@ -650,12 +664,17 @@ async def get_query_row_count(query: str, team: Team, logger: FilteringBoundLogg
     context.database = await database_sync_to_async(create_hogql_database)(team=team, modifiers=context.modifiers)
 
     prepared_hogql_query = await database_sync_to_async(prepare_ast_for_printing)(
-        query_node, context=context, dialect="clickhouse", stack=[]
+        query_node, context=context, dialect="clickhouse", settings=settings, stack=[]
     )
+
+    if prepared_hogql_query is None:
+        raise EmptyHogQLResponseColumnsError()
+
     printed = await database_sync_to_async(print_prepared_ast)(
         prepared_hogql_query,
         context=context,
         dialect="clickhouse",
+        settings=settings,
         stack=[],
     )
 
@@ -673,6 +692,9 @@ async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger):
     query_node = parse_select(query)
     assert query_node is not None
 
+    settings = HogQLGlobalSettings()
+    settings.max_execution_time = HOGQL_INCREASED_MAX_EXECUTION_TIME
+
     context = HogQLContext(
         team=team,
         team_id=team.id,
@@ -683,14 +705,16 @@ async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger):
     context.database = await database_sync_to_async(create_hogql_database)(team=team, modifiers=context.modifiers)
 
     prepared_hogql_query = await database_sync_to_async(prepare_ast_for_printing)(
-        query_node, context=context, dialect="clickhouse", stack=[]
+        query_node, context=context, dialect="clickhouse", settings=settings, stack=[]
     )
     if prepared_hogql_query is None:
         raise EmptyHogQLResponseColumnsError()
+
     printed = await database_sync_to_async(print_prepared_ast)(
         prepared_hogql_query,
         context=context,
         dialect="clickhouse",
+        settings=settings,
         stack=[],
     )
 

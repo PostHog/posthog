@@ -3,11 +3,10 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { DragEventHandler, useState } from 'react'
 
-import { NotebookNodeType } from '~/types'
-
 import { notebookLogicType } from '../Notebook/notebookLogicType'
 import { NotebookSelectList } from '../NotebookSelectButton/NotebookSelectButton'
 import { notebookPanelLogic } from './notebookPanelLogic'
+import { NotebookNodeType } from '../types'
 
 export function NotebookPanelDropzone(): JSX.Element | null {
     const [isDragActive, setIsDragActive] = useState(false)

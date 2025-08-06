@@ -3,9 +3,10 @@ import { DateTime } from 'luxon'
 
 import { TopicMessage } from '../../../kafka/producer'
 import { InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt, Team } from '../../../types'
-import { MoveDistinctIdsResult } from '../../../utils/db/db'
-import { TransactionClient } from '../../../utils/db/postgres'
+import { CreatePersonResult, MoveDistinctIdsResult } from '../../../utils/db/db'
 import { BatchWritingStore } from '../stores/batch-writing-store'
+import { PersonsStoreTransaction } from './persons-store-transaction'
+import { PersonRepositoryTransaction } from './repositories/person-repository-transaction'
 
 export type FlushResult = {
     topicMessage: TopicMessage
@@ -18,9 +19,9 @@ export interface PersonsStoreForBatch extends BatchWritingStore {
     /**
      * Executes a function within a transaction
      * @param description - Description of the transaction for logging
-     * @param transaction - Function to execute within the transaction, receives a transaction client
+     * @param transaction - Function to execute within the transaction, receives a transaction interface
      */
-    inTransaction<T>(description: string, transaction: (tx: TransactionClient) => Promise<T>): Promise<T>
+    inTransaction<T>(description: string, transaction: (tx: PersonsStoreTransaction) => Promise<T>): Promise<T>
 
     /**
      * Fetches a person by team ID and distinct ID for checking existence
@@ -47,8 +48,8 @@ export interface PersonsStoreForBatch extends BatchWritingStore {
         isIdentified: boolean,
         uuid: string,
         distinctIds?: { distinctId: string; version?: number }[],
-        tx?: TransactionClient
-    ): Promise<[InternalPerson, TopicMessage[]]>
+        tx?: PersonRepositoryTransaction
+    ): Promise<CreatePersonResult>
 
     /**
      * Updates an existing person for merge operations
@@ -57,7 +58,7 @@ export interface PersonsStoreForBatch extends BatchWritingStore {
         person: InternalPerson,
         update: Partial<InternalPerson>,
         distinctId: string,
-        tx?: TransactionClient
+        tx?: PersonRepositoryTransaction
     ): Promise<[InternalPerson, TopicMessage[], boolean]>
 
     /**
@@ -69,13 +70,13 @@ export interface PersonsStoreForBatch extends BatchWritingStore {
         propertiesToUnset: string[],
         otherUpdates: Partial<InternalPerson>,
         distinctId: string,
-        tx?: TransactionClient
+        tx?: PersonRepositoryTransaction
     ): Promise<[InternalPerson, TopicMessage[], boolean]>
 
     /**
      * Deletes a person
      */
-    deletePerson(person: InternalPerson, distinctId: string, tx?: TransactionClient): Promise<TopicMessage[]>
+    deletePerson(person: InternalPerson, distinctId: string, tx?: PersonRepositoryTransaction): Promise<TopicMessage[]>
 
     /**
      * Adds a distinct ID to a person
@@ -84,7 +85,7 @@ export interface PersonsStoreForBatch extends BatchWritingStore {
         person: InternalPerson,
         distinctId: string,
         version: number,
-        tx?: TransactionClient
+        tx?: PersonRepositoryTransaction
     ): Promise<TopicMessage[]>
 
     /**
@@ -94,7 +95,7 @@ export interface PersonsStoreForBatch extends BatchWritingStore {
         source: InternalPerson,
         target: InternalPerson,
         distinctId: string,
-        tx?: TransactionClient
+        tx?: PersonRepositoryTransaction
     ): Promise<MoveDistinctIdsResult>
 
     /**
@@ -105,7 +106,7 @@ export interface PersonsStoreForBatch extends BatchWritingStore {
         sourcePersonID: InternalPerson['id'],
         targetPersonID: InternalPerson['id'],
         distinctId: string,
-        tx?: TransactionClient
+        tx?: PersonRepositoryTransaction
     ): Promise<void>
 
     /**
@@ -116,7 +117,11 @@ export interface PersonsStoreForBatch extends BatchWritingStore {
     /**
      * Adds a personless distinct ID during merge
      */
-    addPersonlessDistinctIdForMerge(teamId: number, distinctId: string, tx?: TransactionClient): Promise<boolean>
+    addPersonlessDistinctIdForMerge(
+        teamId: number,
+        distinctId: string,
+        tx?: PersonRepositoryTransaction
+    ): Promise<boolean>
 
     /**
      * Returns the size of the person properties
@@ -127,6 +132,11 @@ export interface PersonsStoreForBatch extends BatchWritingStore {
      * Reports metrics about person operations in batch
      */
     reportBatch(): void
+
+    /**
+     * Removes a distinct ID from the cache
+     */
+    removeDistinctIdFromCache(teamId: number, distinctId: string): void
 
     /**
      * Flushes the batch

@@ -27,6 +27,15 @@ const SortingKeyToLabel = {
     mouse_activity_count: 'Mouse activity',
 }
 
+function getLabel(filters: RecordingUniversalFilters): string {
+    const order_field = filters.order || 'start_time'
+    if (order_field === 'start_time') {
+        return filters.order_direction === 'ASC' ? 'Oldest' : 'Latest'
+    }
+
+    return SortingKeyToLabel[order_field as keyof typeof SortingKeyToLabel]
+}
+
 function SortedBy({
     filters,
     setFilters,
@@ -39,9 +48,20 @@ function SortedBy({
             highlightWhenActive={false}
             items={[
                 {
-                    label: SortingKeyToLabel['start_time'],
-                    onClick: () => setFilters({ order: 'start_time' }),
-                    active: filters.order === 'start_time',
+                    label: 'Start time',
+                    items: [
+                        {
+                            label: 'Latest',
+                            onClick: () => setFilters({ order: 'start_time', order_direction: 'DESC' }),
+                            active:
+                                !filters.order || (filters.order === 'start_time' && filters.order_direction !== 'ASC'),
+                        },
+                        {
+                            label: 'Oldest',
+                            onClick: () => setFilters({ order: 'start_time', order_direction: 'ASC' }),
+                            active: filters.order === 'start_time' && filters.order_direction === 'ASC',
+                        },
+                    ],
                 },
                 {
                     label: SortingKeyToLabel['activity_score'],
@@ -95,7 +115,7 @@ function SortedBy({
                 },
             ]}
             icon={<IconSort className="text-lg" />}
-            label={SortingKeyToLabel[filters.order || 'start_time']}
+            label={getLabel(filters)}
         />
     )
 }
@@ -231,6 +251,8 @@ export function SessionRecordingsPlaylistTopSettings({
         handleSelectUnselectAll,
         setIsDeleteSelectedRecordingsDialogOpen,
         setIsNewCollectionDialogOpen,
+        handleBulkMarkAsViewed,
+        handleBulkMarkAsNotViewed,
     } = useActions(sessionRecordingsPlaylistLogic)
 
     const recordings = type === 'filters' ? sessionRecordings : pinnedRecordings
@@ -274,6 +296,18 @@ export function SessionRecordingsPlaylistTopSettings({
                 'data-attr': 'remove-from-collection',
             })
         }
+
+        menuItems.push({
+            label: 'Mark as viewed',
+            onClick: () => handleBulkMarkAsViewed(shortId),
+            'data-attr': 'mark-as-viewed',
+        })
+
+        menuItems.push({
+            label: 'Mark as not viewed',
+            onClick: () => handleBulkMarkAsNotViewed(shortId),
+            'data-attr': 'mark-as-not-viewed',
+        })
 
         if (featureFlags[FEATURE_FLAGS.REPLAY_BULK_DELETE_SELECTED_RECORDINGS]) {
             menuItems.push({

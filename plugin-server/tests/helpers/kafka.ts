@@ -1,36 +1,39 @@
-import { CompressionCodecs, CompressionTypes, Kafka, logLevel } from 'kafkajs'
-import SnappyCodec from 'kafkajs-snappy'
+import { AdminClient, CODES, KafkaConsumer, LibrdKafkaError } from 'node-rdkafka'
 
 import { defaultConfig, overrideWithEnv } from '../../src/config/config'
 import {
+    KAFKA_APP_METRICS,
+    KAFKA_APP_METRICS_2,
     KAFKA_BUFFER,
+    KAFKA_CLICKHOUSE_HEATMAP_EVENTS,
+    KAFKA_CLICKHOUSE_SESSION_RECORDING_EVENTS,
+    KAFKA_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES,
+    KAFKA_EVENTS_DEAD_LETTER_QUEUE,
     KAFKA_EVENTS_JSON,
     KAFKA_EVENTS_PLUGIN_INGESTION,
+    KAFKA_EVENTS_RECENT_JSON,
     KAFKA_GROUPS,
+    KAFKA_INGESTION_WARNINGS,
+    KAFKA_LOG_ENTRIES,
     KAFKA_PERFORMANCE_EVENTS,
     KAFKA_PERSON,
     KAFKA_PERSON_DISTINCT_ID,
+    KAFKA_PERSON_DISTINCT_ID_OVERRIDES,
     KAFKA_PERSON_UNIQUE_ID,
     KAFKA_PLUGIN_LOG_ENTRIES,
     KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
 } from '../../src/config/kafka-topics'
 import { PluginsServerConfig } from '../../src/types'
-import { KAFKA_EVENTS_DEAD_LETTER_QUEUE } from './../../src/config/kafka-topics'
 
-CompressionCodecs[CompressionTypes.Snappy] = SnappyCodec
-
-/** Clear the Kafka queue and return Kafka object */
-export async function resetKafka(extraServerConfig?: Partial<PluginsServerConfig>): Promise<Kafka> {
+export async function resetKafka(extraServerConfig?: Partial<PluginsServerConfig>): Promise<void> {
     const config = { ...overrideWithEnv(defaultConfig, process.env), ...extraServerConfig }
-    const kafka = new Kafka({
-        clientId: `plugin-server-test`,
-        brokers: (config.KAFKA_HOSTS || '').split(','),
-        logLevel: logLevel.WARN,
-    })
 
-    await deleteAllTopics(kafka)
+    const kafkaConfig = {
+        'client.id': 'plugin-server-test',
+        'metadata.broker.list': (config.KAFKA_HOSTS || '').split(',').join(','),
+    }
 
-    await createTopics(kafka, [
+    await createTopics(kafkaConfig, [
         KAFKA_EVENTS_JSON,
         KAFKA_EVENTS_PLUGIN_INGESTION,
         KAFKA_BUFFER,
@@ -40,38 +43,108 @@ export async function resetKafka(extraServerConfig?: Partial<PluginsServerConfig
         KAFKA_PERSON,
         KAFKA_PERSON_UNIQUE_ID,
         KAFKA_PERSON_DISTINCT_ID,
+        KAFKA_PERSON_DISTINCT_ID_OVERRIDES,
         KAFKA_PLUGIN_LOG_ENTRIES,
         KAFKA_EVENTS_DEAD_LETTER_QUEUE,
+        KAFKA_INGESTION_WARNINGS,
+        KAFKA_CLICKHOUSE_HEATMAP_EVENTS,
+        KAFKA_APP_METRICS,
+        KAFKA_APP_METRICS_2,
+        KAFKA_PERSON,
+        KAFKA_CLICKHOUSE_SESSION_RECORDING_EVENTS,
+        KAFKA_LOG_ENTRIES,
+        KAFKA_EVENTS_RECENT_JSON,
+        KAFKA_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES,
     ])
-
-    return kafka
 }
 
-export async function createTopics(kafka: Kafka, topics: string[]) {
-    const admin = kafka.admin()
-    await admin.connect()
+export async function createTopics(kafkaConfig: any, topics: string[]): Promise<void> {
+    const client = AdminClient.create(kafkaConfig)
+    const timeout = 10000
 
-    const existingTopics = await admin.listTopics()
-    const topicsToCreate = topics.filter((topic) => !existingTopics.includes(topic)).map((topic) => ({ topic }))
+    await deleteAllTopics(kafkaConfig)
 
-    if (topicsToCreate.length > 0) {
-        await admin.createTopics({
-            waitForLeaders: true,
-            topics: topicsToCreate,
+    for (const topic of topics) {
+        await new Promise<void>((resolve, reject) => {
+            client.createTopic(
+                { topic, num_partitions: 1, replication_factor: 1 },
+                timeout,
+                (error: LibrdKafkaError) => {
+                    if (error) {
+                        if (error.code === CODES.ERRORS.ERR_TOPIC_ALREADY_EXISTS) {
+                            resolve()
+                        } else {
+                            console.error(`Failed to create topic ${topic}:`, error)
+                            reject(error)
+                        }
+                    } else {
+                        console.log(`Created topic: ${topic}`)
+                        resolve()
+                    }
+                }
+            )
         })
     }
-    await admin.disconnect()
+
+    client.disconnect()
 }
 
-export async function deleteAllTopics(kafka: Kafka) {
-    const admin = kafka.admin()
-    try {
-        await admin.connect()
-        const topics = await admin.listTopics()
-        await admin.deleteTopics({ topics })
-    } catch (error) {
-        throw error
-    } finally {
-        await admin.disconnect()
+export async function deleteAllTopics(kafkaConfig: any): Promise<void> {
+    // Use a consumer to get metadata
+    const consumer = new KafkaConsumer(
+        {
+            ...kafkaConfig,
+            'group.id': 'temp-metadata-group',
+        },
+        {}
+    )
+
+    await new Promise<void>((resolve, reject) => {
+        consumer.on('ready', () => resolve())
+        consumer.on('event.error', (err) => reject(err))
+        consumer.connect()
+    })
+
+    // Get list of topics first
+    const metadata = await new Promise<any>((resolve, reject) => {
+        consumer.getMetadata({}, (err: any, metadata: any) => {
+            if (err) {
+                reject(err)
+            } else {
+                resolve(metadata)
+            }
+        })
+    })
+
+    consumer.disconnect()
+
+    const topicsToDelete = metadata.topics.map((t: any) => t.name).filter((name: string) => !name.startsWith('__')) // skip internal topics
+
+    if (topicsToDelete.length === 0) {
+        console.log('No topics to delete.')
+        return
     }
+
+    console.log('Deleting topics:', topicsToDelete)
+
+    // Use AdminClient to delete topics
+    const adminClient = AdminClient.create(kafkaConfig)
+    const timeout = 10000
+
+    // Delete topics one by one
+    for (const topic of topicsToDelete) {
+        await new Promise<void>((resolve, reject) => {
+            adminClient.deleteTopic(topic, timeout, (error: LibrdKafkaError) => {
+                if (error) {
+                    console.error(`Failed to delete topic ${topic}:`, error)
+                    reject(error)
+                } else {
+                    console.log(`Deleted topic: ${topic}`)
+                    resolve()
+                }
+            })
+        })
+    }
+
+    adminClient.disconnect()
 }

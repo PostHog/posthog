@@ -14,13 +14,13 @@ from rest_framework.serializers import BaseSerializer
 
 from posthog.api.app_metrics2 import AppMetricsMixin
 from posthog.api.log_entries import LogEntryMixin
-from posthog.api.hog_function_template import HogFunctionTemplates
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.cdp.validation import HogFunctionFiltersSerializer, InputsSchemaItemSerializer, InputsSerializer
 
 from posthog.models.activity_logging.activity_log import log_activity, changes_between, Detail
 from posthog.models.hog_flow.hog_flow import HogFlow
+from posthog.models.hog_function_template import HogFunctionTemplate
 from posthog.plugins.plugin_server_api import create_hog_flow_invocation_test
 
 
@@ -63,8 +63,7 @@ class HogFlowActionSerializer(serializers.Serializer):
     def validate(self, data):
         if "function" in data.get("type", ""):
             template_id = data.get("config", {}).get("template_id", "")
-            template = HogFunctionTemplates.template(template_id) if template_id else None
-
+            template = HogFunctionTemplate.get_template(template_id)
             if not template:
                 raise serializers.ValidationError({"template_id": "Template not found"})
 

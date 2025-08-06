@@ -1,7 +1,7 @@
-from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
+from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
 
 
-template: HogFunctionTemplate = HogFunctionTemplate(
+template: HogFunctionTemplateDC = HogFunctionTemplateDC(
     status="stable",
     free=True,
     type="destination",
@@ -11,7 +11,7 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     icon_url="/static/services/zapier.png",
     category=["Custom"],
     code_language="hog",
-    hog="""
+    code="""
 let hook_path := inputs.hook;
 let prefix := 'https://hooks.zapier.com/';
 // Remove the prefix if it exists

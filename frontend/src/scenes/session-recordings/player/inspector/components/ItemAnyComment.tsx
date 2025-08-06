@@ -1,5 +1,5 @@
-import { IconPencil } from '@posthog/icons'
-import { useActions } from 'kea'
+import { IconPencil, IconTrash } from '@posthog/icons'
+import { useActions, useValues } from 'kea'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
@@ -11,6 +11,8 @@ import {
 import { playerCommentModel } from 'scenes/session-recordings/player/commenting/playerCommentModel'
 import { RecordingCommentForm } from 'scenes/session-recordings/player/commenting/playerFrameCommentOverlayLogic'
 import { TextContent } from 'lib/components/Cards/TextCard/TextCard'
+import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
+import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
 
 export interface ItemCommentProps {
     item: InspectorListItemComment | InspectorListItemNotebookComment
@@ -93,9 +95,23 @@ function ItemCommentNotebookDetail({ item }: { item: InspectorListItemNotebookCo
 
 function ItemCommentDetail({ item }: { item: InspectorListItemComment }): JSX.Element {
     const { startCommenting } = useActions(playerCommentModel)
+    const { logicProps } = useValues(sessionRecordingPlayerLogic)
+    const dataLogic = sessionRecordingDataLogic(logicProps)
+    const { deleteComment } = useActions(dataLogic)
+
     return (
         <div data-attr="item-annotation-comment" className="font-light w-full flex flex-col gap-y-1">
-            <div className="px-2 py-1 text-xs border-t w-full flex justify-end items-center">
+            <div className="px-2 py-1 text-xs border-t w-full flex justify-end items-center gap-x-1">
+                <LemonButton
+                    type="secondary"
+                    onClick={() => {
+                        deleteComment(item.data.id)
+                    }}
+                    size="xsmall"
+                    icon={<IconTrash />}
+                >
+                    Delete
+                </LemonButton>
                 <LemonButton
                     type="secondary"
                     onClick={() => {

@@ -139,7 +139,9 @@
     background-color: var(--modal-backdrop-color);
     backdrop-filter: blur(var(--modal-backdrop-blur));
     opacity: 1;
-    transition: opacity 100ms ease-out, backdrop-filter 100ms ease-out;
+    transition:
+        opacity 100ms ease-out,
+        backdrop-filter 100ms ease-out;
 
     &.Navbar3000--hidden {
         pointer-events: none;

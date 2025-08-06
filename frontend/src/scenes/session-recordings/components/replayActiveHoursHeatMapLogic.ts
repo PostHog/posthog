@@ -38,7 +38,7 @@ export const getOnClickTooltip = (colIndex: number, rowIndex: number | undefined
 }
 
 // does not need to be on the logic yet, since it's stateless for now
-export const onCellClick = (colIndex: number, rowIndex: number | undefined): void => {
+export const onCellClick = (colIndex: number, rowIndex: number | undefined, timezone: string): void => {
     const daysToSubtract = 6 - colIndex
     let startDate = now().subtract(daysToSubtract, 'day').startOf('day').utc(true)
     let endDate = startDate.clone()
@@ -55,12 +55,19 @@ export const onCellClick = (colIndex: number, rowIndex: number | undefined): voi
     posthog.capture('clicked_replay_active_hours_heatmap_cell', {
         isColumnHeader: rowIndex == undefined,
         isIndividualCell: rowIndex != undefined,
+        timezone,
     })
 
+    const setTimezoneWithoutChangingOtherValues = true
     router.actions.push(
         urls.replay(ReplayTabs.Home, {
-            date_from: startDate.toISOString(),
-            date_to: endDate.toISOString(),
+            // here the browser might be in a different timezone to the project
+            // but the dateTime has already been corrected so we need to set the timezone
+            // but set `true` as the second parameter
+            // this means we set the project timezone on the dayjs object
+            // without changing the values
+            date_from: startDate.tz(timezone, setTimezoneWithoutChangingOtherValues).toISOString(),
+            date_to: endDate.tz(timezone, setTimezoneWithoutChangingOtherValues).toISOString(),
         })
     )
 }

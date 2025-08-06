@@ -5,7 +5,6 @@ import { capitalizeFirstLetter } from 'lib/utils'
 import { useLayoutEffect, useRef } from 'react'
 import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
 import { Notebook } from 'scenes/notebooks/Notebook/Notebook'
-import { JSONContent } from 'scenes/notebooks/Notebook/utils'
 import { groupDisplayId } from 'scenes/persons/GroupActorDisplay'
 
 import { navigation3000Logic } from '~/layout/navigation-3000/navigationLogic'
@@ -14,6 +13,7 @@ import { getQueryFromInsightLike } from '~/queries/nodes/InsightViz/utils'
 import { tabToName } from './constants'
 import { searchBarLogic } from './searchBarLogic'
 import { SearchResult as ResultType } from './types'
+import { JSONContent } from '../RichContentEditor/types'
 
 type SearchResultProps = {
     result: ResultType
@@ -67,8 +67,8 @@ export const SearchResult = ({ result, resultIndex, focused }: SearchResultProps
                         {result.type === 'tree_item'
                             ? `Product`
                             : result.type !== 'group'
-                            ? tabToName[result.type]
-                            : `${capitalizeFirstLetter(aggregationLabel(result.extra_fields.group_type_index).plural)}`}
+                              ? tabToName[result.type]
+                              : `${capitalizeFirstLetter(aggregationLabel(result.extra_fields.group_type_index).plural)}`}
                     </span>
                     <span className="text-primary font-bold">
                         <ResultName result={result} />

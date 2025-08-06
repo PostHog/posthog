@@ -1,4 +1,8 @@
 import type { MaxUIContext } from 'scenes/max/maxTypes'
+import type { MaxBillingContext } from 'scenes/max/maxBillingContextLogic'
+
+// re-export MaxBillingContext to make it available in the schema
+export type { MaxBillingContext }
 
 import {
     AssistantFunnelsQuery,

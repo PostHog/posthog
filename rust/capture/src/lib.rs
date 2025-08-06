@@ -10,6 +10,3 @@ pub mod token;
 pub mod utils;
 pub mod v0_endpoint;
 pub mod v0_request;
-
-// for use in integration tests only
-pub mod integration_test_utils;

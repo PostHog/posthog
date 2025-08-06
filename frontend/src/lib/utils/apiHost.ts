@@ -26,3 +26,17 @@ export function liveEventsHostOrigin(): string | null {
 
     return appContext?.livestream_host || 'http://localhost:8666'
 }
+
+export function publicWebhooksHostOrigin(): string | null {
+    const appOrigin = window.location.origin
+
+    if (appOrigin === 'https://us.posthog.com') {
+        return 'https://webhooks.us.posthog.com'
+    } else if (appOrigin === 'https://eu.posthog.com') {
+        return 'https://webhooks.eu.posthog.com'
+    } else if (appOrigin === 'https://app.dev.posthog.dev') {
+        return 'https://webhooks.dev.posthog.dev'
+    }
+
+    return appOrigin
+}

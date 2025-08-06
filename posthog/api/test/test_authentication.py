@@ -1004,19 +1004,15 @@ class TestProjectSecretAPIKeyAuthentication(APIBaseTest):
         self.assertIsInstance(user, ProjectSecretAPIKeyUser)
         self.assertEqual(user.team, self.team)
 
-    def test_authenticate_with_valid_secret_api_key_in_query_string(self):
-        # Simulate a request with a valid secret API key
+    def test_authenticate_with_secret_api_key_in_query_string_not_supported(self):
+        # Query string authentication should not be supported for security reasons
         wsgi_request = self.factory.get(f"/?secret_api_key={self.team.secret_api_token}")
         request = Request(wsgi_request)  # Wrap the WSGIRequest in a DRF Request
 
         authenticator = ProjectSecretAPIKeyAuthentication()
         result = authenticator.authenticate(request)
-        assert result is not None
-        user, _ = result
 
-        self.assertIsNotNone(user)
-        self.assertIsInstance(user, ProjectSecretAPIKeyUser)
-        self.assertEqual(user.team, self.team)
+        self.assertIsNone(result)
 
     def test_authenticate_with_invalid_secret_api_key(self):
         # Simulate a request with an invalid secret API key

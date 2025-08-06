@@ -56,7 +56,7 @@ class ToolRelevance(ScorerWithPartial):
         return Score(name=self._name(), score=score)
 
 
-class PlanAndQueryOutput(TypedDict):
+class PlanAndQueryOutput(TypedDict, total=False):
     plan: str | None
     query: AssistantTrendsQuery | AssistantFunnelsQuery | AssistantRetentionQuery | AssistantHogQLQuery
     query_generation_retry_count: int | None

@@ -1,7 +1,7 @@
-from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
+from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
 
 
-template: HogFunctionTemplate = HogFunctionTemplate(
+template: HogFunctionTemplateDC = HogFunctionTemplateDC(
     status="beta",
     free=False,
     type="destination",
@@ -11,7 +11,7 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     icon_url="/static/services/aws-kinesis.png",
     category=["Analytics"],
     code_language="hog",
-    hog="""
+    code="""
 fun getPayload() {
   let region := inputs.aws_region
   let service := 'kinesis'

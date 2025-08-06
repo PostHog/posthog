@@ -150,18 +150,26 @@ export function EnvironmentSwitcherOverlay({
             )
         }
 
-        const otherProjectsItems: Array<JSX.Element> = [
-            <Label intent="menu" className="px-2" key="other-projects-label">
-                Other projects
-            </Label>,
-            <div className="-mx-1 my-1 h-px bg-border-primary shrink-0" />,
-        ]
+        const otherProjectsItems: Array<JSX.Element> = []
+
         for (const [projectId, [projectName, projectTeams]] of searchedProjectsMap.entries()) {
             if (projectId === currentTeam?.project_id) {
                 continue
             }
             const projectNameWithoutEmoji = projectName.replace(EMOJI_INITIAL_REGEX, '').trim()
             const projectNameEmojiMatch = projectName.match(EMOJI_INITIAL_REGEX)?.[1]
+
+            // Add "Other projects" label just once, before any other projects are added
+            if (projectTeams.length > 0 && otherProjectsItems.length === 0) {
+                otherProjectsItems.push(
+                    <>
+                        <Label intent="menu" className="px-2">
+                            Other projects
+                        </Label>
+                        <div className="-mx-1.5 my-1 h-px bg-border-primary shrink-0" />
+                    </>
+                )
+            }
 
             otherProjectsItems.push(
                 <>
@@ -256,7 +264,7 @@ export function EnvironmentSwitcherOverlay({
                 >
                     <span className="truncate">{currentProject?.name ?? 'Project'}</span>
                     <LemonTag size="small" className="border-text-3000 uppercase ml-1.5">
-                        {currentTeam.name}
+                        <span className="truncate max-w-[100px]">{currentTeam.name}</span>
                     </LemonTag>
                     <DropdownMenuOpenIndicator />
                 </ButtonPrimitive>

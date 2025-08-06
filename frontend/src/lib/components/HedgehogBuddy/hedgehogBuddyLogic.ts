@@ -1,7 +1,6 @@
 import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
 import posthog from 'posthog-js'
 import { userLogic } from 'scenes/userLogic'
 
@@ -171,16 +170,5 @@ export const hedgehogBuddyLogic = kea<hedgehogBuddyLogicType>([
         } else {
             actions.loadRemoteConfig()
         }
-
-        posthog.getEarlyAccessFeatures((features) => {
-            const relatedEAF = features.find((x) => x.flagKey === FEATURE_FLAGS.HEDGEHOG_MODE)
-            if (relatedEAF) {
-                if (posthog.getFeatureFlag(FEATURE_FLAGS.HEDGEHOG_MODE)) {
-                    actions.setHedgehogModeEnabled(true)
-                }
-
-                posthog.updateEarlyAccessFeatureEnrollment(FEATURE_FLAGS.HEDGEHOG_MODE, false)
-            }
-        })
     }),
 ])

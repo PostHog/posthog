@@ -40,7 +40,7 @@ describe('fetch', () => {
             ['http://172.20.0.21', 'Hostname is not allowed'],
             ['http://fgtggggzzggggfd.com', 'Invalid hostname'],
         ])('should raise against unsafe URLs: %s', async (url, error) => {
-            await expect(raiseIfUserProvidedUrlUnsafe(url)).rejects.toThrow(new SecureRequestError(error))
+            await expect(raiseIfUserProvidedUrlUnsafe(url)).rejects.toThrow(error)
         })
     })
 

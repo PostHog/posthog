@@ -1,8 +1,7 @@
 import { IconSparkles, IconThumbsDown, IconThumbsDownFilled, IconThumbsUp, IconThumbsUpFilled } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { FlaggedFeature } from 'lib/components/FlaggedFeature'
-import { FEATURE_FLAGS } from 'lib/constants'
+
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import posthog from 'posthog-js'
@@ -40,7 +39,7 @@ export function ResponseSummariesButton({
     }
 
     return (
-        <FlaggedFeature flag={FEATURE_FLAGS.AI_SURVEY_RESPONSE_SUMMARY} match={true}>
+        <>
             {dataProcessingAccepted || !showConsentPopover ? (
                 <LemonButton
                     type="secondary"
@@ -68,7 +67,7 @@ export function ResponseSummariesButton({
                     </LemonButton>
                 </AIConsentPopoverWrapper>
             )}
-        </FlaggedFeature>
+        </>
     )
 }
 
@@ -76,7 +75,7 @@ export function ResponseSummariesDisplay(): JSX.Element {
     const { survey, responseSummary } = useValues(surveyLogic)
 
     return (
-        <FlaggedFeature flag={FEATURE_FLAGS.AI_SURVEY_RESPONSE_SUMMARY} match={true}>
+        <>
             {responseSummary ? (
                 <>
                     <h1>Responses summary</h1>
@@ -85,7 +84,7 @@ export function ResponseSummariesDisplay(): JSX.Element {
                     <ResponseSummaryFeedback surveyId={survey.id} />
                 </>
             ) : null}
-        </FlaggedFeature>
+        </>
     )
 }
 

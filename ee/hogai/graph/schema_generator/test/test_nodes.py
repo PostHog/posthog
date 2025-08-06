@@ -440,6 +440,18 @@ class TestSchemaGeneratorNode(BaseTest):
         self.assertEqual(history[16].type, "human")
         self.assertIn("Query 8", history[16].content)
 
+    async def test_agent_handles_incomplete_json(self):
+        node = DummyGeneratorNode(self.team, self.user)
+        with patch.object(
+            DummyGeneratorNode,
+            "_model",
+            return_value=RunnableLambda(
+                lambda _: """\n\n{\"query\":{\"kind\":\"RetentionQuery\",\"dateRange\":{\"date_from\":\"2024-01-01\",\"date_to\":\"2024-12-31\"},\"retentionFilter\":{\"period\":\"Week\",\"totalIntervals\":11,\"targetEntity\":{\"name\":\"Application Opened\",\"type\":\"events\"},\"returningEntity\":{\"name\":\"Application Opened\",\"type\":\"events\"}},\"filterTestAccounts\":false}\t \t\t \t\t \t \t"""
+            ),
+        ):
+            new_state = await node.arun(AssistantState(messages=[HumanMessage(content="Text")]), {})
+            self.assertEqual(len(new_state.intermediate_steps), 1)
+
 
 class TestSchemaGeneratorToolsNode(BaseTest):
     async def test_tools_node(self):

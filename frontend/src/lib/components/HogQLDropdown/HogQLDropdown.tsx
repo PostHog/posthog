@@ -10,11 +10,13 @@ export const HogQLDropdown = ({
     hogQLValue,
     onHogQLValueChange,
     tableName,
+    hogQLEditorPlaceholder,
     className = '',
 }: {
     hogQLValue: string
     tableName: string
     className?: string
+    hogQLEditorPlaceholder?: string
     onHogQLValueChange: (hogQLValue: string) => void
 }): JSX.Element => {
     const [isHogQLDropdownVisible, setIsHogQLDropdownVisible] = useState(false)
@@ -35,6 +37,7 @@ export const HogQLDropdown = ({
                                 onHogQLValueChange(currentValue)
                                 setIsHogQLDropdownVisible(false)
                             }}
+                            placeholder={hogQLEditorPlaceholder}
                         />
                     </div>
                 }

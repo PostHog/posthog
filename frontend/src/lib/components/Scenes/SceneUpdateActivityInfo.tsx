@@ -16,7 +16,7 @@ export function SceneActivityIndicator({
 }: SceneActivityIndicatorProps): JSX.Element | null {
     return at || by ? (
         <ScenePanelLabel title={prefix}>
-            <span className="flex items-center gap-1 whitespace-normal flex-wrap">
+            <span className="flex items-center gap-1 whitespace-normal flex-wrap mx-button-padding-x">
                 {at && <TZLabel time={at} className="w-fit" />}
                 {by && (
                     <>

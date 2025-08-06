@@ -21,7 +21,7 @@ export const createExampleSegmentInvocation = (
         teamId: hogFunction.team_id,
         functionId: hogFunction.id,
         hogFunction,
-        queue: 'segment',
+        queue: 'hog',
         queuePriority: 0,
     }
 }

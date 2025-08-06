@@ -17,7 +17,6 @@ from products.marketing_analytics.backend.hogql_queries.marketing_analytics_tabl
 )
 from products.marketing_analytics.backend.hogql_queries.constants import (
     DEFAULT_LIMIT,
-    DEFAULT_MARKETING_ANALYTICS_COLUMNS,
 )
 from products.marketing_analytics.backend.hogql_queries.adapters.base import MarketingSourceAdapter
 
@@ -96,35 +95,6 @@ class TestMarketingAnalyticsTableQueryRunner(ClickhouseTestMixin, BaseTest):
         assert isinstance(date_range, QueryDateRange)
         assert date_range.date_from_str.startswith("2023-01-01")
         assert date_range.date_to_str.startswith("2023-01-31")
-
-    def test_select_input_raw_default(self):
-        runner = self._create_query_runner()
-        columns = runner.select_input_raw()
-
-        assert columns == DEFAULT_MARKETING_ANALYTICS_COLUMNS
-
-    def test_select_input_raw_custom(self):
-        custom_columns = ["campaign_name", "source_name", "total_cost"]
-        custom_query = MarketingAnalyticsTableQuery(
-            dateRange=self.default_date_range,
-            select=custom_columns,
-            properties=[],
-        )
-        runner = self._create_query_runner(custom_query)
-        columns = runner.select_input_raw()
-
-        assert columns == custom_columns
-
-    def test_select_input_raw_empty_list(self):
-        custom_query = MarketingAnalyticsTableQuery(
-            dateRange=self.default_date_range,
-            select=[],
-            properties=[],
-        )
-        runner = self._create_query_runner(custom_query)
-        columns = runner.select_input_raw()
-
-        assert columns == DEFAULT_MARKETING_ANALYTICS_COLUMNS
 
     @patch(
         "products.marketing_analytics.backend.hogql_queries.marketing_analytics_table_query_runner.MarketingSourceFactory"

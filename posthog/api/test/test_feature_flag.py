@@ -460,6 +460,74 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(instance.analytics_dashboards.all()[0].id, dashboard.pk)
 
     @patch("posthog.api.feature_flag.report_user_action")
+    def test_create_feature_flag_with_evaluation_runtime(self, mock_capture):
+        # Test creating a feature flag with different evaluation_runtime values
+
+        # Test with "server"
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {"key": "server-side-flag", "evaluation_runtime": "server"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.json()["key"], "server-side-flag")
+        self.assertEqual(response.json()["evaluation_runtime"], "server")
+        instance = FeatureFlag.objects.get(id=response.json()["id"])
+        self.assertEqual(instance.evaluation_runtime, "server")
+
+        # Test with "client"
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {"key": "client-side-flag", "evaluation_runtime": "client"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.json()["evaluation_runtime"], "client")
+
+        # Test with "all"
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {"key": "all-flag", "evaluation_runtime": "all"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.json()["evaluation_runtime"], "all")
+
+        # Test default value (should be "all")
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {"key": "default-flag"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.json()["evaluation_runtime"], "all")
+
+    @patch("posthog.api.feature_flag.report_user_action")
+    def test_update_feature_flag_evaluation_runtime(self, mock_capture):
+        # Create a flag with default evaluation_runtime
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {"key": "flag-to-update"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        flag_id = response.json()["id"]
+        self.assertEqual(response.json()["evaluation_runtime"], "all")
+
+        # Update to "server"
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag_id}",
+            {"evaluation_runtime": "server"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["evaluation_runtime"], "server")
+
+        # Verify in database
+        instance = FeatureFlag.objects.get(id=flag_id)
+        self.assertEqual(instance.evaluation_runtime, "server")
+
+    @patch("posthog.api.feature_flag.report_user_action")
     def test_create_multivariate_feature_flag(self, mock_capture):
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/",
@@ -3072,15 +3140,6 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
         response = self.client.get(
             f"/api/feature_flag/local_evaluation",
-            data={"secret_api_key": secret_api_key},
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-        response = self.client.get(f"/api/feature_flag/local_evaluation?secret_api_key={secret_api_key}")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-        response = self.client.get(
-            f"/api/feature_flag/local_evaluation",
             HTTP_AUTHORIZATION=f"Bearer {secret_api_key}",
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -4456,7 +4515,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             {
                 "type": "validation_error",
                 "code": "invalid_input",
-                "detail": "Filters are not valid (can only use person and cohort properties)",
+                "detail": "Filters are not valid (can only use person, cohort, and flag properties)",
                 "attr": "filters",
             },
         )
@@ -4478,7 +4537,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             {
                 "type": "validation_error",
                 "code": "invalid_input",
-                "detail": "Filters are not valid (can only use person and cohort properties)",
+                "detail": "Filters are not valid (can only use person, cohort, and flag properties)",
                 "attr": "filters",
             },
         )
@@ -5247,6 +5306,30 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         assert response["results"][0]["key"] == "stale_multivariate"
         assert response["results"][0]["status"] == "STALE"
 
+    def test_get_flags_with_evaluation_runtime_filter(self):
+        # Create flags with different evaluation runtimes
+        FeatureFlag.objects.create(team=self.team, created_by=self.user, key="server_flag", evaluation_runtime="server")
+        FeatureFlag.objects.create(team=self.team, created_by=self.user, key="client_flag", evaluation_runtime="client")
+        FeatureFlag.objects.create(team=self.team, created_by=self.user, key="both_flag", evaluation_runtime="both")
+
+        # Test filtering by server environment
+        filtered_flags_list = self.client.get(f"/api/projects/@current/feature_flags?evaluation_runtime=server")
+        response = filtered_flags_list.json()
+        assert len(response["results"]) == 1
+        assert response["results"][0]["key"] == "server_flag"
+
+        # Test filtering by client environment
+        filtered_flags_list = self.client.get(f"/api/projects/@current/feature_flags?evaluation_runtime=client")
+        response = filtered_flags_list.json()
+        assert len(response["results"]) == 1
+        assert response["results"][0]["key"] == "client_flag"
+
+        # Test filtering by both environment
+        filtered_flags_list = self.client.get(f"/api/projects/@current/feature_flags?evaluation_runtime=both")
+        response = filtered_flags_list.json()
+        assert len(response["results"]) == 1
+        assert response["results"][0]["key"] == "both_flag"
+
     def test_flag_is_cached_on_create_and_update(self):
         # Ensure empty feature flag list
         FeatureFlag.objects.all().delete()
@@ -5297,7 +5380,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         assert flags is not None
         self.assertEqual(len(flags), 0)
 
-    @patch("posthog.api.feature_flag.FeatureFlagThrottle.rate", new="7/minute")
+    @patch("posthog.api.feature_flag.LocalEvaluationThrottle.rate", new="7/minute")
     @patch("posthog.rate_limit.BurstRateThrottle.rate", new="5/minute")
     @patch("posthog.rate_limit.statsd.incr")
     @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)

@@ -14,7 +14,7 @@ export const posthogPluginGeoip: LegacyTransformationPlugin = {
         icon_url: '/static/transformations/geoip.png',
         category: ['Custom'],
         code_language: 'javascript',
-        hog: `return event`,
+        code: `return event`,
         inputs_schema: [],
     },
 }

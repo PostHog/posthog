@@ -35,24 +35,24 @@ export function FunnelBarVertical({ showPersonsModal: showPersonsModalProp = tru
         seriesCount >= 60
             ? 4
             : seriesCount >= 20
-            ? 8
-            : seriesCount >= 12
-            ? 16
-            : seriesCount >= 10
-            ? 20
-            : seriesCount >= 8
-            ? 24
-            : seriesCount >= 6
-            ? 32
-            : seriesCount >= 5
-            ? 40
-            : seriesCount >= 4
-            ? 48
-            : seriesCount >= 3
-            ? 64
-            : seriesCount >= 2
-            ? 96
-            : 192
+              ? 8
+              : seriesCount >= 12
+                ? 16
+                : seriesCount >= 10
+                  ? 20
+                  : seriesCount >= 8
+                    ? 24
+                    : seriesCount >= 6
+                      ? 32
+                      : seriesCount >= 5
+                        ? 40
+                        : seriesCount >= 4
+                          ? 48
+                          : seriesCount >= 3
+                            ? 64
+                            : seriesCount >= 2
+                              ? 96
+                              : 192
 
     const scrollRef = useRef<HTMLDivElement | null>(null)
 

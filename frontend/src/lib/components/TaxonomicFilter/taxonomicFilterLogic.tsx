@@ -47,7 +47,6 @@ import {
     Experiment,
     FeatureFlagType,
     Group,
-    NotebookType,
     PersonProperty,
     PersonType,
     PropertyDefinition,
@@ -58,6 +57,7 @@ import {
 
 import { InlineHogQLEditor } from './InlineHogQLEditor'
 import type { taxonomicFilterLogicType } from './taxonomicFilterLogicType'
+import { NotebookType } from 'scenes/notebooks/types'
 
 export const eventTaxonomicGroupProps: Pick<TaxonomicFilterGroup, 'getPopoverHeader' | 'getIcon'> = {
     getPopoverHeader: (eventDefinition: EventDefinition): string => {
@@ -619,11 +619,12 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                     {
                         name: 'Feature Flags',
                         searchPlaceholder: 'feature flags',
-                        type: TaxonomicFilterGroupType.FeatureFlags,
+                        type: TaxonomicFilterGroupType.FeatureFlags, // Feature flag dependencies
                         endpoint: combineUrl(`api/projects/${projectId}/feature_flags/`).url,
                         getName: (featureFlag: FeatureFlagType) => featureFlag.key || featureFlag.name,
                         getValue: (featureFlag: FeatureFlagType) => featureFlag.id || '',
                         getPopoverHeader: () => `Feature Flags`,
+                        excludedProperties: excludedProperties?.[TaxonomicFilterGroupType.FeatureFlags],
                     },
                     {
                         name: 'Experiments',

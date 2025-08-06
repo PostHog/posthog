@@ -6,7 +6,7 @@ const labelVariants = cva({
     base: 'font-semibold',
     variants: {
         intent: {
-            menu: 'text-tertiary uppercase font-semibold text-[0.6875rem] leading-5 tracking-[0.075em] pt-1',
+            menu: 'text-tertiary uppercase font-semibold text-[0.6875rem] leading-5 tracking-[0.075em]',
         },
     },
 })

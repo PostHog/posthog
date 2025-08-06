@@ -43,7 +43,7 @@ export function PluginImage({
                 image: `https://raw.githubusercontent.com/${user}/${repo}/${path || 'main'}/logo.png`,
             })
         }
-    }, [url])
+    }, [url]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     return pluginType === 'source' ? (
         <IconTerminal

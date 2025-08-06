@@ -29,8 +29,16 @@ pub async fn do_issue_processing(
         let team_id = event.team_id;
 
         if let Entry::Vacant(e) = issue_handles.entry(to_resolve.clone()) {
-            let name = fingerprinted.exception_list[0].exception_type.clone();
-            let description = fingerprinted.exception_list[0].exception_message.clone();
+            let name = fingerprinted
+                .proposed_issue_name
+                .clone()
+                .unwrap_or(fingerprinted.exception_list[0].exception_type.clone());
+
+            let description = fingerprinted
+                .proposed_issue_description
+                .clone()
+                .unwrap_or(fingerprinted.exception_list[0].exception_message.clone());
+
             let event_timestamp = parse_ts_assuming_utc(&event.timestamp).unwrap_or_else(|e| {
                 warn!(
                     event = event.uuid.to_string(),

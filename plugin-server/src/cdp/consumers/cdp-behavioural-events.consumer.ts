@@ -1,7 +1,7 @@
 import { Client as CassandraClient } from 'cassandra-driver'
 import { createHash } from 'crypto'
 import { Message } from 'node-rdkafka'
-import { Counter } from 'prom-client'
+import { Histogram } from 'prom-client'
 
 import { KAFKA_EVENTS_JSON } from '../../config/kafka-topics'
 import { KafkaConsumer } from '../../kafka/consumer'
@@ -22,26 +22,23 @@ export type BehavioralEvent = {
     personId: string
 }
 
-export const counterParseError = new Counter({
-    name: 'cdp_behavioural_function_parse_error',
-    help: 'A behavioural function invocation was parsed with an error',
-    labelNames: ['error'],
+export const histogramActionLoading = new Histogram({
+    name: 'cdp_behavioural_action_loading_duration_ms',
+    help: 'Time spent loading actions for teams',
+    buckets: [1, 5, 10, 25, 50, 100, 250, 500],
 })
 
-export const counterEventsDropped = new Counter({
-    name: 'cdp_behavioural_events_dropped_total',
-    help: 'Total number of events dropped due to missing personId or other validation errors',
-    labelNames: ['reason'],
+export const histogramBatchProcessingSteps = new Histogram({
+    name: 'cdp_behavioural_batch_processing_steps_duration_ms',
+    help: 'Time spent in different batch processing steps',
+    labelNames: ['step'],
+    buckets: [1, 5, 10, 25, 50, 100, 250, 500, 1000, 2500],
 })
 
-export const counterEventsConsumed = new Counter({
-    name: 'cdp_behavioural_events_consumed_total',
-    help: 'Total number of events consumed by the behavioural consumer',
-})
-
-export const counterEventsMatchedTotal = new Counter({
-    name: 'cdp_behavioural_events_matched_total',
-    help: 'Total number of events that matched at least one action filter',
+export const histogramActionsPerTeam = new Histogram({
+    name: 'cdp_behavioural_actions_per_team',
+    help: 'Number of actions loaded per team',
+    buckets: [0, 1, 2, 5, 10, 20, 50, 100, 200, 500],
 })
 
 export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
@@ -59,7 +56,10 @@ export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
         if (hub.WRITE_BEHAVIOURAL_COUNTERS_TO_CASSANDRA) {
             this.cassandra = new CassandraClient({
                 contactPoints: [hub.CASSANDRA_HOST],
-                localDataCenter: 'datacenter1',
+                protocolOptions: {
+                    port: hub.CASSANDRA_PORT,
+                },
+                localDataCenter: hub.CASSANDRA_LOCAL_DATACENTER,
                 keyspace: hub.CASSANDRA_KEYSPACE,
                 credentials:
                     hub.CASSANDRA_USER && hub.CASSANDRA_PASSWORD
@@ -79,21 +79,19 @@ export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
                 return
             }
 
-            // Track events consumed and matched (absolute numbers)
-            let eventsMatched = 0
             const counterUpdates: CounterUpdate[] = []
 
-            const results = await Promise.all(events.map((event) => this.processEvent(event, counterUpdates)))
-            eventsMatched = results.reduce((sum, count) => sum + count, 0)
+            // Time event processing
+            const eventProcessingTimer = histogramBatchProcessingSteps.labels({ step: 'event_processing' }).startTimer()
+            await Promise.all(events.map((event) => this.processEvent(event, counterUpdates)))
+            eventProcessingTimer()
 
-            // Batch write all counter updates
+            // Time Cassandra writes
             if (counterUpdates.length > 0 && this.hub.WRITE_BEHAVIOURAL_COUNTERS_TO_CASSANDRA && this.cassandra) {
+                const cassandraTimer = histogramBatchProcessingSteps.labels({ step: 'cassandra_write' }).startTimer()
                 await this.writeBehavioralCounters(counterUpdates)
+                cassandraTimer()
             }
-
-            // Update metrics with absolute numbers
-            counterEventsConsumed.inc(events.length)
-            counterEventsMatchedTotal.inc(eventsMatched)
         })
     }
 
@@ -121,10 +119,14 @@ export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
     }
 
     private async loadActionsForTeam(teamId: number): Promise<Action[]> {
+        const timer = histogramActionLoading.startTimer()
         try {
             const actions = await this.hub.actionManagerCDP.getActionsForTeam(teamId)
+            timer()
+            histogramActionsPerTeam.observe(actions.length)
             return actions
         } catch (error) {
+            timer()
             logger.error('Error loading actions for team', { teamId, error })
             return []
         }
@@ -140,7 +142,7 @@ export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
         }
 
         try {
-            // Execute bytecode directly with the filter globals
+            // Execute bytecode synchronously using execHog
             const execHogOutcome = await execHog(action.bytecode, {
                 globals: event.filterGlobals,
                 telemetry: false,
@@ -152,7 +154,6 @@ export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
 
             const matchedFilter =
                 typeof execHogOutcome.execResult.result === 'boolean' && execHogOutcome.execResult.result
-
             if (matchedFilter) {
                 const filterHash = this.createFilterHash(action.bytecode!)
                 const date = new Date().toISOString().split('T')[0]
@@ -219,7 +220,6 @@ export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
                                     event: clickHouseEvent.event,
                                     uuid: clickHouseEvent.uuid,
                                 })
-                                counterEventsDropped.labels({ reason: 'missing_person_id' }).inc()
                                 return
                             }
 
@@ -233,7 +233,6 @@ export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
                             })
                         } catch (e) {
                             logger.error('Error parsing message', e)
-                            counterParseError.labels({ error: e.message }).inc()
                         }
                     })
                     // Return Promise.resolve to satisfy runInstrumentedFunction's Promise return type

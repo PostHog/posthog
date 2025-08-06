@@ -93,8 +93,8 @@ export function InsightMeta({
         nextAllowedClientRefresh && dayjs(nextAllowedClientRefresh).isAfter(dayjs())
             ? 'You are viewing the most recent calculated results.'
             : loading || loadingQueued || !refreshEnabled
-            ? 'Refreshing...'
-            : undefined
+              ? 'Refreshing...'
+              : undefined
 
     return (
         <CardMeta
