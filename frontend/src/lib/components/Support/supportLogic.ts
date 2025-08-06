@@ -487,36 +487,43 @@ export const supportLogic = kea<supportLogicType>([
 
             // Correlate component error with stored PostHog exceptions ONCE when form opens
             let enhancedErrorContext = errorContext
-            if (errorContext && window.recentPostHogExceptions && window.recentPostHogExceptions.length > 0) {
-                const recentExceptions = window.recentPostHogExceptions
-                let matchedPostHogException = null
+            try {
+                if (errorContext && window.recentPostHogExceptions && window.recentPostHogExceptions.length > 0) {
+                    const recentExceptions = window.recentPostHogExceptions
+                    let matchedPostHogException = null
 
-                // Try to find exact match based on error name/type and message/value
-                if (errorContext.type === 'react_error' && errorContext.error) {
-                    matchedPostHogException = recentExceptions.find(
-                        (exception) =>
-                            exception.errorName === errorContext.error.name &&
-                            exception.errorMessage === errorContext.error.message
-                    )
-                } else if (errorContext.type === 'analytics_error') {
-                    // For analytics errors, we might not have exact error name/message
-                    // So we'll use the most recent exception as fallback
-                    matchedPostHogException = null
-                }
+                    // Try to find exact match based on error name/type and message/value
+                    if (errorContext.type === 'react_error' && errorContext.error) {
+                        matchedPostHogException = recentExceptions.find(
+                            (exception) =>
+                                exception.errorName === errorContext.error.name &&
+                                exception.errorMessage === errorContext.error.message
+                        )
+                    } else if (errorContext.type === 'analytics_error') {
+                        // For analytics errors, we might not have exact error name/message
+                        // So we'll use the most recent exception as fallback
+                        matchedPostHogException = null
+                    }
 
-                // If no exact match found, use the most recent (latest) exception
-                if (!matchedPostHogException && recentExceptions.length > 0) {
-                    matchedPostHogException = recentExceptions[recentExceptions.length - 1]
-                }
+                    // If no exact match found, use the most recent (latest) exception
+                    if (!matchedPostHogException && recentExceptions.length > 0) {
+                        matchedPostHogException = recentExceptions[recentExceptions.length - 1]
+                    }
 
-                // Create enhanced error context with PostHog data
-                if (matchedPostHogException) {
-                    enhancedErrorContext = {
-                        ...errorContext,
-                        posthogEventUuid: matchedPostHogException.uuid,
-                        commitHash: matchedPostHogException.commitHash,
+                    // Create enhanced error context with PostHog data
+                    if (matchedPostHogException) {
+                        enhancedErrorContext = {
+                            ...errorContext,
+                            posthogEventUuid: matchedPostHogException.uuid,
+                            commitHash: matchedPostHogException.commitHash,
+                        }
                     }
                 }
+            } catch (correlationError) {
+                // Log correlation error but continue with original error context
+                console.error('Error context correlation failed:', correlationError)
+                posthog.captureException(correlationError, { context: 'error_context_correlation' })
+                enhancedErrorContext = errorContext
             }
 
             actions.resetSendSupportRequest({
@@ -860,36 +867,43 @@ export const supportLogic = kea<supportLogicType>([
 ])
 
 function getErrorContextString(errorContext: any): string {
-    if (!errorContext) {
-        return ''
+    try {
+        if (!errorContext) {
+            return ''
+        }
+
+        const formatters = {
+            react_error: (ctx: any) =>
+                [
+                    'Bug Type: React Error',
+                    ctx.error?.name && ctx.error?.message && `Error: ${ctx.error.name} - ${ctx.error.message}`,
+                ].filter(Boolean),
+
+            analytics_error: (ctx: any) =>
+                [
+                    'Bug Type: Analytics Error',
+                    ctx.queryId && `Query ID: ${ctx.queryId}`,
+                    ctx.title && `Title: ${ctx.title}`,
+                ].filter(Boolean),
+        }
+
+        const formatter = formatters[errorContext.type as keyof typeof formatters]
+        if (!formatter) {
+            return ''
+        }
+
+        const lines = [
+            '=== Error Context ===',
+            ...formatter(errorContext),
+            errorContext.posthogEventUuid && `Event: ${errorContext.posthogEventUuid}`,
+            errorContext.commitHash && `Commit: ${errorContext.commitHash}`,
+        ].filter(Boolean)
+
+        return `\n\n${lines.join('\n')}`
+    } catch (formatError) {
+        // Log formatting error but provide fallback
+        console.error('Error context formatting failed:', formatError)
+        posthog.captureException(formatError, { context: 'error_context_formatting' })
+        return `\n\n=== Error Context ===\nError context formatting failed`
     }
-
-    const formatters = {
-        react_error: (ctx: any) =>
-            [
-                'Bug Type: React Error',
-                ctx.error?.name && ctx.error?.message && `Error: ${ctx.error.name} - ${ctx.error.message}`,
-            ].filter(Boolean),
-
-        analytics_error: (ctx: any) =>
-            [
-                'Bug Type: Analytics Error',
-                ctx.queryId && `Query ID: ${ctx.queryId}`,
-                ctx.title && `Title: ${ctx.title}`,
-            ].filter(Boolean),
-    }
-
-    const formatter = formatters[errorContext.type as keyof typeof formatters]
-    if (!formatter) {
-        return ''
-    }
-
-    const lines = [
-        '=== Error Context ===',
-        ...formatter(errorContext),
-        errorContext.posthogEventUuid && `Event: ${errorContext.posthogEventUuid}`,
-        errorContext.commitHash && `Commit: ${errorContext.commitHash}`,
-    ].filter(Boolean)
-
-    return `\n\n${lines.join('\n')}`
 }

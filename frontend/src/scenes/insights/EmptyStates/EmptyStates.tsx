@@ -18,6 +18,7 @@ import { AccessControlledLemonButton } from 'lib/components/AccessControlledLemo
 import { BuilderHog3 } from 'lib/components/hedgehogs'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
+import posthog from 'posthog-js'
 import { dayjs } from 'lib/dayjs'
 import { IconErrorOutline, IconOpenInNew } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link'
@@ -26,7 +27,6 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { humanFriendlyNumber, humanizeBytes, inStorybook, inStorybookTestRunner } from 'lib/utils'
 import { getAppContext } from 'lib/utils/getAppContext'
-import posthog from 'posthog-js'
 import { useEffect, useState } from 'react'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { entityFilterLogic } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
@@ -621,13 +621,30 @@ export function InsightErrorState({
                             <Link
                                 data-attr="insight-error-bug-report"
                                 onClick={() => {
-                                    // Create error context for support ticket
-                                    const errorContext = {
-                                        type: 'analytics_error',
-                                        query: query,
-                                        queryId: queryId,
-                                        title: title,
-                                        url: window.location.href,
+                                    // Create error context for support ticket - gracefully handle failures
+                                    let errorContext = null
+                                    try {
+                                        errorContext = {
+                                            type: 'analytics_error',
+                                            query: query,
+                                            queryId: queryId,
+                                            title: title,
+                                            url: window.location.href,
+                                        }
+                                    } catch (contextError) {
+                                        // Log analytics context creation failure but provide fallback
+                                        console.error('Analytics error context creation failed:', contextError)
+                                        posthog.captureException(contextError, {
+                                            context: 'analytics_error_context_creation',
+                                        })
+
+                                        errorContext = {
+                                            type: 'analytics_error',
+                                            query: null,
+                                            queryId: 'unknown',
+                                            title: 'Analytics error context creation failed',
+                                            url: 'unknown',
+                                        }
                                     }
 
                                     openSupportForm({

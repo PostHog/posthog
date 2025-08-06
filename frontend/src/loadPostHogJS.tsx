@@ -42,18 +42,24 @@ export function loadPostHogJS(): void {
                 }
 
                 // Store exception events for correlation with user reports
-                if (payload && payload.event === '$exception' && payload.uuid) {
-                    window.recentPostHogExceptions = window.recentPostHogExceptions || []
-                    window.recentPostHogExceptions.push({
-                        uuid: payload.uuid,
-                        timestamp: Date.now(),
-                        errorName: payload.properties?.$exception_list[0]?.type || 'Unknown',
-                        errorMessage: payload.properties?.$exception_list[0]?.value || 'Unknown error',
-                        commitHash: payload.properties?.commit_sha || 'Unknown commit hash',
-                    })
+                try {
+                    if (payload && payload.event === '$exception' && payload.uuid) {
+                        window.recentPostHogExceptions = window.recentPostHogExceptions || []
+                        window.recentPostHogExceptions.push({
+                            uuid: payload.uuid,
+                            timestamp: Date.now(),
+                            errorName: payload.properties?.$exception_list[0]?.type || 'Unknown',
+                            errorMessage: payload.properties?.$exception_list[0]?.value || 'Unknown error',
+                            commitHash: payload.properties?.commit_sha || 'Unknown commit hash',
+                        })
 
-                    // Keep only last 5 exceptions
-                    window.recentPostHogExceptions = window.recentPostHogExceptions.slice(-5)
+                        // Keep only last 5 exceptions
+                        window.recentPostHogExceptions = window.recentPostHogExceptions.slice(-5)
+                    }
+                } catch (error) {
+                    // Log error but don't break PostHog event tracking
+                    console.error('PostHog exception storage failed:', error)
+                    posthog.captureException(error, { context: 'posthog_exception_storage' })
                 }
 
                 return payload

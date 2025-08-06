@@ -5,6 +5,7 @@ import { useActions, useValues } from 'kea'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { PostHogErrorBoundary } from 'posthog-js/react'
+import posthog from 'posthog-js'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -29,17 +30,40 @@ export function ErrorBoundary({ children, exceptionProps = {}, className }: Erro
         <PostHogErrorBoundary
             additionalProperties={additionalProperties}
             fallback={({ error: { stack, name, message } }: { error: Error }) => {
-                // Create error context for support ticket
-                const errorContext = {
-                    type: 'react_error',
-                    error: {
-                        name: name,
-                        message: message,
-                        stack: stack,
-                    },
-                    feature: exceptionProps?.feature || activeScene || 'unknown',
-                    url: window.location.href,
-                    teamId: currentTeamId,
+                // Create error context for support ticket - gracefully handle failures
+                let errorContext = null
+                try {
+                    errorContext = {
+                        type: 'react_error',
+                        error: {
+                            name: name || 'Error',
+                            message: message || 'Unknown error',
+                            stack: stack,
+                        },
+                        feature: exceptionProps?.feature || activeScene || 'unknown',
+                        url: window.location.href,
+                        teamId: currentTeamId,
+                    }
+                } catch (contextError) {
+                    // Log error context creation failure but provide fallback
+                    console.error('ErrorBoundary context creation failed:', contextError)
+                    try {
+                        posthog.captureException(contextError, { context: 'error_boundary_context_creation' })
+                    } catch (posthogError) {
+                        console.error('Failed to capture ErrorBoundary context error:', posthogError)
+                    }
+
+                    errorContext = {
+                        type: 'react_error',
+                        error: {
+                            name: 'Error',
+                            message: 'Error context creation failed',
+                            stack: null,
+                        },
+                        feature: 'unknown',
+                        url: 'unknown',
+                        teamId: null,
+                    }
                 }
 
                 return (
