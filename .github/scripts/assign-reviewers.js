@@ -54,7 +54,7 @@ function fileMatchesPattern(filePath, pattern) {
 
 function getChangedFiles() {
     try {
-        const output = execSync('git diff --name-only origin/main...HEAD', {
+        const output = execSync('git diff --name-only origin/master...HEAD', {
             encoding: 'utf8',
             stdio: ['pipe', 'pipe', 'ignore'],
         })
