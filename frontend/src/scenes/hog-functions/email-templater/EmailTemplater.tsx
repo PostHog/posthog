@@ -10,18 +10,23 @@ import EmailEditor from 'react-email-editor'
 import { emailTemplaterLogic, EmailTemplaterLogicProps } from './emailTemplaterLogic'
 
 import { unsubscribeLinkToolCustomJs } from './custom-tools/unsubscribeLinkTool'
+import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+import { IconExternal } from '@posthog/icons'
+import { urls } from 'scenes/urls'
+import { IntegrationConfigureProps } from 'lib/components/CyclotronJob/integrations/IntegrationChoice'
 
 export type EmailEditorMode = 'full' | 'preview'
 
 /**
  * email: basic email editor with free-text fields, used for configuring email platform realtime destinations
- * native-email: advanced editor with email integration dropdown, and additional email metafields
- * native-email-template: editor for creating reusable templates, with only subject and preheader, and email content fields
+ * native_email: advanced editor with email integration dropdown, and additional email metafields
+ * native_email-template: editor for creating reusable templates, with only subject and preheader, and email content fields
  */
-export type EmailTemplaterType = 'email' | 'native-email' | 'native-email-template'
-type EmailMetaFieldKey = 'from' | 'from-integration' | 'preheader' | 'to' | 'subject'
+export type EmailTemplaterType = 'email' | 'native_email' | 'native_email_template'
+type EmailMetaFieldKey = 'from' | 'from_integration' | 'preheader' | 'to' | 'subject'
 type EmailMetaField = {
     key: EmailMetaFieldKey
+    label: string
     optional: boolean
     helpText?: string
     isAdvancedField?: boolean
@@ -30,10 +35,9 @@ type EmailMetaField = {
 const EMAIL_META_FIELDS = {
     FROM: { key: 'from', label: 'From', optional: false },
     FROM_INTEGRATION: {
-        key: 'from-integration',
+        key: 'from_integration',
         label: 'From',
         optional: false,
-        helpText: 'The email integration to use for the sender address.',
     },
     PREHEADER: {
         key: 'preheader',
@@ -47,14 +51,14 @@ const EMAIL_META_FIELDS = {
 
 const EMAIL_TYPE_SUPPORTED_FIELDS: Record<EmailTemplaterType, EmailMetaField[]> = {
     email: [EMAIL_META_FIELDS.FROM, EMAIL_META_FIELDS.TO, EMAIL_META_FIELDS.SUBJECT],
-    'native-email': [
+    native_email: [
         EMAIL_META_FIELDS.FROM_INTEGRATION,
         EMAIL_META_FIELDS.TO,
         EMAIL_META_FIELDS.SUBJECT,
         EMAIL_META_FIELDS.PREHEADER,
     ],
-    'native-email-template': [EMAIL_META_FIELDS.SUBJECT, EMAIL_META_FIELDS.PREHEADER],
-}
+    native_email_template: [EMAIL_META_FIELDS.SUBJECT, EMAIL_META_FIELDS.PREHEADER],
+} as const
 
 function DestinationEmailTemplaterForm({ mode }: { mode: EmailEditorMode }): JSX.Element {
     const { logicProps, mergeTags } = useValues(emailTemplaterLogic)
@@ -133,8 +137,44 @@ function DestinationEmailTemplaterForm({ mode }: { mode: EmailEditorMode }): JSX
     )
 }
 
-function NativeEmailIntegrationPicker(): JSX.Element {
-    return
+function NativeEmailIntegrationChoice({ onChange, value }: IntegrationConfigureProps): JSX.Element {
+    const { integrationsLoading, integrations } = useValues(integrationsLogic)
+
+    const integrationsOfKind = integrations?.filter((x) => x.kind === 'email')
+
+    if (!integrationsLoading && integrationsOfKind?.length === 0) {
+        return (
+            <div className="flex gap-2 items-center justify-end">
+                <span className="text-muted">No email senders configured yet</span>
+                <LemonButton
+                    size="small"
+                    type="tertiary"
+                    to={urls.messaging('channels')}
+                    targetBlank
+                    className="m-1"
+                    icon={<IconExternal />}
+                >
+                    Connect email sender
+                </LemonButton>
+            </div>
+        )
+    }
+
+    return (
+        <>
+            <LemonSelect
+                className="m-1"
+                placeholder="Choose email sender"
+                loading={integrationsLoading}
+                options={(integrationsOfKind || []).map((integration) => ({
+                    label: integration.display_name,
+                    value: integration.id,
+                }))}
+                value={value}
+                onChange={onChange}
+            />
+        </>
+    )
 }
 
 function NativeEmailTemplaterForm({ mode }: { mode: EmailEditorMode }): JSX.Element {
@@ -171,8 +211,8 @@ function NativeEmailTemplaterForm({ mode }: { mode: EmailEditorMode }): JSX.Elem
                                 >
                                     {field.label}
                                 </LemonLabel>
-                                {field.key === 'from-integration' ? (
-                                    <NativeEmailIntegrationPicker />
+                                {field.key === 'from_integration' ? (
+                                    <NativeEmailIntegrationChoice value={value} onChange={onChange} />
                                 ) : (
                                     <CodeEditorInline
                                         embedded
@@ -187,24 +227,27 @@ function NativeEmailTemplaterForm({ mode }: { mode: EmailEditorMode }): JSX.Elem
                     </LemonField>
                 ))}
 
-                {isMessagingProductEnabled && templates.length > 0 && (
-                    <LemonSelect
-                        className="m-2"
-                        placeholder="Start from a template (optional)"
-                        loading={templatesLoading}
-                        value={appliedTemplate?.id}
-                        options={templates.map((template) => ({
-                            label: template.name,
-                            value: template.id,
-                        }))}
-                        onChange={(id) => {
-                            const template = templates.find((t) => t.id === id)
-                            if (template) {
-                                applyTemplate(template)
-                            }
-                        }}
-                        data-attr="email-template-selector"
-                    />
+                {isMessagingProductEnabled && (
+                    <div className="flex items-center gap-2 m-2">
+                        <LemonLabel>Start from a template (optional)</LemonLabel>
+                        <LemonSelect
+                            placeholder="Choose template"
+                            loading={templatesLoading}
+                            value={appliedTemplate?.id}
+                            options={templates.map((template) => ({
+                                label: template.name,
+                                value: template.id,
+                            }))}
+                            onChange={(id) => {
+                                const template = templates.find((t) => t.id === id)
+                                if (template) {
+                                    applyTemplate(template)
+                                }
+                            }}
+                            data-attr="email-template-selector"
+                            disabledReason={templates.length > 0 ? undefined : 'No templates created yet'}
+                        />
+                    </div>
                 )}
 
                 {mode === 'full' ? (
@@ -251,8 +294,8 @@ function EmailTemplaterForm({ mode }: { mode: EmailEditorMode }): JSX.Element {
     switch (logicProps.type) {
         case 'email':
             return <DestinationEmailTemplaterForm mode={mode} />
-        case 'native-email-template':
-        case 'native-email':
+        case 'native_email_template':
+        case 'native_email':
             return <NativeEmailTemplaterForm mode={mode} />
     }
 }

@@ -20,7 +20,7 @@ export const template: HogFunctionTemplate = {
 
     inputs_schema: [
         {
-            type: 'native-email',
+            type: 'native_email',
             key: 'email',
             label: 'Email message',
             integration: 'email',
@@ -29,8 +29,8 @@ export const template: HogFunctionTemplate = {
                 to: '{person.properties.email}',
                 from: null,
                 subject: 'PostHog Notification',
-                text: 'Hello from PostHog!',
-                html: '<h1>Hello from PostHog!</h1>',
+                text: '',
+                html: '',
             },
             secret: false,
             description: 'The email message to send. Configure the recipient, sender, subject, and content.',

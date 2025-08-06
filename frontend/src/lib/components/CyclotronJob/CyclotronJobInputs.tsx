@@ -183,7 +183,7 @@ function EmailTemplateField({
 }): JSX.Element {
     return (
         <EmailTemplater
-            type={schema.type as 'email' | 'native-email'}
+            type={schema.type as 'email' | 'native_email'}
             variables={sampleGlobalsWithInputs ?? {}}
             value={value}
             onChange={onChange}
@@ -413,7 +413,7 @@ function CyclotronJobInputRenderer({
                 />
             )
         case 'email':
-        case 'native-email':
+        case 'native_email':
             return (
                 <EmailTemplateField
                     schema={schema}
