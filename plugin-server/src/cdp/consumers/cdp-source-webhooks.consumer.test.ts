@@ -208,12 +208,8 @@ describe('SourceWebhooksConsumer', () => {
                 expect(res.body).toMatchInlineSnapshot(`{}`)
                 expect(mockExecuteSpy).not.toHaveBeenCalled()
                 expect(mockQueueInvocationsSpy).toHaveBeenCalledTimes(1)
-                expect(mockQueueInvocationsSpy).toHaveBeenCalledWith([
-                    expect.objectContaining({
-                        functionId: hogFunction.id,
-                        queue: 'hog_overflow',
-                    }),
-                ])
+                const call = mockQueueInvocationsSpy.mock.calls[0][0][0]
+                expect(call.queue).toEqual('hog_overflow')
             })
 
             it('should return a disabled response if the function is disabled', async () => {
