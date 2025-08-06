@@ -853,6 +853,7 @@ function getErrorContextString(errorContext: any): string {
         '=== Error Context ===',
         ...formatter(errorContext),
         errorContext.posthogEventUuid && `PostHog Event: ${errorContext.posthogEventUuid}`,
+        errorContext.commitHash && `Commit Hash: ${errorContext.commitHash}`,
     ].filter(Boolean)
 
     return `\n\n${lines.join('\n')}`
