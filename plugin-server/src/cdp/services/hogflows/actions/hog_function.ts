@@ -12,6 +12,7 @@ import {
 } from '../../../types'
 import { HogExecutorService } from '../../hog-executor.service'
 import { HogFunctionTemplateManagerService } from '../../managers/hog-function-template-manager.service'
+import { RecipientsManagerService } from '../../managers/recipients-manager.service'
 import { findContinueAction } from '../hogflow-utils'
 import { ActionHandler, ActionHandlerResult } from './action.interface'
 
@@ -19,12 +20,16 @@ export class HogFunctionHandler implements ActionHandler {
     constructor(
         private hub: Hub,
         private hogFunctionExecutor: HogExecutorService,
-        private hogFunctionTemplateManager: HogFunctionTemplateManagerService
+        private hogFunctionTemplateManager: HogFunctionTemplateManagerService,
+        private recipientsManager: RecipientsManagerService
     ) {}
 
     async execute(
         invocation: CyclotronJobInvocationHogFlow,
-        action: Extract<HogFlowAction, { type: 'function' }>,
+        action: Extract<
+            HogFlowAction,
+            { type: 'function' | 'function_email' | 'function_sms' | 'function_slack' | 'function_webhook' }
+        >,
         result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>
     ): Promise<ActionHandlerResult> {
         const functionResult = await this.executeHogFunction(invocation, action)
@@ -55,7 +60,10 @@ export class HogFunctionHandler implements ActionHandler {
 
     private async executeHogFunction(
         invocation: CyclotronJobInvocationHogFlow,
-        action: Extract<HogFlowAction, { type: 'function' }>
+        action: Extract<
+            HogFlowAction,
+            { type: 'function' | 'function_email' | 'function_sms' | 'function_slack' | 'function_webhook' }
+        >
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
         const template = await this.hogFunctionTemplateManager.getHogFunctionTemplate(action.config.template_id)
 
@@ -106,6 +114,80 @@ export class HogFunctionHandler implements ActionHandler {
             },
         }
 
+        // Check recipient preferences for email and SMS actions
+        if (this.isSubjectToRecipientPreferences(action)) {
+            const { isOptedOut } = await this.checkRecipientPreferences(invocation, action)
+            if (isOptedOut) {
+                return {
+                    finished: true,
+                    invocation: hogFunctionInvocation,
+                    logs: [
+                        {
+                            level: 'info',
+                            timestamp: DateTime.now(),
+                            message: `Recipient opted out for action ${action.id}`,
+                        },
+                    ],
+                    metrics: [],
+                    capturedPostHogEvents: [],
+                }
+            }
+        }
+
         return this.hogFunctionExecutor.executeWithAsyncFunctions(hogFunctionInvocation)
+    }
+
+    private isSubjectToRecipientPreferences(
+        action: HogFlowAction
+    ): action is Extract<HogFlowAction, { type: 'function_email' | 'function_sms' }> {
+        return ['function_email', 'function_sms'].includes(action.type)
+    }
+
+    private async checkRecipientPreferences(
+        invocation: CyclotronJobInvocationHogFlow,
+        action: Extract<HogFlowAction, { type: 'function_email' | 'function_sms' }>
+    ): Promise<{ isOptedOut: boolean }> {
+        // Get the identifier to be used from the action config for sms, this is an input called to_number,
+        // for email it is inside an input called email, specifically email.to.
+        let identifier
+
+        if (action.type === 'function_sms') {
+            identifier = action.config.inputs?.to_number
+        } else if (action.type === 'function_email') {
+            identifier = action.config.inputs?.email?.value?.to
+        }
+
+        if (!identifier) {
+            throw new Error(`No identifier found for message action ${action.id}`)
+        }
+
+        try {
+            const recipient = await this.recipientsManager.get({
+                teamId: invocation.teamId,
+                identifier: identifier,
+            })
+
+            if (recipient) {
+                // Grab the recipient preferences for the action category
+                const categoryId = action.config.message_category_id || '$all'
+
+                const preference = this.recipientsManager.getPreference(recipient, categoryId)
+                if (preference === 'OPTED_OUT') {
+                    return {
+                        isOptedOut: true,
+                    }
+                }
+            }
+
+            return {
+                isOptedOut: false,
+            }
+        } catch (error) {
+            // Log error but don't fail the execution
+            console.error(`Failed to fetch recipient preferences for ${identifier}:`, error)
+            return {
+                isOptedOut: false,
+            }
+        }
     }
 }

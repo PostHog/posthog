@@ -114,6 +114,7 @@ const HogFlowActionSchema = z.discriminatedUnion('type', [
         ..._commonActionFields,
         type: z.literal('function_sms'),
         config: z.object({
+            message_category_id: z.string().uuid(),
             template_uuid: z.string().uuid().optional(),
             template_id: z.literal('template-twilio'),
             inputs: z.record(CyclotronInputSchema),
