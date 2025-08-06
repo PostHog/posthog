@@ -141,7 +141,7 @@ class MarkdownTokenizer:
 
     def _parse_list_items(self, list_type: str, base_indent: str, start: int = 1) -> bool:
         """Parse consecutive list items."""
-        items = []
+        items: list[str] = []
 
         while self.pos < len(self.text):
             line = self._current_line()
@@ -158,7 +158,7 @@ class MarkdownTokenizer:
                 break
 
         if items:
-            token = {"type": list_type + "_list", "items": items}
+            token: dict[str, str | int | list[str]] = {"type": list_type + "_list", "items": items}
             if list_type == "ordered":
                 token["start"] = start
             self.tokens.append(token)
