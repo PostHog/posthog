@@ -18,12 +18,13 @@ const meta: Meta = {
 }
 export default meta
 
-const steps3000 = [25, 50, 100, 250, 350, 400, 450, 500]
+const stepsNeutral = [25, 50, 100, 250, 350, 400, 450, 500]
 const steps = [50, 100, 200, 300, 400, 500, 600, 700, 800, 900, 950]
 
 const primtiveColorMap: Map<string, number[]> = new Map([
-    ['primitive-3000', steps3000],
-    ['primitive-neutral-cool', steps],
+    ['color-posthog-3000', stepsNeutral],
+    ['color-neutral', steps],
+    ['color-neutral-cool', steps],
 
     // Tailwind colors
     ['color-red', steps],
@@ -218,28 +219,6 @@ export function SemanticColors(): JSX.Element {
         //     variableName: '--color-accent-secondary-highlight'
         // }
     ]
-    const textOnFillColors: RenderColorConfig[] = [
-        {
-            tailwindClass: 'text-info-on-fill',
-            description: 'the info text color on an info fill',
-            name: '--color-text-info-on-fill',
-        },
-        {
-            tailwindClass: 'text-warning-on-fill',
-            description: 'the warning text color on a warning fill',
-            name: '--color-text-warning-on-fill',
-        },
-        {
-            tailwindClass: 'text-error-on-fill',
-            description: 'the error text color on an error fill',
-            name: '--color-text-error-on-fill',
-        },
-        {
-            tailwindClass: 'text-success-on-fill',
-            description: 'the success text color on a success fill',
-            name: '--color-text-success-on-fill',
-        },
-    ]
     const backgroundColors: RenderColorConfig[] = [
         {
             tailwindClass: 'bg-primary',
@@ -381,16 +360,6 @@ export function SemanticColors(): JSX.Element {
                     </p>
                 </div>
                 <RenderTable colors={textColors} />
-            </div>
-            <div className="flex flex-col gap-4 border border-primary rounded-md p-2 bg-fill-primary">
-                <div className="deprecated-space-y-0">
-                    <h2>Text on fills</h2>
-                    <p>
-                        Text on fills are used to display content on a fill color, specifically ensuring contrast with
-                        the fill color.
-                    </p>
-                </div>
-                <RenderTable colors={textOnFillColors} />
             </div>
             <div className="flex flex-col gap-4 border border-primary rounded-md p-2 bg-fill-primary">
                 <div className="deprecated-space-y-0">
