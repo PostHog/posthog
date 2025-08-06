@@ -7,6 +7,7 @@ import functools
 import io
 import json
 import logging
+import tempfile
 import typing
 
 import pyarrow as pa
@@ -507,7 +508,7 @@ class SnowflakeClient:
 
     async def put_file_to_snowflake_table(
         self,
-        file: BatchExportTemporaryFile,
+        file: BatchExportTemporaryFile | io.IOBase,
         table_stage_prefix: str,
         table_name: str,
     ):
@@ -525,7 +526,10 @@ class SnowflakeClient:
             TypeError: If we don't get a tuple back from Snowflake (should never happen).
             SnowflakeFileNotUploadedError: If the upload status is not 'UPLOADED'.
         """
-        file.rewind()
+        if isinstance(file, BatchExportTemporaryFile):
+            file.rewind()
+        else:
+            file.seek(0)
 
         # We comply with the file-like interface of io.IOBase.
         # So we ask mypy to be nice with us.
@@ -816,8 +820,6 @@ class SnowflakeConsumerFromStage(ConsumerFromStage):
     without concurrent uploads, just using the new pipeline interface.
     """
 
-    # TODO - handle multiple_files
-
     def __init__(
         self,
         data_interval_start: dt.datetime | str | None,
@@ -868,21 +870,15 @@ class SnowflakeConsumerFromStage(ConsumerFromStage):
             self.snowflake_table,
         )
 
+        # TODO - see if we can remove the need for a temporary file
         # Create a temporary file for the data
-        import os
-        import tempfile
 
-        with tempfile.NamedTemporaryFile(mode="wb", suffix=".jsonl", delete=False) as temp_file:
+        with tempfile.NamedTemporaryFile(suffix=".jsonl") as temp_file:
             temp_file.write(data)
-            temp_file_path = temp_file.name
-
-        try:
-            # Create a BatchExportTemporaryFile wrapper
-            temp_batch_file = BatchExportTemporaryFile(temp_file_path, encoding="utf-8")
 
             # Upload to Snowflake
             await self.snowflake_client.put_file_to_snowflake_table(
-                temp_batch_file,
+                temp_file,
                 self.snowflake_table_stage_prefix,
                 self.snowflake_table,
             )
@@ -893,13 +889,6 @@ class SnowflakeConsumerFromStage(ConsumerFromStage):
                 len(data),
                 self.snowflake_table,
             )
-
-        finally:
-            # Clean up temporary file
-            try:
-                os.unlink(temp_file_path)
-            except OSError:
-                pass  # Best effort cleanup
 
     async def finalize(self):
         """Finalize by uploading any remaining data."""
@@ -1249,7 +1238,6 @@ async def insert_into_snowflake_activity_from_stage(inputs: SnowflakeInsertInput
                     json_columns=known_variant_columns,
                 )
 
-                # TODO - handle multiple_files
                 # TODO - move this into the consumer finalize method
                 # Copy all staged files to the table
                 await snow_client.copy_loaded_files_to_snowflake_table(

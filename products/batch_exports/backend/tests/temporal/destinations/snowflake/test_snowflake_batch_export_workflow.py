@@ -181,7 +181,7 @@ async def _run_workflow(
     return run
 
 
-@pytest.mark.parametrize("use_internal_stage", [False])
+@pytest.mark.parametrize("use_internal_stage", [True, False])
 class TestSnowflakeExportWorkflowMockedConnection:
     @pytest.fixture(autouse=True)
     def mock_snowflake_connection(self):
