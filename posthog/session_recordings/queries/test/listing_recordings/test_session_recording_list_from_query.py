@@ -38,8 +38,9 @@ from posthog.test.base import (
     ClickhouseTestMixin,
     _create_person,
     also_test_with_materialized_columns,
-    flush_persons_and_events,
     snapshot_clickhouse_queries,
+    _create_event,
+    flush_persons_and_events,
 )
 from posthog.models.cohort import Cohort
 
@@ -116,10 +117,11 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             session = f"{label}-session-{i}"
             sessions.append(session)
 
+            person_properties = session_one_person_properties if i == 0 else session_two_person_properties
             Person.objects.create(
                 team=self.team,
                 distinct_ids=[user],
-                properties=session_one_person_properties if i == 0 else session_two_person_properties,
+                properties=person_properties,
             )
 
             produce_replay_summary(
@@ -127,12 +129,31 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
                 session_id=session,
                 first_timestamp=self.an_hour_ago,
                 team_id=self.team.id,
+                ensure_analytics_event_in_session=False,
             )
             produce_replay_summary(
                 distinct_id=user,
                 session_id=session,
                 first_timestamp=(self.an_hour_ago + relativedelta(seconds=30)),
                 team_id=self.team.id,
+                ensure_analytics_event_in_session=False,
+            )
+
+            _create_event(
+                distinct_id=user,
+                event="$pageview",
+                properties={"$session_id": session},
+                team_id=self.team.id,
+                # before identify
+                person_properties={"email": None},
+            )
+            _create_event(
+                distinct_id=user,
+                event="$pageview",
+                properties={"$session_id": session},
+                team_id=self.team.id,
+                # maybe after identify
+                person_properties={"email": person_properties.get("email", None)},
             )
 
         return sessions[0], sessions[1]

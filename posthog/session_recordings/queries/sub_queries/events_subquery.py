@@ -48,6 +48,16 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
 
         return event_exprs
 
+    @staticmethod
+    def _has_negative_operator(candidate: any) -> bool:
+        # noinspection PyBroadException
+        try:
+            if isinstance(candidate, dict):
+                return candidate.get("operator", None) in NEGATIVE_OPERATORS
+            return candidate.operator in NEGATIVE_OPERATORS
+        except:
+            return False
+
     @property
     def _negative_event_predicates(self) -> list[ast.Expr]:
         event_exprs: list[ast.Expr] = []
@@ -60,7 +70,7 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
 
             for prop in entity.properties or []:
                 # TODO how can we make this work for HogQL property filters
-                if "operator" in prop and prop.operator in NEGATIVE_OPERATORS:
+                if self._has_negative_operator(prop):
                     entity_exprs.append(property_to_expr(entity.properties, team=self._team, scope="replay_entity"))
 
             if entity_exprs:
@@ -235,7 +245,7 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
             # when we're saying property is not set then we have to check it is not set on every event
             # e.g. countIf(JSONHas(events.properties, '$feature/target-flag')) = 0
             for prop in self.event_properties:
-                if getattr(prop, "operator", None) in NEGATIVE_OPERATORS:
+                if self._has_negative_operator(prop):
                     exprs.append(
                         ast.CompareOperation(
                             op=ast.CompareOperationOp.Eq,
@@ -295,7 +305,7 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
 
         for p in self.event_properties:
             # TODO how can we detect negative queries
-            if "operator" in p and p.operator in NEGATIVE_OPERATORS:
+            if self._has_negative_operator(p):
                 gathered_exprs.append(
                     property_to_expr(
                         p,
@@ -305,13 +315,13 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
                 )
 
         for p in self.group_properties:
-            if p.operator in NEGATIVE_OPERATORS:
+            if self._has_negative_operator(p):
                 gathered_exprs.append(property_to_expr(p, team=self._team))
 
         if self._team.person_on_events_mode and self.person_properties:
             for p in self.person_properties:
                 # need a solution here for HogQL property filters
-                if "operator" in p and p.operator in NEGATIVE_OPERATORS:
+                if self._has_negative_operator(p):
                     gathered_exprs.append(property_to_expr(p, team=self._team, scope="event"))
 
         if gathered_exprs:
