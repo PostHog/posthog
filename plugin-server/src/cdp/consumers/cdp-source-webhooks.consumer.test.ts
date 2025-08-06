@@ -193,7 +193,7 @@ describe('SourceWebhooksConsumer', () => {
             })
         })
 
-        describe('degraded functions', () => {
+        describe('hogwatcher', () => {
             it('should return a degraded response if the function is degraded', async () => {
                 await api['cdpSourceWebhooksConsumer']['hogWatcher'].forceStateChange(
                     hogFunction,
@@ -213,6 +213,20 @@ describe('SourceWebhooksConsumer', () => {
                         functionId: hogFunction.id,
                     }),
                 ])
+            })
+
+            it('should return a disabled response if the function is disabled', async () => {
+                await api['cdpSourceWebhooksConsumer']['hogWatcher'].forceStateChange(
+                    hogFunction,
+                    HogWatcherState.disabled
+                )
+                const res = await doRequest({})
+                expect(res.status).toEqual(429)
+                expect(res.body).toEqual({
+                    error: 'Disabled',
+                })
+                expect(mockExecuteSpy).not.toHaveBeenCalled()
+                expect(mockQueueInvocationsSpy).not.toHaveBeenCalled()
             })
         })
     })
