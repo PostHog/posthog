@@ -211,6 +211,7 @@ describe('SourceWebhooksConsumer', () => {
                 expect(mockQueueInvocationsSpy).toHaveBeenCalledWith([
                     expect.objectContaining({
                         functionId: hogFunction.id,
+                        queue: 'hog_overflow',
                     }),
                 ])
             })
