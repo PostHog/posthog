@@ -17,8 +17,6 @@ export interface AggregatedBehaviouralEvent extends CohortFilterPayload {
     counter: number
 }
 
-export type EventToWrite = PersonEventPayload | AggregatedBehaviouralEvent
-
 export class CdpAggregationWriterConsumer extends CdpConsumerBase {
     protected name = 'CdpAggregationWriterConsumer'
     private kafkaConsumer: KafkaConsumer
@@ -103,28 +101,38 @@ export class CdpAggregationWriterConsumer extends CdpConsumerBase {
 
     // Process batch by aggregating and writing to postgres
     private async processBatch(parsedBatch: ParsedBatch): Promise<void> {
-        const eventsToWrite: EventToWrite[] = []
-
         // Deduplicate person performed events
         const deduplicatedPersonEvents = this.deduplicatePersonPerformedEvents(parsedBatch.personPerformedEvents)
-        eventsToWrite.push(...deduplicatedPersonEvents)
 
         // Aggregate behavioural filter matched events
         const aggregatedBehaviouralEvents = this.aggregateBehaviouralFilterMatchedEvents(
             parsedBatch.behaviouralFilterMatchedEvents
         )
-        eventsToWrite.push(...aggregatedBehaviouralEvents)
 
         logger.info('Processing batch', {
             originalPersonPerformedEventsCount: parsedBatch.personPerformedEvents.length,
             deduplicatedPersonPerformedEventsCount: deduplicatedPersonEvents.length,
             originalBehaviouralFilterMatchedEventsCount: parsedBatch.behaviouralFilterMatchedEvents.length,
             aggregatedBehaviouralFilterMatchedEventsCount: aggregatedBehaviouralEvents.length,
-            totalEventsToWrite: eventsToWrite.length,
         })
 
         // TODO: Implement batch write to postgres using efficient upsert queries
-        // This will write all eventsToWrite in one transaction
+        // This will write both arrays in one transaction
+        await this.writeToPostgres(deduplicatedPersonEvents, aggregatedBehaviouralEvents)
+    }
+
+    // Write both event types to postgres in a single transaction
+    private async writeToPostgres(
+        personEvents: PersonEventPayload[],
+        behaviouralEvents: AggregatedBehaviouralEvent[]
+    ): Promise<void> {
+        // TODO: Implement postgres transaction with batch inserts for both tables
+        logger.info('Writing to postgres', {
+            personEventsCount: personEvents.length,
+            behaviouralEventsCount: behaviouralEvents.length,
+        })
+
+        // Placeholder for actual postgres implementation
         return Promise.resolve()
     }
 
