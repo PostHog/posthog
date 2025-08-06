@@ -1,4 +1,4 @@
-import { actions, kea, path, reducers } from 'kea'
+import { actions, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import api, { ApiMethodOptions, PaginatedResponse } from 'lib/api'
 
@@ -8,23 +8,26 @@ import type { externalDataSourcesLogicType } from './externalDataSourcesLogicTyp
 
 export const externalDataSourcesLogic = kea<externalDataSourcesLogicType>([
     path(['scenes', 'data-warehouse', 'externalDataSourcesLogic']),
-    actions({}),
-    loaders(({ cache, values }) => ({
+    actions({
+        abortAnyRunningQuery: true,
+    }),
+    loaders(({ cache, values, actions }) => ({
         dataWarehouseSources: [
             null as PaginatedResponse<ExternalDataSource> | null,
             {
                 loadSources: async (_, breakpoint) => {
                     await breakpoint(300)
+                    actions.abortAnyRunningQuery()
 
                     cache.abortController = new AbortController()
                     const methodOptions: ApiMethodOptions = {
                         signal: cache.abortController.signal,
                     }
-
                     const res = await api.externalDataSources.list(methodOptions)
                     breakpoint()
 
                     cache.abortController = null
+
                     return res
                 },
                 updateSource: async (source: ExternalDataSource) => {
@@ -48,5 +51,13 @@ export const externalDataSourcesLogic = kea<externalDataSourcesLogicType>([
                 loadSourcesSuccess: () => cache.abortController !== null,
             },
         ],
+    })),
+    listeners(({ cache }) => ({
+        abortAnyRunningQuery: () => {
+            if (cache.abortController) {
+                cache.abortController.abort()
+                cache.abortController = null
+            }
+        },
     })),
 ])

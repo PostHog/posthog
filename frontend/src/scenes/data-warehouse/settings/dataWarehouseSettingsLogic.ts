@@ -35,7 +35,6 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
         reloadSource: (source: ExternalDataSource) => ({ source }),
         sourceLoadingFinished: (source: ExternalDataSource) => ({ source }),
         schemaLoadingFinished: (schema: ExternalDataSourceSchema) => ({ schema }),
-        abortAnyRunningQuery: true,
         deleteSelfManagedTable: (tableId: string) => ({ tableId }),
         refreshSelfManagedTableSchema: (tableId: string) => ({ tableId }),
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
@@ -180,12 +179,6 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
                 }
             }
             actions.sourceLoadingFinished(source)
-        },
-        abortAnyRunningQuery: () => {
-            if (cache.abortController) {
-                cache.abortController.abort()
-                cache.abortController = null
-            }
         },
         updateSchema: (schema) => {
             posthog.capture('schema updated', { shouldSync: schema.should_sync, syncType: schema.sync_type })
