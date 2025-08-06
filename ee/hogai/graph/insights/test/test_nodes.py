@@ -596,7 +596,8 @@ class TestInsightSearchNode(BaseTest):
         query_info_empty = self.node._get_basic_query_info_from_insight(empty_insight)
         self.assertIsNone(query_info_empty)
 
-    def test_non_executable_insights_handling(self):
+    @patch("ee.hogai.graph.insights.nodes.ChatOpenAI")
+    def test_non_executable_insights_handling(self, mock_openai):
         """Test that non-executable insights are presented to LLM but rejected."""
         # Create a mock insight that can't be visualized
         mock_insight = Insight(
@@ -617,6 +618,20 @@ class TestInsightSearchNode(BaseTest):
             return original_find(insight_id)
 
         self.node._find_insight_by_id = mock_find
+
+        # Should reject
+        mock_response = MagicMock()
+        mock_response.tool_calls = [
+            {
+                "name": "reject_all_insights",
+                "args": {"reason": "This insight cannot be executed due to missing query/filters"},
+                "id": "call_1",
+            }
+        ]
+
+        mock_llm = MagicMock()
+        mock_llm.invoke.return_value = mock_response
+        mock_openai.return_value = mock_llm
 
         # Test evaluation with non-executable insight
         result = self.node._evaluate_insights_with_tools([99999], "test query", max_selections=1)

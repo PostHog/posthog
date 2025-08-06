@@ -28,6 +28,9 @@ ITERATIVE_SEARCH_USER_PROMPT = """
 Find 3 insights matching this search query: {query}
 
 Return the insight IDs as a list of numbers.
+
+Example output format:
+[42, 17, 205]
 """
 
 PAGINATION_INSTRUCTIONS_TEMPLATE = """You can read additional pages using the read_insights_page(page_number) tool. Read additional pages until you have found the most relevant insights. There are {total_pages} total pages available (0-indexed). Note: Page 0 data is already provided above in the initial context."""

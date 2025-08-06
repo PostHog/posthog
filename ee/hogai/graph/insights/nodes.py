@@ -44,7 +44,7 @@ class InsightSearchNode(AssistantNode):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._current_page = 0
-        self._page_size = 300
+        self._page_size = 50
         self._max_iterations = 6
         self._current_iteration = 0
         self._loaded_pages = {}
