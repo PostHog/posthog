@@ -430,7 +430,7 @@ class InsightSerializer(InsightBasicSerializer):
 
         # schedule the insight query metadata extraction
         query_meta_task = extract_insight_query_metadata.delay(insight_id=insight.id)
-        logger.info(
+        logger.warn(
             "scheduled extract_insight_query_metadata",
             insight_id=insight.id,
             task_id=query_meta_task.id,
@@ -510,7 +510,7 @@ class InsightSerializer(InsightBasicSerializer):
 
         if not before_update or before_update.query != updated_insight.query:
             query_meta_task = extract_insight_query_metadata.delay(insight_id=updated_insight.id)
-            logger.info(
+            logger.warn(
                 "scheduled extract_insight_query_metadata",
                 insight_id=updated_insight.id,
                 task_id=query_meta_task.id,
