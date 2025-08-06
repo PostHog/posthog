@@ -38,7 +38,17 @@ import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown/LemonMarkdown'
 
 export const EXTEND_OBJECT_KEY = '$$_extend_object'
 
-const INPUT_TYPE_LIST = ['string', 'number', 'boolean', 'dictionary', 'choice', 'json', 'integration', 'email'] as const
+const INPUT_TYPE_LIST = [
+    'string',
+    'number',
+    'boolean',
+    'dictionary',
+    'choice',
+    'json',
+    'integration',
+    'email',
+    'native_email',
+] as const
 
 export type CyclotronJobInputsProps = {
     onInputChange?: (key: string, input: CyclotronJobInputType) => void
