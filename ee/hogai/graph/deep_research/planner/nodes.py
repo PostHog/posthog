@@ -2,7 +2,7 @@ import logging
 
 from langchain_openai import ChatOpenAI
 from ee.hogai.graph.base import AssistantNode
-from ee.hogai.graph.deep_research.notebook_serializer import NotebookSerializer
+from ee.hogai.notebook.notebook_serializer import NotebookSerializer
 from ee.hogai.utils.helpers import extract_content_from_ai_message
 from ee.hogai.utils.types import (
     DeepResearchIntermediateResult,
