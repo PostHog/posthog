@@ -10,7 +10,22 @@ import {
     AssistantRetentionQuery,
     AssistantTrendsQuery,
 } from './schema-assistant-queries'
-import { JSONContent as TTJSONContent } from '@tiptap/core'
+
+// Define ProsemirrorJSONContent locally to avoid exporting the TipTap type into schema.json
+// which leads to improper type naming
+// This matches the TipTap/Prosemirror JSONContent structure
+export interface ProsemirrorJSONContent {
+    type?: string
+    attrs?: Record<string, any>
+    content?: ProsemirrorJSONContent[]
+    marks?: {
+        type: string
+        attrs?: Record<string, any>
+        [key: string]: any
+    }[]
+    text?: string
+    [key: string]: any
+}
 
 export enum AssistantMessageType {
     Human = 'human',
@@ -87,7 +102,7 @@ export interface FailureMessage extends BaseAssistantMessage {
 export interface NotebookUpdateMessage extends BaseAssistantMessage {
     type: AssistantMessageType.Notebook
     notebook_id: string
-    content: TTJSONContent
+    content: ProsemirrorJSONContent
     tool_calls?: AssistantToolCall[]
 }
 

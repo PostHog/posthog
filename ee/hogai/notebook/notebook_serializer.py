@@ -3,7 +3,7 @@ import logging
 from urllib.parse import urlparse, unquote
 from typing import Optional
 
-from posthog.schema import JSONContent, Mark
+from posthog.schema import ProsemirrorJSONContent, Mark
 
 logger = logging.getLogger(__name__)
 
@@ -244,38 +244,41 @@ class NotebookSerializer:
         "code": "code",
     }
 
-    def to_json_paragraph(self, input: str | list[JSONContent]) -> JSONContent:
-        return JSONContent(
-            type="paragraph", content=input if isinstance(input, list) else [JSONContent(type="text", text=input)]
+    def to_json_paragraph(self, input: str | list[ProsemirrorJSONContent]) -> ProsemirrorJSONContent:
+        return ProsemirrorJSONContent(
+            type="paragraph",
+            content=input if isinstance(input, list) else [ProsemirrorJSONContent(type="text", text=input)],
         )
 
-    def to_json_heading(self, input: str | list[JSONContent], level: int) -> JSONContent:
-        return JSONContent(
+    def to_json_heading(self, input: str | list[ProsemirrorJSONContent], level: int) -> ProsemirrorJSONContent:
+        return ProsemirrorJSONContent(
             type="heading",
             attrs={"level": level},
-            content=input if isinstance(input, list) else [JSONContent(type="text", text=input)],
+            content=input if isinstance(input, list) else [ProsemirrorJSONContent(type="text", text=input)],
         )
 
-    def to_json_bullet_list(self, items: list[JSONContent]) -> JSONContent:
-        return JSONContent(type="bulletList", content=items)
+    def to_json_bullet_list(self, items: list[ProsemirrorJSONContent]) -> ProsemirrorJSONContent:
+        return ProsemirrorJSONContent(type="bulletList", content=items)
 
-    def to_json_ordered_list(self, items: list[JSONContent], start: int = 1) -> JSONContent:
-        return JSONContent(type="orderedList", attrs={"start": start}, content=items)
+    def to_json_ordered_list(self, items: list[ProsemirrorJSONContent], start: int = 1) -> ProsemirrorJSONContent:
+        return ProsemirrorJSONContent(type="orderedList", attrs={"start": start}, content=items)
 
-    def to_json_list_item(self, content: list[JSONContent]) -> JSONContent:
-        return JSONContent(type="listItem", content=content)
+    def to_json_list_item(self, content: list[ProsemirrorJSONContent]) -> ProsemirrorJSONContent:
+        return ProsemirrorJSONContent(type="listItem", content=content)
 
-    def to_json_code_block(self, code: str, language: str | None = None) -> JSONContent:
+    def to_json_code_block(self, code: str, language: str | None = None) -> ProsemirrorJSONContent:
         attrs = {"language": language} if language else {}
-        return JSONContent(type="codeBlock", attrs=attrs, content=[JSONContent(type="text", text=code)])
+        return ProsemirrorJSONContent(
+            type="codeBlock", attrs=attrs, content=[ProsemirrorJSONContent(type="text", text=code)]
+        )
 
-    def to_json_blockquote(self, content: list[JSONContent]) -> JSONContent:
-        return JSONContent(type="blockquote", content=content)
+    def to_json_blockquote(self, content: list[ProsemirrorJSONContent]) -> ProsemirrorJSONContent:
+        return ProsemirrorJSONContent(type="blockquote", content=content)
 
-    def to_json_horizontal_rule(self) -> JSONContent:
-        return JSONContent(type="horizontalRule")
+    def to_json_horizontal_rule(self) -> ProsemirrorJSONContent:
+        return ProsemirrorJSONContent(type="horizontalRule")
 
-    def from_markdown_to_json(self, input: str) -> JSONContent:
+    def from_markdown_to_json(self, input: str) -> ProsemirrorJSONContent:
         """
         Parse markdown and convert to TipTap notebook schema.
         """
@@ -283,16 +286,16 @@ class NotebookSerializer:
         tokenizer = MarkdownTokenizer()
         tokens = tokenizer.tokenize(input)
 
-        # Convert tokens to JSONContent
-        json_result: list[JSONContent] = []
+        # Convert tokens to ProsemirrorJSONContent
+        json_result: list[ProsemirrorJSONContent] = []
         for token in tokens:
             nodes = self._convert_markdown_token(token)
             json_result.extend(nodes)
 
-        return JSONContent(type="doc", content=json_result)
+        return ProsemirrorJSONContent(type="doc", content=json_result)
 
-    def _convert_markdown_token(self, token: dict) -> list[JSONContent]:
-        """Convert a markdown token to JSONContent nodes."""
+    def _convert_markdown_token(self, token: dict) -> list[ProsemirrorJSONContent]:
+        """Convert a markdown token to ProsemirrorJSONContent nodes."""
         token_type = token["type"]
 
         if token_type == "paragraph":
@@ -331,7 +334,7 @@ class NotebookSerializer:
 
         return []
 
-    def _parse_markdown_inline_content(self, text: str) -> list[JSONContent]:
+    def _parse_markdown_inline_content(self, text: str) -> list[ProsemirrorJSONContent]:
         """Parse inline markdown content (bold, italic, links, etc.)."""
         if not text:
             return []
@@ -348,7 +351,7 @@ class NotebookSerializer:
                 # No more patterns, add remaining text
                 remaining = text[pos:].rstrip()
                 if remaining:
-                    content.append(JSONContent(type="text", text=remaining))
+                    content.append(ProsemirrorJSONContent(type="text", text=remaining))
                 break
 
             match_start, match_end, pattern_type, pattern_data = next_match
@@ -357,27 +360,27 @@ class NotebookSerializer:
             if match_start > pos:
                 before_text = text[pos:match_start]
                 if before_text:
-                    content.append(JSONContent(type="text", text=before_text))
+                    content.append(ProsemirrorJSONContent(type="text", text=before_text))
 
             # Add the formatted content
             if pattern_type == "bold":
                 inner_text = pattern_data["text"]
-                content.append(JSONContent(type="text", text=inner_text, marks=[Mark(type="bold")]))
+                content.append(ProsemirrorJSONContent(type="text", text=inner_text, marks=[Mark(type="bold")]))
             elif pattern_type == "italic":
                 inner_text = pattern_data["text"]
-                content.append(JSONContent(type="text", text=inner_text, marks=[Mark(type="italic")]))
+                content.append(ProsemirrorJSONContent(type="text", text=inner_text, marks=[Mark(type="italic")]))
             elif pattern_type == "code":
                 inner_text = pattern_data["text"]
-                content.append(JSONContent(type="text", text=inner_text, marks=[Mark(type="code")]))
+                content.append(ProsemirrorJSONContent(type="text", text=inner_text, marks=[Mark(type="code")]))
             elif pattern_type == "strikethrough":
                 inner_text = pattern_data["text"]
-                content.append(JSONContent(type="text", text=inner_text, marks=[Mark(type="strike")]))
+                content.append(ProsemirrorJSONContent(type="text", text=inner_text, marks=[Mark(type="strike")]))
             elif pattern_type == "link":
                 link_text = pattern_data["text"]
                 href = pattern_data["href"]
                 if self._is_safe_url(href):
                     content.append(
-                        JSONContent(
+                        ProsemirrorJSONContent(
                             type="text",
                             text=link_text,
                             marks=[Mark(type="link", attrs={"href": href, "target": "_blank"})],
@@ -385,11 +388,11 @@ class NotebookSerializer:
                     )
                 else:
                     # Unsafe URL, just add as text
-                    content.append(JSONContent(type="text", text=link_text))
+                    content.append(ProsemirrorJSONContent(type="text", text=link_text))
 
             pos = match_end
 
-        return content if content else [JSONContent(type="text", text=text)]
+        return content if content else [ProsemirrorJSONContent(type="text", text=text)]
 
     def _find_next_markdown_pattern(self, text: str, start_pos: int) -> Optional[tuple[int, int, str, dict]]:
         """Find the next markdown formatting pattern in text."""
@@ -431,7 +434,7 @@ class NotebookSerializer:
 
         return earliest_match
 
-    def _parse_blockquote_content(self, content: str) -> list[JSONContent]:
+    def _parse_blockquote_content(self, content: str) -> list[ProsemirrorJSONContent]:
         """Parse blockquote content as nested markdown."""
         # Recursively parse the blockquote content as markdown
         tokenizer = MarkdownTokenizer()
@@ -463,15 +466,15 @@ class NotebookSerializer:
         except Exception:
             return False
 
-    def from_json_to_markdown(self, input: JSONContent) -> str:
+    def from_json_to_markdown(self, input: ProsemirrorJSONContent) -> str:
         """
-        Convert JSONContent to markdown.
+        Convert ProsemirrorJSONContent to markdown.
         """
         if input.type == "doc" and input.content:
             return "\n\n".join(self._convert_node_to_markdown(node) for node in input.content)
         return ""
 
-    def _convert_node_to_markdown(self, node: JSONContent) -> str:
+    def _convert_node_to_markdown(self, node: ProsemirrorJSONContent) -> str:
         """Convert a single node to markdown."""
         if node.type == "paragraph":
             return self._convert_inline_content_to_markdown(node.content or [])
@@ -521,7 +524,7 @@ class NotebookSerializer:
 
         return ""
 
-    def _convert_inline_content_to_markdown(self, content: list[JSONContent]) -> str:
+    def _convert_inline_content_to_markdown(self, content: list[ProsemirrorJSONContent]) -> str:
         """Convert inline content (text with marks) to markdown."""
         result = []
         for i, node in enumerate(content):
@@ -563,7 +566,9 @@ class NotebookSerializer:
         # Unsupported marks are ignored
         return text
 
-    def _convert_list_to_markdown(self, items: list[JSONContent], ordered: bool, start: int = 1, level: int = 0) -> str:
+    def _convert_list_to_markdown(
+        self, items: list[ProsemirrorJSONContent], ordered: bool, start: int = 1, level: int = 0
+    ) -> str:
         """Convert list items to markdown."""
         lines = []
         for i, item in enumerate(items):

@@ -1,6 +1,6 @@
 from django.test import TestCase
 
-from posthog.schema import JSONContent, Mark
+from posthog.schema import ProsemirrorJSONContent, Mark
 from ee.hogai.notebook.notebook_serializer import MarkdownTokenizer, NotebookSerializer
 
 
@@ -12,22 +12,28 @@ class TestNotebookSerializer(TestCase):
         serializer = NotebookSerializer()
 
         # Create a simple document
-        doc = JSONContent(
+        doc = ProsemirrorJSONContent(
             type="doc",
             content=[
-                JSONContent(type="heading", attrs={"level": 1}, content=[JSONContent(type="text", text="Main Title")]),
-                JSONContent(
+                ProsemirrorJSONContent(
+                    type="heading", attrs={"level": 1}, content=[ProsemirrorJSONContent(type="text", text="Main Title")]
+                ),
+                ProsemirrorJSONContent(
                     type="paragraph",
                     content=[
-                        JSONContent(type="text", text="This is a paragraph with "),
-                        JSONContent(type="text", text="bold text", marks=[Mark(type="bold")]),
-                        JSONContent(type="text", text=" and "),
-                        JSONContent(type="text", text="italic text", marks=[Mark(type="italic")]),
-                        JSONContent(type="text", text="."),
+                        ProsemirrorJSONContent(type="text", text="This is a paragraph with "),
+                        ProsemirrorJSONContent(type="text", text="bold text", marks=[Mark(type="bold")]),
+                        ProsemirrorJSONContent(type="text", text=" and "),
+                        ProsemirrorJSONContent(type="text", text="italic text", marks=[Mark(type="italic")]),
+                        ProsemirrorJSONContent(type="text", text="."),
                     ],
                 ),
-                JSONContent(type="heading", attrs={"level": 2}, content=[JSONContent(type="text", text="Subheading")]),
-                JSONContent(type="paragraph", content=[JSONContent(type="text", text="Another paragraph.")]),
+                ProsemirrorJSONContent(
+                    type="heading", attrs={"level": 2}, content=[ProsemirrorJSONContent(type="text", text="Subheading")]
+                ),
+                ProsemirrorJSONContent(
+                    type="paragraph", content=[ProsemirrorJSONContent(type="text", text="Another paragraph.")]
+                ),
             ],
         )
 
@@ -47,31 +53,35 @@ Another paragraph."""
         """Test list conversion to markdown."""
         serializer = NotebookSerializer()
 
-        doc = JSONContent(
+        doc = ProsemirrorJSONContent(
             type="doc",
             content=[
-                JSONContent(
+                ProsemirrorJSONContent(
                     type="bulletList",
                     content=[
-                        JSONContent(
+                        ProsemirrorJSONContent(
                             type="listItem",
                             content=[
-                                JSONContent(type="paragraph", content=[JSONContent(type="text", text="First item")])
+                                ProsemirrorJSONContent(
+                                    type="paragraph", content=[ProsemirrorJSONContent(type="text", text="First item")]
+                                )
                             ],
                         ),
-                        JSONContent(
+                        ProsemirrorJSONContent(
                             type="listItem",
                             content=[
-                                JSONContent(type="paragraph", content=[JSONContent(type="text", text="Second item")]),
-                                JSONContent(
+                                ProsemirrorJSONContent(
+                                    type="paragraph", content=[ProsemirrorJSONContent(type="text", text="Second item")]
+                                ),
+                                ProsemirrorJSONContent(
                                     type="bulletList",
                                     content=[
-                                        JSONContent(
+                                        ProsemirrorJSONContent(
                                             type="listItem",
                                             content=[
-                                                JSONContent(
+                                                ProsemirrorJSONContent(
                                                     type="paragraph",
-                                                    content=[JSONContent(type="text", text="Nested item")],
+                                                    content=[ProsemirrorJSONContent(type="text", text="Nested item")],
                                                 )
                                             ],
                                         )
@@ -81,20 +91,24 @@ Another paragraph."""
                         ),
                     ],
                 ),
-                JSONContent(
+                ProsemirrorJSONContent(
                     type="orderedList",
                     attrs={"start": 5},
                     content=[
-                        JSONContent(
+                        ProsemirrorJSONContent(
                             type="listItem",
                             content=[
-                                JSONContent(type="paragraph", content=[JSONContent(type="text", text="Fifth item")])
+                                ProsemirrorJSONContent(
+                                    type="paragraph", content=[ProsemirrorJSONContent(type="text", text="Fifth item")]
+                                )
                             ],
                         ),
-                        JSONContent(
+                        ProsemirrorJSONContent(
                             type="listItem",
                             content=[
-                                JSONContent(type="paragraph", content=[JSONContent(type="text", text="Sixth item")])
+                                ProsemirrorJSONContent(
+                                    type="paragraph", content=[ProsemirrorJSONContent(type="text", text="Sixth item")]
+                                )
                             ],
                         ),
                     ],
@@ -117,20 +131,23 @@ Another paragraph."""
         """Test code blocks and blockquotes conversion."""
         serializer = NotebookSerializer()
 
-        doc = JSONContent(
+        doc = ProsemirrorJSONContent(
             type="doc",
             content=[
-                JSONContent(
+                ProsemirrorJSONContent(
                     type="codeBlock",
                     attrs={"language": "python"},
-                    content=[JSONContent(type="text", text="def hello():\n    print('Hello')")],
+                    content=[ProsemirrorJSONContent(type="text", text="def hello():\n    print('Hello')")],
                 ),
-                JSONContent(
+                ProsemirrorJSONContent(
                     type="blockquote",
                     content=[
-                        JSONContent(type="paragraph", content=[JSONContent(type="text", text="This is a quote.")]),
-                        JSONContent(
-                            type="paragraph", content=[JSONContent(type="text", text="With multiple paragraphs.")]
+                        ProsemirrorJSONContent(
+                            type="paragraph", content=[ProsemirrorJSONContent(type="text", text="This is a quote.")]
+                        ),
+                        ProsemirrorJSONContent(
+                            type="paragraph",
+                            content=[ProsemirrorJSONContent(type="text", text="With multiple paragraphs.")],
                         ),
                     ],
                 ),
@@ -153,24 +170,32 @@ def hello():
         """Test that table nodes are not supported in markdown conversion."""
         serializer = NotebookSerializer()
 
-        doc = JSONContent(
+        doc = ProsemirrorJSONContent(
             type="doc",
             content=[
-                JSONContent(
+                ProsemirrorJSONContent(
                     type="table",
                     content=[
-                        JSONContent(
+                        ProsemirrorJSONContent(
                             type="tableRow",
                             content=[
-                                JSONContent(type="tableHeader", content=[JSONContent(type="text", text="Header 1")]),
-                                JSONContent(type="tableHeader", content=[JSONContent(type="text", text="Header 2")]),
+                                ProsemirrorJSONContent(
+                                    type="tableHeader", content=[ProsemirrorJSONContent(type="text", text="Header 1")]
+                                ),
+                                ProsemirrorJSONContent(
+                                    type="tableHeader", content=[ProsemirrorJSONContent(type="text", text="Header 2")]
+                                ),
                             ],
                         ),
-                        JSONContent(
+                        ProsemirrorJSONContent(
                             type="tableRow",
                             content=[
-                                JSONContent(type="tableCell", content=[JSONContent(type="text", text="Cell 1")]),
-                                JSONContent(type="tableCell", content=[JSONContent(type="text", text="Cell 2")]),
+                                ProsemirrorJSONContent(
+                                    type="tableCell", content=[ProsemirrorJSONContent(type="text", text="Cell 1")]
+                                ),
+                                ProsemirrorJSONContent(
+                                    type="tableCell", content=[ProsemirrorJSONContent(type="text", text="Cell 2")]
+                                ),
                             ],
                         ),
                     ],
@@ -187,23 +212,23 @@ def hello():
         """Test complex inline marks conversion."""
         serializer = NotebookSerializer()
 
-        doc = JSONContent(
+        doc = ProsemirrorJSONContent(
             type="doc",
             content=[
-                JSONContent(
+                ProsemirrorJSONContent(
                     type="paragraph",
                     content=[
-                        JSONContent(type="text", text="Text with "),
-                        JSONContent(type="text", text="code", marks=[Mark(type="code")]),
-                        JSONContent(type="text", text=", "),
-                        JSONContent(type="text", text="strikethrough", marks=[Mark(type="strike")]),
-                        JSONContent(type="text", text=", "),
-                        JSONContent(
+                        ProsemirrorJSONContent(type="text", text="Text with "),
+                        ProsemirrorJSONContent(type="text", text="code", marks=[Mark(type="code")]),
+                        ProsemirrorJSONContent(type="text", text=", "),
+                        ProsemirrorJSONContent(type="text", text="strikethrough", marks=[Mark(type="strike")]),
+                        ProsemirrorJSONContent(type="text", text=", "),
+                        ProsemirrorJSONContent(
                             type="text", text="link", marks=[Mark(type="link", attrs={"href": "https://example.com"})]
                         ),
-                        JSONContent(type="text", text=", "),
-                        JSONContent(type="text", text="underlined", marks=[Mark(type="underline")]),
-                        JSONContent(type="text", text="."),
+                        ProsemirrorJSONContent(type="text", text=", "),
+                        ProsemirrorJSONContent(type="text", text="underlined", marks=[Mark(type="underline")]),
+                        ProsemirrorJSONContent(type="text", text="."),
                     ],
                 )
             ],
@@ -219,17 +244,17 @@ def hello():
         """Test nested marks conversion."""
         serializer = NotebookSerializer()
 
-        doc = JSONContent(
+        doc = ProsemirrorJSONContent(
             type="doc",
             content=[
-                JSONContent(
+                ProsemirrorJSONContent(
                     type="paragraph",
                     content=[
-                        JSONContent(type="text", text="This is "),
-                        JSONContent(
+                        ProsemirrorJSONContent(type="text", text="This is "),
+                        ProsemirrorJSONContent(
                             type="text", text="bold and italic", marks=[Mark(type="bold"), Mark(type="italic")]
                         ),
-                        JSONContent(type="text", text=" text."),
+                        ProsemirrorJSONContent(type="text", text=" text."),
                     ],
                 )
             ],
@@ -246,15 +271,17 @@ def hello():
         """Test images and horizontal rules conversion."""
         serializer = NotebookSerializer()
 
-        doc = JSONContent(
+        doc = ProsemirrorJSONContent(
             type="doc",
             content=[
-                JSONContent(
+                ProsemirrorJSONContent(
                     type="image",
                     attrs={"src": "https://example.com/image.png", "alt": "Test image", "title": "Image title"},
                 ),
-                JSONContent(type="horizontalRule"),
-                JSONContent(type="image", attrs={"src": "https://example.com/image2.png", "alt": "Another image"}),
+                ProsemirrorJSONContent(type="horizontalRule"),
+                ProsemirrorJSONContent(
+                    type="image", attrs={"src": "https://example.com/image2.png", "alt": "Another image"}
+                ),
             ],
         )
 
@@ -699,15 +726,15 @@ code here
         serializer = NotebookSerializer()
 
         # Create JSON content that was problematic in the user's example
-        doc = JSONContent(
+        doc = ProsemirrorJSONContent(
             type="doc",
             content=[
-                JSONContent(
+                ProsemirrorJSONContent(
                     type="paragraph",
                     content=[
-                        JSONContent(type="text", text="Insight type: "),
-                        JSONContent(type="text", text="funnel", marks=[Mark(type="italic")]),
-                        JSONContent(type="text", text=" broken down by one dimension at a time"),
+                        ProsemirrorJSONContent(type="text", text="Insight type: "),
+                        ProsemirrorJSONContent(type="text", text="funnel", marks=[Mark(type="italic")]),
+                        ProsemirrorJSONContent(type="text", text=" broken down by one dimension at a time"),
                     ],
                 )
             ],
@@ -724,52 +751,57 @@ code here
         serializer = NotebookSerializer()
 
         # Create a structure with nested lists like in the user's example
-        doc = JSONContent(
+        doc = ProsemirrorJSONContent(
             type="doc",
             content=[
-                JSONContent(
+                ProsemirrorJSONContent(
                     type="bulletList",
                     content=[
-                        JSONContent(
+                        ProsemirrorJSONContent(
                             type="listItem",
                             content=[
-                                JSONContent(
-                                    type="paragraph", content=[JSONContent(type="text", text="Key moments to track")]
+                                ProsemirrorJSONContent(
+                                    type="paragraph",
+                                    content=[ProsemirrorJSONContent(type="text", text="Key moments to track")],
                                 )
                             ],
                         ),
-                        JSONContent(
+                        ProsemirrorJSONContent(
                             type="listItem",
                             content=[
-                                JSONContent(
+                                ProsemirrorJSONContent(
                                     type="bulletList",
                                     content=[
-                                        JSONContent(
+                                        ProsemirrorJSONContent(
                                             type="listItem",
                                             content=[
-                                                JSONContent(
+                                                ProsemirrorJSONContent(
                                                     type="paragraph",
                                                     content=[
-                                                        JSONContent(
+                                                        ProsemirrorJSONContent(
                                                             type="text", text="Entry event", marks=[Mark(type="bold")]
                                                         ),
-                                                        JSONContent(type="text", text=": first product visit"),
+                                                        ProsemirrorJSONContent(
+                                                            type="text", text=": first product visit"
+                                                        ),
                                                     ],
                                                 )
                                             ],
                                         ),
-                                        JSONContent(
+                                        ProsemirrorJSONContent(
                                             type="listItem",
                                             content=[
-                                                JSONContent(
+                                                ProsemirrorJSONContent(
                                                     type="paragraph",
                                                     content=[
-                                                        JSONContent(
+                                                        ProsemirrorJSONContent(
                                                             type="text",
                                                             text="Completion event",
                                                             marks=[Mark(type="bold")],
                                                         ),
-                                                        JSONContent(type="text", text=": successful account creation"),
+                                                        ProsemirrorJSONContent(
+                                                            type="text", text=": successful account creation"
+                                                        ),
                                                     ],
                                                 )
                                             ],

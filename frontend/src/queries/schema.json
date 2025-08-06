@@ -14427,41 +14427,6 @@
             "enum": ["minute", "hour", "day", "week", "month"],
             "type": "string"
         },
-        "JSONContent": {
-            "properties": {
-                "attrs": {
-                    "type": "object"
-                },
-                "content": {
-                    "items": {
-                        "$ref": "#/definitions/JSONContent"
-                    },
-                    "type": "array"
-                },
-                "marks": {
-                    "items": {
-                        "properties": {
-                            "attrs": {
-                                "type": "object"
-                            },
-                            "type": {
-                                "type": "string"
-                            }
-                        },
-                        "required": ["type"],
-                        "type": "object"
-                    },
-                    "type": "array"
-                },
-                "text": {
-                    "type": "string"
-                },
-                "type": {
-                    "type": "string"
-                }
-            },
-            "type": "object"
-        },
         "LLMTrace": {
             "additionalProperties": false,
             "properties": {
@@ -15950,7 +15915,7 @@
             "additionalProperties": false,
             "properties": {
                 "content": {
-                    "$ref": "#/definitions/JSONContent"
+                    "$ref": "#/definitions/ProsemirrorJSONContent"
                 },
                 "id": {
                     "type": "string"
@@ -16572,6 +16537,41 @@
                 "flag_evaluates_to"
             ],
             "type": "string"
+        },
+        "ProsemirrorJSONContent": {
+            "properties": {
+                "attrs": {
+                    "type": "object"
+                },
+                "content": {
+                    "items": {
+                        "$ref": "#/definitions/ProsemirrorJSONContent"
+                    },
+                    "type": "array"
+                },
+                "marks": {
+                    "items": {
+                        "properties": {
+                            "attrs": {
+                                "type": "object"
+                            },
+                            "type": {
+                                "type": "string"
+                            }
+                        },
+                        "required": ["type"],
+                        "type": "object"
+                    },
+                    "type": "array"
+                },
+                "text": {
+                    "type": "string"
+                },
+                "type": {
+                    "type": "string"
+                }
+            },
+            "type": "object"
         },
         "QueryIndexUsage": {
             "enum": ["undecisive", "no", "partial", "yes"],
