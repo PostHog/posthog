@@ -62,9 +62,8 @@ class MarketingAnalyticsTableQueryRunner(QueryRunner):
             now=datetime.now(),
         )
 
-    # @cached_property
     def _factory(self, date_range: QueryDateRange):
-        """Cached factory instance for reuse"""
+        """Create factory instance for the given date range"""
 
         # Create query context for all adapters
         context = QueryContext(
@@ -77,8 +76,9 @@ class MarketingAnalyticsTableQueryRunner(QueryRunner):
     def _get_marketing_source_adapters(self, date_range: QueryDateRange):
         """Get marketing source adapters using the new adapter architecture"""
         try:
-            adapters = self._factory(date_range=date_range).create_adapters()
-            valid_adapters = self._factory(date_range=date_range).get_valid_adapters(adapters)
+            factory: MarketingSourceFactory = self._factory(date_range=date_range)
+            adapters = factory.create_adapters()
+            valid_adapters = factory.get_valid_adapters(adapters)
 
             logger.info(f"Found {len(valid_adapters)} valid marketing source adapters")
 

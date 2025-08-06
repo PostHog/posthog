@@ -96,8 +96,8 @@ export const renderMarketingAnalyticsCell = (value: any): JSX.Element | null => 
     const [current, previous] = value as [number, number]
 
     // Handle case where both values are the same non-null value
-    if (typeof current !== 'number' && current === previous && current !== null) {
-        return <span>{formatValue(current, 'full')}</span>
+    if (typeof current == 'string' && current === previous) {
+        return <span>{current}</span>
     }
 
     const currentFormatted = formatValue(current, 'short')
