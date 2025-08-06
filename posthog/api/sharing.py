@@ -390,11 +390,13 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                     recording.save()  # This ensures it exists in PostgreSQL
 
                 # Create a JWT for the recording
-                export_access_token = encode_jwt(
-                    {"id": resource.created_by.id},
-                    timedelta(minutes=5),  # 5 mins should be enough for the export to complete
-                    PosthogJwtAudience.IMPERSONATED_USER,
-                )
+                export_access_token = ""
+                if resource.created_by and resource.created_by.id:
+                    export_access_token = encode_jwt(
+                        {"id": resource.created_by.id},
+                        timedelta(minutes=5),  # 5 mins should be enough for the export to complete
+                        PosthogJwtAudience.IMPERSONATED_USER,
+                    )
 
                 asset_title = "Session Recording"
                 asset_description = f"Recording {replay_id}"
