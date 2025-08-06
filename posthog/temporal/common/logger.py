@@ -21,7 +21,6 @@ from posthog.kafka_client.topics import KAFKA_LOG_ENTRIES
 BACKGROUND_LOGGER_TASKS = set()
 EXTERNAL_LOGGER_NAME = "EXTERNAL"
 
-# Common processor configurations for temporal loggers
 BASE_PROCESSORS = [
     structlog.stdlib.filter_by_level,
     structlog.stdlib.add_logger_name,
