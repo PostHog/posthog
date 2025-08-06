@@ -288,6 +288,7 @@
     --color-posthog-3000-25: hsl(75deg 14% 96.5%);
     --color-posthog-3000-50: hsl(75deg 14% 95%);
     --color-posthog-3000-100: hsl(70deg 16% 93%);
+    --color-posthog-3000-125: hsl(77deg 13% 90%);
     --color-posthog-3000-150: hsl(77deg 13% 89%);
     --color-posthog-3000-200: hsl(78deg 13% 85%);
     --color-posthog-3000-250: hsl(67deg 8% 80%);
@@ -404,17 +405,36 @@
         10%
     );
 
-    /* Colors */
+    /* 
+        // Colors 
+
+        // Base color palette (forground is optional, but recommended to be defined for clear contrast)
+        color-book                          background of element
+        color-book-foreground               text/icons on top of element color-book
+        
+        // Base color variants
+        color-book-subtle                   variant of color-book, less prominent
+        color-book-subtle-foreground        text/icons color to use on top of color-book-subtle
+        color-book-highlight                variant of color-book, more prominent
+        color-book-highlight-foreground     text/icons color to use on top of color-book-highlight
+        color-book-overlay                  variant of color-book, has opacity, overlay version
+        color-book-overlay-foreground       text/icons color to use on top of color-book-overlay
+        or... color-book-overlay-XXX        variant of color-book, has opacity, overlay version, with different opacity
+        
+        // Base color variants
+        color-book-inverse                  variant of color-book, inverse version
+        color-book-inverse-foreground       text/icons color to use on top of color-book-inverse
+    */
 
     /* ============================== */
     // General
-    --color-background: var(--color-posthog-3000-25);
+    --color-background: var(--color-posthog-3000-50);
     --color-foreground: var(--color-neutral-950);
     --color-secondary: var(--color-posthog-3000-50);
     --color-secondary-foreground: var(--color-neutral-750);
     --color-tertiary: var(--color-posthog-3000-100);
     --color-tertiary-foreground: var(--color-neutral-550);
-    --color-nav: var(--color-posthog-3000-100);
+    --color-nav: var(--color-posthog-3000-125);
     --color-nav-foreground: var(--color-neutral-100);
     --color-card: var(--color-white);
     --color-card-foreground: var(--color-neutral-950);
@@ -466,7 +486,7 @@
     --color-scrollbar-foreground: var(--color-neutral-cool-400);
 
     // Borders
-    --color-border: var(--color-neutral-cool-200);
+    --color-border: var(--color-neutral-200);
     --color-border-secondary: var(--color-neutral-cool-400);
     --color-border-warning: var(--color-yellow-400);
     --color-border-error: var(--color-red-400);
@@ -954,11 +974,11 @@
     /* ============================== */
     // General
     --color-background: var(--color-neutral-cool-950);
-    --color-foreground: var(--color-neutral-100);
+    --color-foreground: var(--color-neutral-cool-100);
     --color-secondary: var(--color-neutral-cool-900);
     --color-secondary-foreground: var(--color-neutral-cool-300);
     --color-tertiary: var(--color-neutral-cool-950);
-    --color-tertiary-foreground: var(--color-neutral-cool-350);
+    --color-tertiary-foreground: var(--color-neutral-cool-400);
     --color-nav: var(--color-neutral-cool-900);
 
     // --color-nav-foreground: var(--color-neutral-100);
