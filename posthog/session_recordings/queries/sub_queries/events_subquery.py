@@ -1,3 +1,4 @@
+import typing
 from datetime import datetime, timedelta
 from typing import Optional
 
@@ -49,7 +50,7 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
         return event_exprs
 
     @staticmethod
-    def _has_negative_operator(candidate: any) -> bool:
+    def _has_negative_operator(candidate: typing.Any) -> bool:
         # noinspection PyBroadException
         try:
             if isinstance(candidate, dict):
