@@ -58,7 +58,7 @@ const EMAIL_TYPE_SUPPORTED_FIELDS: Record<EmailTemplaterType, EmailMetaField[]> 
         EMAIL_META_FIELDS.PREHEADER,
     ],
     native_email_template: [EMAIL_META_FIELDS.SUBJECT, EMAIL_META_FIELDS.PREHEADER],
-} as const
+}
 
 function DestinationEmailTemplaterForm({ mode }: { mode: EmailEditorMode }): JSX.Element {
     const { logicProps, mergeTags } = useValues(emailTemplaterLogic)
