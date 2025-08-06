@@ -16,6 +16,9 @@ export const manifest: ProductManifest = {
             import: () => import('./frontend/ErrorTrackingIssueScene'),
             projectBased: true,
             name: 'Error tracking issue',
+            panelOptions: {
+                relativeWidth: 750,
+            },
         },
         ErrorTrackingConfiguration: {
             import: () => import('./frontend/configuration/ErrorTrackingConfigurationScene'),

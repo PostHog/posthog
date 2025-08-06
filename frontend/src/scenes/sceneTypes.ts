@@ -179,6 +179,10 @@ export interface SceneConfig {
     activityScope?: ActivityScope | string
     /** Default docs path - what the docs side panel will open by default if this scene is active  */
     defaultDocsPath?: string
+    panelOptions?: {
+        /** The width beyond which the scene panel is rendered inline with the content instead of being an overlay  */
+        relativeWidth?: number
+    }
     /** Component import, used only in manifests */
     import?: () => Promise<any>
 }

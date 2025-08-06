@@ -38,8 +38,8 @@ export function ErrorTrackingIssueScene(): JSX.Element {
 
     return (
         <ErrorTrackingSetupPrompt>
-            <div className="ErrorTrackingIssue grid grid-cols-4 gap-4">
-                <div className="space-y-2 col-span-3">
+            <div className="ErrorTrackingIssue">
+                <div className="space-y-2">
                     <ExceptionCard
                         issue={issue ?? undefined}
                         issueLoading={issueLoading}

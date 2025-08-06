@@ -46,30 +46,32 @@ const DiscussionContent = ({ logicProps }: { logicProps: CommentsLogicProps }): 
     )
 }
 
-export const SidePanelDiscussion = (): JSX.Element => {
+export const SidePanelDiscussion = ({ showHeader = true }: { showHeader?: boolean }): JSX.Element => {
     const { commentsLogicProps } = useValues(sidePanelDiscussionLogic)
 
     const { scope, item_id } = commentsLogicProps ?? {}
 
     return (
         <div className="flex flex-col overflow-hidden flex-1">
-            <SidePanelPaneHeader
-                title={
-                    <div className="flex deprecated-space-x-2">
-                        <span>
-                            Discussion{' '}
-                            {scope ? (
-                                <span className="font-normal text-secondary">
-                                    about {item_id ? 'this' : ''} {humanizeScope(scope, !!item_id)}
-                                </span>
-                            ) : null}
-                        </span>
-                        <Tooltip title="This is a feature we are experimenting with! We'd love to get your feedback on it and whether this is something useful for working with PostHog.">
-                            <LemonTag type="completion">Experimental</LemonTag>
-                        </Tooltip>
-                    </div>
-                }
-            />
+            {showHeader && (
+                <SidePanelPaneHeader
+                    title={
+                        <div className="flex deprecated-space-x-2">
+                            <span>
+                                Discussion{' '}
+                                {scope ? (
+                                    <span className="font-normal text-secondary">
+                                        about {item_id ? 'this' : ''} {humanizeScope(scope, !!item_id)}
+                                    </span>
+                                ) : null}
+                            </span>
+                            <Tooltip title="This is a feature we are experimenting with! We'd love to get your feedback on it and whether this is something useful for working with PostHog.">
+                                <LemonTag type="completion">Experimental</LemonTag>
+                            </Tooltip>
+                        </div>
+                    }
+                />
+            )}
 
             {commentsLogicProps && !commentsLogicProps.disabled ? (
                 <DiscussionContent logicProps={commentsLogicProps} />
