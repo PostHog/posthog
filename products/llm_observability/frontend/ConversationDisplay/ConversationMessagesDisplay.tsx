@@ -1,7 +1,8 @@
-import { IconEye, IconMarkdown, IconMarkdownFilled } from '@posthog/icons'
+import { IconEye, IconMarkdown, IconMarkdownFilled, IconCode } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { XMLViewer } from './XMLViewer'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { JSONViewer } from 'lib/components/JSONViewer'
 import { IconExclamation, IconEyeHidden } from 'lib/lemon-ui/icons'
@@ -185,13 +186,22 @@ export const LLMMessageDisplay = React.memo(
         onToggle?: () => void
     }): JSX.Element => {
         const { role, content, ...additionalKwargs } = message
-        const { isRenderingMarkdown } = useValues(llmObservabilityTraceLogic)
-        const { toggleMarkdownRendering } = useActions(llmObservabilityTraceLogic)
+        const { isRenderingMarkdown, isRenderingXml } = useValues(llmObservabilityTraceLogic)
+        const { toggleMarkdownRendering, toggleXmlRendering } = useActions(llmObservabilityTraceLogic)
 
         // Compute whether the content looks like Markdown.
         // (Heuristic: looks for code blocks, blockquotes, headings, italic, bold, underline, strikethrough)
         const isMarkdownCandidate =
             content && typeof content === 'string' ? /(\n\s*```|^>\s|#{1,6}\s|_|\*|~~)/.test(content) : false
+
+        // Compute whether the content looks like XML.
+        // (Heuristic: looks for XML-like tags)
+        const isXmlCandidate =
+            content && typeof content === 'string'
+                ? /<[a-zA-Z_:][a-zA-Z0-9_:.-]*(?:\s+[^>]*)?>.*?<\/[a-zA-Z_:][a-zA-Z0-9_:.-]*>|<[a-zA-Z_:][a-zA-Z0-9_:.-]*(?:\s+[^>]*)?\/>/s.test(
+                      content
+                  )
+                : false
 
         // Render any additional keyword arguments as JSON.
         const additionalKwargsEntries = Array.isArray(additionalKwargs.tools)
@@ -275,12 +285,23 @@ export const LLMMessageDisplay = React.memo(
                         }
                         return <ImageMessageDisplay message={message} />
                     }
+                    if (parsed.type === 'output_text' && parsed.text) {
+                        return <span className="whitespace-pre-wrap">{parsed.text}</span>
+                    }
                     if (typeof parsed === 'object' && parsed !== null) {
                         return <JSONViewer src={parsed} name={null} collapsed={5} />
                     }
                 } catch {
                     // Not valid JSON. Fall through to Markdown/plain text handling.
                 }
+            }
+
+            // If the content appears to be XML, render based on the toggle.
+            if (isXmlCandidate && typeof content === 'string') {
+                if (isRenderingXml) {
+                    return <XMLViewer collapsed={3}>{content}</XMLViewer>
+                }
+                return <span className="font-mono whitespace-pre-wrap">{content}</span>
             }
 
             // If the content appears to be Markdown, render based on the toggle.
@@ -344,6 +365,16 @@ export const LLMMessageDisplay = React.memo(
                                     icon={isRenderingMarkdown ? <IconMarkdownFilled /> : <IconMarkdown />}
                                     tooltip="Toggle markdown rendering"
                                     onClick={toggleMarkdownRendering}
+                                />
+                            )}
+                            {isXmlCandidate && role !== 'tool' && role !== 'tools' && (
+                                <LemonButton
+                                    size="small"
+                                    noPadding
+                                    icon={<IconCode />}
+                                    tooltip="Toggle XML syntax highlighting"
+                                    onClick={toggleXmlRendering}
+                                    pressed={isRenderingXml}
                                 />
                             )}
                             <CopyToClipboardInline

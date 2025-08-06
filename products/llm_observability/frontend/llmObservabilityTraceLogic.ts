@@ -49,6 +49,8 @@ export const llmObservabilityTraceLogic = kea<llmObservabilityTraceLogicType>([
         setDateFrom: (dateFrom: string) => ({ dateFrom }),
         setIsRenderingMarkdown: (isRenderingMarkdown: boolean) => ({ isRenderingMarkdown }),
         toggleMarkdownRendering: true,
+        setIsRenderingXml: (isRenderingXml: boolean) => ({ isRenderingXml }),
+        toggleXmlRendering: true,
         setSearchQuery: (searchQuery: string) => ({ searchQuery }),
         setInputMessageShowStates: (states: boolean[]) => ({ states }),
         setOutputMessageShowStates: (states: boolean[]) => ({ states }),
@@ -73,6 +75,13 @@ export const llmObservabilityTraceLogic = kea<llmObservabilityTraceLogicType>([
             {
                 setIsRenderingMarkdown: (_, { isRenderingMarkdown }) => isRenderingMarkdown,
                 toggleMarkdownRendering: (state) => !state,
+            },
+        ],
+        isRenderingXml: [
+            false as boolean,
+            {
+                setIsRenderingXml: (_, { isRenderingXml }) => isRenderingXml,
+                toggleXmlRendering: (state) => !state,
             },
         ],
         inputMessageShowStates: [
