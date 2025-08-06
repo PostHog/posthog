@@ -102,7 +102,7 @@ class ErrorTrackingIssueCorrelationQueryRunner(QueryRunner):
             for event, correlation in issue_correlations.items():
                 results.append({**issue, **correlation, "event": event})  # type: ignore
 
-        return sorted(results, key=lambda r: r["correlation_score"], reverse=True)
+        return sorted(results, key=lambda r: r["odds_ratio"], reverse=True)
 
     def fetch_issues(self, ids: list[str]):
         queryset: QuerySet[ErrorTrackingIssue] = (
