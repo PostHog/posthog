@@ -1,9 +1,10 @@
-import uuid
 import json
-from unittest.mock import patch
-from django.test import TestCase
+import uuid
 from io import StringIO
+from unittest.mock import patch
+
 import structlog
+from django.test import TestCase
 
 from posthog.exceptions_capture import capture_exception
 
@@ -31,7 +32,7 @@ class TestExceptionsCapture(TestCase):
 
         log_data = json.loads(output.getvalue().strip())
         self.assertIn("Exception captured: Test error without context", log_data["event"])
-        self.assertEqual(log_data["exception"], "MISSING")
+        self.assertNotIn("exception", log_data)
 
     @patch("posthoganalytics.api_key", "test-key")
     @patch("posthoganalytics.capture_exception")
