@@ -7,6 +7,7 @@ from ee.hogai.graph.taxonomy.agent import TaxonomyAgent
 from ee.hogai.graph.taxonomy.tools import create_final_answer_model
 from ee.hogai.graph.taxonomy.types import TaxonomyAgentState
 from ee.hogai.tool import MaxTool
+from ee.hogai.utils.exceptions import HelpRequested
 from langchain_core.prompts import ChatPromptTemplate
 from posthog.models import Team, User
 from posthog.schema import MaxRecordingUniversalFilters
@@ -126,16 +127,7 @@ class SearchSessionRecordingsTool(MaxTool):
 
                 # Instead of returning the help message, raise an exception that will be caught
                 # by the main graph and handled appropriately without adding to state
-                from ee.hogai.utils.exceptions import HelpRequested
-
                 raise HelpRequested(content)
-
-            current_filters = MaxRecordingUniversalFilters.model_validate(
-                self.context.get("current_filters", {}),
-            )
-
-            return content, current_filters
-
         try:
             result = MaxRecordingUniversalFilters.model_validate(result["output"])
         except Exception as e:
