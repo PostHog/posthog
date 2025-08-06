@@ -16,10 +16,8 @@ import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { PageHeader } from 'lib/components/PageHeader'
 import { SceneExportDropdownMenu } from 'lib/components/Scenes/InsightOrDashboard/SceneExportDropdownMenu'
 import { SceneCommonButtons } from 'lib/components/Scenes/SceneCommonButtons'
-import { SceneDescription } from 'lib/components/Scenes/SceneDescription'
 import { SceneFile } from 'lib/components/Scenes/SceneFile'
 import { SceneMetalyticsSummaryButton } from 'lib/components/Scenes/SceneMetalyticsSummaryButton'
-import { SceneName } from 'lib/components/Scenes/SceneName'
 import { SceneShareButton } from 'lib/components/Scenes/SceneShareButton'
 import { SceneTags } from 'lib/components/Scenes/SceneTags'
 import { SceneActivityIndicator } from 'lib/components/Scenes/SceneUpdateActivityInfo'
@@ -70,7 +68,13 @@ import {
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { SceneAddToDropdownMenu } from 'lib/components/Scenes/InsightOrDashboard/SceneAddToDropdownMenu'
+import { SceneAlertsButton } from 'lib/components/Scenes/SceneAlertsButton'
+import { SceneSubscribeButton } from 'lib/components/Scenes/SceneSubscribeButton'
+import { SceneTextarea } from 'lib/components/Scenes/SceneTextarea'
+import { SceneTextInput } from 'lib/components/Scenes/SceneTextInput'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { NotebookNodeType } from 'scenes/notebooks/types'
+import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 import { tagsModel } from '~/models/tagsModel'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { isDataTableNode, isDataVisualizationNode, isEventsQuery, isHogQLQuery } from '~/queries/utils'
@@ -83,10 +87,6 @@ import {
     ItemMode,
     QueryBasedInsightModel,
 } from '~/types'
-import { NotebookNodeType } from 'scenes/notebooks/types'
-import { SceneSubscribeButton } from 'lib/components/Scenes/SceneSubscribeButton'
-import { SceneAlertsButton } from 'lib/components/Scenes/SceneAlertsButton'
-import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 
 const RESOURCE_TYPE = 'insight'
 
@@ -606,14 +606,16 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                         />
                     </ScenePanelCommonActions>
                     <ScenePanelMetaInfo>
-                        <SceneName
+                        <SceneTextInput
+                            name="name"
                             defaultValue={defaultInsightName || ''}
                             onSave={(value) => setInsightMetadata({ name: value })}
                             dataAttrKey={RESOURCE_TYPE}
                             canEdit={canEditInsight}
                         />
 
-                        <SceneDescription
+                        <SceneTextarea
+                            name="description"
                             defaultValue={insight.description || ''}
                             onSave={(value) => setInsightMetadata({ description: value })}
                             dataAttrKey={RESOURCE_TYPE}

@@ -12,7 +12,7 @@ from posthog.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
 from posthog.cdp.templates.hog_function_template import sync_template_to_db
 from posthog.constants import AvailableFeature
 from posthog.models.action.action import Action
-from posthog.models.hog_functions.hog_function import DEFAULT_STATE, HogFunction
+from posthog.models.hog_functions.hog_function import DEFAULT_STATE, HogFunction, HogFunctionState
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
 from posthog.cdp.templates.slack.template_slack import template as template_slack
 from posthog.api.hog_function import MAX_HOG_CODE_SIZE_BYTES, MAX_TRANSFORMATIONS_PER_TEAM
@@ -984,7 +984,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             with patch("posthog.plugins.plugin_server_api.requests.patch") as mock_patch:
                 mock_get.return_value.status_code = status.HTTP_200_OK
                 mock_get.return_value.json.return_value = {
-                    "state": 4,
+                    "state": HogFunctionState.DISABLED.value,
                     "tokens": 0,
                 }
 
@@ -997,7 +997,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 )
                 id = response.json()["id"]
 
-                assert response.json()["status"]["state"] == 4
+                assert response.json()["status"]["state"] == HogFunctionState.DISABLED.value
 
                 self.client.patch(
                     f"/api/projects/{self.team.id}/hog_functions/{response.json()['id']}/",
