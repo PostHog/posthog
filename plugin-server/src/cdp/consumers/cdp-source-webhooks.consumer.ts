@@ -167,6 +167,7 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
 
             if (hogFunctionState?.state === HogWatcherState.degraded) {
                 // Degraded functions are not executed immediately
+                invocation.queue = 'hog_overflow'
                 await this.cyclotronJobQueue.queueInvocations([invocation])
 
                 result = createInvocationResult(
@@ -183,6 +184,7 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
                         ],
                     }
                 )
+
                 result.execResult = {
                     // TODO: Add support for a default response as an input
                     httpResponse: {
