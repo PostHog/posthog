@@ -1,1 +1,1 @@
-0817_resourcenotebook_and_more
+0818_alter_integration_kind

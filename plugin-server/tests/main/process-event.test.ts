@@ -254,7 +254,7 @@ describe('processEvent', () => {
                 false,
                 groupStoreForBatch
             )
-        ).rejects.toThrowError("No team found with ID 1337. Can't ingest event.")
+        ).rejects.toThrow("No team found with ID 1337. Can't ingest event.")
     })
 
     test('ip none', async () => {
