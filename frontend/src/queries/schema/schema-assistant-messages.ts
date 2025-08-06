@@ -10,6 +10,7 @@ import {
     AssistantRetentionQuery,
     AssistantTrendsQuery,
 } from './schema-assistant-queries'
+import { JSONContent as TTJSONContent } from '@tiptap/core'
 
 export enum AssistantMessageType {
     Human = 'human',
@@ -18,6 +19,8 @@ export enum AssistantMessageType {
     Reasoning = 'ai/reasoning',
     Visualization = 'ai/viz',
     Failure = 'ai/failure',
+    Notebook = 'notebook',
+    Planning = 'ai/planning',
 }
 
 export interface BaseAssistantMessage {
@@ -81,18 +84,44 @@ export interface FailureMessage extends BaseAssistantMessage {
     content?: string
 }
 
+export interface NotebookUpdateMessage extends BaseAssistantMessage {
+    type: AssistantMessageType.Notebook
+    notebook_id: string
+    content: TTJSONContent
+    tool_calls?: AssistantToolCall[]
+}
+
+export enum PlanningStepStatus {
+    Pending = 'pending',
+    InProgress = 'in_progress',
+    Completed = 'completed',
+}
+
+export interface PlanningStep {
+    description: string
+    status: PlanningStepStatus
+}
+
+export interface PlanningMessage extends BaseAssistantMessage {
+    type: AssistantMessageType.Planning
+    steps: PlanningStep[]
+}
+
 export type RootAssistantMessage =
     | VisualizationMessage
     | ReasoningMessage
     | AssistantMessage
     | HumanMessage
     | FailureMessage
+    | NotebookUpdateMessage
+    | PlanningMessage
     | (AssistantToolCallMessage & Required<Pick<AssistantToolCallMessage, 'ui_payload'>>)
 
 export enum AssistantEventType {
     Status = 'status',
     Message = 'message',
     Conversation = 'conversation',
+    Notebook = 'notebook',
 }
 
 export enum AssistantGenerationStatusType {

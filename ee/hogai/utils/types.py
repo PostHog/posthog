@@ -13,13 +13,20 @@ from pydantic import BaseModel, Field
 from ee.models import Conversation
 from posthog.schema import (
     AssistantEventType,
+    AssistantFunnelsQuery,
     AssistantGenerationStatusEvent,
+    AssistantHogQLQuery,
     AssistantMessage,
+    AssistantRetentionQuery,
     AssistantToolCallMessage,
+    AssistantTrendsQuery,
     FailureMessage,
     HumanMessage,
+    PlanningMessage,
+    PlanningStepStatus,
     ReasoningMessage,
     VisualizationMessage,
+    NotebookUpdateMessage,
 )
 
 AIMessageUnion = Union[
@@ -28,8 +35,9 @@ AIMessageUnion = Union[
     FailureMessage,
     ReasoningMessage,
     AssistantToolCallMessage,
+    PlanningMessage,
 ]
-AssistantMessageUnion = Union[HumanMessage, AIMessageUnion]
+AssistantMessageUnion = Union[HumanMessage, AIMessageUnion, NotebookUpdateMessage]
 AssistantMessageOrStatusUnion = Union[AssistantMessageUnion, AssistantGenerationStatusEvent]
 
 AssistantOutput = (
@@ -40,6 +48,72 @@ AssistantOutput = (
 
 def merge(_: Any | None, right: Any | None) -> Any | None:
     return right
+
+
+class DeepResearchTodo(BaseModel):
+    """
+    A TO-DO item in the research plan.
+    """
+
+    id: int
+    description: str
+    status: PlanningStepStatus
+    priority: Literal["low", "medium", "high"]
+
+
+class DeepResearchInsightArtifacts(BaseModel):
+    """
+    An artifacts created by a task.
+    """
+
+    short_id: str
+    query: Union[AssistantTrendsQuery, AssistantFunnelsQuery, AssistantRetentionQuery, AssistantHogQLQuery] | None = (
+        Field(default=None)
+    )  # TODO: remove None once we have integrated the Task Execution Agent
+    description: str
+
+
+class DeepResearchSingleTaskResult(BaseModel):
+    """
+    The result of an individual task.
+    """
+
+    description: str
+    result: str
+    artifacts: list[DeepResearchInsightArtifacts]
+
+
+class DeepResearchIntermediateResult(BaseModel):
+    """
+    An intermediate result of a batch of work, that will be used to write the final report.
+    """
+
+    content: str
+    artifact_short_ids: Optional[list[str]]
+
+
+class DeepResearchTask(BaseModel):
+    """
+    A task to be executed by an assistant.
+    """
+
+    description: str
+    prompt: str
+    artifact_short_ids: Optional[list[str]]
+
+
+def replace_state_field(left: Sequence, right: Sequence) -> Sequence:
+    """
+    Replaces the state field with the right value.
+    """
+    return right
+
+
+def append_to_state_field(left: Sequence, right: Sequence) -> Sequence:
+    """
+    Appends the right value to the state field.
+    """
+    return [*left, *right]
 
 
 def add_and_merge_messages(
@@ -198,14 +272,37 @@ class _SharedAssistantState(BaseState):
     """
 
 
-class AssistantState(_SharedAssistantState):
+class _SharedDeepResearchState(BaseState):
+    todos: Annotated[list[DeepResearchTodo], replace_state_field] = Field(default=[])
+    """
+    The current TO-DO list.
+    """
+    task_results: Annotated[list[DeepResearchSingleTaskResult], append_to_state_field] = Field(default=[])
+    """
+    Results of tasks executed by assistants.
+    """
+    intermediate_results: Annotated[list[DeepResearchIntermediateResult], append_to_state_field] = Field(default=[])
+    """
+    Intermediate reports.
+    """
+    deep_research_planner_previous_response_id: Optional[str] = Field(default=None)
+    """
+    The ID of the previous OpenAI Responses API response made by the Deep Research Planner.
+    """
+    notebook_id: Optional[str] = Field(default=None)
+    """
+    Notebook ID for the Deep Research.
+    """
+
+
+class AssistantState(_SharedAssistantState, _SharedDeepResearchState):
     messages: Annotated[Sequence[AssistantMessageUnion], add_and_merge_messages] = Field(default=[])
     """
     Messages exposed to the user.
     """
 
 
-class PartialAssistantState(_SharedAssistantState):
+class PartialAssistantState(_SharedAssistantState, _SharedDeepResearchState):
     messages: Sequence[AssistantMessageUnion] = Field(default=[])
     """
     Messages exposed to the user.
@@ -242,8 +339,14 @@ class AssistantNodeName(StrEnum):
     INSIGHTS_SUBGRAPH = "insights_subgraph"
     TITLE_GENERATOR = "title_generator"
     INSIGHTS_SEARCH = "insights_search"
+    DEEP_RESEARCH_ONBOARDING = "deep_research_onboarding"
+    DEEP_RESEARCH_NOTEBOOK_INIT = "deep_research_notebook_init"
+    DEEP_RESEARCH_NOTEBOOK_PLANNING = "deep_research_notebook_planning"
+    DEEP_RESEARCH_PLANNER = "deep_research_planner"
+    DEEP_RESEARCH_PLANNER_TOOLS = "deep_research_planner_tools"
 
 
 class AssistantMode(StrEnum):
     ASSISTANT = "assistant"
     INSIGHTS_TOOL = "insights_tool"
+    DEEP_RESEARCH = "deep_research"

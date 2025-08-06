@@ -917,7 +917,7 @@
             "type": "string"
         },
         "AssistantEventType": {
-            "enum": ["status", "message", "conversation"],
+            "enum": ["status", "message", "conversation", "notebook"],
             "type": "string"
         },
         "AssistantForm": {
@@ -1589,7 +1589,7 @@
             "type": "object"
         },
         "AssistantMessageType": {
-            "enum": ["human", "tool", "ai", "ai/reasoning", "ai/viz", "ai/failure"],
+            "enum": ["human", "tool", "ai", "ai/reasoning", "ai/viz", "ai/failure", "notebook", "ai/planning"],
             "type": "string"
         },
         "AssistantMultipleBreakdownFilter": {
@@ -14427,6 +14427,41 @@
             "enum": ["minute", "hour", "day", "week", "month"],
             "type": "string"
         },
+        "JSONContent": {
+            "properties": {
+                "attrs": {
+                    "type": "object"
+                },
+                "content": {
+                    "items": {
+                        "$ref": "#/definitions/JSONContent"
+                    },
+                    "type": "array"
+                },
+                "marks": {
+                    "items": {
+                        "properties": {
+                            "attrs": {
+                                "type": "object"
+                            },
+                            "type": {
+                                "type": "string"
+                            }
+                        },
+                        "required": ["type"],
+                        "type": "object"
+                    },
+                    "type": "array"
+                },
+                "text": {
+                    "type": "string"
+                },
+                "type": {
+                    "type": "string"
+                }
+            },
+            "type": "object"
+        },
         "LLMTrace": {
             "additionalProperties": false,
             "properties": {
@@ -15911,6 +15946,32 @@
             ],
             "type": "string"
         },
+        "NotebookUpdateMessage": {
+            "additionalProperties": false,
+            "properties": {
+                "content": {
+                    "$ref": "#/definitions/JSONContent"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "notebook_id": {
+                    "type": "string"
+                },
+                "tool_calls": {
+                    "items": {
+                        "$ref": "#/definitions/AssistantToolCall"
+                    },
+                    "type": "array"
+                },
+                "type": {
+                    "const": "notebook",
+                    "type": "string"
+                }
+            },
+            "required": ["type", "notebook_id", "content"],
+            "type": "object"
+        },
         "PageURL": {
             "additionalProperties": false,
             "properties": {
@@ -16360,6 +16421,43 @@
             },
             "required": ["kind"],
             "type": "object"
+        },
+        "PlanningMessage": {
+            "additionalProperties": false,
+            "properties": {
+                "id": {
+                    "type": "string"
+                },
+                "steps": {
+                    "items": {
+                        "$ref": "#/definitions/PlanningStep"
+                    },
+                    "type": "array"
+                },
+                "type": {
+                    "const": "ai/planning",
+                    "type": "string"
+                }
+            },
+            "required": ["type", "steps"],
+            "type": "object"
+        },
+        "PlanningStep": {
+            "additionalProperties": false,
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "status": {
+                    "$ref": "#/definitions/PlanningStepStatus"
+                }
+            },
+            "required": ["description", "status"],
+            "type": "object"
+        },
+        "PlanningStepStatus": {
+            "enum": ["pending", "in_progress", "completed"],
+            "type": "string"
         },
         "PropertyFilterBaseValue": {
             "type": ["string", "number", "boolean"]
@@ -21789,6 +21887,12 @@
                 },
                 {
                     "$ref": "#/definitions/FailureMessage"
+                },
+                {
+                    "$ref": "#/definitions/NotebookUpdateMessage"
+                },
+                {
+                    "$ref": "#/definitions/PlanningMessage"
                 },
                 {
                     "additionalProperties": false,

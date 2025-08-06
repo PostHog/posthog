@@ -5,6 +5,13 @@ from langchain_core.runnables.base import RunnableLike
 from langgraph.graph.state import StateGraph
 
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
+from ee.hogai.graph.deep_research.planner.nodes import (
+    DeepResearchNotebookInitNode,
+    DeepResearchNotebookPlanningNode,
+    DeepResearchOnboardingNode,
+    DeepResearchPlannerNode,
+    DeepResearchPlannerToolsNode,
+)
 from ee.hogai.graph.query_planner.nodes import QueryPlannerNode, QueryPlannerToolsNode
 from ee.hogai.graph.billing.nodes import BillingNode
 from ee.hogai.graph.title_generator.nodes import TitleGeneratorNode
@@ -406,3 +413,51 @@ class AssistantGraph(BaseAssistantGraph[AssistantState]):
             .add_insights_search()
             .compile(checkpointer=checkpointer)
         )
+
+
+class DeepResearchAssistantGraph(BaseAssistantGraph[AssistantState]):
+    def __init__(self, team: Team, user: User):
+        super().__init__(team, user, AssistantState)
+
+    def add_planner(self, next_node: AssistantNodeName = AssistantNodeName.END):
+        builder = self._graph
+        self._has_start_node = True
+
+        deep_research_onboarding = DeepResearchOnboardingNode(self._team, self._user)
+        deep_research_notebook_init = DeepResearchNotebookInitNode(self._team, self._user)
+        deep_research_notebook_planning = DeepResearchNotebookPlanningNode(self._team, self._user)
+        deep_research_planner = DeepResearchPlannerNode(self._team, self._user)
+        deep_research_planner_tools = DeepResearchPlannerToolsNode(self._team, self._user)
+        builder.add_conditional_edges(
+            AssistantNodeName.START,
+            deep_research_onboarding.should_run_onboarding_at_start,
+            {
+                "onboarding": AssistantNodeName.DEEP_RESEARCH_ONBOARDING,
+                "notebook_init": AssistantNodeName.DEEP_RESEARCH_NOTEBOOK_INIT,
+                "continue": AssistantNodeName.DEEP_RESEARCH_PLANNER,
+            },
+        )
+        builder.add_node(AssistantNodeName.DEEP_RESEARCH_ONBOARDING, deep_research_onboarding)
+        builder.add_node(AssistantNodeName.DEEP_RESEARCH_NOTEBOOK_INIT, deep_research_notebook_init)
+        builder.add_node(AssistantNodeName.DEEP_RESEARCH_NOTEBOOK_PLANNING, deep_research_notebook_planning)
+        builder.add_node(AssistantNodeName.DEEP_RESEARCH_PLANNER, deep_research_planner)
+        builder.add_node(AssistantNodeName.DEEP_RESEARCH_PLANNER_TOOLS, deep_research_planner_tools)
+        builder.add_edge(AssistantNodeName.DEEP_RESEARCH_ONBOARDING, AssistantNodeName.END)
+        builder.add_edge(
+            AssistantNodeName.DEEP_RESEARCH_NOTEBOOK_INIT, AssistantNodeName.DEEP_RESEARCH_NOTEBOOK_PLANNING
+        )
+        builder.add_edge(AssistantNodeName.DEEP_RESEARCH_NOTEBOOK_PLANNING, AssistantNodeName.DEEP_RESEARCH_PLANNER)
+        builder.add_conditional_edges(
+            AssistantNodeName.DEEP_RESEARCH_PLANNER,
+            deep_research_planner.router,
+            path_map={
+                "continue": AssistantNodeName.DEEP_RESEARCH_PLANNER_TOOLS,
+                "end": next_node,
+            },
+        )
+        builder.add_edge(AssistantNodeName.DEEP_RESEARCH_PLANNER_TOOLS, AssistantNodeName.DEEP_RESEARCH_PLANNER)
+
+        return self
+
+    def compile_full_graph(self, checkpointer: DjangoCheckpointer | None = None):
+        return self.add_planner().compile(checkpointer=checkpointer)

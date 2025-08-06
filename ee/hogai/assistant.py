@@ -1,5 +1,6 @@
 from collections.abc import AsyncGenerator, AsyncIterator
 from contextlib import asynccontextmanager
+import traceback
 from typing import Any, Literal, Optional, cast
 from uuid import UUID, uuid4
 
@@ -28,6 +29,8 @@ from ee.hogai.graph import (
     TrendsGeneratorNode,
 )
 from ee.hogai.graph.base import AssistantNode
+from ee.hogai.graph.deep_research.notebook_serializer import NotebookSerializer
+from ee.hogai.graph.graph import DeepResearchAssistantGraph
 from ee.hogai.graph.filter_options.types import FilterOptionsNodeName
 from ee.hogai.tool import CONTEXTUAL_TOOL_NAME_TO_TOOL
 from ee.hogai.utils.exceptions import GenerationCanceled
@@ -68,6 +71,7 @@ from posthog.schema import (
     FailureMessage,
     HumanMessage,
     MaxBillingContext,
+    NotebookUpdateMessage,
     ReasoningMessage,
     VisualizationMessage,
 )
@@ -93,6 +97,9 @@ STREAMING_NODES: set[AssistantNodeName | FilterOptionsNodeName] = {
     AssistantNodeName.MEMORY_ONBOARDING_ENQUIRY,
     AssistantNodeName.MEMORY_ONBOARDING_FINALIZE,
     FilterOptionsNodeName.FILTER_OPTIONS,
+    AssistantNodeName.DEEP_RESEARCH_ONBOARDING,
+    AssistantNodeName.DEEP_RESEARCH_NOTEBOOK_PLANNING,
+    AssistantNodeName.DEEP_RESEARCH_PLANNER,
 }
 """Nodes that can stream messages to the client."""
 
@@ -107,6 +114,9 @@ VERBOSE_NODES: set[AssistantNodeName | FilterOptionsNodeName] = STREAMING_NODES 
 THINKING_NODES: set[AssistantNodeName | FilterOptionsNodeName] = {
     AssistantNodeName.QUERY_PLANNER,
     FilterOptionsNodeName.FILTER_OPTIONS,
+    AssistantNodeName.DEEP_RESEARCH_ONBOARDING,
+    AssistantNodeName.DEEP_RESEARCH_NOTEBOOK_PLANNING,
+    AssistantNodeName.DEEP_RESEARCH_PLANNER,
 }
 """Nodes that pass on thinking messages to the client. Current implementation assumes o3/o4 style of reasoning summaries!"""
 
@@ -129,7 +139,7 @@ class Assistant:
     _reasoning_headline_chunk: Optional[str]
     """Like a message chunk, but specifically for the reasoning headline (and just a plain string)."""
     _last_reasoning_headline: Optional[str]
-    """Last emittted reasoning headline, to be able to carry it over."""
+    """Last emitted reasoning headline, to be able to carry it over."""
     _billing_context: Optional[MaxBillingContext]
 
     def __init__(
@@ -158,10 +168,10 @@ class Assistant:
         match mode:
             case AssistantMode.ASSISTANT:
                 self._graph = AssistantGraph(team, user).compile_full_graph()
+            case AssistantMode.DEEP_RESEARCH:
+                self._graph = DeepResearchAssistantGraph(team, user).compile_full_graph()
             case AssistantMode.INSIGHTS_TOOL:
                 self._graph = InsightsAssistantGraph(team, user).compile_full_graph()
-            case _:
-                raise ValueError(f"Invalid assistant mode: {mode}")
         self._chunks = AIMessageChunk(content="")
         self._tool_call_partial_state = tool_call_partial_state
         self._state = None
@@ -293,7 +303,7 @@ class Assistant:
                     state_snapshot = validate_state_update(snapshot.values)
                     # Some nodes might have already sent a failure message, so we don't want to send another one.
                     if not state_snapshot.messages or not isinstance(state_snapshot.messages[-1], FailureMessage):
-                        yield AssistantEventType.MESSAGE, FailureMessage()
+                        yield AssistantEventType.MESSAGE, FailureMessage(content=str(traceback.format_exc()))
             finally:
                 await self._report_conversation_state(
                     last_assistant_message=last_ai_message, last_visualization_message=last_viz_message
@@ -341,7 +351,7 @@ class Assistant:
                 return None
 
         # Append the new message and reset some fields to their default values.
-        if self._latest_message and self._mode == AssistantMode.ASSISTANT:
+        if self._latest_message and self._mode in [AssistantMode.ASSISTANT, AssistantMode.DEEP_RESEARCH]:
             initial_state = AssistantState(
                 messages=[self._latest_message],
                 start_id=self._latest_message.id,
@@ -517,6 +527,9 @@ class Assistant:
         if not message_content:
             return None
 
+        if node_name == AssistantNodeName.DEEP_RESEARCH_NOTEBOOK_PLANNING:
+            return self._create_notebook_update_message(message_content)
+
         return AssistantMessage(content=message_content)
 
     def _merge_message_chunk(self, langchain_message: AIMessageChunk) -> None:
@@ -543,6 +556,16 @@ class Assistant:
             return None
         return AssistantMessage(content=MemoryInitializerNode.format_message(cast(str, self._chunks.content)))
 
+    def _create_notebook_update_message(self, content: str) -> Optional[NotebookUpdateMessage]:
+        """Create a notebook update message from HTML content."""
+        if not self._state or not self._state.notebook_id:
+            logger.debug("No notebook id found in state", state=self._state)
+            return None
+
+        serializer = NotebookSerializer()
+        json_content = serializer.from_markdown_to_json(content)
+        return NotebookUpdateMessage(id=str(uuid4()), notebook_id=self._state.notebook_id, content=json_content)
+
     def _chunk_reasoning_headline(self, reasoning: dict[str, Any]) -> Optional[str]:
         """Process a chunk of OpenAI `reasoning`, and if a new headline was just finalized, return it."""
         try:
@@ -557,6 +580,13 @@ class Assistant:
             self._reasoning_headline_chunk = None
             return None
 
+        if self._mode == AssistantMode.DEEP_RESEARCH:
+            summary_text_chunk = summary_text_chunk.replace("**", "")
+            if self._reasoning_headline_chunk is None:
+                self._reasoning_headline_chunk = summary_text_chunk
+            else:
+                self._reasoning_headline_chunk += summary_text_chunk
+            return self._reasoning_headline_chunk
         bold_marker_index = summary_text_chunk.find("**")
         if bold_marker_index == -1:
             # No bold markers - continue building headline if in progress
@@ -606,27 +636,46 @@ class Assistant:
         )
         output = last_assistant_message.content if isinstance(last_assistant_message, AssistantMessage) else None
 
-        if self._mode == AssistantMode.ASSISTANT:
-            await database_sync_to_async(report_user_action)(
-                self._user,
-                "chat with ai",
-                {
-                    "prompt": self._latest_message.content if self._latest_message else None,
-                    "output": output,
-                    "response": visualization_response,
-                },
-            )
-        elif self._mode == AssistantMode.INSIGHTS_TOOL and self._tool_call_partial_state:
-            await database_sync_to_async(report_user_action)(
-                self._user,
-                "standalone ai tool call",
-                {
-                    "prompt": self._tool_call_partial_state.root_tool_insight_plan,
-                    "output": output,
-                    "response": visualization_response,
-                    "tool_name": "create_and_query_insight",
-                },
-            )
+        event_config = self._get_analytics_event_config(output, visualization_response)
+        if event_config:
+            await database_sync_to_async(report_user_action)(self._user, event_config["name"], event_config["args"])
+
+    def _get_analytics_event_config(
+        self, output: Optional[str], visualization_response: Optional[str]
+    ) -> Optional[dict[str, Any]]:
+        """Get analytics event configuration based on assistant mode."""
+        base_prompt = self._latest_message.content if self._latest_message else None
+
+        match self._mode:
+            case AssistantMode.ASSISTANT:
+                return {
+                    "name": "chat with ai",
+                    "args": {
+                        "prompt": base_prompt,
+                        "output": output,
+                        "response": visualization_response,
+                    },
+                }
+            case AssistantMode.DEEP_RESEARCH:
+                return {
+                    "name": "deep research",
+                    "args": {
+                        "prompt": base_prompt,
+                        "output": output,
+                    },
+                }
+            case AssistantMode.INSIGHTS_TOOL if self._tool_call_partial_state:
+                return {
+                    "name": "standalone ai tool call",
+                    "args": {
+                        "prompt": self._tool_call_partial_state.root_tool_insight_plan,
+                        "response": visualization_response,
+                        "output": output,
+                        "tool_name": "create_and_query_insight",
+                    },
+                }
+            case _:
+                return None
 
     @asynccontextmanager
     async def _lock_conversation(self):
