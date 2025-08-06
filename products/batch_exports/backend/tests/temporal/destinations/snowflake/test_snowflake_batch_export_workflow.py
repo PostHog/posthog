@@ -43,7 +43,11 @@ from products.batch_exports.backend.temporal.destinations.snowflake_batch_export
     SnowflakeHeartbeatDetails,
     SnowflakeInsertInputs,
     insert_into_snowflake_activity,
+    insert_into_snowflake_activity_from_stage,
     load_private_key,
+)
+from products.batch_exports.backend.temporal.pipeline.internal_stage import (
+    insert_into_internal_stage_activity,
 )
 from products.batch_exports.backend.temporal.spmc import (
     RecordBatchTaskError,
@@ -129,6 +133,7 @@ async def _run_workflow(
     interval: str,
     snowflake_batch_export: BatchExport,
     data_interval_end: dt.datetime = TEST_TIME,
+    use_internal_stage: bool = False,
 ) -> BatchExportRun:
     workflow_id = str(uuid4())
     inputs = SnowflakeBatchExportInputs(
@@ -139,17 +144,26 @@ async def _run_workflow(
         **snowflake_batch_export.destination.config,
     )
 
-    async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
-        async with Worker(
-            activity_environment.client,
-            task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
-            workflows=[SnowflakeBatchExportWorkflow],
-            activities=[
-                start_batch_export_run,
-                insert_into_snowflake_activity,
-                finish_batch_export_run,
-            ],
-            workflow_runner=UnsandboxedWorkflowRunner(),
+    overrides = {}
+    if use_internal_stage:
+        overrides["BATCH_EXPORT_SNOWFLAKE_USE_STAGE_TEAM_IDS"] = [str(team_id)]
+
+    with override_settings(**overrides):
+        async with (
+            await WorkflowEnvironment.start_time_skipping() as activity_environment,
+            Worker(
+                activity_environment.client,
+                task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
+                workflows=[SnowflakeBatchExportWorkflow],
+                activities=[
+                    start_batch_export_run,
+                    insert_into_snowflake_activity,
+                    insert_into_internal_stage_activity,
+                    insert_into_snowflake_activity_from_stage,
+                    finish_batch_export_run,
+                ],
+                workflow_runner=UnsandboxedWorkflowRunner(),
+            ),
         ):
             await activity_environment.client.execute_workflow(
                 SnowflakeBatchExportWorkflow.run,
@@ -167,10 +181,20 @@ async def _run_workflow(
     return run
 
 
+@pytest.mark.parametrize("use_internal_stage", [False, True])
 class TestSnowflakeExportWorkflowMockedConnection:
     @pytest.mark.parametrize("interval", ["hour"], indirect=True)
     async def test_snowflake_export_workflow_exports_events(
-        self, ateam, clickhouse_client, database, schema, snowflake_batch_export, interval, table_name
+        self,
+        use_internal_stage,
+        ateam,
+        clickhouse_client,
+        database,
+        schema,
+        snowflake_batch_export,
+        interval,
+        table_name,
+        truncate_events,
     ):
         """Test that the whole workflow not just the activity works.
 
@@ -207,6 +231,7 @@ class TestSnowflakeExportWorkflowMockedConnection:
                 data_interval_end=data_interval_end,
                 interval=interval,
                 snowflake_batch_export=snowflake_batch_export,
+                use_internal_stage=use_internal_stage,
             )
             assert run.status == "Completed"
             assert run.records_completed == 10
@@ -235,7 +260,7 @@ class TestSnowflakeExportWorkflowMockedConnection:
 
     @pytest.mark.parametrize("interval", ["hour"], indirect=True)
     async def test_snowflake_export_workflow_without_events(
-        self, ateam, snowflake_batch_export, interval, truncate_events
+        self, use_internal_stage, ateam, snowflake_batch_export, interval, truncate_events
     ):
         data_interval_end = dt.datetime.now(tz=dt.UTC).replace(hour=0, minute=0, second=0, microsecond=0)
 
@@ -253,6 +278,7 @@ class TestSnowflakeExportWorkflowMockedConnection:
                 data_interval_end=data_interval_end,
                 interval=interval,
                 snowflake_batch_export=snowflake_batch_export,
+                use_internal_stage=use_internal_stage,
             )
             assert run.status == "Completed"
             assert run.records_completed == 0
