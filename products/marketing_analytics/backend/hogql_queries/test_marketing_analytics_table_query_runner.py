@@ -153,7 +153,7 @@ class TestMarketingAnalyticsTableQueryRunner(ClickhouseTestMixin, BaseTest):
             mock_get_adapters.return_value = []
 
             runner = self._create_query_runner()
-            query = runner.to_query(runner.query_date_range)
+            query = runner.to_query()
 
             assert isinstance(query, ast.SelectQuery)
             assert query.select is not None
