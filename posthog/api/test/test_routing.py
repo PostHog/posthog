@@ -117,7 +117,7 @@ class TestTeamAndOrgViewSetMixin(APIBaseTest):
 
 
 class TestTeamAndOrgViewSetMixinProjectApiToken(APIBaseTest):
-    """Test the _get_explicit_project_api_token and _get_team_from_request methods."""
+    """Test the _get_explicit_project_api_key and _get_team_from_request methods."""
 
     def setUp(self):
         super().setUp()
@@ -125,71 +125,71 @@ class TestTeamAndOrgViewSetMixinProjectApiToken(APIBaseTest):
         self.viewset = FooViewSet()
 
     @patch("posthog.api.test.test_routing.FooViewSet.request", create=True)
-    def test_get_explicit_project_api_token_with_dict_data(self, mock_request):
-        """Test _get_explicit_project_api_token returns token when request.data is a dict with project_api_token."""
+    def test_get_explicit_project_api_key_with_dict_data(self, mock_request):
+        """Test _get_explicit_project_api_key returns token when request.data is a dict with project_api_key."""
         mock_request.method = "POST"
-        mock_request.data = {"project_api_token": "test_token", "other_data": "value"}
+        mock_request.data = {"project_api_key": "test_token", "other_data": "value"}
         self.viewset.request = mock_request
 
-        result = self.viewset._get_explicit_project_api_token()
+        result = self.viewset._get_explicit_project_api_key()
         self.assertEqual(result, "test_token")
 
     @patch("posthog.api.test.test_routing.FooViewSet.request", create=True)
-    def test_get_explicit_project_api_token_with_dict_data_no_token(self, mock_request):
-        """Test _get_explicit_project_api_token returns None when request.data is a dict without project_api_token."""
+    def test_get_explicit_project_api_key_with_dict_data_no_token(self, mock_request):
+        """Test _get_explicit_project_api_key returns None when request.data is a dict without project_api_key."""
         mock_request.method = "POST"
         mock_request.data = {"other_data": "value"}
         self.viewset.request = mock_request
 
-        result = self.viewset._get_explicit_project_api_token()
+        result = self.viewset._get_explicit_project_api_key()
         self.assertIsNone(result)
 
     @patch("posthog.api.test.test_routing.FooViewSet.request", create=True)
-    def test_get_explicit_project_api_token_with_list_data(self, mock_request):
-        """Test _get_explicit_project_api_token returns None when request.data is a list (bulk operations)."""
+    def test_get_explicit_project_api_key_with_list_data(self, mock_request):
+        """Test _get_explicit_project_api_key returns None when request.data is a list (bulk operations)."""
         mock_request.method = "POST"
-        mock_request.data = [{"project_api_token": "test_token"}]
+        mock_request.data = [{"project_api_key": "test_token"}]
         self.viewset.request = mock_request
 
-        result = self.viewset._get_explicit_project_api_token()
+        result = self.viewset._get_explicit_project_api_key()
         self.assertIsNone(result)
 
     @patch("posthog.api.test.test_routing.FooViewSet.request", create=True)
-    def test_get_explicit_project_api_token_with_get_request(self, mock_request):
-        """Test _get_explicit_project_api_token returns None for GET requests."""
+    def test_get_explicit_project_api_key_with_get_request(self, mock_request):
+        """Test _get_explicit_project_api_key returns None for GET requests."""
         mock_request.method = "GET"
-        mock_request.data = {"project_api_token": "test_token"}
+        mock_request.data = {"project_api_key": "test_token"}
         self.viewset.request = mock_request
 
-        result = self.viewset._get_explicit_project_api_token()
+        result = self.viewset._get_explicit_project_api_key()
         self.assertIsNone(result)
 
     @patch("posthog.api.test.test_routing.FooViewSet.request", create=True)
-    def test_get_explicit_project_api_token_no_data_attribute(self, mock_request):
-        """Test _get_explicit_project_api_token returns None when request has no data attribute."""
+    def test_get_explicit_project_api_key_no_data_attribute(self, mock_request):
+        """Test _get_explicit_project_api_key returns None when request has no data attribute."""
         mock_request.method = "POST"
         # Don't set data attribute to simulate missing data attribute
         delattr(mock_request, "data")
         self.viewset.request = mock_request
 
-        result = self.viewset._get_explicit_project_api_token()
+        result = self.viewset._get_explicit_project_api_key()
         self.assertIsNone(result)
 
     @patch("posthog.api.routing.get_token")
     @patch("posthog.models.team.team.Team.objects.get_team_from_token")
     def test_get_team_from_request_with_explicit_token(self, mock_get_team_from_token, mock_get_token):
-        """Test _get_team_from_request uses explicit project_api_token from request body when available."""
+        """Test _get_team_from_request uses explicit project_api_key from request body when available."""
         # Setup mocks
         mock_team = Mock()
         mock_get_team_from_token.return_value = mock_team
         mock_get_token.return_value = None  # Shouldn't be called when explicit token exists
 
-        # Create request with explicit project_api_token
-        request = self.factory.post("/test/", {"project_api_token": "explicit_token"})
+        # Create request with explicit project_api_key
+        request = self.factory.post("/test/", {"project_api_key": "explicit_token"})
         self.viewset.request = request
 
-        # Mock _get_explicit_project_api_token to return the token
-        with patch.object(self.viewset, "_get_explicit_project_api_token", return_value="explicit_token"):
+        # Mock _get_explicit_project_api_key to return the token
+        with patch.object(self.viewset, "_get_explicit_project_api_key", return_value="explicit_token"):
             result = self.viewset._get_team_from_request()
 
         # Verify result and calls
@@ -206,12 +206,12 @@ class TestTeamAndOrgViewSetMixinProjectApiToken(APIBaseTest):
         mock_get_team_from_token.return_value = mock_team
         mock_get_token.return_value = "fallback_token"
 
-        # Create request without explicit project_api_token
+        # Create request without explicit project_api_key
         request = self.factory.post("/test/", [{"data": "bulk_data"}], format="json")
         self.viewset.request = request
 
-        # Mock _get_explicit_project_api_token to return None (bulk request)
-        with patch.object(self.viewset, "_get_explicit_project_api_token", return_value=None):
+        # Mock _get_explicit_project_api_key to return None (bulk request)
+        with patch.object(self.viewset, "_get_explicit_project_api_key", return_value=None):
             result = self.viewset._get_team_from_request()
 
         # Verify result and calls
