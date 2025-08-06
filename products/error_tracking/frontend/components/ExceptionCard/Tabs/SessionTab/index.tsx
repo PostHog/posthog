@@ -39,16 +39,16 @@ export function SessionTab({ timestamp, ...props }: SessionTabProps): JSX.Elemen
                         <TabsPrimitive value={currentSessionTab} onValueChange={setCurrentSessionTab}>
                             <SubHeader className="p-0">
                                 <TabsPrimitiveList className="flex justify-start gap-2 w-full h-full items-center">
-                                    <TabsPrimitiveTrigger className="px-2 h-full" value="timeline">
-                                        Timeline
-                                    </TabsPrimitiveTrigger>
                                     <TabsPrimitiveTrigger className="px-2 h-full" value="recording">
                                         Recording
                                     </TabsPrimitiveTrigger>
+                                    <TabsPrimitiveTrigger className="px-2 h-full" value="timeline">
+                                        Timeline
+                                    </TabsPrimitiveTrigger>
                                 </TabsPrimitiveList>
                             </SubHeader>
-                            <SessionTimeline value="timeline" />
                             <SessionRecording value="recording" />
+                            <SessionTimeline value="timeline" />
                         </TabsPrimitive>
                     </BindLogic>
                 ))
