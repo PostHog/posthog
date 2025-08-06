@@ -37,7 +37,7 @@ from posthog.models.user import User
 from posthog.session_recordings.session_recording_api import SessionRecordingSerializer
 from posthog.user_permissions import UserPermissions
 from posthog.utils import render_template
-import secrets
+from posthog.jwt import encode_jwt, PosthogJwtAudience
 from posthog.exceptions_capture import capture_exception
 
 
@@ -389,15 +389,13 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                     recording = SessionRecording(session_id=replay_id, team=resource.team)
                     recording.save()  # This ensures it exists in PostgreSQL
 
-                # Now create sharing configuration
-                sharing_config, _ = SharingConfiguration.objects.get_or_create(
-                    team=resource.team,
-                    recording=recording,
-                    defaults={
-                        "enabled": True,
-                        "access_token": secrets.token_urlsafe(32),
-                    },
+                # Create a JWT for the recording
+                export_access_token = encode_jwt(
+                    {"id": resource.created_by.id},
+                    timedelta(minutes=5),  # 5 mins should be enough for the export to complete
+                    PosthogJwtAudience.IMPERSONATED_USER,
                 )
+
                 asset_title = "Session Recording"
                 asset_description = f"Recording {replay_id}"
 
@@ -409,7 +407,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                         "recording": recording_data,
                         "timestamp": timestamp,
                         "replay_id": replay_id,
-                        "accessToken": sharing_config.access_token,
+                        "exportToken": export_access_token,
                         "noBorder": True,
                         "autoplay": True,
                         "mode": "screenshot",

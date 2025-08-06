@@ -2675,9 +2675,10 @@ const api = {
         },
         async get(
             recordingId: SessionRecordingType['id'],
-            params: Record<string, any> = {}
+            params: Record<string, any> = {},
+            headers: Record<string, string> = {}
         ): Promise<SessionRecordingType> {
-            return await new ApiRequest().recording(recordingId).withQueryString(toParams(params)).get()
+            return await new ApiRequest().recording(recordingId).withQueryString(toParams(params)).get({ headers })
         },
         async update(
             recordingId: SessionRecordingType['id'],
@@ -2711,23 +2712,29 @@ const api = {
 
         async listSnapshotSources(
             recordingId: SessionRecordingType['id'],
-            params: Record<string, any> = {}
+            params: Record<string, any> = {},
+            headers: Record<string, string> = {}
         ): Promise<SessionRecordingSnapshotResponse> {
             if (params.source) {
                 throw new Error('source parameter is not allowed in listSnapshotSources, this is a development error')
             }
-            return await new ApiRequest().recording(recordingId).withAction('snapshots').withQueryString(params).get()
+            return await new ApiRequest()
+                .recording(recordingId)
+                .withAction('snapshots')
+                .withQueryString(params)
+                .get({ headers })
         },
 
         async getSnapshots(
             recordingId: SessionRecordingType['id'],
-            params: SessionRecordingSnapshotParams
+            params: SessionRecordingSnapshotParams,
+            headers: Record<string, string> = {}
         ): Promise<string[]> {
             const response = await new ApiRequest()
                 .recording(recordingId)
                 .withAction('snapshots')
                 .withQueryString(params)
-                .getResponse()
+                .getResponse({ headers })
 
             const contentBuffer = new Uint8Array(await response.arrayBuffer())
             try {

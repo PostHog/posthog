@@ -39,6 +39,7 @@ export interface SessionRecordingPlayerProps extends SessionRecordingPlayerLogic
     noBorder?: boolean
     noInspector?: boolean
     matchingEventsMatchType?: MatchingEventsMatchType
+    accessToken?: string
 }
 
 export const createPlaybackSpeedKey = (action: (val: number) => void): HotkeysInterface => {
@@ -62,6 +63,7 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
         mode = SessionRecordingPlayerMode.Standard,
         pinned,
         setPinned,
+        accessToken,
     } = props
 
     const playerRef = useRef<HTMLDivElement>(null)
@@ -79,6 +81,7 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
         playerRef,
         pinned,
         setPinned,
+        accessToken,
     }
     const {
         incrementClickCount,

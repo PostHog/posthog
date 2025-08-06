@@ -18,4 +18,5 @@ export interface ExportedData extends SharingConfigurationSettings {
     autoplay?: boolean
     noBorder?: boolean
     mode?: SessionRecordingPlayerMode
+    exportToken?: string
 }
