@@ -2,8 +2,8 @@ from typing import Any, Literal, TypedDict, TypeGuard, Union
 
 from langchain_core.messages import AIMessageChunk
 
+from ee.hogai.graph.taxonomy.types import TaxonomyAgentState, TaxonomyNodeName
 from ee.hogai.utils.types import AssistantNodeName, AssistantState, PartialAssistantState
-from ee.hogai.graph.taxonomy.types import TaxonomyNodeName
 
 # A state update can have a partial state or a LangGraph's reserved dataclasses like Interrupt.
 GraphValueUpdate = dict[AssistantNodeName | TaxonomyNodeName, dict[Any, Any] | Any]
@@ -23,11 +23,14 @@ def is_value_update(update: list[Any]) -> TypeGuard[GraphValueUpdateTuple]:
 
 def validate_value_update(
     update: GraphValueUpdate,
-) -> dict[AssistantNodeName | TaxonomyNodeName, PartialAssistantState | Any]:
+) -> dict[AssistantNodeName | TaxonomyNodeName, PartialAssistantState | TaxonomyAgentState | Any]:
     validated_update = {}
     for node_name, value in update.items():
         if isinstance(value, dict):
-            validated_update[node_name] = PartialAssistantState.model_validate(value)
+            if isinstance(node_name, TaxonomyNodeName):
+                validated_update[node_name] = TaxonomyAgentState.model_validate(value)
+            else:
+                validated_update[node_name] = PartialAssistantState.model_validate(value)
         else:
             validated_update[node_name] = value
     return validated_update
