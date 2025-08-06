@@ -24,7 +24,7 @@ def is_value_update(update: list[Any]) -> TypeGuard[GraphValueUpdateTuple]:
 def validate_value_update(
     update: GraphValueUpdate,
 ) -> dict[AssistantNodeName | TaxonomyNodeName, PartialAssistantState | TaxonomyAgentState | Any]:
-    validated_update = {}
+    validated_update: dict[AssistantNodeName | TaxonomyNodeName, PartialAssistantState | TaxonomyAgentState | Any] = {}
     for node_name, value in update.items():
         if isinstance(value, dict):
             if isinstance(node_name, TaxonomyNodeName):

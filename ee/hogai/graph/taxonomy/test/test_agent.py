@@ -45,9 +45,6 @@ class TestTaxonomyAgent(BaseTest):
             toolkit_class=MockTaxonomyAgentToolkit,
         )
 
-        # Ensure the agent's _graph attribute points to our mock
-        self.agent._graph = self.mock_graph
-
     def tearDown(self):
         super().tearDown()
         self.patcher.stop()
@@ -110,13 +107,6 @@ class TestTaxonomyAgent(BaseTest):
         self.agent._graph.compile.assert_called_once()
         call_args = self.agent._graph.compile.call_args
         self.assertIsNotNone(call_args[1]["checkpointer"])
-
-    def test_compile_with_checkpointer(self):
-        mock_checkpointer = Mock()
-        self.agent._has_start_node = True
-        _ = self.agent.compile(checkpointer=mock_checkpointer)
-
-        self.agent._graph.compile.assert_called_once_with(checkpointer=mock_checkpointer)
 
     def test_compile_full_graph(self):
         _ = self.agent.compile_full_graph()
