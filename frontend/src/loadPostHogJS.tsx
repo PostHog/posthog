@@ -11,6 +11,7 @@ declare global {
             timestamp: number
             errorName: string
             errorMessage: string
+            commitHash: string
         }>
     }
 }
@@ -43,11 +44,13 @@ export function loadPostHogJS(): void {
                 // Store exception events for correlation with user reports
                 if (payload && payload.event === '$exception' && payload.uuid) {
                     window.recentPostHogExceptions = window.recentPostHogExceptions || []
+
                     window.recentPostHogExceptions.push({
                         uuid: payload.uuid,
                         timestamp: Date.now(),
-                        errorName: payload.properties?.$exception_type || 'Unknown',
-                        errorMessage: payload.properties?.$exception_message || 'Unknown error',
+                        errorName: payload.properties?.$exception_list[0]?.type || 'Unknown',
+                        errorMessage: payload.properties?.$exception_list[0]?.value || 'Unknown error',
+                        commitHash: payload.properties?.commit_sha || 'Unknown commit hash',
                     })
 
                     // Keep only last 5 exceptions
