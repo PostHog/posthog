@@ -1,22 +1,7 @@
-import {
-    actions,
-    connect,
-    defaults,
-    events,
-    kea,
-    key,
-    listeners,
-    path,
-    props,
-    reducers,
-    selectors,
-    propsChanged,
-} from 'kea'
+import { actions, connect, defaults, events, kea, key, path, props, reducers, selectors, propsChanged } from 'kea'
 
 import type { sessionTabLogicType } from './sessionTabLogicType'
-import { loaders } from 'kea-loaders'
 import { dayjs } from 'lib/dayjs'
-import api from 'lib/api'
 import {
     SessionTimelineEvent,
     SessionTimelineItem,
@@ -33,7 +18,6 @@ import {
 } from './SessionTimelineItem/event'
 import { SessionRecordingPlayerProps } from 'scenes/session-recordings/player/SessionRecordingPlayer'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
-import { EventsQuery, NodeKind } from '~/queries/schema/schema-general'
 
 export type SessionTabLogicProps = {
     sessionId: string
@@ -79,27 +63,24 @@ export const sessionTabLogic = kea<sessionTabLogicType>([
     }),
 
     actions({
-        setEventListEl: (eventListEl: HTMLDivElement | null) => ({ eventListEl }),
-        scrollToItem: (itemId: string) => ({ itemId }),
         registerRenderer: (renderer: SessionTimelineRenderer<SessionTimelineItem>) => ({
             renderer,
         }),
         toggleGroup: (name: RendererGroup) => ({ name }),
         setRecordingTimestamp: (timestamp: string, offset: number) => ({ timestamp, offset }),
         loadEvents: true,
+        setEvents: (events: SessionTimelineEvent[]) => ({ events }),
     }),
 
     defaults({
-        setEventListEl: null as HTMLDivElement | null,
         activeGroups: [] as RendererGroup[],
         rendererRegistry: [] as RendererRegistry,
         recordingTimestamp: null as number | null,
+        events: [] as SessionTimelineEvent[],
+        filteredItems: [] as [SessionTimelineItem, SessionTimelineRenderer<SessionTimelineItem>][],
     }),
 
     reducers({
-        eventListEl: {
-            setEventListEl: (_, { eventListEl }: { eventListEl: HTMLDivElement | null }) => eventListEl,
-        },
         rendererRegistry: {
             registerRenderer: (state, { renderer }: { renderer: SessionTimelineRenderer<SessionTimelineItem> }) => [
                 ...state,
@@ -122,64 +103,31 @@ export const sessionTabLogic = kea<sessionTabLogicType>([
             setRecordingTimestamp: (_, { timestamp, offset }: { timestamp: string; offset: number }) =>
                 dayjs(timestamp).valueOf() - offset,
         },
-    }),
-
-    loaders(({ props }) => ({
-        events: [
-            [] as SessionTimelineEvent[],
-            {
-                loadEvents: async () => {
-                    const start = dayjs(props.timestamp).subtract(5, 'minutes')
-                    const end = dayjs(props.timestamp).add(5, 'minutes')
-                    const query: EventsQuery = {
-                        kind: NodeKind.EventsQuery,
-                        select: ['uuid', 'event', 'timestamp', 'properties'],
-                        where: [`$session_id = '${props.sessionId}'`],
-                        before: end.toISOString(),
-                        after: start.toISOString(),
-                        orderBy: ['timestamp'],
-                    }
-                    const response = await api.query(query)
-                    const results = response.results
-                    return results.map((result: any) => ({
-                        id: result[0],
-                        type: 'event',
-                        timestamp: result[2],
-                        payload: {
-                            event: result[1],
-                            properties: JSON.parse(result[3]),
-                        },
-                    }))
-                },
-            },
-        ],
-    })),
-    listeners(({ values }) => ({
-        scrollToItem: ({ itemId }) => {
-            const eventListEl = values.eventListEl
-            if (eventListEl) {
-                const eventEl = eventListEl.querySelector(`[data-item-id="${itemId}"]`)
-                if (eventEl) {
-                    eventEl.scrollIntoView({ behavior: 'instant', block: 'center' })
-                }
-            }
+        events: {
+            setEvents: (_, { events }: { events: SessionTimelineEvent[] }) => events,
         },
-    })),
+    }),
     selectors({
         sessionId: [(_, props) => [props.sessionId], (sessionId: string) => sessionId],
         timestamp: [(_, props) => [props.timestamp], (timestamp: string) => timestamp],
-        items: [(s) => [s.events], (events: SessionTimelineEvent[]) => events as SessionTimelineItem[]],
-        itemsLoading: [(s) => [s.eventsLoading], (eventsLoading: boolean) => eventsLoading],
-        getRenderer: [
-            (s) => [s.rendererRegistry, s.activeGroups],
-            (rendererRegistry: RendererRegistry, activeGroups: string[]) => {
-                return (item: SessionTimelineItem) => {
-                    const renderer = rendererRegistry.find((renderer) => renderer.predicate(item))
-                    if (!!renderer && activeGroups.includes(renderer.group)) {
-                        return renderer
-                    }
-                    return undefined
+        items: [
+            (s) => [s.events, s.rendererRegistry],
+            (
+                events: SessionTimelineEvent[],
+                rendererRegistry: RendererRegistry
+            ): [SessionTimelineItem, SessionTimelineRenderer<SessionTimelineItem> | undefined][] => {
+                function getRenderer(
+                    item: SessionTimelineItem
+                ): SessionTimelineRenderer<SessionTimelineItem> | undefined {
+                    return rendererRegistry.find((renderer) => renderer.predicate(item))
                 }
+                return events.map((event) => [event, getRenderer(event)])
+            },
+        ],
+        filteredItems: [
+            (s) => [s.items, s.activeGroups],
+            (items: [SessionTimelineItem, SessionTimelineRenderer<SessionTimelineItem>][], activeGroups: string[]) => {
+                return items.filter(([_, renderer]) => !!renderer && activeGroups.includes(renderer.group))
             },
         ],
         isGroupActive: [
@@ -189,33 +137,19 @@ export const sessionTabLogic = kea<sessionTabLogicType>([
             },
         ],
         usedGroups: [
-            (s) => [s.rendererRegistry, s.items],
-            (rendererRegistry: RendererRegistry, items: SessionTimelineItem[]) => {
+            (s) => [s.items],
+            (items: [SessionTimelineItem, SessionTimelineRenderer<SessionTimelineItem> | undefined][]) => {
                 const orderedRenderers = Object.values(RendererGroup)
-
-                const usedGroups = new Set<RendererGroup>()
-                for (const item of items) {
-                    const renderer = rendererRegistry.find((renderer) => renderer.predicate(item))
-                    if (renderer) {
-                        usedGroups.add(renderer.group)
+                const usedGroupsSet = items.reduce((acc, [_, renderer]) => {
+                    if (!renderer) {
+                        return acc
                     }
-                }
-                return Array.from(usedGroups).sort((a, b) => orderedRenderers.indexOf(a) - orderedRenderers.indexOf(b))
-            },
-        ],
-        canScrollToItem: [
-            (s) => [s.items, s.getRenderer],
-            (
-                items: SessionTimelineItem[],
-                getRenderer: (item: SessionTimelineItem) => SessionTimelineRenderer<SessionTimelineItem> | undefined
-            ) => {
-                return (itemId: string) => {
-                    const item = items.find((i) => i.id === itemId)
-                    if (!item) {
-                        return false
-                    }
-                    return !!getRenderer(item)
-                }
+                    acc.add(renderer.group)
+                    return acc
+                }, new Set<RendererGroup>())
+                return Array.from(usedGroupsSet).sort(
+                    (a, b) => orderedRenderers.indexOf(a) - orderedRenderers.indexOf(b)
+                )
             },
         ],
         recordingProps: [
@@ -233,7 +167,6 @@ export const sessionTabLogic = kea<sessionTabLogicType>([
             actions.registerRenderer(surveysRenderer)
             actions.registerRenderer(webAnalyticsRenderer)
             actions.registerRenderer(eventRenderer)
-            actions.loadEvents()
             actions.setRecordingTimestamp(props.timestamp, 5000)
         },
     })),
