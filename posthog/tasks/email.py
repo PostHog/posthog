@@ -8,6 +8,8 @@ import structlog
 from celery import shared_task
 from django.conf import settings
 from django.utils import timezone
+from django.db.models import OuterRef, Subquery
+
 
 from posthog.batch_exports.models import BatchExportRun
 from posthog.cloud_utils import is_cloud
@@ -27,6 +29,7 @@ from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.utils import UUIDT
 from posthog.user_permissions import UserPermissions
+
 
 logger = structlog.get_logger(__name__)
 
@@ -711,8 +714,6 @@ def send_team_hog_functions_digest(team_id: int, hog_function_ids: list[str] | N
     last_edit_dates: dict[str, str | None] = {}
 
     # Use a subquery to get only the latest activity for each HogFunction
-    from django.db.models import OuterRef, Subquery
-
     latest_activities_subquery = (
         ActivityLog.objects.filter(team_id=team_id, scope="HogFunction", item_id=OuterRef("item_id"))
         .order_by("-created_at")
