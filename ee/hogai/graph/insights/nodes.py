@@ -164,7 +164,13 @@ Current Results: {insight_info['results']}"""
                 )
             else:
                 # No suitable insights found, triggering creation of a new insight
+                no_insights_message = AssistantToolCallMessage(
+                    content="No existing insights found matching your query. Creating a new insight based on your request.",
+                    tool_call_id=state.root_tool_call_id or "unknown",
+                    id=str(uuid4()),
+                )
                 return PartialAssistantState(
+                    messages=[no_insights_message],
                     root_tool_insight_plan=search_query,
                     search_insights_query=None,
                 )
