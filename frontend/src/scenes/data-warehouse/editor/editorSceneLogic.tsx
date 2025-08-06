@@ -248,10 +248,10 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
                                       key: `hogQLQueryEditor/${router.values.location.pathname}`,
                                   }).actions.createTab(`SELECT * FROM ${view.name}`)
                                 : isSavedQuery
-                                ? multitabEditorLogic({
-                                      key: `hogQLQueryEditor/${router.values.location.pathname}`,
-                                  }).actions.editView(view.query.query, view)
-                                : null
+                                  ? multitabEditorLogic({
+                                        key: `hogQLQueryEditor/${router.values.location.pathname}`,
+                                    }).actions.editView(view.query.query, view)
+                                  : null
                         }
 
                         const savedViewMenuItems = isSavedQuery
@@ -262,13 +262,6 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
                                           multitabEditorLogic({
                                               key: `hogQLQueryEditor/${router.values.location.pathname}`,
                                           }).actions.editView(view.query.query, view)
-                                      },
-                                  },
-                                  {
-                                      label: 'Add join',
-                                      onClick: () => {
-                                          actions.selectSourceTable(view.name)
-                                          actions.toggleJoinTableModal()
                                       },
                                   },
                                   {
@@ -316,6 +309,13 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
                                     label: 'Open schema',
                                     onClick: () => {
                                         actions.selectSchema(view)
+                                    },
+                                },
+                                {
+                                    label: 'Add join',
+                                    onClick: () => {
+                                        actions.selectSourceTable(view.name)
+                                        actions.toggleJoinTableModal()
                                     },
                                 },
                                 ...savedViewMenuItems,
@@ -496,7 +496,7 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
                                 (result) =>
                                     [result.item, result.matches] as [
                                         DataWarehouseSavedQuery | DatabaseSchemaManagedViewTable,
-                                        FuseSearchMatch[]
+                                        FuseSearchMatch[],
                                     ]
                             )
                     )

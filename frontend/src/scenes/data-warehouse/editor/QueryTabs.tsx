@@ -73,7 +73,7 @@ function QueryTabComponent({ model, active, onClear, onClick, onRename }: QueryT
     const [isEditing, setIsEditing] = useState(false)
 
     useEffect(() => {
-        setTabName(model.view?.name || model.name || NEW_QUERY)
+        setTabName(model.name || model.view?.name || NEW_QUERY)
     }, [model.view?.name, model.name])
 
     const handleRename = (): void => {

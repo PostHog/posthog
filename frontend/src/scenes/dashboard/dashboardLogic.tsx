@@ -537,7 +537,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                               ...(payload?.action === DashboardLoadAction.Preview ||
                               payload?.action === DashboardLoadAction.InitialLoadWithVariables
                                   ? {}
-                                  : dashboard.variables ?? {}),
+                                  : (dashboard.variables ?? {})),
                           }
                         : state
                 },
@@ -567,7 +567,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                               ...(payload?.action === DashboardLoadAction.Preview ||
                               payload?.action === DashboardLoadAction.InitialLoadWithVariables
                                   ? {}
-                                  : dashboard.variables ?? {}),
+                                  : (dashboard.variables ?? {})),
                           }
                         : state,
             },
@@ -784,8 +784,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     [shortId]: loading
                         ? { loading: true, queued: true, timer: new Date() }
                         : queued
-                        ? { loading: false, queued: true, timer: null }
-                        : { refreshed: true, timer: state[shortId]?.timer || null },
+                          ? { loading: false, queued: true, timer: null }
+                          : { refreshed: true, timer: state[shortId]?.timer || null },
                 }),
                 setRefreshStatuses: (state, { shortIds, loading, queued }) =>
                     Object.fromEntries(
@@ -794,8 +794,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             loading
                                 ? { loading: true, queued: true, timer: new Date() }
                                 : queued
-                                ? { loading: false, queued: true, timer: null }
-                                : { refreshed: true, timer: state[shortId]?.timer || null },
+                                  ? { loading: false, queued: true, timer: null }
+                                  : { refreshed: true, timer: state[shortId]?.timer || null },
                         ])
                     ) as Record<string, RefreshStatus>,
                 setRefreshError: (state, { shortId, error }) => ({
@@ -992,27 +992,29 @@ export const dashboardLogic = kea<dashboardLogicType>([
                           dashboard_description: dashboard.description,
                           dashboard_filters: dashboard.filters,
                           tags: dashboard.tags || [],
-                          tiles: dashboard.tiles.map((tile) => {
-                              if (tile.text) {
-                                  return {
-                                      type: 'TEXT',
-                                      body: tile.text.body,
-                                      layouts: tile.layouts,
-                                      color: tile.color,
+                          tiles: dashboard.tiles
+                              .filter((tile) => !tile.error) // Skip error tiles when creating templates
+                              .map((tile) => {
+                                  if (tile.text) {
+                                      return {
+                                          type: 'TEXT',
+                                          body: tile.text.body,
+                                          layouts: tile.layouts,
+                                          color: tile.color,
+                                      }
                                   }
-                              }
-                              if (tile.insight) {
-                                  return {
-                                      type: 'INSIGHT',
-                                      name: tile.insight.name,
-                                      description: tile.insight.description || '',
-                                      query: tile.insight.query,
-                                      layouts: tile.layouts,
-                                      color: tile.color,
+                                  if (tile.insight) {
+                                      return {
+                                          type: 'INSIGHT',
+                                          name: tile.insight.name,
+                                          description: tile.insight.description || '',
+                                          query: tile.insight.query,
+                                          layouts: tile.layouts,
+                                          color: tile.color,
+                                      }
                                   }
-                              }
-                              throw new Error('Unknown tile type')
-                          }),
+                                  throw new Error('Unknown tile type')
+                              }),
                           variables: [],
                       }
                     : undefined
@@ -1176,10 +1178,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     name: dashboard?.id
                         ? dashboard.name
                         : dashboardFailedToLoad
-                        ? 'Could not load'
-                        : !dashboardLoading
-                        ? 'Not found'
-                        : null,
+                          ? 'Could not load'
+                          : !dashboardLoading
+                            ? 'Not found'
+                            : null,
                     onRename: canEditDashboard
                         ? async (name) => {
                               if (dashboard) {

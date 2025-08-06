@@ -10,7 +10,9 @@
         background-color: var(--bg-surface-primary);
         border: 1px solid var(--border-color);
         border-radius: var(--radius);
-        transition: border 150ms linear, margin-bottom 150ms linear;
+        transition:
+            border 150ms linear,
+            margin-bottom 150ms linear;
         transform: translate3d(0, 0, 0);
 
         .NotebookNode__meta {

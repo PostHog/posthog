@@ -72,6 +72,9 @@ class TestMyNotifications(APIBaseTest, QueryMatchingTest):
 
     def _create_and_edit_things(self):
         with freeze_time("2023-08-17") as frozen_time:
+            # add microsecond offset to test if timestamp precision mismatches are handled correctly
+            frozen_time.tick(delta=timedelta(microseconds=123))
+
             # almost every change below will be more than 5 minutes apart
             created_insights = []
             for _ in range(0, 11):
@@ -260,16 +263,16 @@ class TestMyNotifications(APIBaseTest, QueryMatchingTest):
         assert [c["unread"] for c in changes.json()["results"]] == [True] * 10
         assert [c["created_at"] for c in changes.json()["results"]] == [
             # time is frozen in test setup so
-            "2023-08-17T04:36:50Z",
-            "2023-08-17T04:30:25Z",
-            "2023-08-17T04:24:25Z",
-            "2023-08-17T04:18:25Z",
-            "2023-08-17T04:06:25Z",
-            "2023-08-17T03:54:25Z",
-            "2023-08-17T03:42:25Z",
-            "2023-08-17T03:30:25Z",
-            "2023-08-17T03:18:25Z",
-            "2023-08-17T03:06:25Z",
+            "2023-08-17T04:36:50.000123Z",
+            "2023-08-17T04:30:25.000123Z",
+            "2023-08-17T04:24:25.000123Z",
+            "2023-08-17T04:18:25.000123Z",
+            "2023-08-17T04:06:25.000123Z",
+            "2023-08-17T03:54:25.000123Z",
+            "2023-08-17T03:42:25.000123Z",
+            "2023-08-17T03:30:25.000123Z",
+            "2023-08-17T03:18:25.000123Z",
+            "2023-08-17T03:06:25.000123Z",
         ]
         most_recent_date = changes.json()["results"][2]["created_at"]
 
@@ -282,7 +285,7 @@ class TestMyNotifications(APIBaseTest, QueryMatchingTest):
 
         changes = self.client.get(f"/api/projects/{self.team.id}/my_notifications?unread=true")
         assert changes.status_code == status.HTTP_200_OK
-        assert changes.json()["last_read"] == "2023-08-17T04:24:25Z"
+        assert changes.json()["last_read"] == "2023-08-17T04:24:25.000123Z"
         assert [c["unread"] for c in changes.json()["results"]] == [True, True]
 
     def test_notifications_viewed_n_plus_1(self) -> None:
@@ -300,3 +303,39 @@ class TestMyNotifications(APIBaseTest, QueryMatchingTest):
 
             with self.assertNumQueries(FuzzyInt(42, 42)):
                 self.client.get(f"/api/projects/{self.team.id}/my_notifications")
+
+    def test_microsecond_precision_mismatch(self):
+        self.client.force_login(self.user)
+
+        # get all unread
+        changes = self.client.get(f"/api/projects/{self.team.id}/my_notifications?unread=true")
+        assert changes.status_code == status.HTTP_200_OK
+        assert len(changes.json()["results"]) == 10
+        assert changes.json()["last_read"] is None
+        assert [c["unread"] for c in changes.json()["results"]] == [True] * 10
+        assert [c["created_at"] for c in changes.json()["results"]] == [
+            # time is frozen in test setup so
+            "2023-08-17T04:36:50.000123Z",
+            "2023-08-17T04:30:25.000123Z",
+            "2023-08-17T04:24:25.000123Z",
+            "2023-08-17T04:18:25.000123Z",
+            "2023-08-17T04:06:25.000123Z",
+            "2023-08-17T03:54:25.000123Z",
+            "2023-08-17T03:42:25.000123Z",
+            "2023-08-17T03:30:25.000123Z",
+            "2023-08-17T03:18:25.000123Z",
+            "2023-08-17T03:06:25.000123Z",
+        ]
+
+        # mark where we have read up to but zero out the microseconds
+        bookmark_response = self.client.post(
+            f"/api/projects/{self.team.id}/my_notifications/bookmark",
+            {"bookmark": "2023-08-17T04:36:50.000000Z"},
+        )
+        assert bookmark_response.status_code == status.HTTP_204_NO_CONTENT
+
+        # verify that all of the notifications are now marked as read
+        changes = self.client.get(f"/api/projects/{self.team.id}/my_notifications?unread=true")
+        assert changes.status_code == status.HTTP_200_OK
+        assert changes.json()["last_read"] == "2023-08-17T04:36:50Z"
+        assert changes.json()["results"] == []

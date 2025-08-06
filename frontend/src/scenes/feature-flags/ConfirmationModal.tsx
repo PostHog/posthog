@@ -93,8 +93,8 @@ export function openConfirmationModal({
                 type === 'flag-status'
                     ? `${capitalizeFirstLetter(activeNewValue ? 'enable' : 'disable')} flag`
                     : type === 'rollout'
-                    ? 'Update conditions'
-                    : 'Save changes',
+                      ? 'Update conditions'
+                      : 'Save changes',
             onClick: onConfirm,
         },
         secondaryButton: {

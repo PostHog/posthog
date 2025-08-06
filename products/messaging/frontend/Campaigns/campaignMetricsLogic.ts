@@ -57,8 +57,8 @@ export const campaignMetricsLogic = kea<campaignMetricsLogicType>([
                         interval === 'day'
                             ? 'toStartOfDay(timestamp)'
                             : interval === 'week'
-                            ? 'toStartOfWeek(timestamp)'
-                            : 'toStartOfHour(timestamp)'
+                              ? 'toStartOfWeek(timestamp)'
+                              : 'toStartOfHour(timestamp)'
 
                     const query = hogql`SELECT ${hogql.raw(
                         dateClause

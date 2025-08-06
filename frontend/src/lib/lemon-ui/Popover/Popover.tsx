@@ -192,7 +192,7 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
         if (referenceElement) {
             setReference(referenceElement)
         }
-    }, [referenceElement])
+    }, [referenceElement]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     useEventListener(
         'keydown',
@@ -222,7 +222,7 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
         if (visible && referenceRef?.current && floatingElement) {
             return autoUpdate(referenceRef.current, floatingElement, update)
         }
-    }, [visible, placement, referenceRef?.current, floatingElement, ...additionalRefs])
+    }, [visible, placement, referenceRef?.current, floatingElement, ...additionalRefs]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     const floatingContainer = useFloatingContainer()
 
@@ -243,8 +243,8 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
     const clonedChildren = children ? React.cloneElement(children as ReactElement, { ref: mergedReferenceRef }) : null
 
     const isAttached = clonedChildren || referenceElement
-    const top = isAttached ? y ?? 0 : undefined
-    const left = isAttached ? x ?? 0 : undefined
+    const top = isAttached ? (y ?? 0) : undefined
+    const left = isAttached ? (x ?? 0) : undefined
 
     return (
         <>

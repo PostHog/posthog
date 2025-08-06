@@ -54,3 +54,7 @@ class TestAssistantTypes(BaseTest):
 
         # Should return a PartialAssistantState instance
         self.assertIsInstance(reset_state, PartialAssistantState)
+
+    def test_ignoring_fields(self):
+        """Test that all fields have default values"""
+        self.assertNotIn("memory_collection_messages", AssistantState.get_reset_state().model_dump(exclude_unset=True))

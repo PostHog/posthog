@@ -64,7 +64,7 @@ export function EditorScene(): JSX.Element {
     })
 
     const { queryInput, sourceQuery, dataLogicKey } = useValues(logic)
-    const { setSourceQuery, setResponse, setDataError } = useActions(logic)
+    const { setSourceQuery } = useActions(logic)
 
     const dataVisualizationLogicProps: DataVisualizationLogicProps = {
         key: dataLogicKey,
@@ -87,10 +87,26 @@ export function EditorScene(): JSX.Element {
         variablesOverride: undefined,
         autoLoad: false,
         onData: (data) => {
-            setResponse(data ?? null)
+            const mountedLogic = multitabEditorLogic.findMounted({
+                key: codeEditorKey,
+                monaco,
+                editor,
+            })
+
+            if (mountedLogic) {
+                mountedLogic.actions.setResponse(data ?? null)
+            }
         },
         onError: (error) => {
-            setDataError(error)
+            const mountedLogic = multitabEditorLogic.findMounted({
+                key: codeEditorKey,
+                monaco,
+                editor,
+            })
+
+            if (mountedLogic) {
+                mountedLogic.actions.setDataError(error)
+            }
         },
     }
 

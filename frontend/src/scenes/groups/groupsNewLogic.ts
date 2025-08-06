@@ -220,28 +220,31 @@ export const groupsNewLogic = kea<groupsNewLogicType>([
 export function flattenProperties(properties: GroupProperty[]): Record<string, any> {
     return properties
         .filter((prop) => prop.name.trim() && prop.value.trim())
-        .reduce((acc, prop) => {
-            const key = prop.name.trim()
-            let value: any = prop.value
+        .reduce(
+            (acc, prop) => {
+                const key = prop.name.trim()
+                let value: any = prop.value
 
-            // Convert boolean type values to proper types
-            if (prop.type === 'boolean') {
-                if (value === 'true') {
-                    value = true
-                } else if (value === 'false') {
-                    value = false
-                } else if (value === 'null') {
-                    value = null
+                // Convert boolean type values to proper types
+                if (prop.type === 'boolean') {
+                    if (value === 'true') {
+                        value = true
+                    } else if (value === 'false') {
+                        value = false
+                    } else if (value === 'null') {
+                        value = null
+                    }
+                } else if (prop.type === 'string') {
+                    // Convert numeric strings to numbers
+                    const numericValue = Number(value)
+                    if (!isNaN(numericValue) && isFinite(numericValue) && value.trim() !== '') {
+                        value = numericValue
+                    }
                 }
-            } else if (prop.type === 'string') {
-                // Convert numeric strings to numbers
-                const numericValue = Number(value)
-                if (!isNaN(numericValue) && isFinite(numericValue) && value.trim() !== '') {
-                    value = numericValue
-                }
-            }
 
-            acc[key] = value
-            return acc
-        }, {} as Record<string, any>)
+                acc[key] = value
+                return acc
+            },
+            {} as Record<string, any>
+        )
 }

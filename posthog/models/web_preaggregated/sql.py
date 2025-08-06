@@ -4,11 +4,11 @@ from posthog.hogql.database.schema.web_analytics_s3 import get_s3_function_args
 from posthog.models.web_preaggregated.team_selection import WEB_PRE_AGGREGATED_TEAM_SELECTION_DICTIONARY_NAME
 
 
-def TABLE_TEMPLATE(table_name, columns, order_by):
+def TABLE_TEMPLATE(table_name, columns, order_by, on_cluster=True):
     engine = MergeTreeEngine(table_name, replication_scheme=ReplicationScheme.REPLICATED)
 
     return f"""
-    CREATE TABLE IF NOT EXISTS {table_name} {ON_CLUSTER_CLAUSE(on_cluster=True)}
+    CREATE TABLE IF NOT EXISTS {table_name} {ON_CLUSTER_CLAUSE(on_cluster=on_cluster)}
     (
         period_bucket DateTime,
         team_id UInt64,
@@ -21,13 +21,13 @@ def TABLE_TEMPLATE(table_name, columns, order_by):
     """
 
 
-def HOURLY_TABLE_TEMPLATE(table_name, columns, order_by, ttl=None):
+def HOURLY_TABLE_TEMPLATE(table_name, columns, order_by, ttl=None, on_cluster=True):
     engine = MergeTreeEngine(table_name, replication_scheme=ReplicationScheme.REPLICATED)
 
     ttl_clause = f"TTL period_bucket + INTERVAL {ttl} DELETE" if ttl else ""
 
     return f"""
-    CREATE TABLE IF NOT EXISTS {table_name} {ON_CLUSTER_CLAUSE(on_cluster=True)}
+    CREATE TABLE IF NOT EXISTS {table_name} {ON_CLUSTER_CLAUSE(on_cluster=on_cluster)}
     (
         period_bucket DateTime,
         team_id UInt64,
@@ -170,6 +170,14 @@ def WEB_STATS_DAILY_SQL(table_name="web_stats_daily"):
 
 def WEB_BOUNCES_DAILY_SQL(table_name="web_bounces_daily"):
     return TABLE_TEMPLATE(table_name, WEB_BOUNCES_COLUMNS, WEB_BOUNCES_ORDER_BY_FUNC("period_bucket"))
+
+
+def WEB_STATS_SQL(table_name="web_pre_aggregated_stats", on_cluster=True):
+    return TABLE_TEMPLATE(table_name, WEB_STATS_COLUMNS, WEB_STATS_ORDER_BY_FUNC("period_bucket"), on_cluster)
+
+
+def WEB_BOUNCES_SQL(table_name="web_pre_aggregated_bounces", on_cluster=True):
+    return TABLE_TEMPLATE(table_name, WEB_BOUNCES_COLUMNS, WEB_BOUNCES_ORDER_BY_FUNC("period_bucket"), on_cluster)
 
 
 def WEB_STATS_HOURLY_SQL():

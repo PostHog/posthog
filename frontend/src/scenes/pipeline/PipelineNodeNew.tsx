@@ -23,7 +23,7 @@ const paramsToProps = ({
     const numericId = id && /^\d+$/.test(id) ? parseInt(id) : undefined
     const pluginId = numericId && !isNaN(numericId) ? numericId : null
     const hogFunctionId = pluginId ? null : id?.startsWith('hog-') ? id.slice(4) : null
-    const batchExportDestination = hogFunctionId ? null : id ?? null
+    const batchExportDestination = hogFunctionId ? null : (id ?? null)
 
     return {
         stage: PIPELINE_TAB_TO_NODE_STAGE[stage + 's'] || null, // pipeline tab has stage plural here we have singular

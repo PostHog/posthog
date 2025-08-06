@@ -147,16 +147,19 @@ export const notebooksModel = kea<notebooksModelType>([
 
     listeners(({ asyncActions }) => ({
         createNotebookFromDashboard: async ({ dashboard }) => {
-            const queries = dashboard.tiles.reduce((acc, tile) => {
-                if (!tile.insight) {
+            const queries = dashboard.tiles.reduce(
+                (acc, tile) => {
+                    if (!tile.insight) {
+                        return acc
+                    }
+                    acc.push({
+                        title: tile.insight.name,
+                        query: tile.insight.query,
+                    })
                     return acc
-                }
-                acc.push({
-                    title: tile.insight.name,
-                    query: tile.insight.query,
-                })
-                return acc
-            }, [] as { title: string; query: InsightVizNode | Node | null }[])
+                },
+                [] as { title: string; query: InsightVizNode | Node | null }[]
+            )
 
             const resources = queries.map((x) => ({
                 type: NotebookNodeType.Query,

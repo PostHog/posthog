@@ -285,40 +285,50 @@ export function createAnswerFilterHogQLExpression(filters: EventPropertyFilter[]
 
         // Create the condition for this filter
         let condition = ''
-        let escapedValue: string
-        let valueList: string
+        const escapedValue = escapeSqlString(String(filter.value))
 
         // Handle different operators
         switch (filter.operator) {
             case 'exact':
             case 'is_not':
                 if (Array.isArray(filter.value)) {
-                    valueList = filter.value.map((v) => `'${escapeSqlString(String(v))}'`).join(', ')
+                    const valueList = filter.value.map((v) => `'${escapeSqlString(String(v))}'`).join(', ')
                     condition = `(${getSurveyResponse(question, questionIndex)} ${
                         filter.operator === 'is_not' ? 'NOT IN' : 'IN'
                     } (${valueList}))`
                 } else {
-                    escapedValue = escapeSqlString(String(filter.value))
                     condition = `(${getSurveyResponse(question, questionIndex)} ${
                         filter.operator === 'is_not' ? '!=' : '='
                     } '${escapedValue}')`
                 }
                 break
             case 'icontains':
-                escapedValue = escapeSqlString(String(filter.value))
-                condition = `(${getSurveyResponse(question, questionIndex)} ILIKE '%${escapedValue}%')`
+                if (question.type !== SurveyQuestionType.MultipleChoice) {
+                    condition = `(${getSurveyResponse(question, questionIndex)} ILIKE '%${escapedValue}%')`
+                } else {
+                    condition = `(arrayExists(x -> x ilike '%${escapedValue}%', ${getSurveyResponse(question, questionIndex)}))`
+                }
                 break
             case 'not_icontains':
-                escapedValue = escapeSqlString(String(filter.value))
-                condition = `(NOT ${getSurveyResponse(question, questionIndex)} ILIKE '%${escapedValue}%')`
+                if (question.type !== SurveyQuestionType.MultipleChoice) {
+                    condition = `(NOT ${getSurveyResponse(question, questionIndex)} ILIKE '%${escapedValue}%')`
+                } else {
+                    condition = `(NOT arrayExists(x -> x ilike '%${escapedValue}%', ${getSurveyResponse(question, questionIndex)}))`
+                }
                 break
             case 'regex':
-                escapedValue = escapeSqlString(String(filter.value))
-                condition = `(match(${getSurveyResponse(question, questionIndex)}, '${escapedValue}'))`
+                if (question.type !== SurveyQuestionType.MultipleChoice) {
+                    condition = `(match(${getSurveyResponse(question, questionIndex)}, '${escapedValue}'))`
+                } else {
+                    condition = `(arrayExists(x -> match(x, '${escapedValue}'), ${getSurveyResponse(question, questionIndex)}))`
+                }
                 break
             case 'not_regex':
-                escapedValue = escapeSqlString(String(filter.value))
-                condition = `(NOT match(${getSurveyResponse(question, questionIndex)}, '${escapedValue}'))`
+                if (question.type !== SurveyQuestionType.MultipleChoice) {
+                    condition = `(NOT match(${getSurveyResponse(question, questionIndex)}, '${escapedValue}'))`
+                } else {
+                    condition = `(NOT arrayExists(x -> match(x, '${escapedValue}'), ${getSurveyResponse(question, questionIndex)}))`
+                }
                 break
             // Add more operators as needed
             default:

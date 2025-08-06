@@ -63,8 +63,16 @@ class search_documentation(BaseModel):
     - Wants to know more about PostHog the company
     - Has questions about incidents or system status
     - Has PostHog-related questions that don't match your other specialized tools
+    - Has disabled session replay and needs help turning it back on
 
     Don't use this tool if the necessary information is already in the conversation or context, except when you need to check whether an assumption presented is correct or not.
+    """
+
+
+class retrieve_billing_information(BaseModel):
+    """
+    Retrieve detailed billing information for the current organization.
+    Use this tool when the user asks about billing, subscription, usage, or spending related questions.
     """
 
 
