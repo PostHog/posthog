@@ -1607,19 +1607,6 @@ class IntervalType(StrEnum):
     MONTH = "month"
 
 
-class Mark(BaseModel):
-    attrs: Optional[dict[str, Any]] = None
-    type: str
-
-
-class JSONContent(BaseModel):
-    attrs: Optional[dict[str, Any]] = None
-    content: Optional[list[JSONContent]] = None
-    marks: Optional[list[Mark]] = None
-    text: Optional[str] = None
-    type: Optional[str] = None
-
-
 class LLMTraceEvent(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1904,17 +1891,6 @@ class NodeKind(StrEnum):
     VECTOR_SEARCH_QUERY = "VectorSearchQuery"
 
 
-class NotebookUpdateMessage(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    content: JSONContent
-    id: Optional[str] = None
-    notebook_id: str
-    tool_calls: Optional[list[AssistantToolCall]] = None
-    type: Literal["notebook"] = "notebook"
-
-
 class PageURL(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2052,6 +2028,19 @@ class PropertyOperator(StrEnum):
     NOT_IN = "not_in"
     IS_CLEANED_PATH_EXACT = "is_cleaned_path_exact"
     FLAG_EVALUATES_TO = "flag_evaluates_to"
+
+
+class Mark(BaseModel):
+    attrs: Optional[dict[str, Any]] = None
+    type: str
+
+
+class ProsemirrorJSONContent(BaseModel):
+    attrs: Optional[dict[str, Any]] = None
+    content: Optional[list[ProsemirrorJSONContent]] = None
+    marks: Optional[list[Mark]] = None
+    text: Optional[str] = None
+    type: Optional[str] = None
 
 
 class QueryIndexUsage(StrEnum):
@@ -3976,6 +3965,17 @@ class NewExperimentQueryResponse(BaseModel):
     )
     baseline: ExperimentStatsBaseValidated
     variant_results: Union[list[ExperimentVariantResultFrequentist], list[ExperimentVariantResultBayesian]]
+
+
+class NotebookUpdateMessage(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    content: ProsemirrorJSONContent
+    id: Optional[str] = None
+    notebook_id: str
+    tool_calls: Optional[list[AssistantToolCall]] = None
+    type: Literal["notebook"] = "notebook"
 
 
 class PathsFilter(BaseModel):
@@ -14229,7 +14229,7 @@ class SourceFieldSwitchGroupConfig(BaseModel):
     type: Literal["switch-group"] = "switch-group"
 
 
-JSONContent.model_rebuild()
+ProsemirrorJSONContent.model_rebuild()
 PropertyGroupFilterValue.model_rebuild()
 HumanMessage.model_rebuild()
 MaxDashboardContext.model_rebuild()
