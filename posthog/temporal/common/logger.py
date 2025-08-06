@@ -21,7 +21,7 @@ from posthog.kafka_client.topics import KAFKA_LOG_ENTRIES
 BACKGROUND_LOGGER_TASKS = set()
 EXTERNAL_LOGGER_NAME = "EXTERNAL"
 
-BASE_PROCESSORS = [
+BASE_PROCESSORS: list[structlog.types.Processor] = [
     structlog.stdlib.filter_by_level,
     structlog.stdlib.add_logger_name,
     structlog.stdlib.add_log_level,
@@ -38,12 +38,12 @@ BASE_PROCESSORS = [
     structlog.processors.TimeStamper(fmt="%Y-%m-%d %H:%M:%S.%f", utc=True),
 ]
 
-DEVELOPMENT_PROCESSORS = [
+DEVELOPMENT_PROCESSORS: list[structlog.types.Processor] = [
     EventRenamer("msg"),
     structlog.dev.ConsoleRenderer(event_key="msg"),
 ]
 
-PRODUCTION_PROCESSORS = [
+PRODUCTION_PROCESSORS: list[structlog.types.Processor] = [
     structlog.processors.dict_tracebacks,
     EventRenamer("msg"),
     structlog.processors.JSONRenderer(),
