@@ -2,8 +2,8 @@ import { useActions, useValues } from 'kea'
 import { addPersonToCohortModalLogic } from './addPersonToCohortModalLogic'
 import { Query } from '~/queries/Query/Query'
 import { QueryContext } from '~/queries/types'
-import { LemonButton } from '@posthog/lemon-ui'
-import { IconMinusSmall, IconPlusSmall } from '@posthog/icons'
+import { LemonButton, LemonTag } from '@posthog/lemon-ui'
+import { IconPlusSmall } from '@posthog/icons'
 import React from 'react'
 
 export function AddPersonToChortModalBody(): JSX.Element {
@@ -21,18 +21,20 @@ export function AddPersonToChortModalBody(): JSX.Element {
                 render: (props) => {
                     const id = props.value as string
                     const isInCohort = cohortPersonsSet.has(id)
+                    if (isInCohort) {
+                        return <LemonTag type="success">Added</LemonTag>
+                    }
                     return (
                         <LemonButton
                             type="secondary"
-                            status={isInCohort ? 'danger' : 'default'}
+                            status="default"
                             size="small"
                             onClick={(e) => {
                                 e.preventDefault()
-
-                                isInCohort ? null : addPersonToCohort(id)
+                                addPersonToCohort(id)
                             }}
                         >
-                            {isInCohort ? <IconMinusSmall /> : <IconPlusSmall />}
+                            <IconPlusSmall />
                         </LemonButton>
                     )
                 },
