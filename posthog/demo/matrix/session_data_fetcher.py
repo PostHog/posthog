@@ -46,7 +46,7 @@ class SessionDataFetcher:
 
     def _get_session_ids_in_range(self, cutoff_date: dt.datetime) -> list[str]:
         response = execute_hogql_query(
-            query="""SELECT id FROM sessions WHERE $start_timestamp > {cutoff_date} AND duration > 3""",
+            query="""SELECT id FROM sessions WHERE $start_timestamp > {cutoff_date} AND duration >= 3 AND duration < 300""",
             team=self.team,
             placeholders={"cutoff_date": ast.Constant(value=cutoff_date)},
         )

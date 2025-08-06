@@ -1,3 +1,4 @@
+import signal
 from django.core.management.base import BaseCommand, CommandError
 
 from posthog.demo.matrix.session_data_fetcher import SessionDataFetcher
@@ -38,6 +39,25 @@ class Command(BaseCommand):
         self.stdout.write(f"Found {len(sessions)} sessions to replay")
 
         generator = SessionReplayGenerator(posthog_api_token=team.api_token, headless=headless)
-        generator.generate_session_recordings(sessions=sessions, print_progress=True)
 
-        self.stdout.write(self.style.SUCCESS(f"Successfully generated {len(sessions)} session recordings!"))
+        # Set up signal handlers for emergency cleanup
+        def signal_handler(signum, frame):
+            self.stdout.write(self.style.WARNING(f"Received signal {signum}, cleaning up..."))
+            generator.cleanup_processes()
+            exit(1)
+
+        signal.signal(signal.SIGINT, signal_handler)
+        signal.signal(signal.SIGTERM, signal_handler)
+
+        try:
+            generator.generate_session_recordings(sessions=sessions, print_progress=True)
+            self.stdout.write(self.style.SUCCESS(f"Successfully generated {len(sessions)} session recordings!"))
+        except KeyboardInterrupt:
+            self.stdout.write(self.style.WARNING("Interrupted by user"))
+            return
+        except Exception as e:
+            self.stdout.write(self.style.ERROR(f"Error during session replay: {e}"))
+            raise
+        finally:
+            # Ensure cleanup of any remaining processes
+            generator.cleanup_processes()
