@@ -364,11 +364,11 @@ export function Members(): JSX.Element | null {
                 />
             </PayGateMini>
 
-            {posthog.isFeatureEnabled(FEATURE_FLAGS.MEMBERS_CAN_USE_PERSONAL_API_KEYS) && (
-                <>
-                    <h3 className="mt-4">Security settings</h3>
-                    <PayGateMini feature={AvailableFeature.ORGANIZATION_SECURITY_SETTINGS}>
-                        <p>Configure security permissions for organization members.</p>
+            <>
+                <h3 className="mt-4">Security settings</h3>
+                <PayGateMini feature={AvailableFeature.ORGANIZATION_SECURITY_SETTINGS}>
+                    <p>Configure security permissions for organization members.</p>
+                    {posthog.isFeatureEnabled(FEATURE_FLAGS.MEMBERS_CAN_USE_PERSONAL_API_KEYS) && (
                         <LemonSwitch
                             label={
                                 <span>
@@ -386,52 +386,53 @@ export function Members(): JSX.Element | null {
                             }
                             disabledReason={membersCanUsePersonalApiKeysRestrictionReason}
                         />
-                        <LemonSwitch
-                            label={
-                                <span>
-                                    Allow publicly shared resources{' '}
-                                    <Tooltip title="When disabled, sharing links and public dashboards will be blocked for this organization.">
-                                        <IconInfo className="mr-1" />
-                                    </Tooltip>
-                                </span>
+                    )}
+
+                    <LemonSwitch
+                        label={
+                            <span>
+                                Allow publicly shared resources{' '}
+                                <Tooltip title="When disabled, sharing links and public dashboards will be blocked for this organization.">
+                                    <IconInfo className="mr-1" />
+                                </Tooltip>
+                            </span>
+                        }
+                        bordered
+                        data-attr="org-allow-publicly-shared-resources-toggle"
+                        checked={!!currentOrganization?.allow_publicly_shared_resources}
+                        onChange={(allow_publicly_shared_resources) => {
+                            if (!allow_publicly_shared_resources) {
+                                LemonDialog.open({
+                                    title: 'Disable public sharing?',
+                                    description: (
+                                        <div>
+                                            <p>
+                                                Disabling public sharing will immediately break all existing sharing
+                                                links and public dashboards for this organization.
+                                            </p>
+                                            <p>
+                                                Users will no longer be able to access any shared resources until this
+                                                setting is re-enabled.
+                                            </p>
+                                        </div>
+                                    ),
+                                    primaryButton: {
+                                        children: 'Disable sharing',
+                                        status: 'danger',
+                                        onClick: () => updateOrganization({ allow_publicly_shared_resources }),
+                                    },
+                                    secondaryButton: {
+                                        children: 'Cancel',
+                                    },
+                                })
+                            } else {
+                                updateOrganization({ allow_publicly_shared_resources })
                             }
-                            bordered
-                            data-attr="org-allow-publicly-shared-resources-toggle"
-                            checked={!!currentOrganization?.allow_publicly_shared_resources}
-                            onChange={(allow_publicly_shared_resources) => {
-                                if (!allow_publicly_shared_resources) {
-                                    LemonDialog.open({
-                                        title: 'Disable public sharing?',
-                                        description: (
-                                            <div>
-                                                <p>
-                                                    Disabling public sharing will immediately break all existing sharing
-                                                    links and public dashboards for this organization.
-                                                </p>
-                                                <p>
-                                                    Users will no longer be able to access any shared resources until
-                                                    this setting is re-enabled.
-                                                </p>
-                                            </div>
-                                        ),
-                                        primaryButton: {
-                                            children: 'Disable sharing',
-                                            status: 'danger',
-                                            onClick: () => updateOrganization({ allow_publicly_shared_resources }),
-                                        },
-                                        secondaryButton: {
-                                            children: 'Cancel',
-                                        },
-                                    })
-                                } else {
-                                    updateOrganization({ allow_publicly_shared_resources })
-                                }
-                            }}
-                            disabledReason={allowPubliclySharedResourcesRestrictionReason}
-                        />
-                    </PayGateMini>
-                </>
-            )}
+                        }}
+                        disabledReason={allowPubliclySharedResourcesRestrictionReason}
+                    />
+                </PayGateMini>
+            </>
         </>
     )
 }
