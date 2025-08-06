@@ -2455,6 +2455,7 @@ export interface ExperimentEventExposureConfig extends Node {
 export const enum ExperimentMetricType {
     FUNNEL = 'funnel',
     MEAN = 'mean',
+    RATIO = 'ratio',
 }
 
 export interface ExperimentMetricBaseProperties extends Node {
@@ -2500,11 +2501,22 @@ export type ExperimentFunnelMetric = ExperimentMetricBaseProperties & {
 export const isExperimentFunnelMetric = (metric: ExperimentMetric): metric is ExperimentFunnelMetric =>
     metric.metric_type === ExperimentMetricType.FUNNEL
 
+export type ExperimentRatioMetric = ExperimentMetricBaseProperties & {
+    metric_type: ExperimentMetricType.RATIO
+    // TODO: Genaralize to ExperimentMetricSource
+    numerator: EventsNode
+    denominator: EventsNode
+}
+
 export type ExperimentMeanMetricTypeProps = Omit<ExperimentMeanMetric, keyof ExperimentMetricBaseProperties>
 export type ExperimentFunnelMetricTypeProps = Omit<ExperimentFunnelMetric, keyof ExperimentMetricBaseProperties>
-export type ExperimentMetricTypeProps = ExperimentMeanMetricTypeProps | ExperimentFunnelMetricTypeProps
+export type ExperimentRatioMetricTypeProps = Omit<ExperimentRatioMetric, keyof ExperimentMetricBaseProperties>
+export type ExperimentMetricTypeProps =
+    | ExperimentMeanMetricTypeProps
+    | ExperimentFunnelMetricTypeProps
+    | ExperimentRatioMetricTypeProps
 
-export type ExperimentMetric = ExperimentMeanMetric | ExperimentFunnelMetric
+export type ExperimentMetric = ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric
 
 export interface ExperimentQuery extends DataNode<ExperimentQueryResponse> {
     kind: NodeKind.ExperimentQuery
