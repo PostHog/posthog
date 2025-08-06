@@ -1,4 +1,4 @@
-# If a file is set here, then PRs will require that team's approval to get that code merged.
+# If a file is set here, then PRs will tag for the team's approval but will not block PRs.
 
 # Surveys team owns all survey-related code
 frontend/src/scenes/settings/environment/SurveySettings.tsx @PostHog/team-surveys
@@ -32,12 +32,8 @@ posthog/hogql/database/schema/sessions_v1.py @PostHog/web-analytics
 posthog/hogql/database/schema/sessions_v2.py @PostHog/web-analytics
 
 # Revenue Analytics team owns revenue analytics stuff
-products/revenue_analytics/** @PostHog/team-revenue-analytics
-
-# Replay team...
-posthog/session_recordings/ @PostHog/team-replay
-ee/session_recordings/ @PostHog/team-replay
-ee/frontend/mobile-replay @PostHog/team-replay
+# This is a single-person team - allow reviews from other teams
+# products/revenue_analytics/** @PostHog/team-revenue-analytics
 
 # Feature Flags team
 
@@ -63,5 +59,3 @@ frontend/src/scenes/cohorts/ @PostHog/team-feature-flags
 # Feature Flags frontend
 frontend/src/scenes/feature-flags/ @PostHog/team-feature-flags
 
-# Test
-posthog/warehouse/** @PostHog/team-data-warehouse
