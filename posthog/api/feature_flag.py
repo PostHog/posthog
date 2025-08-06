@@ -409,7 +409,6 @@ class FeatureFlagSerializer(
 
     def _validate_flag_reference(self, flag_reference):
         """Validate and convert flag reference to flag key."""
-        from posthog.models import FeatureFlag
         from posthog.utils import safe_int
 
         flag_id = safe_int(flag_reference)
@@ -439,7 +438,6 @@ class FeatureFlagSerializer(
 
     def _check_flag_circular_dependencies(self, filters):
         """Check for circular dependencies in feature flag conditions."""
-        from posthog.models import FeatureFlag
 
         current_flag_key = getattr(self.instance, "key", None) if self.instance else self.initial_data.get("key")
         if not current_flag_key:
@@ -916,6 +914,16 @@ class FeatureFlagViewSet(
             elif key == "evaluation_runtime":
                 evaluation_runtime = request.GET["evaluation_runtime"]
                 queryset = queryset.filter(evaluation_runtime=evaluation_runtime)
+            elif key == "excluded_properties":
+                import json
+
+                try:
+                    excluded_keys = json.loads(request.GET["excluded_properties"])
+                    if excluded_keys:
+                        queryset = queryset.exclude(key__in=excluded_keys)
+                except (json.JSONDecodeError, TypeError):
+                    # If the JSON is invalid, ignore the filter
+                    pass
 
         return queryset
 
@@ -998,6 +1006,13 @@ class FeatureFlagViewSet(
                 required=False,
                 enum=["server", "client", "both"],
                 description="Filter feature flags by their evaluation runtime.",
+            ),
+            OpenApiParameter(
+                "excluded_properties",
+                OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="JSON-encoded list of feature flag keys to exclude from the results.",
             ),
         ]
     )

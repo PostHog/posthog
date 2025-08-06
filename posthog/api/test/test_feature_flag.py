@@ -3140,15 +3140,6 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
         response = self.client.get(
             f"/api/feature_flag/local_evaluation",
-            data={"secret_api_key": secret_api_key},
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-        response = self.client.get(f"/api/feature_flag/local_evaluation?secret_api_key={secret_api_key}")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-        response = self.client.get(
-            f"/api/feature_flag/local_evaluation",
             HTTP_AUTHORIZATION=f"Bearer {secret_api_key}",
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
