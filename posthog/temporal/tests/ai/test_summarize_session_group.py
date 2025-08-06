@@ -537,7 +537,7 @@ class TestSummarizeSessionGroupWorkflow:
             mock_session_id, mock_session_group_summary_inputs, "progress"
         )
         # Track status updates during workflow execution
-        status_updates = []
+        status_updates: list[tuple[str, int]] = []
         async with self.temporal_workflow_test_environment(
             session_ids,
             mock_call_llm,
@@ -563,7 +563,7 @@ class TestSummarizeSessionGroupWorkflow:
             while poll_count < max_polls and not workflow_completed:
                 try:
                     # Query current status
-                    current_status = await workflow_handle.query("get_current_status")
+                    current_status: str = await workflow_handle.query("get_current_status")
                     if current_status and current_status not in [s for s, _ in status_updates]:
                         status_updates.append((current_status, poll_count))
                     # Check if workflow is complete

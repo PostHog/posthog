@@ -80,7 +80,7 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
 
         # Summarize provided sessions
         try:
-            summary_result = list(
+            summary_result: list[EnrichedSessionGroupSummaryPatternsList | str] = list(
                 async_to_sync(execute_summarize_session_group)(
                     session_ids=session_ids,
                     user_id=user.pk,
