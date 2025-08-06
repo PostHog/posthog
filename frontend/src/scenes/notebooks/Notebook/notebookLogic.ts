@@ -93,7 +93,11 @@ export const notebookLogic = kea<notebookLogicType>([
         editorIsReady: true,
         onEditorUpdate: true,
         onEditorSelectionUpdate: true,
-        setLocalContent: (jsonContent: JSONContent, updateEditor = false) => ({ jsonContent, updateEditor }),
+        setLocalContent: (jsonContent: JSONContent, updateEditor = false, skipCapture = false) => ({
+            jsonContent,
+            updateEditor,
+            skipCapture,
+        }),
         clearLocalContent: true,
         setPreviewContent: (jsonContent: JSONContent) => ({ jsonContent }),
         clearPreviewContent: true,
@@ -541,7 +545,7 @@ export const notebookLogic = kea<notebookLogicType>([
                 }
             )
         },
-        setLocalContent: async ({ updateEditor, jsonContent }, breakpoint) => {
+        setLocalContent: async ({ updateEditor, jsonContent, skipCapture }, breakpoint) => {
             if (
                 values.mode !== 'canvas' &&
                 !!values.notebook?.user_access_level &&
@@ -574,9 +578,11 @@ export const notebookLogic = kea<notebookLogicType>([
                 )
             }
 
-            posthog.capture('notebook content changed', {
-                short_id: values.notebook?.short_id,
-            })
+            if (!skipCapture) {
+                posthog.capture('notebook content changed', {
+                    short_id: values.notebook?.short_id,
+                })
+            }
 
             if (!values.isLocalOnly && values.content && !values.notebookLoading) {
                 actions.saveNotebook({
