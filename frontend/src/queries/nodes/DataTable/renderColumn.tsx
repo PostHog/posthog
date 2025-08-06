@@ -281,11 +281,13 @@ export function renderColumn(
 
         return <PersonDisplay {...displayProps} />
     } else if (key === 'person_display_name') {
+        // Hide the popover on people list only
+        const noPopover = isActorsQuery(query.source)
         const displayProps: PersonDisplayProps = {
             withIcon: true,
             person: { id: value.id },
             displayName: value.display_name,
-            noPopover: false,
+            noPopover,
         }
         return <PersonDisplay {...displayProps} />
     } else if (key === 'group' && typeof value === 'object') {
