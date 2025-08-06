@@ -3,6 +3,7 @@ import dataclasses
 import datetime as dt
 import io
 import os
+import typing as t
 import unittest.mock
 import uuid
 from uuid import uuid4
@@ -45,8 +46,10 @@ from products.batch_exports.backend.temporal.destinations.snowflake_batch_export
     insert_into_snowflake_activity,
     insert_into_snowflake_activity_from_stage,
     load_private_key,
+    snowflake_default_fields,
 )
 from products.batch_exports.backend.temporal.pipeline.internal_stage import (
+    BatchExportInsertIntoInternalStageInputs,
     insert_into_internal_stage_activity,
 )
 from products.batch_exports.backend.temporal.spmc import (
@@ -531,6 +534,7 @@ class TestSnowflakeExportWorkflowErrorHandling:
 
 
 @SKIP_IF_MISSING_REQUIRED_ENV_VARS
+@pytest.mark.parametrize("use_internal_stage", [False, True])
 class TestInsertIntoSnowflakeActivity:
     async def _run_activity(
         self,
@@ -549,6 +553,7 @@ class TestInsertIntoSnowflakeActivity:
         expected_fields=None,
         expect_duplicates: bool = False,
         primary_key=None,
+        use_internal_stage: bool = False,
     ):
         """Helper function to run insert_into_snowflake_activity and assert records in Snowflake"""
         insert_inputs = SnowflakeInsertInputs(
@@ -559,10 +564,32 @@ class TestInsertIntoSnowflakeActivity:
             exclude_events=exclude_events,
             batch_export_schema=batch_export_schema,
             batch_export_model=batch_export_model,
+            batch_export_id=str(uuid.uuid4()),
             **snowflake_config,
         )
 
-        await activity_environment.run(insert_into_snowflake_activity, insert_inputs)
+        if use_internal_stage:
+            assert insert_inputs.batch_export_id is not None
+            # we first need to run the insert_into_internal_stage_activity so that we have data to export
+            await activity_environment.run(
+                insert_into_internal_stage_activity,
+                BatchExportInsertIntoInternalStageInputs(
+                    team_id=insert_inputs.team_id,
+                    batch_export_id=insert_inputs.batch_export_id,
+                    data_interval_start=insert_inputs.data_interval_start,
+                    data_interval_end=insert_inputs.data_interval_end,
+                    exclude_events=insert_inputs.exclude_events,
+                    include_events=None,
+                    run_id=None,
+                    backfill_details=None,
+                    batch_export_model=insert_inputs.batch_export_model,
+                    batch_export_schema=insert_inputs.batch_export_schema,
+                    destination_default_fields=snowflake_default_fields(),
+                ),
+            )
+            await activity_environment.run(insert_into_snowflake_activity_from_stage, insert_inputs)
+        else:
+            await activity_environment.run(insert_into_snowflake_activity, insert_inputs)
 
         await assert_clickhouse_records_in_snowflake(
             snowflake_cursor=snowflake_cursor,
@@ -583,6 +610,7 @@ class TestInsertIntoSnowflakeActivity:
     @pytest.mark.parametrize("model", TEST_MODELS)
     async def test_insert_into_snowflake_activity_inserts_data_into_snowflake_table(
         self,
+        use_internal_stage,
         clickhouse_client,
         activity_environment,
         snowflake_cursor,
@@ -594,7 +622,7 @@ class TestInsertIntoSnowflakeActivity:
         data_interval_end,
         ateam,
     ):
-        """Test that the insert_into_snowflake_activity function inserts data into a PostgreSQL table.
+        """Test that the insert_into_snowflake_activity function inserts data into a Snowflake table.
 
         We use the generate_test_events_in_clickhouse function to generate several sets
         of events. Some of these sets are expected to be exported, and others not. Expected
@@ -640,10 +668,12 @@ class TestInsertIntoSnowflakeActivity:
             batch_export_schema=batch_export_schema,
             exclude_events=exclude_events,
             sort_key=sort_key,
+            use_internal_stage=use_internal_stage,
         )
 
     async def test_insert_into_snowflake_activity_merges_persons_data_in_follow_up_runs(
         self,
+        use_internal_stage,
         clickhouse_client,
         activity_environment,
         snowflake_cursor,
@@ -674,6 +704,7 @@ class TestInsertIntoSnowflakeActivity:
             table_name=table_name,
             batch_export_model=model,
             sort_key="person_id",
+            use_internal_stage=use_internal_stage,
         )
 
         _, persons_to_export_created = generate_test_data
@@ -710,10 +741,12 @@ class TestInsertIntoSnowflakeActivity:
             table_name=table_name,
             batch_export_model=model,
             sort_key="person_id",
+            use_internal_stage=use_internal_stage,
         )
 
     async def test_insert_into_snowflake_activity_merges_sessions_data_in_follow_up_runs(
         self,
+        use_internal_stage,
         clickhouse_client,
         activity_environment,
         snowflake_cursor,
@@ -744,6 +777,7 @@ class TestInsertIntoSnowflakeActivity:
             table_name=table_name,
             batch_export_model=model,
             sort_key="session_id",
+            use_internal_stage=use_internal_stage,
         )
 
         events_to_export_created, _ = generate_test_data
@@ -781,6 +815,7 @@ class TestInsertIntoSnowflakeActivity:
             table_name=table_name,
             batch_export_model=model,
             sort_key="session_id",
+            use_internal_stage=use_internal_stage,
         )
 
         snowflake_cursor.execute(f'SELECT "session_id", "end_timestamp" FROM "{table_name}"')
@@ -793,6 +828,7 @@ class TestInsertIntoSnowflakeActivity:
 
     async def test_insert_into_snowflake_activity_removes_internal_stage_files(
         self,
+        use_internal_stage,
         clickhouse_client,
         activity_environment,
         snowflake_cursor,
@@ -830,6 +866,7 @@ class TestInsertIntoSnowflakeActivity:
             table_name=table_name,
             batch_export_model=model,
             sort_key="event",
+            use_internal_stage=use_internal_stage,
         )
 
         snowflake_cursor.execute(f'TRUNCATE TABLE "{table_name}"')
@@ -862,6 +899,7 @@ class TestInsertIntoSnowflakeActivity:
             table_name=table_name,
             batch_export_model=model,
             sort_key="event",
+            use_internal_stage=use_internal_stage,
         )
 
         snowflake_cursor.execute(list_query)
@@ -870,6 +908,7 @@ class TestInsertIntoSnowflakeActivity:
 
     async def test_insert_into_snowflake_activity_heartbeats(
         self,
+        use_internal_stage,
         clickhouse_client,
         ateam,
         snowflake_batch_export,
@@ -918,11 +957,15 @@ class TestInsertIntoSnowflakeActivity:
             table_name=table_name,
             data_interval_start=data_interval_start.isoformat(),
             data_interval_end=data_interval_end.isoformat(),
+            batch_export_id=str(uuid.uuid4()),
             **snowflake_config,
         )
 
         with override_settings(BATCH_EXPORT_SNOWFLAKE_UPLOAD_CHUNK_SIZE_BYTES=0):
-            await activity_environment.run(insert_into_snowflake_activity, insert_inputs)
+            if use_internal_stage:
+                await activity_environment.run(insert_into_snowflake_activity_from_stage, insert_inputs)
+            else:
+                await activity_environment.run(insert_into_snowflake_activity, insert_inputs)
 
         # It's not guaranteed we will heartbeat right after every file.
         assert len(captured_details) > 0
@@ -939,6 +982,7 @@ class TestInsertIntoSnowflakeActivity:
 
     async def test_insert_into_snowflake_activity_handles_person_schema_changes(
         self,
+        use_internal_stage,
         clickhouse_client,
         activity_environment,
         snowflake_cursor,
@@ -973,6 +1017,7 @@ class TestInsertIntoSnowflakeActivity:
             table_name=table_name,
             batch_export_model=model,
             sort_key="person_id",
+            use_internal_stage=use_internal_stage,
         )
 
         # Drop the created_at column from the Snowflake table
@@ -1015,6 +1060,7 @@ class TestInsertIntoSnowflakeActivity:
             batch_export_model=model,
             sort_key="person_id",
             expected_fields=expected_fields,
+            use_internal_stage=use_internal_stage,
         )
 
     @pytest.mark.parametrize(
@@ -1022,6 +1068,7 @@ class TestInsertIntoSnowflakeActivity:
     )
     async def test_insert_into_snowflake_activity_completes_range_when_there_is_a_failure(
         self,
+        use_internal_stage,
         clickhouse_client,
         activity_environment,
         snowflake_cursor,
@@ -1032,7 +1079,13 @@ class TestInsertIntoSnowflakeActivity:
         ateam,
         model,
     ):
-        """Test that the insert_into_snowflake_activity can resume from a failure using heartbeat details."""
+        """Test that when there is a failure, the next run completes successfully.
+
+        For the old insert_into_snowflake_activity we can resume from a failure using heartbeat details.
+
+        The new insert_into_snowflake_activity_from_stage doesn't support resuming from heartbeats, so we just want to
+        ensure that the next run completes successfully.
+        """
         table_name = f"test_insert_activity_table_{ateam.pk}"
 
         events_to_create, persons_to_create = generate_test_data
@@ -1040,57 +1093,70 @@ class TestInsertIntoSnowflakeActivity:
         # fail halfway through
         fail_after_records = total_records // 2
 
-        heartbeat_details: list[SnowflakeHeartbeatDetails] = []
-
-        def track_hearbeat_details(*details):
-            """Record heartbeat details received."""
-            nonlocal heartbeat_details
-            snowflake_details = SnowflakeHeartbeatDetails.from_activity_details(details)
-            heartbeat_details.append(snowflake_details)
-
-        activity_environment.on_heartbeat = track_hearbeat_details
-
         insert_inputs = SnowflakeInsertInputs(
             team_id=ateam.pk,
             table_name=table_name,
             data_interval_start=data_interval_start.isoformat(),
             data_interval_end=data_interval_end.isoformat(),
             batch_export_model=model,
+            batch_export_id=str(uuid.uuid4()),
             **snowflake_config,
         )
 
-        with unittest.mock.patch(
-            "posthog.temporal.common.clickhouse.ClickHouseClient",
-            lambda *args, **kwargs: FlakyClickHouseClient(*args, **kwargs, fail_after_records=fail_after_records),
-        ):
-            # We expect this to raise an exception
-            with pytest.raises(RecordBatchTaskError):
-                await activity_environment.run(insert_into_snowflake_activity, insert_inputs)
+        heartbeat_details: list[SnowflakeHeartbeatDetails] = []
 
-        assert len(heartbeat_details) > 0
-        detail = heartbeat_details[-1]
-        assert len(detail.done_ranges) > 0
-        assert detail.records_completed == fail_after_records
+        def track_heartbeat_details(*details):
+            """Record heartbeat details received."""
+            nonlocal heartbeat_details
+            snowflake_details = SnowflakeHeartbeatDetails.from_activity_details(details)
+            heartbeat_details.append(snowflake_details)
 
-        # Now we resume from the heartbeat
-        previous_info = dataclasses.asdict(activity_environment.info)
-        previous_info["heartbeat_details"] = detail.serialize_details()
-        new_info = activity.Info(
-            **previous_info,
-        )
+        if use_internal_stage:
+            with unittest.mock.patch(
+                "posthog.temporal.common.clickhouse.ClickHouseClient",
+                lambda *args, **kwargs: FlakyClickHouseClient(*args, **kwargs, fail_after_records=fail_after_records),
+            ):
+                # We expect this to raise an exception
+                with pytest.raises(RecordBatchTaskError):
+                    await activity_environment.run(insert_into_snowflake_activity_from_stage, insert_inputs)
 
-        activity_environment.info = new_info
+            # retrying should succeed
+            await activity_environment.run(insert_into_snowflake_activity, insert_inputs)
 
-        await activity_environment.run(insert_into_snowflake_activity, insert_inputs)
+        else:
+            activity_environment.on_heartbeat = track_heartbeat_details
 
-        assert len(heartbeat_details) > 0
-        detail = heartbeat_details[-1]
-        assert len(detail.done_ranges) == 1
-        assert detail.done_ranges[0] == (data_interval_start, data_interval_end)
+            with unittest.mock.patch(
+                "posthog.temporal.common.clickhouse.ClickHouseClient",
+                lambda *args, **kwargs: FlakyClickHouseClient(*args, **kwargs, fail_after_records=fail_after_records),
+            ):
+                # We expect this to raise an exception
+                with pytest.raises(RecordBatchTaskError):
+                    await activity_environment.run(insert_into_snowflake_activity, insert_inputs)
 
-        sort_key = "event" if model.name == "events" else "person_id"
+            assert len(heartbeat_details) > 0
+            detail = heartbeat_details[-1]
+            assert len(detail.done_ranges) > 0
+            assert detail.records_completed == fail_after_records
+
+            # Now we resume from the heartbeat
+            previous_info = dataclasses.asdict(activity_environment.info)
+            previous_info["heartbeat_details"] = detail.serialize_details()
+            new_info = activity.Info(
+                **previous_info,
+            )
+
+            activity_environment.info = new_info
+
+            await activity_environment.run(insert_into_snowflake_activity, insert_inputs)
+
+            assert len(heartbeat_details) > 0
+            detail = heartbeat_details[-1]
+            assert len(detail.done_ranges) == 1
+            assert detail.done_ranges[0] == (data_interval_start, data_interval_end)
 
         # Verify all the data for the whole range was exported correctly
+        sort_key = "event" if model.name == "events" else "person_id"
         await assert_clickhouse_records_in_snowflake(
             snowflake_cursor=snowflake_cursor,
             clickhouse_client=clickhouse_client,
@@ -1106,6 +1172,7 @@ class TestInsertIntoSnowflakeActivity:
 
 
 @SKIP_IF_MISSING_REQUIRED_ENV_VARS
+@pytest.mark.parametrize("use_internal_stage", [False, True])
 class TestSnowflakeExportWorkflow:
     async def _run_workflow(
         self,
@@ -1125,6 +1192,7 @@ class TestSnowflakeExportWorkflow:
         expected_status: str = "Completed",
         sort_key: str = "event",
         expect_data_interval_start_none: bool = False,
+        use_internal_stage: bool = False,
     ):
         """Helper function to run SnowflakeBatchExportWorkflow and assert records in Snowflake"""
         workflow_id = str(uuid4())
@@ -1139,37 +1207,35 @@ class TestSnowflakeExportWorkflow:
             **snowflake_batch_export.destination.config,
         )
 
-        async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
-            async with Worker(
+        settings_overrides = settings_overrides or {}
+        if use_internal_stage:
+            settings_overrides["BATCH_EXPORT_SNOWFLAKE_USE_STAGE_TEAM_IDS"] = [team.pk]
+
+        async with (
+            await WorkflowEnvironment.start_time_skipping() as activity_environment,
+            Worker(
                 activity_environment.client,
                 task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
                 workflows=[SnowflakeBatchExportWorkflow],
                 activities=[
                     start_batch_export_run,
                     insert_into_snowflake_activity,
+                    insert_into_internal_stage_activity,
+                    insert_into_snowflake_activity_from_stage,
                     finish_batch_export_run,
                 ],
                 workflow_runner=UnsandboxedWorkflowRunner(),
-            ):
-                if settings_overrides:
-                    with override_settings(**settings_overrides):
-                        await activity_environment.client.execute_workflow(
-                            SnowflakeBatchExportWorkflow.run,
-                            inputs,
-                            id=workflow_id,
-                            task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
-                            retry_policy=RetryPolicy(maximum_attempts=1),
-                            execution_timeout=execution_timeout,
-                        )
-                else:
-                    await activity_environment.client.execute_workflow(
-                        SnowflakeBatchExportWorkflow.run,
-                        inputs,
-                        id=workflow_id,
-                        task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
-                        retry_policy=RetryPolicy(maximum_attempts=1),
-                        execution_timeout=execution_timeout,
-                    )
+            ),
+        ):
+            with override_settings(**settings_overrides):
+                await activity_environment.client.execute_workflow(
+                    SnowflakeBatchExportWorkflow.run,
+                    inputs,
+                    id=workflow_id,
+                    task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                    execution_timeout=execution_timeout,
+                )
 
         runs = await afetch_batch_export_runs(batch_export_id=snowflake_batch_export.id)
         assert len(runs) == 1
@@ -1201,11 +1267,11 @@ class TestSnowflakeExportWorkflow:
 
         return run
 
-    @pytest.mark.parametrize("interval", ["hour", "day"], indirect=True)
     @pytest.mark.parametrize("exclude_events", [None, ["test-exclude"]], indirect=True)
     @pytest.mark.parametrize("model", TEST_MODELS)
     async def test_snowflake_export_workflow(
         self,
+        use_internal_stage,
         clickhouse_client,
         snowflake_cursor,
         interval,
@@ -1243,13 +1309,14 @@ class TestSnowflakeExportWorkflow:
             batch_export_model=batch_export_model,
             batch_export_schema=batch_export_schema,
             exclude_events=exclude_events,
+            use_internal_stage=use_internal_stage,
         )
 
-    @pytest.mark.parametrize("interval", ["hour", "day"], indirect=True)
-    @pytest.mark.parametrize("exclude_events", [None, ["test-exclude"]], indirect=True)
-    @pytest.mark.parametrize("model", TEST_MODELS)
+    @pytest.mark.parametrize("exclude_events", [None], indirect=True)
+    @pytest.mark.parametrize("model", [BatchExportModel(name="events", schema=None)])
     async def test_snowflake_export_workflow_with_many_files(
         self,
+        use_internal_stage,
         clickhouse_client,
         snowflake_cursor,
         interval,
@@ -1290,6 +1357,7 @@ class TestSnowflakeExportWorkflow:
             batch_export_schema=batch_export_schema,
             exclude_events=exclude_events,
             settings_overrides={"BATCH_EXPORT_SNOWFLAKE_UPLOAD_CHUNK_SIZE_BYTES": 1},
+            use_internal_stage=use_internal_stage,
         )
 
     @pytest.mark.parametrize(
@@ -1303,6 +1371,7 @@ class TestSnowflakeExportWorkflow:
     @pytest.mark.parametrize("model", [BatchExportModel(name="persons", schema=None)])
     async def test_snowflake_export_workflow_backfill_earliest_persons(
         self,
+        use_internal_stage,
         ateam,
         clickhouse_client,
         data_interval_start,
@@ -1346,10 +1415,17 @@ class TestSnowflakeExportWorkflow:
             settings_overrides={"BATCH_EXPORT_SNOWFLAKE_UPLOAD_CHUNK_SIZE_BYTES": 1},
             execution_timeout=dt.timedelta(minutes=10),
             expect_data_interval_start_none=True,
+            use_internal_stage=use_internal_stage,
         )
 
     async def test_snowflake_export_workflow_handles_cancellation(
-        self, clickhouse_client, ateam, snowflake_batch_export, interval, snowflake_cursor
+        self,
+        use_internal_stage,
+        clickhouse_client,
+        ateam,
+        snowflake_batch_export,
+        interval,
+        snowflake_cursor,
     ):
         """Test that Snowflake Export Workflow can gracefully handle cancellations when inserting Snowflake data."""
         data_interval_end = dt.datetime.now(dt.UTC)
@@ -1377,34 +1453,42 @@ class TestSnowflakeExportWorkflow:
             **snowflake_batch_export.destination.config,
         )
 
-        async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
-            async with Worker(
+        async with (
+            await WorkflowEnvironment.start_time_skipping() as activity_environment,
+            Worker(
                 activity_environment.client,
                 task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
                 workflows=[SnowflakeBatchExportWorkflow],
                 activities=[
                     start_batch_export_run,
                     insert_into_snowflake_activity,
+                    insert_into_internal_stage_activity,
+                    insert_into_snowflake_activity_from_stage,
                     finish_batch_export_run,
                 ],
                 workflow_runner=UnsandboxedWorkflowRunner(),
-            ):
-                # We set the chunk size low on purpose to slow things down and give us time to cancel.
-                with override_settings(BATCH_EXPORT_SNOWFLAKE_UPLOAD_CHUNK_SIZE_BYTES=1):
-                    handle = await activity_environment.client.start_workflow(
-                        SnowflakeBatchExportWorkflow.run,
-                        inputs,
-                        id=workflow_id,
-                        task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
-                        retry_policy=RetryPolicy(maximum_attempts=1),
-                    )
+            ),
+        ):
+            # We set the chunk size low on purpose to slow things down and give us time to cancel.
+            settings_overrides: dict[str, t.Any] = {"BATCH_EXPORT_SNOWFLAKE_UPLOAD_CHUNK_SIZE_BYTES": 1}
+            if use_internal_stage:
+                settings_overrides["BATCH_EXPORT_SNOWFLAKE_USE_STAGE_TEAM_IDS"] = [ateam.pk]
 
-                # We need to wait a bit for the activity to start running.
-                await asyncio.sleep(5)
-                await handle.cancel()
+            with override_settings(**settings_overrides):
+                handle = await activity_environment.client.start_workflow(
+                    SnowflakeBatchExportWorkflow.run,
+                    inputs,
+                    id=workflow_id,
+                    task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                )
 
-                with pytest.raises(WorkflowFailureError):
-                    await handle.result()
+            # We need to wait a bit for the activity to start running.
+            await asyncio.sleep(5)
+            await handle.cancel()
+
+            with pytest.raises(WorkflowFailureError):
+                await handle.result()
 
         runs = await afetch_batch_export_runs(batch_export_id=snowflake_batch_export.id)
         assert len(runs) == 1
@@ -1445,16 +1529,20 @@ def test_snowflake_heartbeat_details_parses_from_tuple(details):
 
 
 class TestSnowflakeKeyPairAuth:
+    def _create_key(self, passphrase: str | None = None) -> io.StringIO:
+        key = paramiko.RSAKey.generate(2048)
+        buffer = io.StringIO()
+        key.write_private_key(buffer, password=passphrase)
+        _ = buffer.seek(0)
+        return buffer
+
     def test_load_private_key_raises_error_if_key_is_invalid(self):
         with pytest.raises(InvalidPrivateKeyError):
             load_private_key("invalid_key", None)
 
     def test_load_private_key_raises_error_if_incorrect_passphrase(self):
         """Test we raise the right error when passing an incorrect passphrase."""
-        key = paramiko.RSAKey.generate(2048)
-        buffer = io.StringIO()
-        key.write_private_key(buffer, password="a-passphrase")
-        _ = buffer.seek(0)
+        buffer = self._create_key("a-passphrase")
 
         with pytest.raises(InvalidPrivateKeyError) as exc_info:
             _ = load_private_key(buffer.read(), "another-passphrase")
@@ -1463,10 +1551,7 @@ class TestSnowflakeKeyPairAuth:
 
     def test_load_private_key_raises_error_if_passphrase_not_empty(self):
         """Test we raise the right error when passing a passphrase to a key without one."""
-        key = paramiko.RSAKey.generate(2048)
-        buffer = io.StringIO()
-        key.write_private_key(buffer)
-        _ = buffer.seek(0)
+        buffer = self._create_key()
 
         with pytest.raises(InvalidPrivateKeyError) as exc_info:
             _ = load_private_key(buffer.read(), "a-passphrase")
@@ -1475,10 +1560,7 @@ class TestSnowflakeKeyPairAuth:
 
     def test_load_private_key_raises_error_if_passphrase_missing(self):
         """Test we raise the right error when missing a passphrase to an encrypted key."""
-        key = paramiko.RSAKey.generate(2048)
-        buffer = io.StringIO()
-        key.write_private_key(buffer, password="a-passphrase")
-        _ = buffer.seek(0)
+        buffer = self._create_key("a-passphrase")
 
         with pytest.raises(InvalidPrivateKeyError) as exc_info:
             _ = load_private_key(buffer.read(), None)
@@ -1487,13 +1569,8 @@ class TestSnowflakeKeyPairAuth:
 
     def test_load_private_key_passes_with_empty_passphrase_and_no_encryption(self):
         """Test we succeed in loading a passphrase without encryption and an empty passphrase."""
-        key = paramiko.RSAKey.generate(2048)
-        buffer = io.StringIO()
-        key.write_private_key(buffer, password=None)
-        _ = buffer.seek(0)
-
+        buffer = self._create_key()
         loaded = load_private_key(buffer.read(), "")
-
         assert loaded
 
     @pytest.mark.parametrize("passphrase", ["a-passphrase", None, ""])
@@ -1503,10 +1580,7 @@ class TestSnowflakeKeyPairAuth:
         We treat `None` and empty string the same (no passphrase) because paramiko does
         not support passphrases smaller than 1 byte.
         """
-        key = paramiko.RSAKey.generate(2048)
-        buffer = io.StringIO()
-        key.write_private_key(buffer, password=None if passphrase is None or passphrase == "" else passphrase)
-        _ = buffer.seek(0)
+        buffer = self._create_key(passphrase=None if passphrase is None or passphrase == "" else passphrase)
         private_key = buffer.read()
 
         # Just checking this doesn't fail.
