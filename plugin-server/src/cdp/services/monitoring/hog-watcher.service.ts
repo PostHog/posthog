@@ -1,5 +1,6 @@
 import { Counter } from 'prom-client'
 
+import { LazyLoader } from '~/utils/lazy-loader'
 import { logger } from '~/utils/logger'
 import { captureTeamEvent } from '~/utils/posthog'
 
@@ -74,6 +75,8 @@ const getPipelineResults = (res: PipelineResults, index: number, numOperations: 
 
 export class HogWatcherService {
     private costsMapping: HogFunctionTimingCosts
+    private lazyLoader: LazyLoader<HogWatcherFunctionState>
+
     private queuedResults: {
         results: CyclotronJobInvocationResult[]
         promise: Promise<void>
@@ -105,6 +108,13 @@ export class HogWatcherService {
                 )
             }
         }
+
+        this.lazyLoader = new LazyLoader({
+            name: 'hog_watcher_lazy_loader',
+            refreshAge: 30_000, // Cache for 30 seconds
+            refreshJitterMs: 10_000,
+            loader: async (ids) => await this.getPersistedStates(ids),
+        })
     }
 
     private async onStateChange({
@@ -203,6 +213,10 @@ export class HogWatcherService {
         return res[id]
     }
 
+    public async getCachedPersistedState(id: HogFunctionType['id']): Promise<HogWatcherFunctionState | null> {
+        return await this.lazyLoader.get(id)
+    }
+
     /**
      * Like getPersistedStates but returns the effective state (i.e. ignores forcefully set states)
      */
@@ -224,6 +238,15 @@ export class HogWatcherService {
     public async getEffectiveState(id: HogFunctionType['id']): Promise<HogWatcherFunctionState> {
         const res = await this.getEffectiveStates([id])
         return res[id]
+    }
+
+    public async getCachedEffectiveState(id: HogFunctionType['id']): Promise<HogWatcherFunctionState | null> {
+        const res = await this.lazyLoader.get(id)
+        if (!res) {
+            return null
+        }
+
+        return { state: effectiveState(res.state), tokens: res.tokens }
     }
 
     public async getAllFunctionStates(): Promise<Record<HogFunctionType['id'], HogWatcherFunctionState>> {
