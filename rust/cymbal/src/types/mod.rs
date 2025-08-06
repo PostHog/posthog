@@ -51,7 +51,6 @@ pub struct Exception {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[repr(transparent)]
 #[serde(transparent)]
 pub struct ExceptionList(pub Vec<Exception>);
 
