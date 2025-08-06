@@ -29,7 +29,7 @@ from ee.hogai.graph import (
     TrendsGeneratorNode,
 )
 from ee.hogai.graph.base import AssistantNode
-from ee.hogai.graph.deep_research.notebook_serializer import NotebookSerializer
+from ee.hogai.notebook.notebook_serializer import NotebookSerializer
 from ee.hogai.graph.graph import DeepResearchAssistantGraph
 from ee.hogai.graph.filter_options.types import FilterOptionsNodeName
 from ee.hogai.tool import CONTEXTUAL_TOOL_NAME_TO_TOOL
@@ -557,7 +557,7 @@ class Assistant:
         return AssistantMessage(content=MemoryInitializerNode.format_message(cast(str, self._chunks.content)))
 
     def _create_notebook_update_message(self, content: str) -> Optional[NotebookUpdateMessage]:
-        """Create a notebook update message from HTML content."""
+        """Create a notebook update message from markdown content."""
         if not self._state or not self._state.notebook_id:
             logger.debug("No notebook id found in state", state=self._state)
             return None

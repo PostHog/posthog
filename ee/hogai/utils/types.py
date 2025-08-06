@@ -270,6 +270,10 @@ class _SharedAssistantState(BaseState):
     """
     The user's search query for finding existing insights.
     """
+    notebook_id: Optional[str] = Field(default=None)
+    """
+    The ID of the notebook being used.
+    """
 
 
 class _SharedDeepResearchState(BaseState):
