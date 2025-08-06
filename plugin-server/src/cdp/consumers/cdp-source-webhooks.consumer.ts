@@ -174,7 +174,6 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
                     {},
                     {
                         finished: false,
-                        error: 'Function is degraded',
                         logs: [
                             {
                                 level: 'warn',
