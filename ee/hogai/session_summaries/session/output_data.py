@@ -250,7 +250,7 @@ def load_raw_session_summary_from_llm_content(
             if event_id not in allowed_event_ids:
                 hallucinated_events.append((group_index, event_index, event))
                 continue
-    # TODO: Investigate how to reduce their appearance in the first placeÍ
+    # TODO: Investigate how to reduce their appearance in the first place
     raw_session_summary = _remove_hallucinated_events(
         hallucinated_events=hallucinated_events,
         raw_session_summary=raw_session_summary,

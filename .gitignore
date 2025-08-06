@@ -112,5 +112,6 @@ target/*
 # Ignore file for clearing demo data on local
 posthog/management/commands/clear_demo_data.py
 
-# Ignore Claude Code settings
+# Ignore Claude Code settings + MCPs
 .claude/settings.local.json
+.serena
