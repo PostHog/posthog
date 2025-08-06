@@ -438,6 +438,26 @@ class BaseMathType(StrEnum):
     FIRST_MATCHING_EVENT_FOR_USER = "first_matching_event_for_user"
 
 
+class BasicOrganizationSetupData(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    organization_name: Optional[str] = None
+    project_name: Optional[str] = None
+
+
+class BasicOrganizationSetupResult(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    organization_id: str
+    organization_name: str
+    project_id: str
+    project_name: str
+    team_id: str
+    team_name: str
+
+
 class BillingSpendResponseBreakdownType(StrEnum):
     TYPE = "type"
     TEAM = "team"
@@ -980,6 +1000,14 @@ class ElementType(BaseModel):
     text: Optional[str] = None
 
 
+class EmptyDatabaseSetupResult(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    cleared: bool
+    message: str
+
+
 class EmptyPropertyFilter(BaseModel):
     pass
     model_config = ConfigDict(
@@ -1251,6 +1279,32 @@ class FailureMessage(BaseModel):
     content: Optional[str] = None
     id: Optional[str] = None
     type: Literal["ai/failure"] = "ai/failure"
+
+
+class FeatureFlagsTestSetupData(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    enabled: Optional[bool] = None
+    flag_filters: Optional[list] = None
+    flag_key: Optional[str] = None
+    flag_name: Optional[str] = None
+    rollout_percentage: Optional[float] = None
+
+
+class FeatureFlagsTestSetupResult(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    feature_flag_ids: Optional[list[str]] = None
+    feature_flags_setup: bool
+    message: str
+    organization_id: str
+    organization_name: str
+    project_id: str
+    project_name: str
+    team_id: str
+    team_name: str
 
 
 class FileSystemCount(BaseModel):
@@ -1569,6 +1623,35 @@ class InsightNodeKind(StrEnum):
 class InsightThresholdType(StrEnum):
     ABSOLUTE = "absolute"
     PERCENTAGE = "percentage"
+
+
+class InsightsTestSetupData(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    create_sample_events: Optional[bool] = None
+    date_range_days: Optional[float] = None
+    event_count: Optional[float] = None
+    event_count_per_user: Optional[float] = None
+    event_types: Optional[list[str]] = None
+    user_count: Optional[float] = None
+
+
+class InsightsTestSetupResult(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    event_count: Optional[float] = None
+    insights_setup: bool
+    message: str
+    organization_id: str
+    organization_name: str
+    project_id: str
+    project_name: str
+    sample_event_ids: Optional[list[str]] = None
+    team_id: str
+    team_name: str
+    user_count: Optional[float] = None
 
 
 class InsightsThresholdBounds(BaseModel):
@@ -2591,6 +2674,24 @@ class TaxonomicFilterGroupType(StrEnum):
     MAX_AI_CONTEXT = "max_ai_context"
 
 
+class TestSetupRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    data: Optional[dict[str, Any]] = Field(default=None, description="Custom data to pass to the setup function")
+
+
+class TestSetupResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    available_tests: Optional[list[str]] = None
+    error: Optional[str] = None
+    result: Optional[Any] = None
+    success: bool
+    test_name: str
+
+
 class TimelineEntry(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2645,6 +2746,27 @@ class UserBasicType(BaseModel):
     is_email_verified: Optional[Any] = None
     last_name: Optional[str] = None
     uuid: str
+
+
+class UserWithOrganizationSetupData(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    email: Optional[str] = None
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    organization_name: Optional[str] = None
+    password: Optional[str] = None
+
+
+class UserWithOrganizationSetupResult(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    organization_id: str
+    organization_name: str
+    user_email: str
+    user_id: str
 
 
 class VectorSearchResponseItem(BaseModel):

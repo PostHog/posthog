@@ -10,9 +10,20 @@ from django.contrib.auth.models import User
 from django.db import transaction
 
 from posthog.models import Organization, Project, Team
+from posthog.schema import (
+    BasicOrganizationSetupData,
+    BasicOrganizationSetupResult,
+    UserWithOrganizationSetupData,
+    UserWithOrganizationSetupResult,
+    EmptyDatabaseSetupResult,
+    FeatureFlagsTestSetupData,
+    FeatureFlagsTestSetupResult,
+    InsightsTestSetupData,
+    InsightsTestSetupResult,
+)
 
 
-def setup_basic_organization(data: dict[str, Any]) -> dict[str, Any]:
+def setup_basic_organization(data: BasicOrganizationSetupData) -> BasicOrganizationSetupResult:
     """
     Creates a basic organization with a project and team for testing.
 
@@ -45,7 +56,7 @@ def setup_basic_organization(data: dict[str, Any]) -> dict[str, Any]:
         }
 
 
-def setup_user_with_organization(data: dict[str, Any]) -> dict[str, Any]:
+def setup_user_with_organization(data: UserWithOrganizationSetupData) -> UserWithOrganizationSetupResult:
     """
     Creates a test user with an organization.
 
@@ -83,7 +94,7 @@ def setup_user_with_organization(data: dict[str, Any]) -> dict[str, Any]:
         }
 
 
-def setup_empty_database(data: dict[str, Any]) -> dict[str, Any]:
+def setup_empty_database(data: dict[str, Any]) -> EmptyDatabaseSetupResult:
     """
     Clears all test data (for clean slate tests).
 
@@ -105,7 +116,7 @@ def setup_empty_database(data: dict[str, Any]) -> dict[str, Any]:
         return {"cleared": True, "message": "Test database cleared successfully"}
 
 
-def setup_feature_flags_test(data: dict[str, Any]) -> dict[str, Any]:
+def setup_feature_flags_test(data: FeatureFlagsTestSetupData) -> FeatureFlagsTestSetupResult:
     """
     Sets up data for feature flags testing.
 
@@ -124,7 +135,7 @@ def setup_feature_flags_test(data: dict[str, Any]) -> dict[str, Any]:
     return {**org_data, "feature_flags_setup": True, "message": "Feature flags test environment ready"}
 
 
-def setup_insights_test(data: dict[str, Any]) -> dict[str, Any]:
+def setup_insights_test(data: InsightsTestSetupData) -> InsightsTestSetupResult:
     """
     Sets up data for insights/analytics testing.
 
@@ -144,7 +155,7 @@ def setup_insights_test(data: dict[str, Any]) -> dict[str, Any]:
 
 
 # Registry of all available test setup functions
-TEST_SETUP_FUNCTIONS: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
+TEST_SETUP_FUNCTIONS: dict[str, Callable[[Any], Any]] = {
     "basic_organization": setup_basic_organization,
     "user_with_organization": setup_user_with_organization,
     "empty_database": setup_empty_database,

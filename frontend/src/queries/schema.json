@@ -2277,6 +2277,43 @@
             ],
             "type": "string"
         },
+        "BasicOrganizationSetupData": {
+            "additionalProperties": false,
+            "properties": {
+                "organization_name": {
+                    "type": "string"
+                },
+                "project_name": {
+                    "type": "string"
+                }
+            },
+            "type": "object"
+        },
+        "BasicOrganizationSetupResult": {
+            "additionalProperties": false,
+            "properties": {
+                "organization_id": {
+                    "type": "string"
+                },
+                "organization_name": {
+                    "type": "string"
+                },
+                "project_id": {
+                    "type": "string"
+                },
+                "project_name": {
+                    "type": "string"
+                },
+                "team_id": {
+                    "type": "string"
+                },
+                "team_name": {
+                    "type": "string"
+                }
+            },
+            "required": ["organization_id", "project_id", "team_id", "organization_name", "project_name", "team_name"],
+            "type": "object"
+        },
         "BillingSpendResponseBreakdownType": {
             "enum": ["type", "team", "multiple"],
             "type": "string"
@@ -9514,6 +9551,19 @@
             "required": ["attributes", "tag_name"],
             "type": "object"
         },
+        "EmptyDatabaseSetupResult": {
+            "additionalProperties": false,
+            "properties": {
+                "cleared": {
+                    "type": "boolean"
+                },
+                "message": {
+                    "type": "string"
+                }
+            },
+            "required": ["cleared", "message"],
+            "type": "object"
+        },
         "EmptyPropertyFilter": {
             "additionalProperties": false,
             "type": "object"
@@ -11732,6 +11782,74 @@
                 }
             },
             "required": ["type"],
+            "type": "object"
+        },
+        "FeatureFlagsTestSetupData": {
+            "additionalProperties": false,
+            "properties": {
+                "enabled": {
+                    "type": "boolean"
+                },
+                "flag_filters": {
+                    "items": {},
+                    "type": "array"
+                },
+                "flag_key": {
+                    "type": "string"
+                },
+                "flag_name": {
+                    "type": "string"
+                },
+                "rollout_percentage": {
+                    "type": "number"
+                }
+            },
+            "type": "object"
+        },
+        "FeatureFlagsTestSetupResult": {
+            "additionalProperties": false,
+            "properties": {
+                "feature_flag_ids": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "feature_flags_setup": {
+                    "type": "boolean"
+                },
+                "message": {
+                    "type": "string"
+                },
+                "organization_id": {
+                    "type": "string"
+                },
+                "organization_name": {
+                    "type": "string"
+                },
+                "project_id": {
+                    "type": "string"
+                },
+                "project_name": {
+                    "type": "string"
+                },
+                "team_id": {
+                    "type": "string"
+                },
+                "team_name": {
+                    "type": "string"
+                }
+            },
+            "required": [
+                "feature_flags_setup",
+                "message",
+                "organization_id",
+                "organization_name",
+                "project_id",
+                "project_name",
+                "team_id",
+                "team_name"
+            ],
             "type": "object"
         },
         "FeaturePropertyFilter": {
@@ -14389,6 +14507,85 @@
                 }
             },
             "required": ["kind"],
+            "type": "object"
+        },
+        "InsightsTestSetupData": {
+            "additionalProperties": false,
+            "properties": {
+                "create_sample_events": {
+                    "type": "boolean"
+                },
+                "date_range_days": {
+                    "type": "number"
+                },
+                "event_count": {
+                    "type": "number"
+                },
+                "event_count_per_user": {
+                    "type": "number"
+                },
+                "event_types": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "user_count": {
+                    "type": "number"
+                }
+            },
+            "type": "object"
+        },
+        "InsightsTestSetupResult": {
+            "additionalProperties": false,
+            "properties": {
+                "event_count": {
+                    "type": "number"
+                },
+                "insights_setup": {
+                    "type": "boolean"
+                },
+                "message": {
+                    "type": "string"
+                },
+                "organization_id": {
+                    "type": "string"
+                },
+                "organization_name": {
+                    "type": "string"
+                },
+                "project_id": {
+                    "type": "string"
+                },
+                "project_name": {
+                    "type": "string"
+                },
+                "sample_event_ids": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "team_id": {
+                    "type": "string"
+                },
+                "team_name": {
+                    "type": "string"
+                },
+                "user_count": {
+                    "type": "number"
+                }
+            },
+            "required": [
+                "insights_setup",
+                "message",
+                "organization_id",
+                "organization_name",
+                "project_id",
+                "project_name",
+                "team_id",
+                "team_name"
+            ],
             "type": "object"
         },
         "InsightsThresholdBounds": {
@@ -23656,6 +23853,39 @@
             ],
             "type": "object"
         },
+        "TestSetupRequest": {
+            "additionalProperties": false,
+            "properties": {
+                "data": {
+                    "description": "Custom data to pass to the setup function",
+                    "type": "object"
+                }
+            },
+            "type": "object"
+        },
+        "TestSetupResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "available_tests": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "error": {
+                    "type": "string"
+                },
+                "result": {},
+                "success": {
+                    "type": "boolean"
+                },
+                "test_name": {
+                    "type": "string"
+                }
+            },
+            "required": ["success", "test_name"],
+            "type": "object"
+        },
         "TimelineEntry": {
             "additionalProperties": false,
             "properties": {
@@ -24194,6 +24424,46 @@
                 }
             },
             "required": ["distinct_id", "email", "first_name", "id", "uuid"],
+            "type": "object"
+        },
+        "UserWithOrganizationSetupData": {
+            "additionalProperties": false,
+            "properties": {
+                "email": {
+                    "type": "string"
+                },
+                "first_name": {
+                    "type": "string"
+                },
+                "last_name": {
+                    "type": "string"
+                },
+                "organization_name": {
+                    "type": "string"
+                },
+                "password": {
+                    "type": "string"
+                }
+            },
+            "type": "object"
+        },
+        "UserWithOrganizationSetupResult": {
+            "additionalProperties": false,
+            "properties": {
+                "organization_id": {
+                    "type": "string"
+                },
+                "organization_name": {
+                    "type": "string"
+                },
+                "user_email": {
+                    "type": "string"
+                },
+                "user_id": {
+                    "type": "string"
+                }
+            },
+            "required": ["user_id", "user_email", "organization_id", "organization_name"],
             "type": "object"
         },
         "VectorSearchQuery": {

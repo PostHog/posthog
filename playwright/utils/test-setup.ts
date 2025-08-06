@@ -4,14 +4,18 @@
  */
 
 import { APIRequestContext, expect } from '@playwright/test'
-
-export interface TestSetupResponse {
-    success: boolean
-    test_name: string
-    result?: any
-    error?: string
-    available_tests?: string[]
-}
+import type {
+    TestSetupResponse,
+    BasicOrganizationSetupData,
+    BasicOrganizationSetupResult,
+    UserWithOrganizationSetupData,
+    UserWithOrganizationSetupResult,
+    EmptyDatabaseSetupResult,
+    FeatureFlagsTestSetupData,
+    FeatureFlagsTestSetupResult,
+    InsightsTestSetupData,
+    InsightsTestSetupResult,
+} from '~/queries/schema/schema-general'
 
 export interface TestSetupOptions {
     /** Custom data to pass to the setup function */
@@ -77,12 +81,15 @@ export class TestSetup {
     /**
      * Setup a basic organization for testing
      */
-    async setupBasicOrganization(organizationName?: string, projectName?: string): Promise<TestSetupResponse> {
+    async setupBasicOrganization(
+        organizationName?: string,
+        projectName?: string
+    ): Promise<TestSetupResponse & { result: BasicOrganizationSetupResult }> {
         return this.setupTest('basic_organization', {
             data: {
                 organization_name: organizationName,
                 project_name: projectName,
-            },
+            } as BasicOrganizationSetupData,
         })
     }
 
@@ -90,43 +97,35 @@ export class TestSetup {
      * Setup a user with an organization
      */
     async setupUserWithOrganization(
-        options: {
-            email?: string
-            password?: string
-            organizationName?: string
-            firstName?: string
-            lastName?: string
-        } = {}
-    ): Promise<TestSetupResponse> {
+        options: UserWithOrganizationSetupData = {}
+    ): Promise<TestSetupResponse & { result: UserWithOrganizationSetupResult }> {
         return this.setupTest('user_with_organization', {
-            data: {
-                email: options.email,
-                password: options.password,
-                organization_name: options.organizationName,
-                first_name: options.firstName,
-                last_name: options.lastName,
-            },
+            data: options,
         })
     }
 
     /**
      * Clear all test data for a clean slate
      */
-    async clearDatabase(): Promise<TestSetupResponse> {
+    async clearDatabase(): Promise<TestSetupResponse & { result: EmptyDatabaseSetupResult }> {
         return this.setupTest('empty_database')
     }
 
     /**
      * Setup environment for feature flags testing
      */
-    async setupFeatureFlagsTest(data?: Record<string, any>): Promise<TestSetupResponse> {
+    async setupFeatureFlagsTest(
+        data?: FeatureFlagsTestSetupData
+    ): Promise<TestSetupResponse & { result: FeatureFlagsTestSetupResult }> {
         return this.setupTest('feature_flags_test', { data })
     }
 
     /**
      * Setup environment for insights/analytics testing
      */
-    async setupInsightsTest(data?: Record<string, any>): Promise<TestSetupResponse> {
+    async setupInsightsTest(
+        data?: InsightsTestSetupData
+    ): Promise<TestSetupResponse & { result: InsightsTestSetupResult }> {
         return this.setupTest('insights_test', { data })
     }
 
@@ -187,3 +186,17 @@ export { test as baseTest } from './playwright-test-base'
 
 // Re-export for convenience
 export { expect } from '@playwright/test'
+
+// Re-export types for easy importing
+export type {
+    TestSetupResponse,
+    BasicOrganizationSetupData,
+    BasicOrganizationSetupResult,
+    UserWithOrganizationSetupData,
+    UserWithOrganizationSetupResult,
+    EmptyDatabaseSetupResult,
+    FeatureFlagsTestSetupData,
+    FeatureFlagsTestSetupResult,
+    InsightsTestSetupData,
+    InsightsTestSetupResult,
+}
