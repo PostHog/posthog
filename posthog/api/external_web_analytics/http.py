@@ -86,7 +86,7 @@ class ExternalWebAnalyticsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, vi
     @action(methods=["GET"], detail=False)
     def overview(self, request: Request, **kwargs) -> Response:
         """
-        This endpoints is in Concept state, please join the <a href="https://app.posthog.com/settings/user-feature-previews#web-analytics-api">feature preview</a> to try it out when it's ready. Get an overview of web analytics data including visitors, views, sessions, bounce rate, and session duration.
+        This endpoint is in Concept state, please join the <a href="https://app.posthog.com/settings/user-feature-previews#web-analytics-api">feature preview</a> to try it out when it's ready. Get an overview of web analytics data including visitors, views, sessions, bounce rate, and session duration.
         """
         self._can_use_external_web_analytics()
 
