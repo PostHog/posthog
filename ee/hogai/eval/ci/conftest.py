@@ -1,6 +1,6 @@
 import asyncio
 import os
-from collections.abc import AsyncGenerator, Generator
+from collections.abc import Generator
 from io import BytesIO
 from typing import TYPE_CHECKING, TypeVar
 
@@ -8,7 +8,8 @@ import aioboto3
 import aioboto3.s3
 import backoff
 import pytest
-from dagster_pipes import open_dagster_pipes
+from asgiref.sync import async_to_sync
+from dagster_pipes import PipesContext, open_dagster_pipes
 from fastavro import parse_schema, reader
 from pydantic_avro import AvroBase
 
@@ -28,13 +29,16 @@ T = TypeVar("T", bound=AvroBase)
 
 
 class SnapshotLoader:
-    def __init__(self, config: EvalsDockerImageConfig):
-        self.config = config
+    def __init__(self, context: PipesContext):
+        self.context = context
+        self.config = EvalsDockerImageConfig.model_validate(context.extras)
         self.organization = Organization.objects.create(name="PostHog")
         self.user = User.objects.create_and_join(self.organization, "test@posthog.com", "12345678")
 
     async def load_snapshots(self) -> tuple[Organization, User]:
         for snapshot in self.config.project_snapshots:
+            self.context.log.info(f"Loading Postgres snapshot for team {snapshot.project}...")
+
             project = Project.objects.create(id=Team.objects.increment_id_sequence(), organization=self.organization)
 
             (
@@ -66,7 +70,7 @@ class SnapshotLoader:
             )
             return loaded_snapshots
 
-    async def _get_snapshot_from_s3(self, client: S3Client, file_key: str):
+    async def _get_snapshot_from_s3(self, client: "S3Client", file_key: str):
         response = await client.get_object(Bucket=self.config.bucket_name, Key=file_key)
         content = await response["Body"].read()
         return BytesIO(content)
@@ -92,16 +96,22 @@ class SnapshotLoader:
 
 
 @pytest.fixture(scope="package")
-async def restore_postgres_snapshot(
-    django_db_setup, django_db_blocker
-) -> AsyncGenerator[tuple[Organization, User], None]:
+def dagster_context() -> Generator[PipesContext, None, None]:
+    with open_dagster_pipes() as context:
+        yield context
+
+
+@pytest.fixture(scope="package", autouse=True)
+def restore_postgres_snapshot(
+    dagster_context, django_db_setup, django_db_blocker
+) -> Generator[tuple[Organization, User], None]:
     """
     Script that restores dumped Django models.
     Creates teams with team_id=project_id for the same single user and organization,
     keeping the original project_ids for teams.
     """
-    with django_db_blocker.unblock(), open_dagster_pipes() as context:
-        config = EvalsDockerImageConfig.model_validate(context.extras)
-        loader = SnapshotLoader(config)
-        org, user = await loader.load_snapshots()
+    with django_db_blocker.unblock():
+        dagster_context.log.info(f"Loading Postgres snapshots...")
+        loader = SnapshotLoader(dagster_context)
+        org, user = async_to_sync(loader.load_snapshots)()
         yield org, user

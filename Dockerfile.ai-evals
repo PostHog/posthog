@@ -8,16 +8,6 @@ COPY --from=python-base /usr/local /usr/local
 # Copy Docker scripts
 COPY docker/ ./docker/
 
-# Copy project files
-COPY pyproject.toml uv.lock docker-compose.base.yml docker-compose.dev.yml ./
-COPY bin/ ./bin/
-COPY manage.py manage.py
-COPY common/esbuilder common/esbuilder
-COPY common/hogvm common/hogvm/
-COPY posthog posthog/
-COPY products/ products/
-COPY ee ee/
-
 # Install system dependencies
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
@@ -32,10 +22,23 @@ RUN apt-get update && \
     "netcat-openbsd" \
     "postgresql-client"
 
+# Copy uv dependencies
+COPY pyproject.toml uv.lock docker-compose.base.yml docker-compose.dev.yml ./
+
+# Install python deps
 RUN rm -rf /var/lib/apt/lists/* && \
 pip install uv~=0.7.0 --no-cache-dir && \
 UV_PROJECT_ENVIRONMENT=/python-runtime uv sync --frozen --no-cache --compile-bytecode \
 --no-binary-package lxml --no-binary-package xmlsec
+
+# Copy project files
+COPY bin/ ./bin/
+COPY manage.py manage.py
+COPY common/esbuilder common/esbuilder
+COPY common/hogvm common/hogvm/
+COPY posthog posthog/
+COPY products/ products/
+COPY ee ee/
 
 ENV PATH=/python-runtime/bin:$PATH \
     PYTHONPATH=/python-runtime
