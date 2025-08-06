@@ -27,7 +27,7 @@ export function WebExperimentVariantHeader({ variant }: WebExperimentVariantHead
                     <span>
                         {`Rollout: ${
                             experimentForm.variants && experimentForm.variants[variant]
-                                ? experimentForm.variants[variant].rollout_percentage ?? 0
+                                ? (experimentForm.variants[variant].rollout_percentage ?? 0)
                                 : 0
                         } %`}
                     </span>

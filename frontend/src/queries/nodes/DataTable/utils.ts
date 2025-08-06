@@ -20,12 +20,12 @@ export function defaultDataTableColumns(kind: NodeKind): HogQLExpression[] {
     return kind === NodeKind.PersonsNode || kind === NodeKind.ActorsQuery
         ? defaultDataTablePersonColumns
         : kind === NodeKind.EventsQuery
-        ? defaultDataTableEventColumns
-        : kind === NodeKind.EventsNode
-        ? defaultDataTableEventColumns.filter((c) => c !== '*')
-        : kind === NodeKind.GroupsQuery
-        ? defaultDataTableGroupColumns
-        : []
+          ? defaultDataTableEventColumns
+          : kind === NodeKind.EventsNode
+            ? defaultDataTableEventColumns.filter((c) => c !== '*')
+            : kind === NodeKind.GroupsQuery
+              ? defaultDataTableGroupColumns
+              : []
 }
 
 export function getDataNodeDefaultColumns(source: DataNode): HogQLExpression[] {

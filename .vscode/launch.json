@@ -160,7 +160,8 @@
             },
             "presentation": {
                 "group": "main"
-            }
+            },
+            "envFile": "${workspaceFolder}/.env"
         },
         {
             "name": "Temporal Worker",

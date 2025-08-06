@@ -537,7 +537,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                               ...(payload?.action === DashboardLoadAction.Preview ||
                               payload?.action === DashboardLoadAction.InitialLoadWithVariables
                                   ? {}
-                                  : dashboard.variables ?? {}),
+                                  : (dashboard.variables ?? {})),
                           }
                         : state
                 },
@@ -567,7 +567,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                               ...(payload?.action === DashboardLoadAction.Preview ||
                               payload?.action === DashboardLoadAction.InitialLoadWithVariables
                                   ? {}
-                                  : dashboard.variables ?? {}),
+                                  : (dashboard.variables ?? {})),
                           }
                         : state,
             },
@@ -784,8 +784,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     [shortId]: loading
                         ? { loading: true, queued: true, timer: new Date() }
                         : queued
-                        ? { loading: false, queued: true, timer: null }
-                        : { refreshed: true, timer: state[shortId]?.timer || null },
+                          ? { loading: false, queued: true, timer: null }
+                          : { refreshed: true, timer: state[shortId]?.timer || null },
                 }),
                 setRefreshStatuses: (state, { shortIds, loading, queued }) =>
                     Object.fromEntries(
@@ -794,8 +794,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             loading
                                 ? { loading: true, queued: true, timer: new Date() }
                                 : queued
-                                ? { loading: false, queued: true, timer: null }
-                                : { refreshed: true, timer: state[shortId]?.timer || null },
+                                  ? { loading: false, queued: true, timer: null }
+                                  : { refreshed: true, timer: state[shortId]?.timer || null },
                         ])
                     ) as Record<string, RefreshStatus>,
                 setRefreshError: (state, { shortId, error }) => ({
@@ -1178,10 +1178,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     name: dashboard?.id
                         ? dashboard.name
                         : dashboardFailedToLoad
-                        ? 'Could not load'
-                        : !dashboardLoading
-                        ? 'Not found'
-                        : null,
+                          ? 'Could not load'
+                          : !dashboardLoading
+                            ? 'Not found'
+                            : null,
                     onRename: canEditDashboard
                         ? async (name) => {
                               if (dashboard) {

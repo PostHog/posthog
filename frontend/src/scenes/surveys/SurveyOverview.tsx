@@ -1,9 +1,7 @@
 import { LemonDivider, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { TZLabel } from 'lib/components/TZLabel'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { IconAreaChart, IconComment, IconGridView, IconLink, IconListView } from 'lib/lemon-ui/icons'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { pluralize } from 'lib/utils'
 import { SURVEY_TYPE_LABEL_MAP, SurveyQuestionLabel } from 'scenes/surveys/constants'
 import { CopySurveyLink } from 'scenes/surveys/CopySurveyLink'
@@ -54,13 +52,35 @@ const QuestionIconMap = {
 export function SurveyOverview(): JSX.Element {
     const { survey, selectedPageIndex, targetingFlagFilters } = useValues(surveyLogic)
     const { setSelectedPageIndex } = useActions(surveyLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
+
+    const isExternalSurvey = survey.type === SurveyType.ExternalSurvey
 
     const { surveyUsesLimit, surveyUsesAdaptiveLimit } = useValues(surveyLogic)
     return (
         <div className="flex gap-4">
             <dl className="flex flex-col gap-4 flex-1 overflow-hidden">
-                <SurveyOption label="Display mode">{SURVEY_TYPE_LABEL_MAP[survey.type]}</SurveyOption>
+                <SurveyOption label="Display mode">
+                    <div className="flex flex-col">
+                        <div className="flex flex-row items-center gap-2">
+                            {SURVEY_TYPE_LABEL_MAP[survey.type]}
+                            {isExternalSurvey && <CopySurveyLink surveyId={survey.id} className="w-fit" />}
+                        </div>
+                        {isExternalSurvey && (
+                            <span>
+                                Responses are anonymous by default. To identify respondents, add the{' '}
+                                <code className="bg-surface-tertiary px-1 rounded">?distinct_id=user123</code> to the
+                                URL.{' '}
+                                <Link
+                                    to="https://posthog.com/docs/surveys/creating-surveys#identifying-respondents-on-hosted-surveys"
+                                    target="_blank"
+                                >
+                                    Check more details in the documentation
+                                </Link>
+                                .
+                            </span>
+                        )}
+                    </div>
+                </SurveyOption>
                 <SurveyOption label={pluralize(survey.questions.length, 'Question', 'Questions', false)}>
                     {survey.questions.map((q, idx) => {
                         return (
@@ -110,14 +130,6 @@ export function SurveyOverview(): JSX.Element {
                 <SurveyOption label="Partial responses">
                     {survey.enable_partial_responses ? 'Enabled' : 'Disabled'}
                 </SurveyOption>
-                {featureFlags[FEATURE_FLAGS.EXTERNAL_SURVEYS] && (
-                    <SurveyOption label="Responses via external link">
-                        <div className="flex flex-row items-center gap-2">
-                            {survey.type === SurveyType.ExternalSurvey ? 'Enabled' : 'Disabled'}
-                            {survey.type === SurveyType.ExternalSurvey && <CopySurveyLink surveyId={survey.id} />}
-                        </div>
-                    </SurveyOption>
-                )}
                 <LemonDivider />
                 <SurveyDisplaySummary id={survey.id} survey={survey} targetingFlagFilters={targetingFlagFilters} />
             </dl>

@@ -9,7 +9,7 @@ import { closeHub, createHub } from '~/utils/db/hub'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 import { CdpApi } from '~/cdp/cdp-api'
 import supertest from 'supertest'
-import { setupExpressApp } from '~/router'
+import { setupExpressApp } from '~/api/router'
 import { insertHogFunction } from '~/cdp/_tests/fixtures'
 import { HogFunctionType } from '~/cdp/types'
 import { Server } from 'http'
@@ -43,8 +43,11 @@ describe('SourceWebhooksConsumer', () => {
         let hogFunction: HogFunctionType
         let server: Server
 
+        let mockExecuteSpy: jest.SpyInstance
+
         beforeEach(async () => {
             api = new CdpApi(hub)
+            mockExecuteSpy = jest.spyOn(api['cdpSourceWebhooksConsumer']['hogExecutor'], 'execute')
             app = setupExpressApp()
             app.use('/', api.router())
             server = app.listen(0, () => {})
@@ -156,6 +159,28 @@ describe('SourceWebhooksConsumer', () => {
                     expect.stringContaining('Function completed'),
                     'Responded with response status - 400',
                 ])
+            })
+
+            it('should not receive sensitive headers', async () => {
+                await doRequest({
+                    headers: {
+                        'x-forwarded-for': '127.0.0.1',
+                        cookie: 'test=test',
+                    },
+                })
+
+                const call = mockExecuteSpy.mock.calls[0][0]
+                expect(call.state.globals.request).toEqual({
+                    body: {},
+                    headers: {
+                        'accept-encoding': 'gzip, deflate',
+                        connection: 'close',
+                        'content-length': '0',
+                        'content-type': 'application/json',
+                        host: expect.any(String),
+                    },
+                    ip: '127.0.0.1',
+                })
             })
         })
     })
