@@ -32,8 +32,7 @@ posthog/hogql/database/schema/sessions_v1.py @PostHog/web-analytics
 posthog/hogql/database/schema/sessions_v2.py @PostHog/web-analytics
 
 # Revenue Analytics team owns revenue analytics stuff
-# This is a single-person team - allow reviews from other teams
-# products/revenue_analytics/** @PostHog/team-revenue-analytics
+products/revenue_analytics/** @PostHog/team-revenue-analytics
 
 # Feature Flags team
 
