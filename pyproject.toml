@@ -118,7 +118,7 @@ dependencies = [
     "sshtunnel==0.4.0",
     "statshog==1.0.6",
     "stripe==12.2.0",
-    "structlog==23.2.0",
+    "structlog==25.4.0",
     "temporalio==1.14.1",
     "tenacity==9.1.2",
     "tiktoken==0.9.*",
