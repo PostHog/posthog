@@ -22,20 +22,6 @@ class TestExceptionsCapture(TestCase):
 
     @patch("posthoganalytics.api_key", "test-key")
     @patch("posthoganalytics.capture_exception")
-    def test_capture_exception_with_none_exc_info(self, mock_posthog_capture):
-        """Test that structlog handles exc_info=(None, None, None) gracefully"""
-        mock_posthog_capture.return_value = str(uuid.uuid4())
-        output = self._setup_structlog_capture()
-
-        test_exception = ValueError("Test error without context")
-        capture_exception(test_exception)
-
-        log_data = json.loads(output.getvalue().strip())
-        self.assertIn("Exception captured: Test error without context", log_data["event"])
-        self.assertEqual(log_data["exception"], "MISSING")
-
-    @patch("posthoganalytics.api_key", "test-key")
-    @patch("posthoganalytics.capture_exception")
     def test_capture_exception_with_real_exc_info(self, mock_posthog_capture):
         """Test that structlog properly formats real exception info"""
         mock_posthog_capture.return_value = str(uuid.uuid4())

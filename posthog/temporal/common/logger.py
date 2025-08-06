@@ -25,7 +25,7 @@ BASE_PROCESSORS = [
     structlog.stdlib.filter_by_level,
     structlog.stdlib.add_logger_name,
     structlog.stdlib.add_log_level,
-    structlog.processors.format_exc_info,  # Required to prevent AttributeError with dict_tracebacks
+    structlog.processors.format_exc_info,
     structlog.stdlib.PositionalArgumentsFormatter(),
     structlog.processors.CallsiteParameterAdder(
         {
