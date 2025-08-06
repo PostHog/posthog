@@ -1,10 +1,12 @@
 from contextlib import asynccontextmanager, contextmanager
+import asyncio
 import json
 from collections.abc import Callable
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 import uuid
 from temporalio.worker import Worker, UnsandboxedWorkflowRunner
+from temporalio.client import WorkflowExecutionStatus
 import pytest
 import dataclasses
 from pytest_mock import MockerFixture
@@ -515,6 +517,86 @@ class TestSummarizeSessionGroupWorkflow:
             # - get cached single-session summaries for 2 sessions (2) - assign_events_to_patterns_activity
             # - get cached DB data for 2 sessions (2) - assign_events_to_patterns_activity
             assert spy_get.call_count == 17
+
+    @pytest.mark.asyncio
+    async def test_workflow_progress_tracking(
+        self,
+        mock_session_id: str,
+        mock_team: MagicMock,
+        mock_call_llm: Callable,
+        mock_raw_metadata: dict[str, Any],
+        mock_valid_event_ids: list[str],
+        mock_session_group_summary_inputs: Callable,
+        mock_patterns_extraction_yaml_response: str,
+        mock_patterns_assignment_yaml_response: str,
+        mock_cached_session_batch_events_query_response_factory: Callable,
+        redis_test_setup: AsyncRedisTestContext,
+    ):
+        """Test that workflow progress tracking updates status correctly throughout execution"""
+        session_ids, workflow_id, workflow_input = self.setup_workflow_test(
+            mock_session_id, mock_session_group_summary_inputs, "progress"
+        )
+        # Track status updates during workflow execution
+        status_updates = []
+        async with self.temporal_workflow_test_environment(
+            session_ids,
+            mock_call_llm,
+            mock_team,
+            mock_raw_metadata,
+            mock_valid_event_ids,
+            mock_patterns_extraction_yaml_response,
+            mock_patterns_assignment_yaml_response,
+            mock_cached_session_batch_events_query_response_factory,
+            custom_content=None,
+        ) as (activity_environment, worker):
+            # Start the workflow
+            workflow_handle = await activity_environment.client.start_workflow(
+                SummarizeSessionGroupWorkflow.run,
+                workflow_input,
+                id=workflow_id,
+                task_queue=worker.task_queue,
+            )
+            # Poll for status updates during execution
+            max_polls = 20
+            poll_count = 0
+            workflow_completed = False
+            while poll_count < max_polls and not workflow_completed:
+                try:
+                    # Query current status
+                    current_status = await workflow_handle.query("get_current_status")
+                    if current_status and current_status not in [s for s, _ in status_updates]:
+                        status_updates.append((current_status, poll_count))
+                    # Check if workflow is complete
+                    describe = await workflow_handle.describe()
+                    if describe.status == WorkflowExecutionStatus.COMPLETED:
+                        workflow_completed = True
+                        break
+                    # Short sleep to allow workflow to progress
+                    await asyncio.sleep(0.05)
+                    poll_count += 1
+                except Exception:  # noqa
+                    # Workflow might not be ready yet
+                    await asyncio.sleep(0.05)
+                    poll_count += 1
+            # Get the final result
+            result = await workflow_handle.result()
+            assert isinstance(result, EnrichedSessionGroupSummaryPatternsList)
+            # Verify we captured some status updates
+            assert len(status_updates) > 0
+            # Verify the types of status messages we received
+            status_messages = [status for status, _ in status_updates]
+            expected_status_patterns = [
+                "Fetching session data",
+                "Watching sessions",
+                "Searching for behavior patterns",
+                "Generating a report",
+            ]
+            # At least one of the expected status patterns should be in the status updates
+            found_status_patterns = []
+            for status_pattern in expected_status_patterns:
+                if any(status_pattern in status for status in status_messages):
+                    found_status_patterns.append(status_pattern)
+            assert len(found_status_patterns) > 0
 
 
 @pytest.mark.asyncio
