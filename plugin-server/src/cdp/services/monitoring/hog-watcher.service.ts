@@ -22,6 +22,10 @@ export enum HogWatcherState {
     healthy = 1,
     degraded = 2,
     disabled = 3,
+
+    // These are states that we do not auto transition into - can only be modified by the admin tool
+    forcefully_degraded = 11,
+    forcefully_disabled = 12,
 }
 
 export type HogWatcherFunctionState = {
@@ -48,6 +52,17 @@ export const isHogFunctionResult = (
     result: CyclotronJobInvocationResult
 ): result is CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction> => {
     return 'hogFunction' in result.invocation
+}
+
+// Helper if you don't care about the forced side of things
+export const effectiveState = (state: HogWatcherState) => {
+    if (state === HogWatcherState.forcefully_degraded) {
+        return HogWatcherState.degraded
+    }
+    if (state === HogWatcherState.forcefully_disabled) {
+        return HogWatcherState.disabled
+    }
+    return state
 }
 
 type PipelineResults = [Error | null, any][]
@@ -142,6 +157,9 @@ export class HogWatcherService {
         return HogWatcherState.healthy
     }
 
+    /**
+     * Get the persisted states of a list of hog functions
+     */
     public async getPersistedStates(
         ids: HogFunctionType['id'][]
     ): Promise<Record<HogFunctionType['id'], HogWatcherFunctionState>> {
@@ -171,8 +189,34 @@ export class HogWatcherService {
         )
     }
 
+    /**
+     * Like getPersistedStates but returns the state of a single hog function
+     */
     public async getPersistedState(id: HogFunctionType['id']): Promise<HogWatcherFunctionState> {
         const res = await this.getPersistedStates([id])
+        return res[id]
+    }
+
+    /**
+     * Like getPersistedStates but returns the effective state (i.e. ignores forcefully set states)
+     */
+    public async getEffectiveStates(
+        ids: HogFunctionType['id'][]
+    ): Promise<Record<HogFunctionType['id'], HogWatcherFunctionState>> {
+        const states = await this.getPersistedStates(ids)
+        return Object.fromEntries(
+            Object.entries(states).map(([id, state]) => [
+                id,
+                { state: effectiveState(state.state), tokens: state.tokens },
+            ])
+        )
+    }
+
+    /**
+     * Like getPersistedState but returns the effective state (i.e. ignores forcefully set states)
+     */
+    public async getEffectiveState(id: HogFunctionType['id']): Promise<HogWatcherFunctionState> {
+        const res = await this.getEffectiveStates([id])
         return res[id]
     }
 
@@ -331,8 +375,8 @@ export class HogWatcherService {
                     return
                 }
 
-                if (currentState === HogWatcherState.disabled) {
-                    // We never modify the state of a disabled function automatically
+                if (currentState === HogWatcherState.disabled || currentState >= HogWatcherState.forcefully_degraded) {
+                    // We never modify the state of a disabled function automatically, or a forcefully set value
                     return
                 }
 
