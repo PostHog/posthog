@@ -2,6 +2,7 @@ import { auth, Client as CassandraClient, types } from 'cassandra-driver'
 import { createHash } from 'crypto'
 import * as fs from 'fs'
 import { Message } from 'node-rdkafka'
+import { join } from 'path'
 import { Histogram } from 'prom-client'
 
 import { KAFKA_EVENTS_JSON } from '../../config/kafka-topics'
