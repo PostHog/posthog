@@ -79,6 +79,7 @@ export enum PluginServerMode {
     cdp_behavioural_events = 'cdp-behavioural-events',
     cdp_cyclotron_worker_hogflow = 'cdp-cyclotron-worker-hogflow',
     cdp_api = 'cdp-api',
+    flags_api = 'flags-api',
     cdp_legacy_on_event = 'cdp-legacy-on-event',
 }
 
@@ -429,6 +430,7 @@ export interface PluginServerCapabilities {
     cdpCyclotronWorkerHogFlow?: boolean
     cdpBehaviouralEvents?: boolean
     cdpApi?: boolean
+    flagsApi?: boolean
     appManagementSingleton?: boolean
 }
 

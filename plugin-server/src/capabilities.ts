@@ -23,6 +23,7 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
                 cdpCyclotronWorkerHogFlow: true,
                 cdpBehaviouralEvents: true,
                 cdpApi: true,
+                flagsApi: true,
             }
 
         case PluginServerMode.local_cdp:
@@ -98,6 +99,10 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
                 cdpApi: true,
                 // NOTE: This is temporary until we have removed plugins
                 appManagementSingleton: true,
+            }
+        case PluginServerMode.flags_api:
+            return {
+                flagsApi: true,
             }
     }
 }

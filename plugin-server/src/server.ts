@@ -22,6 +22,7 @@ import {
     KAFKA_EVENTS_PLUGIN_INGESTION_HISTORICAL,
     KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
 } from './config/kafka-topics'
+import { FlagsApi } from './flags/flags-api'
 import { IngestionConsumer } from './ingestion/ingestion-consumer'
 import { KafkaProducerWrapper } from './kafka/producer'
 import { startAsyncWebhooksHandlerConsumer } from './main/ingestion-queues/on-event-handler-consumer'
@@ -271,6 +272,15 @@ export class PluginServer {
                     const worker = new CdpBehaviouralEventsConsumer(hub)
                     await worker.start()
                     return worker.service
+                })
+            }
+
+            if (capabilities.flagsApi) {
+                serviceLoaders.push(async () => {
+                    await initPlugins()
+                    const api = new FlagsApi(hub)
+                    this.expressApp.use('/', api.router())
+                    return api.service
                 })
             }
 
