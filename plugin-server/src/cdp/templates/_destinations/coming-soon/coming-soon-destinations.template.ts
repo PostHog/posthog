@@ -990,12 +990,6 @@ const destinationDefinitions: DestinationConfig[] = [
         category: ['Productivity'],
     },
     {
-        name: 'Google Sheets',
-        id: 'coming-soon-google-sheets',
-        icon_url: '/static/coming-soon-destinations/Google_Sheets.svg',
-        category: ['Productivity'],
-    },
-    {
         name: 'Monday',
         id: 'coming-soon-monday',
         icon_url: '/static/coming-soon-destinations/Monday.svg',
@@ -1042,14 +1036,6 @@ const destinationDefinitions: DestinationConfig[] = [
         id: 'coming-soon-promoter-io',
         icon_url: '/static/coming-soon-destinations/Promoter.io.png',
         category: ['Surveys'],
-    },
-
-    // Tag Managers
-    {
-        name: 'Google Tag Manager',
-        id: 'coming-soon-google-tag-manager',
-        icon_url: '/static/coming-soon-destinations/Google_Tag_Manager.svg',
-        category: ['Tag Managers'],
     },
 
     // User Engagement Platforms

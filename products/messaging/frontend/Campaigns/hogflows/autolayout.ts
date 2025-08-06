@@ -1,7 +1,7 @@
 import { Edge, Position } from '@xyflow/react'
 import ELK, { ElkExtendedEdge, ElkNode } from 'elkjs/lib/elk.bundled.js'
 
-import { NODE_GAP, NODE_HEIGHT, NODE_WIDTH } from './constants'
+import { NODE_GAP, NODE_LAYER_GAP, NODE_HEIGHT, NODE_WIDTH } from './constants'
 import type { HogFlowActionNode } from './types'
 
 /**
@@ -29,10 +29,10 @@ const elk = new ELK()
 export const getFormattedNodes = async (nodes: HogFlowActionNode[], edges: Edge[]): Promise<HogFlowActionNode[]> => {
     const elkOptions = {
         'elk.algorithm': 'layered',
-        'elk.layered.spacing.nodeNodeBetweenLayers': `${NODE_GAP}`,
+        'elk.layered.spacing.nodeNodeBetweenLayers': `${NODE_LAYER_GAP}`,
         'elk.spacing.nodeNode': `${NODE_GAP}`,
         'elk.spacing.edgeEdge': `${NODE_GAP}`,
-        'elk.spacing.edgeNode': `${NODE_GAP}`,
+        'elk.spacing.edgeNode': `0`,
         'elk.direction': 'DOWN',
         'elk.layered.nodePlacement.strategy': 'SIMPLE',
         'elk.alignment': 'CENTER',

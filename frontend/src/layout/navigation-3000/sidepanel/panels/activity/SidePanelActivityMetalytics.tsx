@@ -33,7 +33,7 @@ export function SidePanelActivityMetalytics(): JSX.Element {
                     <div className="flex-1 p-4 border rounded bg-surface-primary min-w-40">
                         <div className="text-sm text-secondary">Views</div>
                         <div className="text-2xl font-semibold">
-                            {viewCountLoading ? <Spinner /> : viewCount?.views ?? 0}
+                            {viewCountLoading ? <Spinner /> : (viewCount?.views ?? 0)}
                         </div>
                     </div>
                 </Tooltip>
@@ -45,7 +45,7 @@ export function SidePanelActivityMetalytics(): JSX.Element {
                     <div className="flex-1 p-4 border rounded bg-surface-primary min-w-40">
                         <div className="text-sm text-secondary">Viewers</div>
                         <div className="text-2xl font-semibold">
-                            {viewCountLoading ? <Spinner /> : viewCount?.users ?? 0}
+                            {viewCountLoading ? <Spinner /> : (viewCount?.users ?? 0)}
                         </div>
                     </div>
                 </Tooltip>

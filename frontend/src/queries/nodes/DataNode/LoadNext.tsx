@@ -78,7 +78,7 @@ export function LoadPreviewText({ localResponse }: { localResponse?: Record<stri
         return <div />
     }
 
-    const resultCount = response && 'results' in response ? response?.results?.length ?? 0 : 0
+    const resultCount = response && 'results' in response ? (response.results?.length ?? 0) : 0
     const isSingleEntry = resultCount === 1
     const showFirstPrefix = hasMoreData && resultCount > 1
 

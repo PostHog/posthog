@@ -257,7 +257,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
                 if (customLimit === 0 || customLimit) {
                     return customLimit
                 }
-                return product.usage_key ? billing?.custom_limits_usd?.[product.usage_key] ?? null : null
+                return product.usage_key ? (billing?.custom_limits_usd?.[product.usage_key] ?? null) : null
             },
         ],
         visibleAddons: [
@@ -315,7 +315,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
                 if (nextPeriodLimit === 0 || nextPeriodLimit) {
                     return nextPeriodLimit
                 }
-                return product.usage_key ? billing?.next_period_custom_limits_usd?.[product.usage_key] ?? null : null
+                return product.usage_key ? (billing?.next_period_custom_limits_usd?.[product.usage_key] ?? null) : null
             },
         ],
         billingGaugeItems: [

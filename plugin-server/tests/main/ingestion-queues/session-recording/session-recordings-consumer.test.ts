@@ -701,7 +701,7 @@ describe.each([[true], [false]])('ingester with consumeOverflow=%p', (consumeOve
                 await ingester.handleEachBatch(partitionMsgs1)
 
                 // NOTE: the number here can change as we change the code. Important is that it is called a number of times
-                expect(mockConsumer.heartbeat).toBeCalledTimes(6)
+                expect(mockConsumer.heartbeat).toHaveBeenCalledTimes(6)
             })
         })
     })

@@ -83,6 +83,7 @@ export enum ColumnFeature {
     canEdit = 'canEdit',
     canAddColumns = 'canAddColumns',
     canRemove = 'canRemove',
+    canPin = 'canPin',
 }
 
 interface DataTableProps {
@@ -204,7 +205,7 @@ export function DataTable({
     const eventActionsColumnShown =
         showActions && sourceFeatures.has(QueryFeature.eventActionsColumn) && columnsInResponse?.includes('*')
     const allColumns = sourceFeatures.has(QueryFeature.columnsInResponse)
-        ? columnsInResponse ?? columnsInQuery
+        ? (columnsInResponse ?? columnsInQuery)
         : columnsInQuery
     const columnsInLemonTable = allColumns.filter((colName) => {
         const col = getContextColumn(colName, context?.columns)
@@ -273,10 +274,10 @@ export function DataTable({
             more:
                 !isReadOnly && showActions && sourceFeatures.has(QueryFeature.selectAndOrderByColumns) ? (
                     <>
-                        <div className="px-2 py-1">
-                            <div className="font-mono font-bold">{extractExpressionComment(key)}</div>
+                        <div className="px-2 py-1 max-w-md">
+                            <div className="font-mono font-bold truncate">{extractExpressionComment(key)}</div>
                             {extractExpressionComment(key) !== removeExpressionComment(key) && (
-                                <div className="font-mono">{removeExpressionComment(key)}</div>
+                                <div className="font-mono truncate">{removeExpressionComment(key)}</div>
                             )}
                         </div>
                         {columnFeatures.includes(ColumnFeature.canEdit) && (
@@ -358,7 +359,7 @@ export function DataTable({
                                         const orderBy =
                                             query.source.kind === NodeKind.MarketingAnalyticsTableQuery
                                                 ? createMarketingAnalyticsOrderBy(key, 'DESC')
-                                                : [`${key} DESC`]
+                                                : [`${key}\n DESC`]
                                         setQuery?.({
                                             ...query,
                                             source: {
@@ -404,8 +405,8 @@ export function DataTable({
                                         const hogQl = isActorsQuery(query.source)
                                             ? taxonomicPersonFilterToHogQL(g, v)
                                             : isGroupsQuery(query.source)
-                                            ? taxonomicGroupFilterToHogQL(g, v)
-                                            : taxonomicEventFilterToHogQL(g, v)
+                                              ? taxonomicGroupFilterToHogQL(g, v)
+                                              : taxonomicEventFilterToHogQL(g, v)
                                         if (
                                             setQuery &&
                                             hogQl &&
@@ -443,8 +444,8 @@ export function DataTable({
                                         const hogQl = isActorsQuery(query.source)
                                             ? taxonomicPersonFilterToHogQL(g, v)
                                             : isGroupsQuery(query.source)
-                                            ? taxonomicGroupFilterToHogQL(g, v)
-                                            : taxonomicEventFilterToHogQL(g, v)
+                                              ? taxonomicGroupFilterToHogQL(g, v)
+                                              : taxonomicEventFilterToHogQL(g, v)
                                         if (
                                             setQuery &&
                                             hogQl &&
@@ -519,6 +520,29 @@ export function DataTable({
                                     </LemonButton>
                                 </>
                             )}
+                        {columnFeatures.includes(ColumnFeature.canPin) && (
+                            <>
+                                <LemonDivider />
+                                <LemonButton
+                                    fullWidth
+                                    data-attr="datatable-pin-column"
+                                    onClick={() => {
+                                        let newPinnedColumns = new Set(query.pinnedColumns ?? [])
+                                        if (newPinnedColumns.has(key)) {
+                                            newPinnedColumns.delete(key)
+                                        } else {
+                                            newPinnedColumns.add(key)
+                                        }
+                                        setQuery?.({
+                                            ...query,
+                                            pinnedColumns: Array.from(newPinnedColumns),
+                                        })
+                                    }}
+                                >
+                                    {query.pinnedColumns?.includes(key) ? 'Unpin' : 'Pin column'}
+                                </LemonButton>
+                            </>
+                        )}
                     </>
                 ) : undefined,
         })),
@@ -734,8 +758,8 @@ export function DataTable({
                                                 queryCancelled
                                                     ? 'The query was cancelled'
                                                     : response && 'error' in response
-                                                    ? response.error
-                                                    : responseError
+                                                      ? response.error
+                                                      : responseError
                                             }
                                         />
                                     ) : (
@@ -781,6 +805,7 @@ export function DataTable({
                                         result &&
                                         result[0] &&
                                         result[0]['event'] === '$exception',
+                                    DataTable__has_pinned_columns: (query.pinnedColumns ?? []).length > 0,
                                 })
                             }
                             footer={
