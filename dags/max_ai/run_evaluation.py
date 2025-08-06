@@ -3,13 +3,13 @@ from dagster_docker import PipesDockerClient
 from django.conf import settings
 
 from dags.common import JobOwners
-from dags.max_ai.schema import Snapshot
 from dags.max_ai.snapshot_project_data import (
     ClickhouseProjectDataSnapshot,
     PostgresProjectDataSnapshot,
     snapshot_clickhouse_project_data,
     snapshot_postgres_project_data,
 )
+from ee.hogai.eval.schema import Snapshot
 
 
 def get_object_storage_endpoint() -> dagster.EnvVar | str:
@@ -40,12 +40,12 @@ class EvaluationConfig(dagster.Config):
 
 @dagster.op
 def spawn_evaluation_container(
-    context: dagster.AssetExecutionContext,
+    context: dagster.OpExecutionContext,
     config: EvaluationConfig,
     docker_pipes_client: PipesDockerClient,
     project_ids: list[int],
-    postgres_snapshots: PostgresProjectDataSnapshot,
-    clickhouse_snapshots: ClickhouseProjectDataSnapshot,
+    postgres_snapshots: list[PostgresProjectDataSnapshot],
+    clickhouse_snapshots: list[ClickhouseProjectDataSnapshot],
 ):
     return docker_pipes_client.run(
         context=context,
@@ -55,11 +55,9 @@ def spawn_evaluation_container(
             "auto_remove": True,
         },
         env={
-            "EVAL_SCRIPT": "python bin/evals/run_evaluation.py",
-            "EVAL_MODULE": config.evaluation_module,
-            "OBJECT_STORAGE_ACCESS_KEY_ID": settings.OBJECT_STORAGE_ACCESS_KEY_ID,
-            "OBJECT_STORAGE_SECRET_ACCESS_KEY": settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
-            "PROJECT_IDS": ",".join(map(str, config.project_ids)),
+            "EVAL_SCRIPT": f"pytest {config.evaluation_module}",
+            "OBJECT_STORAGE_ACCESS_KEY_ID": settings.OBJECT_STORAGE_ACCESS_KEY_ID,  # type: ignore
+            "OBJECT_STORAGE_SECRET_ACCESS_KEY": settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,  # type: ignore
         },
         extras={
             "endpoint_url": get_object_storage_endpoint(),
@@ -86,7 +84,5 @@ def run_evaluation():
     project_ids = export_projects()
     postgres_snapshots = project_ids.map(snapshot_postgres_project_data)
     clickhouse_snapshots = project_ids.map(snapshot_clickhouse_project_data)
-    evaluation_result = spawn_evaluation_container(
-        project_ids.collect(), postgres_snapshots.collect(), clickhouse_snapshots.collect()
-    )
-    return evaluation_result
+    spawn_evaluation_container(project_ids.collect(), postgres_snapshots.collect(), clickhouse_snapshots.collect())
+    # return evaluation_result

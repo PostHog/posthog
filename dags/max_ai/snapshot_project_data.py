@@ -9,7 +9,8 @@ from fastavro import parse_schema, writer
 from pydantic_avro import AvroBase
 
 from dags.common import JobOwners
-from dags.max_ai.schema import (
+from dags.max_ai.utils import compose_clickhouse_dump_path, compose_postgres_dump_path
+from ee.hogai.eval.schema import (
     ClickhouseProjectDataSnapshot,
     DataWarehouseTableSchema,
     PostgresProjectDataSnapshot,
@@ -18,11 +19,10 @@ from dags.max_ai.schema import (
     TeamSchema,
     TeamTaxonomyItemSchema,
 )
-from dags.max_ai.utils import compose_clickhouse_dump_path, compose_postgres_dump_path
 from posthog.hogql_queries.ai.event_taxonomy_query_runner import EventTaxonomyQueryRunner
 from posthog.hogql_queries.ai.team_taxonomy_query_runner import TeamTaxonomyQueryRunner
 from posthog.models import Team
-from posthog.schema import EventTaxonomyQuery, TeamTaxonomyQuery
+from posthog.schema import EventTaxonomyQuery, TeamTaxonomyItem, TeamTaxonomyQuery
 
 
 def check_dump_exists(s3: S3Resource, file_key: str) -> bool:
@@ -108,7 +108,7 @@ def snapshot_events_taxonomy(s3: S3Resource, team: Team):
 
 
 def snapshot_properties_taxonomy(
-    context: dagster.OpExecutionContext, s3: S3Resource, team: Team, events: list[TeamTaxonomyItemSchema]
+    context: dagster.OpExecutionContext, s3: S3Resource, team: Team, events: list[TeamTaxonomyItem]
 ):
     results: list[PropertyTaxonomySchema] = []
     for item in events:
