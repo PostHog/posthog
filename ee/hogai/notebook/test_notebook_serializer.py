@@ -707,7 +707,7 @@ code here
                     content=[
                         JSONContent(type="text", text="Insight type: "),
                         JSONContent(type="text", text="funnel", marks=[Mark(type="italic")]),
-                        JSONContent(type="text", text="broken down by one dimension at a time"),
+                        JSONContent(type="text", text=" broken down by one dimension at a time"),
                     ],
                 )
             ],
