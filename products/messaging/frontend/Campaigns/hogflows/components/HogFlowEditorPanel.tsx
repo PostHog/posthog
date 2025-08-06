@@ -19,7 +19,7 @@ export function HogFlowEditorPanel({ className, position, children }: HogFlowEdi
         >
             <div className={clsx('relative flex z-10 flex-col max-h-full m-2', className)}>
                 <div
-                    className="absolute -inset-px rounded-md pointer-events-none"
+                    className="absolute -inset-px rounded-lg pointer-events-none"
                     style={{
                         border: '1px solid var(--border)',
                         zIndex: 0,

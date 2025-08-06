@@ -213,7 +213,7 @@ export function SmartEdge({
         currentEdgeId: id,
     })
 
-    const labelPoint = getPointAtYValue(edgePath, 20, sourceY + 25)
+    const labelPoint = getPointAtYValue(edgePath, 20, sourceY + 20)
 
     return (
         <>
