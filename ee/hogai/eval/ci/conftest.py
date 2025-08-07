@@ -14,12 +14,14 @@ from fastavro import reader
 from pydantic_avro import AvroBase
 
 from ee.hogai.eval.schema import (
+    DataWarehouseTableSchema,
     EvalsDockerImageConfig,
     PropertyDefinitionSchema,
     Snapshot,
     TeamSchema,
 )
 from posthog.models import Organization, Project, PropertyDefinition, Team, User
+from posthog.warehouse.models.table import DataWarehouseTable
 
 if TYPE_CHECKING:
     from types_aiobotocore_s3.client import S3Client
@@ -53,7 +55,10 @@ class SnapshotLoader:
             ) = await self._get_all_snapshots(snapshot)
 
             team = await self._load_project_snapshot(project, snapshot.project, project_snapshot_bytes)
-            await self._load_property_definitions(team, property_definitions_snapshot_bytes)
+            await asyncio.gather(
+                self._load_property_definitions(team, property_definitions_snapshot_bytes),
+                self._load_data_warehouse_tables(team, data_warehouse_tables_snapshot_bytes),
+            )
         return self.organization, self.user
 
     @backoff.on_exception(backoff.expo, Exception, max_tries=3)
@@ -96,6 +101,11 @@ class SnapshotLoader:
         snapshot = list(self._parse_snapshot_to_schema(PropertyDefinitionSchema, buffer))
         property_definitions = PropertyDefinitionSchema.deserialize_for_project(team.id, snapshot)
         return await PropertyDefinition.objects.abulk_create(property_definitions, batch_size=500)
+
+    async def _load_data_warehouse_tables(self, team: Team, buffer: BytesIO):
+        snapshot = list(self._parse_snapshot_to_schema(DataWarehouseTableSchema, buffer))
+        data_warehouse_tables = DataWarehouseTableSchema.deserialize_for_project(team.id, snapshot)
+        return await DataWarehouseTable.objects.abulk_create(data_warehouse_tables, batch_size=500)
 
 
 @pytest.fixture(scope="package")
