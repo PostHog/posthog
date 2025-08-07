@@ -16,6 +16,7 @@ describe('RecipientPreferencesService', () => {
     let mockRecipientsManager: RecipientsManagerService
     let mockRecipientsManagerGet: jest.SpyInstance
     let mockRecipientsManagerGetPreference: jest.SpyInstance
+    let mockRecipientsManagerGetAllMarketingMessagingPreference: jest.SpyInstance
 
     beforeEach(async () => {
         await resetTestDatabase()
@@ -25,6 +26,10 @@ describe('RecipientPreferencesService', () => {
         mockRecipientsManager = new RecipientsManagerService(hub)
         mockRecipientsManagerGet = jest.spyOn(mockRecipientsManager, 'get')
         mockRecipientsManagerGetPreference = jest.spyOn(mockRecipientsManager, 'getPreference')
+        mockRecipientsManagerGetAllMarketingMessagingPreference = jest.spyOn(
+            mockRecipientsManager,
+            'getAllMarketingMessagingPreference'
+        )
 
         service = new RecipientPreferencesService(mockRecipientsManager)
     })
@@ -99,6 +104,7 @@ describe('RecipientPreferencesService', () => {
 
                 mockRecipientsManagerGet.mockResolvedValue(recipient)
                 mockRecipientsManagerGetPreference.mockReturnValue('OPTED_OUT')
+                mockRecipientsManagerGetAllMarketingMessagingPreference.mockReturnValue('NO_PREFERENCE')
 
                 const result = await service.shouldSkipAction(invocation, action)
 
@@ -122,6 +128,7 @@ describe('RecipientPreferencesService', () => {
 
                 mockRecipientsManagerGet.mockResolvedValue(recipient)
                 mockRecipientsManagerGetPreference.mockReturnValue('OPTED_IN')
+                mockRecipientsManagerGetAllMarketingMessagingPreference.mockReturnValue('NO_PREFERENCE')
 
                 const result = await service.shouldSkipAction(invocation, action)
 
@@ -135,6 +142,7 @@ describe('RecipientPreferencesService', () => {
 
                 mockRecipientsManagerGet.mockResolvedValue(recipient)
                 mockRecipientsManagerGetPreference.mockReturnValue('NO_PREFERENCE')
+                mockRecipientsManagerGetAllMarketingMessagingPreference.mockReturnValue('NO_PREFERENCE')
 
                 const result = await service.shouldSkipAction(invocation, action)
 
@@ -199,6 +207,92 @@ describe('RecipientPreferencesService', () => {
                     'No identifier found for message action email'
                 )
             })
+
+            it('should return true if recipient is opted out of all marketing messaging', async () => {
+                const action = createEmailAction('test@example.com', '123e4567-e89b-12d3-a456-426614174000')
+                const invocation = createInvocation(action)
+                const recipient = createRecipient('test@example.com', {
+                    '123e4567-e89b-12d3-a456-426614174000': 'OPTED_IN', // Opted in for this category
+                    $all: 'OPTED_OUT', // But opted out of all marketing
+                })
+
+                mockRecipientsManagerGet.mockResolvedValue(recipient)
+                mockRecipientsManagerGetPreference.mockReturnValue('OPTED_IN')
+                mockRecipientsManagerGetAllMarketingMessagingPreference.mockReturnValue('OPTED_OUT')
+
+                const result = await service.shouldSkipAction(invocation, action)
+
+                expect(result).toBe(true)
+                expect(mockRecipientsManagerGetAllMarketingMessagingPreference).toHaveBeenCalledWith(recipient)
+            })
+
+            it('should return true if recipient is opted out of specific category even when opted in to all marketing', async () => {
+                const action = createEmailAction('test@example.com', '123e4567-e89b-12d3-a456-426614174000')
+                const invocation = createInvocation(action)
+                const recipient = createRecipient('test@example.com', {
+                    '123e4567-e89b-12d3-a456-426614174000': 'OPTED_OUT', // Opted out for this category
+                    $all: 'OPTED_IN', // But opted in for all marketing
+                })
+
+                mockRecipientsManagerGet.mockResolvedValue(recipient)
+                mockRecipientsManagerGetPreference.mockReturnValue('OPTED_OUT')
+                mockRecipientsManagerGetAllMarketingMessagingPreference.mockReturnValue('OPTED_IN')
+
+                const result = await service.shouldSkipAction(invocation, action)
+
+                expect(result).toBe(true)
+                expect(mockRecipientsManagerGetAllMarketingMessagingPreference).toHaveBeenCalledWith(recipient)
+            })
+
+            it('should return false if recipient is opted in to both specific category and all marketing', async () => {
+                const action = createEmailAction('test@example.com', '123e4567-e89b-12d3-a456-426614174000')
+                const invocation = createInvocation(action)
+                const recipient = createRecipient('test@example.com', {
+                    '123e4567-e89b-12d3-a456-426614174000': 'OPTED_IN',
+                    $all: 'OPTED_IN',
+                })
+
+                mockRecipientsManagerGet.mockResolvedValue(recipient)
+                mockRecipientsManagerGetPreference.mockReturnValue('OPTED_IN')
+                mockRecipientsManagerGetAllMarketingMessagingPreference.mockReturnValue('OPTED_IN')
+
+                const result = await service.shouldSkipAction(invocation, action)
+
+                expect(result).toBe(false)
+                expect(mockRecipientsManagerGetAllMarketingMessagingPreference).toHaveBeenCalledWith(recipient)
+            })
+
+            it('should return false if recipient has no preference for category but is opted in to all marketing', async () => {
+                const action = createEmailAction('test@example.com', '123e4567-e89b-12d3-a456-426614174000')
+                const invocation = createInvocation(action)
+                const recipient = createRecipient('test@example.com', {
+                    $all: 'OPTED_IN',
+                })
+
+                mockRecipientsManagerGet.mockResolvedValue(recipient)
+                mockRecipientsManagerGetPreference.mockReturnValue('NO_PREFERENCE')
+                mockRecipientsManagerGetAllMarketingMessagingPreference.mockReturnValue('OPTED_IN')
+
+                const result = await service.shouldSkipAction(invocation, action)
+
+                expect(result).toBe(false)
+                expect(mockRecipientsManagerGetAllMarketingMessagingPreference).toHaveBeenCalledWith(recipient)
+            })
+
+            it('should return false if recipient has no preference for either category or all marketing', async () => {
+                const action = createEmailAction('test@example.com', '123e4567-e89b-12d3-a456-426614174000')
+                const invocation = createInvocation(action)
+                const recipient = createRecipient('test@example.com', {})
+
+                mockRecipientsManagerGet.mockResolvedValue(recipient)
+                mockRecipientsManagerGetPreference.mockReturnValue('NO_PREFERENCE')
+                mockRecipientsManagerGetAllMarketingMessagingPreference.mockReturnValue('NO_PREFERENCE')
+
+                const result = await service.shouldSkipAction(invocation, action)
+
+                expect(result).toBe(false)
+                expect(mockRecipientsManagerGetAllMarketingMessagingPreference).toHaveBeenCalledWith(recipient)
+            })
         })
 
         describe('for SMS actions', () => {
@@ -232,6 +326,7 @@ describe('RecipientPreferencesService', () => {
 
                 mockRecipientsManagerGet.mockResolvedValue(recipient)
                 mockRecipientsManagerGetPreference.mockReturnValue('OPTED_OUT')
+                mockRecipientsManagerGetAllMarketingMessagingPreference.mockReturnValue('NO_PREFERENCE')
 
                 const result = await service.shouldSkipAction(invocation, action)
 
@@ -251,6 +346,7 @@ describe('RecipientPreferencesService', () => {
 
                 mockRecipientsManagerGet.mockResolvedValue(recipient)
                 mockRecipientsManagerGetPreference.mockReturnValue('OPTED_IN')
+                mockRecipientsManagerGetAllMarketingMessagingPreference.mockReturnValue('NO_PREFERENCE')
 
                 const result = await service.shouldSkipAction(invocation, action)
 
@@ -276,6 +372,42 @@ describe('RecipientPreferencesService', () => {
                 await expect(service.shouldSkipAction(invocation, action)).rejects.toThrow(
                     'No identifier found for message action sms'
                 )
+            })
+
+            it('should return true if SMS recipient is opted out of all marketing messaging', async () => {
+                const action = createSmsAction('+1234567890', '123e4567-e89b-12d3-a456-426614174000')
+                const invocation = createInvocation(action)
+                const recipient = createRecipient('+1234567890', {
+                    '123e4567-e89b-12d3-a456-426614174000': 'OPTED_IN', // Opted in for this category
+                    $all: 'OPTED_OUT', // But opted out of all marketing
+                })
+
+                mockRecipientsManagerGet.mockResolvedValue(recipient)
+                mockRecipientsManagerGetPreference.mockReturnValue('OPTED_IN')
+                mockRecipientsManagerGetAllMarketingMessagingPreference.mockReturnValue('OPTED_OUT')
+
+                const result = await service.shouldSkipAction(invocation, action)
+
+                expect(result).toBe(true)
+                expect(mockRecipientsManagerGetAllMarketingMessagingPreference).toHaveBeenCalledWith(recipient)
+            })
+
+            it('should return false if SMS recipient is opted in to both specific category and all marketing', async () => {
+                const action = createSmsAction('+1234567890', '123e4567-e89b-12d3-a456-426614174000')
+                const invocation = createInvocation(action)
+                const recipient = createRecipient('+1234567890', {
+                    '123e4567-e89b-12d3-a456-426614174000': 'OPTED_IN',
+                    $all: 'OPTED_IN',
+                })
+
+                mockRecipientsManagerGet.mockResolvedValue(recipient)
+                mockRecipientsManagerGetPreference.mockReturnValue('OPTED_IN')
+                mockRecipientsManagerGetAllMarketingMessagingPreference.mockReturnValue('OPTED_IN')
+
+                const result = await service.shouldSkipAction(invocation, action)
+
+                expect(result).toBe(false)
+                expect(mockRecipientsManagerGetAllMarketingMessagingPreference).toHaveBeenCalledWith(recipient)
             })
         })
 

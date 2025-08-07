@@ -45,8 +45,16 @@ export class RecipientPreferencesService {
                 // Grab the recipient preferences for the action category
                 const categoryId = action.config.message_category_id || '$all'
 
-                const preference = this.recipientsManager.getPreference(recipient, categoryId)
-                if (preference === 'OPTED_OUT') {
+                const messageCategoryPreference = this.recipientsManager.getPreference(recipient, categoryId)
+                const allMarketingPreferences = this.recipientsManager.getAllMarketingMessagingPreference(recipient)
+
+                /**
+                 * NB: A recipient may have opted out of all marketing messaging but NOT a specific category,
+                 * so we always check both.
+                 *
+                 * This would commonly happen if the recipient opted out before the category was created.
+                 */
+                if (messageCategoryPreference === 'OPTED_OUT' || allMarketingPreferences === 'OPTED_OUT') {
                     return true
                 }
             }

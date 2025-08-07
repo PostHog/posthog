@@ -68,6 +68,10 @@ export class RecipientsManagerService {
         return recipient.preferences[categoryId] ?? 'NO_PREFERENCE'
     }
 
+    public getAllMarketingMessagingPreference(recipient: RecipientManagerRecipient): PreferenceStatus {
+        return recipient.preferences['$all'] ?? 'NO_PREFERENCE'
+    }
+
     private async fetchRecipients(ids: string[]): Promise<Record<string, RecipientManagerRecipient | undefined>> {
         const recipientArgs = ids.map(fromKey)
 
