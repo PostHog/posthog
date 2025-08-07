@@ -44,11 +44,7 @@ from posthog.models.message_preferences import (
     PreferenceStatus,
 )
 from posthog.models.message_category import MessageCategory
-from posthog.models.personal_api_key import (
-    PersonalAPIKey,
-    hash_key_value,
-    PERSONAL_API_KEY_MODES_TO_TRY,
-)
+from posthog.models.personal_api_key import find_personal_api_key
 
 
 import structlog
@@ -279,19 +275,9 @@ def api_key_search_view(request: HttpRequest):
     personal_api_key_object = None
     personal_api_key_hash_mode = None
     if query is not None and query.startswith("phx_"):
-        for mode, iterations in PERSONAL_API_KEY_MODES_TO_TRY:
-            secure_value = hash_key_value(query, mode=mode, iterations=iterations)
-            try:
-                personal_api_key_object = (
-                    PersonalAPIKey.objects.select_related("user")
-                    .filter(user__is_active=True)
-                    .get(secure_value=secure_value)
-                )
-                personal_api_key_hash_mode = mode
-                break
-
-            except PersonalAPIKey.DoesNotExist:
-                pass
+        result = find_personal_api_key(query)
+        if result is not None:
+            personal_api_key_object, personal_api_key_hash_mode = result
 
     team_object = None
     team_object_key_type = None
