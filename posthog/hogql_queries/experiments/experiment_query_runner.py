@@ -42,6 +42,7 @@ from posthog.models.experiment import Experiment
 from posthog.schema import (
     CachedExperimentQueryResponse,
     ExperimentMeanMetric,
+    ExperimentRatioMetric,
     ExperimentQuery,
     ExperimentQueryResponse,
     ExperimentStatsBase,
@@ -91,6 +92,7 @@ class ExperimentQueryRunner(QueryRunner):
             isinstance(self.query.metric, ExperimentMeanMetric)
             and self.query.metric.source.kind == "ExperimentDataWarehouseNode"
         )
+        self.is_ratio_metric = isinstance(self.query.metric, ExperimentRatioMetric)
 
         self.stats_method = get_experiment_stats_method(self.experiment)
 
@@ -101,49 +103,90 @@ class ExperimentQueryRunner(QueryRunner):
         self.metric = self.query.metric
 
     def _get_metrics_aggregated_per_entity_query(
-        self, exposure_query: ast.SelectQuery, metric_events_query: ast.SelectQuery
+        self, exposure_query: ast.SelectQuery, metric_events_query: ast.SelectQuery, denominator_events_query: ast.SelectQuery = None
     ) -> ast.SelectQuery:
         """
         Aggregates all events per entity to get their total contribution to the metric
         One row per entity
         Columns: variant, entity_id, value (sum of all event values)
+        For ratio metrics, also includes denominator_value
         """
-        return ast.SelectQuery(
-            select=[
-                ast.Field(chain=["exposures", "variant"]),
-                ast.Field(chain=["exposures", "entity_id"]),
+        select_fields = [
+            ast.Field(chain=["exposures", "variant"]),
+            ast.Field(chain=["exposures", "entity_id"]),
+            ast.Alias(
+                expr=get_metric_aggregation_expr(self.experiment, self.metric, self.team, "main"),
+                alias="value",
+            ),
+        ]
+
+        # For ratio metrics, add denominator aggregation
+        if self.is_ratio_metric and denominator_events_query:
+            select_fields.append(
                 ast.Alias(
-                    expr=get_metric_aggregation_expr(self.experiment, self.metric, self.team),
-                    alias="value",
+                    expr=get_metric_aggregation_expr(self.experiment, self.metric, self.team, "denominator"),
+                    alias="denominator_value",
                 ),
-            ],
-            select_from=ast.JoinExpr(
-                table=exposure_query,
-                alias="exposures",
-                next_join=ast.JoinExpr(
-                    table=metric_events_query,
-                    join_type="LEFT JOIN",
-                    alias="metric_events",
-                    constraint=ast.JoinConstraint(
-                        expr=ast.And(
-                            exprs=[
-                                ast.CompareOperation(
-                                    left=parse_expr("toString(exposures.exposure_identifier)"),
-                                    right=parse_expr("toString(metric_events.entity_identifier)"),
-                                    op=ast.CompareOperationOp.Eq,
-                                )
-                                if self.is_data_warehouse_query
-                                else ast.CompareOperation(
-                                    left=parse_expr("toString(exposures.entity_id)"),
-                                    right=parse_expr("toString(metric_events.entity_id)"),
-                                    op=ast.CompareOperationOp.Eq,
-                                ),
-                            ]
-                        ),
-                        constraint_type="ON",
+            )
+
+        # Build join expression
+        join_expr = ast.JoinExpr(
+            table=exposure_query,
+            alias="exposures",
+            next_join=ast.JoinExpr(
+                table=metric_events_query,
+                join_type="LEFT JOIN",
+                alias="metric_events",
+                constraint=ast.JoinConstraint(
+                    expr=ast.And(
+                        exprs=[
+                            ast.CompareOperation(
+                                left=parse_expr("toString(exposures.exposure_identifier)"),
+                                right=parse_expr("toString(metric_events.entity_identifier)"),
+                                op=ast.CompareOperationOp.Eq,
+                            )
+                            if self.is_data_warehouse_query
+                            else ast.CompareOperation(
+                                left=parse_expr("toString(exposures.entity_id)"),
+                                right=parse_expr("toString(metric_events.entity_id)"),
+                                op=ast.CompareOperationOp.Eq,
+                            ),
+                        ]
                     ),
+                    constraint_type="ON",
                 ),
             ),
+        )
+
+        # For ratio metrics, add denominator join
+        if self.is_ratio_metric and denominator_events_query:
+            join_expr.next_join.next_join = ast.JoinExpr(
+                table=denominator_events_query,
+                join_type="LEFT JOIN",
+                alias="denominator_events",
+                constraint=ast.JoinConstraint(
+                    expr=ast.And(
+                        exprs=[
+                            ast.CompareOperation(
+                                left=parse_expr("toString(exposures.exposure_identifier)"),
+                                right=parse_expr("toString(denominator_events.entity_identifier)"),
+                                op=ast.CompareOperationOp.Eq,
+                            )
+                            if self.is_data_warehouse_query
+                            else ast.CompareOperation(
+                                left=parse_expr("toString(exposures.entity_id)"),
+                                right=parse_expr("toString(denominator_events.entity_id)"),
+                                op=ast.CompareOperationOp.Eq,
+                            ),
+                        ]
+                    ),
+                    constraint_type="ON",
+                ),
+            )
+
+        return ast.SelectQuery(
+            select=select_fields,
+            select_from=join_expr,
             group_by=[
                 ast.Field(chain=["exposures", "variant"]),
                 ast.Field(chain=["exposures", "entity_id"]),
@@ -157,14 +200,25 @@ class ExperimentQueryRunner(QueryRunner):
         Aggregates entity metrics into final statistics used for significance calculations
         One row per variant
         Columns: variant, num_users, total_sum, total_sum_of_squares
+        For ratio metrics, also includes: denominator_sum, denominator_sum_squares, main_denominator_sum_product
         """
+        select_fields = [
+            ast.Field(chain=["metric_events", "variant"]),
+            parse_expr("count(metric_events.entity_id) as num_users"),
+            parse_expr("sum(metric_events.value) as total_sum"),
+            parse_expr("sum(power(metric_events.value, 2)) as total_sum_of_squares"),
+        ]
+
+        # For ratio metrics, add additional aggregations
+        if self.is_ratio_metric:
+            select_fields.extend([
+                parse_expr("sum(metric_events.denominator_value) as denominator_sum"),
+                parse_expr("sum(power(metric_events.denominator_value, 2)) as denominator_sum_squares"),
+                parse_expr("sum(metric_events.value * metric_events.denominator_value) as main_denominator_sum_product"),
+            ])
+
         return ast.SelectQuery(
-            select=[
-                ast.Field(chain=["metric_events", "variant"]),
-                parse_expr("count(metric_events.entity_id) as num_users"),
-                parse_expr("sum(metric_events.value) as total_sum"),
-                parse_expr("sum(power(metric_events.value, 2)) as total_sum_of_squares"),
-            ],
+            select=select_fields,
             select_from=ast.JoinExpr(table=metrics_aggregated_per_entity_query, alias="metric_events"),
             group_by=[ast.Field(chain=["metric_events", "variant"])],
         )
@@ -190,11 +244,25 @@ class ExperimentQueryRunner(QueryRunner):
             self.entity_key,
             self.experiment,
             self.date_range_query,
+            "main",
         )
+
+        # For ratio metrics, also get denominator events
+        denominator_events_query = None
+        if self.is_ratio_metric:
+            denominator_events_query = get_metric_events_query(
+                self.metric,
+                exposure_query,
+                self.team,
+                self.entity_key,
+                self.experiment,
+                self.date_range_query,
+                "denominator",
+            )
 
         # Aggregate all events per entity to get their total contribution to the metric
         metrics_aggregated_per_entity_query = self._get_metrics_aggregated_per_entity_query(
-            exposure_query, metric_events_query
+            exposure_query, metric_events_query, denominator_events_query
         )
 
         # Get the winsorized metric values if configured
@@ -214,7 +282,7 @@ class ExperimentQueryRunner(QueryRunner):
 
     def _evaluate_experiment_query(
         self,
-    ) -> list[tuple[str, int, int, int]]:
+    ) -> list[tuple]:
         # Adding experiment specific tags to the tag collection
         # This will be available as labels in Prometheus
         tag_queries(
@@ -256,7 +324,12 @@ class ExperimentQueryRunner(QueryRunner):
         if self.multiple_variant_handling == MultipleVariantHandling.EXCLUDE:
             response.results = [result for result in response.results if result[0] != MULTIPLE_VARIANT_KEY]
 
-        sorted_results = sorted(response.results, key=lambda x: self.variants.index(x[0]))
+        # Sort results, handling both regular and ratio metric results
+        if self.is_ratio_metric:
+            # For ratio metrics, results have additional columns
+            sorted_results = sorted(response.results, key=lambda x: self.variants.index(x[0]))
+        else:
+            sorted_results = sorted(response.results, key=lambda x: self.variants.index(x[0]))
 
         return sorted_results
 

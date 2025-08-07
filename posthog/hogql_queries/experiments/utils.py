@@ -2,6 +2,7 @@ from typing import TypeVar
 from posthog.schema import (
     ExperimentFunnelMetric,
     ExperimentMeanMetric,
+    ExperimentRatioMetric,
     ExperimentStatsValidationFailure,
     ExperimentVariantResultBayesian,
     ExperimentQueryResponse,
@@ -49,20 +50,40 @@ def split_baseline_and_test_variants(
     return control_variant, test_variants
 
 
-def get_new_variant_results(sorted_results: list[tuple[str, int, int, int]]) -> list[ExperimentStatsBase]:
-    return [
-        ExperimentStatsBase(
-            key=result[0],
-            number_of_samples=result[1],
-            sum=result[2],
-            sum_squares=result[3],
-        )
-        for result in sorted_results
-    ]
+def get_new_variant_results(sorted_results: list[tuple]) -> list[ExperimentStatsBase]:
+    # Handle both regular metrics (4 values) and ratio metrics (7 values)
+    variant_results = []
+    for result in sorted_results:
+        if len(result) == 4:
+            # Regular metric
+            variant_results.append(
+                ExperimentStatsBase(
+                    key=result[0],
+                    number_of_samples=result[1],
+                    sum=result[2],
+                    sum_squares=result[3],
+                )
+            )
+        elif len(result) == 7:
+            # Ratio metric
+            variant_results.append(
+                ExperimentStatsBase(
+                    key=result[0],
+                    number_of_samples=result[1],
+                    sum=result[2],
+                    sum_squares=result[3],
+                    denominator_sum=result[4],
+                    denominator_sum_squares=result[5],
+                    main_denominator_sum_product=result[6],
+                )
+            )
+        else:
+            raise ValueError(f"Unexpected result format with {len(result)} values")
+    return variant_results
 
 
 def validate_variant_result(
-    variant_result: ExperimentStatsBase, metric: ExperimentFunnelMetric | ExperimentMeanMetric, is_baseline=False
+    variant_result: ExperimentStatsBase, metric: ExperimentFunnelMetric | ExperimentMeanMetric | ExperimentRatioMetric, is_baseline=False
 ) -> ExperimentStatsBaseValidated:
     validation_failures = []
 
@@ -75,11 +96,25 @@ def validate_variant_result(
     if is_baseline and variant_result.sum == 0:
         validation_failures.append(ExperimentStatsValidationFailure.BASELINE_MEAN_IS_ZERO)
 
-    return ExperimentStatsBaseValidated(**variant_result.model_dump(), validation_failures=validation_failures)
+    validated_result = ExperimentStatsBaseValidated(
+        key=variant_result.key,
+        number_of_samples=variant_result.number_of_samples,
+        sum=variant_result.sum,
+        sum_squares=variant_result.sum_squares,
+        validation_failures=validation_failures,
+    )
+
+    # Include ratio-specific fields if present
+    if hasattr(variant_result, 'denominator_sum') and variant_result.denominator_sum is not None:
+        validated_result.denominator_sum = variant_result.denominator_sum
+        validated_result.denominator_sum_squares = variant_result.denominator_sum_squares
+        validated_result.main_denominator_sum_product = variant_result.main_denominator_sum_product
+
+    return validated_result
 
 
 def metric_variant_to_statistic(
-    metric: ExperimentMeanMetric | ExperimentFunnelMetric, variant: ExperimentStatsBaseValidated
+    metric: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric, variant: ExperimentStatsBaseValidated
 ) -> SampleMeanStatistic | ProportionStatistic:
     if isinstance(metric, ExperimentMeanMetric):
         return SampleMeanStatistic(
@@ -95,7 +130,7 @@ def metric_variant_to_statistic(
 
 
 def get_frequentist_experiment_result(
-    metric: ExperimentMeanMetric | ExperimentFunnelMetric,
+    metric: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric,
     control_variant: ExperimentStatsBase,
     test_variants: list[ExperimentStatsBase],
 ) -> ExperimentQueryResponse:
@@ -126,6 +161,12 @@ def get_frequentist_experiment_result(
             validation_failures=test_variant_validated.validation_failures,
         )
 
+        # Include ratio-specific fields if present
+        if hasattr(test_variant_validated, 'denominator_sum') and test_variant_validated.denominator_sum is not None:
+            experiment_variant_result.denominator_sum = test_variant_validated.denominator_sum
+            experiment_variant_result.denominator_sum_squares = test_variant_validated.denominator_sum_squares
+            experiment_variant_result.main_denominator_sum_product = test_variant_validated.main_denominator_sum_product
+
         # Check if we can perform statistical analysis
         if control_stat and not test_variant_validated.validation_failures:
             try:
@@ -150,7 +191,7 @@ def get_frequentist_experiment_result(
 
 
 def get_bayesian_experiment_result(
-    metric: ExperimentMeanMetric | ExperimentFunnelMetric,
+    metric: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric,
     control_variant: ExperimentStatsBase,
     test_variants: list[ExperimentStatsBase],
 ) -> ExperimentQueryResponse:
@@ -190,6 +231,12 @@ def get_bayesian_experiment_result(
             sum_squares=test_variant_validated.sum_squares,
             validation_failures=test_variant_validated.validation_failures,
         )
+
+        # Include ratio-specific fields if present
+        if hasattr(test_variant_validated, 'denominator_sum') and test_variant_validated.denominator_sum is not None:
+            experiment_variant_result.denominator_sum = test_variant_validated.denominator_sum
+            experiment_variant_result.denominator_sum_squares = test_variant_validated.denominator_sum_squares
+            experiment_variant_result.main_denominator_sum_product = test_variant_validated.main_denominator_sum_product
 
         # Check if we can perform statistical analysis
         if control_stat and not test_variant_validated.validation_failures:

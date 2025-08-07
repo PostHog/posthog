@@ -3669,6 +3669,10 @@ class ExperimentStatsBase(BaseModel):
     number_of_samples: int
     sum: float
     sum_squares: float
+    # Additional fields for ratio metrics
+    denominator_sum: Optional[float] = None
+    denominator_sum_squares: Optional[float] = None
+    main_denominator_sum_product: Optional[float] = None
 
 
 class ExperimentStatsBaseValidated(BaseModel):
@@ -3680,6 +3684,10 @@ class ExperimentStatsBaseValidated(BaseModel):
     sum: float
     sum_squares: float
     validation_failures: Optional[list[ExperimentStatsValidationFailure]] = None
+    # Additional fields for ratio metrics
+    denominator_sum: Optional[float] = None
+    denominator_sum_squares: Optional[float] = None
+    main_denominator_sum_product: Optional[float] = None
 
 
 class ExperimentVariantResultBayesian(BaseModel):
@@ -3695,6 +3703,10 @@ class ExperimentVariantResultBayesian(BaseModel):
     sum: float
     sum_squares: float
     validation_failures: Optional[list[ExperimentStatsValidationFailure]] = None
+    # Additional fields for ratio metrics
+    denominator_sum: Optional[float] = None
+    denominator_sum_squares: Optional[float] = None
+    main_denominator_sum_product: Optional[float] = None
 
 
 class ExperimentVariantResultFrequentist(BaseModel):
@@ -3710,6 +3722,10 @@ class ExperimentVariantResultFrequentist(BaseModel):
     sum: float
     sum_squares: float
     validation_failures: Optional[list[ExperimentStatsValidationFailure]] = None
+    # Additional fields for ratio metrics
+    denominator_sum: Optional[float] = None
+    denominator_sum_squares: Optional[float] = None
+    main_denominator_sum_product: Optional[float] = None
 
 
 class ExternalQueryError(BaseModel):
