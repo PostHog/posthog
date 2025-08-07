@@ -157,9 +157,6 @@ class FlagDefinitionsCache:
             return None
 
 
-# Signal handler utility functions
-
-
 def invalidate_cache_for_feature_flag_change(feature_flag_instance, activity: str) -> None:
     """Handle cache invalidation for feature flag changes."""
     try:
