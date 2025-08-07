@@ -11,9 +11,9 @@ export const template: HogFunctionTemplate = {
     category: ['Revenue', 'Payment'],
     code_language: 'hog',
     code: `
-let body := request.stringBody  
 
 if (not inputs.bypass_signature_check) {
+  let body := request.stringBody  
   let signatureHeader := request.headers['stripe-signature']
 
   if (empty(signatureHeader)) {
