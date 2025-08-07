@@ -69,7 +69,7 @@ async def MaxEval(
         is_public=True,
         metadata=metadata,
     )
-    if os.getenv("GITHUB_EVENT_NAME") == "pull_request":
+    if os.getenv("GITHUB_EVENT_NAME") == "pull_request" or os.getenv("RESTORE_EVALS_SNAPSHOTS"):
         with open("eval_results.jsonl", "a") as f:
             f.write(result.summary.as_json() + "\n")
     return result
