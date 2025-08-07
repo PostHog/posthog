@@ -2,7 +2,7 @@
 
 import secrets
 from dataclasses import dataclass
-from typing import Protocol, runtime_checkable
+from typing import Protocol, runtime_checkable, TypeVar
 from pydantic import BaseModel
 
 from posthog.models import PersonalAPIKey, User
@@ -11,10 +11,13 @@ from posthog.models.utils import mask_key_value
 from posthog.schema import PlaywrightWorkspaceSetupData, PlaywrightWorkspaceSetupResult
 from posthog.management.commands.generate_demo_data import Command as GenerateDemoDataCommand
 
+T = TypeVar("T", bound=BaseModel)
+U = TypeVar("U", bound=BaseModel)
+
 
 @runtime_checkable
-class PlaywrightSetupFunction(Protocol):
-    def __call__(self, data: BaseModel, /) -> BaseModel: ...
+class PlaywrightSetupFunction(Protocol[T, U]):
+    def __call__(self, data: T, /) -> U: ...
 
 
 def create_organization_with_team(data: PlaywrightWorkspaceSetupData) -> PlaywrightWorkspaceSetupResult:
@@ -67,7 +70,7 @@ def create_organization_with_team(data: PlaywrightWorkspaceSetupData) -> Playwri
         label="Test API Key",
         defaults={"secure_value": secure_value, "mask_value": mask_value, "scopes": ["*"]},
     )
-    api_key._value = api_key_value
+    api_key._value = api_key_value  # type: ignore
 
     return PlaywrightWorkspaceSetupResult(
         organization_id=str(organization.id),
@@ -82,7 +85,7 @@ def create_organization_with_team(data: PlaywrightWorkspaceSetupData) -> Playwri
 
 @dataclass(frozen=True)
 class SetupFunctionConfig:
-    function: PlaywrightSetupFunction
+    function: PlaywrightSetupFunction[BaseModel, BaseModel]
     input_model: type[BaseModel]
     description: str
 
