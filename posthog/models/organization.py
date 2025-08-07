@@ -23,7 +23,6 @@ from posthog.models.utils import (
     create_with_slug,
     sane_repr,
 )
-from posthog.tasks import organization_feature_cleanup
 
 if TYPE_CHECKING:
     from posthog.models import Team, User
@@ -254,6 +253,8 @@ class Organization(UUIDModel):
             added_features = list(current_features - prev_features)
 
             # Dispatch a task to cleanup various settings
+            from posthog.tasks import organization_feature_cleanup
+
             organization_feature_cleanup.delay(self.id, added_features, removed_features)
 
         return self.available_product_features
