@@ -115,28 +115,6 @@ export const personsManagementSceneLogic = kea<personsManagementSceneLogicType>(
                     link: tab.url,
                 })),
         ],
-        // breadcrumbs: [
-        //     (s) => [s.tabs, s.activeTab],
-        //     (tabs, activeTab): Breadcrumb[] => {
-        //         return [
-        //             {
-        //                 key: Scene.PersonsManagement,
-        //                 name: `People`,
-        //                 path: tabs[0].url,
-        //             },
-        //             activeTab
-        //                 ? {
-        //                       key: activeTab.key,
-        //                       name: activeTab.label,
-        //                       path: activeTab.url,
-        //                   }
-        //                 : {
-        //                       key: 'loading',
-        //                       name: 'Loading...',
-        //                   },
-        //         ]
-        //     },
-        // ],
     }),
     // actionToUrl(({ values }) => ({
     //     setTabKey: ({ tabKey }) => {
@@ -155,14 +133,6 @@ export const personsManagementSceneLogic = kea<personsManagementSceneLogicType>(
     //     },
     // })),
     // urlToAction(({ actions }) => {
-    //     const urlToAction = {
-    //         [urls.persons()]: () => {
-    //             actions.setTabKey('persons')
-    //         },
-    //         [urls.cohorts()]: () => {
-    //             actions.setTabKey('cohorts')
-    //         },
-    //     } as Record<string, (...args: any[]) => void>
     //     urlToAction[urls.groups(':key')] = ({ key }: { key: string }) => {
     //         actions.setTabKey(`groups-${key}`)
     //         actions.setGroupTypeIndex(parseInt(key))

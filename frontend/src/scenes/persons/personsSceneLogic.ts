@@ -6,6 +6,19 @@ import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
 
 import type { personsSceneLogicType } from './personsSceneLogicType'
+import { actionToUrl, urlToAction } from 'kea-router'
+import { urls } from 'scenes/urls'
+import equal from 'fast-deep-equal'
+
+const defaultQuery = {
+    kind: NodeKind.DataTableNode,
+    source: {
+        kind: NodeKind.ActorsQuery,
+        select: [...defaultDataTableColumns(NodeKind.ActorsQuery), 'person.$delete'],
+    },
+    full: true,
+    propertiesViaUrl: true,
+} as DataTableNode
 
 export const personsSceneLogic = kea<personsSceneLogicType>([
     path(['scenes', 'persons', 'personsSceneLogic']),
@@ -15,18 +28,7 @@ export const personsSceneLogic = kea<personsSceneLogicType>([
         resetDeletedDistinctId: (distinct_id: string) => ({ distinct_id }),
     }),
     reducers({
-        query: [
-            {
-                kind: NodeKind.DataTableNode,
-                source: {
-                    kind: NodeKind.ActorsQuery,
-                    select: [...defaultDataTableColumns(NodeKind.ActorsQuery), 'person.$delete'],
-                },
-                full: true,
-                propertiesViaUrl: true,
-            } as DataTableNode,
-            { setQuery: (_, { query }) => query },
-        ],
+        query: [defaultQuery, { setQuery: (_, { query }) => query }],
     }),
 
     listeners({
@@ -36,36 +38,33 @@ export const personsSceneLogic = kea<personsSceneLogicType>([
         },
     }),
 
-    // NOTE: Temp disabled as it triggers a loop bug
+    actionToUrl(({ values }) => ({
+        setQuery: () => [
+            urls.persons(),
+            {},
+            equal(values.query, defaultQuery) ? {} : { q: values.query },
+            { replace: true },
+        ],
+    })),
 
-    // actionToUrl(({ values }) => ({
-    //     setQuery: () => [
-    //         urls.persons(),
-    //         {},
-    //         objectsEqual(values.query, getDefaultQuery(values.queryFlagEnabled)) ? {} : { q: values.query },
-    //         { replace: true },
-    //     ],
-    // })),
-
-    // urlToAction(({ actions, values }) => ({
-    //     [urls.persons()]: (_, __, { q: queryParam }): void => {
-    //         if (!equal(queryParam, values.query)) {
-    //             // nothing in the URL
-    //             if (!queryParam) {
-    //                 const defaultQuery = getDefaultQuery(values.queryFlagEnabled)
-    //                 // set the default unless it's already there
-    //                 if (!objectsEqual(values.query, defaultQuery)) {
-    //                     actions.setQuery(defaultQuery)
-    //                 }
-    //             } else {
-    //                 if (typeof queryParam === 'object') {
-    //                     actions.setQuery(queryParam)
-    //                 } else {
-    //                     lemonToast.error('Invalid query in URL')
-    //                     console.error({ queryParam })
-    //                 }
-    //             }
-    //         }
-    //     },
-    // })),
+    urlToAction(({ actions, values }) => ({
+        [urls.persons()]: (_, __, { q: queryParam }): void => {
+            if (!equal(queryParam, values.query)) {
+                // nothing in the URL
+                if (!queryParam) {
+                    // set the default unless it's already there
+                    if (!equal(values.query, defaultQuery)) {
+                        actions.setQuery(defaultQuery)
+                    }
+                } else {
+                    if (typeof queryParam === 'object') {
+                        actions.setQuery(queryParam)
+                    } else {
+                        lemonToast.error('Invalid query in URL')
+                        console.error({ queryParam })
+                    }
+                }
+            }
+        },
+    })),
 ])
