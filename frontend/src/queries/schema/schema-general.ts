@@ -2140,8 +2140,14 @@ export type ErrorTrackingIssue = ErrorTrackingRelationalIssue & {
 }
 
 export type ErrorTrackingCorrelatedIssue = ErrorTrackingRelationalIssue & {
-    correlation_score: number
-    correlation_event: string
+    event: string
+    odds_ratio: number
+    population: {
+        both: number
+        success_only: number
+        exception_only: number
+        neither: number
+    }
 }
 
 export interface ErrorTrackingQueryResponse extends AnalyticsQueryResponseBase<ErrorTrackingIssue[]> {
@@ -3330,6 +3336,12 @@ export interface RevenueAnalyticsEventItem {
      * Useful when trying to break revenue down by a specific coupon
      */
     couponProperty?: string
+
+    /**
+     * Property used to identify what subscription the revenue event refers to
+     * Useful when trying to detect churn/LTV/ARPU/etc.
+     */
+    subscriptionProperty?: string
 
     /**
      * TODO: In the future, this should probably be renamed to

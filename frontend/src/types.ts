@@ -165,7 +165,8 @@ export enum AvailableFeature {
     PATHS = 'paths',
     INSIGHTS = 'insights',
     SUBSCRIPTIONS = 'subscriptions',
-    ADVANCED_PERMISSIONS = 'advanced_permissions',
+    ADVANCED_PERMISSIONS = 'advanced_permissions', // TODO: Remove this once access_control is propagated
+    ACCESS_CONTROL = 'access_control',
     INGESTION_TAXONOMY = 'ingestion_taxonomy',
     PATHS_ADVANCED = 'paths_advanced',
     CORRELATION_ANALYSIS = 'correlation_analysis',
@@ -1958,6 +1959,12 @@ export interface BillingType {
         email?: string
         name?: string
     }
+}
+
+export interface BillingPeriod {
+    start: Dayjs | null
+    end: Dayjs | null
+    interval: 'month' | 'year' | null
 }
 
 export interface BillingPlanType {
@@ -4199,6 +4206,7 @@ export const INTEGRATION_KINDS = [
     'linear',
     'github',
     'meta-ads',
+    'clickup',
 ] as const
 
 export type IntegrationKind = (typeof INTEGRATION_KINDS)[number]

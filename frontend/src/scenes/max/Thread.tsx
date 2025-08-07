@@ -17,7 +17,6 @@ import {
     LemonInput,
     LemonSkeleton,
     ProfilePicture,
-    Spinner,
     Tooltip,
 } from '@posthog/lemon-ui'
 import clsx from 'clsx'
@@ -235,9 +234,12 @@ function MessageGroup({ messages, isFinal: isFinalGroup }: MessageGroupProps): J
                     } else if (isReasoningMessage(message)) {
                         return (
                             <MessageTemplate key={key} type="ai">
-                                <div className="flex items-center gap-1.5">
-                                    <Spinner className="text-xl" />
-                                    <span>{message.content}…</span>
+                                <div className="flex items-center gap-2">
+                                    <img
+                                        src="https://res.cloudinary.com/dmukukwp6/image/upload/loading_bdba47912e.gif"
+                                        className="size-7 -m-1" // At the "native" size-6 (24px), the icons are a tad too small
+                                    />
+                                    <span className="font-medium">{message.content}…</span>
                                 </div>
                                 {message.substeps?.map((substep, substepIndex) => (
                                     <MarkdownMessage

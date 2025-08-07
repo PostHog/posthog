@@ -5,13 +5,18 @@ import { buildIntegerMatcher } from '../../../config/config'
 import { KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS_V2_TEST } from '../../../config/kafka-topics'
 import { KafkaConsumer } from '../../../kafka/consumer'
 import { KafkaProducerWrapper } from '../../../kafka/producer'
-import { PluginServerService, PluginsServerConfig, ValueMatcher } from '../../../types'
+import {
+    PluginServerService,
+    PluginsServerConfig,
+    SessionRecordingV2MetadataSwitchoverDate,
+    ValueMatcher,
+} from '../../../types'
 import { PostgresRouter } from '../../../utils/db/postgres'
 import { logger as logger } from '../../../utils/logger'
 import { captureException } from '../../../utils/posthog'
 import { PromiseScheduler } from '../../../utils/promise-scheduler'
 import { captureIngestionWarning } from '../../../worker/ingestion/utils'
-import { runInstrumentedFunction } from '../../utils'
+import { parseSessionRecordingV2MetadataSwitchoverDate, runInstrumentedFunction } from '../../utils'
 import {
     KAFKA_CONSUMER_GROUP_ID,
     KAFKA_CONSUMER_GROUP_ID_OVERFLOW,
@@ -62,23 +67,8 @@ export class SessionRecordingIngester {
         this.consumerGroupId = this.consumeOverflow ? KAFKA_CONSUMER_GROUP_ID_OVERFLOW : KAFKA_CONSUMER_GROUP_ID
         this.isDebugLoggingEnabled = buildIntegerMatcher(config.SESSION_RECORDING_DEBUG_PARTITION, true)
 
-        // Parse SESSION_RECORDING_V2_METADATA_SWITCHOVER as ISO datetime
-        let metadataSwitchoverDate: Date | null = null
-        if (config.SESSION_RECORDING_V2_METADATA_SWITCHOVER) {
-            const parsed = Date.parse(config.SESSION_RECORDING_V2_METADATA_SWITCHOVER)
-            if (!isNaN(parsed)) {
-                metadataSwitchoverDate = new Date(parsed)
-                logger.info('SESSION_RECORDING_V2_METADATA_SWITCHOVER enabled', {
-                    value: config.SESSION_RECORDING_V2_METADATA_SWITCHOVER,
-                    parsedDate: metadataSwitchoverDate.toISOString(),
-                })
-            } else {
-                throw new Error(
-                    'SESSION_RECORDING_V2_METADATA_SWITCHOVER is not a valid ISO datetime: ' +
-                        config.SESSION_RECORDING_V2_METADATA_SWITCHOVER
-                )
-            }
-        }
+        const metadataSwitchoverDate: SessionRecordingV2MetadataSwitchoverDate =
+            parseSessionRecordingV2MetadataSwitchoverDate(config.SESSION_RECORDING_V2_METADATA_SWITCHOVER)
 
         this.promiseScheduler = new PromiseScheduler()
 
