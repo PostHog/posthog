@@ -34,6 +34,8 @@ import { HogFunctionTest } from './HogFunctionTest'
 import { HogFunctionCode } from './components/HogFunctionCode'
 import { HogFunctionTemplateOptions } from './components/HogFunctionTemplateOptions'
 import { humanizeHogFunctionType } from '../hog-function-utils'
+import { EditableField } from 'lib/components/EditableField/EditableField'
+import { InlineEditableField } from './components/InlineEditableField'
 
 export interface HogFunctionConfigurationProps {
     templateId?: string | null
@@ -203,7 +205,7 @@ export function HogFunctionConfiguration({ templateId, id, logicKey }: HogFuncti
                     <div className="flex flex-wrap gap-4 items-start">
                         <div className="flex flex-col flex-1 gap-4 min-w-100">
                             <div className={clsx('p-3 rounded border deprecated-space-y-2 bg-surface-primary')}>
-                                <div className="flex flex-row gap-2 items-center min-h-16">
+                                <div className="flex flex-row gap-2 items-center">
                                     <LemonField name="icon_url">
                                         {({ value, onChange }) => (
                                             <HogFunctionIconEditable
@@ -215,7 +217,10 @@ export function HogFunctionConfiguration({ templateId, id, logicKey }: HogFuncti
                                     </LemonField>
 
                                     <div className="flex flex-col flex-1 justify-start items-start py-1">
-                                        <span className="font-semibold">{configuration.name}</span>
+                                        <LemonField name="name">
+                                            <InlineEditableField className="font-semibold" />
+                                        </LemonField>
+
                                         {template && <HogFunctionStatusTag status={template.status} />}
                                     </div>
 
@@ -232,15 +237,9 @@ export function HogFunctionConfiguration({ templateId, id, logicKey }: HogFuncti
                                         )}
                                     </LemonField>
                                 </div>
-                                <LemonField name="name" label="Name">
-                                    <LemonInput type="text" disabled={loading} />
-                                </LemonField>
-                                <LemonField
-                                    name="description"
-                                    label="Description"
-                                    info="Add a description to share context with other team members"
-                                >
-                                    <LemonTextArea disabled={loading} />
+
+                                <LemonField name="description">
+                                    <InlineEditableField multiline />
                                 </LemonField>
 
                                 {hogFunction?.template?.code_language === 'hog' &&
