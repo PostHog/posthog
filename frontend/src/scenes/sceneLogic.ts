@@ -224,7 +224,7 @@ export const sceneLogic = kea<sceneLogicType>([
                     let newState = state.filter((_, i) => i !== index)
                     if (!newState.find((t) => t.active)) {
                         const newActiveIndex = Math.max(index - 1, 0)
-                        newState = newState.map((tag, i) => (i === newActiveIndex ? { ...tag, active: true } : tag))
+                        newState = newState.map((tab, i) => (i === newActiveIndex ? { ...tab, active: true } : tab))
                     }
                     return newState
                 },
@@ -710,13 +710,13 @@ export const sceneLogic = kea<sceneLogicType>([
 
     // keep this above subscriptions
     afterMount(({ actions, cache, values }) => {
-        if (!cache.tagsLoaded) {
+        if (!cache.tabsLoaded) {
             const savedTabs = getPersistedTabs()
             const withIds = savedTabs?.map((t) => (t.id ? t : { ...t, id: generateTabId() }))
             if (withIds) {
                 actions.setTabs(withIds)
             }
-            cache.tagsLoaded = true
+            cache.tabsLoaded = true
         }
         if (values.tabs.length === 0) {
             const { currentLocation } = router.values
@@ -785,7 +785,7 @@ export const sceneLogic = kea<sceneLogicType>([
                     },
                 ])
             } else {
-                if (!title || title === '...') {
+                if (!title || title === '...' || title === 'Loading...') {
                     // When the tab is loading, don't flicker between the loaded title and the new one
                     return
                 }

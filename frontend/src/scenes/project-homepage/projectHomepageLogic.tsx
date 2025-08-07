@@ -70,9 +70,14 @@ export const projectHomepageLogic = kea<projectHomepageLogicType>([
 
     subscriptions(({ cache }) => ({
         dashboardLogicProps: (dashboardLogicProps) => {
-            const unmount = (dashboardLogic(dashboardLogicProps) as BuiltLogic).mount()
-            cache.unmountDashboardLogic?.()
-            cache.unmountDashboardLogic = unmount
+            if (dashboardLogicProps) {
+                const unmount = (dashboardLogic(dashboardLogicProps) as BuiltLogic).mount()
+                cache.unmountDashboardLogic?.()
+                cache.unmountDashboardLogic = unmount
+            } else if (cache.unmountDashboardLogic) {
+                cache.unmountDashboardLogic?.()
+                cache.unmountDashboardLogic = null
+            }
         },
     })),
 
