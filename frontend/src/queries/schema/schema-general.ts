@@ -3332,6 +3332,12 @@ export interface RevenueAnalyticsEventItem {
     couponProperty?: string
 
     /**
+     * Property used to identify what subscription the revenue event refers to
+     * Useful when trying to detect churn/LTV/ARPU/etc.
+     */
+    subscriptionProperty?: string
+
+    /**
      * TODO: In the future, this should probably be renamed to
      * `currencyProperty` to follow the pattern above
      *
